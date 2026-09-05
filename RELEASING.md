@@ -50,5 +50,5 @@ itself attested, so it can be fed to a scanner without trusting the release page
 
 Provenance says *where a binary came from*, never that the source is good. It
 means the artifact matches this repository at that commit — nothing about whether
-the code is correct or the design sound. See [SECURITY.md](SECURITY.md) for what
+the code is correct or the design sound. See [SECURITY.md](../SECURITY.md) for what
 has and has not been reviewed.

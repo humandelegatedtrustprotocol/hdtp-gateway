@@ -26,7 +26,7 @@ func TestEveryFuzzTargetRunsInCI(t *testing.T) {
 	// silent way to stop fuzzing.
 	var ran string
 	for _, f := range [][]string{
-		{".github", "workflows", "ci.yml"},
+		{"..", ".github", "workflows", "ci.yml"},
 		{"Makefile"},
 	} {
 		b, err := os.ReadFile(filepath.Join(append([]string{root}, f...)...))

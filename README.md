@@ -8,7 +8,7 @@ else's assistant can message you, ask when you are free, and book time with you,
 with no platform in the middle deciding who may talk to whom.
 
 [![CI](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](../LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
 [![Protocol](https://img.shields.io/badge/protocol-PACT%20v1-5b47b3)](https://github.com/tech-sumit/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
@@ -75,7 +75,7 @@ to reach it. That is the whole address book.
 Five minutes from nothing to a working node. You need Docker with Compose.
 
 ```
-cd pact-gateway
+cd pact-gateway/pact-gateway
 docker compose up -d
 docker compose logs pact-gateway | grep -A2 "setup"
 ```
@@ -264,7 +264,7 @@ implementations can exist.
 **Tests that run the product rather than a mock.** 471 test functions, on **both**
 storage engines, with every parser that touches untrusted input fuzzed in CI — the
 vCard, the envelope wire format, the sealed payload and the invite offer — plus
-`govulncheck` on every run. [SECURITY.md](SECURITY.md) states plainly what is and
+`govulncheck` on every run. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
 **A harness that builds the world.** Nine live scenarios stand the real binary up
@@ -307,7 +307,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | [`docs/harness-design.md`](docs/harness-design.md) | The scenario harness and what each topology proves |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and what a change must carry |
 | [`RELEASING.md`](RELEASING.md) | Cutting a release, and how to verify one you downloaded |
-| [`SECURITY.md`](SECURITY.md) | Report a vulnerability privately — never as an issue |
+| [`SECURITY.md`](../SECURITY.md) | Report a vulnerability privately — never as an issue |
 
 ## Honest trade-offs
 
@@ -324,4 +324,4 @@ Written down because they do not disappear by going unmentioned:
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](../LICENSE).

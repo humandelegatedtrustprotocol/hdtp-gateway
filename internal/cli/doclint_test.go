@@ -197,10 +197,11 @@ func flagNames(tail string) []string {
 func docFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var files []string
-	// `.github` is included because the PR template and issue templates are
-	// contributor-facing documentation like any other, and the commands a
-	// newcomer types first are the ones that must not be invented.
-	for _, dir := range []string{"docs", "docs/demos", ".github", "."} {
+	// `..` and `../.github` are the repository root, one level above this
+	// module: the umbrella README, SECURITY.md and the PR and issue templates
+	// live there. They are contributor-facing documentation like any other, and
+	// the commands a newcomer types first are the ones that must not be invented.
+	for _, dir := range []string{"docs", "docs/demos", ".", "..", "../.github"} {
 		entries, err := os.ReadDir(filepath.Join(root, dir))
 		if err != nil {
 			continue

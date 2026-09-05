@@ -69,11 +69,12 @@ dist:
 	done
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
-# hooks points git at the versioned hooks in githooks/. One setting, and the
+# hooks points git at the versioned hooks in githooks/ — the path is relative to
+# the repository root, one level up from this module. One setting, and the
 # hooks travel with the repository instead of living in an untracked .git/hooks
 # that every clone starts without.
 hooks:
-	git config core.hooksPath githooks
+	git config core.hooksPath pact-gateway/githooks
 	@echo "hooks installed: $$(git config core.hooksPath)"
 	@echo "pre-push runs the harness — the tier CI cannot run (no Chrome on a runner)."
 

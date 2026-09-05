@@ -98,7 +98,7 @@ by review, which is the argument for adding a scenario when you add a surface.
   module path on purpose so it can import `internal/outbound` and talk to a node as a
   real peer would.
 - **Docs are linted.** `TestDocsOnlyQuoteRealCommands` walks every `pact-gateway …`
-  invocation in the README, this file, `docs/` and `.github/`, and fails when a
+  invocation in the README, this file, `docs/` and the repository's `.github/`, and fails when a
   pasteable command line names a subcommand the binary does not have. Documentation
   that quotes an invented command is worse than none. Its flag check is weaker than it
   looks — see the note in `PLAN.md`; do not rely on it to catch a wrong flag.

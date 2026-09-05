@@ -5,7 +5,7 @@ tracker or discussion forum yet. Reach the maintainer directly:
 **mr.sumitagrawal.17@gmail.com**.
 
 **Do not send security reports here.** They have their own private path and their own
-response commitments — see [SECURITY.md](SECURITY.md).
+response commitments — see [SECURITY.md](../SECURITY.md).
 
 ## Before you ask
 

@@ -21,7 +21,8 @@ var (
 )
 
 func TestEveryActionIsPinnedToACommitSHA(t *testing.T) {
-	dir := filepath.Join(repoRoot(t), ".github", "workflows")
+	// The workflows live at the repository root, one level above this module.
+	dir := filepath.Join(repoRoot(t), "..", ".github", "workflows")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
