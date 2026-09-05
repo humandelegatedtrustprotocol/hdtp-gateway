@@ -1,0 +1,24 @@
+{
+  "name": "workspace-mcp",
+  "server": "taylorwilsdon/google_workspace_mcp",
+  "description": "workspace-mcp: query_freebusy + manage_event with an action constant; stdio-supervised or streamable-http; oauth (several modes).",
+  "capabilities": {
+    "check_availability": {
+      "tool": "query_freebusy",
+      "kind": "freebusy",
+      "args": { "time_min": "$window_start", "time_max": "$window_end" },
+      "out": { "busy": "busy", "busy_start": "start", "busy_end": "end" }
+    },
+    "book_slot": {
+      "tool": "manage_event",
+      "kind": "create",
+      "args": { "action": "create", "summary": "$subject", "start_time": "$start", "end_time": "$end" },
+      "out": { "event_id": "event_id" }
+    },
+    "cancel_booking": {
+      "tool": "manage_event",
+      "kind": "delete",
+      "args": { "action": "delete", "event_id": "$event_id" }
+    }
+  }
+}

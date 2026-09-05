@@ -1,0 +1,386 @@
+// Package fabric stands scenario topologies up and takes them down again.
+//
+// It drives the `docker` CLI through an injected Runner rather than the Docker SDK.
+// That is a deliberate match for the product's own preference — few dependencies,
+// shell out to the tool that is already installed — and it makes the driver
+// testable with no daemon running, which matters because a fabric nobody can unit
+// test is a fabric whose bugs surface only inside failing scenarios.
+//
+// Two properties carry the topologies of docs/harness-design.md §3:
+//
+//   - An INTERNAL Docker network has no route off it. That is what makes "node B is
+//     unreachable" true by construction in T2/T3, rather than true because the test
+//     politely declined to dial.
+//   - A NAT router container joins both segments and MASQUERADEs outbound. It
+//     installs no inbound DNAT, so the asymmetry a real NAT imposes is real here.
+package fabric
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Runner executes one command. Injected so the driver is testable without Docker.
+type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+// Network is one Docker network created by this run.
+type Network struct {
+	Name     string // fully qualified, prefix included
+	Internal bool
+}
+
+// NetOpts configures a network.
+type NetOpts struct {
+	// Internal removes the network's route to the outside world. A container with
+	// only internal networks cannot be reached from, or reach, anything else.
+	Internal bool
+}
+
+// Container is one container created by this run.
+type Container struct {
+	Name string // fully qualified, prefix included
+}
+
+// Spec describes a container to start.
+type Spec struct {
+	Name    string
+	Image   string
+	Network *Network
+	Env     map[string]string
+	Cmd     []string
+	// CapAdd grants Linux capabilities. NET_ADMIN is required for anything that
+	// runs iptables or tc; nothing else in the fabric needs a capability.
+	CapAdd []string
+	// Ports publishes container ports to the host, in docker's own "host:container"
+	// form. Used only where the test process itself must dial in — the peer driver
+	// and the owner MCP — never to make a node reachable to another container,
+	// which the fabric's networks already handle.
+	Ports []string
+	// Volumes are docker -v arguments, "host:container[:ro]". Used for config a
+	// service reads from disk — several upstream images ignore CLI flags in favour
+	// of a config file, which is a silent no-op rather than an error.
+	Volumes []string
+	// DNS replaces the upstream resolvers the container's embedded Docker DNS
+	// forwards to. Container names still resolve; everything else goes here,
+	// which is what makes an authoritative test zone genuinely authoritative.
+	DNS []string
+	// Aliases are extra names the container answers to on its network. Needed
+	// when an off-the-shelf image ships a certificate whose SAN is a fixed name:
+	// the run prefix keeps container names sweepable, and an alias lets the name
+	// in the certificate resolve anyway.
+	Aliases []string
+	// NetworkMode overrides --network entirely, e.g. "container:<name>" to share
+	// another container's namespace. That is how a sidecar reaches a node's
+	// loopback-bound internal surface without the node binding non-loopback.
+	NetworkMode string
+}
+
+// Netem describes link impairment applied inside a container.
+type Netem struct {
+	Latency string // e.g. "150ms"
+	Jitter  string // e.g. "20ms"; ignored unless Latency is set
+	Loss    string // e.g. "3%"
+}
+
+// Fabric owns everything one scenario created, and can remove all of it.
+type Fabric struct {
+	prefix string
+	run    Runner
+
+	// Creation order is retained so teardown can reverse it: containers must go
+	// before the networks they sit on, or Docker refuses the network removal.
+	containers []*Container
+	networks   []*Network
+}
+
+func New(prefix string, run Runner) *Fabric {
+	return &Fabric{prefix: prefix, run: run}
+}
+
+// Prefix is the run's namespace. Every object this fabric creates carries it, so a
+// crashed run can be swept without touching anything else on the machine.
+func (f *Fabric) Prefix() string { return f.prefix }
+
+// Exec runs a command inside a container. The node image is distroless — no shell —
+// so callers invoke the binary directly rather than wrapping it in `sh -c`.
+func (f *Fabric) Exec(ctx context.Context, c *Container, args ...string) ([]byte, error) {
+	full := append([]string{"exec", c.Name}, args...)
+	return f.run(ctx, "docker", full...)
+}
+
+// Raw runs an arbitrary command through this fabric's runner. Used by checks that
+// need docker verbs the fabric does not model — stopping a node, or mounting its
+// volumes into a throwaway sidecar.
+func (f *Fabric) Raw(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return f.run(ctx, name, args...)
+}
+
+// qualify namespaces every object by the run prefix, so a crashed run can be swept
+// without touching anything else on the machine.
+func (f *Fabric) qualify(name string) string { return f.prefix + "-" + name }
+
+func (f *Fabric) track(c *Container) { f.containers = append(f.containers, c) }
+
+// Network creates a Docker network for this run.
+func (f *Fabric) Network(ctx context.Context, name string, o NetOpts) (*Network, error) {
+	full := f.qualify(name)
+	args := []string{"network", "create"}
+	if o.Internal {
+		args = append(args, "--internal")
+	}
+	args = append(args, full)
+	if _, err := f.run(ctx, "docker", args...); err != nil {
+		return nil, fmt.Errorf("fabric: creating network %s: %w", full, err)
+	}
+	n := &Network{Name: full, Internal: o.Internal}
+	f.networks = append(f.networks, n)
+	return n, nil
+}
+
+// Container starts a container on a network.
+func (f *Fabric) Container(ctx context.Context, s Spec) (*Container, error) {
+	full := f.qualify(s.Name)
+	args := []string{"run", "-d", "--name", full}
+	switch {
+	case s.NetworkMode != "":
+		args = append(args, "--network", s.NetworkMode)
+	case s.Network != nil:
+		args = append(args, "--network", s.Network.Name)
+	}
+	for _, p := range s.Ports {
+		args = append(args, "-p", p)
+	}
+	for _, v := range s.Volumes {
+		args = append(args, "-v", v)
+	}
+	for _, a := range s.Aliases {
+		args = append(args, "--network-alias", a)
+	}
+	for _, d := range s.DNS {
+		args = append(args, "--dns", d)
+	}
+	for _, c := range s.CapAdd {
+		args = append(args, "--cap-add", c)
+	}
+	for k, v := range s.Env {
+		args = append(args, "-e", k+"="+v)
+	}
+	args = append(args, s.Image)
+	args = append(args, s.Cmd...)
+	if _, err := f.run(ctx, "docker", args...); err != nil {
+		return nil, fmt.Errorf("fabric: starting %s: %w", full, err)
+	}
+	c := &Container{Name: full}
+	f.track(c)
+	return c, nil
+}
+
+// natImage carries iptables and is tiny. It is pinned by tag rather than digest
+// because the harness is not a supply chain — if this image changes under us the
+// scenarios fail loudly rather than silently mis-routing.
+const natImage = "alpine:3.20"
+
+// NAT starts a router between an outside and an inside segment: MASQUERADE
+// outbound, nothing inbound.
+//
+// The router sleeps rather than running a service, because all the work is done by
+// the iptables rules installed into its network namespace. Docker's own routing
+// does the forwarding once the container is attached to both networks.
+func (f *Fabric) NAT(ctx context.Context, name string, outside, inside *Network) (*Container, error) {
+	c, err := f.Container(ctx, Spec{
+		Name: name, Image: natImage, Network: outside,
+		CapAdd: []string{"NET_ADMIN"},
+		Cmd:    []string{"sh", "-c", "sleep infinity"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.run(ctx, "docker", "network", "connect", inside.Name, c.Name); err != nil {
+		return nil, fmt.Errorf("fabric: attaching %s to %s: %w", c.Name, inside.Name, err)
+	}
+	// Deliberately outbound-only. No DNAT, no --publish: the inside segment stays
+	// undialable, which is the property T2 and T3 exist to exercise.
+	script := "apk add --no-cache iptables >/dev/null 2>&1; " +
+		"sysctl -w net.ipv4.ip_forward=1 >/dev/null; " +
+		"iptables -t nat -A POSTROUTING -j MASQUERADE"
+	if _, err := f.run(ctx, "docker", "exec", c.Name, "sh", "-c", script); err != nil {
+		return nil, fmt.Errorf("fabric: installing MASQUERADE on %s: %w", c.Name, err)
+	}
+	return c, nil
+}
+
+// IPOn reports a container's address on one specific network. A container
+// attached to several networks has several addresses, and which one a peer must
+// use depends on where that peer sits.
+func (f *Fabric) IPOn(ctx context.Context, c *Container, net *Network) (string, error) {
+	out, err := f.run(ctx, "docker", "inspect", "-f",
+		"{{(index .NetworkSettings.Networks \""+net.Name+"\").IPAddress}}", c.Name)
+	if err != nil {
+		return "", fmt.Errorf("fabric: inspecting %s on %s: %w", c.Name, net.Name, err)
+	}
+	ip := strings.TrimSpace(string(out))
+	if ip == "" || ip == "<no value>" {
+		return "", fmt.Errorf("fabric: %s has no address on %s", c.Name, net.Name)
+	}
+	return ip, nil
+}
+
+// DefaultRoute points a container's default route at a gateway.
+//
+// It is REQUIRED for a NAT router to be usable, and that is not obvious: an
+// `--internal` Docker network has no gateway, so a container on one has no
+// default route at all and cannot reach the router even though the router is
+// right there on the segment. NAT() therefore gave outbound to nobody until this
+// existed — and nothing noticed, because the live NAT test asserted only the
+// "no inbound" half of its own promise.
+//
+// Applied from a sidecar in the target's namespace: the node image is distroless
+// and has neither a shell nor NET_ADMIN.
+func (f *Fabric) DefaultRoute(ctx context.Context, target *Container, gateway string) error {
+	out, err := f.netnsExec(ctx, target, "ip route replace default via "+gateway)
+	if err != nil {
+		return fmt.Errorf("fabric: setting default route on %s via %s: %w (%s)",
+			target.Name, gateway, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// shaperImage carries iproute2 (tc) ALREADY INSTALLED. That is not a convenience:
+// the shaper runs inside the target's network namespace, so a shaper that installs
+// its tools at run time cannot heal a partition it created — `apk add` needs the
+// very network that is being dropped. Observed as `sh: tc: not found` while
+// lifting a 100% loss qdisc.
+const shaperImage = "pact-harness-shaper:1"
+
+// shaperDockerfile is built once per machine, on demand.
+const shaperDockerfile = "FROM alpine:3.20\nRUN apk add --no-cache iproute2\n"
+
+// netnsExec runs a command inside another container's NETWORK namespace.
+//
+// This is what makes shaping work against a distroless node: `tc` operates on the
+// namespace, not on the filesystem, so a throwaway Alpine container sharing the
+// node's netns can install a qdisc that applies to the node's traffic. Running it
+// "inside" the node was exit status 127 — there is no `sh` in there to run.
+func (f *Fabric) netnsExec(ctx context.Context, target *Container, script string) ([]byte, error) {
+	if err := f.ensureShaper(ctx); err != nil {
+		return nil, err
+	}
+	return f.run(ctx, "docker", "run", "--rm",
+		"--network", "container:"+target.Name,
+		"--cap-add", "NET_ADMIN",
+		shaperImage, "sh", "-c", script)
+}
+
+// ensureShaper builds the shaper image if this machine does not have it yet.
+func (f *Fabric) ensureShaper(ctx context.Context) error {
+	if _, err := f.run(ctx, "docker", "image", "inspect", shaperImage); err == nil {
+		return nil
+	}
+	out, err := f.run(ctx, "docker", "build", "-t", shaperImage, "-",
+		"--build-arg", "DOCKERFILE_INLINE="+shaperDockerfile)
+	if err == nil {
+		return nil
+	}
+	// `docker build -` reads the Dockerfile from stdin, which this Runner cannot
+	// supply, so fall back to a temp context on disk.
+	dir, terr := os.MkdirTemp("", "pact-shaper")
+	if terr != nil {
+		return fmt.Errorf("fabric: building the shaper image: %w (%s)", err, out)
+	}
+	defer os.RemoveAll(dir)
+	if werr := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(shaperDockerfile), 0o644); werr != nil {
+		return werr
+	}
+	if out, err := f.run(ctx, "docker", "build", "-t", shaperImage, dir); err != nil {
+		return fmt.Errorf("fabric: building the shaper image: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Shape applies link impairment to a container's network namespace. Replaces any
+// existing qdisc, so repeated calls state the current condition rather than
+// stacking impairments invisibly.
+func (f *Fabric) Shape(ctx context.Context, c *Container, n Netem) error {
+	var netem []string
+	if n.Latency != "" {
+		netem = append(netem, "delay", n.Latency)
+		if n.Jitter != "" {
+			netem = append(netem, n.Jitter)
+		}
+	}
+	if n.Loss != "" {
+		netem = append(netem, "loss", n.Loss)
+	}
+	if len(netem) == 0 {
+		return errors.New("fabric: Shape called with no impairment; use Heal to clear one")
+	}
+	out, err := f.netnsExec(ctx, c, "tc qdisc replace dev eth0 root netem "+strings.Join(netem, " "))
+	if err != nil {
+		return fmt.Errorf("fabric: shaping %s: %w (%s)", c.Name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Partition takes the link away entirely — the case a retry path must survive.
+func (f *Fabric) Partition(ctx context.Context, c *Container) error {
+	return f.Shape(ctx, c, Netem{Loss: "100%"})
+}
+
+// Heal removes all impairment. Half of every resilience scenario is what happens
+// when the network comes back, so this is not optional cleanup.
+func (f *Fabric) Heal(ctx context.Context, c *Container) error {
+	out, err := f.netnsExec(ctx, c, "tc qdisc del dev eth0 root 2>/dev/null || true")
+	if err != nil {
+		return fmt.Errorf("fabric: healing %s: %w (%s)", c.Name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Collect writes each tracked container's logs into dir.
+//
+// It gathers everything it can and reports the failures together. Stopping at the
+// first unreadable container would lose the evidence for every container after it —
+// and the one that failed is usually the one that crashed, which is exactly the
+// log somebody needs.
+func (f *Fabric) Collect(ctx context.Context, dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	var failures []error
+	for _, c := range f.containers {
+		out, err := f.run(ctx, "docker", "logs", c.Name)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("logs %s: %w", c.Name, err))
+			continue
+		}
+		p := filepath.Join(dir, c.Name+".log")
+		if werr := os.WriteFile(p, out, 0o644); werr != nil {
+			failures = append(failures, fmt.Errorf("writing %s: %w", p, werr))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// Teardown removes everything this run created, containers first.
+//
+// It continues past failures for the same reason Collect does: a leaked network is
+// worse than a reported error, because it collides with the next run.
+func (f *Fabric) Teardown(ctx context.Context) error {
+	var failures []error
+	for i := len(f.containers) - 1; i >= 0; i-- {
+		if _, err := f.run(ctx, "docker", "rm", "-f", f.containers[i].Name); err != nil {
+			failures = append(failures, fmt.Errorf("removing %s: %w", f.containers[i].Name, err))
+		}
+	}
+	for i := len(f.networks) - 1; i >= 0; i-- {
+		if _, err := f.run(ctx, "docker", "network", "rm", f.networks[i].Name); err != nil {
+			failures = append(failures, fmt.Errorf("removing network %s: %w", f.networks[i].Name, err))
+		}
+	}
+	f.containers, f.networks = nil, nil
+	return errors.Join(failures...)
+}

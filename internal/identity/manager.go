@@ -1,0 +1,148 @@
+package identity
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+
+	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/tech-sumit/pact-gateway/internal/core/store"
+)
+
+// signBytes signs with the pinned encodings (PACT §13.1).
+// SignBytes signs a message with an identity key, in the encoding PACT §2 pins
+// per algorithm: ECDSA over SHA-256 as ASN.1 DER, Ed25519 per RFC 8032. It is
+// the counterpart of VerifyBytes, and what produces the old-key endorsement a
+// peer checks in `update_contact`.
+func SignBytes(kp *Keypair, msg []byte) ([]byte, error) { return signBytes(kp, msg) }
+
+func signBytes(kp *Keypair, msg []byte) ([]byte, error) {
+	switch k := kp.Signer.(type) {
+	case *ecdsa.PrivateKey:
+		sum := sha256.Sum256(msg)
+		return ecdsa.SignASN1(rand.Reader, k, sum[:])
+	case ed25519.PrivateKey:
+		return ed25519.Sign(k, msg), nil
+	default:
+		return nil, fmt.Errorf("identity: unsupported signer %T", kp.Signer)
+	}
+}
+
+// keyAAD binds sealed private keys to their column (SPEC §3.7, keyring AAD rule).
+const keyAAD = "accounts.key_sealed"
+
+// Manager creates and loads account identities: keypair generation, fingerprinting,
+// and private-key sealing through the node keyring.
+type Manager struct {
+	Store   store.Store
+	Keyring *core.Keyring
+}
+
+// CreateAccount makes the account row, generates its keypair, and binds the
+// fingerprint + sealed key in one flow (SPEC §3.2).
+func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, algo Algo) (store.Account, error) {
+	if algo == "" {
+		algo = AlgoP256
+	}
+	kp, err := Generate(algo)
+	if err != nil {
+		return store.Account{}, err
+	}
+	a, err := m.Store.CreateAccount(ctx, store.CreateAccountParams{
+		Slug: slug, DisplayName: displayName, Algo: string(algo),
+	})
+	if err != nil {
+		return store.Account{}, err
+	}
+	der, err := MarshalPKCS8(kp)
+	if err != nil {
+		return store.Account{}, err
+	}
+	sealed, err := m.Keyring.Encrypt(der, []byte(keyAAD))
+	if err != nil {
+		return store.Account{}, err
+	}
+	if err := m.Store.SetAccountKey(ctx, a.ID, kp.Fingerprint, sealed); err != nil {
+		return store.Account{}, err
+	}
+	// SPEC §3.3: account-scoped actions require membership. Without this the
+	// account is invisible to every owner surface — see membership.go.
+	if err := grantToAllOwners(ctx, m.Store, a.ID); err != nil {
+		return store.Account{}, err
+	}
+	a.Fingerprint = kp.Fingerprint
+	return a, nil
+}
+
+// ImportAccount provisions an account around an EXISTING keypair — the restore
+// half of SPEC §3.10. It is CreateAccount with the generation step removed, and
+// deliberately shares everything after it: the same sealing, the same
+// bind-once SetAccountKey, the same membership grant. An import that skipped any
+// of those would produce an account subtly unlike every other one on the node.
+func (m *Manager) ImportAccount(ctx context.Context, slug, displayName string, algo Algo, kp *Keypair) (store.Account, error) {
+	if kp == nil {
+		return store.Account{}, fmt.Errorf("identity: import needs a keypair")
+	}
+	if algo == "" {
+		algo = AlgoP256
+	}
+	a, err := m.Store.CreateAccount(ctx, store.CreateAccountParams{
+		Slug: slug, DisplayName: displayName, Algo: string(algo),
+	})
+	if err != nil {
+		return store.Account{}, err
+	}
+	der, err := MarshalPKCS8(kp)
+	if err != nil {
+		return store.Account{}, err
+	}
+	sealed, err := m.Keyring.Encrypt(der, []byte(keyAAD))
+	if err != nil {
+		return store.Account{}, err
+	}
+	if err := m.Store.SetAccountKey(ctx, a.ID, kp.Fingerprint, sealed); err != nil {
+		return store.Account{}, err
+	}
+	if err := grantToAllOwners(ctx, m.Store, a.ID); err != nil {
+		return store.Account{}, err
+	}
+	a.Fingerprint = kp.Fingerprint
+	return a, nil
+}
+
+// LoadKeypair unseals an account's private key.
+func (m *Manager) LoadKeypair(sealed []byte) (*Keypair, error) {
+	der, err := m.Keyring.Decrypt(sealed, []byte(keyAAD))
+	if err != nil {
+		return nil, fmt.Errorf("identity: unseal: %w", err)
+	}
+	return ParsePKCS8(der)
+}
+
+// SignCard builds and signs the account's card (SPEC §9.3): BuildCard is the
+// caller's job (card layout lives in contacts); this signs arbitrary card bytes
+// with the account identity key — ECDSA ASN.1 DER or pure Ed25519, matching the
+// envelope's pinned encodings.
+func (m *Manager) SignCard(ctx context.Context, accountID string, cardText string) (string, error) {
+	a, err := m.Store.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	sealed, err := m.Store.GetAccountSealedKey(ctx, a.ID)
+	if err != nil {
+		return "", err
+	}
+	kp, err := m.LoadKeypair(sealed)
+	if err != nil {
+		return "", err
+	}
+	sig, err := signBytes(kp, []byte(cardText))
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(sig), nil
+}

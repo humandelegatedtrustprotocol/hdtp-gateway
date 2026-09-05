@@ -1,0 +1,1196 @@
+// Package cli implements the command-line interface of SPEC §12.1: one binary,
+// subcommand-per-concern, stdlib flag parsing. Against a running node the CLI talks
+// over the admin unix socket; offline database commands take the store lock and
+// therefore refuse to run while the node is serving.
+package cli
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"syscall"
+	"time"
+
+	"github.com/tech-sumit/pact-gateway/internal/contacts"
+	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/tech-sumit/pact-gateway/internal/core/audit"
+	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/integrations"
+	"github.com/tech-sumit/pact-gateway/internal/internalui"
+	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+)
+
+// Run dispatches os.Args-style arguments; version is the build-stamped version
+// string. Returns a process exit code.
+func Run(args []string, version string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		usage(stderr)
+		return 2
+	}
+	cmd, rest := args[0], args[1:]
+	switch cmd {
+	case "version":
+		fmt.Fprintln(stdout, "pact-gateway "+version)
+		return 0
+	case "serve":
+		return serve(rest, stdout, stderr)
+	case "ingress":
+		return ingressCmd(rest, stdout, stderr)
+	case "migrate":
+		return migrate(rest, stdout, stderr)
+	case "doctor":
+		return doctor(rest, stdout, stderr)
+	case "healthcheck":
+		return healthcheck(rest, stderr)
+	case "account":
+		return account(rest, stdout, stderr)
+	case "passkey":
+		return passkey(rest, stdout, stderr)
+	case "token":
+		return token(rest, stdout, stderr)
+	case "audit":
+		return auditCmd(rest, stdout, stderr)
+	case "backup":
+		return backupCmd(rest, stdout, stderr)
+	case "__child":
+		// hidden: the resource-cap shim for supervised stdio children (SPEC §6.2)
+		if err := integrations.RunChildShim(rest); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(stderr, "pact-gateway: unknown command %q\n", cmd)
+		usage(stderr)
+		return 2
+	}
+}
+
+func usage(w io.Writer) {
+	fmt.Fprint(w, `usage: pact-gateway <command> [flags]
+
+commands:
+  serve     run the node
+  ingress   serve|token — the ingress role (own-domain front door for paired nodes)
+  migrate   run store migrations (node must be stopped)
+  doctor    diagnose configuration, data dir, store, lock
+  healthcheck  probe the internal /healthz (container HEALTHCHECK)
+  account   create|list|rotate-key accounts and identity keys (node must be running; talks over the admin socket)
+  passkey   list|remove|reset-wizard (node must be running)
+  token     create|list|revoke owner-MCP bearer tokens (node must be running)
+  audit     verify|export|archive|repair the hash chain (offline; node must be stopped)
+  backup    create|restore a consistent snapshot (offline; node must be stopped)
+  version   print the version
+`)
+}
+
+// commonFlags returns a FlagSet with the -config flag every subcommand shares.
+//
+// It takes the caller's stderr because `Run` is handed writers and must use them.
+// Without SetOutput, flag writes usage and parse errors to the process's
+// os.Stderr instead: invisible to an embedder capturing output, noisy in tests
+// that asked for silence, and — because the documentation lint asks each command
+// for its flag set by running it with -h and reading what comes back — it read
+// nothing and silently skipped every flag check in every doc.
+func commonFlags(name string, cfgPath *string, stderr io.Writer) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(cfgPath, "config", os.Getenv("PACT_CONFIG"), "path to config file (JSON)")
+	return fs
+}
+
+func loadConfig(cfgPath string) (*core.Config, error) {
+	return core.Load(cfgPath, os.LookupEnv)
+}
+
+func serve(args []string, stdout, stderr io.Writer) int {
+	// SIGINT/SIGTERM end the serving context; every surface shuts down from it.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return serveWith(ctx, args, stdout, stderr)
+}
+
+// serveWith is serve with the lifetime injected, so a test can end it without
+// signalling the whole process.
+func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	var cfgPath string
+	fs := commonFlags("serve", &cfgPath, stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	lock, err := core.AcquireLock(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	defer lock.Release()
+
+	setup := internalui.NewSetupTokens()
+	st, err := openStore(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	keyPath := cfg.MasterKeyFile
+	if keyPath == "" {
+		keyPath = filepath.Join(cfg.DataDir, "keyring.key")
+	}
+	kr, err := core.OpenKeyring(keyPath, os.LookupEnv)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	admin := core.NewAdminServer(core.AdminSocketPath(cfg.DataDir))
+	admin.Handle("ping", func(map[string]string) (any, error) {
+		return map[string]string{"status": "serving"}, nil
+	})
+	idm := &identity.Manager{Store: st, Keyring: kr}
+	// Declared before the admin handlers because several of them close over it.
+	// It is nil while they are being REGISTERED and non-nil by the time any of
+	// them runs, which is why each checks.
+	var nd *node.Node
+
+	admin.Handle("account.create", func(args map[string]string) (any, error) {
+		if args["slug"] == "" || args["name"] == "" {
+			return nil, fmt.Errorf("account.create needs slug and name")
+		}
+		acct, err := idm.CreateAccount(ctx, args["slug"], args["name"], identity.Algo(args["algo"]))
+		if err != nil {
+			return nil, err
+		}
+		// The node only knows the accounts that existed when it started, so
+		// without this the public listener cannot serve the one just created —
+		// every handshake for it fails with `tls: internal error` until a restart
+		// (P14-05a). The README tells a new owner to create an account on a
+		// running node, so this is the ordinary path, not an edge case.
+		if nd != nil {
+			if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
+				return nil, aerr
+			}
+		}
+		return acct, nil
+	})
+	admin.Handle("account.list", func(map[string]string) (any, error) {
+		return st.ListAccounts(ctx)
+	})
+	// SPEC §3.9 rotation: new key + grace, then update_contact fan-out over the
+	// outbound client PRESENTING THE OLD CERTIFICATE (the identity contacts
+	// still pin); per-contact progress is durable, so re-running resumes.
+	rotator := &identity.Rotator{Manager: idm}
+	// The serving node, assigned below. The admin handlers registered here close
+	// over it so they render cards through the ONE renderer the public surface
+	// uses, rather than assembling a second one (SPEC §9.3).
+	// rotateByID is the ONE rotation procedure. Both the CLI (over the admin
+	// socket) and the portal's Settings · identity page call it, so the two
+	// surfaces cannot drift into subtly different rotations of the same key.
+	rotateByID := func(ctx context.Context, accountID string, grace time.Duration) (internalui.RotateResult, error) {
+		var zero internalui.RotateResult
+		accts, err := st.ListAccounts(ctx)
+		if err != nil {
+			return zero, err
+		}
+		var acct store.Account
+		for _, a := range accts {
+			if a.ID == accountID {
+				acct = a
+			}
+		}
+		if acct.ID == "" {
+			return zero, fmt.Errorf("rotate: unknown account %q", accountID)
+		}
+		// A rotation already in its grace period is RESUMED, not repeated:
+		// rotating twice would invalidate the key the first one just published,
+		// but refusing outright left the owner told to "re-run to resume" with no
+		// way to do it, and an un-notified contact is lost at grace expiry
+		// (§3.9 step 5, P14-10a).
+		rot, resuming, err := rotator.InFlight(ctx, acct.ID)
+		if err != nil {
+			return zero, err
+		}
+		if !resuming {
+			rot, err = rotator.Rotate(ctx, acct.ID, grace)
+			if err != nil {
+				return zero, err
+			}
+			// The node loaded this account's key and certificate when it started.
+			// Rotate changed both in the store; until the live node rebuilds the
+			// account it keeps presenting the OLD certificate — and every contact
+			// the fan-out re-pins to the new fingerprint is then refused at the
+			// TLS layer ("server is neither the pinned key nor WebPKI-valid").
+			// AdoptAccount is idempotent and exists for exactly this.
+			if nd != nil {
+				if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
+					return zero, fmt.Errorf("rotate: reloading the account on the live node: %w", aerr)
+				}
+			}
+		}
+		newKP, oldKP, err := rotator.ActiveKeypairs(ctx, acct.ID)
+		if err != nil || oldKP == nil {
+			return zero, fmt.Errorf("rotate: retiring key unavailable: %v", err)
+		}
+		oldDER, err := identity.SelfSignedCert(oldKP, acct.Slug)
+		if err != nil {
+			return zero, err
+		}
+		client := &outbound.Client{Keypair: oldKP, Cert: tls.Certificate{Certificate: [][]byte{oldDER}, PrivateKey: oldKP.Signer}}
+		// The peer learns the NEW key only from a certificate that hashes to the
+		// fingerprint it just pinned (§3.9); until then it cannot seal to us. With a
+		// grace period it keeps sealing to the old key meanwhile; with none there is
+		// nothing to seal to, so the new key introduces itself right after the notice.
+		newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
+		if err != nil {
+			return zero, err
+		}
+		introduce := &outbound.Client{Keypair: newKP, Cert: tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}}
+		// Rotate has already written the new fingerprint, so the node renders the
+		// post-rotation card — with the seal the gate actually enforces and the
+		// live endpoint. Falling back to a local build only matters for a rotate
+		// issued before the listener came up.
+		var newCard string
+		if nd != nil {
+			newCard, err = nd.Card(ctx, acct.ID)
+		} else {
+			endpoint := ""
+			if cfg.PublicURL != "" {
+				endpoint = cfg.PublicURL + "/a/" + acct.Slug + "/mcp"
+			}
+			newCard, err = contacts.BuildCard(contacts.Card{
+				FN: acct.DisplayName, Endpoint: endpoint, Key: rot.NewFpr,
+				Seal: string(core.EffectiveSeal(cfg.Mode, cfg.Seal)),
+			})
+		}
+		if err != nil {
+			return zero, err
+		}
+		done, failed, ferr := rotator.Fanout(ctx, rot, newCard, func(ctx context.Context, c store.Contact, card string, proof []byte) error {
+			peerCard, err := contacts.ParseCard(c.Card)
+			if err != nil || peerCard.Endpoint == "" {
+				return fmt.Errorf("contact has no reachable endpoint on file")
+			}
+			peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: c.Fingerprint, Seal: peerCard.Seal}
+			// Obey the peer's card. This used to force plaintext, so any contact
+			// whose card asks for sealing refused the rotation outright — and a
+			// contact that never re-pins is lost when the old key is destroyed
+			// at grace expiry (§3.9 step 5).
+			res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{
+				"card": card, "sig": base64.RawURLEncoding.EncodeToString(proof),
+			}, "rotate-"+rot.NewFpr)
+			if err != nil {
+				return err
+			}
+			if res.IsError {
+				return fmt.Errorf("peer refused update_contact")
+			}
+			// Introduce the new key with a call the peer answers at contact tier
+			// without any permission. Sealed, it carries our key as `spk` and the
+			// peer binds it to the fingerprint it just pinned (§4.4 step 6); plain,
+			// the gate binds it from the client certificate. tools/list would not do:
+			// the binding hook runs only inside tools/call.
+			ires, ierr := introduce.Call(ctx, peer, c.SPKI, "get_card", map[string]any{}, "introduce-"+rot.NewFpr)
+			if ierr != nil || (ires != nil && ires.IsError) {
+				// They were told; they just have not seen the new key yet. They will
+				// the next time we call them — unless there is no grace period, in
+				// which case they cannot reach us until we do. Recorded, not fatal.
+				if rotator.Audit != nil {
+					rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "error")
+				}
+			} else if rotator.Audit != nil {
+				rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "ok")
+			}
+			return nil
+		})
+		_ = ferr
+		until := rot.GraceUntil
+		if rot.Immediate {
+			// The owner asked for no grace: the old key has served its one purpose.
+			if err := rotator.RetireNow(ctx, acct.ID); err != nil {
+				return zero, fmt.Errorf("rotate: retiring the old key: %w", err)
+			}
+			until = time.Now()
+		}
+		return internalui.RotateResult{
+			NewFpr: rot.NewFpr, Notified: done, Failed: failed, GraceUntil: until, Immediate: rot.Immediate,
+		}, nil
+	}
+
+	admin.Handle("account.rotate", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.rotate needs slug")
+		}
+		accts, err := st.ListAccounts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var acct store.Account
+		for _, a := range accts {
+			if a.Slug == args["slug"] {
+				acct = a
+			}
+		}
+		if acct.ID == "" {
+			return nil, fmt.Errorf("account.rotate: unknown slug %q", args["slug"])
+		}
+		// Omitted → the default (Rotate treats 0 as "unspecified"). An explicit
+		// "0" is the owner asking for no grace at all, which is a different thing
+		// and gets the sentinel.
+		var grace time.Duration
+		if v := args["grace"]; v != "" {
+			parsed, perr := time.ParseDuration(v)
+			if perr != nil || parsed < 0 {
+				return nil, fmt.Errorf("grace %q is not a duration (try 336h, or 0 to retire the old key as soon as contacts are told)", v)
+			}
+			grace = parsed
+			if parsed == 0 {
+				grace = identity.GraceImmediate
+			}
+		}
+		res, err := rotateByID(ctx, acct.ID, grace)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"Slug": acct.Slug, "NewFpr": res.NewFpr,
+			"GraceUntil": res.GraceUntil.UTC().Format(time.RFC3339),
+			"Done":       res.Notified, "Failed": res.Failed,
+		}, nil
+	})
+
+	// The relying party is decided PER CEREMONY from the request's host
+	// (SPEC §8.3): a fixed pairing cannot serve both a loopback portal and one on
+	// a domain, and the previous fixed values — RP ID `localhost` with a
+	// 127.0.0.1 origin — could never have completed a ceremony at all.
+	authSvc := auth.New(st)
+	admin.Handle("passkey.list", func(map[string]string) (any, error) {
+		return authSvc.ListPasskeys(ctx)
+	})
+	admin.Handle("passkey.remove", func(args map[string]string) (any, error) {
+		if args["id"] == "" {
+			return nil, fmt.Errorf("passkey.remove needs id")
+		}
+		return "removed", authSvc.RemovePasskey(ctx, args["id"])
+	})
+	tokSvc := &auth.TokenService{Store: st}
+	admin.Handle("token.create", func(args map[string]string) (any, error) {
+		if args["owner"] == "" || args["label"] == "" {
+			return nil, fmt.Errorf("token.create needs owner and label")
+		}
+		plain, id, err := tokSvc.Create(ctx, args["owner"], args["label"], args["account"])
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"token": plain, "id": id}, nil
+	})
+	admin.Handle("token.list", func(map[string]string) (any, error) {
+		return tokSvc.List(ctx)
+	})
+	admin.Handle("token.revoke", func(args map[string]string) (any, error) {
+		if args["id"] == "" {
+			return nil, fmt.Errorf("token.revoke needs id")
+		}
+		return "revoked", tokSvc.Revoke(ctx, args["id"])
+	})
+	admin.Handle("passkey.reset-wizard", func(map[string]string) (any, error) {
+		// SPEC §3.1: mint a fresh one-time setup URL for a locked-out owner.
+		// RECOVERY, not an ordinary token: with the portal requiring a session
+		// on every bind (§8.3), this is the ONLY way back in for an owner who
+		// lost their passkeys, and an ordinary token is refused the moment one
+		// exists. Registering through it ADDS a passkey; nothing is removed.
+		return map[string]string{
+			"url": setupURL(cfg, setup.MintRecovery()),
+		}, nil
+	})
+	if err := admin.Start(ctx); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	defer admin.Close()
+
+	n, err := st.CountCredentialsByKind(ctx, "passkey")
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	// ---- the public surface (SPEC §2.2) ----
+	auditLog := auditWriter(ctx, st, stderr)
+	auditFn := auditLog.system() // the node's own lifecycle and surface events
+	rotator.Audit = auditFn      // rotation and retirement are lifecycle events too
+	ownerFn := auditLog.owner()  // the portal and the owner MCP act for the owner
+
+	// Owner-set configuration layers under the environment and re-derives, so a
+	// tunnel chosen in the portal forces the same knobs an env-set one would
+	// (SPEC §10.1, §12.2).
+	settings := &settingsService{store: st, kr: kr, cfg: cfg, audit: ownerFn}
+	// A credential stored while isSecretKey was case-sensitive is sitting in the
+	// clear; fixing the predicate only protects the next write. Repairing at
+	// startup is not optional cleanup — an owner cannot be expected to notice.
+	if n, err := settings.resealLegacySecrets(ctx); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	} else if n > 0 {
+		fmt.Fprintf(stdout, "settings: sealed %d credential(s) that were stored in the clear\n", n)
+	}
+	stored, err := settings.values(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	if err := cfg.ApplyStoreSettings(stored); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	adapterName, adapter, info, err := startTunnel(ctx, cfg, stored)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	defer func() { _ = adapter.Stop() }()
+
+	// One Connector, shared: the portal's OAuth flow pushes an authorization URL
+	// into it and the manager's connect path reads from it. Two instances meant
+	// the push never reached the wait (P10-04h).
+	connector := &integrations.Connector{}
+	// One wired chain, shared by the node and the portal (SPEC §6). `nd` does
+	// not exist yet, so the surface-change hook is filled in after node.New.
+	var surfaceChanged func(integrationID string)
+	bus := messaging.NewBus()
+	chain := buildIntegrationChain(st, kr, connector, portalBase(cfg), auditFn, func(id string) {
+		if surfaceChanged != nil {
+			surfaceChanged(id)
+		}
+	}, settings.values, func(integrationID string) {
+		// The token died; only the owner can fix it. Wake the change feed NOW —
+		// needs_attention is derived from the store, the event only says "look".
+		if in, err := st.GetIntegrationByID(ctx, integrationID); err == nil {
+			bus.Publish(messaging.Event{Kind: messaging.EventAttention, AccountID: in.AccountID})
+		}
+	})
+	ints := chain.Manager
+	binder := &capabilityBinder{store: st, chain: chain, auditFn: auditFn, settings: settings.values}
+	// Paired on purpose: the tracker must exist before nd.Start opens the public
+	// listener, not when the owner-MCP handler is built hundreds of lines later.
+	agent, presence := newAgentAnswered(st, auditFn)
+	nodeOpts := node.Options{
+		Config: *cfg, Store: st, Keyring: kr, Audit: auditFn, Adapter: adapterName, Bus: bus,
+		// Only a TERMINATING ingress opens the onward leg; a passthrough one
+		// forwards raw TLS and never presents a certificate of its own.
+		IngressFingerprint: pinnedIngress(adapterName, stored),
+		AuditAs:            auditLog.kinded(),
+		RateBudget:         settings.rateBudget,
+		Quota: func(accountID string) int64 {
+			q, _ := settings.storageFor(ctx, accountID)
+			return q
+		},
+		// Mapped-mode providers, resolved per call so an integration connected
+		// or withheld after startup is reflected without a restart (§6.6, E5).
+		Capabilities: binder.forAccount,
+	}
+	if cfg.Relay {
+		// Relay mode for other people (SPEC §10.5). Config validation already
+		// refused this combination in edge mode; node.New refuses it again.
+		// A function, not a snapshot: the portal can change this while the node
+		// runs, and the relay must honour the change immediately (P14-13).
+		nodeOpts.Relay, nodeOpts.RelayControl = relayHandlers(st, settings.relayRecipients, auditFn)
+		if len(cfg.RelayRecipients) == 0 {
+			fmt.Fprintln(stderr, "relay:   OPEN — any node that reaches this relay may register "+
+				"an allow-list and have mail queued for it. Set relay_recipients to "+
+				"the fingerprints you mean to serve.")
+		}
+	}
+	nd, err = node.New(ctx, nodeOpts)
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	if err := nd.Start(ctx, info.Listener); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	settings.node = nd
+	// Now the node exists, an exposure change or a withhold can actually reach
+	// the served surface (SPEC §6.5, §6.10). Until this was wired, publishing an
+	// exposure set rebuilt nothing and a withheld integration kept its tools
+	// listed for every session already open.
+	// An exposure change rebuilds that integration's served tools, then sweeps
+	// the callers. Before this, the picker wrote a row and no contact ever
+	// gained or lost a tool (§6.5, §6.10).
+	// The agent-answered bus only exists once the node does; without it the
+	// first parked request would nil-panic on Publish.
+	agent.Bus = nd.Bus()
+	surface := &integrationSurface{
+		store: st, chain: chain, node: nd, auditFn: auditFn, agent: agent,
+		pass: &integrations.Passthrough{Manager: chain.Manager, Audit: auditFn},
+	}
+	surfaceChanged = func(integrationID string) {
+		// Rebuild the served tools AND drop the cached capability resolution:
+		// both derive from the same exposure state, so one hook owns both.
+		binder.invalidate()
+		surface.rebuild1(integrationID)
+	}
+	// Bring every configured integration's surface up at boot, so a node that
+	// restarts serves what it served before rather than nothing until an edit.
+	if accts, aerr := st.ListAccounts(ctx); aerr == nil {
+		for _, a := range accts {
+			list, lerr := st.ListIntegrations(ctx, a.ID)
+			if lerr != nil {
+				continue
+			}
+			for _, in := range list {
+				surface.rebuild(ctx, in.ID)
+			}
+		}
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = nd.Stop(shutCtx)
+	}()
+
+	fmt.Fprintf(stdout, "pact-gateway serving: data=%s internal=%s public=%s mode=%s tunnel=%s\n",
+		cfg.DataDir, cfg.InternalBind, nd.Addr(), cfg.Mode, adapterName)
+	if cfg.PublicURL != "" {
+		fmt.Fprintf(stdout, "public:  %s\n", cfg.PublicURL)
+	}
+	if tst := adapter.Status(); tst.Detail != "" {
+		fmt.Fprintf(stdout, "tunnel:  %s\n", tst.Detail)
+	}
+	if n == 0 {
+		// First run (SPEC §12.4): print the portal URL and the setup token.
+		// The token is NOT burned on first use — a WebAuthn ceremony is two
+		// requests, so it stays valid until a passkey exists. Saying "one-time"
+		// told an operator the URL was harmless once opened, when in fact anyone
+		// holding it can reach the wizard until setup completes.
+		fmt.Fprintf(stdout, "portal:  %s/\n", portalBase(cfg))
+		fmt.Fprintf(stdout, "setup:   %s\n", setupURL(cfg, setup.Mint()))
+		fmt.Fprintf(stdout, "         valid until a passkey is registered, at most 24h — treat it as a password\n")
+		if warn := secureContextWarning(cfg); warn != "" {
+			fmt.Fprintln(stdout, warn)
+		}
+	}
+
+	// ---- integrations: bring back what the owner configured (SPEC §6.10) ----
+	connectStoredIntegrations(ctx, ints, st, auditFn, stderr)
+	defer disconnectIntegrations(ints, st)
+
+	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----
+	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
+	// an unattended sweep to the owner would misreport who deleted the data.
+	startRetentionSweeper(ctx, settings, st, cfg, auditFn, stderr)
+
+	// ---- relay mode as a CLIENT: fetch our own mail (SPEC §10.5) ----
+	// Undelivered outbound messages retry with backoff until their deadline
+	// (SPEC §7.1). Without this a send that failed once stayed failed forever
+	// and the owner had to notice and retype it.
+	go nd.RunRetries(ctx)
+
+	// SPEC §3.9 step 5: "When the grace period ends, the old private key MUST be
+	// destroyed — at expiry, regardless of contacts that have not yet re-pinned."
+	// `Rotator.ExpireGrace` implemented exactly that and had no caller, so a
+	// retired key stayed live in the keyring forever, which is the opposite of
+	// what rotation is for.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		expire := func() {
+			accts, err := st.ListAccounts(ctx)
+			if err != nil {
+				return
+			}
+			for _, a := range accts {
+				if done, err := rotator.ExpireGrace(ctx, a.ID); err == nil && done {
+					auditFn("account_rotate_expire", "account:"+a.ID+" slug:"+a.Slug, "key_destroyed")
+				}
+			}
+		}
+		expire() // a node that was down past an expiry must not wait an hour
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				expire()
+			}
+		}
+	}()
+
+	// Contacts in sync (PACT §3): pull each active contact's signed card on a
+	// slow cadence, so an endpoint change whose announcement missed us — we
+	// were offline, or the peer could not seal to us mid-rotation — heals
+	// without waiting for a failed call. The card must verify under the PINNED
+	// key; sync can never move a pin (node.SyncContacts documents the rule).
+	go func() {
+		const every = 6 * time.Hour
+		t := time.NewTicker(every)
+		defer t.Stop()
+		// First sweep shortly after start, once the tunnels have settled.
+		first := time.NewTimer(2 * time.Minute)
+		defer first.Stop()
+		sweep := func() {
+			sctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			checked, changed := nd.SyncContacts(sctx)
+			cancel()
+			if checked > 0 {
+				auditFn("contact_sync_sweep", fmt.Sprintf("checked:%d updated:%d", checked, changed), "ok")
+			}
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-first.C:
+				sweep()
+			case <-t.C:
+				sweep()
+			}
+		}
+	}()
+
+	if err := startRelayClients(ctx, cfg, nd, st, idm, auditFn, stderr); err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+
+	// ---- the internal surface; blocks until the context ends ----
+	// SPEC §8.3: binding decides authentication, and it is fixed at startup —
+	// A session is required on EVERY bind (§8.3) — there is no binding that
+	// serves the portal without one. A non-loopback bind additionally refuses to
+	// start without passkeys+TLS, enforced at config load.
+	// Two nodes on one host share a cookie jar — cookies are scoped by host and
+	// path, never by port — so each node's cookies carry its own tag. Without it
+	// a second local node silently signs the first one out (§8.3).
+	internalui.SetCookieTag(cfg.Tag())
+	authDeps := &internalui.AuthDeps{
+		Service: authSvc,
+		Origin:  internalui.OriginPolicy{InternalHost: cfg.InternalHost, TLS: cfg.InternalTLSCert != ""},
+		Secure:  cfg.InternalTLSCert != "",
+		Audit:   ownerFn,
+		SetupAllowed: func(r *http.Request) bool {
+			n, err := st.CountCredentialsByKind(r.Context(), "passkey")
+			if err != nil {
+				return false
+			}
+			if n > 0 {
+				// Recovery only, and only with the token in hand (§8.6).
+				return setup.ValidRecovery(r.URL.Query().Get("token"))
+			}
+			return core.IsLoopbackBind(cfg.InternalBind) || setup.Valid(r.URL.Query().Get("token"))
+		},
+		SetupDone: func(r *http.Request) { setup.Consume(r.URL.Query().Get("token")) },
+	}
+	setStatic := func(ctx context.Context, integrationID, header, value string) error {
+		return integrations.SealStatic(st, kr, integrationID, header, value)
+	}
+	setOAuthClient := func(ctx context.Context, integrationID, clientID, clientSecret string) error {
+		return integrations.SealClient(st, kr, settingsAAD(), integrationID, clientID, clientSecret)
+	}
+	identityDeps := internalui.IdentityDeps{
+		Accounts: st.ListAccounts, Rotate: rotateByID, Audit: auditFn,
+		// The SAME call `account create` makes, so the portal cannot become a
+		// second way of minting identities that drifts from the CLI's.
+		Create: func(ctx context.Context, slug, displayName, algo string) (store.Account, error) {
+			a, err := idm.CreateAccount(ctx, slug, displayName, identity.Algo(algo))
+			if err != nil {
+				return a, err
+			}
+			// Servable without a restart: the node adopts it live, the way the
+			// admin socket's account.create does (P14-05c).
+			if aerr := nd.AdoptAccount(ctx, a.ID); aerr != nil {
+				return a, aerr
+			}
+			return a, nil
+		},
+	}
+	handler := internalHandler(ctx, nd, st, setup, tokSvc, authSvc, chain, connector, agent, presence, identityDeps,
+		setStatic, setOAuthClient, ownerFn,
+		cfg.PublicURL, settings.deps(), authDeps, cfg)
+	return runErr(internalui.Serve(ctx, cfg.InternalBind, handler), stderr)
+}
+
+func account(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key> [flags]")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	var cfgPath, slug, name, algo, grace string
+	fs := commonFlags("account "+sub, &cfgPath, stderr)
+	fs.StringVar(&slug, "slug", "", "account slug (endpoint path segment)")
+	fs.StringVar(&name, "name", "", "display name")
+	fs.StringVar(&algo, "algo", "p256", "key algorithm: p256|ed25519")
+	fs.StringVar(&grace, "grace", "336h", "rotate-key: grace period both keys stay live (max 2160h)")
+	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "account:", err)
+		return 1
+	}
+	sock := core.AdminSocketPath(cfg.DataDir)
+	switch sub {
+	case "create":
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.create", map[string]string{"slug": slug, "name": name, "algo": algo}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "created %v  fingerprint %v\n", out["Slug"], out["Fingerprint"])
+		return 0
+	case "list":
+		var out []map[string]any
+		if err := core.AdminCall(sock, "account.list", nil, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		for _, a := range out {
+			fmt.Fprintf(stdout, "%v\t%v\t%v\t%v\n", a["Slug"], a["DisplayName"], a["Algo"], a["Fingerprint"])
+		}
+		return 0
+	case "rotate-key":
+		// SPEC §3.9: new key, old key live for the grace period, update_contact
+		// fan-out to every active contact; re-run to resume an interrupted fan-out.
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.rotate", map[string]string{"slug": slug, "grace": grace}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "rotated %v: %v -> %v (old key live until %v); fan-out done=%v failed=%v\n",
+			out["Slug"], out["OldFpr"], out["NewFpr"], out["GraceUntil"], out["Done"], out["Failed"])
+		if f, _ := out["Failed"].(float64); f > 0 {
+			fmt.Fprintln(stderr, "account: some contacts were not reached; re-run rotate-key to resume the fan-out")
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key> [flags]")
+		return 2
+	}
+}
+
+func passkey(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: pact-gateway passkey <list|remove|reset-wizard> [flags]")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	var cfgPath, id string
+	fs := commonFlags("passkey "+sub, &cfgPath, stderr)
+	fs.StringVar(&id, "id", "", "passkey id (for remove)")
+	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "passkey:", err)
+		return 1
+	}
+	sock := core.AdminSocketPath(cfg.DataDir)
+	switch sub {
+	case "list":
+		var out []map[string]any
+		if err := core.AdminCall(sock, "passkey.list", nil, &out); err != nil {
+			fmt.Fprintln(stderr, "passkey:", err)
+			return 1
+		}
+		for _, k := range out {
+			fmt.Fprintf(stdout, "%v\t%v\towner=%v\n", k["id"], k["tag"], k["owner_id"])
+		}
+		return 0
+	case "remove":
+		var out string
+		if err := core.AdminCall(sock, "passkey.remove", map[string]string{"id": id}, &out); err != nil {
+			fmt.Fprintln(stderr, "passkey:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, out)
+		return 0
+	case "reset-wizard":
+		var out map[string]string
+		if err := core.AdminCall(sock, "passkey.reset-wizard", nil, &out); err != nil {
+			fmt.Fprintln(stderr, "passkey:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "one-time setup URL (24h, single use):")
+		fmt.Fprintln(stdout, out["url"])
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: pact-gateway passkey <list|remove|reset-wizard> [flags]")
+		return 2
+	}
+}
+
+func token(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: pact-gateway token <create|list|revoke> [flags]")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	var cfgPath, owner, label, accountID, id string
+	fs := commonFlags("token "+sub, &cfgPath, stderr)
+	fs.StringVar(&owner, "owner", "", "owner id")
+	fs.StringVar(&label, "label", "", "token label")
+	fs.StringVar(&accountID, "account", "", "optional account scope")
+	fs.StringVar(&id, "id", "", "token id (for revoke)")
+	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "token:", err)
+		return 1
+	}
+	sock := core.AdminSocketPath(cfg.DataDir)
+	switch sub {
+	case "create":
+		var out map[string]string
+		if err := core.AdminCall(sock, "token.create", map[string]string{"owner": owner, "label": label, "account": accountID}, &out); err != nil {
+			fmt.Fprintln(stderr, "token:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "token (shown once):", out["token"])
+		fmt.Fprintln(stdout, "id:", out["id"])
+		return 0
+	case "list":
+		var out []map[string]any
+		if err := core.AdminCall(sock, "token.list", nil, &out); err != nil {
+			fmt.Fprintln(stderr, "token:", err)
+			return 1
+		}
+		for _, k := range out {
+			fmt.Fprintf(stdout, "%v\t%v\trevoked=%v\n", k["id"], k["label"], k["revoked"])
+		}
+		return 0
+	case "revoke":
+		var out string
+		if err := core.AdminCall(sock, "token.revoke", map[string]string{"id": id}, &out); err != nil {
+			fmt.Fprintln(stderr, "token:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, out)
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: pact-gateway token <create|list|revoke> [flags]")
+		return 2
+	}
+}
+
+func auditCmd(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: pact-gateway audit <verify|export|archive|repair> [flags]")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	var cfgPath string
+	var throughSeq int64
+	fs := commonFlags("audit "+sub, &cfgPath, stderr)
+	fs.Int64Var(&throughSeq, "through", 0, "archive: archive events up to and including this seq")
+	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "audit:", err)
+		return 1
+	}
+	// Offline command (SPEC §12.1): refuse while the node holds the lock.
+	lock, err := core.AcquireLock(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(stderr, "audit:", err)
+		return 1
+	}
+	defer lock.Release()
+	st, err := openStore(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, "audit:", err)
+		return 1
+	}
+	defer st.Close()
+	rows, err := st.ListAuditEvents(context.Background(), "")
+	if err != nil {
+		fmt.Fprintln(stderr, "audit:", err)
+		return 1
+	}
+	events := make([]audit.Event, 0, len(rows))
+	for _, r := range rows {
+		events = append(events, audit.Event{
+			Seq: r.Seq, TS: r.TS, AccountID: r.AccountID, ActorKind: r.ActorKind,
+			ActorID: r.ActorID, Action: r.Action, Resource: r.Resource, Outcome: r.Outcome,
+			RequestID: r.RequestID, Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash,
+		})
+	}
+	as := auditStore{st: st}
+	switch sub {
+	case "verify":
+		// Anchored: the retained rows must extend genesis, or the terminal hash
+		// of whatever was archived. Verifying a chain against its own first row
+		// cannot see a head that was removed (SPEC §11.6).
+		if idx, err := audit.VerifyChain(context.Background(), as); err != nil {
+			// An unfinished archive run is not tampering, and saying "BROKEN"
+			// would send an owner hunting an intruder who is not there.
+			if errors.Is(err, audit.ErrArchiveInterrupted) {
+				fmt.Fprintf(stderr, "audit: %v\n", err)
+				return 1
+			}
+			fmt.Fprintf(stderr, "audit: chain BROKEN at row %d: %v\n", idx, err)
+			return 1
+		}
+		anchor, _ := st.AuditAnchor(context.Background())
+		if anchor.TerminalHash != "" {
+			// The archive is PART of the chain, so a missing archive is a
+			// missing chain — not a reason to report success. Verifying only
+			// what happens to still be on disk would reintroduce exactly the
+			// "deleted history is invisible" hole §11.6 exists to close.
+			archives := archiveFiles(cfg.DataDir)
+			if len(archives) == 0 {
+				fmt.Fprintf(stderr, "audit: chain BROKEN: the anchor names an archive through seq %d "+
+					"but no archive files are present in %s\n", anchor.ArchivedThroughSeq, archiveDir(cfg.DataDir))
+				return 1
+			}
+			if _, err := os.Stat(anchor.ArchivePath); err != nil && anchor.ArchivePath != "" {
+				fmt.Fprintf(stderr, "audit: chain BROKEN: the archive the anchor names (%s) is gone\n",
+					anchor.ArchivePath)
+				return 1
+			}
+			if idx, err := audit.VerifyWithArchives(context.Background(), as, archives); err != nil {
+				fmt.Fprintf(stderr, "audit: chain BROKEN at row %d: %v\n", idx, err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "audit chain verified across %d archive file(s) + %d live events, intact\n",
+				len(archives), len(events))
+			return 0
+		}
+		fmt.Fprintf(stdout, "audit chain verified: %d events, intact\n", len(events))
+		return 0
+	case "repair":
+		// Finish an archive run that died between recording the anchor and
+		// removing the rows it covers. Safe because the archive file was
+		// written, read back and verified before the anchor was ever written.
+		n, err := audit.Repair(context.Background(), as)
+		if err != nil {
+			fmt.Fprintln(stderr, "audit:", err)
+			return 1
+		}
+		if n == 0 {
+			fmt.Fprintln(stdout, "audit: nothing to repair")
+			return 0
+		}
+		fmt.Fprintf(stdout, "audit: repaired an interrupted archive; removed %d row(s)\n", n)
+		return 0
+	case "archive":
+		res, err := audit.Archive(context.Background(), as, archiveDir(cfg.DataDir), throughSeq, nil)
+		if err != nil {
+			fmt.Fprintln(stderr, "audit:", err)
+			return 1
+		}
+		if res.Archived == 0 {
+			fmt.Fprintln(stdout, "audit: nothing to archive")
+			return 0
+		}
+		fmt.Fprintf(stdout, "archived %d events through seq %d to %s\n", res.Archived, res.Through, res.Path)
+		return 0
+	case "export":
+		if err := audit.ExportJSONL(stdout, events); err != nil {
+			fmt.Fprintln(stderr, "audit:", err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: pact-gateway audit <verify|export|archive|repair> [flags]")
+		return 2
+	}
+}
+
+// archiveDir is where audit archives live: beside the store, so a backup that
+// copies the data directory copies the chain's history with it.
+func archiveDir(dataDir string) string { return filepath.Join(dataDir, "audit") }
+
+// archiveFiles lists the archive segments in seq order — the filenames are
+// zero-padded, so lexical order is chain order.
+func archiveFiles(dataDir string) []string {
+	matches, err := filepath.Glob(filepath.Join(archiveDir(dataDir), "audit-*.jsonl"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(matches)
+	return matches
+}
+
+func runErr(err error, stderr io.Writer) int {
+	if err != nil {
+		fmt.Fprintln(stderr, "serve:", err)
+		return 1
+	}
+	return 0
+}
+
+func migrate(args []string, stdout, stderr io.Writer) int {
+	var cfgPath string
+	fs := commonFlags("migrate", &cfgPath, stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
+		return 1
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
+		return 1
+	}
+	// SPEC §12.1: offline command — refuse while the node holds the lock.
+	lock, err := core.AcquireLock(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
+		return 1
+	}
+	defer lock.Release()
+
+	s, err := openStore(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
+		return 1
+	}
+	defer s.Close()
+	if err := s.Migrate(context.Background()); err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "migrations applied")
+	return 0
+}
+
+func openStore(cfg *core.Config) (store.Store, error) {
+	switch cfg.StoreEngine {
+	case "postgres":
+		return store.OpenPostgres(context.Background(), cfg.PostgresDSN)
+	default:
+		return store.OpenSQLite(filepath.Join(cfg.DataDir, "pact.db"))
+	}
+}
+
+// healthcheck probes the internal listener's /healthz; the container HEALTHCHECK
+// runs this (distroless has no shell or curl). Exit 0 iff healthy.
+func healthcheck(args []string, stderr io.Writer) int {
+	var cfgPath string
+	fs := commonFlags("healthcheck", &cfgPath, stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "healthcheck:", err)
+		return 1
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://" + cfg.InternalBind + "/healthz")
+	if err != nil {
+		fmt.Fprintln(stderr, "healthcheck:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(stderr, "healthcheck: status", resp.Status)
+		return 1
+	}
+	return 0
+}
+
+func doctor(args []string, stdout, stderr io.Writer) int {
+	var cfgPath string
+	fs := commonFlags("doctor", &cfgPath, stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	fail := 0
+	report := func(name string, err error) {
+		if err != nil {
+			fmt.Fprintf(stdout, "FAIL %-12s %v\n", name, err)
+			fail = 1
+			return
+		}
+		fmt.Fprintf(stdout, "ok   %s\n", name)
+	}
+
+	cfg, err := loadConfig(cfgPath)
+	report("config", err)
+	if cfg == nil {
+		return 1
+	}
+	_, statErr := os.Stat(cfg.DataDir)
+	report("data-dir", statErr)
+
+	if lock, err := core.AcquireLock(cfg.DataDir); err != nil {
+		// A held lock means a node is serving — report, don't fail.
+		fmt.Fprintln(stdout, "ok   lock         held (node appears to be running)")
+		var pong map[string]string
+		report("admin-sock", core.AdminCall(core.AdminSocketPath(cfg.DataDir), "ping", nil, &pong))
+	} else {
+		lock.Release()
+		fmt.Fprintln(stdout, "ok   lock         free (node not running)")
+	}
+
+	var pin string
+	if statErr == nil {
+		s, err := openStore(cfg)
+		report("store-open", err)
+		if err == nil {
+			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
+				pin = accts[0].Fingerprint
+			}
+			s.Close()
+		}
+	}
+
+	// tunnel + reachability (SPEC §10.4): mode is derived, so say what it derived
+	name := cfg.Tunnel
+	if name == "" {
+		name = "direct"
+	}
+	fmt.Fprintf(stdout, "ok   tunnel       %s (mode %s, seal %s, client_cert %s)\n", name, cfg.Mode, cfg.Seal, cfg.ClientCert)
+	if cfg.PublicURL == "" {
+		fmt.Fprintln(stdout, "warn probe        skipped: public_url not configured")
+		return fail
+	}
+	if cfg.Mode == core.ModeEdge {
+		pin = "" // the edge's WebPKI certificate is what peers see
+	}
+	res := tunnel.Probe(context.Background(), cfg.PublicURL, tunnel.ProbeOptions{
+		PinnedFingerprint: pin, Timeout: 5 * time.Second, SelfOriginated: true,
+	})
+	switch res.Verdict {
+	case tunnel.VerdictReachable:
+		fmt.Fprintf(stdout, "ok   probe        %s reachable (%s)\n", cfg.PublicURL, res.Caveat)
+	default:
+		fmt.Fprintf(stdout, "FAIL probe        %s %s: %s\n", cfg.PublicURL, res.Verdict, res.Detail)
+		fail = 1
+	}
+	return fail
+}

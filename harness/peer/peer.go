@@ -1,0 +1,138 @@
+// Package peer acts as a contact's agent against a node's public surface.
+//
+// It reuses the product's own outbound client rather than reimplementing mTLS.
+// That is possible even though the harness is a separate module: Go's internal
+// rule is by IMPORT-PATH tree, and `…/pact-gateway/harness` sits inside
+// `…/pact-gateway`, so `internal/outbound` is importable here. Reimplementing the
+// dialling would have meant a scenario could pass against a peer that the real
+// product could never have talked to.
+package peer
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/outbound"
+)
+
+// Agent is one contact's agent: an identity plus the client that speaks for it.
+type Agent struct {
+	Keypair *identity.Keypair
+	Client  *outbound.Client
+}
+
+// NewAgent mints a fresh identity and the client that presents it. Each scenario
+// gets its own, because identity IS the caller in PACT — sharing one between two
+// simulated contacts would make every tier and permission assertion meaningless.
+func NewAgent(name string) (*Agent, error) {
+	if name == "" {
+		name = "harness-peer"
+	}
+	algo := identity.AlgoP256
+	kp, err := identity.Generate(algo)
+	if err != nil {
+		return nil, fmt.Errorf("peer: generating identity: %w", err)
+	}
+	der, err := identity.SelfSignedCert(kp, name)
+	if err != nil {
+		return nil, fmt.Errorf("peer: minting client certificate: %w", err)
+	}
+	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
+	return &Agent{
+		Keypair: kp,
+		// Roots is empty on purpose: a peer trusts the node by PINNED KEY, not by
+		// WebPKI (SPEC §2). An empty pool means a mis-pinned peer fails closed.
+		Client: &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()},
+	}, nil
+}
+
+// Fingerprint is this agent's PACT §2 identity.
+func (a *Agent) Fingerprint() string { return a.Keypair.Fingerprint }
+
+// Target names a node this agent calls.
+type Target struct {
+	// Endpoint is the node's MCP URL, e.g. https://host:8443/a/alice/mcp
+	Endpoint string
+	// Fingerprint is the node's identity, pinned. Empty means "accept WebPKI",
+	// which is only correct for a relay with a real certificate.
+	Fingerprint string
+	// SPKI, when known, is the node's public key for sealing (SPEC §13).
+	SPKI []byte
+	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
+	Seal string
+}
+
+// Call invokes one tool on the target and returns the decoded result content.
+//
+// msgID is the caller-supplied idempotency key of PACT §6.2 — the SAME value must
+// be reused across retries, which is what makes a retry safe.
+func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
+	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
+	res, err := a.Client.Call(ctx, p, t.SPKI, tool, args, msgID)
+	if err != nil {
+		return "", fmt.Errorf("peer: calling %s: %w", tool, err)
+	}
+	return renderResult(res)
+}
+
+// ListTools returns the tool names this node serves THIS agent.
+//
+// The list is the switchboard's answer, not a catalogue: SPEC §5.4 filters
+// tools/list per caller, so an unknown identity sees exactly the guest tier. That
+// makes this the cheapest end-to-end proof that real mTLS reached a real node and
+// tier resolution ran — no pairing required.
+func (a *Agent) ListTools(ctx context.Context, t Target) ([]string, error) {
+	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
+	hc, err := a.Client.HTTPClient(p)
+	if err != nil {
+		return nil, fmt.Errorf("peer: building mTLS client: %w", err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "harness-peer", Version: "1"}, nil).
+		Connect(ctx, &mcp.StreamableClientTransport{Endpoint: t.Endpoint, HTTPClient: hc}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("peer: connecting to %s: %w", t.Endpoint, err)
+	}
+	defer cs.Close()
+	list, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("peer: listing tools: %w", err)
+	}
+	var names []string
+	for _, tl := range list.Tools {
+		names = append(names, tl.Name)
+	}
+	return names, nil
+}
+
+// renderResult flattens an MCP result to text, preserving the error flag: a peer
+// that refuses is giving an ANSWER, and a driver that swallowed it would make a
+// refusal look like a success.
+func renderResult(res any) (string, error) {
+	b, err := json.Marshal(res)
+	if err != nil {
+		return "", err
+	}
+	var shape struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(b, &shape); err != nil {
+		return string(b), nil
+	}
+	text := ""
+	for _, c := range shape.Content {
+		text += c.Text
+	}
+	if shape.IsError {
+		return text, fmt.Errorf("peer: the node refused: %s", text)
+	}
+	return text, nil
+}

@@ -1,0 +1,11 @@
+/pact-gateway
+/dist/
+/data/
+*.db
+*.db-journal
+.DS_Store
+
+# Extracted by `make harness-kernel` for the VM topology.
+.harness-kernel/
+web/node_modules/
+docs/conformance-pact-*.json

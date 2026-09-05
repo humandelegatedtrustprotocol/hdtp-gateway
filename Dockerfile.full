@@ -1,0 +1,54 @@
+# pact-gateway -full image (SPEC §12.3): adds node and uv so supervised stdio
+# integration children (npx / uvx MCP servers) can run in-container (SPEC §6).
+#
+# UPGRADING FROM AN EARLIER -full IMAGE: this one runs as uid 65532, matching
+# the shipped image, where earlier builds ran as node (1000). A /data volume
+# written by one of those needs `chown -R 65532:65532` once, or the node exits
+# on boot with "lock: open /data/pact.lock: permission denied". Nothing has
+# been released, so this affects local builds only.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+ARG VERSION=0.1.0-dev
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X main.version=${VERSION}" \
+      -o /pact-gateway ./cmd/pact-gateway
+RUN mkdir /data-skel
+
+FROM node:22-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+# /usr/local/bin is on distroless's PATH, so the documented
+# `docker compose exec pact-gateway pact-gateway <cmd>` resolves. Copied to
+# BOTH paths: the entrypoint and every doc that says /pact-gateway keep working.
+COPY --from=build /pact-gateway /pact-gateway
+COPY --from=build /pact-gateway /usr/local/bin/pact-gateway
+# The same uid:gid as the shipped image's `nonroot`. Swapping a node between
+# the two images is the documented move for adding a supervised stdio
+# integration (SPEC §12.3), and the images disagreeing on who runs made that
+# swap fail on the data directory: node (1000) cannot open a /data seeded for
+# 65532, so the node exited with "lock: open /data/pact.lock: permission
+# denied". npm's global prefix moves too, because 65532 has no home here.
+# node:22-slim ships NO CA bundle, and Go reads the system roots: without this
+# a node on the -full image cannot validate any WebPKI peer, so every contact
+# behind a terminating edge (a Cloudflare tunnel, say) fails with "certificate
+# signed by unknown authority" while the distroless image talks to them fine.
+# The shipped image gets its roots from distroless; this one has to ask.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 65532 nonroot \
+ && useradd -u 65532 -g 65532 -m -s /usr/sbin/nologin nonroot \
+ && npm config -g set prefix /usr/local \
+ && chown -R 65532:65532 /usr/local/lib/node_modules /usr/local/bin
+COPY --from=build --chown=65532:65532 /data-skel /data
+ENV PACT_DATA_DIR=/data
+VOLUME /data
+EXPOSE 8080 8443
+USER 65532:65532
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["/pact-gateway", "healthcheck"]
+ENTRYPOINT ["/pact-gateway"]
+CMD ["serve"]

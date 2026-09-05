@@ -1,0 +1,207 @@
+package public
+
+// `sealed_call` (SPEC §4.5, PACT §13.2): the one wrapper tool that carries
+// sealing MCP-natively. It is present at EVERY tier — guest, pending, contact —
+// so it is registered once per tier and exactly one entry matches any caller.
+//
+// The inner request is dispatched against the caller's own composed surface
+// through the SAME policy path a direct call takes (Pool.Dispatch → guarded →
+// policy.Allow), using the identity the envelope proved — which in edge and
+// relay-assisted mode is the only identity there is. The result is sealed back
+// to that caller: a sealed request gets a sealed result, always.
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/tech-sumit/pact-gateway/internal/core/policy"
+	"github.com/tech-sumit/pact-gateway/internal/envelope"
+	"github.com/tech-sumit/pact-gateway/internal/identity"
+)
+
+// SealedToolName is the wrapper's tool name on every tier.
+const SealedToolName = "sealed_call"
+
+// ResultLifetime bounds a result envelope's exp (well inside PACT's 30-day cap).
+const ResultLifetime = 5 * time.Minute
+
+// SealedDeps is what the wrapper needs for one account.
+type SealedDeps struct {
+	Pool       *Pool
+	Identifier *Identifier
+	AccountID  string
+	AccountFpr string
+	// Keypair unseals the account identity key (to open and to sign results).
+	Keypair func(ctx context.Context) (*identity.Keypair, error)
+	// Idem is optional; nil disables envelope-level msg_id replay.
+	Idem IdempotencyStore
+	// Delivery marks how envelopes reach this surface (relay fetch = DeliveryRelay).
+	Delivery Delivery
+	Now      func() time.Time
+	Audit    func(action, resource, outcome string)
+}
+
+func (d SealedDeps) now() time.Time {
+	if d.Now != nil {
+		return d.Now()
+	}
+	return time.Now()
+}
+
+func (d SealedDeps) audit(action, resource, outcome string) {
+	if d.Audit != nil {
+		d.Audit(action, resource, outcome)
+	}
+}
+
+// sealedTool is the tool definition; arguments are the four envelope members.
+func sealedTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:        SealedToolName,
+		Description: "Carry a sealed PACT envelope; the inner call is dispatched as the envelope's proven identity and the result is sealed back",
+		InputSchema: json.RawMessage(`{"type":"object","required":["protected","enc","ct","sig"],"properties":{"protected":{"type":"string"},"enc":{"type":"string"},"ct":{"type":"string"},"sig":{"type":"string"}},"additionalProperties":false}`),
+	}
+}
+
+// SealedEntries returns the registry entries for `sealed_call` — one per tier,
+// ungated by any permission, so every caller sees exactly one (SPEC §4.5).
+func SealedEntries(d SealedDeps) []Entry {
+	h := sealedHandler(d)
+	out := make([]Entry, 0, 3)
+	for _, tier := range []policy.Tier{policy.TierGuest, policy.TierPending, policy.TierContact} {
+		out = append(out, Entry{Tool: sealedTool(), Rule: policy.Rule{Tier: tier}, Handler: h})
+	}
+	return out
+}
+
+// errEnvelope is the wire failure of the WRAPPER itself: a call that never got
+// far enough to have a sealed answer (bad envelope, refused policy). The code
+// travels as a plain tool error — there is no key to seal it to yet.
+func errEnvelope(code string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{IsError: true,
+		Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + code + `"}`}}}
+}
+
+func sealedHandler(d SealedDeps) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var env envelope.Envelope
+		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
+			return errEnvelope("envelope_invalid"), nil
+		}
+		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, d.AccountFpr, FactsFrom(ctx), &env, d.Delivery)
+		if err != nil {
+			d.audit("sealed_call", "account:"+d.AccountID, Code(err))
+			return errEnvelope(Code(err)), nil
+		}
+		// Envelope-level idempotency (§4.4 step 8): a replay is acknowledged
+		// with its recorded result, never re-executed.
+		if ack, replayed, err := d.Identifier.Replay(ctx, d.Idem, d.AccountID, facts); err == nil && replayed {
+			return d.sealBack(ctx, facts, json.RawMessage(ack))
+		}
+		// Handlers see the envelope's facts exactly as they see transport facts,
+		// so a guest tool can pin the key the envelope proved (§5.3).
+		inner, err := d.Pool.Dispatch(WithEnvelopeFacts(ctx, facts), d.AccountID, facts.From, facts.Payload)
+		if err != nil {
+			// The envelope opened, so the caller's key is in hand — and §13.2
+			// says errors follow the sealing rule once it is: a plaintext error
+			// here would leak the failure shape to whatever carried the call.
+			// Plaintext errors are only for envelopes that could not be opened.
+			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
+			if inner, merr := json.Marshal(codeResult("unavailable")); merr == nil {
+				return d.sealBack(ctx, facts, inner)
+			}
+			return errEnvelope("unavailable"), nil
+		}
+		if d.Idem != nil && facts.Header.MsgID != "" {
+			if u, ok := d.Idem.(interface {
+				UpdateIdempotencyAck(ctx context.Context, accountID, contactFpr, msgID, ack string) error
+			}); ok {
+				_ = u.UpdateIdempotencyAck(ctx, d.AccountID, facts.From, EnvelopeKey(facts.Header.MsgID), string(inner))
+			}
+		}
+		d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "ok")
+		return d.sealBack(ctx, facts, inner)
+	}
+}
+
+// sealBack seals the inner result to the caller (§4.5: a sealed request MUST get
+// a sealed result — same format, from/to swapped, the request's msg_id).
+func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
+	kp, err := d.Keypair(ctx)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	callerPub, err := x509.ParsePKIXPublicKey(facts.SPKI)
+	if err != nil {
+		return errEnvelope("envelope_invalid"), nil
+	}
+	now := d.now()
+	out, err := envelope.Seal(envelope.SealParams{
+		Sender: kp, RecipientPub: callerPub, To: facts.From,
+		MsgID: facts.Header.MsgID, TS: now.Unix(), Exp: now.Add(ResultLifetime).Unix(),
+		CTY: "application/pact-result+json",
+	}, inner)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
+}
+
+// Dispatch runs one inner request against the caller's composed surface. It is
+// the sealed path's equivalent of an MCP request arriving directly: the same
+// registry, the same policy.Allow, the same call-time re-check (SPEC §4.5).
+func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload) (json.RawMessage, error) {
+	caller, err := p.Resolve(ctx, accountID, fpr)
+	if err != nil {
+		return nil, err
+	}
+	switch pay.Method {
+	case "tools/list":
+		tools := make([]*mcp.Tool, 0, 8)
+		for _, e := range p.Registry.snapshot() {
+			if policy.Allow(caller, e.Rule) {
+				tools = append(tools, e.Tool)
+			}
+		}
+		return json.Marshal(map[string]any{"tools": tools})
+	case "tools/call":
+		var call struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal(pay.Params, &call); err != nil {
+			return nil, fmt.Errorf("%w: inner params", envelope.ErrInvalid)
+		}
+		for _, e := range p.Registry.snapshot() {
+			if e.Tool.Name != call.Name {
+				continue
+			}
+			// guarded() re-checks policy.Allow at call time — a sealed call gets
+			// no weaker gate than a direct one.
+			res, err := p.guarded(accountID, fpr, e)(ctx, &mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{Name: call.Name, Arguments: call.Arguments},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(res)
+		}
+		// A tool the caller may not see is indistinguishable from one that does
+		// not exist (§5.4), and at guest tier that answer is `blocked_or_unknown`
+		// — the same one a blocked caller gets, which is the point.
+		code := refusalCode(caller.Tier)
+		p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+call.Name, code)
+		return json.Marshal(codeResult(code))
+	default:
+		return nil, fmt.Errorf("%w: inner method %q", envelope.ErrInvalid, pay.Method)
+	}
+}

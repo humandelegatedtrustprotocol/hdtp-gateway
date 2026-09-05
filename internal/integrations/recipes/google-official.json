@@ -1,0 +1,31 @@
+{
+  "name": "google-official",
+  "server": "https://calendarmcp.googleapis.com/mcp/v1",
+  "description": "Google official Calendar MCP (Developer Preview): suggest_time already returns candidate times; streamable-http + oauth.",
+  "caveats": [
+    "create_event write scope UNVERIFIED: the server's configuration docs showed only read-only and free-busy scopes. Confirm the scope during setup BEFORE enabling booking (SPEC §6.7)."
+  ],
+  "capabilities": {
+    "check_availability": {
+      "tool": "suggest_time",
+      "kind": "suggest",
+      "args": {
+        "time_min": "$window_start",
+        "time_max": "$window_end",
+        "duration_minutes": "$duration_minutes"
+      },
+      "out": { "slots": "suggestions", "slot_start": "start_time", "slot_end": "end_time" }
+    },
+    "book_slot": {
+      "tool": "create_event",
+      "kind": "create",
+      "args": { "start_time": "$start", "end_time": "$end", "summary": "$subject" },
+      "out": { "event_id": "event_id" }
+    },
+    "cancel_booking": {
+      "tool": "delete_event",
+      "kind": "delete",
+      "args": { "event_id": "$event_id" }
+    }
+  }
+}

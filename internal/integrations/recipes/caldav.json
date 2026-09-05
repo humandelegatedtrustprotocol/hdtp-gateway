@@ -1,0 +1,47 @@
+{
+  "name": "caldav",
+  "server": "caldav-mcp",
+  "description": "dominik1001/caldav-mcp: a plain CalDAV client (Radicale, Nextcloud, Fastmail, iCloud). No free/busy tool — the provider computes candidate slots from the events list-events returns. stdio-supervised; basic auth via CALDAV_USERNAME/CALDAV_PASSWORD in the child's environment.",
+  "caveats": [
+    "Needs a per-install collection URL: set integration.<slug>.calendar_url in Settings, which the recipe reads as $cfg.calendar_url. Every tool here requires it and the server has no default.",
+    "list-events returns full events — summary, description, location — not opaque busy blocks. The provider never emits them: only computed candidate slots leave it (SPEC §6.7). Exposing list-events UNMAPPED would publish the calendar's contents to a contact.",
+    "create-event answers with the event's uid as plain text, not JSON."
+  ],
+  "capabilities": {
+    "check_availability": {
+      "tool": "list-events",
+      "kind": "freebusy",
+      "args": {
+        "calendarUrl": "$cfg.calendar_url",
+        "start": "$window_start",
+        "end": "$window_end"
+      },
+      "out": {
+        "busy": "",
+        "busy_start": "start",
+        "busy_end": "end"
+      }
+    },
+    "book_slot": {
+      "tool": "create-event",
+      "kind": "create",
+      "args": {
+        "calendarUrl": "$cfg.calendar_url",
+        "summary": "$subject",
+        "start": "$start",
+        "end": "$end"
+      },
+      "out": {
+        "event_id": ""
+      }
+    },
+    "cancel_booking": {
+      "tool": "delete-event",
+      "kind": "delete",
+      "args": {
+        "calendarUrl": "$cfg.calendar_url",
+        "uid": "$event_id"
+      }
+    }
+  }
+}

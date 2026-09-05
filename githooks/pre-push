@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Pre-push: run the scenario harness here, because CI cannot.
+#
+# The harness is a separate module that drives real containers and a real Chrome
+# over CDP. A GitHub runner has neither Chrome nor a reason to build the product
+# image, so running it there produced failures about the runner rather than
+# about the product — every scenario dying with "chrome failed to start". The
+# machine that can actually run it is this one.
+#
+# What runs by default is the hermetic tier: the fabric, topology, preflight and
+# invariant packages, tested against a recorder. No Docker, ~5 seconds. It is
+# the tier that catches the harness breaking, which is what a push should not
+# carry.
+#
+# The LIVE tiers need Docker and Chrome and take minutes, so they are opt-in:
+#
+#     PACT_PREPUSH_LIVE=1 git push          # the fast live subset
+#     PACT_PREPUSH_LIVE=full git push       # the whole matrix
+#
+# Bypass entirely with `git push --no-verify` when you know what you are doing.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+# A push that only deletes refs has nothing to test.
+only_deletes=true
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] || only_deletes=false
+done
+if [ "$only_deletes" = true ]; then
+  exit 0
+fi
+
+echo "pre-push: harness (hermetic) — CI does not run this"
+if ! make harness; then
+  echo >&2
+  echo "pre-push: the harness is broken. Fix it, or push with --no-verify if you" >&2
+  echo "          are deliberately pushing a known-broken harness." >&2
+  exit 1
+fi
+
+case "${PACT_PREPUSH_LIVE:-}" in
+  "") ;;
+  full)
+    echo "pre-push: harness (full matrix) — needs Docker and Chrome"
+    make harness-image && make harness-shaper && make harness-nightly
+    ;;
+  *)
+    echo "pre-push: harness (live subset) — needs Docker and Chrome"
+    make harness-image && make harness-shaper && make harness-pr
+    ;;
+esac

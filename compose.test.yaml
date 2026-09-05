@@ -1,0 +1,13 @@
+# Test-only Postgres for the store conformance suite:
+#   docker compose -f compose.test.yaml up -d
+#   PACT_TEST_POSTGRES_DSN='postgres://pact:pact@localhost:54329/postgres?sslmode=disable' go test ./internal/core/store/
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: pact
+    ports:
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data

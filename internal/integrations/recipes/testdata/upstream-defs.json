@@ -1,0 +1,109 @@
+{
+  "caldav": [
+    {
+      "name": "list-events",
+      "properties": [
+        "start",
+        "end",
+        "calendarUrl"
+      ]
+    },
+    {
+      "name": "create-event",
+      "properties": [
+        "summary",
+        "start",
+        "end",
+        "wholeDay",
+        "calendarUrl",
+        "description",
+        "location",
+        "recurrenceRule"
+      ]
+    },
+    {
+      "name": "delete-event",
+      "properties": [
+        "uid",
+        "calendarUrl"
+      ]
+    }
+  ],
+  "google-official": [
+    {
+      "name": "suggest_time",
+      "properties": [
+        "time_min",
+        "time_max",
+        "duration_minutes",
+        "attendees"
+      ]
+    },
+    {
+      "name": "create_event",
+      "properties": [
+        "start_time",
+        "end_time",
+        "summary",
+        "attendees",
+        "description"
+      ]
+    },
+    {
+      "name": "delete_event",
+      "properties": [
+        "event_id"
+      ]
+    }
+  ],
+  "nspady": [
+    {
+      "name": "get-freebusy",
+      "properties": [
+        "timeMin",
+        "timeMax",
+        "timeZone",
+        "calendarId"
+      ]
+    },
+    {
+      "name": "create-event",
+      "properties": [
+        "summary",
+        "start",
+        "end",
+        "calendarId",
+        "description",
+        "attendees"
+      ]
+    },
+    {
+      "name": "delete-event",
+      "properties": [
+        "eventId",
+        "calendarId"
+      ]
+    }
+  ],
+  "workspace-mcp": [
+    {
+      "name": "query_freebusy",
+      "properties": [
+        "time_min",
+        "time_max",
+        "calendars"
+      ]
+    },
+    {
+      "name": "manage_event",
+      "properties": [
+        "action",
+        "summary",
+        "start_time",
+        "end_time",
+        "event_id",
+        "calendar_id"
+      ]
+    }
+  ]
+}

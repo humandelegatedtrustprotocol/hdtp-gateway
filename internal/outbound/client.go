@@ -1,0 +1,324 @@
+// Package outbound implements calls TO contacts (SPEC §10.3): the account keypair
+// as client certificate — sent unconditionally via GetClientCertificate, because an
+// edge's CertificateRequest may advertise CAs a self-signed identity cannot satisfy
+// and Go's default selection would then silently send nothing — server validation
+// per PACT §2 (pinned fingerprint first, else WebPKI for the hostname), and the
+// outbound half of the seal policy (SPEC §4.6).
+package outbound
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/tech-sumit/pact-gateway/internal/envelope"
+	"github.com/tech-sumit/pact-gateway/internal/identity"
+)
+
+var ErrSealRequired = errors.New("seal_required")
+
+// Peer is the contact-card view the client needs (SPEC §9.3).
+type Peer struct {
+	Endpoint    string // X-PACT-ENDPOINT
+	Fingerprint string // X-PACT-KEY — the pinned identity
+	Seal        string // X-PACT-SEAL: none | optional | required ("" = none)
+}
+
+type Client struct {
+	Keypair *identity.Keypair
+	Cert    tls.Certificate
+	Roots   *x509.CertPool // nil = system roots; injectable for tests
+}
+
+// tlsConfig builds the per-peer TLS client configuration implementing PACT §2's
+// server-side rule: accept iff the presented SPKI matches the pinned contact
+// fingerprint, else require WebPKI validity for the endpoint hostname.
+func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// Verification is fully custom below; the default chain check must not run
+		// first or pinned self-signed servers could never connect.
+		InsecureSkipVerify: true, // #nosec G402 -- VerifyPeerCertificate below pins by SPKI (PACT §2)
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return &c.Cert, nil // unconditional (SPEC §10.3)
+		},
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return errors.New("outbound: server presented no certificate")
+			}
+			leaf, err := x509.ParseCertificate(rawCerts[0])
+			if err != nil {
+				return fmt.Errorf("outbound: %w", err)
+			}
+			// (a) pinned identity as server certificate
+			if fpr, err := identity.Fingerprint(leaf.PublicKey); err == nil && fpr == peer.Fingerprint {
+				return nil
+			}
+			// (b) WebPKI for the hostname
+			inter := x509.NewCertPool()
+			for _, raw := range rawCerts[1:] {
+				if ic, err := x509.ParseCertificate(raw); err == nil {
+					inter.AddCert(ic)
+				}
+			}
+			_, err = leaf.Verify(x509.VerifyOptions{
+				DNSName: hostname, Roots: c.Roots, Intermediates: inter,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			})
+			if err != nil {
+				return fmt.Errorf("outbound: server is neither the pinned key nor WebPKI-valid for %s: %w", hostname, err)
+			}
+			return nil
+		},
+	}
+}
+
+// HTTPClient returns a client that dials the peer under the rules above.
+func (c *Client) HTTPClient(peer Peer) (*http.Client, error) {
+	u, err := url.Parse(peer.Endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("outbound: %w", err)
+	}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: c.tlsConfig(peer, u.Hostname()),
+		},
+	}, nil
+}
+
+type CallOptions struct {
+	// Plaintext forces an unsealed call; refused locally against a
+	// seal-required peer (SPEC §4.6) before any bytes leave the node.
+	Plaintext bool
+}
+
+// CallTool connects an MCP client session to the peer and invokes one tool.
+// Sealing of the call itself rides the sealed_call wrapper wired in P1-08/P1-11;
+// the outbound seal DECISION lives here so policy has exactly one home.
+func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[string]any, opts CallOptions) (*mcp.CallToolResult, error) {
+	if peer.Seal == "required" && opts.Plaintext {
+		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)
+	}
+	hc, err := c.HTTPClient(peer)
+	if err != nil {
+		return nil, err
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: peer.Endpoint, HTTPClient: hc,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("outbound: %w", err)
+	}
+	defer session.Close()
+	return session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
+}
+
+// ListTools asks the peer what this identity may call there. tools/list is the
+// one method every node answers at every tier, sealed or not (PACT §13.4), and
+// the list comes back already filtered by the peer's switchboard for us.
+func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) {
+	hc, err := c.HTTPClient(peer)
+	if err != nil {
+		return nil, err
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: peer.Endpoint, HTTPClient: hc}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("outbound: %w", err)
+	}
+	defer session.Close()
+	res, err := session.ListTools(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return res.Tools, nil
+}
+
+// SealedCall wraps one inner tools/call in an envelope, invokes the peer's
+// `sealed_call`, and opens the sealed answer (SPEC §4.5). peerSPKI is the
+// recipient's public key — pinned at add-contact time, or taken from the invite
+// landing page for a first, guest call — and MUST hash to peer.Fingerprint.
+// spk carries OUR key inside the payload so an unpinned recipient can verify
+// the signature (§4.4 step 6); it costs nothing to include when already pinned.
+// Call makes a tool call the way the PEER'S CARD says it must be made.
+//
+// The seal decision is one rule and belongs in one place: every outbound call
+// site was choosing for itself, and the rotation fan-out chose `Plaintext: true`
+// unconditionally — so `account rotate` was refused `seal_required` by any peer
+// whose card asks for sealing, silently losing that contact at grace expiry.
+//
+// peerSPKI may be nil: a contact re-pinned but not yet reconnected holds only a
+// fingerprint (§3.9). Then a peer that REQUIRES sealing is a hard failure, and
+// one that merely accepts it gets plaintext.
+func (c *Client) Call(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
+	sealable := peer.Seal == "required" || peer.Seal == "optional"
+	if sealable && len(peerSPKI) > 0 {
+		return c.SealedCall(ctx, peer, peerSPKI, tool, args, msgID)
+	}
+	if peer.Seal == "required" {
+		return nil, fmt.Errorf("outbound: %s requires sealed calls and only their "+
+			"fingerprint is pinned — they must reach us once so their key can be recorded", peer.Fingerprint)
+	}
+	return c.CallTool(ctx, peer, tool, args, CallOptions{Plaintext: true})
+}
+
+// SealEnvelope builds the sealed envelope a call travels in, with an explicit
+// expiry. A direct call lives five minutes; one handed to a relay must live as
+// long as the message's own deadline, since the relay holds it until the
+// recipient comes back (§4, §10.5) — so the lifetime is the caller's to choose.
+func (c *Client) SealEnvelope(peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string, exp time.Time) (*envelope.Envelope, error) {
+	sum := sha256.Sum256(peerSPKI)
+	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != peer.Fingerprint {
+		return nil, fmt.Errorf("outbound: peer key does not match the pinned fingerprint %s", peer.Fingerprint)
+	}
+	peerPub, err := x509.ParsePKIXPublicKey(peerSPKI)
+	if err != nil {
+		return nil, fmt.Errorf("outbound: peer key: %w", err)
+	}
+	mySPKI, err := x509.MarshalPKIXPublicKey(c.Keypair.Signer.Public())
+	if err != nil {
+		return nil, err
+	}
+	inner, err := json.Marshal(map[string]any{
+		"method": "tools/call",
+		"params": map[string]any{"name": tool, "arguments": args},
+		"spk":    base64.RawURLEncoding.EncodeToString(mySPKI),
+	})
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	return envelope.Seal(envelope.SealParams{
+		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
+		TS: now.Unix(), Exp: exp.Unix(), CTY: "application/pact-call+json",
+	}, inner)
+}
+
+func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
+	plain, refusal, err := c.sealedExchange(ctx, peer, peerSPKI, "tools/call",
+		map[string]any{"name": tool, "arguments": args}, msgID)
+	if err != nil {
+		return nil, err
+	}
+	if refusal != nil {
+		return refusal, nil // wrapper-level refusal: the code travels in plain text
+	}
+	var inner mcp.CallToolResult
+	if err := json.Unmarshal(plain, &inner); err != nil {
+		return nil, fmt.Errorf("outbound: inner result: %w", err)
+	}
+	return &inner, nil
+}
+
+// SealedListTools is tools/list inside a sealed envelope (SPEC §4.5): the only
+// way a caller behind a terminating edge learns its real surface, since the
+// plaintext list there arrives with no identity and is answered as to a
+// stranger. The peer applies its own switchboard to the answer.
+func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte, msgID string) ([]*mcp.Tool, error) {
+	plain, refusal, err := c.sealedExchange(ctx, peer, peerSPKI, "tools/list", nil, msgID)
+	if err != nil {
+		return nil, err
+	}
+	if refusal != nil {
+		msg := "refused"
+		if len(refusal.Content) > 0 {
+			if tc, ok := refusal.Content[0].(*mcp.TextContent); ok {
+				msg = tc.Text
+			}
+		}
+		return nil, fmt.Errorf("outbound: sealed tools/list: %s", msg)
+	}
+	var out struct {
+		Tools []*mcp.Tool `json:"tools"`
+	}
+	if err := json.Unmarshal(plain, &out); err != nil {
+		return nil, fmt.Errorf("outbound: inner tools/list: %w", err)
+	}
+	return out.Tools, nil
+}
+
+// sealedExchange seals one inner request to the peer, sends it as sealed_call,
+// and opens the answer: signature by the peer, addressed to us, for this
+// msg_id. A wrapper-level refusal comes back as a result, not an error — its
+// code is plaintext by design (SPEC §4.5).
+func (c *Client) sealedExchange(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
+	sum := sha256.Sum256(peerSPKI)
+	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != peer.Fingerprint {
+		return nil, nil, fmt.Errorf("outbound: peer key does not match the pinned fingerprint %s", peer.Fingerprint)
+	}
+	peerPub, err := x509.ParsePKIXPublicKey(peerSPKI)
+	if err != nil {
+		return nil, nil, fmt.Errorf("outbound: peer key: %w", err)
+	}
+	mySPKI, err := x509.MarshalPKIXPublicKey(c.Keypair.Signer.Public())
+	if err != nil {
+		return nil, nil, err
+	}
+	req := map[string]any{"method": method, "spk": base64.RawURLEncoding.EncodeToString(mySPKI)}
+	if params != nil {
+		req["params"] = params
+	}
+	inner, err := json.Marshal(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	env, err := envelope.Seal(envelope.SealParams{
+		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
+		TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(), CTY: "application/pact-call+json",
+	}, inner)
+	if err != nil {
+		return nil, nil, err
+	}
+	var wire map[string]any
+	b, _ := json.Marshal(env)
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return nil, nil, err
+	}
+	res, err := c.CallTool(ctx, peer, "sealed_call", wire, CallOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	if res.IsError {
+		return nil, res, nil
+	}
+	// open the sealed result: signature by the peer, addressed to us
+	var out envelope.Envelope
+	if len(res.Content) == 0 {
+		return nil, nil, fmt.Errorf("outbound: empty sealed result")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return nil, nil, fmt.Errorf("outbound: sealed result is not text")
+	}
+	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
+	}
+	h, err := envelope.ParseHeader(&out)
+	if err != nil {
+		return nil, nil, err
+	}
+	if h.From != peer.Fingerprint || h.To != c.Keypair.Fingerprint || h.MsgID != msgID {
+		return nil, nil, fmt.Errorf("outbound: result envelope is not this call's answer")
+	}
+	if err := envelope.VerifySig(&out, peerPub); err != nil {
+		return nil, nil, err
+	}
+	plain, err := envelope.Open(c.Keypair, &out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return plain, nil, nil
+}

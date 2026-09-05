@@ -1,0 +1,24 @@
+{
+  "name": "nspady",
+  "server": "@cocal/google-calendar-mcp",
+  "description": "nspady/google-calendar-mcp: free-busy tools; the provider computes candidate slots from busy blocks. stdio-supervised (default) or HTTP; oauth with Desktop-app credentials.",
+  "capabilities": {
+    "check_availability": {
+      "tool": "get-freebusy",
+      "kind": "freebusy",
+      "args": { "timeMin": "$window_start", "timeMax": "$window_end" },
+      "out": { "busy": "calendars.primary.busy", "busy_start": "start", "busy_end": "end" }
+    },
+    "book_slot": {
+      "tool": "create-event",
+      "kind": "create",
+      "args": { "summary": "$subject", "start": "$start", "end": "$end" },
+      "out": { "event_id": "id" }
+    },
+    "cancel_booking": {
+      "tool": "delete-event",
+      "kind": "delete",
+      "args": { "eventId": "$event_id" }
+    }
+  }
+}

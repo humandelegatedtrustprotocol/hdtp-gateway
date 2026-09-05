@@ -1,0 +1,76 @@
+# Demo: reachable through Tailscale Funnel (direct mode, no port forward)
+
+The `tailscale` adapter embeds the official **tsnet** library and asks Tailscale
+Funnel for a public TCP stream. The node runs its **own** TLS on that stream, so
+callers' client certificates reach the node end to end — this is **direct mode**
+(`TerminatesAtEdge=false`): `client_cert` stays `preferred`, `seal` stays owner-chosen
+(SPEC §10.1–§10.2). The Funnel relay never decrypts; it does see connection metadata
+(SPEC §13).
+
+**Verification status:** configuration plumbing is unit-tested
+(`internal/tunnel/tailscale_test.go`). CI cannot run Funnel (needs a tailnet). The live
+run below has **not yet been executed** — record it here when done:
+`Last manual run: —`.
+
+## Limits (tsnet, checked 2026-08-24)
+
+- TCP only; **ports 443, 8443 or 10000** — nothing else.
+- Hostname is the tsnet node's `*.ts.net` MagicDNS name; you cannot bring your own domain
+  (use the `direct`/`frp` adapters or the ingress role for that).
+- **Funnel is beta** and Tailscale-hosted; it must be enabled for the tailnet
+  (Admin console → DNS → HTTPS certificates + MagicDNS; Access controls → `nodeAttrs`
+  granting `funnel`).
+- An auth key: reusable, preauthorized, ideally tagged (Admin console → Keys).
+
+## Configure
+
+`config.json` (or env `PACT_TUNNEL=tailscale`):
+
+```json
+{
+  "tunnel": "tailscale",
+  "public_bind": "127.0.0.1:8443"
+}
+```
+
+Adapter settings live in the portal (*Settings → Adapter credentials*, stored
+encrypted with the node's keyring) or in the environment with a `PACT_TUNNEL_`
+prefix — `PACT_TUNNEL_AUTH_KEY` reaches the adapter as `auth_key`. The
+environment wins where both are set, and the page says so rather than letting
+you save a value that would be ignored.
+
+| key | value |
+|---|---|
+| `hostname` | `pact` → public name `pact.<tailnet>.ts.net` |
+| `auth_key` | the auth key (or set `TS_AUTHKEY` in the environment) |
+| `port` | `443` (default), `8443` or `10000` |
+| `funnel_only` | `true` to refuse tailnet-internal connections (public only) |
+| `state_dir` | where tsnet keeps node state (defaults under the data dir) |
+
+Because the adapter derives **direct** mode, the LAN-connections flag defaults **on**
+and carries no security weight here (SPEC §10.1).
+
+## Run and verify
+
+```
+pact-gateway serve
+pact-gateway doctor
+```
+
+`doctor` prints `ok tunnel tailscale (mode direct, seal required, client_cert preferred)`
+and runs the reachability probe against `https://pact.<tailnet>.ts.net`, pinned to the
+account's identity fingerprint (the node's self-signed listener is what Funnel forwards
+to, so a WebPKI check would be wrong). Expect `ok probe … reachable` with the hairpin
+caveat.
+
+From another machine on the open internet:
+
+```
+openssl s_client -connect pact.<tailnet>.ts.net:443 -servername pact.<tailnet>.ts.net </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256
+```
+
+The served certificate is the node's own (SPKI fingerprint = `X-PACT-KEY` on the card),
+proving end-to-end TLS through the Funnel.
+
+Then pair from a second node with the invite link — the card's `X-PACT-ENDPOINT` is
+`https://pact.<tailnet>.ts.net/a/<slug>/mcp`.

@@ -1,0 +1,75 @@
+# pact-gateway (SPEC §12.4). First run: `docker compose up` — the logs print the
+# portal URL and a one-time setup token. Until phase P2 lands passkeys + internal
+# TLS, the portal binds loopback INSIDE the container (the non-loopback startup
+# invariant of SPEC §8.3 is doing its job); the container healthcheck exercises it.
+# Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
+services:
+  # Named volumes are created root-owned and ownership propagation from the image
+  # is not reliable across Docker variants; this one-shot init hands /data to the
+  # distroless nonroot uid (65532). Using the -full image (user node, uid 1000)?
+  # Change the chown target to 1000:1000.
+  init-data:
+    image: alpine:3.20
+    command: ["chown", "65532:65532", "/data"]
+    volumes:
+      - pact-data:/data
+    restart: "no"
+
+  pact-gateway:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    volumes:
+      - pact-data:/data
+    ports:
+      # ONLY host loopback. The portal has no login on a loopback bind (SPEC §8.3),
+      # so it must not be reachable from your LAN — "127.0.0.1:" is what keeps it
+      # off. Publishing "8080:8080" instead would expose an unauthenticated portal
+      # to your whole network. Port 8081 is the forwarder below, not the node.
+      - "127.0.0.1:8080:8081"
+
+  # The portal forwarder.
+  #
+  # The node binds its internal surface to the CONTAINER's loopback, and SPEC §8.3
+  # refuses a non-loopback bind unless passkey auth and TLS are configured — which,
+  # on first run, the owner cannot have yet, because registering the first passkey
+  # is exactly what the wizard is for. So `docker compose up` used to print a
+  # portal URL that nothing could reach, even with a published port.
+  #
+  # This sidecar shares the node's network namespace, so 127.0.0.1 here IS the
+  # node's loopback. It forwards the published host-loopback port to it. The node's
+  # guard is untouched: it still refuses to bind anywhere but loopback, and the
+  # portal is still reachable only from this machine.
+  portal:
+    image: alpine/socat:latest
+    restart: unless-stopped
+    network_mode: "service:pact-gateway"
+    depends_on:
+      pact-gateway:
+        condition: service_started
+    command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"]
+
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}  # REQUIRED when running the postgres profile
+      POSTGRES_DB: pact
+    volumes:
+      - pact-pg:/var/lib/postgresql/data
+
+  cloudflared:
+    profiles: ["cloudflared"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}  # REQUIRED when running the cloudflared profile
+
+volumes:
+  pact-data:
+  pact-pg:
