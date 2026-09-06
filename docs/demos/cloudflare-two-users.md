@@ -4,7 +4,7 @@ The only demo where the product meets a **third-party edge it does not control**
 Two nodes, each behind its own Cloudflare tunnel on a subdomain of a real zone,
 pairing and messaging across the public internet.
 
-Executed against `pact-protocol.com` — `Last manual run: 2026-08-26`. It found
+Executed against `pact-gateway.com` — `Last manual run: 2026-09-06`; the first run, on `pact-protocol.com`, was 2026-08-26. It found
 E17 on its first attempt.
 
 It is worth the setup because edge mode cannot be faked convincingly. Cloudflare
