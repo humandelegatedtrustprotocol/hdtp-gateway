@@ -21,6 +21,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/tech-sumit/pact-gateway/pact-identity v0.0.0-00010101000000-000000000000
 	golang.ngrok.com/ngrok/v2 v2.2.0
 	golang.org/x/crypto v0.56.0
 	golang.org/x/oauth2 v0.36.0

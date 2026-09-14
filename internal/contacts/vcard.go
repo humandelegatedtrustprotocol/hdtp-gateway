@@ -8,9 +8,12 @@ package contacts
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	govcard "github.com/emersion/go-vcard"
+
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 const (
@@ -19,6 +22,7 @@ const (
 	propKey      = "X-PACT-KEY"
 	propSeal     = "X-PACT-SEAL"
 	propGateway  = "X-PACT-GATEWAY"
+	propCert     = "X-PACT-CERT"
 )
 
 // Card is the parsed view of a contact card.
@@ -31,6 +35,23 @@ type Card struct {
 	Key      string
 	Seal     string // none|optional|required; "" = absent = none (PACT §13.4)
 	Gateway  string
+	// Cert is the leaf certificate a 2.0 card carries (PACT §3), DER. On such a
+	// card Key is the ROOT fingerprint the leaf names as its issuer and Endpoint
+	// the leaf's subject alternative name — both read from the certificate,
+	// never from a property, so the card's shape reads as 1.x does to callers.
+	Cert []byte
+}
+
+// BuildCard20 renders a 2.0 card (PACT §3): the leaf, the version, the seal.
+func BuildCard20(fn string, leaf []byte, seal string) string {
+	return pactidentity.EncodeCard(fn, leaf, seal, nil)
+}
+
+// BuildCompatCard renders the compatibility card toward a peer known to be 1.x
+// (PACT Appendix C): version 1, the leaf's endpoint and key fingerprint, and
+// the leaf as an extra property a 2.0 receiver recognises.
+func BuildCompatCard(fn string, leaf []byte, seal string) (string, error) {
+	return pactidentity.EncodeCompatCard(fn, leaf, seal)
 }
 
 // BuildCard renders a PACT vCard 4.0.
@@ -84,6 +105,7 @@ func ParseCard(text string) (Card, error) {
 		Key:      get(propKey),
 		Seal:     get(propSeal),
 		Gateway:  get(propGateway),
+		Cert:     pactidentity.FromB64url(get(propCert)),
 	}, nil
 }
 
@@ -133,13 +155,27 @@ func ValidateInbound(text string) (Card, error) {
 	if err != nil {
 		return Card{}, err
 	}
+	// A 2.0 card: the certificate is the card (PACT §3). The library's intake
+	// refuses what has no root to pin or no address to reach; an expired leaf
+	// is not a refusal. Key and Endpoint come from the leaf.
+	if c.Version == "2" {
+		dc, err := pactidentity.DecodeCard(text, time.Now())
+		if err != nil {
+			return Card{}, fmt.Errorf("the card's certificate: %v", err)
+		}
+		c.Key, c.Endpoint, c.Cert = dc.Root, dc.Endpoint, dc.Cert
+		if dc.Seal != "none" {
+			c.Seal = dc.Seal
+		}
+		return c, nil
+	}
 	if c.Key == "" {
 		return Card{}, fmt.Errorf("the card carries no X-PACT-KEY")
 	}
 	// The property is optional on 1.x cards; absent means 1 (a 1.0 peer).
-	// Present, it must name major 1 — "2", "2.0" and friends are refused.
+	// Present, it must name major 1 or 2 — "3" and friends are refused.
 	if v := c.Version; v != "" && v != "1" && !strings.HasPrefix(v, "1.") {
-		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 1", v)
+		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 1 and 2", v)
 	}
 	if c.Endpoint == "" && c.Gateway == "" {
 		return Card{}, fmt.Errorf("the card names neither an endpoint nor a gateway; the peer could never be reached")
