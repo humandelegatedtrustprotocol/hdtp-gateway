@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 var ErrSealRequired = errors.New("seal_required")
@@ -32,12 +34,34 @@ type Peer struct {
 	Endpoint    string // X-PACT-ENDPOINT
 	Fingerprint string // X-PACT-KEY — the pinned identity
 	Seal        string // X-PACT-SEAL: none | optional | required ("" = none)
+	// PACT 2.0 (PACT §2, §14.3): a contact pinned by its root. Fingerprint is
+	// then the root's, Root names it again, Leaf is the latest leaf accepted
+	// (its key is what the call is sealed to and the answer verified under),
+	// and ChainSeen says this contact has already seen OUR current leaf, so
+	// the call carries our leaf's fingerprint rather than the chain (§13.2).
+	Protocol  int
+	Root      string
+	Leaf      []byte
+	ChainSeen bool
 }
 
 type Client struct {
 	Keypair *identity.Keypair
 	Cert    tls.Certificate
 	Roots   *x509.CertPool // nil = system roots; injectable for tests
+	// Now is the clock the 2.0 exchange dates envelopes and validates chains
+	// by; nil means time.Now.
+	Now func() time.Time
+	// OnChainSent is told that a peer has been sent our chain, so the host
+	// records that the next call may carry the fingerprint (PACT §13.2).
+	OnChainSent func(peer Peer)
+	// OnRepin is told of a newer leaf accepted for a peer — from a result, a
+	// certificate_renewed answer, or get_card — so the host moves the pin
+	// (PACT §14.3, §14.4). spki is the new leaf's key.
+	OnRepin func(peer Peer, leaf, spki []byte)
+	// DialContext overrides how the endpoint's host is reached; nil dials it.
+	// A test maps a leaf's endpoint host onto a local listener with it.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // tlsConfig builds the per-peer TLS client configuration implementing PACT §2's
@@ -59,6 +83,14 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 			leaf, err := x509.ParseCertificate(rawCerts[0])
 			if err != nil {
 				return fmt.Errorf("outbound: %w", err)
+			}
+			// (a2) PACT 2.0: the contact's own chain as the server certificate
+			// (PACT §2), validated to the pinned root at the dialed address.
+			if peer.Protocol == 2 && len(rawCerts) == 2 {
+				vr := pactidentity.ValidateChain([][]byte{rawCerts[0], rawCerts[1]}, pactidentity.ChainOpts{Now: c.now(), ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint})
+				if vr.OK {
+					return nil
+				}
 			}
 			// (a) pinned identity as server certificate
 			if fpr, err := identity.Fingerprint(leaf.PublicKey); err == nil && fpr == peer.Fingerprint {
@@ -93,6 +125,7 @@ func (c *Client) HTTPClient(peer Peer) (*http.Client, error) {
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: c.tlsConfig(peer, u.Hostname()),
+			DialContext:     c.DialContext,
 		},
 	}, nil
 }
@@ -207,7 +240,7 @@ func (c *Client) SealEnvelope(peer Peer, peerSPKI []byte, tool string, args map[
 }
 
 func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
-	plain, refusal, err := c.sealedExchange(ctx, peer, peerSPKI, "tools/call",
+	plain, refusal, err := c.exchange(ctx, peer, peerSPKI, "tools/call",
 		map[string]any{"name": tool, "arguments": args}, msgID)
 	if err != nil {
 		return nil, err
@@ -227,7 +260,7 @@ func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, too
 // plaintext list there arrives with no identity and is answered as to a
 // stranger. The peer applies its own switchboard to the answer.
 func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte, msgID string) ([]*mcp.Tool, error) {
-	plain, refusal, err := c.sealedExchange(ctx, peer, peerSPKI, "tools/list", nil, msgID)
+	plain, refusal, err := c.exchange(ctx, peer, peerSPKI, "tools/list", nil, msgID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +280,17 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte
 		return nil, fmt.Errorf("outbound: inner tools/list: %w", err)
 	}
 	return out.Tools, nil
+}
+
+// exchange picks the generation: a 2.0 identity toward a root-pinned contact
+// speaks `v: 2` (client20.go); everything else is the 1.x exchange below —
+// including a 2.0 identity toward a contact pinned as 1.x, which sees a 1.x
+// call from our leaf key (PACT Appendix C).
+func (c *Client) exchange(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
+	if c.speaks20(peer) {
+		return c.sealedExchange20(ctx, peer, peerSPKI, method, params, msgID)
+	}
+	return c.sealedExchange(ctx, peer, peerSPKI, method, params, msgID)
 }
 
 // sealedExchange seals one inner request to the peer, sends it as sealed_call,
