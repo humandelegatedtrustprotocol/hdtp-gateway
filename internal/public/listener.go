@@ -9,9 +9,11 @@ import (
 	"crypto/x509"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // TransportFacts is what the transport layer proved about a request (SPEC §5.1).
@@ -28,6 +30,15 @@ type TransportFacts struct {
 	// never a generic forwarded-for header (SPEC §5.7). Guest budgets key on it.
 	RemoteIP string
 	SrcAddr  string
+	// PACT 2.0 (PACT §2, §14.2): a client that presented a chain — a leaf and
+	// the root that issued it — that validated. ClientCertFingerprint is then
+	// the ROOT's, ClientCertSPKI the leaf's key, ClientLeaf the leaf, and
+	// ClientEndpoint the one address it names. A single self-signed
+	// certificate stays a 1.x proof, and a chain that does not validate
+	// establishes no identity at all.
+	ClientProtocol int
+	ClientLeaf     []byte
+	ClientEndpoint string
 }
 
 type factsKey struct{}
@@ -143,7 +154,13 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), factsKey{}, f)))
 			return
 		}
-		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) == 2 {
+			chain := [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
+			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()}); vr.OK {
+				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
+				f.ClientProtocol, f.ClientLeaf, f.ClientEndpoint = 2, chain[0], vr.Endpoint
+			}
+		} else if r.TLS != nil && len(r.TLS.PeerCertificates) == 1 {
 			leaf := r.TLS.PeerCertificates[0]
 			if fpr, err := identity.Fingerprint(leaf.PublicKey); err == nil {
 				f.ClientCertFingerprint = fpr

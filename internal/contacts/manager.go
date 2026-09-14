@@ -161,16 +161,10 @@ func (p Proof) pin(c store.Contact) store.Contact {
 	return c
 }
 
-// Redeem performs the guest-tier redemption (SPEC §9.2): token by hash; expiry,
+// RedeemAs performs the guest-tier redemption (SPEC §9.2): token by hash; expiry,
 // revocation, and use-count enforced atomically; the caller's proven identity MUST
-// equal the submitted card's X-PACT-KEY (guest binding, SPEC §5.3); the proven SPKI
-// is pinned in full.
-func (m *Manager) Redeem(ctx context.Context, accountID, token, card, callerFpr string, callerSPKI []byte) (RedeemResult, error) {
-	return m.RedeemAs(ctx, accountID, token, card, Proof{Fingerprint: callerFpr, SPKI: callerSPKI, Protocol: 1})
-}
-
-// RedeemAs is Redeem with the caller's proof spelled out, which is how a 2.0
-// guest — a root, a leaf, an endpoint — is pinned (PACT §5.1).
+// equal the submitted card's X-PACT-KEY (guest binding, SPEC §5.3); the proven key
+// is pinned in full — and in 2.0 the root, the endpoint and the leaf with it.
 func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p Proof) (RedeemResult, error) {
 	if _, err := p.vet(card); err != nil {
 		return RedeemResult{}, err
@@ -211,11 +205,6 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 
 // RequestContact is the unsolicited guest path (PACT §6.2): lands pending_in for
 // owner approval; same identity binding rule as redemption.
-func (m *Manager) RequestContact(ctx context.Context, accountID, card, note, callerFpr string, callerSPKI []byte) error {
-	return m.RequestContactAs(ctx, accountID, card, note, Proof{Fingerprint: callerFpr, SPKI: callerSPKI, Protocol: 1})
-}
-
-// RequestContactAs is RequestContact with the caller's proof spelled out.
 func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note string, p Proof) error {
 	if _, err := p.vet(card); err != nil {
 		return err

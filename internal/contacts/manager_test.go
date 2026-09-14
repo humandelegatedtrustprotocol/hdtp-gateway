@@ -70,7 +70,7 @@ func TestRedeemAutoAcceptYieldsActiveContact(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, card, spki := guest(t, "Bharat")
-	res, err := e.m.Redeem(ctx, e.account, token, card, CardKey(card), spki)
+	res, err := e.m.RedeemAs(ctx, e.account, token, card, Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestRedeemWithoutAutoAcceptIsPending(t *testing.T) {
 	ctx := context.Background()
 	token, _, _ := e.m.CreateInvite(ctx, e.account, InviteOptions{})
 	_, card, spki := guest(t, "G")
-	res, err := e.m.Redeem(ctx, e.account, token, card, CardKey(card), spki)
+	res, err := e.m.RedeemAs(ctx, e.account, token, card, Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1})
 	if err != nil || res.Status != "pending" {
 		t.Fatalf("%v %+v", err, res)
 	}
@@ -107,7 +107,7 @@ func TestRedeemFailures(t *testing.T) {
 
 	t.Run("unknown token", func(t *testing.T) {
 		_, card, spki := guest(t, "G")
-		_, err := e.m.Redeem(ctx, e.account, "deadbeef", card, CardKey(card), spki)
+		_, err := e.m.RedeemAs(ctx, e.account, "deadbeef", card, Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1})
 		if !errors.Is(err, ErrInviteInvalid) {
 			t.Fatalf("want invite_invalid, got %v", err)
 		}
@@ -115,11 +115,11 @@ func TestRedeemFailures(t *testing.T) {
 	t.Run("exhausted", func(t *testing.T) {
 		token, _, _ := e.m.CreateInvite(ctx, e.account, InviteOptions{MaxUses: 1})
 		_, c1, s1 := guest(t, "A")
-		if _, err := e.m.Redeem(ctx, e.account, token, c1, CardKey(c1), s1); err != nil {
+		if _, err := e.m.RedeemAs(ctx, e.account, token, c1, Proof{Fingerprint: CardKey(c1), SPKI: s1, Protocol: 1}); err != nil {
 			t.Fatal(err)
 		}
 		_, c2, s2 := guest(t, "B")
-		if _, err := e.m.Redeem(ctx, e.account, token, c2, CardKey(c2), s2); !errors.Is(err, ErrInviteInvalid) {
+		if _, err := e.m.RedeemAs(ctx, e.account, token, c2, Proof{Fingerprint: CardKey(c2), SPKI: s2, Protocol: 1}); !errors.Is(err, ErrInviteInvalid) {
 			t.Fatalf("want invite_invalid, got %v", err)
 		}
 	})
@@ -127,7 +127,7 @@ func TestRedeemFailures(t *testing.T) {
 		token, _, _ := e.m.CreateInvite(ctx, e.account, InviteOptions{TTL: time.Hour})
 		*e.clock = e.clock.Add(2 * time.Hour)
 		_, card, spki := guest(t, "G")
-		if _, err := e.m.Redeem(ctx, e.account, token, card, CardKey(card), spki); !errors.Is(err, ErrInviteInvalid) {
+		if _, err := e.m.RedeemAs(ctx, e.account, token, card, Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1}); !errors.Is(err, ErrInviteInvalid) {
 			t.Fatalf("want invite_invalid, got %v", err)
 		}
 	})
@@ -137,7 +137,7 @@ func TestRedeemFailures(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, card, spki := guest(t, "G")
-		if _, err := e.m.Redeem(ctx, e.account, token, card, CardKey(card), spki); !errors.Is(err, ErrInviteInvalid) {
+		if _, err := e.m.RedeemAs(ctx, e.account, token, card, Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1}); !errors.Is(err, ErrInviteInvalid) {
 			t.Fatalf("want invite_invalid, got %v", err)
 		}
 	})
@@ -146,7 +146,7 @@ func TestRedeemFailures(t *testing.T) {
 		_, card, _ := guest(t, "Honest")
 		evil, _, evilSPKI := guest(t, "Evil")
 		// evil presents its own key but submits Honest's card
-		_, err := e.m.Redeem(ctx, e.account, token, card, evil.Fingerprint, evilSPKI)
+		_, err := e.m.RedeemAs(ctx, e.account, token, card, Proof{Fingerprint: evil.Fingerprint, SPKI: evilSPKI, Protocol: 1})
 		if !errors.Is(err, ErrIdentityRequired) {
 			t.Fatalf("want identity_required, got %v", err)
 		}
@@ -226,15 +226,15 @@ func TestRequestContactNoteCapAndBinding(t *testing.T) {
 	ctx := context.Background()
 	_, card, spki := guest(t, "Asker")
 	long := make([]byte, 1025)
-	if err := e.m.RequestContact(ctx, e.account, card, string(long), CardKey(card), spki); !errors.Is(err, ErrBadRequest) {
+	if err := e.m.RequestContactAs(ctx, e.account, card, string(long), Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1}); !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("1 KiB note cap not enforced: %v", err)
 	}
-	if err := e.m.RequestContact(ctx, e.account, card, "hi", CardKey(card), spki); err != nil {
+	if err := e.m.RequestContactAs(ctx, e.account, card, "hi", Proof{Fingerprint: CardKey(card), SPKI: spki, Protocol: 1}); err != nil {
 		t.Fatal(err)
 	}
 	evil, _, evilSPKI := guest(t, "Evil2")
 	_, card2, _ := guest(t, "Someone")
-	if err := e.m.RequestContact(ctx, e.account, card2, "", evil.Fingerprint, evilSPKI); !errors.Is(err, ErrIdentityRequired) {
+	if err := e.m.RequestContactAs(ctx, e.account, card2, "", Proof{Fingerprint: evil.Fingerprint, SPKI: evilSPKI, Protocol: 1}); !errors.Is(err, ErrIdentityRequired) {
 		t.Fatalf("card/key mismatch accepted: %v", err)
 	}
 }

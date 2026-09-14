@@ -113,6 +113,32 @@ type ToolDeps struct {
 	// means the compiled-in defaults. A function, not a snapshot, because the
 	// rate budgets are owner knobs that change while the node serves.
 	Limits func() Limits
+	// Endpoint is this account's own address, for the guard a 2.0 guest's card
+	// must pass (PACT §3: never the receiver's own). nil means unknown.
+	Endpoint func() string
+}
+
+// proofOf is what the caller proved this call, for the guest tools to pin: in
+// 1.x the key (envelope `spk` or client certificate), in 2.0 the root, the
+// leaf's key, the endpoint and the leaf the chain carried (PACT §14.2 rule 6).
+func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
+	if f := EnvelopeFactsFrom(ctx); f != nil && f.Protocol == 2 {
+		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Protocol: 2, Endpoint: f.Endpoint, Leaf: f.Leaf}
+		if d.Endpoint != nil {
+			p.SelfEndpoint = d.Endpoint()
+		}
+		return p
+	}
+	tf := FactsFrom(ctx)
+	if tf.ClientProtocol == 2 {
+		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Protocol: 2, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf}
+		if d.Endpoint != nil {
+			p.SelfEndpoint = d.Endpoint()
+		}
+		return p
+	}
+	spki := CallerSPKI(ctx)
+	return contacts.Proof{Fingerprint: fingerprintOfSPKI(spki), SPKI: spki, Protocol: 1}
 }
 
 // audit records one boundary event. The outcome is a verdict and nothing else:
@@ -257,10 +283,11 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			return toolErr("too_large"), nil
 		}
 		// The key the caller PROVED this call: envelope `spk` when sealed, the
-		// client certificate otherwise. Never the card's self-claim.
-		spki := CallerSPKI(ctx)
-		fpr := fingerprintOfSPKI(spki)
-		res, err := d.Contacts.Redeem(ctx, d.AccountID, a.Token, a.Card, fpr, spki)
+		// client certificate otherwise — or, in 2.0, the chain. Never the
+		// card's self-claim.
+		proof := d.proofOf(ctx)
+		fpr := proof.Fingerprint
+		res, err := d.Contacts.RedeemAs(ctx, d.AccountID, a.Token, a.Card, proof)
 		if err != nil {
 			d.audit("redeem_invite", "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
@@ -293,9 +320,9 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 			d.audit("request_contact", "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
-		spki := CallerSPKI(ctx)
-		fpr := fingerprintOfSPKI(spki)
-		if err := d.Contacts.RequestContact(ctx, d.AccountID, a.Card, a.Note, fpr, spki); err != nil {
+		proof := d.proofOf(ctx)
+		fpr := proof.Fingerprint
+		if err := d.Contacts.RequestContactAs(ctx, d.AccountID, a.Card, a.Note, proof); err != nil {
 			switch known(ctx, d, fpr) {
 			case "blocked":
 				// SPEC §9.1: blocked MUST be indistinguishable from never-met.

@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // SealedToolName is the wrapper's tool name on every tier.
@@ -95,8 +97,45 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, d.AccountFpr, FactsFrom(ctx), &env, d.Delivery)
 		if err != nil {
+			var renewed *CertificateRenewed
+			switch {
+			case errors.Is(err, ErrChainRequired):
+				// PACT §14.5: a guessed fingerprint spends the source's guest
+				// budget. The wrapper is exempt from the per-call budget (see
+				// guarded), so this answer charges it here, as a guest.
+				if d.Pool != nil && d.Pool.Limit != nil {
+					if ok, retry := d.Pool.Limit(ctx); !ok {
+						d.audit("sealed_call", "account:"+d.AccountID, "rate_limited")
+						return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
+							&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, int(retry.Seconds())+1)},
+						}}, nil
+					}
+				}
+			case errors.As(err, &renewed):
+				// PACT §14.4: plaintext, carrying the current chain — proof of
+				// nothing by itself; the caller validates it to its own pin.
+				d.audit("sealed_call", "account:"+d.AccountID, "certificate_renewed")
+				chain := make([]string, 0, len(renewed.Chain))
+				for _, c := range renewed.Chain {
+					chain = append(chain, b64u(c))
+				}
+				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": map[string]any{"chain": chain}})
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
+			}
 			d.audit("sealed_call", "account:"+d.AccountID, Code(err))
 			return errEnvelope(Code(err)), nil
+		}
+		if facts.Refusal != "" {
+			// A pinned root at an address the owner has not approved (PACT
+			// §5.3): the seed's plain code, nothing dispatched.
+			d.audit("sealed_call", "account:"+d.AccountID, facts.Refusal)
+			return errEnvelope(facts.Refusal), nil
+		}
+		if facts.Tier == TierPendingAddress {
+			// PACT §5.3 under `ask`, or a root returned after a removal: the
+			// call answers pending and waits for the owner.
+			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
+			return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
 		}
 		// Envelope-level idempotency (§4.4 step 8): a replay is acknowledged
 		// with its recorded result, never re-executed.
@@ -132,6 +171,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 // sealBack seals the inner result to the caller (§4.5: a sealed request MUST get
 // a sealed result — same format, from/to swapped, the request's msg_id).
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
+	if facts.Protocol == 2 {
+		return d.sealBack20(ctx, facts, inner)
+	}
 	kp, err := d.Keypair(ctx)
 	if err != nil {
 		return errEnvelope("unavailable"), nil
@@ -156,11 +198,56 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
 }
 
+// sealBack20 seals a result to a 2.0 caller (PACT §13.2): kid names the
+// caller's leaf key, the plaintext carries our chain until this contact has
+// seen our current leaf and our leaf's fingerprint after, and the result rides
+// beside it. A guest always gets the chain: nothing records what it has seen.
+func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
+	st, err := d.Identifier.State20(ctx)
+	if err != nil || st == nil || st.currentKey() == nil || len(st.Chain) != 2 {
+		return errEnvelope("unavailable"), nil
+	}
+	sender, err := identity.ToLib(st.currentKey())
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	recipient, err := pactidentity.ParseSPKI(facts.SPKI)
+	if err != nil {
+		return errEnvelope("envelope_invalid"), nil
+	}
+	ourKid := st.currentKey().Fingerprint
+	form, pinned := "chain", false
+	if !facts.Guest && !facts.Demote && facts.From != "" {
+		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil && c.Protocol == 2 {
+			pinned = true
+			if c.ChainSentKid == ourKid {
+				form = "leaf"
+			}
+		}
+	}
+	now := d.now()
+	out, err := pactidentity.SealResult(pactidentity.SealOpts{
+		RecipientKey: recipient, Sender: sender, Form: form, SenderChain: st.Chain, Result: json.RawMessage(inner),
+		MsgID: facts.Header.MsgID, TS: now.Unix(), Exp: now.Add(ResultLifetime).Unix(),
+	})
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	if pinned && form == "chain" {
+		_ = d.Identifier.Store.SetContactChainSentKid(ctx, d.AccountID, facts.From, ourKid)
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
+}
+
 // Dispatch runs one inner request against the caller's composed surface. It is
 // the sealed path's equivalent of an MCP request arriving directly: the same
 // registry, the same policy.Allow, the same call-time re-check (SPEC §4.5).
 func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload) (json.RawMessage, error) {
-	caller, err := p.Resolve(ctx, accountID, fpr)
+	caller, err := p.resolveCaller(ctx, accountID, fpr)
 	if err != nil {
 		return nil, err
 	}
