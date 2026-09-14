@@ -29,7 +29,7 @@ func (q *Queries) DeleteContact(ctx context.Context, arg DeleteContactParams) (i
 }
 
 const getContact = `-- name: GetContact :one
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id FROM contacts WHERE account_id = $1 AND fingerprint = $2
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, protocol, endpoint, leaf, chain_sent_kid FROM contacts WHERE account_id = $1 AND fingerprint = $2
 `
 
 type GetContactParams struct {
@@ -56,28 +56,36 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 		&i.TheirPermissions,
 		&i.Petname,
 		&i.InviteID,
+		&i.Protocol,
+		&i.Endpoint,
+		&i.Leaf,
+		&i.ChainSentKid,
 	)
 	return i, err
 }
 
 const insertContact = `-- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, protocol, endpoint, leaf, chain_sent_kid)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 `
 
 type InsertContactParams struct {
-	ID          string
-	AccountID   string
-	Fingerprint string
-	Spki        []byte
-	Status      string
-	Preset      string
-	Permissions string
-	DisplayName string
-	Card        string
-	CreatedAt   int64
-	PinnedAt    pgtype.Int8
-	InviteID    string
+	ID           string
+	AccountID    string
+	Fingerprint  string
+	Spki         []byte
+	Status       string
+	Preset       string
+	Permissions  string
+	DisplayName  string
+	Card         string
+	CreatedAt    int64
+	PinnedAt     pgtype.Int8
+	InviteID     string
+	Protocol     int64
+	Endpoint     string
+	Leaf         []byte
+	ChainSentKid string
 }
 
 func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) error {
@@ -94,12 +102,16 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 		arg.CreatedAt,
 		arg.PinnedAt,
 		arg.InviteID,
+		arg.Protocol,
+		arg.Endpoint,
+		arg.Leaf,
+		arg.ChainSentKid,
 	)
 	return err
 }
 
 const listContacts = `-- name: ListContacts :many
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id FROM contacts WHERE account_id = $1 ORDER BY created_at, id
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, protocol, endpoint, leaf, chain_sent_kid FROM contacts WHERE account_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -127,6 +139,10 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 			&i.TheirPermissions,
 			&i.Petname,
 			&i.InviteID,
+			&i.Protocol,
+			&i.Endpoint,
+			&i.Leaf,
+			&i.ChainSentKid,
 		); err != nil {
 			return nil, err
 		}

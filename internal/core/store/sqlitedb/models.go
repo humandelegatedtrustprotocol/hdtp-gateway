@@ -21,6 +21,11 @@ type Account struct {
 	PrevFingerprint sql.NullString
 	PrevKeySealed   []byte
 	GraceUntil      int64
+	Protocol        int64
+	RootFingerprint sql.NullString
+	RootCert        []byte
+	AcceptNewHosts  string
+	Accept1x        int64
 }
 
 type AuditEvent struct {
@@ -71,6 +76,10 @@ type Contact struct {
 	TheirPermissions string
 	Petname          string
 	InviteID         string
+	Protocol         int64
+	Endpoint         string
+	Leaf             []byte
+	ChainSentKid     string
 }
 
 type Credential struct {
@@ -227,4 +236,39 @@ type Token struct {
 	AccountID sql.NullString
 	CreatedAt int64
 	RevokedAt sql.NullInt64
+}
+
+type FormerEndpoint struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	At        int64
+}
+
+type Leaf struct {
+	AccountID string
+	Kid       string
+	Leaf      []byte
+	KeySealed []byte
+	NotBefore int64
+	NotAfter  int64
+	State     string
+	Endpoint  string
+	CreatedAt int64
+}
+
+type PendingAddress struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	Leaf      []byte
+	Why       string
+	At        int64
+}
+
+type Tombstone struct {
+	AccountID string
+	Root      string
+	Leaf      []byte
+	At        int64
 }

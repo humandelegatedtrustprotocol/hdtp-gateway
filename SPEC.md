@@ -1082,6 +1082,10 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `relay_allowlist` | Per-recipient allowed sender fingerprints (§10.5) |
 | `settings` | Owner-set configuration the portal writes (§8.2, §12.2), including `tunnel.<adapter>.*` adapter state and sealed values |
 | `rotation_fanout` | Per-contact completion of a key rotation's `update_contact` walk (§3.9) |
+| `leaves` | PACT 2.0 (PACT §2, §14): every leaf certificate this host holds for an account — `pending` while a CSR awaits the wallet, `current`, `superseded` with its key kept until `not_after`, `former` with the key destroyed and the key id kept so an envelope sealed to it is answered `certificate_renewed` |
+| `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
+| `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
+| `pending_addresses` | PACT 2.0 (PACT §5.3): a contact at a new address awaiting the owner under `accept_new_hosts = ask` |
 | `audit_anchor` | The terminal hash of the archived audit segment the retained chain must extend (§11.6) |
 | `audit_events` | The append-only audit chain (§11.4) |
 

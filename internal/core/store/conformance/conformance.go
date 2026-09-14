@@ -409,6 +409,156 @@ func Run(t *testing.T, newStore Factory) {
 		}
 	})
 
+	// PACT 2.0 (migration 0027): the root beside the account, the leaf ledger,
+	// 2.0 pins that move without the root moving, and the §5.3 side tables.
+	t.Run("Pact20StateRoundTrips", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "p20", DisplayName: "P", Algo: "ed25519"})
+		if a.Protocol != 1 || a.AcceptNewHosts != "auto" || !a.Accept1x {
+			t.Fatalf("1.x defaults wrong: %+v", a)
+		}
+		if err := s.SetAccountKey(ctx, a.ID, "sha256:leaf1", []byte("sealed1")); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetAccountProtocol(ctx, a.ID, 2, "sha256:root", []byte("root-der")); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetAccountHostPolicy(ctx, a.ID, "ask", false); err != nil {
+			t.Fatal(err)
+		}
+		// A leaf install moves the key SetAccountKey bound once.
+		if err := s.SetAccountLeafKey(ctx, a.ID, "sha256:leaf2", []byte("sealed2"), "p256"); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := s.GetAccountByID(ctx, a.ID)
+		if got.Protocol != 2 || got.RootFingerprint != "sha256:root" || string(got.RootCert) != "root-der" || got.AcceptNewHosts != "ask" || got.Accept1x || got.Fingerprint != "sha256:leaf2" || got.Algo != "p256" {
+			t.Fatalf("2.0 account fields lost: %+v", got)
+		}
+		if k, _ := s.GetAccountSealedKey(ctx, a.ID); string(k) != "sealed2" {
+			t.Fatalf("leaf key not moved: %q", k)
+		}
+		for _, l := range []store.Leaf{
+			{AccountID: a.ID, Kid: "sha256:leaf1", Leaf: []byte("l1"), KeySealed: []byte("k1"), NotBefore: 1, NotAfter: 10, State: "superseded", Endpoint: "https://a.example/mcp"},
+			{AccountID: a.ID, Kid: "sha256:leaf2", Leaf: []byte("l2"), KeySealed: []byte("k2"), NotBefore: 2, NotAfter: 20, State: "current", Endpoint: "https://a.example/mcp"},
+			{AccountID: a.ID, Kid: "sha256:leaf3", State: "pending", Endpoint: "https://b.example/mcp", KeySealed: []byte("k3")},
+		} {
+			if err := s.InsertLeaf(ctx, l); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:leaf3", State: "current", Endpoint: "x"}); err == nil {
+			t.Fatal("duplicate (account, kid) accepted")
+		}
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:bad", State: "live", Endpoint: "x"}); err == nil {
+			t.Fatal("invalid leaf state accepted")
+		}
+		if err := s.RetireLeafKey(ctx, a.ID, "sha256:leaf1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:leaf3", Leaf: []byte("l3"), NotBefore: 3, NotAfter: 30, State: "current", Endpoint: "https://b.example/mcp"}); err != nil {
+			t.Fatal(err)
+		}
+		leaves, _ := s.ListLeaves(ctx, a.ID)
+		if len(leaves) != 3 {
+			t.Fatalf("leaves: %d", len(leaves))
+		}
+		byKid := map[string]store.Leaf{}
+		for _, l := range leaves {
+			byKid[l.Kid] = l
+		}
+		if l := byKid["sha256:leaf1"]; l.State != "former" || l.KeySealed != nil {
+			t.Fatalf("retire did not destroy the key: %+v", l)
+		}
+		if l := byKid["sha256:leaf3"]; l.State != "current" || string(l.Leaf) != "l3" || l.NotAfter != 30 || string(l.KeySealed) != "k3" {
+			t.Fatalf("update lost: %+v", l)
+		}
+		if n, _ := s.DeleteLeavesByState(ctx, a.ID, "former"); n != 1 {
+			t.Fatalf("delete former: %d", n)
+		}
+		// A 2.0 pin: the fingerprint column is the root and never moves; the
+		// endpoint, the leaf and its key do (PACT §14.3, §5.3).
+		c, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:peer-root", SPKI: []byte{1}, Status: "active",
+			Protocol: 2, Endpoint: "https://p.example/mcp", Leaf: []byte("pl1"), ChainSentKid: "sha256:leaf2"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Protocol != 2 || c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
+			t.Fatalf("2.0 pin fields lost: %+v", c)
+		}
+		if old, _ := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:onex", SPKI: []byte{2}, Status: "active"}); old.Protocol != 1 {
+			t.Fatalf("a 1.x pin must default to protocol 1: %+v", old)
+		}
+		if err := s.RepinContactAddress(ctx, a.ID, "sha256:peer-root", "https://q.example/mcp", []byte("pl2"), []byte{9}, 77); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ClearChainSentKids(ctx, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		c, _ = s.GetContact(ctx, a.ID, "sha256:peer-root")
+		if c.Endpoint != "https://q.example/mcp" || string(c.Leaf) != "pl2" || c.SPKI[0] != 9 || c.PinnedAt != 77 || c.ChainSentKid != "" {
+			t.Fatalf("repin lost: %+v", c)
+		}
+		if err := s.SetContactChainSentKid(ctx, a.ID, "sha256:peer-root", "sha256:leaf3"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RepinContactAddress(ctx, a.ID, "sha256:nobody", "x", nil, nil, 1); err == nil {
+			t.Fatal("repin of a missing contact reported success")
+		}
+		// Appendix C row 6: the 1.x pin of key K becomes the 2.0 pin of its root.
+		if err := s.UpgradeContactPin(ctx, a.ID, "sha256:onex", "sha256:onex-root", "https://o.example/mcp", []byte("ol"), []byte{2}, 88); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.GetContact(ctx, a.ID, "sha256:onex"); err == nil {
+			t.Fatal("the 1.x fingerprint still resolves after the upgrade")
+		}
+		if up, _ := s.GetContact(ctx, a.ID, "sha256:onex-root"); up.Protocol != 2 || up.Endpoint != "https://o.example/mcp" || up.Status != "active" {
+			t.Fatalf("upgrade lost: %+v", up)
+		}
+		// The §5.3 side tables.
+		if err := s.UpsertTombstone(ctx, store.Tombstone{AccountID: a.ID, Root: "sha256:gone", Leaf: []byte("gl"), At: 5}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpsertTombstone(ctx, store.Tombstone{AccountID: a.ID, Root: "sha256:gone", Leaf: []byte("gl2"), At: 6}); err != nil {
+			t.Fatal(err)
+		}
+		if ts, _ := s.ListTombstones(ctx, a.ID); len(ts) != 1 || string(ts[0].Leaf) != "gl2" || ts[0].At != 6 {
+			t.Fatalf("tombstone upsert: %+v", ts)
+		}
+		if err := s.DeleteTombstone(ctx, a.ID, "sha256:gone"); err != nil {
+			t.Fatal(err)
+		}
+		if ts, _ := s.ListTombstones(ctx, a.ID); len(ts) != 0 {
+			t.Fatalf("tombstone not deleted: %+v", ts)
+		}
+		for _, f := range []store.FormerEndpoint{{AccountID: a.ID, Root: "sha256:peer-root", Endpoint: "https://p.example/mcp", At: 1}, {AccountID: a.ID, Root: "sha256:peer-root", Endpoint: "https://p.example/mcp", At: 2}} {
+			if err := s.InsertFormerEndpoint(ctx, f); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if fs, _ := s.ListFormerEndpoints(ctx, a.ID); len(fs) != 2 {
+			t.Fatalf("former endpoints: %+v", fs)
+		}
+		if err := s.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: a.ID, Root: "sha256:peer-root", Endpoint: "https://r.example/mcp", Leaf: []byte("pl3"), Why: "ask", At: 9}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: a.ID, Root: "sha256:peer-root", Endpoint: "https://s.example/mcp", Leaf: []byte("pl4"), Why: "returned after removal", At: 10}); err != nil {
+			t.Fatal(err)
+		}
+		if p, err := s.GetPendingAddress(ctx, a.ID, "sha256:peer-root"); err != nil || p.Endpoint != "https://s.example/mcp" || p.Why != "returned after removal" {
+			t.Fatalf("pending upsert: %+v %v", p, err)
+		}
+		if ps, _ := s.ListPendingAddresses(ctx, a.ID); len(ps) != 1 {
+			t.Fatalf("pending list: %+v", ps)
+		}
+		if err := s.DeletePendingAddress(ctx, a.ID, "sha256:peer-root"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.GetPendingAddress(ctx, a.ID, "sha256:peer-root"); err == nil {
+			t.Fatal("pending address still readable after delete")
+		}
+	})
+
 	t.Run("RetentionPrimitives", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
