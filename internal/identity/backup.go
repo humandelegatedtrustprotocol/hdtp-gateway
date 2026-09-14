@@ -23,11 +23,18 @@ import (
 	"fmt"
 
 	"golang.org/x/crypto/argon2"
+
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // BackupVersion is the format version, first in the file so a future reader can
-// refuse politely instead of misparsing.
-const BackupVersion = 1
+// refuse politely instead of misparsing. Version 1 carries a 1.x identity key;
+// version 2 (PACT 2.0) carries a LEAF key with its leaf and the root that
+// issued it (PACT §9: a host holds the leaf and its key, never the root).
+const (
+	BackupVersion   = 1
+	BackupVersion20 = 2
+)
 
 // Argon2id parameters. Deliberately costly: this file is offline and long-lived,
 // so the attacker's budget is unbounded while the owner's wait is once per
@@ -56,7 +63,19 @@ type IdentityBackup struct {
 	Salt        string `json:"salt"`       // base64
 	Nonce       string `json:"nonce"`      // base64
 	Ciphertext  string `json:"ciphertext"` // base64: PKCS#8 DER, sealed
+	// PACT 2.0 (version 2): the leaf the sealed key belongs to, the root that
+	// issued it, and the endpoint the leaf names — all bound as additional
+	// data, so a leaf swapped in fails to open. RootFingerprint is the
+	// identity; Fingerprint above is the leaf key's.
+	Leaf            string `json:"leaf,omitempty"` // base64url DER
+	Root            string `json:"root,omitempty"` // base64url DER, the certificate — never a key
+	RootFingerprint string `json:"root_fingerprint,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
 }
+
+// ErrRootKey is a backup whose sealed key is the ROOT's: a wallet's secret,
+// which no host may hold (PACT §9), refused whatever the file claims.
+var ErrRootKey = errors.New("identity: the backup holds a root key, which a host never holds")
 
 // ErrPassphrase is returned when a backup does not open under the passphrase
 // given — which is also what a tampered file looks like, deliberately: the
@@ -67,8 +86,36 @@ var ErrPassphrase = errors.New("identity: wrong passphrase, or the backup has be
 // aad is the additional data: every cleartext field, in a fixed order. It binds
 // the ciphertext to the identity the file claims to carry.
 func (b IdentityBackup) aad() []byte {
-	return []byte(fmt.Sprintf("pact-identity-backup/v%d\n%s\n%s\n%s\n%s",
-		b.Version, b.Slug, b.DisplayName, b.Algo, b.Fingerprint))
+	base := fmt.Sprintf("pact-identity-backup/v%d\n%s\n%s\n%s\n%s",
+		b.Version, b.Slug, b.DisplayName, b.Algo, b.Fingerprint)
+	if b.Version >= BackupVersion20 {
+		base += "\n" + b.Leaf + "\n" + b.Root + "\n" + b.RootFingerprint + "\n" + b.Endpoint
+	}
+	return []byte(base)
+}
+
+// ExportIdentity20 seals a 2.0 account's LEAF key with its leaf and root: the
+// host's half of the identity, portable to another host that will serve the
+// same leaf until the wallet renews it there (PACT §9). The root travels as a
+// certificate only; a root key in this file is what OpenIdentity refuses.
+func ExportIdentity20(kp *Keypair, slug, displayName, algo, passphrase string, leaf, root []byte) (IdentityBackup, error) {
+	parsed, err := pactidentity.Parse(leaf)
+	if err != nil {
+		return IdentityBackup{}, fmt.Errorf("identity: leaf: %w", err)
+	}
+	if len(parsed.URIs) != 1 {
+		return IdentityBackup{}, errors.New("identity: the leaf names no endpoint")
+	}
+	rootCert, err := pactidentity.Parse(root)
+	if err != nil {
+		return IdentityBackup{}, fmt.Errorf("identity: root: %w", err)
+	}
+	b, err := exportWith(kp, slug, displayName, algo, passphrase, func(b *IdentityBackup) {
+		b.Version = BackupVersion20
+		b.Leaf, b.Root = base64.RawURLEncoding.EncodeToString(leaf), base64.RawURLEncoding.EncodeToString(root)
+		b.RootFingerprint, b.Endpoint = pactidentity.FingerprintOf(rootCert), parsed.URIs[0]
+	})
+	return b, err
 }
 
 func deriveKey(passphrase string, salt []byte, t, m uint32, p uint8) []byte {
@@ -77,6 +124,10 @@ func deriveKey(passphrase string, salt []byte, t, m uint32, p uint8) []byte {
 
 // ExportIdentity seals a keypair into a backup document.
 func ExportIdentity(kp *Keypair, slug, displayName, algo, passphrase string) (IdentityBackup, error) {
+	return exportWith(kp, slug, displayName, algo, passphrase, nil)
+}
+
+func exportWith(kp *Keypair, slug, displayName, algo, passphrase string, shape func(*IdentityBackup)) (IdentityBackup, error) {
 	if passphrase == "" {
 		return IdentityBackup{}, errors.New("identity: a backup needs a passphrase")
 	}
@@ -95,6 +146,9 @@ func ExportIdentity(kp *Keypair, slug, displayName, algo, passphrase string) (Id
 		Time: argonTime, Memory: argonMemory, Threads: argonThreads,
 		Salt: base64.StdEncoding.EncodeToString(salt),
 	}
+	if shape != nil {
+		shape(&b)
+	}
 	gcm, err := aeadFor(deriveKey(passphrase, salt, argonTime, argonMemory, argonThreads))
 	if err != nil {
 		return IdentityBackup{}, err
@@ -110,8 +164,8 @@ func ExportIdentity(kp *Keypair, slug, displayName, algo, passphrase string) (Id
 
 // OpenIdentity recovers the keypair from a backup document.
 func OpenIdentity(b IdentityBackup, passphrase string) (*Keypair, error) {
-	if b.Version != BackupVersion {
-		return nil, fmt.Errorf("identity: backup version %d, this build understands %d", b.Version, BackupVersion)
+	if b.Version != BackupVersion && b.Version != BackupVersion20 {
+		return nil, fmt.Errorf("identity: backup version %d, this build understands %d and %d", b.Version, BackupVersion, BackupVersion20)
 	}
 	if b.KDF != "argon2id" || b.AEAD != "aes-256-gcm" {
 		return nil, fmt.Errorf("identity: unsupported kdf %q / aead %q", b.KDF, b.AEAD)
@@ -148,6 +202,23 @@ func OpenIdentity(b IdentityBackup, passphrase string) (*Keypair, error) {
 	if kp.Fingerprint != b.Fingerprint {
 		return nil, fmt.Errorf("identity: the backup's key is %s but the file claims %s",
 			kp.Fingerprint, b.Fingerprint)
+	}
+	if b.Version >= BackupVersion20 {
+		leaf, err := pactidentity.Parse(pactidentity.FromB64url(b.Leaf))
+		if err != nil {
+			return nil, fmt.Errorf("identity: the backup's leaf does not parse: %w", err)
+		}
+		if pactidentity.Fingerprint(leaf.SPKI) != kp.Fingerprint {
+			return nil, errors.New("identity: the backup's key is not the leaf's")
+		}
+		root, err := pactidentity.Parse(pactidentity.FromB64url(b.Root))
+		if err != nil {
+			return nil, fmt.Errorf("identity: the backup's root does not parse: %w", err)
+		}
+		if pactidentity.Fingerprint(root.SPKI) == kp.Fingerprint {
+			return nil, ErrRootKey
+		}
+		kp.Leaf, kp.Root, kp.Protocol = leaf.DER, root.DER, 2
 	}
 	return kp, nil
 }
