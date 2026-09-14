@@ -259,8 +259,14 @@ func (id *Identifier) upgradeLegacyPin(ctx context.Context, accountID string, re
 		return false
 	}
 	root, _ := result["root"].(string)
-	endpoint, _ := result["endpoint"].(string)
-	if err := id.Store.UpgradeContactPin(ctx, accountID, keyFpr, root, endpoint, leaf.DER, leaf.SPKI, now.Unix()); err != nil {
+	// The endpoint is the one the leaf names (PACT §14.1: exactly one URI), read
+	// from the certificate and never from the result — a refusal carries root
+	// and leaf but no endpoint, and a pin at "" would make every later call
+	// from the real address look like a move.
+	if len(leaf.URIs) != 1 {
+		return false
+	}
+	if err := id.Store.UpgradeContactPin(ctx, accountID, keyFpr, root, leaf.URIs[0], leaf.DER, leaf.SPKI, now.Unix()); err != nil {
 		return false
 	}
 	id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
@@ -347,4 +353,136 @@ func (id *Identifier) resolveKey(ctx context.Context, accountID, accountFpr, kid
 		return nil, fmt.Errorf("%w: recipient key unavailable", envelope.ErrInvalid)
 	}
 	return kp, nil
+}
+
+// TransportCaller is what a 2.0 client certificate chain earned once the pin
+// checks of PACT §14.3 and §5.3 have run — the same outcomes the sealed path
+// reaches through Decide, so a chain presented at the TLS layer can do nothing
+// an envelope carrying it could not. Fingerprint is the identity the per-caller
+// server is composed for and the session is bound to: the root when the pin
+// stands, "" — an anonymous guest — when the leaf proved nothing for it (a
+// superseded or conflicting leaf, a blocked contact). Refusal names the code
+// every substantive call answers while a new address awaits the owner.
+type TransportCaller struct {
+	Fingerprint string
+	Demote      bool
+	Refusal     string
+}
+
+type transportCallerKey struct{}
+
+// WithTransportCaller attaches a resolution the node made once per request.
+func WithTransportCaller(ctx context.Context, tc TransportCaller) context.Context {
+	return context.WithValue(ctx, transportCallerKey{}, tc)
+}
+
+// TransportCallerFrom returns the request's resolution, if the node made one.
+func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
+	tc, ok := ctx.Value(transportCallerKey{}).(TransportCaller)
+	return tc, ok
+}
+
+// ResolveTransport applies the pin checks to a validated client chain and
+// records what they change, exactly as the sealed path does through Decide's
+// effects (identify20.go apply): a newer leaf at the pinned endpoint replaces
+// it; another endpoint is §5.3 — re-pinned with the former endpoint and the
+// owner's event under `auto`, parked as a pending address under `ask`, and
+// under `ask` after a removal within the tombstone window; a 1.x pin of the
+// leaf's key is upgraded in place (Appendix C row 6). It runs once per
+// request, before the per-caller server is composed and the session bound,
+// and its result is what PoolGate enforces on every call.
+func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) TransportCaller {
+	root := tf.ClientCertFingerprint
+	if tf.ClientProtocol != 2 || root == "" {
+		return TransportCaller{Fingerprint: root}
+	}
+	leaf, err := pactidentity.Parse(tf.ClientLeaf)
+	if err != nil || len(leaf.URIs) != 1 {
+		return TransportCaller{}
+	}
+	endpoint := leaf.URIs[0]
+	now := id.now()
+	c, err := id.Store.GetContact(ctx, id.AccountID, root)
+	if err != nil {
+		// Appendix C row 6 on the transport path: a 1.x pin of this leaf's key
+		// becomes the 2.0 pin of the root, and the call is then the contact's.
+		keyFpr := pactidentity.Fingerprint(leaf.SPKI)
+		old, gerr := id.Store.GetContact(ctx, id.AccountID, keyFpr)
+		if gerr != nil || old.Protocol == 2 || old.Status == "blocked" {
+			return TransportCaller{Fingerprint: root} // the store resolves a stranger to guest
+		}
+		if err := id.Store.UpgradeContactPin(ctx, id.AccountID, keyFpr, root, endpoint, leaf.DER, leaf.SPKI, now.Unix()); err != nil {
+			return TransportCaller{Fingerprint: root}
+		}
+		id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
+		if c, err = id.Store.GetContact(ctx, id.AccountID, root); err != nil {
+			return TransportCaller{Fingerprint: root}
+		}
+	}
+	if c.Protocol != 2 || len(c.Leaf) == 0 {
+		return TransportCaller{Fingerprint: root}
+	}
+	if c.Status == "blocked" {
+		// Served as a stranger, and indistinguishable from one (§6.1, §13.3).
+		return TransportCaller{Demote: true}
+	}
+	cmp, err := pactidentity.CompareLeaves(c.Leaf, tf.ClientLeaf)
+	if err != nil || cmp == "superseded" || cmp == "conflict" {
+		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root, "superseded_leaf")
+		return TransportCaller{Demote: true}
+	}
+	if endpoint != c.Endpoint {
+		policy := "auto"
+		if id.State20 != nil {
+			if st, serr := id.State20(ctx); serr == nil && st != nil && st.AcceptNewHosts != "" {
+				policy = st.AcceptNewHosts
+			}
+		}
+		why := "ask"
+		if policy == "auto" {
+			// A tombstoned root returning within the window is `ask` whatever
+			// the setting says (§5.3, "after a removal").
+			if tombs, terr := id.Store.ListTombstones(ctx, id.AccountID); terr == nil {
+				for _, tb := range tombs {
+					if tb.Root == root && now.Sub(time.Unix(tb.At, 0)) < 30*24*time.Hour {
+						why = "returned after removal"
+						policy = "ask"
+					}
+				}
+			}
+		}
+		if policy != "auto" {
+			if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: id.AccountID, Root: root, Endpoint: endpoint, Leaf: leaf.DER, Why: why, At: now.Unix()}); err == nil {
+				id.audit("contact_new_address", "account:"+id.AccountID+" contact:"+root+" endpoint:"+endpoint+" why:"+why, "pending")
+				if id.OnPending != nil {
+					id.OnPending(root, endpoint, why)
+				}
+			}
+			// Until the owner decides, the pin stands where it was and nothing
+			// from the new address runs: the caller is composed as an anonymous
+			// guest and every substantive call is refused pending_approval.
+			return TransportCaller{Demote: true, Refusal: "pending_approval"}
+		}
+		if err := id.Store.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: id.AccountID, Root: root, Endpoint: c.Endpoint, At: now.Unix()}); err != nil {
+			return TransportCaller{Demote: true}
+		}
+		if err := id.Store.RepinContactAddress(ctx, id.AccountID, root, endpoint, leaf.DER, leaf.SPKI, now.Unix()); err != nil {
+			return TransportCaller{Demote: true}
+		}
+		id.audit("contact_new_address", "account:"+id.AccountID+" contact:"+root+" endpoint:"+endpoint, "ok")
+		if id.OnEvent != nil {
+			id.OnEvent("new_address", root, endpoint)
+		}
+		return TransportCaller{Fingerprint: root}
+	}
+	if cmp == "newer" {
+		if err := id.Store.RepinContactAddress(ctx, id.AccountID, root, endpoint, leaf.DER, leaf.SPKI, now.Unix()); err != nil {
+			return TransportCaller{Demote: true}
+		}
+		id.audit("contact_renewal", "account:"+id.AccountID+" contact:"+root+" endpoint:"+endpoint, "ok")
+		if id.OnEvent != nil {
+			id.OnEvent("renewal", root, endpoint)
+		}
+	}
+	return TransportCaller{Fingerprint: root}
 }

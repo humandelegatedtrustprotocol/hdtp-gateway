@@ -74,9 +74,10 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	sub, rest := args[0], args[1:]
 	var cfgPath, out, from, slug, passFile string
-	var withoutKey, yes, dataOnly bool
+	var withoutKey, yes, dataOnly, sameNode bool
 	fs := commonFlags("backup "+sub, &cfgPath, stderr)
 	fs.BoolVar(&dataOnly, "data-only", false, "restore: import another host's archive — the data comes in, every key in it is refused (PACT §9)")
+	fs.BoolVar(&sameNode, "same-node", false, "restore: this is your own node's archive restored onto a fresh machine — its master key and sealed keys are taken as yours")
 	fs.StringVar(&out, "out", "", "create|identity: path to write")
 	fs.StringVar(&from, "from", "", "restore|restore-identity: path to read")
 	fs.StringVar(&slug, "slug", "", "identity: which account to back up")
@@ -138,7 +139,7 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "backup restore: data dir already holds a store; pass -yes to overwrite it")
 			return 1
 		}
-		n, err := backupRestore(cfg, from, dataOnly)
+		n, err := backupRestore(cfg, from, dataOnly, sameNode)
 		if err != nil {
 			fmt.Fprintln(stderr, "backup:", err)
 			return 1
@@ -251,16 +252,25 @@ func backupCreate(cfg *core.Config, out string, withKey bool) (int, error) {
 	return entries, nil
 }
 
-func backupRestore(cfg *core.Config, from string, dataOnly bool) (int, error) {
+func backupRestore(cfg *core.Config, from string, dataOnly, sameNode bool) (int, error) {
 	// The manifest first, before anything is wiped: an archive from another
 	// host is refused whole unless the caller asked for its data alone.
 	man, err := readBackupManifest(from)
 	if err != nil {
 		return 0, err
 	}
-	if local := keyringID(cfg); !dataOnly && man.KeyringID != "" && local != "" && man.KeyringID != local {
-		return 0, fmt.Errorf("this archive was made by another node (its master key is not this node's); " +
-			"a host importing another host's archive takes the data and none of the keys (PACT §9) — restore with -data-only")
+	// Foreign unless proven otherwise: the manifest's keyring id is the former
+	// host's to omit, and a fresh node has no keyring to compare with — both
+	// used to read as "safe" and let the archive's master key and every sealed
+	// key land here, which is exactly what PACT §9 forbids a host to take.
+	if !dataOnly && !sameNode {
+		local := keyringID(cfg)
+		if man.KeyringID == "" || local == "" || man.KeyringID != local {
+			return 0, fmt.Errorf("this archive is treated as another node's: it was not proven to be this node's own (the archive's keyring id %q, this node's %q); "+
+				"a host importing another host's archive takes the data and none of the keys (PACT §9) — restore with -data-only, "+
+				"or with -same-node when this is your own node's archive restored onto a fresh machine",
+				short(man.KeyringID), short(local))
+		}
 	}
 	f, err := os.Open(from)
 	if err != nil {
@@ -396,4 +406,12 @@ func writeEntry(path string, r io.Reader, mode os.FileMode) error {
 	defer out.Close()
 	_, err = io.Copy(out, r)
 	return err
+}
+
+// short abbreviates a keyring id for a message; "" stays "".
+func short(id string) string {
+	if len(id) > 12 {
+		return id[:12] + "…"
+	}
+	return id
 }

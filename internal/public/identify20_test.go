@@ -493,27 +493,169 @@ func TestV1StillServedUntilTheOwnerSaysNot(t *testing.T) {
 	}
 }
 
-func TestV2TransportChainIsTheRoot(t *testing.T) {
+func TestV2TransportPinChecks(t *testing.T) {
+	// The transport path — a chain as the client certificate — resolves a 2.0
+	// caller through the same pin checks as the sealed path (PACT §2, §14.3,
+	// §5.3), and what it resolves is what dispatch sees: the composed server's
+	// identity, not the gate's discarded return value.
 	e := newEnv20(t)
+	ctx := context.Background()
 	p := newPeer(t, fixedNow)
 	leaf, _ := pactidentity.Parse(p.leaf)
-	tf := TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI, ClientProtocol: 2, ClientLeaf: p.leaf, ClientEndpoint: endpointA}
+	facts := func(l []byte) TransportFacts {
+		c, _ := pactidentity.Parse(l)
+		return TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: c.SPKI, ClientProtocol: 2, ClientLeaf: l, ClientEndpoint: c.URIs[0]}
+	}
 	e.id.Seal = core.SealOptional
-	// Unpinned: the root is the caller (a guest, by the store).
-	if fpr, err := e.id.PlaintextGate(tf, "request_contact", true); err != nil || fpr != p.fpr() {
-		t.Fatalf("plaintext 2.0 stranger: %v %q", err, fpr)
+	// Unpinned: the root is the caller, and the store makes it a guest.
+	if tc := e.id.ResolveTransport(ctx, facts(p.leaf)); tc.Fingerprint != p.fpr() || tc.Demote || tc.Refusal != "" {
+		t.Fatalf("stranger: %+v", tc)
 	}
 	e.pin(t, p, "active")
-	if fpr, _ := e.id.PlaintextGate(tf, "send_message", true); fpr != p.fpr() {
-		t.Fatalf("plaintext 2.0 contact: %q", fpr)
+	if tc := e.id.ResolveTransport(ctx, facts(p.leaf)); tc.Fingerprint != p.fpr() || tc.Demote {
+		t.Fatalf("contact: %+v", tc)
 	}
-	// A superseded leaf as the client certificate proves nothing.
-	newer := &peer{root: p.root, host: p.host}
-	newer.leaf = newer.leafFor(t, endpointA, fixedNow)
-	if _, err := e.open(t, e.seal20(t, newer, "chain", "send_message", nil), TransportFacts{}); err != nil {
+	// A newer leaf at the pinned endpoint is a renewal, learned in passing.
+	renewed := &peer{root: p.root, host: p.host}
+	renewed.leaf = renewed.leafFor(t, endpointA, fixedNow)
+	var events []string
+	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event) }
+	if tc := e.id.ResolveTransport(ctx, facts(renewed.leaf)); tc.Fingerprint != p.fpr() {
+		t.Fatalf("renewal: %+v", tc)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); string(c.Leaf) != string(renewed.leaf) || len(events) != 1 || events[0] != "renewal" {
+		t.Fatalf("the renewal was not learned: %v", events)
+	}
+	// The superseded leaf now proves nothing: an anonymous guest, for tools/list
+	// as for a call — the gate hands dispatch no identity at all.
+	tc := e.id.ResolveTransport(ctx, facts(p.leaf))
+	if tc.Fingerprint != "" || !tc.Demote {
+		t.Fatalf("a superseded leaf on the transport path: %+v", tc)
+	}
+	if fpr, err := e.id.PlaintextGateCtx(WithTransportCaller(ctx, tc), facts(p.leaf), "send_message", true); err != nil || fpr != "" {
+		t.Fatalf("gate for a superseded leaf: %q %v", fpr, err)
+	}
+	_ = leaf
+	// Blocked: a stranger, indistinguishable from one.
+	if err := e.st.UpdateContactStatus(ctx, e.acct.ID, p.fpr(), "blocked"); err != nil {
 		t.Fatal(err)
 	}
-	if fpr, _ := e.id.PlaintextGate(tf, "send_message", true); fpr != "" {
-		t.Fatalf("a superseded leaf on the transport path: %q", fpr)
+	if tc := e.id.ResolveTransport(ctx, facts(renewed.leaf)); tc.Fingerprint != "" || !tc.Demote {
+		t.Fatalf("blocked: %+v", tc)
+	}
+	if err := e.st.UpdateContactStatus(ctx, e.acct.ID, p.fpr(), "active"); err != nil {
+		t.Fatal(err)
+	}
+	// Another endpoint under auto: re-pinned, the former endpoint kept, the owner told.
+	moved := &peer{root: p.root, host: p.host}
+	moved.leaf = moved.leafFor(t, endpointA2, fixedNow.Add(time.Minute))
+	events = nil
+	if tc := e.id.ResolveTransport(ctx, facts(moved.leaf)); tc.Fingerprint != p.fpr() || tc.Demote {
+		t.Fatalf("move under auto: %+v", tc)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); c.Endpoint != endpointA2 || string(c.Leaf) != string(moved.leaf) {
+		t.Fatalf("not re-pinned: %+v", c)
+	}
+	if fe, _ := e.st.ListFormerEndpoints(ctx, e.acct.ID); len(fe) != 1 || fe[0].Endpoint != endpointA || len(events) != 1 || events[0] != "new_address" {
+		t.Fatalf("former endpoint / event: %+v %v", fe, events)
+	}
+	// Another endpoint under ask: parked, nothing runs, update_contact answers pending.
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask", true); err != nil {
+		t.Fatal(err)
+	}
+	back := &peer{root: p.root, host: p.host}
+	back.leaf = back.leafFor(t, endpointA, fixedNow.Add(2*time.Minute))
+	tc = e.id.ResolveTransport(ctx, facts(back.leaf))
+	if tc.Fingerprint != "" || !tc.Demote || tc.Refusal != "pending_approval" {
+		t.Fatalf("move under ask: %+v", tc)
+	}
+	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 1 || ps[0].Endpoint != endpointA || ps[0].Why != "ask" {
+		t.Fatalf("pending: %+v", ps)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); c.Endpoint != endpointA2 {
+		t.Fatal("under ask the pin must not move")
+	}
+	gctx := WithTransportCaller(ctx, tc)
+	if _, err := e.id.PlaintextGateCtx(gctx, facts(back.leaf), "send_message", true); !errors.Is(err, ErrPendingApproval) {
+		t.Fatalf("a call from the unapproved address: %v", err)
+	}
+	if _, err := e.id.PlaintextGateCtx(gctx, facts(back.leaf), "update_contact", true); !errors.Is(err, ErrPendingStatus) {
+		t.Fatalf("update_contact from the unapproved address: %v", err)
+	}
+	// After a removal, a newer leaf within the window is asked about whatever the setting.
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "auto", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.DeletePendingAddress(ctx, e.acct.ID, p.fpr()); err != nil {
+		t.Fatal(err)
+	}
+	cm := &contacts.Manager{Store: e.st}
+	if err := cm.RemoveContact(ctx, e.acct.ID, p.fpr()); err != nil {
+		t.Fatal(err)
+	}
+	e.pin(t, p, "active") // the owner re-adds the old pin; the tombstone stands
+	returned := &peer{root: p.root, host: p.host}
+	returned.leaf = returned.leafFor(t, endpointA2, fixedNow.Add(3*time.Minute))
+	if tc := e.id.ResolveTransport(ctx, facts(returned.leaf)); tc.Refusal != "pending_approval" {
+		t.Fatalf("returned after removal: %+v", tc)
+	}
+	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 1 || ps[0].Why != "returned after removal" {
+		t.Fatalf("tombstone pending: %+v", ps)
+	}
+}
+
+func TestV2TransportUpgradesALegacyPinAtTheLeafsEndpoint(t *testing.T) {
+	// Appendix C row 6 on the transport path: the endpoint pinned is the one
+	// the leaf names, so the next resolution is the contact's, not a move.
+	e := newEnv20(t)
+	ctx := context.Background()
+	p := newPeer(t, fixedNow)
+	leaf, _ := pactidentity.Parse(p.leaf)
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acct.ID, Fingerprint: pactidentity.Fingerprint(leaf.SPKI), SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"}}); err != nil {
+		t.Fatal(err)
+	}
+	tf := TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI, ClientProtocol: 2, ClientLeaf: p.leaf, ClientEndpoint: endpointA}
+	var events []string
+	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event) }
+	for i := 0; i < 2; i++ {
+		if tc := e.id.ResolveTransport(ctx, tf); tc.Fingerprint != p.fpr() || tc.Demote || tc.Refusal != "" {
+			t.Fatalf("resolution %d: %+v", i, tc)
+		}
+	}
+	c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
+	if err != nil || c.Protocol != 2 || c.Endpoint != endpointA || string(c.Leaf) != string(p.leaf) {
+		t.Fatalf("upgraded pin: %v %+v", err, c)
+	}
+	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 0 || len(events) != 0 {
+		t.Fatalf("an upgrade is not a move: %+v %v", ps, events)
+	}
+}
+
+func TestV2LegacyPinUpgradeIsNotAMove(t *testing.T) {
+	// The sealed path's row 6: a 1.x pin met by a first chain carrying an
+	// ordinary contact tool is upgraded at the leaf's own endpoint and the
+	// call runs as the contact — no pending row, no new_address event.
+	e := newEnv20(t)
+	ctx := context.Background()
+	p := newPeer(t, fixedNow)
+	leaf, _ := pactidentity.Parse(p.leaf)
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acct.ID, Fingerprint: pactidentity.Fingerprint(leaf.SPKI), SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"}}); err != nil {
+		t.Fatal(err)
+	}
+	var events, pendings []string
+	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event) }
+	e.id.OnPending = func(root, endpoint, why string) { pendings = append(pendings, why) }
+	f, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"msg_id": "m", "text": "hi"}), TransportFacts{})
+	if err != nil || f.Tier != policy.TierContact || f.From != p.fpr() {
+		t.Fatalf("first chain after a 1.x pin: %v %+v", err, f)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); c.Protocol != 2 || c.Endpoint != endpointA {
+		t.Fatalf("upgraded pin: %+v", c)
+	}
+	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 0 || len(events) != 0 || len(pendings) != 0 {
+		t.Fatalf("an upgrade is not a move: %+v %v %v", ps, events, pendings)
+	}
+	if fe, _ := e.st.ListFormerEndpoints(ctx, e.acct.ID); len(fe) != 0 {
+		t.Fatalf("no former endpoint: %+v", fe)
 	}
 }

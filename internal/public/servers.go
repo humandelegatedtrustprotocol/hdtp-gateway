@@ -352,6 +352,19 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 						"caller:"+fprOrAnonymous(fpr)+" tool:"+calledTool(req), "unavailable")
 					return res, err
 				}
+				// A pinned root calling from an address the owner has not yet
+				// approved (PACT §5.3) is composed as a guest, so its contact
+				// tools are not here — but the answer is the one the sealed
+				// path gives: pending_approval, and pending for the
+				// update_contact that brought the address.
+				if tc, ok := TransportCallerFrom(ctx); ok && tc.Refusal != "" {
+					tool := calledTool(req)
+					p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+tool, tc.Refusal)
+					if tool == "update_contact" {
+						return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"pending"}`}}}, nil
+					}
+					return codeResult(tc.Refusal), nil
+				}
 				// Otherwise the tool is not on this caller's surface, and the
 				// SDK's own "unknown tool" error would both leak that the tool
 				// exists elsewhere and differ from what the sealed path returns.
@@ -474,6 +487,11 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		}
 		if p.Gate != nil {
 			if err := p.Gate(ctx, e.Tool.Name); err != nil {
+				if errors.Is(err, ErrPendingStatus) {
+					// PACT §5.3: the update_contact from a new address the owner
+					// has not approved answers pending, and nothing runs.
+					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"pending"}`}}}, nil
+				}
 				return &mcp.CallToolResult{IsError: true,
 					Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + Code(err) + `"}`}}}, nil
 			}

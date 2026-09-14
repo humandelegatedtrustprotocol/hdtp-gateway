@@ -28,7 +28,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
@@ -39,6 +38,12 @@ var (
 	ErrSealRequired     = errors.New("seal_required")
 	ErrIdentityRequired = errors.New("identity_required")
 	ErrSealNotAccepted  = errors.New("seal_not_accepted")
+	// ErrPendingApproval is PACT §5.3 on the transport path: a pinned root
+	// calling from an address the owner has not yet approved. ErrPendingStatus
+	// is the one call that address is allowed — the update_contact that brought
+	// it — answered `{"status":"pending"}` rather than an error.
+	ErrPendingApproval = errors.New("pending_approval")
+	ErrPendingStatus   = errors.New("pending")
 )
 
 // Code maps an error to its PACT §12 wire code ("" when it is not one of ours).
@@ -52,6 +57,8 @@ func Code(err error) string {
 		return "identity_required"
 	case errors.Is(err, ErrSealNotAccepted):
 		return "seal_not_accepted"
+	case errors.Is(err, ErrPendingApproval):
+		return "pending_approval"
 	case errors.Is(err, ErrChainRequired):
 		return "chain_required"
 	case errors.As(err, new(*CertificateRenewed)):
@@ -227,11 +234,15 @@ func (id *Identifier) seal() core.Seal {
 	return id.Seal
 }
 
-// PlaintextGate is the policy check for an UNSEALED call (§4.4, §4.11, §5.1).
+// PlaintextGateCtx is the policy check for an UNSEALED call (§4.4, §4.11, §5.1).
 // tool is the inner tool name; substantive calls are everything except
 // `sealed_call` and `tools/list`, which always answer with whatever identity
 // the transport earned.
-func (id *Identifier) PlaintextGate(tf TransportFacts, tool string, substantive bool) (string, error) {
+// The request's context carries the node's one-per-request resolution of a
+// 2.0 chain (ResolveTransport); the gate enforces that resolution rather than
+// re-deciding, so a re-pin or a pending address is recorded once per request,
+// not once per tool call.
+func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, tool string, substantive bool) (string, error) {
 	// identity first: identity_required precedes seal_required (§4.11, §5.3)
 	if id.Cert == core.ClientCertRequired && tf.ClientCertFingerprint == "" {
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
@@ -245,13 +256,26 @@ func (id *Identifier) PlaintextGate(tf TransportFacts, tool string, substantive 
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "seal_required")
 		return "", fmt.Errorf("%w: this node requires sealed calls", ErrSealRequired)
 	}
-	// A 2.0 chain as the client certificate (PACT §2): the root is the caller.
-	// A leaf older than the pinned one proves nothing (§14.3) and a leaf for
-	// another address is §5.3, which the sealed path carries; on this path
-	// both are served as an anonymous guest.
+	// A 2.0 chain as the client certificate (PACT §2): the root is the caller
+	// once the pin checks the sealed path makes have run (ResolveTransport):
+	// a leaf older than the pinned one proves nothing (§14.3) and a blocked
+	// root is a stranger — both an anonymous guest here; another address is
+	// §5.3 — re-pinned under `auto`, parked under `ask` with every call
+	// answered pending_approval until the owner decides.
 	if tf.ClientProtocol == 2 {
-		if id.speaks20(context.Background()) {
-			return id.plaintextCaller20(context.Background(), tf, tool), nil
+		if id.speaks20(ctx) {
+			tc, ok := TransportCallerFrom(ctx)
+			if !ok {
+				tc = id.ResolveTransport(ctx, tf)
+			}
+			if tc.Refusal != "" {
+				if tool == "update_contact" {
+					return "", ErrPendingStatus
+				}
+				id.audit("identity_gate", "account:"+id.AccountID+" contact:"+tf.ClientCertFingerprint+" tool:"+tool, tc.Refusal)
+				return "", ErrPendingApproval
+			}
+			return tc.Fingerprint, nil
 		}
 		// PACT Appendix C row 4: a 1.x identity ignores the chain and reads
 		// the leaf's key — so its pins stay keyed by key, which is what its
@@ -283,37 +307,6 @@ func LegacyCaller(tf TransportFacts) string {
 	return tf.ClientCertFingerprint
 }
 
-func (id *Identifier) plaintextCaller20(ctx context.Context, tf TransportFacts, tool string) string {
-	root := tf.ClientCertFingerprint
-	c, err := id.Store.GetContact(ctx, id.AccountID, root)
-	if err != nil {
-		// Appendix C row 6 on the transport path: a 1.x pin of this leaf's key
-		// becomes the 2.0 pin of the root.
-		leaf, perr := pactidentity.Parse(tf.ClientLeaf)
-		if perr == nil {
-			keyFpr := pactidentity.Fingerprint(leaf.SPKI)
-			if old, gerr := id.Store.GetContact(ctx, id.AccountID, keyFpr); gerr == nil && old.Protocol != 2 && old.Status != "blocked" {
-				if id.Store.UpgradeContactPin(ctx, id.AccountID, keyFpr, root, tf.ClientEndpoint, leaf.DER, leaf.SPKI, id.now().Unix()) == nil {
-					id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
-				}
-			}
-		}
-		return root
-	}
-	if c.Protocol != 2 || len(c.Leaf) == 0 || c.Status == "blocked" {
-		return root
-	}
-	if cmp, err := pactidentity.CompareLeaves(c.Leaf, tf.ClientLeaf); err != nil || cmp == "superseded" || cmp == "conflict" {
-		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root+" tool:"+tool, "superseded_leaf")
-		return ""
-	}
-	if tf.ClientEndpoint != c.Endpoint {
-		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root+" tool:"+tool, "new_address_unsealed")
-		return ""
-	}
-	return root
-}
-
 // PoolGate adapts an Identifier into the Pool.Gate hook: it applies the
 // plaintext rules of §5.1 to unsealed calls and lets sealed ones through, since
 // those already ran the full open order in OpenSealed. `tools/list` never
@@ -324,7 +317,7 @@ func (id *Identifier) PoolGate() func(ctx context.Context, tool string) error {
 		if EnvelopeFactsFrom(ctx) != nil {
 			return nil // sealed: already validated
 		}
-		_, err := id.PlaintextGate(FactsFrom(ctx), tool, tool != SealedToolName)
+		_, err := id.PlaintextGateCtx(ctx, FactsFrom(ctx), tool, tool != SealedToolName)
 		return err
 	}
 }
