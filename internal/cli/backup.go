@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -253,6 +254,16 @@ func backupCreate(cfg *core.Config, out string, withKey bool) (int, error) {
 }
 
 func backupRestore(cfg *core.Config, from string, dataOnly, sameNode bool) (int, error) {
+	// Stripping keys means rewriting the restored SQLite file. On a Postgres node
+	// there is no such file — `backup create` skips the database there — so the
+	// strip would open an empty one and fail "no such table: accounts" AFTER the
+	// blobs were restored, and the keys it meant to strip were never in the
+	// archive to begin with. Refused with the two ways forward.
+	if dataOnly && cfg.StoreEngine == "postgres" {
+		return 0, errors.New(
+			"backup restore -data-only is for a SQLite node: this node stores in Postgres, where the archive carries no database " +
+				"(and so no keys). Import the data with pg_restore, or run the restore on the SQLite node that made the archive")
+	}
 	// The manifest first, before anything is wiped: an archive from another
 	// host is refused whole unless the caller asked for its data alone.
 	man, err := readBackupManifest(from)

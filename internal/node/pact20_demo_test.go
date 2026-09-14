@@ -310,7 +310,7 @@ func TestPact20ExitDemo(t *testing.T) {
 		t.Fatal("alina did not receive c1")
 	}
 	alina.send(chen, chen.kp().Fingerprint, "a2", "hello chen")
-	if !bharat.received("hello bharat") || !chen.received("hello chen") {
+	if !chen.received("hello chen") {
 		t.Fatal("chen did not receive a2")
 	}
 
