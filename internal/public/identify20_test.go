@@ -408,6 +408,47 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	}
 }
 
+// A caller from an address the owner has not approved is told once, however many
+// times it calls. Every request used to append an audit-chain row and wake the
+// owner: a host holding a still-valid leaf for a pinned root — a former host
+// after a move — grew both without bound just by continuing to call.
+func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
+	e := newEnv20(t)
+	ctx := context.Background()
+	p := newPeer(t, fixedNow.Add(-time.Hour))
+	e.pin(t, p, "active")
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask", true); err != nil {
+		t.Fatal(err)
+	}
+	var pendings int
+	e.id.OnPending = func(string, string, string) { pendings++ }
+
+	moved := &peer{root: p.root, host: p.host}
+	moved.leaf = moved.leafFor(t, endpointA2, fixedNow.Add(-5*time.Minute))
+	for i := 0; i < 4; i++ {
+		f, err := e.open(t, e.seal20(t, moved, "chain", "update_contact", map[string]any{"card": card20(moved)}), TransportFacts{})
+		if err != nil || f.Tier != TierPendingAddress {
+			t.Fatalf("call %d: %v %+v", i, err, f)
+		}
+	}
+	if pendings != 1 {
+		t.Fatalf("four calls from one unapproved address woke the owner %d times", pendings)
+	}
+	ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID)
+	if len(ps) != 1 || ps[0].Endpoint != endpointA2 {
+		t.Fatalf("one row, the latest state: %+v", ps)
+	}
+	// A DIFFERENT address from the same root is a new thing to be told about.
+	third := &peer{root: p.root, host: p.host}
+	third.leaf = third.leafFor(t, "https://alina.third.example/alina/mcp", fixedNow.Add(-4*time.Minute))
+	if _, err := e.open(t, e.seal20(t, third, "chain", "update_contact", map[string]any{"card": card20(third)}), TransportFacts{}); err != nil {
+		t.Fatal(err)
+	}
+	if pendings != 2 {
+		t.Fatalf("a different address is a different question: woke %d times", pendings)
+	}
+}
+
 func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 	e := newEnv20(t)
 	ctx := context.Background()

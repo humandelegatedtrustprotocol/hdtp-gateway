@@ -89,6 +89,26 @@ func errEnvelope(code string) *mcp.CallToolResult {
 		Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + code + `"}`}}}
 }
 
+// spendGuestBudget charges one unit of the guest allowance and returns a
+// rate_limited answer when it is gone. The wrapper is exempt from the per-call
+// budget (see guarded), so an answer that costs the node work and tells the
+// caller something must charge it here — a guessed fingerprint (§14.5), and
+// equally a caller hammering an address the owner has not approved, which
+// writes a row and wakes the owner for every attempt.
+func spendGuestBudget(ctx context.Context, d SealedDeps) *mcp.CallToolResult {
+	if d.Pool == nil || d.Pool.Limit == nil {
+		return nil
+	}
+	ok, retry := d.Pool.Limit(ctx)
+	if ok {
+		return nil
+	}
+	d.audit("sealed_call", "account:"+d.AccountID, "rate_limited")
+	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
+		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, int(retry.Seconds())+1)},
+	}}
+}
+
 func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var env envelope.Envelope
@@ -103,13 +123,8 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				// PACT §14.5: a guessed fingerprint spends the source's guest
 				// budget. The wrapper is exempt from the per-call budget (see
 				// guarded), so this answer charges it here, as a guest.
-				if d.Pool != nil && d.Pool.Limit != nil {
-					if ok, retry := d.Pool.Limit(ctx); !ok {
-						d.audit("sealed_call", "account:"+d.AccountID, "rate_limited")
-						return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
-							&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, int(retry.Seconds())+1)},
-						}}, nil
-					}
+				if limited := spendGuestBudget(ctx, d); limited != nil {
+					return limited, nil
 				}
 			case errors.As(err, &renewed):
 				// PACT §14.4: plaintext, carrying the current chain — proof of
@@ -127,7 +142,11 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		if facts.Refusal != "" {
 			// A pinned root at an address the owner has not approved (PACT
-			// §5.3): the seed's plain code, nothing dispatched.
+			// §5.3): the seed's plain code, nothing dispatched — and charged, so
+			// a host calling from an unapproved address cannot do it for free.
+			if limited := spendGuestBudget(ctx, d); limited != nil {
+				return limited, nil
+			}
 			d.audit("sealed_call", "account:"+d.AccountID, facts.Refusal)
 			return errEnvelope(facts.Refusal), nil
 		}
@@ -136,6 +155,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// update_contact that brought the new address answers pending, and
 			// every other call from that address, until the owner decides,
 			// answers pending_approval — nothing runs either way.
+			if limited := spendGuestBudget(ctx, d); limited != nil {
+				return limited, nil
+			}
 			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == "update_contact" {
 				return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
