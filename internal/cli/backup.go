@@ -11,7 +11,9 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +40,31 @@ type backupManifestDoc struct {
 	StoreEngine string    `json:"store_engine"`
 	HasKey      bool      `json:"has_master_key"`
 	Tool        string    `json:"tool"`
+	// KeyringID names the master key the archive's key columns are sealed
+	// under (a hash, never the key). A node whose keyring is another one is
+	// importing another host's archive, and PACT §9 says such an import
+	// carries data and no key material: restore refuses the keys unless told
+	// -data-only, which strips them.
+	KeyringID string `json:"keyring_id,omitempty"`
+}
+
+// keyringID hashes the master key the way both create and restore read it —
+// the environment first, then the file — so the two sides agree; "" when the
+// node has none yet.
+func keyringID(cfg *core.Config) string {
+	if v, ok := os.LookupEnv("PACT_MASTER_KEY"); ok && v != "" {
+		return hashKeyring([]byte(v))
+	}
+	b, err := os.ReadFile(masterKeyPath(cfg))
+	if err != nil || len(b) == 0 {
+		return ""
+	}
+	return hashKeyring(b)
+}
+
+func hashKeyring(b []byte) string {
+	sum := sha256.Sum256(append([]byte("pact-keyring-id/"), strings.TrimSpace(string(b))...))
+	return hex.EncodeToString(sum[:8])
 }
 
 func backupCmd(args []string, stdout, stderr io.Writer) int {
@@ -47,8 +74,9 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	sub, rest := args[0], args[1:]
 	var cfgPath, out, from, slug, passFile string
-	var withoutKey, yes bool
+	var withoutKey, yes, dataOnly bool
 	fs := commonFlags("backup "+sub, &cfgPath, stderr)
+	fs.BoolVar(&dataOnly, "data-only", false, "restore: import another host's archive — the data comes in, every key in it is refused (PACT §9)")
 	fs.StringVar(&out, "out", "", "create|identity: path to write")
 	fs.StringVar(&from, "from", "", "restore|restore-identity: path to read")
 	fs.StringVar(&slug, "slug", "", "identity: which account to back up")
@@ -110,12 +138,15 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "backup restore: data dir already holds a store; pass -yes to overwrite it")
 			return 1
 		}
-		n, err := backupRestore(cfg, from)
+		n, err := backupRestore(cfg, from, dataOnly)
 		if err != nil {
 			fmt.Fprintln(stderr, "backup:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "restored %d entries into %s\nnext: pact-gateway migrate, then serve\n", n, cfg.DataDir)
+		if dataOnly {
+			fmt.Fprintln(stdout, "keys were not imported: each account needs a leaf from its wallet before it serves (account csr -purpose renew, then install-leaf)")
+		}
 		return 0
 	default:
 		fmt.Fprintln(stderr, "usage: pact-gateway backup <create|restore|identity|restore-identity> [flags]")
@@ -181,7 +212,7 @@ func backupCreate(cfg *core.Config, out string, withKey bool) (int, error) {
 		return add(name, mode, fh, st.Size())
 	}
 
-	man := backupManifestDoc{Version: 1, CreatedAt: time.Now().UTC(), StoreEngine: cfg.StoreEngine, HasKey: withKey, Tool: "pact-gateway"}
+	man := backupManifestDoc{Version: 1, CreatedAt: time.Now().UTC(), StoreEngine: cfg.StoreEngine, HasKey: withKey, Tool: "pact-gateway", KeyringID: keyringID(cfg)}
 	mb, _ := json.MarshalIndent(man, "", "  ")
 	if err := add(backupManifest, 0o600, strings.NewReader(string(mb)), int64(len(mb))); err != nil {
 		return 0, err
@@ -220,7 +251,17 @@ func backupCreate(cfg *core.Config, out string, withKey bool) (int, error) {
 	return entries, nil
 }
 
-func backupRestore(cfg *core.Config, from string) (int, error) {
+func backupRestore(cfg *core.Config, from string, dataOnly bool) (int, error) {
+	// The manifest first, before anything is wiped: an archive from another
+	// host is refused whole unless the caller asked for its data alone.
+	man, err := readBackupManifest(from)
+	if err != nil {
+		return 0, err
+	}
+	if local := keyringID(cfg); !dataOnly && man.KeyringID != "" && local != "" && man.KeyringID != local {
+		return 0, fmt.Errorf("this archive was made by another node (its master key is not this node's); " +
+			"a host importing another host's archive takes the data and none of the keys (PACT §9) — restore with -data-only")
+	}
 	f, err := os.Open(from)
 	if err != nil {
 		return 0, err
@@ -264,6 +305,9 @@ func backupRestore(cfg *core.Config, from string) (int, error) {
 			sawManifest = true
 			continue
 		case name == backupKey:
+			if dataOnly {
+				continue // the other host's master key never lands here
+			}
 			if err := writeEntry(masterKeyPath(cfg), tr, 0o600); err != nil {
 				return 0, err
 			}
@@ -279,7 +323,66 @@ func backupRestore(cfg *core.Config, from string) (int, error) {
 	if !sawManifest {
 		return 0, fmt.Errorf("not a pact backup: manifest missing")
 	}
+	if dataOnly {
+		if err := stripKeys(filepath.Join(cfg.DataDir, backupDB)); err != nil {
+			return 0, fmt.Errorf("stripping key material: %w", err)
+		}
+	}
 	return entries, nil
+}
+
+// readBackupManifest reads MANIFEST.json out of an archive without touching
+// the data directory.
+func readBackupManifest(from string) (backupManifestDoc, error) {
+	f, err := os.Open(from)
+	if err != nil {
+		return backupManifestDoc{}, err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return backupManifestDoc{}, fmt.Errorf("not a pact backup (gzip): %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return backupManifestDoc{}, fmt.Errorf("not a pact backup: manifest missing")
+		}
+		if err != nil {
+			return backupManifestDoc{}, err
+		}
+		if filepath.Clean(h.Name) == backupManifest {
+			var man backupManifestDoc
+			if err := json.NewDecoder(tr).Decode(&man); err != nil || man.Tool != "pact-gateway" {
+				return backupManifestDoc{}, fmt.Errorf("not a pact backup: bad manifest")
+			}
+			return man, nil
+		}
+	}
+}
+
+// stripKeys removes every sealed key from a restored store: the accounts'
+// keys, a rotation's retiring key, and the leaf ledger's keys — the ledger
+// rows stay, as former leaves, so an envelope sealed to one is answered
+// certificate_renewed once the wallet has issued a leaf here (PACT §14.4).
+func stripKeys(dbPath string) error {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx := context.Background()
+	for _, stmt := range []string{
+		"UPDATE accounts SET key_sealed = NULL, prev_key_sealed = NULL, prev_fingerprint = NULL, grace_until = 0",
+		"UPDATE leaves SET key_sealed = NULL, state = 'former' WHERE state IN ('current', 'superseded', 'pending')",
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeEntry(path string, r io.Reader, mode os.FileMode) error {

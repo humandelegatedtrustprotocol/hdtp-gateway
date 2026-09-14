@@ -20,6 +20,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 const passphraseEnv = "PACT_IDENTITY_PASSPHRASE"
@@ -92,7 +93,19 @@ func exportIdentity(cfg *core.Config, slug, out, passFile string, stdout, stderr
 		fmt.Fprintln(stderr, "backup identity: could not open the stored key:", err)
 		return 1
 	}
-	doc, err := identity.ExportIdentity(kp, a.Slug, a.DisplayName, a.Algo, pass)
+	var doc identity.IdentityBackup
+	if a.Protocol == 2 {
+		// PACT §9: the host's half of a 2.0 identity is the leaf and its key;
+		// the root stays in the wallet and travels here as a certificate only.
+		chain, cerr := idm.Chain(ctx, a.ID)
+		if cerr != nil {
+			fmt.Fprintln(stderr, "backup identity:", cerr)
+			return 1
+		}
+		doc, err = identity.ExportIdentity20(kp, a.Slug, a.DisplayName, a.Algo, pass, chain[0], chain[1])
+	} else {
+		doc, err = identity.ExportIdentity(kp, a.Slug, a.DisplayName, a.Algo, pass)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "backup identity:", err)
 		return 1
@@ -109,6 +122,12 @@ func exportIdentity(cfg *core.Config, slug, out, passFile string, stdout, stderr
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", out)
 	fmt.Fprintf(stdout, "  identity %s (%s)\n  %s\n", a.DisplayName, a.Slug, kp.Fingerprint)
+	if a.Protocol == 2 {
+		fmt.Fprintf(stdout, "  a PACT 2.0 leaf under root %s, valid until %s; the root stays in the wallet\n", a.RootFingerprint, leafNotAfter(doc))
+		fmt.Fprintln(stdout, "This file is the host's half of that identity: whoever opens it speaks as this")
+		fmt.Fprintln(stdout, "person from this address until the leaf expires or the wallet issues a newer one.")
+		return 0
+	}
 	fmt.Fprintln(stdout, "This file IS that identity. Anyone who opens it can be this person to every")
 	fmt.Fprintln(stdout, "contact who pinned the key. It is only as safe as the passphrase and the place")
 	fmt.Fprintln(stdout, "you keep it; there is no way to revoke it once it leaves.")
@@ -178,6 +197,19 @@ func restoreIdentity(cfg *core.Config, from, passFile string, stdout, stderr io.
 		fmt.Fprintln(stderr, "backup restore-identity:", err)
 		return 1
 	}
+	if doc.Version >= identity.BackupVersion20 {
+		// The leaf comes back as the account's current leaf, the root beside
+		// it, so the node serves the identity as 2.0 from the first request.
+		if err := idm.RestoreLeaf(ctx, a.ID, kp, []byte{}); err != nil {
+			fmt.Fprintln(stderr, "backup restore-identity:", err)
+			return 1
+		}
+		a, _ = st.GetAccountByID(ctx, a.ID)
+		fmt.Fprintf(stdout, "restored %s (%s) as a PACT 2.0 leaf under root %s\n", a.DisplayName, a.Slug, a.RootFingerprint)
+		fmt.Fprintln(stdout, "The leaf and its key are back; the root was never here. Contacts pinned by the")
+		fmt.Fprintln(stdout, "root reach you at the address the leaf names; renew from the wallet as before.")
+		return 0
+	}
 	fmt.Fprintf(stdout, "restored %s (%s)\n  %s\n", a.DisplayName, a.Slug, a.Fingerprint)
 	fmt.Fprintln(stdout, "The keypair is back. Contacts, threads and media are NOT — they were the other")
 	fmt.Fprintln(stdout, "node's record of its relationships. Peers who pinned this key still reach you;")
@@ -194,3 +226,13 @@ func openKeyringFor(cfg *core.Config) (*core.Keyring, error) {
 }
 
 var _ = store.Account{}
+
+// leafNotAfter reads the leaf's expiry out of a version-2 document, for the
+// message an export prints.
+func leafNotAfter(doc identity.IdentityBackup) string {
+	leaf, err := pactidentity.Parse(pactidentity.FromB64url(doc.Leaf))
+	if err != nil {
+		return "?"
+	}
+	return leaf.NotAfter.UTC().Format("2006-01-02")
+}

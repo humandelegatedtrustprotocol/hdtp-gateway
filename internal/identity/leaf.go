@@ -442,3 +442,29 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	}
 	return info, nil
 }
+
+// RestoreLeaf installs a leaf that came back from a backup (identity.Backup
+// version 2) as the account's current leaf: the key sealed under this node's
+// keyring, the ledger row current, the root beside the account. kp carries
+// Leaf and Root as OpenIdentity attached them.
+func (m *Manager) RestoreLeaf(ctx context.Context, accountID string, kp *Keypair, _ []byte) error {
+	if kp.Protocol != 2 || len(kp.Leaf) == 0 || len(kp.Root) == 0 {
+		return errors.New("identity: the key carries no leaf to restore")
+	}
+	vr := pactidentity.ValidateChain([][]byte{kp.Leaf, kp.Root}, pactidentity.ChainOpts{Now: time.Now()})
+	if !vr.OK {
+		return fmt.Errorf("identity: the backed-up chain is refused by rule %d: %s", vr.Rule, vr.Reason)
+	}
+	if pactidentity.Fingerprint(vr.LeafKey.SPKI) != kp.Fingerprint {
+		return errors.New("identity: the backed-up key is not the leaf's")
+	}
+	sealed, err := m.sealLeafKey(kp)
+	if err != nil {
+		return err
+	}
+	if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: accountID, Kid: kp.Fingerprint, Leaf: kp.Leaf, KeySealed: sealed,
+		NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint, CreatedAt: time.Now().Unix()}); err != nil {
+		return err
+	}
+	return m.Store.SetAccountProtocol(ctx, accountID, 2, vr.RootFingerprint, kp.Root)
+}

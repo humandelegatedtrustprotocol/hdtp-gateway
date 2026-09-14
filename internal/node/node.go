@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -212,6 +213,10 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	}
 	for _, rec := range recs {
 		a, err := n.buildAccount(ctx, rec)
+		if errors.Is(err, errAwaitingLeaf) {
+			o.audit("account_awaiting_leaf", "account:"+rec.ID+" slug:"+rec.Slug, "skipped")
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -352,10 +357,19 @@ func probeHandler(publicURL func() string) http.Handler {
 }
 
 // buildAccount loads one account's key and composes its serving state.
+// errAwaitingLeaf marks an account that holds no key: imported data-only,
+// waiting for the wallet's leaf before it serves (PACT §9).
+var errAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
+
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("node: account %s has no key: %w", rec.Slug, err)
+	}
+	if len(sealed) == 0 {
+		// A data-only import (PACT §9): the account is here, its key is not,
+		// and it serves nothing until the wallet issues a leaf to this host.
+		return nil, errAwaitingLeaf
 	}
 	kp, err := n.idm.LoadKeypair(sealed)
 	if err != nil {
