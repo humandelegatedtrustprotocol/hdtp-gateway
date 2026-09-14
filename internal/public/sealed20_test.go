@@ -234,11 +234,11 @@ func TestSealed20NewAddressUnderAskAnswersPending(t *testing.T) {
 	if string(opened.Result) != `{"status":"pending"}` {
 		t.Fatalf("a move under ask: %s", opened.Result)
 	}
-	// Every other call from the new address waits too: the seed answers each
-	// one pending until the owner decides, and nothing runs.
-	opened = s.openResult(t, s.call(t, s.seal20(t, moved, "chain", "send_message", map[string]any{"text": "hi"}, func(o *pactidentity.SealOpts) { o.MsgID = "move2" })), p, "move2")
-	if string(opened.Result) != `{"status":"pending"}` {
-		t.Fatalf("a call from an unapproved address: %s", opened.Result)
+	// Every other call from the new address answers pending_approval until
+	// the owner decides (PACT §5.3), and nothing runs.
+	res0 := s.call(t, s.seal20(t, moved, "chain", "send_message", map[string]any{"text": "hi"}, func(o *pactidentity.SealOpts) { o.MsgID = "move2" }))
+	if !res0.IsError || text(res0) != `{"code":"pending_approval"}` {
+		t.Fatalf("a call from an unapproved address: %s", text(res0))
 	}
 	if c, _ := s.st.GetContact(ctx, s.acct.ID, p.fpr()); c.Endpoint != endpointA {
 		t.Fatalf("the pin must not move until the owner answers: %+v", c)
