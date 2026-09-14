@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -89,7 +91,7 @@ commands:
   migrate   run store migrations (node must be stopped)
   doctor    diagnose configuration, data dir, store, lock
   healthcheck  probe the internal /healthz (container HEALTHCHECK)
-  account   create|list|rotate-key accounts and identity keys (node must be running; talks over the admin socket)
+  account   create|list|rotate-key accounts and identity keys; csr|install-leaf|certificate|address the PACT 2.0 leaf a wallet issues (node must be running; talks over the admin socket)
   passkey   list|remove|reset-wizard (node must be running)
   token     create|list|revoke owner-MCP bearer tokens (node must be running)
   audit     verify|export|archive|repair the hash chain (offline; node must be stopped)
@@ -177,6 +179,58 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// It is nil while they are being REGISTERED and non-nil by the time any of
 	// them runs, which is why each checks.
 	var nd *node.Node
+	// The audit sink is wired once the store and the listener exist; the
+	// handlers below run only after that, which is why they may close over it.
+	var auditFn func(action, resource, outcome string)
+	// PACT 2.0 (PACT §9): the certificate signing request a wallet answers, the
+	// install of the chain it returns, the certificate state, and the owner's
+	// answer to a contact waiting at a new address (§5.3).
+	accountBySlug := func(slug string) (store.Account, error) {
+		accts, err := st.ListAccounts(ctx)
+		if err != nil {
+			return store.Account{}, err
+		}
+		for _, a := range accts {
+			if a.Slug == slug {
+				return a, nil
+			}
+		}
+		return store.Account{}, fmt.Errorf("unknown slug %q", slug)
+	}
+	endpointFor := func(slug string) string {
+		if nd != nil {
+			return identity.EndpointFor(nd.PublicURL(), slug)
+		}
+		return identity.EndpointFor(cfg.PublicURL, slug)
+	}
+	csrFor := func(acct store.Account, purpose, endpoint string) (map[string]any, error) {
+		if purpose == "" {
+			purpose = identity.PurposeUpgrade
+			if acct.Protocol == 2 {
+				purpose = identity.PurposeRenew
+			}
+		}
+		if endpoint == "" {
+			endpoint = endpointFor(acct.Slug)
+		}
+		if endpoint == "" {
+			return nil, fmt.Errorf("account.csr: no public URL is configured; pass -endpoint")
+		}
+		res, err := idm.IssueCSR(ctx, acct.ID, purpose, endpoint, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		auditFn("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+" purpose:"+purpose+" endpoint:"+endpoint+" key:"+res.Kid, "ok")
+		out := map[string]any{
+			"Slug": acct.Slug, "Purpose": res.Purpose, "Endpoint": res.Endpoint, "Kid": res.Kid,
+			"CSR":               string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: res.CSR})),
+			"SuggestedNotAfter": res.SuggestedNotAfter.UTC().Format(time.RFC3339),
+		}
+		if res.PreviousNotBefore != nil {
+			out["PreviousNotBefore"] = res.PreviousNotBefore.UTC().Format(time.RFC3339)
+		}
+		return out, nil
+	}
 
 	admin.Handle("account.create", func(args map[string]string) (any, error) {
 		if args["slug"] == "" || args["name"] == "" {
@@ -196,6 +250,16 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 				return nil, aerr
 			}
 		}
+		// A 2.0 account starts as a signup request for its key (PACT §9): the
+		// account serves as 1.x until the wallet's leaf is installed.
+		if args["protocol"] == "2" {
+			out, err := csrFor(acct, identity.PurposeSignup, args["endpoint"])
+			if err != nil {
+				return nil, err
+			}
+			out["Fingerprint"] = acct.Fingerprint
+			return out, nil
+		}
 		return acct, nil
 	})
 	admin.Handle("account.list", func(map[string]string) (any, error) {
@@ -211,6 +275,87 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// rotateByID is the ONE rotation procedure. Both the CLI (over the admin
 	// socket) and the portal's Settings · identity page call it, so the two
 	// surfaces cannot drift into subtly different rotations of the same key.
+	// legacyFanout is SPEC §3.9's update_contact walk over the contacts pinned
+	// as 1.x: the outbound client presents the OLD certificate (the identity
+	// they still pin), the new key introduces itself right after. Both a 1.x
+	// rotation and a 2.0 leaf install with a fresh key run it (PACT Appendix C
+	// row 2), so the two cannot drift.
+	legacyFanout := func(ctx context.Context, acct store.Account, rot identity.Rotation, oldKP, newKP *identity.Keypair, cardOverride string) (done, failed int, err error) {
+		oldDER, err := identity.SelfSignedCert(oldKP, acct.Slug)
+		if err != nil {
+			return 0, 0, err
+		}
+		client := &outbound.Client{Keypair: oldKP, Cert: tls.Certificate{Certificate: [][]byte{oldDER}, PrivateKey: oldKP.Signer}}
+		// The peer learns the NEW key only from a certificate that hashes to the
+		// fingerprint it just pinned (§3.9); until then it cannot seal to us. With a
+		// grace period it keeps sealing to the old key meanwhile; with none there is
+		// nothing to seal to, so the new key introduces itself right after the notice.
+		newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
+		if err != nil {
+			return 0, 0, err
+		}
+		introduce := &outbound.Client{Keypair: newKP, Cert: tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}}
+		// Rotate has already written the new fingerprint, so the node renders the
+		// post-rotation card — with the seal the gate actually enforces and the
+		// live endpoint. Falling back to a local build only matters for a rotate
+		// issued before the listener came up.
+		var newCard string
+		if cardOverride != "" {
+			newCard = cardOverride
+		} else if nd != nil {
+			newCard, err = nd.Card(ctx, acct.ID)
+		} else {
+			endpoint := ""
+			if cfg.PublicURL != "" {
+				endpoint = cfg.PublicURL + "/a/" + acct.Slug + "/mcp"
+			}
+			newCard, err = contacts.BuildCard(contacts.Card{
+				FN: acct.DisplayName, Endpoint: endpoint, Key: rot.NewFpr,
+				Seal: string(core.EffectiveSeal(cfg.Mode, cfg.Seal)),
+			})
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+		done, failed, _ = rotator.Fanout(ctx, rot, newCard, func(ctx context.Context, c store.Contact, card string, proof []byte) error {
+			peerCard, err := contacts.ParseCard(c.Card)
+			if err != nil || peerCard.Endpoint == "" {
+				return fmt.Errorf("contact has no reachable endpoint on file")
+			}
+			peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: c.Fingerprint, Seal: peerCard.Seal}
+			// Obey the peer's card. This used to force plaintext, so any contact
+			// whose card asks for sealing refused the rotation outright — and a
+			// contact that never re-pins is lost when the old key is destroyed
+			// at grace expiry (§3.9 step 5).
+			res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{
+				"card": card, "sig": base64.RawURLEncoding.EncodeToString(proof),
+			}, "rotate-"+rot.NewFpr)
+			if err != nil {
+				return err
+			}
+			if res.IsError {
+				return fmt.Errorf("peer refused update_contact")
+			}
+			// Introduce the new key with a call the peer answers at contact tier
+			// without any permission. Sealed, it carries our key as `spk` and the
+			// peer binds it to the fingerprint it just pinned (§4.4 step 6); plain,
+			// the gate binds it from the client certificate. tools/list would not do:
+			// the binding hook runs only inside tools/call.
+			ires, ierr := introduce.Call(ctx, peer, c.SPKI, "get_card", map[string]any{}, "introduce-"+rot.NewFpr)
+			if ierr != nil || (ires != nil && ires.IsError) {
+				// They were told; they just have not seen the new key yet. They will
+				// the next time we call them — unless there is no grace period, in
+				// which case they cannot reach us until we do. Recorded, not fatal.
+				if rotator.Audit != nil {
+					rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "error")
+				}
+			} else if rotator.Audit != nil {
+				rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "ok")
+			}
+			return nil
+		})
+		return done, failed, nil
+	}
 	rotateByID := func(ctx context.Context, accountID string, grace time.Duration) (internalui.RotateResult, error) {
 		var zero internalui.RotateResult
 		accts, err := st.ListAccounts(ctx)
@@ -256,78 +401,10 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil || oldKP == nil {
 			return zero, fmt.Errorf("rotate: retiring key unavailable: %v", err)
 		}
-		oldDER, err := identity.SelfSignedCert(oldKP, acct.Slug)
-		if err != nil {
-			return zero, err
+		done, failed, ferr := legacyFanout(ctx, acct, rot, oldKP, newKP, "")
+		if ferr != nil {
+			return zero, ferr
 		}
-		client := &outbound.Client{Keypair: oldKP, Cert: tls.Certificate{Certificate: [][]byte{oldDER}, PrivateKey: oldKP.Signer}}
-		// The peer learns the NEW key only from a certificate that hashes to the
-		// fingerprint it just pinned (§3.9); until then it cannot seal to us. With a
-		// grace period it keeps sealing to the old key meanwhile; with none there is
-		// nothing to seal to, so the new key introduces itself right after the notice.
-		newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
-		if err != nil {
-			return zero, err
-		}
-		introduce := &outbound.Client{Keypair: newKP, Cert: tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}}
-		// Rotate has already written the new fingerprint, so the node renders the
-		// post-rotation card — with the seal the gate actually enforces and the
-		// live endpoint. Falling back to a local build only matters for a rotate
-		// issued before the listener came up.
-		var newCard string
-		if nd != nil {
-			newCard, err = nd.Card(ctx, acct.ID)
-		} else {
-			endpoint := ""
-			if cfg.PublicURL != "" {
-				endpoint = cfg.PublicURL + "/a/" + acct.Slug + "/mcp"
-			}
-			newCard, err = contacts.BuildCard(contacts.Card{
-				FN: acct.DisplayName, Endpoint: endpoint, Key: rot.NewFpr,
-				Seal: string(core.EffectiveSeal(cfg.Mode, cfg.Seal)),
-			})
-		}
-		if err != nil {
-			return zero, err
-		}
-		done, failed, ferr := rotator.Fanout(ctx, rot, newCard, func(ctx context.Context, c store.Contact, card string, proof []byte) error {
-			peerCard, err := contacts.ParseCard(c.Card)
-			if err != nil || peerCard.Endpoint == "" {
-				return fmt.Errorf("contact has no reachable endpoint on file")
-			}
-			peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: c.Fingerprint, Seal: peerCard.Seal}
-			// Obey the peer's card. This used to force plaintext, so any contact
-			// whose card asks for sealing refused the rotation outright — and a
-			// contact that never re-pins is lost when the old key is destroyed
-			// at grace expiry (§3.9 step 5).
-			res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{
-				"card": card, "sig": base64.RawURLEncoding.EncodeToString(proof),
-			}, "rotate-"+rot.NewFpr)
-			if err != nil {
-				return err
-			}
-			if res.IsError {
-				return fmt.Errorf("peer refused update_contact")
-			}
-			// Introduce the new key with a call the peer answers at contact tier
-			// without any permission. Sealed, it carries our key as `spk` and the
-			// peer binds it to the fingerprint it just pinned (§4.4 step 6); plain,
-			// the gate binds it from the client certificate. tools/list would not do:
-			// the binding hook runs only inside tools/call.
-			ires, ierr := introduce.Call(ctx, peer, c.SPKI, "get_card", map[string]any{}, "introduce-"+rot.NewFpr)
-			if ierr != nil || (ires != nil && ires.IsError) {
-				// They were told; they just have not seen the new key yet. They will
-				// the next time we call them — unless there is no grace period, in
-				// which case they cannot reach us until we do. Recorded, not fatal.
-				if rotator.Audit != nil {
-					rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "error")
-				}
-			} else if rotator.Audit != nil {
-				rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "ok")
-			}
-			return nil
-		})
-		_ = ferr
 		until := rot.GraceUntil
 		if rot.Immediate {
 			// The owner asked for no grace: the old key has served its one purpose.
@@ -381,6 +458,123 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"GraceUntil": res.GraceUntil.UTC().Format(time.RFC3339),
 			"Done":       res.Notified, "Failed": res.Failed,
 		}, nil
+	})
+
+	admin.Handle("account.csr", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.csr needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		return csrFor(acct, args["purpose"], args["endpoint"])
+	})
+	admin.Handle("account.install", func(args map[string]string) (any, error) {
+		if args["slug"] == "" || args["chain"] == "" {
+			return nil, fmt.Errorf("account.install needs slug and chain")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		chain, err := parseChainPEM(args["chain"])
+		if err != nil {
+			return nil, err
+		}
+		res, err := idm.InstallLeaf(ctx, acct.ID, chain, time.Now())
+		if err != nil {
+			auditFn("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug, "error")
+			return nil, err
+		}
+		auditFn("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok")
+		// The node loaded the account's key and certificate when it started;
+		// the install changed both in the store. Rebuild it live.
+		if nd != nil {
+			if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
+				return nil, fmt.Errorf("install: reloading the account on the live node: %w", aerr)
+			}
+		}
+		out := map[string]any{
+			"Slug": acct.Slug, "Root": res.RootFingerprint, "Kid": res.Kid, "Endpoint": res.Endpoint,
+			"NotAfter": res.NotAfter.UTC().Format(time.RFC3339), "First": res.FirstInstall, "KeyChanged": res.KeyChanged,
+		}
+		// A fresh key is, toward contacts pinned as 1.x, the rotation of PACT
+		// Appendix C row 2: the old key signs the new fingerprint, the card is
+		// the compatibility card, and the old key stays live until its leaf's
+		// notAfter — which the ledger already guarantees.
+		if res.KeyChanged && res.OldKP != nil && nd != nil {
+			proof, err := identity.SignBytes(res.OldKP, []byte(res.Kid))
+			if err != nil {
+				return nil, err
+			}
+			compat, err := contacts.BuildCompatCard(acct.DisplayName, res.NewKP.Leaf, string(core.EffectiveSeal(cfg.Mode, cfg.Seal)))
+			if err != nil {
+				return nil, err
+			}
+			rot := identity.Rotation{AccountID: acct.ID, OldFpr: res.OldKid, NewFpr: res.Kid, Proof: proof, GraceUntil: res.NotAfter, LegacyOnly: true}
+			done, failed, _ := legacyFanout(ctx, acct, rot, res.OldKP, res.NewKP, compat)
+			out["LegacyDone"], out["LegacyFailed"] = done, failed
+		}
+		return out, nil
+	})
+	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.certificate needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		info, err := idm.Certificate(ctx, acct.ID, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]any{
+			"Slug": acct.Slug, "Protocol": info.Protocol, "Root": info.RootFingerprint, "Kid": info.Kid, "Endpoint": info.Endpoint,
+			"RenewalDue": info.RenewalDue, "PendingCSR": info.PendingCSR, "Superseded": info.Superseded, "Former": info.Former,
+		}
+		if info.Protocol == 2 {
+			out["NotBefore"], out["NotAfter"] = info.NotBefore.Format(time.RFC3339), info.NotAfter.Format(time.RFC3339)
+			var chain strings.Builder
+			for _, c := range info.Chain {
+				chain.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c}))
+			}
+			out["Chain"] = chain.String()
+		}
+		return out, nil
+	})
+	admin.Handle("account.address", func(args map[string]string) (any, error) {
+		if args["slug"] == "" || args["root"] == "" || (args["decision"] != "approve" && args["decision"] != "reject") {
+			return nil, fmt.Errorf("account.address needs slug, root and decision approve|reject")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		if args["root"] == "list" {
+			return st.ListPendingAddresses(ctx, acct.ID)
+		}
+		cm := &contacts.Manager{Store: st}
+		p, err := cm.DecideAddress(ctx, acct.ID, args["root"], args["decision"] == "approve")
+		if err != nil {
+			return nil, err
+		}
+		auditFn("contact_address_"+args["decision"], "account:"+acct.ID+" contact:"+args["root"]+" endpoint:"+p.Endpoint, "ok")
+		if nd != nil {
+			_ = nd.Invalidate(ctx, acct.ID, args["root"])
+		}
+		return map[string]any{"Slug": acct.Slug, "Root": args["root"], "Endpoint": p.Endpoint, "Decision": args["decision"]}, nil
+	})
+	admin.Handle("account.addresses", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.addresses needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		return st.ListPendingAddresses(ctx, acct.ID)
 	})
 
 	// The relying party is decided PER CEREMONY from the request's host
@@ -440,9 +634,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	// ---- the public surface (SPEC §2.2) ----
 	auditLog := auditWriter(ctx, st, stderr)
-	auditFn := auditLog.system() // the node's own lifecycle and surface events
-	rotator.Audit = auditFn      // rotation and retirement are lifecycle events too
-	ownerFn := auditLog.owner()  // the portal and the owner MCP act for the owner
+	auditFn = auditLog.system() // the node's own lifecycle and surface events
+	rotator.Audit = auditFn     // rotation and retirement are lifecycle events too
+	ownerFn := auditLog.owner() // the portal and the owner MCP act for the owner
 
 	// Owner-set configuration layers under the environment and re-derives, so a
 	// tunnel chosen in the portal forces the same knobs an env-set one would
@@ -735,16 +929,22 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 func account(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	var cfgPath, slug, name, algo, grace string
+	var cfgPath, slug, name, algo, grace, protocol, purpose, endpoint, chainPath, root, decision string
 	fs := commonFlags("account "+sub, &cfgPath, stderr)
 	fs.StringVar(&slug, "slug", "", "account slug (endpoint path segment)")
 	fs.StringVar(&name, "name", "", "display name")
 	fs.StringVar(&algo, "algo", "p256", "key algorithm: p256|ed25519")
 	fs.StringVar(&grace, "grace", "336h", "rotate-key: grace period both keys stay live (max 2160h)")
+	fs.StringVar(&protocol, "protocol", "1", "create: 1, or 2 to print a certificate signing request for the wallet (PACT 2.0)")
+	fs.StringVar(&purpose, "purpose", "", "csr: signup|renew|move|upgrade (default: upgrade for a 1.x account, renew for a 2.0 one)")
+	fs.StringVar(&endpoint, "endpoint", "", "csr, create -protocol 2: the https URL the leaf names (default: the node's public URL for the slug)")
+	fs.StringVar(&chainPath, "chain", "", "install-leaf: file holding the wallet's answer, two PEM CERTIFICATE blocks, leaf then root")
+	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
+	fs.StringVar(&decision, "decision", "", "address: approve|reject; omitted lists what is pending")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
@@ -757,11 +957,78 @@ func account(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "create":
 		var out map[string]any
-		if err := core.AdminCall(sock, "account.create", map[string]string{"slug": slug, "name": name, "algo": algo}, &out); err != nil {
+		if err := core.AdminCall(sock, "account.create", map[string]string{"slug": slug, "name": name, "algo": algo, "protocol": protocol, "endpoint": endpoint}, &out); err != nil {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "created %v  fingerprint %v\n", out["Slug"], out["Fingerprint"])
+		if csr, ok := out["CSR"].(string); ok {
+			fmt.Fprintf(stdout, "certificate signing request for %v (hand it to the wallet, then `account install-leaf`):\n%s", out["Endpoint"], csr)
+		}
+		return 0
+	case "csr":
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.csr", map[string]string{"slug": slug, "purpose": purpose, "endpoint": endpoint}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "%v request for %v, key %v; suggested notAfter %v\n", out["Purpose"], out["Endpoint"], out["Kid"], out["SuggestedNotAfter"])
+		fmt.Fprint(stdout, out["CSR"])
+		return 0
+	case "install-leaf":
+		if chainPath == "" {
+			fmt.Fprintln(stderr, "account: install-leaf needs -chain FILE")
+			return 2
+		}
+		chain, err := os.ReadFile(chainPath)
+		if err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.install", map[string]string{"slug": slug, "chain": string(chain)}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "installed leaf %v for %v under root %v, valid until %v\n", out["Kid"], out["Endpoint"], out["Root"], out["NotAfter"])
+		if d, ok := out["LegacyDone"]; ok {
+			fmt.Fprintf(stdout, "1.x contacts told of the new key: done=%v failed=%v\n", d, out["LegacyFailed"])
+		}
+		return 0
+	case "certificate":
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.certificate", map[string]string{"slug": slug}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		if p, _ := out["Protocol"].(float64); p != 2 {
+			fmt.Fprintf(stdout, "%v speaks 1.x; `account csr -slug %v -purpose upgrade` starts the upgrade\n", out["Slug"], out["Slug"])
+			return 0
+		}
+		fmt.Fprintf(stdout, "%v: root %v\n  leaf %v for %v, %v to %v\n  renewal due: %v\n", out["Slug"], out["Root"], out["Kid"], out["Endpoint"], out["NotBefore"], out["NotAfter"], out["RenewalDue"])
+		if p, _ := out["PendingCSR"].(string); p != "" {
+			fmt.Fprintf(stdout, "  a request for key %v awaits the wallet\n", p)
+		}
+		fmt.Fprint(stdout, out["Chain"])
+		return 0
+	case "address":
+		if decision == "" {
+			var out []map[string]any
+			if err := core.AdminCall(sock, "account.addresses", map[string]string{"slug": slug}, &out); err != nil {
+				fmt.Fprintln(stderr, "account:", err)
+				return 1
+			}
+			for _, p := range out {
+				fmt.Fprintf(stdout, "%v\t%v\t%v\n", p["Root"], p["Endpoint"], p["Why"])
+			}
+			return 0
+		}
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.address", map[string]string{"slug": slug, "root": root, "decision": decision}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%v: %v at %v\n", out["Decision"], out["Root"], out["Endpoint"])
 		return 0
 	case "list":
 		var out []map[string]any
@@ -789,9 +1056,30 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address> [flags]")
 		return 2
 	}
+}
+
+// parseChainPEM reads the wallet's answer: two CERTIFICATE blocks, leaf then root.
+func parseChainPEM(text string) ([][]byte, error) {
+	var chain [][]byte
+	rest := []byte(text)
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("chain: unexpected PEM block %q (want CERTIFICATE)", block.Type)
+		}
+		chain = append(chain, block.Bytes)
+	}
+	if len(chain) != 2 {
+		return nil, fmt.Errorf("chain: want exactly two certificates, leaf then root; got %d", len(chain))
+	}
+	return chain, nil
 }
 
 func passkey(args []string, stdout, stderr io.Writer) int {
