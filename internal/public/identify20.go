@@ -299,12 +299,8 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 		case "pending":
 			why, _ := ef["why"].(string)
 			leafDER := pactidentity.FromB64url(func() string { s, _ := ef["leaf"].(string); return s }())
-			if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: accountID, Root: root, Endpoint: endpoint, Leaf: leafDER, Why: why, At: now.Unix()}); err != nil {
+			if err := id.notePendingAddress(ctx, accountID, root, endpoint, why, leafDER, now); err != nil {
 				return err
-			}
-			id.audit("contact_new_address", "account:"+id.AccountID+" contact:"+root+" endpoint:"+endpoint+" why:"+why, "pending")
-			if id.OnPending != nil {
-				id.OnPending(root, endpoint, why)
 			}
 		case "event":
 			event, _ := ef["event"].(string)
@@ -313,6 +309,30 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 				id.OnEvent(event, root, endpoint)
 			}
 		}
+	}
+	return nil
+}
+
+// notePendingAddress records a contact waiting at a new address, and audits and
+// notifies ONLY when something about it changed.
+//
+// Every request from an unapproved address used to append an audit-chain row and
+// fire the owner's notification: a host holding a still-valid leaf for a pinned
+// root — a former host after a move, or a compromised one — grew the chain and
+// the owner's feed one row per request, for as long as it kept calling. The row
+// itself is idempotent; the telling is what had to become so.
+func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, endpoint, why string, leafDER []byte, now time.Time) error {
+	prev, err := id.Store.GetPendingAddress(ctx, accountID, root)
+	unchanged := err == nil && prev.Root == root && prev.Endpoint == endpoint && prev.Why == why
+	if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: accountID, Root: root, Endpoint: endpoint, Leaf: leafDER, Why: why, At: now.Unix()}); err != nil {
+		return err
+	}
+	if unchanged {
+		return nil
+	}
+	id.audit("contact_new_address", "account:"+accountID+" contact:"+root+" endpoint:"+endpoint+" why:"+why, "pending")
+	if id.OnPending != nil {
+		id.OnPending(root, endpoint, why)
 	}
 	return nil
 }
@@ -452,12 +472,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 			}
 		}
 		if policy != "auto" {
-			if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: id.AccountID, Root: root, Endpoint: endpoint, Leaf: leaf.DER, Why: why, At: now.Unix()}); err == nil {
-				id.audit("contact_new_address", "account:"+id.AccountID+" contact:"+root+" endpoint:"+endpoint+" why:"+why, "pending")
-				if id.OnPending != nil {
-					id.OnPending(root, endpoint, why)
-				}
-			}
+			_ = id.notePendingAddress(ctx, id.AccountID, root, endpoint, why, leaf.DER, now)
 			// Until the owner decides, the pin stands where it was and nothing
 			// from the new address runs: the caller is composed as an anonymous
 			// guest and every substantive call is refused pending_approval.
