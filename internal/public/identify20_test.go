@@ -165,7 +165,7 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 	if st.Keys, err = e.m.ActiveLeafKeypairs(ctx, rec.ID, e.nowAt); err != nil {
 		return nil, err
 	}
-	st.Former, _ = e.m.FormerKids(ctx, rec.ID)
+	st.Former, _ = e.m.FormerKids(ctx, rec.ID, e.nowAt)
 	return st, nil
 }
 

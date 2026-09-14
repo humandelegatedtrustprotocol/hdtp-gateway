@@ -159,7 +159,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if len(keys) != 1 {
 		t.Fatalf("expired superseded key still served: %+v", keys)
 	}
-	if former, _ := m.FormerKids(ctx, a.ID); len(former) != 1 || former[0] != a.Fingerprint {
+	if former, _ := m.FormerKids(ctx, a.ID, now.Add(400*24*time.Hour)); len(former) != 1 || former[0] != a.Fingerprint {
 		t.Fatalf("former kids: %v", former)
 	}
 
@@ -176,8 +176,17 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if res3.Endpoint != elsewhere || !res3.KeyChanged {
 		t.Fatalf("move install: %+v", res3)
 	}
-	if info, _ := m.Certificate(ctx, a.ID, later.Add(time.Hour)); info.Endpoint != elsewhere || len(info.Superseded) != 1 {
+	// Two keys are superseded by now — the 1.x key the upgrade retired and the
+	// renewal's — and both are still inside their notAfter at this moment, so
+	// both are held. (They used to be reported as one because a READ retired the
+	// first; reads no longer write, and `RetireExpiredLeafKeys` does that.)
+	if info, _ := m.Certificate(ctx, a.ID, later.Add(time.Hour)); info.Endpoint != elsewhere || len(info.Superseded) != 2 {
 		t.Fatalf("certificate after move: %+v", info)
+	}
+	// Past both their windows they are former, and the key material goes.
+	far := later.Add(400 * 24 * time.Hour)
+	if info, _ := m.Certificate(ctx, a.ID, far); len(info.Superseded) != 0 || len(info.Former) != 2 {
+		t.Fatalf("certificate past both windows: %+v", info)
 	}
 }
 
@@ -290,7 +299,7 @@ func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
 	if len(later) != 1 {
 		t.Fatalf("past its notAfter only the current leaf is served, got %d", len(later))
 	}
-	formers, err := m.FormerKids(ctx, a.ID)
+	formers, err := m.FormerKids(ctx, a.ID, old.NotAfter.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,5 +311,18 @@ func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("its kid is kept as a former one (§14.4): %v", formers)
+	}
+	// The KEY is destroyed by the write path, not by a read.
+	if err := m.RetireExpiredLeafKeys(ctx, a.ID, old.NotAfter.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	leaves2, err := m.Store.ListLeaves(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range leaves2 {
+		if l.Kid == oneX && (l.State != LeafFormer || len(l.KeySealed) != 0) {
+			t.Fatalf("retiring leaves the kid and destroys the key: %+v", l)
+		}
 	}
 }

@@ -658,7 +658,7 @@ func (n *Node) state20(ctx context.Context, accountID, slug string) (*public.Sta
 	if st.Keys, err = n.idm.ActiveLeafKeypairs(ctx, accountID, n.now()); err != nil {
 		return nil, err
 	}
-	if st.Former, err = n.idm.FormerKids(ctx, accountID); err != nil {
+	if st.Former, err = n.idm.FormerKids(ctx, accountID, n.now()); err != nil {
 		return nil, err
 	}
 	others, err := n.opts.Store.ListAccounts(ctx)
@@ -935,6 +935,13 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	}
 	if rec.ID == "" {
 		return fmt.Errorf("node: adopt: unknown account %q", accountID)
+	}
+	// Adoption is a write already, so it is where an expired superseded key is
+	// destroyed — off the read path every inbound request takes.
+	if rec.Protocol == 2 {
+		if rerr := n.idm.RetireExpiredLeafKeys(ctx, accountID, n.now()); rerr != nil {
+			n.opts.audit("account_leaf_retire", "account:"+accountID, "error")
+		}
 	}
 	a, err := n.buildAccount(ctx, rec)
 	if err != nil {
