@@ -121,8 +121,14 @@ func (m *Manager) openLeafKey(sealed []byte) (*Keypair, error) {
 // ActiveLeafKeypairs returns the current leaf's key first and every superseded
 // key not yet past its notAfter, each with its leaf and the root attached. A
 // superseded key past its notAfter is retired on this path: destroyed, its kid
-// kept (§14.4). It is also what closes the 1.x grace gap where nothing served
-// the retiring key on the inbound path.
+// kept (§14.4).
+//
+// It closes the grace gap for a 2.0 RENEWAL, whose retiring key is in this
+// ledger. A 1.x account's own rotation is not here — `Rotate` writes the
+// prev_key columns and this reads `leaves` — so the 1.x grace gap is unchanged
+// for an account that has never installed a leaf. Folding `Rotator`'s previous
+// key in here would close that too; it is left alone because a 1.x account's
+// grace is the 1.x path's business and this one has no claim on it.
 func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now time.Time) ([]LeafKey, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
@@ -138,7 +144,10 @@ func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now 
 		case LeafCurrent:
 		case LeafSuperseded:
 			if !now.Before(time.Unix(l.NotAfter, 0)) {
-				_ = m.Store.RetireLeafKey(ctx, accountID, l.Kid)
+				// Past its notAfter: not served. The destruction of the key is
+				// `RetireExpiredLeafKeys`, not this — a read that writes turns
+				// every inbound request into a write, and swallowed the error of
+				// the one thing here that must not fail quietly.
 				continue
 			}
 		default:
@@ -189,15 +198,47 @@ func (m *Manager) AdoptCurrentLeafKey(ctx context.Context, accountID string, lk 
 	return m.Store.SetAccountLeafKey(ctx, accountID, lk.Kid, sealed, string(lk.KP.Algo))
 }
 
-// FormerKids are the key identifiers of leaves once held and held no longer.
-func (m *Manager) FormerKids(ctx context.Context, accountID string) ([]string, error) {
+// RetireExpiredLeafKeys destroys the key of every superseded leaf past its
+// notAfter, keeping the kid so an envelope sealed to it is still answered
+// `certificate_renewed` (§14.4). Called where the node already writes — adopting
+// an account, installing a leaf — rather than on the read path every inbound
+// request takes.
+func (m *Manager) RetireExpiredLeafKeys(ctx context.Context, accountID string, now time.Time) error {
+	leaves, err := m.Store.ListLeaves(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	for _, l := range leaves {
+		if l.State != LeafSuperseded || now.Before(time.Unix(l.NotAfter, 0)) {
+			continue
+		}
+		if err := m.Store.RetireLeafKey(ctx, accountID, l.Kid); err != nil {
+			return fmt.Errorf("identity: retire %s: %w", l.Kid, err)
+		}
+	}
+	return nil
+}
+
+// FormerKids are the key identifiers of leaves once held and held no longer —
+// what an envelope sealed to a retired key is answered `certificate_renewed`
+// by (§14.4).
+//
+// A superseded leaf past its notAfter counts, whether or not its key has been
+// destroyed yet: the answer turns on this endpoint having HELD that kid, which
+// the row says either way, and the destruction is a write that happens on a
+// write path (`RetireExpiredLeafKeys`). Reading it from the state alone is what
+// lets the read path stop writing without changing a single answer on the wire.
+func (m *Manager) FormerKids(ctx context.Context, accountID string, now time.Time) ([]string, error) {
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, l := range leaves {
-		if l.State == LeafFormer {
+		switch {
+		case l.State == LeafFormer:
+			out = append(out, l.Kid)
+		case l.State == LeafSuperseded && !now.Before(time.Unix(l.NotAfter, 0)):
 			out = append(out, l.Kid)
 		}
 	}
@@ -252,6 +293,20 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 	if !pactidentity.IsNormalHTTPS(endpoint) {
 		return CSRResult{}, fmt.Errorf("identity: %q is not an https URL in normal form (PACT §14.1)", endpoint)
 	}
+	// "The endpoint is the account's own unless the purpose is move" was the
+	// documented rule and nothing enforced it, so `csr renew -endpoint <other>`
+	// was a move in everything but name — and a move re-pins every contact.
+	// The address the identity already answers at is the one its current leaf
+	// names; before the first leaf there is nothing to depart from.
+	if purpose != PurposeMove {
+		if leaves, lerr := m.Store.ListLeaves(ctx, accountID); lerr == nil {
+			for _, l := range leaves {
+				if l.State == LeafCurrent && l.Endpoint != "" && l.Endpoint != endpoint {
+					return CSRResult{}, fmt.Errorf("identity: this identity answers at %s; a request naming %s is a move, so ask for one (PACT §5.3)", l.Endpoint, endpoint)
+				}
+			}
+		}
+	}
 	var kp *Keypair
 	switch purpose {
 	case PurposeSignup, PurposeUpgrade:
@@ -262,11 +317,9 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 		if kp, err = m.LoadKeypair(sealed); err != nil {
 			return CSRResult{}, err
 		}
-	case PurposeRenew:
-		if kp, err = Generate(Algo(a.Algo)); err != nil {
-			return CSRResult{}, err
-		}
-	case PurposeMove:
+	case PurposeRenew, PurposeMove:
+		// A fresh key either way, so a leaf key compromised without anyone
+		// noticing dies with its leaf (§9).
 		if kp, err = Generate(Algo(a.Algo)); err != nil {
 			return CSRResult{}, err
 		}
@@ -478,7 +531,14 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 		case LeafPending:
 			info.PendingCSR = l.Kid
 		case LeafSuperseded:
-			info.Superseded = append(info.Superseded, l.Kid)
+			// Past its notAfter it is reported as former, whether or not its key
+			// has been destroyed yet — the same rule `FormerKids` reads, so the
+			// two views of the ledger cannot disagree.
+			if now.Before(time.Unix(l.NotAfter, 0)) {
+				info.Superseded = append(info.Superseded, l.Kid)
+			} else {
+				info.Former = append(info.Former, l.Kid)
+			}
 		case LeafFormer:
 			info.Former = append(info.Former, l.Kid)
 		}

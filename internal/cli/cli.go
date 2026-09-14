@@ -608,9 +608,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return nil, err
 		}
-		if args["root"] == "list" {
-			return st.ListPendingAddresses(ctx, acct.ID)
-		}
 		cm := &contacts.Manager{Store: st}
 		p, err := cm.DecideAddress(ctx, acct.ID, args["root"], args["decision"] == "approve")
 		if err != nil {

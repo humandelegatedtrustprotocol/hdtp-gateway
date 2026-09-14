@@ -183,8 +183,11 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 		}
 		return nil, &CertificateRenewed{Chain: chain}
 	case "pending_approval":
-		// The seed answers this as a plain code, before any tier is earned: a
-		// pinned root at a new address the owner has not yet approved (§5.3).
+		// A pin in `pending_out` calling something other than contact_accepted or
+		// contact_rejected: the contact request has not been answered yet, so
+		// nothing else runs. (A new address the owner has not approved is the
+		// `pending_new_address` tier below, not this.) Answered as a plain code,
+		// before any tier is earned; the decision carried no effects to apply.
 		return &EnvelopeFacts{Protocol: 2, Refusal: "pending_approval"}, nil
 	case "ok":
 	default:
