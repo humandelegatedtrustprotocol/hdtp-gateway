@@ -653,7 +653,7 @@ func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
 }
 
 const listRotationFanout = `-- name: ListRotationFanout :many
-SELECT account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at FROM rotation_fanout WHERE account_id = ? ORDER BY contact_fpr
+SELECT account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at, kind FROM rotation_fanout WHERE account_id = ? ORDER BY contact_fpr
 `
 
 func (q *Queries) ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error) {
@@ -673,6 +673,7 @@ func (q *Queries) ListRotationFanout(ctx context.Context, accountID string) ([]R
 			&i.Attempts,
 			&i.LastError,
 			&i.UpdatedAt,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
@@ -801,11 +802,11 @@ func (q *Queries) UpdateAccountSeal(ctx context.Context, arg UpdateAccountSealPa
 }
 
 const upsertRotationFanout = `-- name: UpsertRotationFanout :exec
-INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at, kind)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (account_id, contact_fpr) DO UPDATE SET
   new_fpr = excluded.new_fpr, status = excluded.status, attempts = excluded.attempts,
-  last_error = excluded.last_error, updated_at = excluded.updated_at
+  last_error = excluded.last_error, updated_at = excluded.updated_at, kind = excluded.kind
 `
 
 type UpsertRotationFanoutParams struct {
@@ -816,6 +817,7 @@ type UpsertRotationFanoutParams struct {
 	Attempts   int64
 	LastError  string
 	UpdatedAt  int64
+	Kind       string
 }
 
 func (q *Queries) UpsertRotationFanout(ctx context.Context, arg UpsertRotationFanoutParams) error {
@@ -827,6 +829,7 @@ func (q *Queries) UpsertRotationFanout(ctx context.Context, arg UpsertRotationFa
 		arg.Attempts,
 		arg.LastError,
 		arg.UpdatedAt,
+		arg.Kind,
 	)
 	return err
 }

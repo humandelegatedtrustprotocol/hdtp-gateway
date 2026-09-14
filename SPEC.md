@@ -1081,7 +1081,7 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `relay_queue` | Sealed calls queued for offline recipients (§10.5) |
 | `relay_allowlist` | Per-recipient allowed sender fingerprints (§10.5) |
 | `settings` | Owner-set configuration the portal writes (§8.2, §12.2), including `tunnel.<adapter>.*` adapter state and sealed values |
-| `rotation_fanout` | Per-contact completion of a key rotation's `update_contact` walk (§3.9) |
+| `rotation_fanout` | Per-contact completion of an `update_contact` walk (§3.9): `kind` names the campaign — a 1.x key rotation, a 2.0 move, or the 1.x rotation a 2.0 renewal is toward 1.x pins (migration 0028) |
 | `leaves` | PACT 2.0 (PACT §2, §14): every leaf certificate this host holds for an account — `pending` while a CSR awaits the wallet, `current`, `superseded` with its key kept until `not_after`, `former` with the key destroyed and the key id kept so an envelope sealed to it is answered `certificate_renewed` |
 | `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
 | `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
@@ -1136,7 +1136,7 @@ One binary, subcommand-per-concern:
 | `migrate` | Run store migrations; the node must be stopped (§11) |
 | `doctor` | Diagnostics: configuration, data dir, store, lock (§10.4) |
 | `healthcheck` | Probe the internal `/healthz`; the container HEALTHCHECK uses it (§12.3) |
-| `account` | `create` \| `list` \| `rotate-key` — accounts and identity key rotation (§3.9); `csr` \| `install-leaf` \| `certificate` \| `address` — the PACT 2.0 leaf: a signing request for the wallet (`create -protocol 2` prints one at creation), the install of the chain it answers, the certificate state, and the owner's answer to a contact at a new address (PACT §5.3, §9). Runs over the admin socket, so the node must be running |
+| `account` | `create` \| `list` \| `rotate-key` — accounts and identity key rotation (§3.9); `csr` \| `install-leaf` \| `certificate` \| `address` \| `announce` — the PACT 2.0 leaf: a signing request for the wallet (`create -protocol 2` prints one at creation), the install of the chain it answers, the certificate state, the owner's answer to a contact at a new address, and the campaign that tells every root-pinned contact of a move — durable, resumed by `announce` (PACT §5.3, §9). Runs over the admin socket, so the node must be running |
 | `passkey` | `list` \| `remove` \| `reset-wizard` — owner passkeys; `reset-wizard` mints a one-time setup URL (§3.1, §8.6) |
 | `token` | `create` \| `list` \| `revoke` — named owner-MCP bearer tokens (§3, §8.4) |
 | `audit` | `verify` \| `export` \| `archive` \| `repair` — the hash chain, offline; the node must be stopped (§11.4, §11.6) |

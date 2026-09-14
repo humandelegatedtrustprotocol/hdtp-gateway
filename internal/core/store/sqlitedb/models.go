@@ -209,6 +209,7 @@ type RotationFanout struct {
 	Attempts   int64
 	LastError  string
 	UpdatedAt  int64
+	Kind       string
 }
 
 type Session struct {

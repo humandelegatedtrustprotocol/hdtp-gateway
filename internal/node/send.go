@@ -162,22 +162,18 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 
 // deliverMedia is one direct attempt at the peer's send_media (PACT §6.2).
 func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Contact, msgID, threadID, sender, filename, mime string, data []byte) error {
-	card, err := contacts.ParseCard(c.Card)
+	peer, err := n.peerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: that contact's card is unreadable")
-	}
-	if card.Endpoint == "" {
 		return fmt.Errorf("send: media needs a direct endpoint, and that contact publishes none")
 	}
-	if err := checkEndpoint(card.Endpoint, len(c.SPKI) > 0); err != nil {
+	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
 		return err
 	}
-	client, err := n.OutboundClient(accountID)
+	client, err := n.clientForContact(ctx, accountID, c)
 	if err != nil {
 		return err
 	}
-	peer := outbound.Peer{Endpoint: card.Endpoint, Fingerprint: c.Fingerprint, Seal: card.Seal}
 	args := map[string]any{
 		"msg_id": msgID, "thread_id": threadID, "filename": filename, "mime": mime,
 		"data": base64.StdEncoding.EncodeToString(data), "sender": sender,
@@ -232,6 +228,10 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	if err != nil {
 		return false, fmt.Errorf("send: that contact's card is unreadable")
 	}
+	// A 2.0 pin's endpoint is the leaf's (PACT §14.1), never a card property.
+	if p, perr := n.peerOf(accountID, c); perr == nil && c.Protocol == 2 {
+		card.Endpoint, card.Gateway = p.Endpoint, ""
+	}
 	if card.Endpoint == "" && card.Gateway == "" {
 		return false, fmt.Errorf("send: that contact publishes neither an endpoint nor a gateway")
 	}
@@ -253,11 +253,14 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 			return false, err
 		}
 	}
-	client, err := n.OutboundClient(accountID)
+	client, err := n.clientForContact(ctx, accountID, c)
 	if err != nil {
 		return false, err
 	}
 	peer := outbound.Peer{Endpoint: card.Endpoint, Fingerprint: c.Fingerprint, Seal: card.Seal}
+	if p, perr := n.peerOf(accountID, c); perr == nil && c.Protocol == 2 {
+		peer = p
+	}
 	args := map[string]any{
 		"msg_id": in.MsgID, "text": in.Text, "thread_id": threadID,
 		"sender": string(in.Label()),

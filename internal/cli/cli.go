@@ -91,7 +91,7 @@ commands:
   migrate   run store migrations (node must be stopped)
   doctor    diagnose configuration, data dir, store, lock
   healthcheck  probe the internal /healthz (container HEALTHCHECK)
-  account   create|list|rotate-key accounts and identity keys; csr|install-leaf|certificate|address the PACT 2.0 leaf a wallet issues (node must be running; talks over the admin socket)
+  account   create|list|rotate-key accounts and identity keys; csr|install-leaf|certificate|address|announce the PACT 2.0 leaf a wallet issues and the move it may be (node must be running; talks over the admin socket)
   passkey   list|remove|reset-wizard (node must be running)
   token     create|list|revoke owner-MCP bearer tokens (node must be running)
   audit     verify|export|archive|repair the hash chain (offline; node must be stopped)
@@ -290,11 +290,19 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// fingerprint it just pinned (§3.9); until then it cannot seal to us. With a
 		// grace period it keeps sealing to the old key meanwhile; with none there is
 		// nothing to seal to, so the new key introduces itself right after the notice.
-		newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
-		if err != nil {
-			return 0, 0, err
+		var newCert tls.Certificate
+		if newKP.Protocol == 2 && len(newKP.Leaf) > 0 {
+			// A 2.0 leaf key introduces itself under its chain; a 1.x peer reads
+			// the leaf's key from it (PACT Appendix C).
+			newCert = tls.Certificate{Certificate: [][]byte{newKP.Leaf, newKP.Root}, PrivateKey: newKP.Signer}
+		} else {
+			newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
+			if err != nil {
+				return 0, 0, err
+			}
+			newCert = tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}
 		}
-		introduce := &outbound.Client{Keypair: newKP, Cert: tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}}
+		introduce := &outbound.Client{Keypair: newKP, Cert: newCert}
 		// Rotate has already written the new fingerprint, so the node renders the
 		// post-rotation card — with the seal the gate actually enforces and the
 		// live endpoint. Falling back to a local build only matters for a rotate
@@ -512,11 +520,40 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			if err != nil {
 				return nil, err
 			}
-			rot := identity.Rotation{AccountID: acct.ID, OldFpr: res.OldKid, NewFpr: res.Kid, Proof: proof, GraceUntil: res.NotAfter, LegacyOnly: true}
+			rot := identity.Rotation{AccountID: acct.ID, OldFpr: res.OldKid, NewFpr: res.Kid, Proof: proof, GraceUntil: res.NotAfter, LegacyOnly: true, Kind: "renewal_1x"}
 			done, failed, _ := legacyFanout(ctx, acct, rot, res.OldKP, res.NewKP, compat)
 			out["LegacyDone"], out["LegacyFailed"] = done, failed
 		}
+		// A new address is a move (PACT §5.3, §9): every contact pinned by our
+		// root hears it from the new address, with the chain as the proof,
+		// before the old host is told to leave.
+		if !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint && nd != nil {
+			done, failed, merr := nd.AnnounceMove(ctx, acct.ID, res.Kid)
+			if merr != nil {
+				return nil, merr
+			}
+			out["MoveDone"], out["MoveFailed"] = done, failed
+		}
 		return out, nil
+	})
+	// account.announce resumes a move's campaign for the current leaf: the walk
+	// is durable, so contacts already told are skipped and the rest are tried.
+	admin.Handle("account.announce", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.announce needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		if acct.Protocol != 2 || nd == nil {
+			return nil, fmt.Errorf("account.announce: %s is not a 2.0 identity on the live node", acct.Slug)
+		}
+		done, failed, err := nd.AnnounceMove(ctx, acct.ID, acct.Fingerprint)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
@@ -906,6 +943,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	identityDeps := internalui.IdentityDeps{
 		Accounts: st.ListAccounts, Rotate: rotateByID, Audit: auditFn,
+		Certificate: func(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
+			return idm.Certificate(ctx, accountID, time.Now())
+		},
 		// The SAME call `account create` makes, so the portal cannot become a
 		// second way of minting identities that drifts from the CLI's.
 		Create: func(ctx context.Context, slug, displayName, algo string) (store.Account, error) {
@@ -929,7 +969,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 func account(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address|announce> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -994,6 +1034,17 @@ func account(args []string, stdout, stderr io.Writer) int {
 		if d, ok := out["LegacyDone"]; ok {
 			fmt.Fprintf(stdout, "1.x contacts told of the new key: done=%v failed=%v\n", d, out["LegacyFailed"])
 		}
+		if d, ok := out["MoveDone"]; ok {
+			fmt.Fprintf(stdout, "contacts told of the new address: done=%v failed=%v (re-run `account announce` for the rest)\n", d, out["MoveFailed"])
+		}
+		return 0
+	case "announce":
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.announce", map[string]string{"slug": slug}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "contacts told of the address: done=%v failed=%v\n", out["MoveDone"], out["MoveFailed"])
 		return 0
 	case "certificate":
 		var out map[string]any
@@ -1056,7 +1107,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address|announce> [flags]")
 		return 2
 	}
 }
@@ -1452,6 +1503,24 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		if err == nil {
 			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
 				pin = accts[0].Fingerprint
+				// PACT 2.0 (PACT §2): a host asks for renewal thirty days ahead;
+				// doctor is where an operator without the portal hears it.
+				idm := &identity.Manager{Store: s}
+				for _, a := range accts {
+					if a.Protocol != 2 {
+						continue
+					}
+					info, cerr := idm.Certificate(context.Background(), a.ID, time.Now())
+					switch {
+					case cerr != nil:
+						fmt.Fprintf(stdout, "FAIL leaf         %s: %v\n", a.Slug, cerr)
+						fail = 1
+					case info.RenewalDue:
+						fmt.Fprintf(stdout, "warn leaf         %s expires %s: renewal due (run `account csr -slug %s -purpose renew`)\n", a.Slug, info.NotAfter.Format("2006-01-02"), a.Slug)
+					default:
+						fmt.Fprintf(stdout, "ok   leaf         %s valid until %s (root %s)\n", a.Slug, info.NotAfter.Format("2006-01-02"), info.RootFingerprint)
+					}
+				}
 			}
 			s.Close()
 		}
