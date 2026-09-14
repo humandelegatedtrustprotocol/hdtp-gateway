@@ -279,6 +279,7 @@ type InstallResult struct {
 	RootFingerprint string
 	Kid             string // the new current leaf's key id
 	OldKid          string // the superseded leaf's key id, "" on a first install
+	OldEndpoint     string // the superseded leaf's endpoint; a difference is a move (PACT §5.3)
 	KeyChanged      bool
 	FirstInstall    bool
 	Endpoint        string
@@ -341,7 +342,7 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		FirstInstall: a.Protocol != 2, Endpoint: vr.Endpoint, NotBefore: vr.Leaf.NotBefore, NotAfter: vr.Leaf.NotAfter, NewKP: kp,
 	}
 	if current != nil {
-		res.OldKid = current.Kid
+		res.OldKid, res.OldEndpoint = current.Kid, current.Endpoint
 		res.KeyChanged = current.Kid != pending.Kid
 		if len(current.KeySealed) > 0 {
 			if res.OldKP, err = m.openLeafKey(current.KeySealed); err != nil {

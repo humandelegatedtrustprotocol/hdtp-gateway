@@ -36,6 +36,10 @@ type IdentityDeps struct {
 	// different rotation procedure.
 	Rotate func(ctx context.Context, accountID string, grace time.Duration) (RotateResult, error)
 	Audit  func(action, resource, outcome string)
+	// Certificate reports a 2.0 account's leaf (PACT §2): the root that is
+	// the identity, the endpoint, the dates, and whether renewal is due —
+	// the thirty-day prompt a host owes the person. nil hides the columns.
+	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
 }
 
 func (d IdentityDeps) audit(action, resource, outcome string) {
@@ -64,6 +68,12 @@ type identityRow struct {
 	Fingerprint string `json:"fingerprint"`
 	Algo        string `json:"algo"`
 	ID          string `json:"id"`
+	// PACT 2.0: absent (zero) for a 1.x identity.
+	Protocol        int    `json:"protocol,omitempty"`
+	RootFingerprint string `json:"root_fingerprint,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	NotAfter        string `json:"not_after,omitempty"`
+	RenewalDue      bool   `json:"renewal_due,omitempty"`
 }
 
 // MountIdentityPages registers Settings · identity.
@@ -76,10 +86,17 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		}
 		rows := []identityRow{}
 		for _, a := range accts {
-			rows = append(rows, identityRow{
+			row := identityRow{
 				ID: a.ID, Slug: a.Slug, DisplayName: a.DisplayName,
 				Algo: a.Algo, Fingerprint: a.Fingerprint,
-			})
+			}
+			if a.Protocol == 2 && d.Certificate != nil {
+				if info, err := d.Certificate(r.Context(), a.ID); err == nil && info.Protocol == 2 {
+					row.Protocol, row.RootFingerprint, row.Endpoint = 2, info.RootFingerprint, info.Endpoint
+					row.NotAfter, row.RenewalDue = info.NotAfter.UTC().Format(time.RFC3339), info.RenewalDue
+				}
+			}
+			rows = append(rows, row)
 		}
 		apiJSON(w, map[string]any{
 			"rows": rows, "notice": notice, "error": errMsg,

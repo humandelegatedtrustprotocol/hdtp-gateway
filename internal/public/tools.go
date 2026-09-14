@@ -116,6 +116,20 @@ type ToolDeps struct {
 	// Endpoint is this account's own address, for the guard a 2.0 guest's card
 	// must pass (PACT §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
+	// Chain is this account's [leaf, root] for a 2.0 identity, nil for 1.x:
+	// get_card always answers with it (PACT §13.2), so a caller that cannot
+	// verify a result has one place to ask.
+	Chain func(ctx context.Context) ([][]byte, error)
+}
+
+// speaks20 reports whether this account holds a leaf; a 1.x account reads a
+// presented chain as its leaf's key (PACT Appendix C row 4).
+func (d ToolDeps) speaks20(ctx context.Context) bool {
+	if d.Chain == nil {
+		return false
+	}
+	chain, err := d.Chain(ctx)
+	return err == nil && len(chain) == 2
 }
 
 // proofOf is what the caller proved this call, for the guest tools to pin: in
@@ -130,7 +144,7 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 		return p
 	}
 	tf := FactsFrom(ctx)
-	if tf.ClientProtocol == 2 {
+	if tf.ClientProtocol == 2 && d.speaks20(ctx) {
 		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Protocol: 2, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
@@ -433,11 +447,17 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 			limits = d.Limits()
 		}
 		d.audit("get_card", "caller:"+callerFpr(ctx), "ok")
-		return toolOK(map[string]any{
+		out := map[string]any{
 			"card": card, "card_sig": sig,
 			"spki":   base64.RawURLEncoding.EncodeToString(spki),
 			"limits": limits,
-		})
+		}
+		if d.Chain != nil {
+			if chain, err := d.Chain(ctx); err == nil && len(chain) == 2 {
+				out["chain"] = []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}
+			}
+		}
+		return toolOK(out)
 	}
 }
 

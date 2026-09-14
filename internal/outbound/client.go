@@ -232,7 +232,7 @@ func (c *Client) SealEnvelope(peer Peer, peerSPKI []byte, tool string, args map[
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	now := c.now()
 	return envelope.Seal(envelope.SealParams{
 		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
 		TS: now.Unix(), Exp: exp.Unix(), CTY: "application/pact-call+json",
@@ -318,7 +318,7 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, peerSPKI []byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	now := time.Now()
+	now := c.now()
 	env, err := envelope.Seal(envelope.SealParams{
 		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
 		TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(), CTY: "application/pact-call+json",

@@ -250,13 +250,37 @@ func (id *Identifier) PlaintextGate(tf TransportFacts, tool string, substantive 
 	// another address is §5.3, which the sealed path carries; on this path
 	// both are served as an anonymous guest.
 	if tf.ClientProtocol == 2 {
-		return id.plaintextCaller20(context.Background(), tf, tool), nil
+		if id.speaks20(context.Background()) {
+			return id.plaintextCaller20(context.Background(), tf, tool), nil
+		}
+		// PACT Appendix C row 4: a 1.x identity ignores the chain and reads
+		// the leaf's key — so its pins stay keyed by key, which is what its
+		// own `v: 1` exchanges resolve by until the account upgrades.
+		tf.ClientCertFingerprint = fingerprintOfSPKI(tf.ClientCertSPKI)
 	}
 	// A contact re-pinned during rotation holds only a fingerprint (§3.9). This
 	// is the moment their key reappears, so record it — otherwise we could never
 	// seal to them again.
 	id.bindIfKeyless(context.Background(), id.AccountID, tf.ClientCertFingerprint, tf.ClientCertSPKI)
 	return tf.ClientCertFingerprint, nil
+}
+
+// speaks20 reports whether the account this identifier serves holds a leaf.
+func (id *Identifier) speaks20(ctx context.Context) bool {
+	if id.State20 == nil {
+		return false
+	}
+	st, err := id.State20(ctx)
+	return err == nil && st != nil && st.Protocol == 2
+}
+
+// LegacyCaller is the caller a 1.x account sees on the transport: the leaf's
+// key when a chain was presented (PACT Appendix C row 4), else the certificate's.
+func LegacyCaller(tf TransportFacts) string {
+	if tf.ClientProtocol == 2 {
+		return fingerprintOfSPKI(tf.ClientCertSPKI)
+	}
+	return tf.ClientCertFingerprint
 }
 
 func (id *Identifier) plaintextCaller20(ctx context.Context, tf TransportFacts, tool string) string {
@@ -438,8 +462,10 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID, accountFpr stri
 		}
 		facts.SPKI, facts.Card = spki, card
 	}
-	// Unified identity rule (§5.3): both proofs present ⇒ they MUST match.
-	if tf.ClientCertFingerprint != "" && tf.ClientCertFingerprint != h.From {
+	// Unified identity rule (§5.3): both proofs present ⇒ they MUST match. A
+	// chain on the transport names its leaf's key here (PACT Appendix C row
+	// 4): a `v: 1` envelope's `from` is that key's fingerprint.
+	if tf.ClientCertFingerprint != "" && LegacyCaller(tf) != h.From {
 		id.audit("identity_mismatch", "account:"+id.AccountID+" contact:"+h.From, "envelope_invalid")
 		return nil, fmt.Errorf("%w: client certificate %s does not match envelope signer %s",
 			envelope.ErrInvalid, tf.ClientCertFingerprint, h.From)

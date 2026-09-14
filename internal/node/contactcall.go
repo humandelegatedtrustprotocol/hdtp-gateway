@@ -9,7 +9,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 )
 
@@ -28,15 +27,15 @@ func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outb
 	if err != nil || c.Status != "active" {
 		return nil, outbound.Peer{}, nil, fmt.Errorf("unknown contact")
 	}
-	card, err := contacts.ParseCard(c.Card)
-	if err != nil || card.Endpoint == "" {
+	peer, err := n.peerOf(accountID, c)
+	if err != nil {
 		return nil, outbound.Peer{}, nil, fmt.Errorf("that contact has no endpoint on file")
 	}
-	client, err := n.OutboundClient(accountID)
+	client, err := n.clientForContact(ctx, accountID, c)
 	if err != nil {
 		return nil, outbound.Peer{}, nil, err
 	}
-	return client, outbound.Peer{Endpoint: card.Endpoint, Fingerprint: contactFpr, Seal: card.Seal}, c.SPKI, nil
+	return client, peer, c.SPKI, nil
 }
 
 // ListContactTools asks a contact's server what this identity may call there.

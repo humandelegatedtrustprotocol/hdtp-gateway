@@ -103,11 +103,11 @@ SELECT prev_fingerprint, prev_key_sealed, grace_until FROM accounts WHERE id = $
 UPDATE accounts SET prev_fingerprint = NULL, prev_key_sealed = NULL, grace_until = 0 WHERE id = $1;
 
 -- name: UpsertRotationFanout :exec
-INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at, kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (account_id, contact_fpr) DO UPDATE SET
   new_fpr = EXCLUDED.new_fpr, status = EXCLUDED.status, attempts = EXCLUDED.attempts,
-  last_error = EXCLUDED.last_error, updated_at = EXCLUDED.updated_at;
+  last_error = EXCLUDED.last_error, updated_at = EXCLUDED.updated_at, kind = EXCLUDED.kind;
 
 -- name: ListRotationFanout :many
 SELECT * FROM rotation_fanout WHERE account_id = $1 ORDER BY contact_fpr;
