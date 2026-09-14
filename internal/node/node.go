@@ -995,6 +995,11 @@ func (n *Node) mcpHandler() http.Handler {
 		if f.ClientProtocol == 2 && a.rec.Protocol != 2 {
 			caller = public.LegacyCaller(f) // Appendix C row 4: a 1.x identity reads the leaf's key
 		}
+		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
+			// A 2.0 chain earns exactly what the pin checks allowed
+			// (resolveTransport): the root, or an anonymous guest.
+			caller = tc.Fingerprint
+		}
 		srv, err := a.pool.ServerFor(r.Context(), a.rec.ID, caller)
 		if err != nil {
 			n.opts.audit("tools_list", "account:"+a.rec.ID, "unavailable")
@@ -1015,7 +1020,33 @@ func (n *Node) mcpHandler() http.Handler {
 		// HTTP on loopback and KEEPS the protection (§8.3, §8.4).
 		DisableLocalhostProtection: true,
 	})
-	return n.bindSession(inner)
+	return n.resolveTransport(n.bindSession(inner))
+}
+
+// resolveTransport runs the pin checks of PACT §14.3 and §5.3 on a 2.0 client
+// chain ONCE per request, before the per-caller server is composed and the
+// session bound, and puts the outcome in the context. Without it the
+// transport path composed the contact's surface for any chain that validated
+// — a former host's still-valid leaf, a stolen and since-renewed one, a leaf
+// for an address the owner has not approved — checks the sealed path always
+// made. The two paths now reach the same outcome from the same rules.
+func (n *Node) resolveTransport(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f := public.FactsFrom(r.Context())
+		if f.ClientProtocol != 2 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		n.mu.RLock()
+		a := n.bySlug[r.PathValue("slug")]
+		n.mu.RUnlock()
+		if a == nil || a.rec.Protocol != 2 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		tc := a.ident.ResolveTransport(r.Context(), f)
+		next.ServeHTTP(w, r.WithContext(public.WithTransportCaller(r.Context(), tc)))
+	})
 }
 
 // bindSession enforces SPEC §5.6 — "a session belongs to the identity that
@@ -1037,6 +1068,11 @@ func (n *Node) mcpHandler() http.Handler {
 func (n *Node) bindSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fpr := public.FactsFrom(r.Context()).ClientCertFingerprint
+		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
+			// The session belongs to the identity the server was composed
+			// for — the resolved one, not the certificate's root.
+			fpr = tc.Fingerprint
+		}
 		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
 			if !n.binder.Bind(sid, fpr) {
 				n.opts.audit("session_binding", "session:"+sid, "identity_mismatch")

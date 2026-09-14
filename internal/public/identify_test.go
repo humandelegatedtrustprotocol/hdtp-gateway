@@ -404,7 +404,7 @@ func TestSealPolicyMatrix(t *testing.T) {
 		if tc.haveCert {
 			tf.ClientCertFingerprint = "sha256:caller"
 		}
-		fpr, err := id.PlaintextGate(tf, "send_message", tc.substantive)
+		fpr, err := id.PlaintextGateCtx(context.Background(), tf, "send_message", tc.substantive)
 		if tc.want == "" {
 			if err != nil {
 				t.Fatalf("%v/%v cert=%v subst=%v: refused %v", tc.seal, tc.cert, tc.haveCert, tc.substantive, err)

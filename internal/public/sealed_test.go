@@ -196,19 +196,19 @@ func TestSealedGuestReachesGuestToolsOnly(t *testing.T) {
 func TestPlaintextToSealRequiredAccountRefused(t *testing.T) {
 	s := newSealedEnv(t)
 	tf := TransportFacts{ClientCertFingerprint: "sha256:caller"}
-	if _, err := s.id.PlaintextGate(tf, "send_message", true); Code(err) != "seal_required" {
+	if _, err := s.id.PlaintextGateCtx(context.Background(), tf, "send_message", true); Code(err) != "seal_required" {
 		t.Fatalf("substantive plaintext: %v", Code(err))
 	}
 	// tools/list still answers, and sealed_call itself is never "substantive"
-	if _, err := s.id.PlaintextGate(tf, "tools/list", false); err != nil {
+	if _, err := s.id.PlaintextGateCtx(context.Background(), tf, "tools/list", false); err != nil {
 		t.Fatalf("tools/list refused: %v", err)
 	}
-	if _, err := s.id.PlaintextGate(tf, SealedToolName, false); err != nil {
+	if _, err := s.id.PlaintextGateCtx(context.Background(), tf, SealedToolName, false); err != nil {
 		t.Fatalf("sealed_call refused: %v", err)
 	}
 	// with seal optional the same call goes through
 	s.id.Seal = core.SealOptional
-	if _, err := s.id.PlaintextGate(tf, "send_message", true); err != nil {
+	if _, err := s.id.PlaintextGateCtx(context.Background(), tf, "send_message", true); err != nil {
 		t.Fatalf("optional seal refused a plaintext call: %v", err)
 	}
 }

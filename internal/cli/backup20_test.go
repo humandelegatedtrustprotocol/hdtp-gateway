@@ -143,6 +143,60 @@ func TestRestoreRefusesAnotherHostsKeysUnlessDataOnly(t *testing.T) {
 	}
 }
 
+func TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign(t *testing.T) {
+	// A fresh machine has no keyring to compare with, and the manifest's id is
+	// the former host's to write — neither is proof the archive is this node's.
+	// So a fresh node refuses the keys too, unless the operator says it is
+	// their own node's archive (-same-node) or takes the data alone.
+	src := newIDNode(t, "src")
+	st := openStoreAt(t, src.dir)
+	kr := openKeyringAt(t, src.dir)
+	if _, err := (&identity.Manager{Store: st, Keyring: kr}).CreateAccount(t.Context(), "alice", "Alice", identity.AlgoEd25519); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	upgradeTo20(t, src, "alice", "https://agent.alice.example/mcp")
+	archive := filepath.Join(src.dir, "node.tar.gz")
+	if code, _, errb := run(t, "backup", "create", "-config", src.cfg, "-out", archive); code != 0 {
+		t.Fatalf("create: %s", errb)
+	}
+	srcKey, _ := os.ReadFile(filepath.Join(src.dir, "keyring.key"))
+
+	fresh := newIDNode(t, "fresh") // no keyring.key yet
+	if _, err := os.Stat(filepath.Join(fresh.dir, "keyring.key")); err == nil {
+		t.Fatal("the fresh node must start without a keyring")
+	}
+	if code, _, errb := run(t, "backup", "restore", "-config", fresh.cfg, "-from", archive, "-yes"); code == 0 || !strings.Contains(errb, "another node") {
+		t.Fatalf("a fresh node must not take an archive's keys on faith: %d %s", code, errb)
+	}
+	if _, err := os.Stat(filepath.Join(fresh.dir, "keyring.key")); err == nil {
+		t.Fatal("the refusal must land before the master key does")
+	}
+	if code, out, errb := run(t, "backup", "restore", "-config", fresh.cfg, "-from", archive, "-yes", "-data-only"); code != 0 || !strings.Contains(out, "keys were not imported") {
+		t.Fatalf("data-only on a fresh node: %d %s %s", code, out, errb)
+	}
+	if _, err := os.Stat(filepath.Join(fresh.dir, "keyring.key")); err == nil {
+		t.Fatal("data-only must not bring the master key")
+	}
+
+	own := newIDNode(t, "own") // the operator's own node, restored onto a fresh machine
+	if code, _, errb := run(t, "backup", "restore", "-config", own.cfg, "-from", archive, "-yes", "-same-node"); code != 0 {
+		t.Fatalf("same-node restore: %d %s", code, errb)
+	}
+	if got, _ := os.ReadFile(filepath.Join(own.dir, "keyring.key")); string(got) != string(srcKey) {
+		t.Fatal("same-node must bring the master key as it was")
+	}
+	ownStore := openStoreAt(t, own.dir)
+	defer ownStore.Close()
+	a, err := ownStore.GetAccountBySlug(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealed, _ := ownStore.GetAccountSealedKey(t.Context(), a.ID); len(sealed) == 0 {
+		t.Fatal("same-node must bring the account's sealed key")
+	}
+}
+
 func mustLeaves(t *testing.T, st store.Store, accountID string) []store.Leaf {
 	t.Helper()
 	leaves, err := st.ListLeaves(context.Background(), accountID)

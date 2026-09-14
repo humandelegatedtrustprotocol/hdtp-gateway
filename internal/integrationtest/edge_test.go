@@ -126,7 +126,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	// client certificates are IGNORED: the edge terminated TLS, so the node saw
 	// none — the sealed identity is the only one, which is exactly why it worked.
 	gate := &public.Identifier{Seal: core.SealRequired, Cert: core.ClientCertOff}
-	if _, err := gate.PlaintextGate(public.TransportFacts{}, "send_message", true); public.Code(err) != "identity_required" {
+	if _, err := gate.PlaintextGateCtx(context.Background(), public.TransportFacts{}, "send_message", true); public.Code(err) != "identity_required" {
 		t.Fatalf("edge plaintext with no identity: %v", public.Code(err))
 	}
 }
