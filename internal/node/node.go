@@ -829,6 +829,13 @@ func (n *Node) SignCard(ctx context.Context, accountID, cardText string) (string
 // Certificate returns an account's identity certificate — what an outbound leg
 // presents so the far side recognizes the key it pinned. Ingress pairing needs
 // it (SPEC §10.6).
+// CertificateInfo is the account's 2.0 certificate state — root, chain, dates,
+// whether a renewal is due (§14). The portal and the owner MCP read the same
+// function, so neither can drift from what the node actually serves.
+func (n *Node) CertificateInfo(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
+	return n.idm.Certificate(ctx, accountID, n.now())
+}
+
 func (n *Node) Certificate(accountID string) (tls.Certificate, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
