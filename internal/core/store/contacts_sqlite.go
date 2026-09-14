@@ -9,6 +9,15 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
+// contactProtocol maps the zero value every 1.x caller passes to protocol 1;
+// only a 2.0 pin says 2.
+func contactProtocol(p int64) int64 {
+	if p == 0 {
+		return 1
+	}
+	return p
+}
+
 func permsToJSON(perms []string) string {
 	if perms == nil {
 		perms = []string{}
@@ -37,6 +46,7 @@ func (s *SQLite) InsertContact(ctx context.Context, c Contact) (Contact, error) 
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
+		Protocol: contactProtocol(c.Protocol), Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
 	})
 	if err != nil {
 		return Contact{}, err
@@ -55,6 +65,10 @@ func contactFromRow(r sqlitedb.Contact) Contact {
 		TheirPermissions: permsFromJSON(r.TheirPermissions),
 		Petname:          r.Petname,
 		InviteID:         r.InviteID,
+		Protocol:         r.Protocol,
+		Endpoint:         r.Endpoint,
+		Leaf:             r.Leaf,
+		ChainSentKid:     r.ChainSentKid,
 	}
 }
 

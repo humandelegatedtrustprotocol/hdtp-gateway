@@ -20,6 +20,56 @@ type Account struct {
 	Seal        string
 	Status      string
 	CreatedAt   int64
+	// PACT 2.0 (migration 0027). Protocol is 1 until a leaf is installed; then
+	// RootFingerprint is the identity's name, RootCert the root's DER, and
+	// Fingerprint above names the CURRENT leaf key. AcceptNewHosts is the
+	// owner's §5.3 setting (auto|ask); Accept1x whether 1.x proofs still resolve.
+	Protocol        int64
+	RootFingerprint string
+	RootCert        []byte
+	AcceptNewHosts  string
+	Accept1x        bool
+}
+
+// Leaf is one certificate this host holds for an account (PACT §2, §14):
+// pending (a CSR awaiting the wallet), current, superseded (key kept until
+// NotAfter), or former (key destroyed, kid kept for certificate_renewed).
+type Leaf struct {
+	AccountID string
+	Kid       string
+	Leaf      []byte
+	KeySealed []byte
+	NotBefore int64
+	NotAfter  int64
+	State     string
+	Endpoint  string
+	CreatedAt int64
+}
+
+// Tombstone remembers a removed root and the leaf that removed it (PACT §5.3).
+type Tombstone struct {
+	AccountID string
+	Root      string
+	Leaf      []byte
+	At        int64
+}
+
+// FormerEndpoint remembers where a pinned root used to answer (PACT §5, §6.1).
+type FormerEndpoint struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	At        int64
+}
+
+// PendingAddress is a contact at a new address awaiting the owner (PACT §5.3).
+type PendingAddress struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	Leaf      []byte
+	Why       string
+	At        int64
 }
 
 // RotationFanout is per-contact progress of a key rotation (SPEC §3.9).
@@ -94,6 +144,13 @@ type Contact struct {
 	Card      string
 	CreatedAt int64
 	PinnedAt  int64
+	// PACT 2.0 pins (migration 0027): Protocol 2 means Fingerprint is the ROOT
+	// fingerprint, SPKI the pinned leaf's key, Endpoint and Leaf the pin of
+	// §14.3. ChainSentKid is our own leaf kid last carried to this contact.
+	Protocol     int64
+	Endpoint     string
+	Leaf         []byte
+	ChainSentKid string
 }
 
 type Invite struct {
@@ -344,6 +401,30 @@ type Store interface {
 
 	// RepinContact re-keys a contact after a verified update_contact (PACT §2).
 	RepinContact(ctx context.Context, accountID, oldFpr, newFpr string, newSPKI []byte, card string, now int64) error
+
+	// PACT 2.0 (migration 0027): the account's root and leaf ledger, 2.0 pins,
+	// the removal tombstone, former endpoints and pending addresses.
+	SetAccountProtocol(ctx context.Context, accountID string, protocol int64, rootFingerprint string, rootCert []byte) error
+	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
+	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string, accept1x bool) error
+	InsertLeaf(ctx context.Context, l Leaf) error
+	UpdateLeaf(ctx context.Context, l Leaf) error
+	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)
+	RetireLeafKey(ctx context.Context, accountID, kid string) error
+	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
+	UpsertTombstone(ctx context.Context, t Tombstone) error
+	ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error)
+	DeleteTombstone(ctx context.Context, accountID, root string) error
+	InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) error
+	ListFormerEndpoints(ctx context.Context, accountID string) ([]FormerEndpoint, error)
+	UpsertPendingAddress(ctx context.Context, p PendingAddress) error
+	ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error)
+	GetPendingAddress(ctx context.Context, accountID, root string) (PendingAddress, error)
+	DeletePendingAddress(ctx context.Context, accountID, root string) error
+	RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, now int64) error
+	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
+	ClearChainSentKids(ctx context.Context, accountID string) error
+	UpgradeContactPin(ctx context.Context, accountID, oldFpr, root, endpoint string, leaf, spki []byte, now int64) error
 
 	InsertThread(ctx context.Context, t Thread) error
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)
