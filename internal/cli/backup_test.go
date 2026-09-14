@@ -64,8 +64,10 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// restore refuses to clobber an existing store without -yes; on an empty
-	// dir it just proceeds
-	if code, _, errb := run(t, "backup", "restore", "-config", cfgPath, "-from", archive); code != 0 {
+	// dir it just proceeds — but a wiped machine has no keyring to prove the
+	// archive its own, so the operator says so (PACT §9: a host takes another
+	// host's keys only when told they are its own).
+	if code, _, errb := run(t, "backup", "restore", "-config", cfgPath, "-from", archive, "-same-node"); code != 0 {
 		t.Fatalf("restore: %s", errb)
 	}
 	if code, _, errb := run(t, "migrate", "-config", cfgPath); code != 0 {
@@ -93,7 +95,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if code, _, errb := run(t, "backup", "restore", "-config", cfgPath, "-from", archive); code == 0 || !strings.Contains(errb, "-yes") {
 		t.Fatalf("overwrite without -yes: code=%d err=%q", code, errb)
 	}
-	if code, _, _ := run(t, "backup", "restore", "-config", cfgPath, "-from", archive, "-yes"); code != 0 {
+	if code, _, _ := run(t, "backup", "restore", "-config", cfgPath, "-from", archive, "-yes", "-same-node"); code != 0 {
 		t.Fatal("restore with -yes failed")
 	}
 }
@@ -120,7 +122,7 @@ func TestBackupWithoutMasterKeyAndRefusalsWhileRunning(t *testing.T) {
 	if code, _, errb := run(t, "backup", "create", "-config", cfgPath, "-out", archive); code == 0 || !strings.Contains(errb, "in use") {
 		t.Fatalf("create under lock: %d %q", code, errb)
 	}
-	if code, _, errb := run(t, "backup", "restore", "-config", cfgPath, "-from", archive, "-yes"); code == 0 || !strings.Contains(errb, "in use") {
+	if code, _, errb := run(t, "backup", "restore", "-config", cfgPath, "-from", archive, "-yes", "-same-node"); code == 0 || !strings.Contains(errb, "in use") {
 		t.Fatalf("restore under lock: %d %q", code, errb)
 	}
 }
