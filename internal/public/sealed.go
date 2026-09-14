@@ -133,9 +133,14 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		if facts.Tier == TierPendingAddress {
 			// PACT §5.3 under `ask`, or a root returned after a removal: the
-			// call answers pending and waits for the owner.
+			// update_contact that brought the new address answers pending, and
+			// every other call from that address, until the owner decides,
+			// answers pending_approval — nothing runs either way.
 			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
-			return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
+			if toolNameOf(facts.Payload) == "update_contact" {
+				return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
+			}
+			return errEnvelope("pending_approval"), nil
 		}
 		// Envelope-level idempotency (§4.4 step 8): a replay is acknowledged
 		// with its recorded result, never re-executed.
@@ -291,4 +296,17 @@ func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload)
 	default:
 		return nil, fmt.Errorf("%w: inner method %q", envelope.ErrInvalid, pay.Method)
 	}
+}
+
+// toolNameOf reads the inner call's tool name, "" for tools/list or a
+// payload with none.
+func toolNameOf(p Payload) string {
+	if p.Method != "tools/call" || len(p.Params) == 0 {
+		return ""
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(p.Params, &params)
+	return params.Name
 }
