@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -211,6 +212,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("node: list accounts: %w", err)
 	}
+	var unavailable []string
 	for _, rec := range recs {
 		a, err := n.buildAccount(ctx, rec)
 		if errors.Is(err, errAwaitingLeaf) {
@@ -218,11 +220,22 @@ func New(ctx context.Context, o Options) (*Node, error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			// One account that cannot be built is one account that does not serve:
+			// refusing to start took every OTHER account down with it. Kept, so a
+			// broken account is visible and the rest of the node answers.
+			o.audit("account_unavailable", "account:"+rec.ID+" slug:"+rec.Slug, err.Error())
+			unavailable = append(unavailable, fmt.Sprintf("%s: %v", rec.Slug, err))
+			continue
 		}
 		n.accounts[rec.ID] = a
 		n.bySlug[rec.Slug] = a
 		n.indexHost(a)
+	}
+	// Every account failing is not one broken account: it is the node misconfigured
+	// — the wrong keyring, an unreadable store — and it fails at New rather than at
+	// call time, where the operator would meet it one request at a time.
+	if len(n.accounts) == 0 && len(unavailable) > 0 {
+		return nil, fmt.Errorf("node: no account could be served: %s", strings.Join(unavailable, "; "))
 	}
 
 	n.srv = &public.Server{
@@ -387,8 +400,20 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		if err != nil {
 			return nil, fmt.Errorf("node: account %s leaves: %w", rec.Slug, err)
 		}
-		if len(keys) == 0 || !keys[0].Current || keys[0].Kid != rec.Fingerprint {
-			return nil, fmt.Errorf("node: account %s is 2.0 but its current leaf is not the key it serves under", rec.Slug)
+		if len(keys) == 0 || !keys[0].Current {
+			return nil, fmt.Errorf("node: account %s is 2.0 but holds no current leaf", rec.Slug)
+		}
+		if keys[0].Kid != rec.Fingerprint {
+			// The ledger moved and the account row did not: an install that failed
+			// between the two (five writes, no transaction). The ledger is the
+			// truth — it is what validated — so the row is repaired here rather
+			// than refusing to boot, which is what refusing did to every OTHER
+			// account on the node as well.
+			if err := n.idm.AdoptCurrentLeafKey(ctx, rec.ID, keys[0]); err != nil {
+				return nil, fmt.Errorf("node: account %s: repair its key to the current leaf: %w", rec.Slug, err)
+			}
+			n.opts.audit("account_leaf_repaired", "account:"+rec.ID+" kid:"+keys[0].Kid, "ok")
+			rec.Fingerprint = keys[0].Kid
 		}
 		kp = keys[0].KP
 		cert = tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
@@ -930,7 +955,18 @@ func (n *Node) indexHost(a *account) {
 		return
 	}
 	if leaf, err := pactidentity.Parse(a.kp.Leaf); err == nil && len(leaf.URIs) == 1 {
-		n.byHost[hostOfEndpoint(leaf.URIs[0])] = a
+		host := hostOfEndpoint(leaf.URIs[0])
+		// Two 2.0 accounts naming one host cannot both present their chain on it:
+		// SNI carries the name and nothing else. The first keeps the host and the
+		// clash is audited rather than overwritten in silence — a peer validating
+		// to its own pinned root would refuse whichever chain arrived (docs:
+		// direct 2.0 TLS on a multi-account node wants a host per account, or an
+		// edge that terminates).
+		if other := n.byHost[host]; other != nil && other.rec.ID != a.rec.ID {
+			n.opts.audit("account_host_clash", "account:"+a.rec.ID+" host:"+host+" kept:"+other.rec.Slug, "skipped")
+			return
+		}
+		n.byHost[host] = a
 	}
 }
 

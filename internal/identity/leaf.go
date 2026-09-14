@@ -93,7 +93,14 @@ type LeafKey struct {
 	Current  bool
 	NotAfter time.Time
 	Endpoint string
+	// notBefore of the leaf this key was issued under, for ordering.
+	notBefore int64
 }
+
+// LeafNotBefore is the notBefore of the leaf this key was issued under; zero
+// for a retiring 1.x key, which has no leaf. Picking the greatest is how a
+// caller finds the most recently superseded key.
+func (k LeafKey) LeafNotBefore() int64 { return k.notBefore }
 
 func (m *Manager) sealLeafKey(kp *Keypair) ([]byte, error) {
 	der, err := MarshalPKCS8(kp)
@@ -137,15 +144,23 @@ func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now 
 		default:
 			continue
 		}
-		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
+		if len(l.KeySealed) == 0 {
 			continue
 		}
 		kp, err := m.openLeafKey(l.KeySealed)
 		if err != nil {
 			return nil, err
 		}
-		kp.Leaf, kp.Root, kp.Protocol = l.Leaf, a.RootCert, 2
-		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
+		// A superseded row with a key and no leaf is the 1.x identity key a first
+		// install retired (below): it has no chain to present, so it stays a 1.x
+		// key — `tlsCertOf` self-signs for it — and it is served until its
+		// notAfter so 1.x contacts still reach us while they re-pin.
+		if len(l.Leaf) > 0 {
+			kp.Leaf, kp.Root, kp.Protocol = l.Leaf, a.RootCert, 2
+		} else {
+			kp.Leaf, kp.Root, kp.Protocol = nil, nil, 1
+		}
+		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint, notBefore: l.NotBefore}
 		if lk.Current {
 			out = append([]LeafKey{lk}, out...)
 		} else {
@@ -153,6 +168,25 @@ func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now 
 		}
 	}
 	return out, nil
+}
+
+// AdoptCurrentLeafKey points the account row at the key of the leaf the ledger
+// holds as current. An install is five writes and there is no transaction across
+// them, so a failure between the ledger's move and the row's leaves the two
+// disagreeing; the ledger is what validated, so it wins. The key is re-sealed
+// under the account column's own AAD — the two columns bind their ciphertext to
+// different names, and copying bytes between them would produce a row that
+// cannot be opened again.
+func (m *Manager) AdoptCurrentLeafKey(ctx context.Context, accountID string, lk LeafKey) error {
+	der, err := MarshalPKCS8(lk.KP)
+	if err != nil {
+		return err
+	}
+	sealed, err := m.Keyring.Encrypt(der, []byte(keyAAD))
+	if err != nil {
+		return err
+	}
+	return m.Store.SetAccountLeafKey(ctx, accountID, lk.Kid, sealed, string(lk.KP.Algo))
 }
 
 // FormerKids are the key identifiers of leaves once held and held no longer.
@@ -365,13 +399,22 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		// leaf): the 1.x identity key retires like a superseded leaf would, kept
 		// for a year so 1.x contacts can still reach us while they re-pin.
 		sealedOld, err := m.Store.GetAccountSealedKey(ctx, accountID)
-		if err == nil {
-			if oldKP, err := m.LoadKeypair(sealedOld); err == nil {
-				res.OldKid, res.OldKP, res.KeyChanged = a.Fingerprint, oldKP, true
-				if sealed, err := m.sealLeafKey(oldKP); err == nil {
-					_ = m.Store.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: a.Fingerprint, KeySealed: sealed, NotAfter: now.Add(365 * 24 * time.Hour).Unix(), State: LeafSuperseded, Endpoint: vr.Endpoint, CreatedAt: now.Unix()})
-				}
-			}
+		if err != nil {
+			return InstallResult{}, fmt.Errorf("identity: read the key being retired: %w", err)
+		}
+		oldKP, err := m.LoadKeypair(sealedOld)
+		if err != nil {
+			return InstallResult{}, fmt.Errorf("identity: open the key being retired: %w", err)
+		}
+		res.OldKid, res.OldKP, res.KeyChanged = a.Fingerprint, oldKP, true
+		sealed, err := m.sealLeafKey(oldKP)
+		if err != nil {
+			return InstallResult{}, fmt.Errorf("identity: reseal the key being retired: %w", err)
+		}
+		// NotBefore is the account's own start, unknown here, so it stays zero: this
+		// row is the oldest key by construction, which is what the ordering wants.
+		if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: a.Fingerprint, KeySealed: sealed, NotAfter: now.Add(365 * 24 * time.Hour).Unix(), State: LeafSuperseded, Endpoint: vr.Endpoint, CreatedAt: now.Unix()}); err != nil {
+			return InstallResult{}, fmt.Errorf("identity: keep the key being retired: %w", err)
 		}
 	}
 	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {

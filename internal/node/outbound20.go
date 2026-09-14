@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
@@ -101,12 +102,21 @@ func (n *Node) clientForContact(ctx context.Context, accountID string, c store.C
 	if err != nil {
 		return client, nil
 	}
-	for _, k := range keys {
+	// The most recently superseded key is the one a 1.x contact pinned — the
+	// latest by the notBefore of the leaf it was issued under, not the first row
+	// the store happened to return (which is the oldest, by created_at).
+	var latest *identity.LeafKey
+	for i := range keys {
+		k := &keys[i]
 		if k.Current || k.KP.Fingerprint == a.kp.Fingerprint {
 			continue
 		}
-		// The most recently superseded key is the one a 1.x contact pinned.
-		old := &outbound.Client{Keypair: k.KP, Cert: tlsCertOf(k.KP)}
+		if latest == nil || k.LeafNotBefore() > latest.LeafNotBefore() {
+			latest = k
+		}
+	}
+	if latest != nil {
+		old := &outbound.Client{Keypair: latest.KP, Cert: tlsCertOf(latest.KP)}
 		return n.wire20(accountID, old), nil
 	}
 	return client, nil
@@ -120,12 +130,20 @@ func (n *Node) legacyContactTold(ctx context.Context, accountID, contactFpr, cur
 		return false, err
 	}
 	for _, r := range rows {
-		if r.ContactFpr == contactFpr && r.NewFpr == currentKid {
+		if r.ContactFpr != contactFpr {
+			continue
+		}
+		if r.NewFpr == currentKid {
 			return r.Status == "done", nil
 		}
+		// A row for this contact naming an OLDER key: it was told of that key, not
+		// of the one we hold now, so it is not told. Reading it as told presents
+		// the current key to a contact still pinning an earlier one, which its pin
+		// refuses (two renewals inside one leaf's life do exactly this).
+		return false, nil
 	}
-	// No row for this contact and this key: the fan-out never had to reach it
-	// — the contact was added after the change and pinned the current key.
+	// No row for this contact at all: the fan-out never had to reach it — the
+	// contact was added after the change and pinned the current key.
 	return true, nil
 }
 
@@ -142,11 +160,19 @@ func tlsCertOf(kp *identity.Keypair) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
 }
 
-// hostOfEndpoint is the host a leaf's endpoint names, for SNI selection.
+// hostOfEndpoint is the host a leaf's endpoint names, for SNI selection. The
+// port is dropped: SNI carries a name, never a port, so a leaf naming
+// `https://host:8443/…` must still be found by `host`.
 func hostOfEndpoint(endpoint string) string {
+	if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
 	s := strings.TrimPrefix(endpoint, "https://")
 	if i := strings.IndexByte(s, '/'); i >= 0 {
 		s = s[:i]
 	}
-	return s
+	if i := strings.LastIndexByte(s, ':'); i > 0 && !strings.Contains(s[i:], "]") {
+		s = s[:i]
+	}
+	return strings.Trim(s, "[]")
 }
