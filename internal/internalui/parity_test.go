@@ -31,24 +31,27 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 	// Each agent tool and where a person does the same thing. An entry of ""
 	// means it is genuinely agent-only, and the reason is stated.
 	expected := map[string]string{
-		"add_contact":       "POST /contacts/add",
-		"approve_contact":   "POST /requests/{fpr}/approve",
-		"audit_query":       "GET /api/audit",
-		"create_invite":     "POST /invites/create",
-		"export_card":       "GET /api/card",
-		"get_inbox":         "GET /api/conversations",
-		"inbox":             "GET /api/conversations",
-		"list_accounts":     "GET /api/session",
-		"list_contacts":     "GET /api/contacts",
-		"list_integrations": "GET /api/integrations",
-		"list_passkeys":     "GET /api/owners",
-		"read_thread":       "GET /api/conversations",
-		"remove_passkey":    "POST /owners/passkeys/{id}/remove",
-		"rename_contact":    "POST /contacts/{fpr}/petname",
-		"send_to_contact":   "POST /messages/send",
-		"set_exposure":      "POST /integrations/{id}/exposure",
-		"set_permissions":   "POST /contacts/{fpr}/permissions",
-		"set_trust_flag":    "POST /contacts/{fpr}/trust",
+		"add_contact":     "POST /contacts/add",
+		"approve_contact": "POST /requests/{fpr}/approve",
+		"audit_query":     "GET /api/audit",
+		"create_invite":   "POST /invites/create",
+		"export_card":     "GET /api/card",
+		"get_inbox":       "GET /api/conversations",
+		// Settings · identity renders the same certificate state for a person:
+		// root, endpoint, notAfter and renewal_due, from the same reader.
+		"identity_certificate": "GET /api/identity",
+		"inbox":                "GET /api/conversations",
+		"list_accounts":        "GET /api/session",
+		"list_contacts":        "GET /api/contacts",
+		"list_integrations":    "GET /api/integrations",
+		"list_passkeys":        "GET /api/owners",
+		"read_thread":          "GET /api/conversations",
+		"remove_passkey":       "POST /owners/passkeys/{id}/remove",
+		"rename_contact":       "POST /contacts/{fpr}/petname",
+		"send_to_contact":      "POST /messages/send",
+		"set_exposure":         "POST /integrations/{id}/exposure",
+		"set_permissions":      "POST /contacts/{fpr}/permissions",
+		"set_trust_flag":       "POST /contacts/{fpr}/trust",
 
 		// Agent-only, deliberately:
 		"agent":          "", // the agent's own presence

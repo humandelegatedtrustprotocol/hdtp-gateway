@@ -138,6 +138,8 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 
 		// One definition of "call a contact", on the node, shared with the portal.
 		CallContact: nd.CallContact,
+		// The same certificate reader the portal's identity page uses.
+		Certificate: nd.CertificateInfo,
 	}
 }
 

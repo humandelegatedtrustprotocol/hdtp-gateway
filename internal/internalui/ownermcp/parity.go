@@ -19,12 +19,15 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 )
 
@@ -34,6 +37,11 @@ import (
 type Extra struct {
 	// Card renders an account's current card — the same one peers receive.
 	Card func(ctx context.Context, accountID string) (string, error)
+	// Certificate reports the account's 2.0 certificate state (§14): the root
+	// that is the identity, the leaf this host serves under, its dates, and
+	// whether a renewal is due. Nil omits the tool, which is what a node with no
+	// 2.0 account wants.
+	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
 	// Passkeys lists and removes registered passkeys (§8.6). Registration is
 	// deliberately absent.
 	Passkeys      func(ctx context.Context) ([]auth.PasskeyInfo, error)
@@ -108,6 +116,37 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 					return nil, nil, err
 				}
 				r, err := jsonResult(map[string]string{"card": card})
+				return r, nil, err
+			})
+	}
+
+	if e.Certificate != nil {
+		mcp.AddTool(s, &mcp.Tool{Name: "identity_certificate",
+			Description: "This identity's certificate state (PACT 2.0): the root that is the identity, the leaf this host serves under, its validity, and whether a renewal is due"},
+			func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+				if !allow(ctx, a.AccountID) {
+					r, err := deny()
+					return r, nil, err
+				}
+				info, err := e.Certificate(ctx, a.AccountID)
+				if err != nil {
+					return nil, nil, err
+				}
+				out := map[string]any{"protocol": info.Protocol}
+				if info.Protocol == 2 {
+					chain := make([]string, 0, len(info.Chain))
+					for _, c := range info.Chain {
+						chain = append(chain, base64.RawURLEncoding.EncodeToString(c))
+					}
+					out["root_fingerprint"], out["kid"], out["endpoint"] = info.RootFingerprint, info.Kid, info.Endpoint
+					out["not_before"], out["not_after"] = info.NotBefore.UTC().Format(time.RFC3339), info.NotAfter.UTC().Format(time.RFC3339)
+					out["renewal_due"], out["chain"] = info.RenewalDue, chain
+					out["superseded"], out["former"] = info.Superseded, info.Former
+					if info.PendingCSR != "" {
+						out["pending_csr"] = info.PendingCSR
+					}
+				}
+				r, err := jsonResult(out)
 				return r, nil, err
 			})
 	}
