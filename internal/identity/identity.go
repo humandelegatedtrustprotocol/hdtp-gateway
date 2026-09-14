@@ -30,6 +30,10 @@ type Keypair struct {
 	Algo        Algo
 	Signer      crypto.Signer
 	Fingerprint string
+	// PACT 2.0 (PACT §2, §14): when the key is a leaf's, the leaf and the root
+	// that issued it, DER; Protocol is 2 then and 1 for a 1.x identity key.
+	Leaf, Root []byte
+	Protocol   int
 }
 
 // Fingerprint computes PACT §2's identity: "sha256:" + base64url(SHA-256(SPKI)),

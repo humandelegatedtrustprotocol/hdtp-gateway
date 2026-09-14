@@ -42,6 +42,10 @@ type Rotation struct {
 	// Immediate: the caller asked for GraceImmediate and must RetireNow once the
 	// fan-out is done; GraceUntil is only the fan-out allowance.
 	Immediate bool
+	// LegacyOnly restricts the fan-out to contacts pinned as 1.x. A 2.0 leaf
+	// install with a fresh key is a 1.x rotation toward them (PACT Appendix C
+	// row 2) and nothing toward 2.0 contacts, who learn the leaf from the chain.
+	LegacyOnly bool
 }
 
 // Rotator performs rotations for a node's accounts.
@@ -235,7 +239,7 @@ func (r *Rotator) Fanout(ctx context.Context, rot Rotation, newCard string, call
 		}
 	}
 	for _, c := range contacts {
-		if c.Status != "active" {
+		if c.Status != "active" || (rot.LegacyOnly && c.Protocol == 2) {
 			continue
 		}
 		if p, ok := progress[c.Fingerprint]; ok && p.NewFpr == rot.NewFpr && p.Status == "done" {

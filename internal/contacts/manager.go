@@ -5,6 +5,7 @@
 package contacts
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // Wire error codes (PACT §12).
@@ -113,21 +115,67 @@ type RedeemResult struct {
 	Permissions []string
 }
 
+// Proof is what a guest proved this call: in 1.x a key, in 2.0 a chain — the
+// root that is the identity, the leaf's key, and the endpoint and leaf the pin
+// records (PACT §14.2 rule 6, §14.3). SelfEndpoint is this account's own
+// address, for the guard a guest's card must pass (PACT §3).
+type Proof struct {
+	Fingerprint  string // 1.x: the key's; 2.0: the root's
+	SPKI         []byte // the key to seal to and verify under
+	Protocol     int
+	Endpoint     string
+	Leaf         []byte
+	SelfEndpoint string
+}
+
+// vet checks a guest's card against what the guest proved: the 1.x binding is
+// the key, the 2.0 binding the root and the leaf, and a 2.0 endpoint must pass
+// the address guard — never loopback, link-local or private, never our own.
+func (p Proof) vet(card string) (Card, error) {
+	if p.Fingerprint == "" || len(p.SPKI) == 0 {
+		return Card{}, fmt.Errorf("%w: needs a proven key", ErrIdentityRequired)
+	}
+	pc, err := ValidateInbound(card)
+	if err != nil {
+		return Card{}, fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if pc.Key != p.Fingerprint {
+		return Card{}, fmt.Errorf("%w: proven key does not match the card's X-PACT-KEY", ErrIdentityRequired)
+	}
+	if p.Protocol == 2 {
+		if !bytes.Equal(pc.Cert, p.Leaf) {
+			return Card{}, fmt.Errorf("%w: the card's certificate is not the proven leaf", ErrIdentityRequired)
+		}
+		if ok, why := pactidentity.AddressGuard(pc.Endpoint, p.SelfEndpoint, true); !ok {
+			return Card{}, fmt.Errorf("%w: endpoint refused: %s", ErrBadRequest, why)
+		}
+	}
+	return pc, nil
+}
+
+func (p Proof) pin(c store.Contact) store.Contact {
+	c.Fingerprint, c.SPKI = p.Fingerprint, p.SPKI
+	if p.Protocol == 2 {
+		c.Protocol, c.Endpoint, c.Leaf = 2, p.Endpoint, p.Leaf
+	}
+	return c
+}
+
 // Redeem performs the guest-tier redemption (SPEC §9.2): token by hash; expiry,
 // revocation, and use-count enforced atomically; the caller's proven identity MUST
 // equal the submitted card's X-PACT-KEY (guest binding, SPEC §5.3); the proven SPKI
 // is pinned in full.
 func (m *Manager) Redeem(ctx context.Context, accountID, token, card, callerFpr string, callerSPKI []byte) (RedeemResult, error) {
-	if callerFpr == "" || len(callerSPKI) == 0 {
-		return RedeemResult{}, fmt.Errorf("%w: redemption needs a proven key", ErrIdentityRequired)
+	return m.RedeemAs(ctx, accountID, token, card, Proof{Fingerprint: callerFpr, SPKI: callerSPKI, Protocol: 1})
+}
+
+// RedeemAs is Redeem with the caller's proof spelled out, which is how a 2.0
+// guest — a root, a leaf, an endpoint — is pinned (PACT §5.1).
+func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p Proof) (RedeemResult, error) {
+	if _, err := p.vet(card); err != nil {
+		return RedeemResult{}, err
 	}
-	pc, err := ValidateInbound(card)
-	if err != nil {
-		return RedeemResult{}, fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
-	if pc.Key != callerFpr {
-		return RedeemResult{}, fmt.Errorf("%w: proven key does not match the card's X-PACT-KEY", ErrIdentityRequired)
-	}
+	callerFpr := p.Fingerprint
 	sum := sha256.Sum256([]byte(token))
 	inv, err := m.Store.GetInviteByHash(ctx, accountID, sum[:])
 	if err != nil {
@@ -146,11 +194,11 @@ func (m *Manager) Redeem(ctx context.Context, accountID, token, card, callerFpr 
 		status = "active"
 		result = RedeemResult{Status: "accepted", Permissions: inv.Permissions}
 	}
-	_, err = m.Store.InsertContact(ctx, store.Contact{
-		AccountID: accountID, Fingerprint: callerFpr, SPKI: callerSPKI, Status: status,
+	_, err = m.Store.InsertContact(ctx, p.pin(store.Contact{
+		AccountID: accountID, Status: status,
 		Preset: inv.Preset, Permissions: inv.Permissions, DisplayName: CardName(card),
 		Card: card, PinnedAt: m.now().Unix(), InviteID: inv.ID,
-	})
+	}))
 	if err != nil {
 		return RedeemResult{}, fmt.Errorf("%w: already a contact or request pending", ErrInviteInvalid)
 	}
@@ -164,27 +212,25 @@ func (m *Manager) Redeem(ctx context.Context, accountID, token, card, callerFpr 
 // RequestContact is the unsolicited guest path (PACT §6.2): lands pending_in for
 // owner approval; same identity binding rule as redemption.
 func (m *Manager) RequestContact(ctx context.Context, accountID, card, note, callerFpr string, callerSPKI []byte) error {
-	if callerFpr == "" || len(callerSPKI) == 0 {
-		return fmt.Errorf("%w: request needs a proven key", ErrIdentityRequired)
-	}
-	pc, err := ValidateInbound(card)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadRequest, err)
-	}
-	if pc.Key != callerFpr {
-		return fmt.Errorf("%w: proven key does not match the card's X-PACT-KEY", ErrIdentityRequired)
+	return m.RequestContactAs(ctx, accountID, card, note, Proof{Fingerprint: callerFpr, SPKI: callerSPKI, Protocol: 1})
+}
+
+// RequestContactAs is RequestContact with the caller's proof spelled out.
+func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note string, p Proof) error {
+	if _, err := p.vet(card); err != nil {
+		return err
 	}
 	if len(note) > 1024 { // PACT §6.2: note ≤1 KiB
 		return fmt.Errorf("%w: note over 1 KiB", ErrBadRequest)
 	}
-	_, err = m.Store.InsertContact(ctx, store.Contact{
-		AccountID: accountID, Fingerprint: callerFpr, SPKI: callerSPKI, Status: "pending_in",
+	_, err := m.Store.InsertContact(ctx, p.pin(store.Contact{
+		AccountID: accountID, Status: "pending_in",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
-	})
+	}))
 	if err != nil {
 		return fmt.Errorf("%w: already known", ErrBadRequest)
 	}
-	m.notifyRequest(accountID, callerFpr)
+	m.notifyRequest(accountID, p.Fingerprint)
 	return nil
 }
 
@@ -239,6 +285,19 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	nc, err := ValidateInbound(newCard)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	// A 2.0 contact: the pin already followed the chain that carried this call
+	// (PACT §5.3, §14.3 — decided before dispatch), and the root never moves.
+	// What update_contact refreshes is the card, which must be the root's own
+	// and carry the leaf the pin now holds.
+	if c.Protocol == 2 {
+		if nc.Key != oldFpr {
+			return fmt.Errorf("%w: the card names another root", ErrIdentityRequired)
+		}
+		if len(c.Leaf) > 0 && !bytes.Equal(nc.Cert, c.Leaf) {
+			return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrIdentityRequired)
+		}
+		return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, CardName(newCard))
 	}
 	newFpr := nc.Key
 	// PACT §6.2: the rotating peer calls as its OLD identity — that is what the
@@ -341,13 +400,64 @@ func (m *Manager) BindSPKI(ctx context.Context, accountID, fpr string, spki []by
 
 // RemoveContact deletes the pin (PACT §6.2); enforcement is local by design.
 func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string) error {
-	if _, err := m.Store.GetContact(ctx, accountID, callerFpr); err != nil {
+	c, err := m.Store.GetContact(ctx, accountID, callerFpr)
+	if err != nil {
 		return fmt.Errorf("%w", ErrUnknownContact)
+	}
+	// PACT §5.3 "after a removal": a 2.0 root that removed us and returns with a
+	// newer leaf inside 30 days is asked about, whatever the setting says — a
+	// host being left could otherwise erase the person's contacts on its way out.
+	if c.Protocol == 2 && len(c.Leaf) > 0 {
+		if err := m.Store.UpsertTombstone(ctx, store.Tombstone{AccountID: accountID, Root: callerFpr, Leaf: c.Leaf, At: m.now().Unix()}); err != nil {
+			return err
+		}
 	}
 	// Status flip to blocked would be silent demotion; removal is the peer-visible
 	// path — the row goes away entirely so re-adding starts fresh (SPEC §9.1:
 	// `active --> none`, "unpins that caller").
 	return m.Store.DeleteContact(ctx, accountID, callerFpr)
+}
+
+// DecideAddress is the owner's answer to a contact waiting at a new address
+// under `accept_new_hosts = ask` (PACT §5.3): approving re-pins as `auto` would
+// have — the endpoint, the leaf and its key move, the old endpoint is
+// remembered for the address-claim rule, and any removal tombstone is spent;
+// rejecting leaves the pin as it was.
+func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, approve bool) (store.PendingAddress, error) {
+	p, err := m.Store.GetPendingAddress(ctx, accountID, root)
+	if err != nil {
+		return store.PendingAddress{}, fmt.Errorf("%w: no address is pending for %s", ErrUnknownContact, root)
+	}
+	if !approve {
+		return p, m.Store.DeletePendingAddress(ctx, accountID, root)
+	}
+	leaf, err := pactidentity.Parse(p.Leaf)
+	if err != nil {
+		return p, fmt.Errorf("%w: pending leaf unreadable", ErrBadRequest)
+	}
+	now := m.now().Unix()
+	c, err := m.Store.GetContact(ctx, accountID, root)
+	if err != nil {
+		// A root that returned after a removal has no pin: it is re-added as an
+		// active contact at the address it asked from, the way approving a
+		// request would, with its former permissions gone.
+		_, err = m.Store.InsertContact(ctx, store.Contact{AccountID: accountID, Fingerprint: root, SPKI: leaf.SPKI, Status: "active",
+			Protocol: 2, Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject})
+		if err != nil {
+			return p, err
+		}
+	} else {
+		if c.Endpoint != "" && c.Endpoint != p.Endpoint {
+			if err := m.Store.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: accountID, Root: root, Endpoint: c.Endpoint, At: now}); err != nil {
+				return p, err
+			}
+		}
+		if err := m.Store.RepinContactAddress(ctx, accountID, root, p.Endpoint, p.Leaf, leaf.SPKI, now); err != nil {
+			return p, err
+		}
+	}
+	_ = m.Store.DeleteTombstone(ctx, accountID, root)
+	return p, m.Store.DeletePendingAddress(ctx, accountID, root)
 }
 
 /* ----------------------------- card helpers ---------------------------- */
