@@ -400,6 +400,17 @@ func calledTool(req mcp.Request) string {
 // because a blocked caller resolves to guest and must be indistinguishable from
 // somebody this node has never met (§5.4). A contact, by contrast, is known — so
 // a tool their switchboard does not grant is an honest `permission_denied`.
+// resolveCaller is Resolve with one override: a `v: 2` envelope whose chain
+// proved nothing for the pinned root — a blocked contact, or a leaf older than
+// the pinned one (PACT §14.3) — is a guest whatever row the root has. The
+// envelope decided that before dispatch, and the store must not undo it.
+func (p *Pool) resolveCaller(ctx context.Context, accountID, fpr string) (policy.Caller, error) {
+	if f := EnvelopeFactsFrom(ctx); f != nil && f.Demote {
+		return policy.Caller{AccountID: accountID, Fingerprint: fpr, Tier: policy.TierGuest}, nil
+	}
+	return p.Resolve(ctx, accountID, fpr)
+}
+
 func refusalCode(tier policy.Tier) string {
 	if tier == policy.TierContact || tier == policy.TierPending {
 		return "permission_denied"
@@ -467,7 +478,7 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 					Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + Code(err) + `"}`}}}, nil
 			}
 		}
-		caller, err := p.Resolve(ctx, accountID, fpr)
+		caller, err := p.resolveCaller(ctx, accountID, fpr)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 		}

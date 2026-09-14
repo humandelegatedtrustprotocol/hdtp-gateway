@@ -24,9 +24,11 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
@@ -50,6 +52,10 @@ func Code(err error) string {
 		return "identity_required"
 	case errors.Is(err, ErrSealNotAccepted):
 		return "seal_not_accepted"
+	case errors.Is(err, ErrChainRequired):
+		return "chain_required"
+	case errors.As(err, new(*CertificateRenewed)):
+		return "certificate_renewed"
 	case errors.Is(err, envelope.ErrInvalid):
 		return "envelope_invalid"
 	default:
@@ -75,11 +81,26 @@ type Payload struct {
 // EnvelopeFacts is what a successfully opened envelope yields (SPEC §5.3).
 type EnvelopeFacts struct {
 	Header  envelope.Header
-	From    string // the signer's fingerprint — the caller identity
-	SPKI    []byte // the sender's key: pinned, or carried as `spk`
+	From    string // the signer's fingerprint — the caller identity (2.0: the root's)
+	SPKI    []byte // the sender's key: pinned, or carried as `spk` (2.0: the leaf's)
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
+	// PACT 2.0 (identify20.go). Protocol is 2 for a `v: 2` envelope; Tier is
+	// what Decide resolved; Demote says a pin exists for From but the leaf
+	// proved nothing for it (blocked, superseded), so the caller is a guest
+	// whatever the pool would resolve; Endpoint and Leaf are the proven
+	// address and certificate; Form is chain or leaf; Refusal is a code the
+	// wrapper answers in plaintext (pending_approval) with nothing dispatched.
+	Protocol     int
+	Tier         policy.Tier
+	Demote       bool
+	Endpoint     string
+	Leaf         []byte
+	Form         string
+	Why          string
+	AddressClaim string
+	Refusal      string
 }
 
 // Delivery says how the envelope reached the node: relay-delivered envelopes are
@@ -120,6 +141,16 @@ type Identifier struct {
 	// only a fingerprint until then, and without this it would stay that way
 	// forever — so we could never seal to them again.
 	BindKey func(ctx context.Context, accountID, fpr string, spki []byte) error
+	// State20 supplies what a `v: 2` envelope is decided against (PACT §13.3):
+	// the keys this endpoint holds, the chain, the owner's settings. nil means
+	// the identity speaks 1.x only. Read per call, so a setting the owner
+	// changes takes effect without a restart.
+	State20 func(ctx context.Context) (*State20, error)
+	// OnEvent is told of a renewal or a new address learned from a chain
+	// (PACT §5.3: shown to the owner as an event); OnPending of an address
+	// awaiting the owner's answer. Both may be nil.
+	OnEvent   func(event, root, endpoint string)
+	OnPending func(root, endpoint, why string)
 }
 
 // bindIfKeyless records the presented key for a contact we hold only a
@@ -214,11 +245,49 @@ func (id *Identifier) PlaintextGate(tf TransportFacts, tool string, substantive 
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "seal_required")
 		return "", fmt.Errorf("%w: this node requires sealed calls", ErrSealRequired)
 	}
+	// A 2.0 chain as the client certificate (PACT §2): the root is the caller.
+	// A leaf older than the pinned one proves nothing (§14.3) and a leaf for
+	// another address is §5.3, which the sealed path carries; on this path
+	// both are served as an anonymous guest.
+	if tf.ClientProtocol == 2 {
+		return id.plaintextCaller20(context.Background(), tf, tool), nil
+	}
 	// A contact re-pinned during rotation holds only a fingerprint (§3.9). This
 	// is the moment their key reappears, so record it — otherwise we could never
 	// seal to them again.
 	id.bindIfKeyless(context.Background(), id.AccountID, tf.ClientCertFingerprint, tf.ClientCertSPKI)
 	return tf.ClientCertFingerprint, nil
+}
+
+func (id *Identifier) plaintextCaller20(ctx context.Context, tf TransportFacts, tool string) string {
+	root := tf.ClientCertFingerprint
+	c, err := id.Store.GetContact(ctx, id.AccountID, root)
+	if err != nil {
+		// Appendix C row 6 on the transport path: a 1.x pin of this leaf's key
+		// becomes the 2.0 pin of the root.
+		leaf, perr := pactidentity.Parse(tf.ClientLeaf)
+		if perr == nil {
+			keyFpr := pactidentity.Fingerprint(leaf.SPKI)
+			if old, gerr := id.Store.GetContact(ctx, id.AccountID, keyFpr); gerr == nil && old.Protocol != 2 && old.Status != "blocked" {
+				if id.Store.UpgradeContactPin(ctx, id.AccountID, keyFpr, root, tf.ClientEndpoint, leaf.DER, leaf.SPKI, id.now().Unix()) == nil {
+					id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
+				}
+			}
+		}
+		return root
+	}
+	if c.Protocol != 2 || len(c.Leaf) == 0 || c.Status == "blocked" {
+		return root
+	}
+	if cmp, err := pactidentity.CompareLeaves(c.Leaf, tf.ClientLeaf); err != nil || cmp == "superseded" || cmp == "conflict" {
+		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root+" tool:"+tool, "superseded_leaf")
+		return ""
+	}
+	if tf.ClientEndpoint != c.Endpoint {
+		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root+" tool:"+tool, "new_address_unsealed")
+		return ""
+	}
+	return root
 }
 
 // PoolGate adapts an Identifier into the Pool.Gate hook: it applies the
@@ -247,6 +316,17 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID, accountFpr stri
 	if id.seal() == core.SealNone {
 		return nil, fmt.Errorf("%w: this recipient does not accept sealed calls", ErrSealNotAccepted)
 	}
+	// The two generations part on `v` before either header parser runs: a
+	// `v: 2` header has no from and no to, and its rules are the library's
+	// (PACT §13.3); a `v: 1` one is a 1.x proof and takes the order below.
+	if peekVersion(e.Protected) == 2 {
+		return id.openSealed2(ctx, accountID, tf, e)
+	}
+	if id.State20 != nil {
+		if st, err := id.State20(ctx); err == nil && st != nil && st.Protocol == 2 && !st.Accept1x {
+			return nil, fmt.Errorf("%w: this identity no longer accepts 1.x proofs", envelope.ErrInvalid)
+		}
+	}
 	// 1. Decode + 2. Suite (ParseHeader enforces v and the suite enum).
 	h, err := envelope.ParseHeader(e)
 	if err != nil {
@@ -257,17 +337,15 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID, accountFpr stri
 	if h.MsgID == "" {
 		return nil, fmt.Errorf("%w: envelope carries no msg_id", envelope.ErrInvalid)
 	}
-	// 3. Addressing.
-	if h.To != accountFpr {
+	// 3. Addressing + 4. Key id. In 1.x both name the account's identity key
+	// (§4.10); a node that has renewed still holds the superseded key until its
+	// notAfter, so a 1.x contact that has not re-pinned is still answered.
+	if !id.holdsKey(ctx, accountFpr, h.To) {
 		return nil, fmt.Errorf("%w: envelope is addressed to %s, not this account", envelope.ErrInvalid, h.To)
 	}
-	// 4. Key id — in this revision the account's identity key (§4.10).
-	if h.KID != accountFpr {
-		return nil, fmt.Errorf("%w: unknown kid %q", envelope.ErrInvalid, h.KID)
-	}
-	kp, err := id.Keypair(ctx, accountID)
+	kp, err := id.resolveKey(ctx, accountID, accountFpr, h.KID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: recipient key unavailable", envelope.ErrInvalid)
+		return nil, err
 	}
 	// suite must match the addressed account's key type
 	if want := envelope.SuiteForKey(kp); want != h.Suite {

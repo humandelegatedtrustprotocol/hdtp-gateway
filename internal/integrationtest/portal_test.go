@@ -216,7 +216,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}
 
 	// 4. Bella redeems with her proven identity → pending (no auto-accept)…
-	res, err := alice.cm.Redeem(ctx, alice.acct.ID, token, bella.card, bella.kp.Fingerprint, bella.spki)
+	res, err := alice.cm.RedeemAs(ctx, alice.acct.ID, token, bella.card, contacts.Proof{Fingerprint: bella.kp.Fingerprint, SPKI: bella.spki, Protocol: 1})
 	if err != nil || res.Status != "pending" {
 		t.Fatalf("redeem: %+v %v", res, err)
 	}
