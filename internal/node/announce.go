@@ -16,11 +16,12 @@ package node
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
@@ -65,7 +66,7 @@ func (n *Node) AnnounceEndpointChange(ctx context.Context, send Announcer) (done
 			if c.Status != "active" {
 				continue
 			}
-			peer, perr := peerFor(c)
+			peer, perr := n.peerOf(a.rec.ID, c)
 			if perr != nil {
 				failed++
 				n.auditFor(a.rec.ID, "endpoint_announce", "contact:"+c.Fingerprint, "unreachable")
@@ -83,15 +84,6 @@ func (n *Node) AnnounceEndpointChange(ctx context.Context, send Announcer) (done
 	return done, failed, nil
 }
 
-// peerFor reads a contact's endpoint from the card it gave us.
-func peerFor(c store.Contact) (outbound.Peer, error) {
-	card, err := contacts.ParseCard(c.Card)
-	if err != nil || card.Endpoint == "" {
-		return outbound.Peer{}, fmt.Errorf("contact %s has no endpoint on file", c.Fingerprint)
-	}
-	return outbound.Peer{Endpoint: card.Endpoint, Fingerprint: c.Fingerprint, Seal: card.Seal}, nil
-}
-
 // deliverUpdateContact is the real call, presenting the account's identity
 // certificate — the contact recognizes us by the key it pinned.
 func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer outbound.Peer, card, sigB64 string) error {
@@ -101,15 +93,13 @@ func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer 
 	if a == nil {
 		return fmt.Errorf("node: unknown account %s", accountID)
 	}
-	der, err := identity.SelfSignedCert(a.kp, a.rec.Slug)
+	// nil Roots = the system roots. A rotation has to reach contacts wherever they
+	// are, including behind an edge that terminates TLS (SPEC §10.3). A 2.0
+	// account presents its chain and, toward a 2.0 contact, carries it in the
+	// envelope: the proof of the new address is the chain itself (PACT §5.3).
+	client, err := n.OutboundClient(accountID)
 	if err != nil {
 		return err
-	}
-	// nil Roots = the system roots. A rotation has to reach contacts wherever they
-	// are, including behind an edge that terminates TLS (SPEC §10.3).
-	client := &outbound.Client{
-		Keypair: a.kp,
-		Cert:    tls.Certificate{Certificate: [][]byte{der}, PrivateKey: a.kp.Signer},
 	}
 	// The seal decision is one rule in one place (outbound.Client.Call): this
 	// site forced Plaintext and so every seal-required contact refused the
@@ -130,4 +120,65 @@ func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer 
 		return fmt.Errorf("peer refused update_contact")
 	}
 	return nil
+}
+
+// AnnounceMove is PACT §5.3 and §9 after a leaf install that changed the
+// account's address: every contact pinned by our root is reached with
+// update_contact carrying the new card, in chain form — the chain in the
+// envelope is the proof of the new address, and the contact's setting decides
+// whether it re-pins at once or asks its owner. The walk is durable
+// (rotation_fanout, kind `move`), so an interrupted campaign resumes where it
+// stopped when run again for the same leaf. Contacts pinned as 1.x are not
+// here: a move puts the old key in a host that has deleted it, and they learn
+// of it from the card again over a human channel (PACT Appendix C row 2).
+func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done, failed int, err error) {
+	card, err := n.Card(ctx, accountID)
+	if err != nil {
+		return 0, 0, err
+	}
+	rot := identity.Rotation{AccountID: accountID, NewFpr: newKid, ModernOnly: true, Kind: "move"}
+	rotator := &identity.Rotator{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
+	done, failed, _ = rotator.Fanout(ctx, rot, card, func(ctx context.Context, c store.Contact, card string, _ []byte) error {
+		peer, err := n.peerOf(accountID, c)
+		if err != nil {
+			return err
+		}
+		peer.ChainSeen = false // the move is proved by the chain, never by a fingerprint
+		client, err := n.OutboundClient(accountID)
+		if err != nil {
+			return err
+		}
+		res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{"card": card}, "move-"+newKid+"-"+c.Fingerprint)
+		if err != nil {
+			return err
+		}
+		if res.IsError {
+			// pending_approval is the contact's owner deciding (accept_new_hosts
+			// = ask): the campaign reached them, and that is what it is for.
+			if code, _ := refusalCodeOf(res); code == "pending_approval" {
+				return nil
+			}
+			return fmt.Errorf("peer refused update_contact")
+		}
+		return nil
+	})
+	return done, failed, nil
+}
+
+// refusalCodeOf reads the plaintext code of a wrapper-level refusal.
+func refusalCodeOf(res *mcp.CallToolResult) (string, bool) {
+	if res == nil || len(res.Content) == 0 {
+		return "", false
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return "", false
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal([]byte(tc.Text), &body) != nil {
+		return "", false
+	}
+	return body.Code, body.Code != ""
 }

@@ -37,6 +37,9 @@ type LandingDeps struct {
 	// and the redeemer verifies it by hashing to `X-PACT-KEY` before use.
 	// identity.Manager.AccountSPKI implements it; nil omits the field.
 	SPKI func(accountID string) ([]byte, error)
+	// Chain returns a 2.0 issuer's [leaf, root] (PACT §2: the chain travels on
+	// the invite landing), nil for a 1.x issuer; nil omits the field.
+	Chain func(accountID string) ([][]byte, error)
 	// PublicURL is the externally reachable base invite links are built from
 	// (PublicURL + /i/ + token; "" = relative). It is a FUNC, not a string,
 	// because the owner can change the public URL while the node serves: a
@@ -110,9 +113,13 @@ func LandingHandler(d LandingDeps) http.Handler {
 		// Machine view: a redeeming agent needs card + key + signature, not HTML.
 		if wantsJSON(r) {
 			w.Header().Set("Content-Type", "application/pact-invite+json")
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"card": card, "card_sig": sig, "spki": spkiB64,
-			})
+			out := map[string]any{"card": card, "card_sig": sig, "spki": spkiB64}
+			if d.Chain != nil {
+				if chain, err := d.Chain(inv.AccountID); err == nil && len(chain) == 2 {
+					out["chain"] = []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 			return
 		}
 		base := ""

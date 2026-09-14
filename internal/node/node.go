@@ -35,6 +35,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/public"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // MaxBodyBytes is SPEC §5.7's pre-parse body cap: 5 MiB of inline media plus
@@ -97,6 +98,9 @@ type Options struct {
 
 	// BlobDir overrides where inline media is stored (default: <data_dir>/blobs).
 	BlobDir string
+	// DialContext overrides how outbound calls reach a contact's host; nil
+	// dials it. Tests map the hosts leaves name onto local listeners with it.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// RateBudget reports the per-hour call cap for a caller kind while the node
 	// runs; 0 = PACT §12's documented numbers. A function, not a snapshot, so
 	// raising the cap from the portal takes effect on the next call.
@@ -147,6 +151,7 @@ type Node struct {
 	mu       sync.RWMutex
 	accounts map[string]*account // by account id
 	bySlug   map[string]*account
+	byHost   map[string]*account // PACT 2.0: the leaf's endpoint host → account
 
 	limiter *public.Limiter
 	// binder pins an MCP session id to the identity that created it (SPEC §5.6).
@@ -198,6 +203,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		idm:      &identity.Manager{Store: o.Store, Keyring: o.Keyring},
 		accounts: map[string]*account{},
 		bySlug:   map[string]*account{},
+		byHost:   map[string]*account{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
 	recs, err := o.Store.ListAccounts(ctx)
@@ -211,6 +217,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		}
 		n.accounts[rec.ID] = a
 		n.bySlug[rec.Slug] = a
+		n.indexHost(a)
 	}
 
 	n.srv = &public.Server{
@@ -485,6 +492,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		},
 		Invalidate: a.pool.Invalidate,
 		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
+		Chain:      func(ctx context.Context) ([][]byte, error) { return n.idm.Chain(ctx, rec.ID) },
 		// Read per call, like Quota: the rate caps are owner knobs (§12), and a
 		// card must advertise what the gate currently enforces.
 		Limits: func() public.Limits {
@@ -806,7 +814,7 @@ func (n *Node) OutboundClient(accountID string) (*outbound.Client, error) {
 	// Roots stays nil: nil means the SYSTEM roots, and an empty pool would mean
 	// "trust nothing", which silently kills the WebPKI branch of PACT §2 — so
 	// this node could reach pinned self-signed peers and nothing behind an edge.
-	return &outbound.Client{Keypair: a.kp, Cert: a.cert}, nil
+	return n.wire20(accountID, &outbound.Client{Keypair: a.kp, Cert: a.cert}), nil
 }
 
 // Pool exposes an account's caller pool, so the portal can drop a cached server
@@ -896,8 +904,20 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	n.mu.Lock()
 	n.accounts[rec.ID] = a
 	n.bySlug[rec.Slug] = a
+	n.indexHost(a)
 	n.mu.Unlock()
 	return nil
+}
+
+// indexHost records the host a 2.0 account's leaf names, for SNI selection.
+// Callers hold n.mu.
+func (n *Node) indexHost(a *account) {
+	if a.rec.Protocol != 2 || len(a.kp.Leaf) == 0 {
+		return
+	}
+	if leaf, err := pactidentity.Parse(a.kp.Leaf); err == nil && len(leaf.URIs) == 1 {
+		n.byHost[hostOfEndpoint(leaf.URIs[0])] = a
+	}
 }
 
 func (n *Node) certificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -909,6 +929,11 @@ func (n *Node) certificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	if hello != nil && hello.ServerName != "" {
 		host := hello.ServerName
 		if i := len(host); i > 0 {
+			// A 2.0 leaf names its endpoint (PACT §14.1): the host it names
+			// selects it, before any slug heuristic.
+			if a := n.byHost[host]; a != nil {
+				return &a.cert, nil
+			}
 			if a := n.bySlug[host]; a != nil {
 				return &a.cert, nil
 			}
@@ -952,7 +977,11 @@ func (n *Node) mcpHandler() http.Handler {
 			return nil
 		}
 		f := public.FactsFrom(r.Context())
-		srv, err := a.pool.ServerFor(r.Context(), a.rec.ID, f.ClientCertFingerprint)
+		caller := f.ClientCertFingerprint
+		if f.ClientProtocol == 2 && a.rec.Protocol != 2 {
+			caller = public.LegacyCaller(f) // Appendix C row 4: a 1.x identity reads the leaf's key
+		}
+		srv, err := a.pool.ServerFor(r.Context(), a.rec.ID, caller)
 		if err != nil {
 			n.opts.audit("tools_list", "account:"+a.rec.ID, "unavailable")
 			return nil
@@ -1063,6 +1092,7 @@ func (n *Node) inviteHandler() http.Handler {
 			return card, sig, err
 		},
 		SPKI:      n.SPKI,
+		Chain:     func(accountID string) ([][]byte, error) { return n.idm.Chain(context.Background(), accountID) },
 		PublicURL: n.PublicURL,
 		Now:       n.opts.Now,
 	})

@@ -46,6 +46,12 @@ type Rotation struct {
 	// install with a fresh key is a 1.x rotation toward them (PACT Appendix C
 	// row 2) and nothing toward 2.0 contacts, who learn the leaf from the chain.
 	LegacyOnly bool
+	// ModernOnly restricts the fan-out to contacts pinned by a root: a 2.0
+	// move's update_contact campaign (PACT §5.3, §9), whose proof is the chain
+	// the envelope carries rather than a signature the call carries.
+	ModernOnly bool
+	// Kind names the campaign in the durable progress rows (store.RotationFanout).
+	Kind string
 }
 
 // Rotator performs rotations for a node's accounts.
@@ -239,7 +245,7 @@ func (r *Rotator) Fanout(ctx context.Context, rot Rotation, newCard string, call
 		}
 	}
 	for _, c := range contacts {
-		if c.Status != "active" || (rot.LegacyOnly && c.Protocol == 2) {
+		if c.Status != "active" || (rot.LegacyOnly && c.Protocol == 2) || (rot.ModernOnly && c.Protocol != 2) {
 			continue
 		}
 		if p, ok := progress[c.Fingerprint]; ok && p.NewFpr == rot.NewFpr && p.Status == "done" {
@@ -257,7 +263,7 @@ func (r *Rotator) Fanout(ctx context.Context, rot Rotation, newCard string, call
 		}
 		_ = st.UpsertRotationFanout(ctx, store.RotationFanout{
 			AccountID: rot.AccountID, ContactFpr: c.Fingerprint, NewFpr: rot.NewFpr,
-			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: r.now().Unix(),
+			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: r.now().Unix(), Kind: rot.Kind,
 		})
 		r.audit("account_rotate_fanout", "account:"+rot.AccountID+" contact:"+c.Fingerprint, status)
 	}
