@@ -174,6 +174,32 @@ of it, and are listed so a reader can tell the two apart.
 | `audit_query` never leaves the identity's accounts | `TestAuditQueryNeverLeavesTheIdentitysAccounts`, `TestScopedTokenCannotReadNodeLevelAuditRows` |
 | owner-MCP tools cannot reach another account's integration | `TestSetExposureCannotReachAnotherAccountsIntegration` |
 
+## PACT 2.0: the person is the certificate authority
+
+The 2.0.0-draft (PACT §2, §3, §5.3, §9, §13.2, §14, Appendix C) on this node, on the
+branch `pact-2.0-node`. The library the rules live in is `pact-identity/go`, proven
+against Appendix B by its own tests; these are the node's.
+
+| Clause | Where it lives | Tests |
+|---|---|---|
+| a leaf the wallet issued is installed only when it validates to the account's root, carries the requested key and is newer than the current one (§14.2, §14.3) | `internal/identity/leaf.go` | `TestLeafUpgradeThenRenewThenMove`, `TestInstallLeafRefusals` |
+| a `v: 2` envelope is decided by the library and the effects applied: guest binding, both forms, tiers (§13.3, §6.1) | `internal/public/identify20.go` | `TestV2FirstContactMustRedeemOrRequest`, `TestV2PinnedContactBothForms`, `TestV2TransportChainIsTheRoot` |
+| `chain_required` is one answer for unknown, blocked, expired and a bad signature, and spends the guest budget (§13.2, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer`, `TestSealed20ChainRequiredSpendsTheGuestBudget` |
+| a stale kid is answered `certificate_renewed` with the current chain, in plaintext (§14.4) | `internal/public/sealed.go` | `TestV2StaleKidIsAnsweredWithTheCurrentChain`, `TestSealed20StaleKidGetsTheChainInPlaintext` |
+| the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/identify20.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion`, `TestSealed20NewAddressUnderAskAnswersPending` |
+| a result carries the chain once and the fingerprint after; a guest redeeming is pinned by its root (§13.2) | `internal/public/sealed.go` | `TestSealed20ResultCarriesTheChainOnceThenTheFingerprint`, `TestSealed20GuestRedeemsAndIsPinnedByRoot` |
+| a 1.x pin of a leaf's key upgrades on the first chain; 1.x proofs are served until the owner says not (Appendix C) | `internal/public/identify.go` | `TestV2LegacyPinUpgradesOnTheFirstChain`, `TestV1StillServedUntilTheOwnerSaysNot` |
+| the chain is the client certificate; a contact's chain as its server certificate validates to the pinned root at the dialed address; a 1.x pin of the leaf's key still connects (§2, Appendix C) | `internal/outbound/client.go` | `TestClientPresentsItsChain`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
+| a 2.0 backup carries the leaf and never the root; a root key in the file is refused; another host's archive brings data only (§9) | `internal/identity/backup.go`, `internal/cli/backup.go` | `TestIdentityBackup20CarriesTheLeafAndNeverTheRoot`, `TestIdentityBackupRefusesARootKey`, `TestIdentityBackupMovesA20LeafToAnotherNode`, `TestRestoreRefusesAnotherHostsKeysUnlessDataOnly` |
+| the exit demonstration: two nodes pair as 2.0 identities, message in both forms, one renews and the other learns the leaf from the answer and follows `certificate_renewed`, one moves and the other follows under `auto`; a 1.x node pairs with one and still talks after the renewal | `internal/node/pact20_demo_test.go` | `TestPact20ExitDemo` |
+
+The live battery in `pact-cloud/gateway/conformance` gains a `certificate` group
+built on the library alone — the card decodes, a stranger's small form is
+`chain_required`, a stranger's full form may only redeem or request, a card to
+another root is refused, a 2.0 contact pairs and speaks in the small form, a
+superseded leaf is a guest, a move re-pins or waits, and a stale kid (when one
+is named) is `certificate_renewed` — and skips itself against a 1.x card.
+
 ## Phase-exit demonstrations
 
 | Phase | What it demonstrates | Test |
