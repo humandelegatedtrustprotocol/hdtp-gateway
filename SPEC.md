@@ -1136,7 +1136,7 @@ One binary, subcommand-per-concern:
 | `migrate` | Run store migrations; the node must be stopped (§11) |
 | `doctor` | Diagnostics: configuration, data dir, store, lock (§10.4) |
 | `healthcheck` | Probe the internal `/healthz`; the container HEALTHCHECK uses it (§12.3) |
-| `account` | `create` \| `list` \| `rotate-key` — accounts and identity key rotation (§3.9). Runs over the admin socket, so the node must be running |
+| `account` | `create` \| `list` \| `rotate-key` — accounts and identity key rotation (§3.9); `csr` \| `install-leaf` \| `certificate` \| `address` — the PACT 2.0 leaf: a signing request for the wallet (`create -protocol 2` prints one at creation), the install of the chain it answers, the certificate state, and the owner's answer to a contact at a new address (PACT §5.3, §9). Runs over the admin socket, so the node must be running |
 | `passkey` | `list` \| `remove` \| `reset-wizard` — owner passkeys; `reset-wizard` mints a one-time setup URL (§3.1, §8.6) |
 | `token` | `create` \| `list` \| `revoke` — named owner-MCP bearer tokens (§3, §8.4) |
 | `audit` | `verify` \| `export` \| `archive` \| `repair` — the hash chain, offline; the node must be stopped (§11.4, §11.6) |

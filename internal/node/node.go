@@ -357,9 +357,26 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	if kp.Fingerprint != rec.Fingerprint {
 		return nil, fmt.Errorf("node: account %s: stored key does not match its pinned fingerprint", rec.Slug)
 	}
-	der, err := identity.SelfSignedCert(kp, rec.Slug)
-	if err != nil {
-		return nil, fmt.Errorf("node: account %s certificate: %w", rec.Slug, err)
+	// A 2.0 account (PACT §2) serves under the leaf the person's root issued:
+	// the leaf's key is the key above, and the chain — leaf then root — is what
+	// TLS presents. A 1.x account keeps its self-signed certificate.
+	var cert tls.Certificate
+	if rec.Protocol == 2 {
+		keys, err := n.idm.ActiveLeafKeypairs(ctx, rec.ID, n.now())
+		if err != nil {
+			return nil, fmt.Errorf("node: account %s leaves: %w", rec.Slug, err)
+		}
+		if len(keys) == 0 || !keys[0].Current || keys[0].Kid != rec.Fingerprint {
+			return nil, fmt.Errorf("node: account %s is 2.0 but its current leaf is not the key it serves under", rec.Slug)
+		}
+		kp = keys[0].KP
+		cert = tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
+	} else {
+		der, err := identity.SelfSignedCert(kp, rec.Slug)
+		if err != nil {
+			return nil, fmt.Errorf("node: account %s certificate: %w", rec.Slug, err)
+		}
+		cert = tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
 	}
 	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	if err != nil {
@@ -367,7 +384,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	}
 	a := &account{
 		rec: rec, kp: kp, spki: spki,
-		cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer},
+		cert: cert,
 		cm: &contacts.Manager{
 			Store: n.opts.Store,
 			// A guest's `request_contact` is the main way a request appears, so
@@ -416,6 +433,21 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		SealFn:  func() core.Seal { return a.sealValue() },
 		Now:     n.opts.Now,
 		Audit:   n.opts.audit,
+		// PACT 2.0: what a `v: 2` envelope is decided against, read per call
+		// so the owner's settings and a renewal take effect without a restart.
+		State20: func(ctx context.Context) (*public.State20, error) { return n.state20(ctx, rec.ID, rec.Slug) },
+		OnEvent: func(event, root, endpoint string) {
+			if n.opts.Bus != nil {
+				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID, ContactFpr: root})
+			}
+		},
+		OnPending: func(root, endpoint, why string) {
+			// A contact at a new address awaiting the owner appears beside
+			// contact requests (PACT §5.3), so it wakes the same feed.
+			if n.opts.Bus != nil {
+				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventRequest, AccountID: rec.ID, ContactFpr: root})
+			}
+		},
 	}
 	a.pool.Gate = ident.PoolGate()
 	a.pool.Limit = n.consumeBudget
@@ -452,6 +484,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			return card, sig, spki, err
 		},
 		Invalidate: a.pool.Invalidate,
+		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
 		// Read per call, like Quota: the rate caps are owner knobs (§12), and a
 		// card must advertise what the gate currently enforces.
 		Limits: func() public.Limits {
@@ -526,6 +559,14 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	if err != nil {
 		rec = a.rec // a store blip must not stop us answering with what we know
 	}
+	// PACT §3: a 2.0 card carries the leaf and nothing the leaf already says.
+	if rec.Protocol == 2 {
+		chain, err := n.idm.Chain(ctx, accountID)
+		if err != nil {
+			return "", err
+		}
+		return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue())), nil
+	}
 	endpoint := ""
 	if base := n.PublicURL(); base != "" {
 		endpoint = base + "/a/" + rec.Slug + "/mcp"
@@ -538,6 +579,59 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 		// (PACT §9). Without it, "your node was down" is simply a lost message.
 		Gateway: n.cfg.GatewayURL,
 	})
+}
+
+func (n *Node) now() time.Time {
+	if n.opts.Now != nil {
+		return n.opts.Now()
+	}
+	return time.Now()
+}
+
+// state20 is what a `v: 2` envelope for an account is decided against (PACT
+// §13.3): the account's own endpoint and settings, its chain, the keys it holds
+// today, the kids it once held, and the kids every OTHER account on this node
+// holds — a key held for another identity must never answer at this one's path
+// (§14.4).
+func (n *Node) state20(ctx context.Context, accountID, slug string) (*public.State20, error) {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	st := &public.State20{
+		Protocol: int(rec.Protocol), Endpoint: identity.EndpointFor(n.PublicURL(), slug),
+		AcceptNewHosts: rec.AcceptNewHosts, Accept1x: rec.Accept1x,
+	}
+	if rec.Protocol != 2 {
+		return st, nil
+	}
+	if st.Chain, err = n.idm.Chain(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if st.Keys, err = n.idm.ActiveLeafKeypairs(ctx, accountID, n.now()); err != nil {
+		return nil, err
+	}
+	if st.Former, err = n.idm.FormerKids(ctx, accountID); err != nil {
+		return nil, err
+	}
+	others, err := n.opts.Store.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range others {
+		if o.ID == accountID {
+			continue
+		}
+		if o.Fingerprint != "" {
+			st.SiblingKids = append(st.SiblingKids, o.Fingerprint)
+		}
+		if leaves, err := n.opts.Store.ListLeaves(ctx, o.ID); err == nil {
+			for _, l := range leaves {
+				st.SiblingKids = append(st.SiblingKids, l.Kid)
+			}
+		}
+	}
+	return st, nil
 }
 
 // PublicURL is the externally reachable base the card advertises.
