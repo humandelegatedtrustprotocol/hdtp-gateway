@@ -22,6 +22,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/contacts"
+	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
@@ -181,4 +183,78 @@ func refusalCodeOf(res *mcp.CallToolResult) (string, bool) {
 		return "", false
 	}
 	return body.Code, body.Code != ""
+}
+
+// AnnounceLegacyRenewal resumes the 1.x side of a 2.0 renewal: the rotation of
+// PACT Appendix C row 2 toward every contact pinned as 1.x, whose pin follows a
+// key and not a root, so they must be told the new fingerprint under the old
+// key's signature and given the compatibility card.
+//
+// It exists because nothing could resume that campaign. `Rotator.InFlight` reads
+// the 1.x `prev_key` columns, and a 2.0 install retires its old key into the
+// leaf ledger instead — so a contact unreachable while the install ran was never
+// told again, and its pin kept a key the node had stopped presenting. The walk
+// itself is durable (`rotation_fanout`), so this re-derives the proof from the
+// ledger and lets `Fanout` skip whoever was already reached.
+func (n *Node) AnnounceLegacyRenewal(ctx context.Context, accountID string) (done, failed int, err error) {
+	keys, err := n.idm.ActiveLeafKeypairs(ctx, accountID, n.now())
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(keys) == 0 || !keys[0].Current {
+		return 0, 0, fmt.Errorf("node: no current leaf to announce")
+	}
+	current := keys[0]
+	// The key the 1.x contacts still pin: the most recently superseded one.
+	var old *identity.LeafKey
+	for i := range keys {
+		k := &keys[i]
+		if k.Current {
+			continue
+		}
+		if old == nil || k.LeafNotBefore() > old.LeafNotBefore() {
+			old = k
+		}
+	}
+	if old == nil {
+		return 0, 0, nil // nothing retired, so nobody is holding an older key
+	}
+	proof, err := identity.SignBytes(old.KP, []byte(current.Kid))
+	if err != nil {
+		return 0, 0, err
+	}
+	acct, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return 0, 0, err
+	}
+	compat, err := contacts.BuildCompatCard(acct.DisplayName, current.KP.Leaf, string(core.EffectiveSeal(n.opts.Config.Mode, n.opts.Config.Seal)))
+	if err != nil {
+		return 0, 0, err
+	}
+	rot := identity.Rotation{
+		AccountID: accountID, OldFpr: old.Kid, NewFpr: current.Kid,
+		Proof: proof, GraceUntil: old.NotAfter, LegacyOnly: true, Kind: "renewal_1x",
+	}
+	rotator := &identity.Rotator{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
+	// The notice goes out under the OLD key: a 1.x peer reads the new fingerprint
+	// from a card signed by the key it already pinned (§3.9).
+	oldClient := &outbound.Client{Keypair: old.KP, Cert: tlsCertOf(old.KP)}
+	done, failed, _ = rotator.Fanout(ctx, rot, compat, func(ctx context.Context, c store.Contact, card string, p []byte) error {
+		peerCard, perr := contacts.ParseCard(c.Card)
+		if perr != nil || peerCard.Endpoint == "" {
+			return fmt.Errorf("contact has no reachable endpoint on file")
+		}
+		peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: c.Fingerprint, Seal: peerCard.Seal}
+		res, cerr := oldClient.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{
+			"card": card, "sig": base64.RawURLEncoding.EncodeToString(p),
+		}, "renew1x-"+current.Kid+"-"+c.Fingerprint)
+		if cerr != nil {
+			return cerr
+		}
+		if res.IsError {
+			return fmt.Errorf("peer refused update_contact")
+		}
+		return nil
+	})
+	return done, failed, nil
 }

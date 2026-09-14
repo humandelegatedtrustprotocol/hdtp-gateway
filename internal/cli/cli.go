@@ -507,37 +507,46 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"Slug": acct.Slug, "Root": res.RootFingerprint, "Kid": res.Kid, "Endpoint": res.Endpoint,
 			"NotAfter": res.NotAfter.UTC().Format(time.RFC3339), "First": res.FirstInstall, "KeyChanged": res.KeyChanged,
 		}
-		// A fresh key is, toward contacts pinned as 1.x, the rotation of PACT
-		// Appendix C row 2: the old key signs the new fingerprint, the card is
-		// the compatibility card, and the old key stays live until its leaf's
-		// notAfter — which the ledger already guarantees.
-		if res.KeyChanged && res.OldKP != nil && nd != nil {
-			proof, err := identity.SignBytes(res.OldKP, []byte(res.Kid))
-			if err != nil {
-				return nil, err
-			}
-			compat, err := contacts.BuildCompatCard(acct.DisplayName, res.NewKP.Leaf, string(core.EffectiveSeal(cfg.Mode, cfg.Seal)))
-			if err != nil {
-				return nil, err
-			}
-			rot := identity.Rotation{AccountID: acct.ID, OldFpr: res.OldKid, NewFpr: res.Kid, Proof: proof, GraceUntil: res.NotAfter, LegacyOnly: true, Kind: "renewal_1x"}
-			done, failed, _ := legacyFanout(ctx, acct, rot, res.OldKP, res.NewKP, compat)
-			out["LegacyDone"], out["LegacyFailed"] = done, failed
-		}
-		// A new address is a move (PACT §5.3, §9): every contact pinned by our
-		// root hears it from the new address, with the chain as the proof,
-		// before the old host is told to leave.
-		if !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint && nd != nil {
-			done, failed, merr := nd.AnnounceMove(ctx, acct.ID, res.Kid)
-			if merr != nil {
-				return nil, merr
-			}
-			out["MoveDone"], out["MoveFailed"] = done, failed
+		// The two campaigns an install starts — the 1.x rotation of PACT Appendix C
+		// row 2 toward contacts pinned as 1.x, and the move's update_contact
+		// toward contacts pinned by our root (§5.3, §9) — run DETACHED.
+		//
+		// They used to run inside this call. One unreachable contact costs up to
+		// the outbound timeout, the admin client waits 30 seconds, and the leaf
+		// was already installed: so a single dead host timed out the CLI on a
+		// success, and the obvious retry answered "no certificate request is
+		// pending". The install is the durable part and it answers now; the walks
+		// are durable too (`rotation_fanout`), so `account announce` reports and
+		// resumes them.
+		legacy := res.KeyChanged && res.OldKP != nil && nd != nil
+		moved := !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint && nd != nil
+		if legacy || moved {
+			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
+			accountID, kid := acct.ID, res.Kid
+			go func() {
+				// The admin call's context ends with the call; these outlive it.
+				bg := context.WithoutCancel(ctx)
+				if legacy {
+					if d, f, aerr := nd.AnnounceLegacyRenewal(bg, accountID); aerr != nil {
+						auditFn("account_legacy_renewal", "account:"+accountID, "error")
+					} else {
+						auditFn("account_legacy_renewal", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), "ok")
+					}
+				}
+				if moved {
+					if d, f, merr := nd.AnnounceMove(bg, accountID, kid); merr != nil {
+						auditFn("account_move_campaign", "account:"+accountID, "error")
+					} else {
+						auditFn("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), "ok")
+					}
+				}
+			}()
 		}
 		return out, nil
 	})
-	// account.announce resumes a move's campaign for the current leaf: the walk
-	// is durable, so contacts already told are skipped and the rest are tried.
+	// account.announce resumes BOTH campaigns an install starts — the move's
+	// update_contact walk and the 1.x rotation — for the current leaf. Both walks
+	// are durable, so contacts already told are skipped and the rest are tried.
 	admin.Handle("account.announce", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
 			return nil, fmt.Errorf("account.announce needs slug")
@@ -553,7 +562,17 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed}, nil
+		// Both kinds: a renewal's 1.x rotation is as durable as a move's campaign
+		// and had no resume at all, so a 1.x contact unreachable while an install
+		// ran kept pinning a key this node no longer presents.
+		ldone, lfailed, lerr := nd.AnnounceLegacyRenewal(ctx, acct.ID)
+		if lerr != nil {
+			return nil, lerr
+		}
+		return map[string]any{
+			"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed,
+			"LegacyDone": ldone, "LegacyFailed": lfailed,
+		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
