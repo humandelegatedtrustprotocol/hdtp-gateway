@@ -86,6 +86,19 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if _, err := m.IssueCSR(ctx, a.ID, PurposeUpgrade, endpointA, now); err != nil {
 		t.Fatal(err)
 	}
+	leaves, err := m.Store.ListLeaves(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := 0
+	for _, l := range leaves {
+		if l.State == LeafPending {
+			pending++
+		}
+	}
+	if pending != 1 {
+		t.Fatalf("two requests left %d pending leaves; one at a time is the rule", pending)
+	}
 	res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now)
 	if err != nil {
 		t.Fatal(err)
@@ -219,5 +232,75 @@ func TestInstallLeafRefusals(t *testing.T) {
 	csr4, _ := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now.Add(2*time.Hour))
 	if _, err := pactidentity.IssueFromCSR(csr4.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public.SPKI}, Now: now, ValidDays: 400}); err == nil {
 		t.Fatal("the wallet issued a 400-day leaf")
+	}
+}
+
+// A first install that changes the key — a 1.x account asked for a renewal
+// rather than an upgrade — retires the 1.x identity key like a superseded leaf.
+// That key has no leaf of its own, and it must still be SERVED: 1.x contacts
+// pinned it and reach us with it until they re-pin. It was inserted and then
+// skipped by every reader, so nothing answered them.
+func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
+	m, a := leafEnv(t)
+	ctx := context.Background()
+	w := newWallet(t, "Alina Rao")
+	now := time.Now()
+	oneX := a.Fingerprint
+
+	csr, err := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if csr.Kid == oneX {
+		t.Fatal("a renewal mints a fresh key; that is the case under test")
+	}
+	res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.FirstInstall || !res.KeyChanged || res.OldKid != oneX || res.OldKP == nil {
+		t.Fatalf("install: %+v", res)
+	}
+
+	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || !keys[0].Current || keys[0].Kid != csr.Kid {
+		t.Fatalf("the current leaf comes first: %d keys, first %+v", len(keys), keys[0])
+	}
+	old := keys[1]
+	if old.Kid != oneX {
+		t.Fatalf("the retiring 1.x key is served second, got %s", old.Kid)
+	}
+	if old.KP.Protocol != 1 || len(old.KP.Leaf) != 0 {
+		t.Fatalf("it has no leaf of its own, so it stays a 1.x key: protocol %d, leaf %d bytes", old.KP.Protocol, len(old.KP.Leaf))
+	}
+	if old.KP.Fingerprint != oneX {
+		t.Fatalf("it is the key 1.x contacts pinned: %s", old.KP.Fingerprint)
+	}
+	if !old.NotAfter.After(now) {
+		t.Fatalf("kept for a year, not already expired: %s", old.NotAfter)
+	}
+	// And it is retired once its window closes, kid kept for certificate_renewed.
+	later, err := m.ActiveLeafKeypairs(ctx, a.ID, old.NotAfter.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(later) != 1 {
+		t.Fatalf("past its notAfter only the current leaf is served, got %d", len(later))
+	}
+	formers, err := m.FormerKids(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, k := range formers {
+		if k == oneX {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("its kid is kept as a former one (§14.4): %v", formers)
 	}
 }
