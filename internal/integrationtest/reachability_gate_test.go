@@ -326,6 +326,7 @@ func scanTree(t *testing.T, root string) (imports map[string][]string, ctors map
 var testOnlyPackages = []string{
 	"internal/core/store/conformance",
 	"internal/integrationtest",
+	"internal/testid",
 }
 
 // isTestOnlyPackage reports whether a path sits in one of them.

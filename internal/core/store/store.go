@@ -95,19 +95,6 @@ type Setting struct {
 	UpdatedAt int64
 }
 
-// RelayItem is one queued sealed envelope (SPEC §10.5). The relay holds the
-// envelope verbatim — ciphertext — and the metadata it needs to route it.
-type RelayItem struct {
-	ID           string
-	RecipientFpr string
-	SenderFpr    string
-	MsgID        string
-	Envelope     string
-	SizeBytes    int64
-	QueuedAt     int64
-	ExpiresAt    int64
-}
-
 type Membership struct {
 	OwnerID   string
 	AccountID string
@@ -382,24 +369,8 @@ type Store interface {
 	// UpdateAccountSeal sets the account's X-PACT-SEAL policy (SPEC §4.6).
 	UpdateAccountSeal(ctx context.Context, accountID, seal string) error
 
-	// Relay mode (SPEC §10.5): the allow-list each recipient syncs, plus the
-	// ciphertext queue. Nothing here can open an envelope.
-	SyncRelayAllowlist(ctx context.Context, recipientFpr string, senderFprs []string) error
-	RelayAllowed(ctx context.Context, recipientFpr, senderFpr string) (bool, error)
-	EnqueueRelay(ctx context.Context, item RelayItem) (RelayItem, error)
-	FetchRelayQueue(ctx context.Context, recipientFpr string, now int64, limit int64) ([]RelayItem, error)
-	CountRelayQueue(ctx context.Context, recipientFpr string, now int64) (int64, error)
-	// RelayQueueUsage is the §9 quota read: live items and bytes one recipient
-	// holds, expired items excluded.
-	RelayQueueUsage(ctx context.Context, recipientFpr string, now int64) (items, bytes int64, err error)
-	AckRelay(ctx context.Context, id, recipientFpr string) (bool, error)
-	PurgeExpiredRelay(ctx context.Context, now int64) (int64, error)
-
 	UpsertRotationFanout(ctx context.Context, f RotationFanout) error
 	ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error)
-
-	// RepinContact re-keys a contact after a verified update_contact (PACT §2).
-	RepinContact(ctx context.Context, accountID, oldFpr, newFpr string, newSPKI []byte, card string, now int64) error
 
 	// PACT 2.0 (migration 0027): the account's root and leaf ledger, 2.0 pins,
 	// the removal tombstone, former endpoints and pending addresses.

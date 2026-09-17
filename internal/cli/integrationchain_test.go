@@ -15,7 +15,6 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
@@ -122,11 +121,12 @@ func TestGetStatusAnswersWithoutAnyIntegration(t *testing.T) {
 	st := openStoreAt(t, dir)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
+		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"status.view", "calendar.availability"}, Preset: "custom",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()}
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
 	peer := outbound.Peer{Endpoint: "https://" + public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
 	res, err := client.CallTool(ctx, peer, "get_status", map[string]any{}, outbound.CallOptions{Plaintext: true})
 	if err != nil {
@@ -204,7 +204,7 @@ func TestPublishedExposureBecomesAPermittedTool(t *testing.T) {
 	plain, plainCert := peerIdentity(t, "carol")
 	st1 := migrated(t, dir)
 	for _, c := range []struct {
-		kp    *identity.Keypair
+		kp    *testPeer
 		perms []string
 	}{
 		{granted, []string{"message.text", "integration.cal"}},
@@ -212,6 +212,7 @@ func TestPublishedExposureBecomesAPermittedTool(t *testing.T) {
 	} {
 		if _, err := st1.InsertContact(ctx, store.Contact{
 			AccountID: acct.ID, Fingerprint: c.kp.Fingerprint, SPKI: mustSPKI(t, c.kp),
+			Protocol: 2, Leaf: c.kp.Host.LeafDER, Endpoint: c.kp.Endpoint,
 			Status: "active", Permissions: c.perms, Preset: "custom",
 		}); err != nil {
 			t.Fatal(err)
@@ -224,14 +225,14 @@ func TestPublishedExposureBecomesAPermittedTool(t *testing.T) {
 
 	// The surface is rebuilt at BOOT, not only on an edit: a node that restarts
 	// must serve what it served before.
-	gc := &outbound.Client{Keypair: granted, Cert: grantedCert, Roots: x509.NewCertPool()}
+	gc := &outbound.Client{Keypair: granted.KP, Cert: grantedCert, Roots: x509.NewCertPool()}
 	if !listHasTool(t, ctx, gc, peer, "cal_find_slots") {
 		t.Fatal("a published exposure did not become a tool for a permitted contact")
 	}
 
 	// Nothing an upstream offers is exposed by default, and the gate is the
 	// per-integration permission `integration.<slug>` (§6, §6.6).
-	pc := &outbound.Client{Keypair: plain, Cert: plainCert, Roots: x509.NewCertPool()}
+	pc := &outbound.Client{Keypair: plain.KP, Cert: plainCert, Roots: x509.NewCertPool()}
 	if listHasTool(t, ctx, pc, peer, "cal_find_slots") {
 		t.Fatal("a contact without integration.cal could see the exposed tool")
 	}
@@ -396,6 +397,7 @@ func TestExposureChangeThroughOwnerMCPReachesAContact(t *testing.T) {
 	kp, cert := peerIdentity(t, "bob")
 	if _, err := st0.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
+		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"message.text", "integration.cal"}, Preset: "custom",
 	}); err != nil {
 		t.Fatal(err)
@@ -412,7 +414,7 @@ func TestExposureChangeThroughOwnerMCPReachesAContact(t *testing.T) {
 	st0.Close()
 
 	r := startServeAt(t, dir, cfgPath, internal, public)
-	client := &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()}
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
 	peer := outbound.Peer{Endpoint: "https://" + public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
 
 	if listHasTool(t, ctx, client, peer, "cal_find_slots") {
@@ -552,27 +554,5 @@ func TestOwnerPresenceTracksLiveSessionsOnly(t *testing.T) {
 	}
 	if len(p.entries) != 0 {
 		t.Fatalf("%d dead servers retained; the tracker grows per reconnect", len(p.entries))
-	}
-}
-
-// AC (P12-15): the configured recipient list becomes the relay's gate, and an
-// EMPTY list stays open — the compatibility default, so that turning the knob on
-// is what changes behaviour rather than upgrading.
-func TestServesOnlyBuildsTheRelayRegistrationGate(t *testing.T) {
-	if servesOnly(nil) != nil {
-		t.Fatal("no configured recipients must mean an open relay (nil gate)")
-	}
-	if servesOnly([]string{}) != nil {
-		t.Fatal("an empty list must mean an open relay (nil gate)")
-	}
-	gate := servesOnly([]string{"sha256:aaa", "sha256:bbb"})
-	if gate == nil {
-		t.Fatal("a configured list produced no gate at all")
-	}
-	if !gate("sha256:aaa") || !gate("sha256:bbb") {
-		t.Fatal("a configured recipient was not served")
-	}
-	if gate("sha256:ccc") {
-		t.Fatal("an unlisted recipient was served")
 	}
 }

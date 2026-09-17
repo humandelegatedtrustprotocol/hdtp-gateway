@@ -15,9 +15,6 @@ WHERE id = ? AND revoked_at IS NULL AND uses < max_uses AND expires_at > ?;
 -- name: RevokeInvite :execrows
 UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL;
 
--- name: UpdateContactRepin :execrows
-UPDATE contacts SET fingerprint = ?, spki = ?, card = ?, pinned_at = ?
-WHERE account_id = ? AND fingerprint = ?;
 
 -- name: GetInviteByHashGlobal :one
 SELECT * FROM invites WHERE token_hash = ?;

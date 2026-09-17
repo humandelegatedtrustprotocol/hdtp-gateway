@@ -242,16 +242,25 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// every handshake for it fails with `tls: internal error` until a restart
 		// (P14-05a). The README tells a new owner to create an account on a
 		// running node, so this is the ordinary path, not an edge case.
+		// A brand-new account has a key and no leaf, so the node cannot serve it yet
+		// and says so — that is the normal state between `account create` and
+		// `account install-leaf`, not a failure to create. Anything else is.
 		if nd != nil {
-			if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
+			if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil && !errors.Is(aerr, node.ErrAwaitingLeaf) {
 				return nil, aerr
 			}
 		}
 		// An account starts as a signup request for its key (PACT §9): it has no
 		// card and no chain to present until the wallet's leaf is installed.
-		out, err := csrFor(acct, identity.PurposeSignup, args["endpoint"])
-		if err != nil {
-			return nil, err
+		// The request is a convenience, not part of creating the account: a node with
+		// no public URL configured yet cannot name an endpoint, and that must not stop
+		// the account existing. `account csr -endpoint …` asks for it later.
+		out, cerr := csrFor(acct, identity.PurposeSignup, args["endpoint"])
+		if cerr != nil {
+			return map[string]any{
+				"Slug": acct.Slug, "Fingerprint": acct.Fingerprint,
+				"CSRPending": "no endpoint yet: run `account csr -slug " + acct.Slug + " -endpoint <https url>` when the node has one",
+			}, nil
 		}
 		out["Fingerprint"] = acct.Fingerprint
 		return out, nil

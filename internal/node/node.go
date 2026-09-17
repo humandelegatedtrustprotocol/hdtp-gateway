@@ -198,7 +198,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	var unavailable []string
 	for _, rec := range recs {
 		a, err := n.buildAccount(ctx, rec)
-		if errors.Is(err, errAwaitingLeaf) {
+		if errors.Is(err, ErrAwaitingLeaf) {
 			o.audit("account_awaiting_leaf", "account:"+rec.ID+" slug:"+rec.Slug, "skipped")
 			continue
 		}
@@ -345,10 +345,11 @@ func probeHandler(publicURL func() string) http.Handler {
 }
 
 // buildAccount loads one account's key and composes its serving state.
-// errAwaitingLeaf marks an account that cannot serve yet: it holds no key (a
+// ErrAwaitingLeaf marks an account that cannot serve yet: it holds no key (a
 // data-only import), or it holds one and no leaf has been issued over it. Both
-// wait on the same thing — the wallet (PACT §9).
-var errAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
+// wait on the same thing — the wallet (PACT §9). Exported because `account
+// create` has to tell "cannot serve yet" apart from "could not be created".
+var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
@@ -358,7 +359,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	if len(sealed) == 0 {
 		// A data-only import (PACT §9): the account is here, its key is not,
 		// and it serves nothing until the wallet issues a leaf to this host.
-		return nil, errAwaitingLeaf
+		return nil, ErrAwaitingLeaf
 	}
 	kp, err := n.idm.LoadKeypair(sealed)
 	if err != nil {
@@ -399,7 +400,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		// Either way it cannot serve and the remedy is the same: `account csr`, the
 		// wallet, `account install-leaf`. Skipped and audited rather than fatal, so
 		// one account waiting on its wallet does not take the node down.
-		return nil, errAwaitingLeaf
+		return nil, ErrAwaitingLeaf
 	}
 	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	if err != nil {
