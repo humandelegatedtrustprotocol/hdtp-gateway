@@ -72,7 +72,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	w := newWallet(t, "Alina Rao")
 	now := time.Now()
 
-	csr, err := m.IssueCSR(ctx, a.ID, PurposeUpgrade, endpointA, now)
+	csr, err := m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 		t.Fatalf("the request does not check out: %+v", info)
 	}
 	// A second request replaces the first: one pending leaf at a time.
-	if _, err := m.IssueCSR(ctx, a.ID, PurposeUpgrade, endpointA, now); err != nil {
+	if _, err := m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, now); err != nil {
 		t.Fatal(err)
 	}
 	leaves, err := m.Store.ListLeaves(ctx, a.ID)

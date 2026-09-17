@@ -12,10 +12,12 @@ package contacts
 // which in turn meant relay-assisted delivery had no way to be set up at all.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // Initiated records a contact the owner started: we called the peer's
@@ -26,21 +28,34 @@ import (
 // for; anything else lands `pending_out` until they approve, at which point
 // their `answer_request` reaches ContactAccepted.
 //
-// The two identity checks are not ceremony. The pin IS the identity (PACT §2),
-// so recording a contact whose pinned key is not the key its card claims would
-// let a tampered invite bind us to an attacker's key under the peer's name, and
-// every later signature check would then pass for the wrong party.
+// The identity check is not ceremony. The pin IS the identity (PACT §2), so
+// recording a contact whose pinned ROOT is not the root its card's certificate
+// names would let a tampered invite bind us to an attacker under the peer's name,
+// and every later chain check would then pass for the wrong party.
+//
+// `spki` is the LEAF key the peer proved on this exchange, not the identity: in
+// 1.x the two were the same value and this checked that they hashed to each other.
+// A leaf key changes at every renewal, so what is checked now is the root.
 func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string,
 	spki []byte, accepted bool, permissions []string) error {
 
 	if peerFpr == "" || len(spki) == 0 {
 		return fmt.Errorf("%w: a contact needs a proven key", ErrIdentityRequired)
 	}
-	if CardKey(card) != peerFpr {
+	c, err := ValidateInbound(card)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
-	if fingerprintOf(spki) != peerFpr {
-		return fmt.Errorf("%w: the key does not hash to the fingerprint being pinned", ErrIdentityRequired)
+	// And the key proved on this exchange must be the one the card's leaf carries.
+	// In 1.x this read "the key hashes to the fingerprint being pinned", because
+	// the pin and the key were one value; the pin is the root now, so the leaf is
+	// what the card is checked against.
+	leaf, perr := pactidentity.Parse(c.Cert)
+	if perr != nil || !bytes.Equal(leaf.SPKI, spki) {
+		return fmt.Errorf("%w: the proven key is not the one this card's certificate carries", ErrIdentityRequired)
 	}
 	// Always inserted pending_out, then moved on by the SAME transition a peer's
 	// later approval takes. Reusing it rather than writing "active" directly is
@@ -49,6 +64,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, SPKI: spki, Status: "pending_out",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
+		Protocol: 2, Endpoint: c.Endpoint, Leaf: c.Cert,
 	}); err != nil {
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}
@@ -70,12 +86,17 @@ func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr
 	if peerFpr == "" {
 		return fmt.Errorf("%w: a contact needs a fingerprint", ErrIdentityRequired)
 	}
-	if CardKey(card) != peerFpr {
+	c, err := ValidateInbound(card)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, Status: "pending_out",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
+		Protocol: 2, Endpoint: c.Endpoint, Leaf: c.Cert,
 	}); err != nil {
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}
