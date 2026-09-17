@@ -129,13 +129,14 @@ func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
 	}
 }
 
-// The request_contact path has no key to pin — a card carries a fingerprint only
-// — so the row is created without one and BindSPKI fills it in when that identity
-// first connects.
-func TestInitiatedByFingerprintPinsTheNameAndLetsBindSPKIFinishIt(t *testing.T) {
+// The request_contact path holds the peer's card but not their key. The row is
+// pinned to the ROOT the card's certificate names; the leaf and its key arrive
+// with the first chain that validates (PACT §14.3). This used to end in BindSPKI,
+// which recorded the key when a rotation had left the row fingerprint-only — a
+// state 2.0 cannot produce.
+func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 	m, st, ctx, acct := newInitEnv(t)
-	card, fpr, spki := peerCard(t, "Bob")
-
+	card, fpr, _ := peerCard(t, "Bob")
 	if err := m.InitiatedByFingerprint(ctx, acct, fpr, card); err != nil {
 		t.Fatal(err)
 	}
@@ -146,17 +147,8 @@ func TestInitiatedByFingerprintPinsTheNameAndLetsBindSPKIFinishIt(t *testing.T) 
 	if c.Status != "pending_out" || len(c.SPKI) != 0 {
 		t.Errorf("status=%q spki=%d bytes; want pending_out with no key yet", c.Status, len(c.SPKI))
 	}
-	if err := m.BindSPKI(ctx, acct, fpr, spki); err != nil {
-		t.Fatalf("the key could not be bound on first contact: %v", err)
-	}
-	c, _ = st.GetContact(ctx, acct, fpr)
-	if string(c.SPKI) != string(spki) {
-		t.Error("BindSPKI did not record the key")
-	}
-	// and a key that is not this identity must never bind
-	_, _, other := peerCard(t, "Mallory")
-	if err := m.BindSPKI(ctx, acct, fpr, other); err == nil {
-		t.Error("a key that does not hash to the pinned fingerprint was bound")
+	if c.DisplayName != "Bob" {
+		t.Errorf("display name = %q, want Bob", c.DisplayName)
 	}
 }
 
