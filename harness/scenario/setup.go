@@ -19,7 +19,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
 )
 
 // Paired is a standing node with one approved contact.
@@ -161,14 +160,11 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 		Endpoint:    "https://127.0.0.1:" + p.Public + "/a/alice/mcp",
 		Fingerprint: out.NodeFpr,
 	}
-	card, err := contacts.BuildCard(contacts.Card{
-		FN: "Bob", Key: bob.Fingerprint(), Endpoint: "https://bob.invalid/mcp", Seal: "optional",
-	})
-	if err != nil {
-		return out, err
-	}
+	// The card IS the leaf certificate (PACT §3). It used to be a 1.x card naming a
+	// key and an address; the address is inside the certificate now, and it has to be
+	// one §14.2 rule 5 allows — which `https://bob.invalid/mcp` never was.
 	if _, err := bob.Call(ctx, out.Target, "redeem_invite",
-		map[string]any{"token": inv.Token, "card": card}, "redeem-1"); err != nil {
+		map[string]any{"token": inv.Token, "card": bob.Card("optional")}, "redeem-1"); err != nil {
 		return out, fmt.Errorf("redeem_invite: %w", err)
 	}
 	if _, err := oc.Call(ctx, "approve_contact", map[string]any{
