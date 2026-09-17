@@ -12,7 +12,6 @@ package public
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -195,34 +194,10 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	}
 }
 
-// sealBack seals the inner result to the caller (§4.5: a sealed request MUST get
-// a sealed result — same format, from/to swapped, the request's msg_id).
+// sealBack seals the inner result to the caller (PACT §13.2: a sealed request
+// MUST get a sealed result — same format, the request's msg_id).
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
-	if facts.Protocol == 2 {
-		return d.sealBack20(ctx, facts, inner)
-	}
-	kp, err := d.Keypair(ctx)
-	if err != nil {
-		return errEnvelope("unavailable"), nil
-	}
-	callerPub, err := x509.ParsePKIXPublicKey(facts.SPKI)
-	if err != nil {
-		return errEnvelope("envelope_invalid"), nil
-	}
-	now := d.now()
-	out, err := envelope.Seal(envelope.SealParams{
-		Sender: kp, RecipientPub: callerPub, To: facts.From,
-		MsgID: facts.Header.MsgID, TS: now.Unix(), Exp: now.Add(ResultLifetime).Unix(),
-		CTY: "application/pact-result+json",
-	}, inner)
-	if err != nil {
-		return errEnvelope("unavailable"), nil
-	}
-	body, err := json.Marshal(out)
-	if err != nil {
-		return errEnvelope("unavailable"), nil
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
+	return d.sealBack20(ctx, facts, inner)
 }
 
 // sealBack20 seals a result to a 2.0 caller (PACT §13.2): kid names the

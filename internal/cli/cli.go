@@ -88,7 +88,7 @@ commands:
   migrate   run store migrations (node must be stopped)
   doctor    diagnose configuration, data dir, store, lock
   healthcheck  probe the internal /healthz (container HEALTHCHECK)
-  account   create|list|rotate-key accounts and identity keys; csr|install-leaf|certificate|address|announce the PACT 2.0 leaf a wallet issues and the move it may be (node must be running; talks over the admin socket)
+  account   create|list accounts and identity keys; csr|install-leaf|certificate|address|announce the leaf a wallet issues and the move it may be (node must be running; talks over the admin socket)
   passkey   list|remove|reset-wizard (node must be running)
   token     create|list|revoke owner-MCP bearer tokens (node must be running)
   audit     verify|export|archive|repair the hash chain (offline; node must be stopped)
@@ -202,9 +202,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	csrFor := func(acct store.Account, purpose, endpoint string) (map[string]any, error) {
 		if purpose == "" {
-			purpose = identity.PurposeUpgrade
-			if acct.Protocol == 2 {
-				purpose = identity.PurposeRenew
+			purpose = identity.PurposeRenew
+			if acct.Protocol != 2 {
+				purpose = identity.PurposeSignup
 			}
 		}
 		if endpoint == "" {
@@ -247,17 +247,14 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 				return nil, aerr
 			}
 		}
-		// A 2.0 account starts as a signup request for its key (PACT §9): the
-		// account serves as 1.x until the wallet's leaf is installed.
-		if args["protocol"] == "2" {
-			out, err := csrFor(acct, identity.PurposeSignup, args["endpoint"])
-			if err != nil {
-				return nil, err
-			}
-			out["Fingerprint"] = acct.Fingerprint
-			return out, nil
+		// An account starts as a signup request for its key (PACT §9): it has no
+		// card and no chain to present until the wallet's leaf is installed.
+		out, err := csrFor(acct, identity.PurposeSignup, args["endpoint"])
+		if err != nil {
+			return nil, err
 		}
-		return acct, nil
+		out["Fingerprint"] = acct.Fingerprint
+		return out, nil
 	})
 	admin.Handle("account.list", func(map[string]string) (any, error) {
 		return st.ListAccounts(ctx)
@@ -307,9 +304,8 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"Slug": acct.Slug, "Root": res.RootFingerprint, "Kid": res.Kid, "Endpoint": res.Endpoint,
 			"NotAfter": res.NotAfter.UTC().Format(time.RFC3339), "First": res.FirstInstall, "KeyChanged": res.KeyChanged,
 		}
-		// The two campaigns an install starts — the 1.x rotation of PACT Appendix C
-		// row 2 toward contacts pinned as 1.x, and the move's update_contact
-		// toward contacts pinned by our root (§5.3, §9) — run DETACHED.
+		// The campaign an install can start — the move's update_contact toward
+		// contacts pinned by our root (PACT §5.3, §9) — runs DETACHED.
 		//
 		// They used to run inside this call. One unreachable contact costs up to
 		// the outbound timeout, the admin client waits 30 seconds, and the leaf
@@ -336,9 +332,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		}
 		return out, nil
 	})
-	// account.announce resumes BOTH campaigns an install starts — the move's
-	// update_contact walk and the 1.x rotation — for the current leaf. Both walks
-	// are durable, so contacts already told are skipped and the rest are tried.
+	// account.announce resumes the campaign an install starts — the move's
+	// update_contact walk — for the current leaf. The walk is durable, so contacts
+	// already told are skipped and the rest are tried.
 	admin.Handle("account.announce", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
 			return nil, fmt.Errorf("account.announce needs slug")
@@ -719,18 +715,16 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 func account(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address|announce> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	var cfgPath, slug, name, algo, grace, protocol, purpose, endpoint, chainPath, root, decision string
+	var cfgPath, slug, name, algo, purpose, endpoint, chainPath, root, decision string
 	fs := commonFlags("account "+sub, &cfgPath, stderr)
 	fs.StringVar(&slug, "slug", "", "account slug (endpoint path segment)")
 	fs.StringVar(&name, "name", "", "display name")
 	fs.StringVar(&algo, "algo", "p256", "key algorithm: p256|ed25519")
-	fs.StringVar(&grace, "grace", "336h", "rotate-key: grace period both keys stay live (max 2160h)")
-	fs.StringVar(&protocol, "protocol", "1", "create: 1, or 2 to print a certificate signing request for the wallet (PACT 2.0)")
-	fs.StringVar(&purpose, "purpose", "", "csr: signup|renew|move|upgrade (default: upgrade for a 1.x account, renew for a 2.0 one)")
+	fs.StringVar(&purpose, "purpose", "", "csr: signup|renew|move (default: signup before the first leaf, renew after)")
 	fs.StringVar(&endpoint, "endpoint", "", "csr, create -protocol 2: the https URL the leaf names (default: the node's public URL for the slug)")
 	fs.StringVar(&chainPath, "chain", "", "install-leaf: file holding the wallet's answer, two PEM CERTIFICATE blocks, leaf then root")
 	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
@@ -747,7 +741,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "create":
 		var out map[string]any
-		if err := core.AdminCall(sock, "account.create", map[string]string{"slug": slug, "name": name, "algo": algo, "protocol": protocol, "endpoint": endpoint}, &out); err != nil {
+		if err := core.AdminCall(sock, "account.create", map[string]string{"slug": slug, "name": name, "algo": algo, "endpoint": endpoint}, &out); err != nil {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
 		}
@@ -781,9 +775,6 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "installed leaf %v for %v under root %v, valid until %v\n", out["Kid"], out["Endpoint"], out["Root"], out["NotAfter"])
-		if d, ok := out["LegacyDone"]; ok {
-			fmt.Fprintf(stdout, "1.x contacts told of the new key: done=%v failed=%v\n", d, out["LegacyFailed"])
-		}
 		if d, ok := out["MoveDone"]; ok {
 			fmt.Fprintf(stdout, "contacts told of the new address: done=%v failed=%v (re-run `account announce` for the rest)\n", d, out["MoveFailed"])
 		}
@@ -803,7 +794,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if p, _ := out["Protocol"].(float64); p != 2 {
-			fmt.Fprintf(stdout, "%v speaks 1.x; `account csr -slug %v -purpose upgrade` starts the upgrade\n", out["Slug"], out["Slug"])
+			fmt.Fprintf(stdout, "%v has no leaf yet; `account csr -slug %v` prints the request for the wallet\n", out["Slug"], out["Slug"])
 			return 0
 		}
 		fmt.Fprintf(stdout, "%v: root %v\n  leaf %v for %v, %v to %v\n  renewal due: %v\n", out["Slug"], out["Root"], out["Kid"], out["Endpoint"], out["NotBefore"], out["NotAfter"], out["RenewalDue"])
@@ -841,23 +832,8 @@ func account(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "%v\t%v\t%v\t%v\n", a["Slug"], a["DisplayName"], a["Algo"], a["Fingerprint"])
 		}
 		return 0
-	case "rotate-key":
-		// SPEC §3.9: new key, old key live for the grace period, update_contact
-		// fan-out to every active contact; re-run to resume an interrupted fan-out.
-		var out map[string]any
-		if err := core.AdminCall(sock, "account.rotate", map[string]string{"slug": slug, "grace": grace}, &out); err != nil {
-			fmt.Fprintln(stderr, "account:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "rotated %v: %v -> %v (old key live until %v); fan-out done=%v failed=%v\n",
-			out["Slug"], out["OldFpr"], out["NewFpr"], out["GraceUntil"], out["Done"], out["Failed"])
-		if f, _ := out["Failed"].(float64); f > 0 {
-			fmt.Fprintln(stderr, "account: some contacts were not reached; re-run rotate-key to resume the fan-out")
-			return 1
-		}
-		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|rotate-key|csr|install-leaf|certificate|address|announce> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce> [flags]")
 		return 2
 	}
 }

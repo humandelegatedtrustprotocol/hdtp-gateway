@@ -1,2 +1,2 @@
-// Package envelope implements sealed envelopes: HPKE seal/open and validation (SPEC §4).
+// Package envelope carries the sealed-envelope wire container (PACT §13.1).
 package envelope
