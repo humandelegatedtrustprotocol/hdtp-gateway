@@ -21,7 +21,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
@@ -196,7 +195,7 @@ func seedAccount(t *testing.T, dir, slug string) store.Account {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return a
+	return issueLeafFor(t, idm, a, configPublicURL(t, dir))
 }
 
 // AC (P7-01): a knob saved in the portal persists across a restart and the
@@ -227,8 +226,6 @@ func TestSettingsPersistAcrossRestartAndReDerive(t *testing.T) {
 	body := p.post("/settings", url.Values{
 		"tunnel": {"cloudflare"}, "seal": {"required"},
 		"public_url": {"https://" + public}, "client_cert": {"preferred"},
-		"gateway_url":         {"https://relay.example.com"},
-		"gateway_fingerprint": {"sha256:abc"},
 	})
 	if !strings.Contains(body, "Restart the node") {
 		t.Fatalf("a restart-scoped change did not say so:\n%s", firstLine(body))
@@ -256,8 +253,8 @@ func TestSettingsPersistAcrossRestartAndReDerive(t *testing.T) {
 	if loaded.Seal != core.SealRequired || loaded.ClientCert != core.ClientCertOff {
 		t.Fatalf("edge knobs not forced after the store overlay: seal=%s cert=%s", loaded.Seal, loaded.ClientCert)
 	}
-	if loaded.GatewayURL != "https://relay.example.com" || loaded.GatewayFingerprint != "sha256:abc" {
-		t.Fatalf("gateway settings lost: %+v", loaded)
+	if loaded.Tunnel != "cloudflare" || loaded.Mode != core.ModeEdge {
+		t.Fatalf("the adapter choice did not persist and re-derive: %+v", loaded)
 	}
 }
 
@@ -384,11 +381,12 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 	st := openStoreAt(t, dir)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
+		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"message.text"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()}
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
 	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
 
 	// while seal is optional, a plaintext message lands
@@ -433,69 +431,18 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 	}
 }
 
-// AC (P7-01): changing the public URL tells every active contact, signed with
-// the key they pinned.
-func TestPublicURLChangeAnnouncesToContacts(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	internal, public := freePort(t), freePort(t)
-	b, _ := json.Marshal(map[string]any{
-		"data_dir": dir, "internal_bind": internal, "public_bind": public,
-		"seal": "optional", "client_cert": "preferred",
-	})
-	cfgPath := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(cfgPath, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	acct := seedAccount(t, dir, "alice")
-	seedSetting(t, dir, "public_url", "https://"+public)
-
-	// a peer that records what it is told
-	var got []map[string]any
-	var gotMu sync.Mutex
-	st := openStoreAt(t, dir)
-	bob, _ := peerIdentity(t, "bob")
-	peerSrv := newRecordingPeer(t, bob, &gotMu, &got)
-	bobCard, _ := contacts.BuildCard(contacts.Card{
-		FN: "Bob", Endpoint: peerSrv.URL + "/a/bob/mcp", Key: bob.Fingerprint,
-	})
-	if _, err := st.InsertContact(ctx, store.Contact{
-		AccountID: acct.ID, Fingerprint: bob.Fingerprint, SPKI: mustSPKI(t, bob),
-		Status: "active", Card: bobCard, Permissions: []string{"message.text"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	r := startServeAt(t, dir, cfgPath, internal, public)
-	p := newPortal(t, "http://"+r.internal)
-	p.post("/settings", url.Values{"public_url": {"https://moved.example.com"}, "seal": {"optional"}})
-
-	deadline := time.Now().Add(20 * time.Second)
-	var raw []byte
-	for time.Now().Before(deadline) {
-		gotMu.Lock()
-		n := len(got)
-		if n > 0 {
-			raw, _ = json.Marshal(got)
-		}
-		gotMu.Unlock()
-		if n > 0 {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	if len(raw) == 0 {
-		t.Fatal("no contact was told about the endpoint change")
-	}
-	// the peer was handed the new card and a signature it can check against the
-	// key it already pinned
-	if !strings.Contains(string(raw), "moved.example.com") {
-		t.Fatalf("the announced card does not carry the new endpoint: %s", raw)
-	}
-	if !strings.Contains(string(raw), `"sig"`) {
-		t.Fatalf("the announcement carried no signature: %s", raw)
-	}
-}
+// NOT COVERED HERE, deliberately: an endpoint change reaching a real peer.
+//
+// The campaign needs the peer's chain to validate, and PACT §14.2 rule 5 refuses a
+// leaf whose subjectAltName is a loopback, link-local or private address. A test
+// that binds to 127.0.0.1 therefore cannot present a chain that validates — no
+// matter that the pin and the SAN agree — so a hermetic two-node test over real
+// TLS is not possible at this level any more. It is proven instead by
+// `internal/node.TestPact20ExitDemo`, which stands three whole nodes up in one
+// process behind a dial map so their leaves can name real hosts, and over the wire
+// by the Docker harness. Adding a dial seam to the CLI for tests was considered
+// and rejected: the harness notes retire exactly that kind of knob ("E11 is
+// retired. Do not add clock_offset_seconds").
 
 // recordingPeer is a contact's node: a real MCP server over TLS, presenting the
 // identity key the announcing node pinned, whose update_contact records what it
@@ -503,15 +450,13 @@ func TestPublicURLChangeAnnouncesToContacts(t *testing.T) {
 // which would test the harness rather than the fan-out.
 type recordingPeer struct{ URL string }
 
-func newRecordingPeer(t *testing.T, kp *identity.Keypair, mu *sync.Mutex, got *[]map[string]any) *recordingPeer {
+// newRecordingPeer builds the peer AND its identity, in that order, because a 2.0
+// leaf names the address it answers at (PACT §14.1) — and that address is not known
+// until the listener exists. A 1.x peer could be made first and started second; a
+// 2.0 one cannot.
+func newRecordingPeer(t *testing.T, cn string, mu *sync.Mutex, got *[]map[string]any) (*testPeer, *recordingPeer) {
 	t.Helper()
-	der, err := identity.SelfSignedCert(kp, "bob")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
-
-	srv := mcp.NewServer(&mcp.Implementation{Name: "bob", Version: "1"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: cn, Version: "1"}, nil)
 	srv.AddTool(&mcp.Tool{Name: "update_contact", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
@@ -524,12 +469,14 @@ func newRecordingPeer(t *testing.T, kp *identity.Keypair, mu *sync.Mutex, got *[
 
 	hs := httptest.NewUnstartedServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{}))
+	url := "https://" + hs.Listener.Addr().String() + "/a/" + cn + "/mcp"
+	peer := newTestPeer(t, cn, url)
 	// The caller dials by IP and sends no SNI, so the certificate is set
 	// explicitly rather than through GetCertificate.
-	hs.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequestClientCert}
+	hs.TLS = &tls.Config{Certificates: []tls.Certificate{peer.Cert}, ClientAuth: tls.RequestClientCert}
 	hs.StartTLS()
 	t.Cleanup(hs.Close)
-	return &recordingPeer{URL: hs.URL}
+	return peer, &recordingPeer{URL: hs.URL}
 }
 
 // AC (P7-01): a restart-scoped save is visible in the page immediately — the
@@ -550,10 +497,12 @@ func TestRestartScopedSaveShowsAsPending(t *testing.T) {
 	r := startServeAt(t, dir, cfgPath, internal, public)
 	p := newPortal(t, "http://"+r.internal)
 
-	p.post("/settings", url.Values{"gateway_url": {"https://relay.example.com"}})
+	// client_cert is restart-scoped and NOT pinned by the config file, so it is a
+	// knob the portal may actually write. public_url is file-pinned in this test.
+	p.post("/settings", url.Values{"client_cert": {"required"}})
 	page := p.get("/api/settings")
-	if !strings.Contains(page, "https://relay.example.com") {
-		t.Fatalf("the saved gateway is not shown in the control:\n%s", page)
+	if !strings.Contains(page, `"key":"client_cert","value":"required"`) {
+		t.Fatalf("the saved value is not shown in the control:\n%s", page)
 	}
 	if !strings.Contains(page, `"pending":true`) {
 		t.Fatalf("the payload does not say the change is not live yet:\n%s", page)
@@ -580,11 +529,14 @@ func TestOwnerActionsAreAuditedAsOwner(t *testing.T) {
 
 	// an owner action…
 	p := newPortal(t, "http://"+r.internal)
-	p.post("/settings", url.Values{"seal": {"required"}})
+	// A knob the config file does NOT pin: seal and client_cert are both in the
+	// file above, and the file wins over the portal (SPEC §12.2), so posting one of
+	// those would be refused and audited as nothing.
+	p.post("/settings", url.Values{"limit.contact_per_hour": {"90"}})
 
 	// …and a peer action
 	kp, cert := peerIdentity(t, "bob")
-	client := &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()}
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
 	pres, perr := client.CallTool(ctx, outbound.Peer{
 		Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint,
 	}, "send_message", map[string]any{"msg_id": "x", "text": "hi"}, outbound.CallOptions{Plaintext: true})
@@ -657,11 +609,12 @@ func TestEveryCardEmitterAgreesWithTheServedCard(t *testing.T) {
 	st := openStoreAt(t, dir)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
+		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"message.text"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()}
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
 	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
 
 	served := func() string {
@@ -688,10 +641,15 @@ func TestEveryCardEmitterAgreesWithTheServedCard(t *testing.T) {
 		t.Fatalf("the portal shows a different card than peers receive:\n--- served ---\n%s\n--- portal ---\n%s", a, b)
 	}
 
-	// change the endpoint live: both must move together
+	// Change the endpoint live. The card must NOT follow it: a card's address comes
+	// from the leaf's subjectAltName (PACT §14.1), and a config knob cannot re-issue
+	// a certificate. Moving is a new leaf for a new address and an `update_contact`
+	// campaign from there (§5.3) — deliberately not something a text field can do.
+	// What must still hold is that both emitters agree, whatever the config says.
+	before := served()
 	p.post("/settings", url.Values{"public_url": {"https://moved.example.com"}})
-	if !strings.Contains(served(), "moved.example.com") {
-		t.Fatalf("the served card did not follow the live public_url change:\n%s", served())
+	if served() != before {
+		t.Fatalf("a public_url change moved the served card; only a new leaf may:\n--- before ---\n%s\n--- after ---\n%s", before, served())
 	}
 	if a, b := served(), portalVCF(); a != b {
 		t.Fatalf("after a live public_url change the portal card drifted:\n--- served ---\n%s\n--- portal ---\n%s", a, b)
@@ -802,7 +760,7 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 	ctx := context.Background()
 
 	// a real ingress: registry + pairing server over TLS, requesting client certs
-	ingKP, ingCert := peerIdentity(t, "ingress")
+	ingKP, ingCert := selfSigned(t, "ingress")
 	reg := ingress.NewMemoryRegistry(nil)
 	ps := &ingress.PairingServer{
 		Registry: reg, Domain: "example.test", IngressFingerprint: ingKP.Fingerprint,
@@ -1136,7 +1094,7 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("export_card: %v %s", err, textOf(res))
 	}
-	if !strings.Contains(textOf(res), "X-PACT-KEY") {
+	if !strings.Contains(textOf(res), "X-PACT-CERT") {
 		t.Fatalf("export_card returned no card: %s", textOf(res))
 	}
 
@@ -1211,6 +1169,7 @@ func TestDashboardShowsStateAndKeepsTheWizardGate(t *testing.T) {
 	kp, _ := peerIdentity(t, "bob")
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
+		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"message.text"},
 	}); err != nil {
 		t.Fatal(err)
@@ -1289,77 +1248,5 @@ func seedSetting(t *testing.T, dir, key, value string) {
 	defer st.Close()
 	if err := st.PutSetting(context.Background(), store.Setting{Key: key, Value: value}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// AC (P14-13): the relay's recipient list is a PORTAL knob, applied live.
-//
-// The owner's direction is that anything we add must be settable and switchable
-// from the UI. relay_recipients arrived in P12-15 as a config-file-only value,
-// which made the SAFE setting unreachable for anyone not editing files by hand —
-// and E9's "open by default" is a much worse trade when the alternative is hidden.
-func TestRelayRecipientsIsOwnerSettableAndAppliesLive(t *testing.T) {
-	found := false
-	for _, k := range core.OwnerSettableKeys() {
-		if k == "relay_recipients" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("relay_recipients is not owner-settable, so the portal cannot write it")
-	}
-}
-
-// A relay that captured the list at startup would keep serving nodes the owner
-// had just removed — the same stale-state failure as P12-02, P12-05 and P14-05e.
-func TestDynamicServesReReadsTheListEveryTime(t *testing.T) {
-	current := []string{"sha256:aaa"}
-	gate := dynamicServes(func() []string { return current })
-
-	if !gate("sha256:aaa") {
-		t.Fatal("a listed recipient was refused")
-	}
-	if gate("sha256:bbb") {
-		t.Fatal("an unlisted recipient was served")
-	}
-
-	// The owner edits the list in the portal. No restart.
-	current = []string{"sha256:bbb"}
-	if gate("sha256:aaa") {
-		t.Error("a recipient REMOVED in the portal is still served — the relay captured " +
-			"the list instead of re-reading it")
-	}
-	if !gate("sha256:bbb") {
-		t.Error("a recipient ADDED in the portal is not served yet")
-	}
-
-	// Emptying it returns the relay to its documented open default (E9).
-	current = nil
-	if !gate("sha256:anyone") {
-		t.Error("an empty list should mean an OPEN relay, which is the documented default")
-	}
-}
-
-// Only meaningful while this node is a relay: a field an owner can fill in and
-// have silently ignored is worse than no field.
-func TestRelayRecipientsIsLockedWhenNotARelay(t *testing.T) {
-	for _, tc := range []struct {
-		relay      bool
-		wantLocked bool
-	}{{false, true}, {true, false}} {
-		c := &core.Config{Relay: tc.relay}
-		var got *core.Effective
-		for _, e := range c.EffectiveSettings() {
-			if e.Key == "relay_recipients" {
-				x := e
-				got = &x
-			}
-		}
-		if got == nil {
-			t.Fatal("relay_recipients is not surfaced to the portal at all")
-		}
-		if got.Locked != tc.wantLocked {
-			t.Errorf("relay=%v: locked=%v, want %v (%s)", tc.relay, got.Locked, tc.wantLocked, got.Reason)
-		}
 	}
 }

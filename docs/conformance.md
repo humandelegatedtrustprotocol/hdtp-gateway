@@ -16,17 +16,17 @@ PACT §12: *"an implementation is a PACT agent server if it…"*
 | Clause | Where it lives | Tests |
 |---|---|---|
 | exposes an MCP server over HTTPS accepting TLS client certificates | `internal/public/listener.go`, `internal/node` | `TestHandshakeAcceptsNoCertUnknownCertKnownCert`, `TestSNISelectsPerAccountIdentityCertificates`, `TestServeRunsTheWholeNode` |
-| identifies callers by SPKI fingerprint against a contact list | `internal/identity`, `internal/public/identify.go` | `TestFingerprintMatchesOpenSSLFixture`, `TestFingerprintFormat`, `TestUnifiedIdentityRuleBothPresent` |
+| identifies callers by SPKI fingerprint against a contact list | `internal/identity`, `internal/public/identify.go` | `TestFingerprintMatchesOpenSSLFixture`, `TestFingerprintFormat` |
 | guest / pending / contact tiers | `internal/core/policy`, `internal/public/servers.go` | `TestTierFor`, `TestAllowExactTierAndPermission`, `TestToolsListPerTier`, `TestBuiltinToolSurfacePerTier` |
 | implements the guest and pending tools | `internal/public/tools.go` | `TestBuiltinToolSurfacePerTier`, `TestRedeemInvitePinsProvenKeyAndInvalidates`, `TestPendingAnswerTools` |
 | implements `send_message` | `internal/public/tools.go`, `internal/messaging` | `TestSendMessageRecordsAndIsIdempotent`, `TestThreadIDSharedAcrossDirections` |
-| implements `update_contact`, `remove_contact`, `get_card` (always available at contact tier) | `internal/public/tools.go`, `internal/contacts` | `TestAlwaysToolsAtContactTier`, `TestUpdateContactVerifiedRotation`, `TestBuiltinToolSurfacePerTier` |
+| implements `update_contact`, `remove_contact`, `get_card` (always available at contact tier) | `internal/public/tools.go`, `internal/contacts` | `TestAlwaysToolsAtContactTier`, `TestBuiltinToolSurfacePerTier` |
 | filters `tools/list` per caller | `internal/public/servers.go` | `TestToolsListPerTier`, `TestPermissionFlipRebuildsAndNotifies`, `TestCallTimeDenyMidSession`, `TestGuestServersSharedAndCallerServersDistinct` |
 | enforces manual approval for unsolicited requests | `internal/contacts/manager.go`, portal | `TestRedeemWithoutAutoAcceptIsPending`, `TestRequestContactNoteCapAndBinding`, `TestApproveAndRejectFlows` |
 | invite issuance with expiry, uses and revocation | `internal/contacts/manager.go`, `internal/internalui` | `TestRedeemAutoAcceptYieldsActiveContact`, `TestRedeemFailures`, `TestInviteLifecyclePages` |
-| emits and imports vCards with the `X-PACT-*` properties | `internal/contacts/vcard.go` | `TestBuildAndParseRoundTrip`, `TestPhoneExportedFixtureImports`, `TestForeignCardTolerated`, `TestCardPageAndVCFDownloadRoundTrip`, `FuzzVCardParse` |
+| emits and imports vCards with the `X-PACT-*` properties | `internal/contacts/vcard.go` | `TestForeignCardTolerated`, `TestCardPageAndVCFDownloadRoundTrip`, `FuzzVCardParse` |
 | treats inbound strings as untrusted | `internal/public/tools.go`, `internal/messaging` | `TestBoundaryCapsRejectOversizedInput`, `TestTextCap`, `TestRequestContactNoteCapAndBinding`, `TestBodyCap` |
-| honors idempotent `msg_id` | `internal/messaging/service.go`, `internal/public/sealed.go`, `internal/node/node.go` (`DeliverSealed` — the relay path, PACT §13.3) | `TestDuplicateMsgIDAcknowledgedNotReexecuted`, `TestSendMessageRecordsAndIsIdempotent`, `TestSealedReplayReturnsRecordedResult`, `TestReplayReturnsRecordedAck`, `TestRelayRoleAndGatewayOnTheCard` (replay leg) |
+| honors idempotent `msg_id` | `internal/messaging/service.go`, `internal/public/sealed.go`, `internal/node/node.go` (`DeliverSealed` — the relay path, PACT §13.3) | `TestDuplicateMsgIDAcknowledgedNotReexecuted`, `TestSendMessageRecordsAndIsIdempotent`, `TestSealedReplayReturnsRecordedResult` |
 | `msg_id` is scoped to the SENDER: the two directions are separate namespaces | `internal/messaging/service.go`, `migrations/*/0021_message_direction_key.sql` | `TestAnInboundMsgIDDoesNotSwallowAnOutboundMessage`, `MsgIDIsScopedToDirection` (both engines) |
 
 PACT §12, sealed addendum: *"an implementation advertising `X-PACT-SEAL:
@@ -35,12 +35,7 @@ optional|required` additionally implements §13"*.
 | Clause | Tests |
 |---|---|
 | `sealed_call` at every tier | `TestSealedCallIsPresentAtEveryTier`, `TestSealedGuestReachesGuestToolsOnly` |
-| the open order (decode → suite → addressing → kid → open → verify → freshness → idempotency → dispatch) | `TestAddressingKidSuiteAndFreshnessBranches`, `TestGuestSealedCallVerifiesViaPayloadSPK`, `TestPinnedSenderPathAndSPKMismatch`, `TestGuestFailureBranches` |
-| sealed results for sealed requests | `TestSealedToolsListEqualsPlaintextForSameCaller`, `TestP1ExitTwoNodesPairAndMessage` |
-| both suites, cross-curve, tamper detection | `TestRoundTripAllPairs`, `TestAADTamperFails`, `TestSigTamperFails`, `TestWrongRecipientFails`, `TestVectorsOpenAndVerify` |
-| relay verifies signatures without decrypting | `TestRelayNeverOpensEnvelopes`, `TestRelayRejectsForgedAndMisroutedEnvelopes` |
-| relay MCP surface is exactly PACT §9's three verbs | `TestRelayMCPSurfaceIsExactlyPACTsThreeVerbs` |
-| allow-list control plane is off-MCP and cert-bound | `TestAllowlistControlEndpointIsBoundToTheCallersCertificate` |
+| sealed results for sealed requests | `TestP1ExitTwoNodesPairAndMessage` |
 
 ## Error codes
 
@@ -53,14 +48,12 @@ produces it from the surface, not from a unit stub.
 | `pending_approval` | `TestBlockedCallerIsIndistinguishableFromAStranger` |
 | `permission_denied` | `TestCallTimeDenyMidSession`, `TestSealedGuestReachesGuestToolsOnly`, `TestOwnerActionsAreAuditedAsOwner` (audited, per §5.8) |
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
-| `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedSenderIsNotAnOracle`, `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
+| `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
 | `rate_limited` (+ `retry_after`) | `TestContactRateLimit60PerHour`, `TestGuestRateLimit10PerHourPerIPAndKey`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
-| `seal_required` | `TestSealPolicyMatrix`, `TestPlaintextToSealRequiredAccountRefused`, `TestEdgeModeKnobsAndRelayRefusal` |
-| `identity_required` | `TestSealPolicyMatrix`, `TestGuestFailureBranches`, `TestRelayRejectsForgedAndMisroutedEnvelopes` |
-| `envelope_invalid` | `TestAddressingKidSuiteAndFreshnessBranches`, `TestAADTamperFails`, `TestWrongRecipientFails` |
+| `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
 
 ## Limits
 
@@ -71,7 +64,6 @@ produces it from the surface, not from a unit stub.
 | `note` | ≤1 KiB | `TestRequestContactNoteCapAndBinding`, `TestBoundaryCapsRejectOversizedInput` |
 | availability slots | ≤5 per response | `TestCalendarToolsRespectSlotCapAndBookIdempotently`, `TestP3ExitContactBooksCalendarSlot` |
 | invite `expires_at` | ≤90 days | `TestRedeemFailures` |
-| relay queue retention | ≤30 days | `TestRelayRetentionAndPurge` |
 | per-contact rate | 60 calls/hour | `TestContactRateLimit60PerHour` |
 | guest rate | 10/hour per IP+key | `TestGuestRateLimit10PerHourPerIPAndKey` |
 | request body (pre-parse) | 8 MiB | `TestBodyCap` |
@@ -89,16 +81,12 @@ of it, and are listed so a reader can tell the two apart.
 | session identity binding | `TestSessionIdCannotBeReplayedByAnotherIdentity`, `TestSessionBinding`, `TestSessionIsBoundToTheIdentityThatCreatedIt` |
 | a session binding is reclaimed when the session ends without a DELETE, and a live one still cannot be re-bound | `TestAbandonedSessionBindingsAreReclaimed` |
 | a withdrawn integration tool leaves sessions that are already open, repeatedly, and across LRU eviction | `TestWithholdingAnIntegrationWithdrawsItFromALiveSession`, `TestEvictionDoesNotOrphanALiveSession` |
-| a message handed to a relay is recorded as queued, never as delivered | `TestGatewayOnlyContactIsReachable` |
 | outbound retries are scheduled by attempts made, so uneven sweeps cannot starve a message | `TestRetriesStayOnScheduleWhenSweepsAreUneven`, `TestRetryBackoffWidensWithAge` |
 | a sender-chosen `expires` survives the store on both engines | `MessageExpiryHoldsAFarFutureDeadline` (both engines) |
 | the fallback chain runs at once when no owner agent is attached (§6.8) | `TestAgentAnsweredKnowsAboutPresenceFromConstruction`, `TestOwnerPresenceTracksLiveSessionsOnly` |
 | `audit repair` refuses an archive whose rows were rewritten, rather than deleting the authentic copy | `TestRepairRefusesAnArchiveWhoseRowsWereRewritten`, `TestRepairRefusesWithoutItsArchiveFile` |
-| a relay registers only the recipients its operator configured | `TestRelayOnlyRegistersRecipientsItServes`, `TestRelayRecipientsRoundTripFromTheConfigFile`, `TestServesOnlyBuildsTheRelayRegistrationGate` |
 | the owner cannot be locked out by concurrent credential removal | `RemoveCredentialIfNotLastKeepsTheLastOne` (both engines) |
 | a rollback of a POPULATED database does not fail half-way | `MigrateDownAndUpWithDataPresent` (both engines) |
-| narrowing a relay's recipient list stops serving registrations made while it was open | `TestNarrowingTheRecipientListStopsServingEarlierRegistrations` |
-| key rotation keeps contacts | `TestRotationPropagatesGraceAndExpiry`, `TestInterruptedFanoutResumes`, `TestEndpointChangeFansOutUpdateContact` |
 | inbound URL media is never auto-fetched, private ranges refused | `TestPrivateRangeFetchRefusedAndAudited`, `TestFetchHappyPathWithInjectedRanges` |
 | the portal auto-shows the wizard at zero passkeys (§8.3) | `TestPortalRootAutoShowsTheWizardAtZeroPasskeys` |
 | the printed setup URL can host a WebAuthn ceremony (§12.4) | `TestSetupURLIsOneABrowserCanRegisterAgainst` |
@@ -123,22 +111,14 @@ of it, and are listed so a reader can tell the two apart.
 | a live `public_url` change reaches everything that renders it | `TestLandingLinkFollowsALivePublicURL`, `TestEveryCardEmitterAgreesWithTheServedCard` |
 | every audit write carries an actor kind the store accepts | `TestAuditActorKindIsAlwaysWritable`, `TestOwnerActionsAreAuditedAsOwner` |
 | every refusal is audited, and an availability failure is not recorded as a denial | `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial` |
-| a relay-assisted contact with no endpoint is reachable (§9.3, §10.1) | `TestGatewayOnlyContactIsReachable` |
-| the relay is a LAST resort, not a first reflex: deferred while direct delivery may still work, sealed when used (§7.1, §10.5) | `TestDirectFailureDefersTheRelayUntilTheDeadline` |
-| an undelivered message retries with backoff until its deadline (§7.1) | `TestUndeliveredMessageIsRetriedThenExpires`, `TestOutboundExpiryDefaultsToTwentyFourHours`, `TestRetryBackoffWidensWithAge` |
+| an undelivered message retries with backoff until its deadline (§7.1) | `TestOutboundExpiryDefaultsToTwentyFourHours`, `TestRetryBackoffWidensWithAge` |
 | a contact's card cannot aim the send path at plaintext or an unverifiable address | `TestContactSuppliedEndpointsAreRefusedWhenUnsafe` |
-| an owner-composed message reaches the peer's node (§7.1) | `TestOwnerComposedMessageReachesThePeersStore` |
 | withholding an integration withdraws its tools from sessions already open (§6.5, §6.10) | `TestWithholdingAnIntegrationWithdrawsItFromALiveSession` |
-| outbound calls obey the peer card's seal policy (§4.6) | `TestOwnerComposedMessageReachesThePeersStore`, `TestAccountRotateRepinsALivePeer` |
-| a rotated contact binds its key from a sealed envelope (§3.9, §4.4) | `TestRotatedContactBindsItsKeyFromASealedEnvelope` |
-| a fingerprint-only contact binds its key on next connection (§3.9) | `TestFingerprintOnlyContactBindsItsKeyOnNextConnection` |
-| key rotation re-pins a live peer end to end (§3.9) | `TestAccountRotateRepinsALivePeer`, `TestRotationPresentingTheOldCertificateIsAccepted` |
-| a repin keeps the pinned key when the call proved none | `TestRepinKeepsThePinnedKeyWhenNoKeyIsProven`, `TestSQLiteConformance` |
+| a repin keeps the pinned key when the call proved none | `TestSQLiteConformance` |
 | the LAN flag is judged per request, so a live flip takes effect | `TestLANGuardDecidesPerRequestNotAtWiringTime` |
 | ingress pairing works from the portal, and an unpaired ingress adapter cannot be selected | `TestIngressPairingFromThePortal`, `TestSelectingAnIngressAdapterWithoutPairingIsRefused` |
 | the media quota is the documented one and is configurable per account | `TestDefaultQuotaMatchesTheSpec`, `TestStorageSettingsPersistAndApply`, `TestQuotaExceededError` |
 | retention deletes past the window, keeps referenced blobs, and never deletes on a guess | `TestRetentionDeletesPastTheWindowAndKeepsLiveBlobs`, `TestUnlimitedRetentionDeletesNothing`, `TestSharedBlobBytesSurviveUntilTheLastReferenceGoes`, `TestUnreadableMediaBodyStopsBlobDeletion` |
-| an endpoint change reaches contacts, signed, and a real node accepts it | `TestPublicURLChangeAnnouncesToContacts`, `TestEndpointChangeFansOutUpdateContact` |
 | an interrupted archive is repairable, not reported as tampering (§11.6) | `TestInterruptedArchiveIsRepairableNotTampered`, `TestRepairRefusesWithoutItsArchiveFile` |
 | the last passkey can never be removed, from any surface | `RemoveCredentialIfNotLastKeepsTheLastOne`, `TestSQLiteConformance`, `TestPostgresConformance` |
 | the owner can read stored media, scoped to their account (§7.4, §8.2) | `TestOwnerCanReadStoredMediaButNotAnotherAccounts` |
@@ -184,13 +164,11 @@ against Appendix B by its own tests; these are the node's.
 |---|---|---|
 | a leaf the wallet issued is installed only when it validates to the account's root, carries the requested key and is newer than the current one (§14.2, §14.3) | `internal/identity/leaf.go` | `TestLeafUpgradeThenRenewThenMove`, `TestInstallLeafRefusals` |
 | a `v: 2` envelope is decided by the library and the effects applied: guest binding, both forms, tiers (§13.3, §6.1) | `internal/public/identify20.go` | `TestV2FirstContactMustRedeemOrRequest`, `TestV2PinnedContactBothForms` |
-| a client-certificate chain resolves through the same pin rules as an envelope — superseded or blocked to guest, a new address by `accept_new_hosts`, a 1.x pin upgraded at the leaf's endpoint (§2, §5.3, §14.3). These are the node's OWN resolution, written against the library's rules rather than delegated to `Decide`, which is why they are their own row | `internal/public/identify20.go` (`ResolveTransport`) | `TestV2TransportPinChecks`, `TestV2TransportUpgradesALegacyPinAtTheLeafsEndpoint`, `TestV2LegacyPinUpgradeIsNotAMove`, `TestPact20TransportChainResolvesThroughThePinChecks` |
-| `chain_required` is one answer for unknown, blocked, expired and a bad signature, and spends the guest budget (§13.2, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer`, `TestSealed20ChainRequiredSpendsTheGuestBudget` |
-| a stale kid is answered `certificate_renewed` with the current chain, in plaintext (§14.4) | `internal/public/sealed.go` | `TestV2StaleKidIsAnsweredWithTheCurrentChain`, `TestSealed20StaleKidGetsTheChainInPlaintext` |
-| the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/identify20.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion`, `TestSealed20NewAddressUnderAskAnswersPending` |
+| a client-certificate chain resolves through the same pin rules as an envelope — superseded or blocked to guest, a new address by `accept_new_hosts`, a 1.x pin upgraded at the leaf's endpoint (§2, §5.3, §14.3). These are the node's OWN resolution, written against the library's rules rather than delegated to `Decide`, which is why they are their own row | `internal/public/identify20.go` (`ResolveTransport`) | `TestV2TransportPinChecks`, `TestPact20TransportChainResolvesThroughThePinChecks` |
+| `chain_required` is one answer for unknown, blocked, expired and a bad signature, and spends the guest budget (§13.2, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
+| a stale kid is answered `certificate_renewed` with the current chain, in plaintext (§14.4) | `internal/public/sealed.go` | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
+| the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/identify20.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion` |
 | a caller at an address the owner has not approved is told once however often it calls, and every such answer spends the guest budget (§5.3, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2AnUnapprovedAddressIsToldOnce` |
-| a result carries the chain once and the fingerprint after; a guest redeeming is pinned by its root (§13.2) | `internal/public/sealed.go` | `TestSealed20ResultCarriesTheChainOnceThenTheFingerprint`, `TestSealed20GuestRedeemsAndIsPinnedByRoot` |
-| a 1.x pin of a leaf's key upgrades on the first chain; 1.x proofs are served until the owner says not (Appendix C) | `internal/public/identify.go` | `TestV2LegacyPinUpgradesOnTheFirstChain`, `TestV1StillServedUntilTheOwnerSaysNot` |
 | the chain is the client certificate; a contact's chain as its server certificate validates to the pinned root at the dialed address; a 1.x pin of the leaf's key still connects (§2, Appendix C) | `internal/outbound/client.go` | `TestClientPresentsItsChain`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
 | a 2.0 backup carries the leaf and never the root; a root key in the file is refused; another host's archive brings data only (§9) | `internal/identity/backup.go`, `internal/cli/backup.go` | `TestIdentityBackup20CarriesTheLeafAndNeverTheRoot`, `TestIdentityBackupRefusesARootKey`, `TestIdentityBackupMovesA20LeafToAnotherNode`, `TestRestoreRefusesAnotherHostsKeysUnlessDataOnly` |
 | the exit demonstration: two nodes pair as 2.0 identities, message in both forms, one renews and the other learns the leaf from the answer and follows `certificate_renewed`, one moves and the other follows under `auto`; a 1.x node pairs with one and still talks after the renewal | `internal/node/pact20_demo_test.go` | `TestPact20ExitDemo` |
@@ -209,11 +187,10 @@ is named) is `certificate_renewed` — and skips itself against a 1.x card.
 | P1 | two nodes pair and message, at `seal=optional` and `seal=required` | `TestP1ExitTwoNodesPairAndMessage` |
 | P2 | browser pairing through the portal; an agent reads the inbox | `TestP2ExitPortalPairing` |
 | P3 | a contact books a calendar slot through a mapped provider | `TestP3ExitContactBooksCalendarSlot` |
-| P4 | NAT crossing through a terminating edge and through a relay | `TestP4ExitNATCrossingViaEdgeAndRelay` |
 | P5 | own-domain ingress, passthrough and terminate | `TestP5ExitOwnDomainPassthroughAndTerminate` |
-| P6 | the shipped binary serves all of it | `TestServeRunsTheWholeNode`, `TestRelayRoleAndGatewayOnTheCard` |
+| P6 | the shipped binary serves all of it | `TestServeRunsTheWholeNode` |
 | P7 | the owner can configure the node from the portal: reachability, security, relay, ingress pairing, storage, owners | `TestSettingsPersistAcrossRestartAndReDerive`, `TestIngressPairingFromThePortal`, `TestStorageSettingsPersistAndApply`, `TestOwnersPageTokensAndPasskeys`, `TestPortalRegistrationAndLoginCeremony` |
-| P8 | the five fixed defects cannot silently regress | `TestSetSealPersistsTheEffectiveValueNotTheRequestedOne`, `TestEveryCardEmitterAgreesWithTheServedCard`, `TestAuditActorKindIsAlwaysWritable`, `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial`, `TestRepinKeepsThePinnedKeyWhenNoKeyIsProven`, `TestLANGuardDecidesPerRequestNotAtWiringTime` |
+| P8 | the five fixed defects cannot silently regress | `TestSetSealPersistsTheEffectiveValueNotTheRequestedOne`, `TestEveryCardEmitterAgreesWithTheServedCard`, `TestAuditActorKindIsAlwaysWritable`, `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial`, `TestLANGuardDecidesPerRequestNotAtWiringTime` |
 
 ## Reachability
 
@@ -261,7 +238,7 @@ so an exception cannot outlive the reason for it.
 |---|---|---|
 | `internal/integrationtest` | Test-only by construction: it assembles nodes and drives them, so nothing in production imports it. Its own reachability is not a meaningful question. | — |
 | `internal/core/store/conformance` | The shared store-conformance suite both engines run. Test-only for the same reason. | — |
-| `internal/envelope/cmd/genvectors` | A developer command that regenerates the §13 test vectors. It is its own `main`, not part of the gateway binary. | — |
+| `internal/testid` | Test-support by construction: it builds the roots, leaves and cards a 2.0 identity needs, so that nine test files across six packages do not each grow their own wallet. Nothing in production imports it. | — |
 
 Method-level gaps. Four of these are Go interface dispatch — the runtime calls
 them, no source names them — and the rest are debt with a task against it.
@@ -269,10 +246,12 @@ them, no source names them — and the rest are debt with a task against it.
 | Not reached | Why | Tracked by |
 |---|---|---|
 | `Envelope.UnmarshalJSON` | Interface dispatch: `encoding/json` calls it through `json.Unmarshaler`. No source can name it. | — |
+| `Envelope.MarshalJSON` | The encode half of the wire codec whose decode half production does use. Nothing in the node encodes an envelope any more — the `v: 1` sealer and the relay were the callers, and both are gone — but a codec with one half deleted is worse than an unused method, and the tests that build envelopes need it. | — |
 | `ownerUser.WebAuthnID` | Interface dispatch: `go-webauthn` calls it through `webauthn.User`. | — |
 | `ownerUser.WebAuthnName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnDisplayName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnCredentials` | Interface dispatch, as above. | — |
+| `Cloudflare.Point` | **Unwired, and not by the 1.x removal.** Nothing in this tree has ever called it: the ingress role's DNS pointer was built and never installed. Found by this gate on 2026-09-17 while the 1.x removal made the suite compile again. It needs wiring or deleting — it is excused here only so one pre-existing gap does not mask new ones. | unwired, needs a decision |
 | `Manager.Ticking` | Test observability accessor on the integration health cycle. Deliberately not used in production. | — |
 | `Server.WithFactsForTest` | Test seam onto the facts middleware, so a test can assert what a request is SEEN as rather than asserting on the flag that decides it — which is the difference between pinning behaviour and pinning a variable. | — |
 | `ACME.Renew` | certmagic renews managed names on its own once `Manage` has been called; this forces one immediately and is exercised only by the renewal test. | — |

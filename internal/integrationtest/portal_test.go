@@ -28,6 +28,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
 // P2 exit (PLAN P2-10): full pairing via portal HTTP — wizard gate → account →
@@ -48,15 +49,18 @@ func TestP2ExitPortalPairing(t *testing.T) {
 }
 
 type node struct {
-	st    store.Store
-	acct  store.Account
-	kp    *identity.Keypair
-	spki  []byte
-	card  string
-	msg   *messaging.Service
-	bus   *messaging.Bus
-	cm    *contacts.Manager
-	owner store.Owner
+	root     string
+	leafDER  []byte
+	endpoint string
+	st       store.Store
+	acct     store.Account
+	kp       *identity.Keypair
+	spki     []byte
+	card     string
+	msg      *messaging.Service
+	bus      *messaging.Bus
+	cm       *contacts.Manager
+	owner    store.Owner
 }
 
 // newNode migrates a store and provisions one account with a real keypair,
@@ -90,15 +94,17 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := contacts.BuildCard(contacts.Card{
-		FN: fn, Key: kp.Fingerprint, Endpoint: "https://" + slug + ".example/a/" + slug + "/mcp",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	// A leaf over the key this account actually holds, so the card it shows and the
+	// identity it proves are the same thing. `testid.CardFor` would have produced a
+	// valid card belonging to nobody here.
+	w := testid.NewWallet(t, fn)
+	endpoint := "https://" + slug + ".example/a/" + slug + "/mcp"
+	h := w.IssueOver(t, endpoint, spki)
+	card := contacts.BuildCard20(fn, h.LeafDER, "")
 	bus := messaging.NewBus()
 	return &node{
 		st: st, acct: a, kp: kp, spki: spki, card: card,
+		root: w.Fpr, leafDER: h.LeafDER, endpoint: endpoint,
 		msg: &messaging.Service{Store: st, Bus: bus}, bus: bus,
 		cm: &contacts.Manager{Store: st}, owner: o,
 	}
@@ -211,37 +217,37 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}
 	lbody, _ := io.ReadAll(lresp.Body)
 	lresp.Body.Close()
-	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-PACT-KEY:"+alice.kp.Fingerprint) {
+	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-PACT-CERT:") {
 		t.Fatalf("landing page: %d\n%s", lresp.StatusCode, lbody)
 	}
 
 	// 4. Bella redeems with her proven identity → pending (no auto-accept)…
-	res, err := alice.cm.RedeemAs(ctx, alice.acct.ID, token, bella.card, contacts.Proof{Fingerprint: bella.kp.Fingerprint, SPKI: bella.spki, Protocol: 1})
+	res, err := alice.cm.RedeemAs(ctx, alice.acct.ID, token, bella.card, contacts.Proof{Fingerprint: bella.root, SPKI: bella.spki, Protocol: 2, Leaf: bella.leafDER, Endpoint: bella.endpoint})
 	if err != nil || res.Status != "pending" {
 		t.Fatalf("redeem: %+v %v", res, err)
 	}
 	// …and pins Alice's card from the landing page on her own node.
 	aliceSPKI, _ := x509.MarshalPKIXPublicKey(alice.kp.Signer.Public())
 	if _, err := bella.st.InsertContact(ctx, store.Contact{
-		AccountID: bella.acct.ID, Fingerprint: alice.kp.Fingerprint, SPKI: aliceSPKI,
+		AccountID: bella.acct.ID, Fingerprint: alice.root, SPKI: aliceSPKI,
 		Status: "active", DisplayName: "Alice", Card: alice.card, PinnedAt: time.Now().Unix(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.kp.Fingerprint); err != nil || !strings.Contains(c.Card, "X-PACT-KEY:"+alice.kp.Fingerprint) {
+	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.root); err != nil || !strings.Contains(c.Card, "X-PACT-CERT:") {
 		t.Fatalf("alice not in bella's contacts: %+v %v", c, err)
 	}
 
 	// 5. Approval UI: Bella shows up pending; approving activates with the preset.
-	if code, body := get(t, clientA, srvA.URL+"/api/requests?account="+alice.acct.ID); code != 200 || !strings.Contains(body, bella.kp.Fingerprint) {
+	if code, body := get(t, clientA, srvA.URL+"/api/requests?account="+alice.acct.ID); code != 200 || !strings.Contains(body, bella.root) {
 		t.Fatalf("requests payload misses bella: %d\n%s", code, body)
 	}
-	resp = post(t, clientA, srvA.URL+"/requests/"+bella.kp.Fingerprint+"/approve?account="+alice.acct.ID,
+	resp = post(t, clientA, srvA.URL+"/requests/"+bella.root+"/approve?account="+alice.acct.ID,
 		url.Values{"csrf": {csrf}, "preset": {"friend"}})
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("approve: %d", resp.StatusCode)
 	}
-	c, err := alice.st.GetContact(ctx, alice.acct.ID, bella.kp.Fingerprint)
+	c, err := alice.st.GetContact(ctx, alice.acct.ID, bella.root)
 	if err != nil || c.Status != "active" || c.Preset != "friend" {
 		t.Fatalf("approved contact: %+v %v", c, err)
 	}

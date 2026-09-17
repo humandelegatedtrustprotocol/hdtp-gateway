@@ -24,7 +24,7 @@ been done yet. Nothing here has had independent cryptographic review.
 **A1 — Unauthenticated network caller.** Can reach the public listener and send
 anything. Cannot present a pinned certificate or a valid signature. This is the
 adversary the parsers meet first, before any identity is established, which is
-why they are fuzzed (`FuzzEnvelopeWire`, `FuzzSealedPayload`).
+why they are fuzzed (`FuzzSealedPayload`).
 
 **A2 — A pinned contact.** Legitimately paired, and now hostile. Holds a key the
 node trusts, and can call every tool their permissions allow. The relevant
@@ -70,15 +70,11 @@ returning hostile tool definitions or results.
 
 | Claim | Held by |
 |---|---|
-| A message is attributed only to the holder of that contact's private key | `TestPinnedSenderPathAndSPKMismatch` — builds a real forgery claiming a contact's fingerprint while signing as somebody else |
-| Tampering with a sealed header is detected | `TestAADTamperFails` — the protected header is the HPKE AAD |
 | A contact cannot post into another contact's conversation | `TestAThreadCannotBeAdoptedByASecondContact` — thread ids are shared and caller-supplied |
-| A pinned contact cannot rename itself | `TestRotationCannotRenameAPinnedContact` |
+| A pinned contact cannot rename itself | `TestACardRefreshCannotRenameAPinnedContact` |
 | The owner's own name for a contact is unreachable by peers | `TestNoPeerFacingSurfaceCanSetAPetname` — scans the peer-facing package |
-| A key rotation is endorsed by the key being replaced | `TestUpdateContactVerifiedRotation` |
-| A blocked contact learns nothing a stranger would not | `TestBlockedSenderIsNotAnOracle`, `TestBlockedCallerIsIndistinguishableFromAStranger` |
-| A replayed envelope is acknowledged, never re-executed | `TestSealedReplayReturnsRecordedResult`, `TestReplayReturnsRecordedAck` |
-| A relay cannot forge or misroute | `TestRelayRejectsForgedAndMisroutedEnvelopes` |
+| A blocked contact learns nothing a stranger would not | `TestBlockedCallerIsIndistinguishableFromAStranger` |
+| A replayed envelope is acknowledged, never re-executed | `TestSealedReplayReturnsRecordedResult` |
 | Tier and permission gate every tool | `TestAllowExactTierAndPermission`, `TestBuiltinToolSurfacePerTier` |
 | Rate limits apply on the real listener, not just in unit tests | `TestGuestRateLimitIsEnforcedOnTheRealListener`, `TestContactRateLimit60PerHour` |
 | The audit chain detects tampering and survives pruning | `TestAuditTamperedExportDetected`, `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
