@@ -174,9 +174,13 @@ func (s *SQLite) GetAccountSealedKey(ctx context.Context, id string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	if len(r.KeySealed) == 0 {
-		return nil, fmt.Errorf("store: account %s has no key material", id)
-	}
+	// No key is a STATE, not a failure: an account that arrived in a data-only
+	// archive holds its root and no key, because a leaf key belongs to the host
+	// that issued it (PACT §9). Reporting that as an error made three callers'
+	// `len(sealed) == 0` branches unreachable — the node read it as "unavailable"
+	// and refused to start when it was the only account, `csr -purpose signup`
+	// could not mint a key, and `install-leaf` could not install the first leaf
+	// after a move. Each caller decides what an absent key means to it.
 	return r.KeySealed, nil
 }
 

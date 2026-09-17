@@ -141,6 +141,11 @@ type Node struct {
 	accounts map[string]*account // by account id
 	bySlug   map[string]*account
 	byHost   map[string]*account // PACT 2.0: the leaf's endpoint host → account
+	// Slugs the store holds that this node cannot serve yet: they have no
+	// certificate, so there is nothing to present at a handshake. Kept so the
+	// operator can be TOLD which ones and what to run, rather than meeting a
+	// node that reports "serving" and answers for nobody.
+	awaiting map[string]struct{}
 
 	limiter *public.Limiter
 	// binder pins an MCP session id to the identity that created it (SPEC §5.6).
@@ -189,6 +194,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		accounts: map[string]*account{},
 		bySlug:   map[string]*account{},
 		byHost:   map[string]*account{},
+		awaiting: map[string]struct{}{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
 	recs, err := o.Store.ListAccounts(ctx)
@@ -200,6 +206,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		a, err := n.buildAccount(ctx, rec)
 		if errors.Is(err, ErrAwaitingLeaf) {
 			o.audit("account_awaiting_leaf", "account:"+rec.ID+" slug:"+rec.Slug, "skipped")
+			n.awaiting[rec.Slug] = struct{}{}
 			continue
 		}
 		if err != nil {
@@ -571,6 +578,21 @@ func (n *Node) Slugs() []string {
 	return out
 }
 
+// AwaitingLeaf names the accounts this node holds and cannot serve: each has no
+// certificate, so it has nothing to present. The list is what the operator of a
+// just-restored identity needs — every account is there and none of them answer,
+// and the reason is one command away rather than invisible.
+func (n *Node) AwaitingLeaf() []string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	out := make([]string, 0, len(n.awaiting))
+	for slug := range n.awaiting {
+		out = append(out, slug)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Card renders an account's current vCard (SPEC §9.3).
 func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	n.mu.RLock()
@@ -916,12 +938,19 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	}
 	a, err := n.buildAccount(ctx, rec)
 	if err != nil {
+		if errors.Is(err, ErrAwaitingLeaf) {
+			n.mu.Lock()
+			n.awaiting[rec.Slug] = struct{}{}
+			n.mu.Unlock()
+		}
 		return fmt.Errorf("node: adopt %s: %w", rec.Slug, err)
 	}
 	n.mu.Lock()
 	n.accounts[rec.ID] = a
 	n.bySlug[rec.Slug] = a
 	n.indexHost(a)
+	// It has a certificate now, so it is no longer waiting for one.
+	delete(n.awaiting, rec.Slug)
 	n.mu.Unlock()
 	return nil
 }

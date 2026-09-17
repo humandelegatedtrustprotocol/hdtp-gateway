@@ -326,3 +326,123 @@ func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
 		}
 	}
 }
+
+// AC (2026-09-18): the FIRST leaf after a data-only import installs, and the host
+// starts serving an identity it holds no key for.
+//
+// This is the last step of `npm run leave` (pact-cloud gateway/src/leave/convert.ts):
+// the archive carries the person's root and its contacts and NO key, because a leaf
+// key belongs to the host that issued it (PACT §9). So the account arrives naming
+// the previous host's leaf as its fingerprint with nothing here to sign with, asks
+// its wallet for a move, and installs what comes back.
+//
+// It could not be done at all until today. `GetAccountSealedKey` reported an absent
+// key as an error, so both branches written for it — the mint in `IssueCSR` and the
+// "nothing to retire" in `InstallLeaf` — were unreachable, and the install failed on
+// "read the key being retired". The archive's BYTES were proven by the cloud's
+// selftest; this is the node's reading of them, which was asserted in a comment.
+func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "moved.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: st, Keyring: newTestKeyring(t)}
+	w := newWallet(t, "Alina Rao")
+	now := time.Now()
+
+	// The imported row: the person's root, the PREVIOUS host's leaf kid as the
+	// account's fingerprint, and no key material anywhere.
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina Rao", Algo: string(AlgoEd25519)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const elsewhere = "sha256:the-old-host-leaf"
+	if err := st.SetAccountKey(ctx, a.ID, elsewhere, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountProtocol(ctx, a.ID, 2, w.fpr, w.root); err != nil {
+		t.Fatal(err)
+	}
+	if sealed, serr := st.GetAccountSealedKey(ctx, a.ID); serr != nil || len(sealed) != 0 {
+		t.Fatalf("the imported account must hold no key and read cleanly: %q %v", sealed, serr)
+	}
+
+	const here = "https://agent.newhost.example/a/alina/mcp"
+	csr, err := m.IssueCSR(ctx, a.ID, PurposeMove, here, now)
+	if err != nil {
+		t.Fatalf("a moved identity could not ask for a leaf: %v", err)
+	}
+	if csr.Kid == elsewhere {
+		t.Fatal("the request carries the key of the host it left")
+	}
+	res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now)
+	if err != nil {
+		t.Fatalf("the first leaf after a move would not install: %v", err)
+	}
+	if res.Endpoint != here || res.RootFingerprint != w.fpr {
+		t.Fatalf("installed under the wrong name or address: %+v", res)
+	}
+	// Nothing to retire: the account named a key it never held, so that kid must not
+	// become a superseded leaf — the host would be promising `certificate_renewed`
+	// answers it cannot seal (PACT §14.4).
+	if res.OldKid != "" || res.OldKP != nil {
+		t.Fatalf("a key this host never had was retired: %+v", res)
+	}
+	leaves, err := st.ListLeaves(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range leaves {
+		if l.Kid == elsewhere {
+			t.Fatalf("the previous host's leaf kid was kept as %s", l.State)
+		}
+	}
+	// And it serves: the account's key column points at the new leaf, and the chain
+	// it presents is leaf then root.
+	got, err := st.GetAccountByID(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Fingerprint != csr.Kid || got.Protocol != 2 {
+		t.Fatalf("the account still names the host it left: %+v", got)
+	}
+	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
+	if err != nil || len(keys) == 0 || !keys[0].Current || keys[0].Kid != csr.Kid {
+		t.Fatalf("no current leaf to serve under: %+v %v", keys, err)
+	}
+}
+
+// The same account, asked for a `signup` instead: a host with no key of its own
+// mints one rather than refusing. The leave note tells people to run `move`, so
+// this is the second door into the same room — and it was shut for the same reason.
+func TestSignupMintsAKeyWhenTheHostHasNone(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "moved-signup.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: st, Keyring: newTestKeyring(t)}
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina Rao", Algo: string(AlgoEd25519)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountKey(ctx, a.ID, "sha256:the-old-host-leaf", nil); err != nil {
+		t.Fatal(err)
+	}
+	csr, err := m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, time.Now())
+	if err != nil {
+		t.Fatalf("signup on a host holding no key: %v", err)
+	}
+	if csr.Kid == "" || csr.Kid == "sha256:the-old-host-leaf" {
+		t.Fatalf("signup did not mint a key of this host's own: %+v", csr)
+	}
+}
