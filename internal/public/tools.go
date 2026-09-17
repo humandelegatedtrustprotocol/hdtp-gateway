@@ -465,22 +465,17 @@ func (d ToolDeps) updateContact() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var a struct {
 			Card string `json:"card"`
-			Sig  string `json:"sig"`
 		}
 		if !decode(req, &a) {
 			return toolErr("bad_request"), nil
 		}
-		if !capped(a.Card, MaxTextBytes) || !capped(a.Sig, MaxFieldBytes) {
+		if !capped(a.Card, MaxTextBytes) {
 			return toolErr("too_large"), nil
 		}
-		sig, err := base64.RawURLEncoding.DecodeString(a.Sig)
-		if err != nil {
-			return toolErr("bad_request"), nil
-		}
 		fpr := callerFpr(ctx)
-		// The peer is calling as its OLD identity; the new key it proves this
-		// call (if any) is what the manager may pin.
-		if err := d.Contacts.UpdateContact(ctx, d.AccountID, fpr, a.Card, sig, CallerSPKI(ctx)); err != nil {
+		// The chain that carried this call already decided the pin (PACT §5.3,
+		// §14.3); what this refreshes is the card beside it.
+		if err := d.Contacts.UpdateContact(ctx, d.AccountID, fpr, a.Card); err != nil {
 			d.audit("update_contact", "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}

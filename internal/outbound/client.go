@@ -8,10 +8,8 @@ package outbound
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +20,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
@@ -207,38 +204,6 @@ func (c *Client) Call(ctx context.Context, peer Peer, peerSPKI []byte, tool stri
 	return c.CallTool(ctx, peer, tool, args, CallOptions{Plaintext: true})
 }
 
-// SealEnvelope builds the sealed envelope a call travels in, with an explicit
-// expiry. A direct call lives five minutes; one handed to a relay must live as
-// long as the message's own deadline, since the relay holds it until the
-// recipient comes back (§4, §10.5) — so the lifetime is the caller's to choose.
-func (c *Client) SealEnvelope(peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string, exp time.Time) (*envelope.Envelope, error) {
-	sum := sha256.Sum256(peerSPKI)
-	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != peer.Fingerprint {
-		return nil, fmt.Errorf("outbound: peer key does not match the pinned fingerprint %s", peer.Fingerprint)
-	}
-	peerPub, err := x509.ParsePKIXPublicKey(peerSPKI)
-	if err != nil {
-		return nil, fmt.Errorf("outbound: peer key: %w", err)
-	}
-	mySPKI, err := x509.MarshalPKIXPublicKey(c.Keypair.Signer.Public())
-	if err != nil {
-		return nil, err
-	}
-	inner, err := json.Marshal(map[string]any{
-		"method": "tools/call",
-		"params": map[string]any{"name": tool, "arguments": args},
-		"spk":    base64.RawURLEncoding.EncodeToString(mySPKI),
-	})
-	if err != nil {
-		return nil, err
-	}
-	now := c.now()
-	return envelope.Seal(envelope.SealParams{
-		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
-		TS: now.Unix(), Exp: exp.Unix(), CTY: "application/pact-call+json",
-	}, inner)
-}
-
 func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
 	plain, refusal, err := c.exchange(ctx, peer, peerSPKI, "tools/call",
 		map[string]any{"name": tool, "arguments": args}, msgID)
@@ -282,87 +247,13 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte
 	return out.Tools, nil
 }
 
-// exchange picks the generation: a 2.0 identity toward a root-pinned contact
-// speaks `v: 2` (client20.go); everything else is the 1.x exchange below —
-// including a 2.0 identity toward a contact pinned as 1.x, which sees a 1.x
-// call from our leaf key (PACT Appendix C).
+// exchange seals one inner request to the peer and opens the answer. There is one
+// generation: a contact is pinned by its root and speaks `v: 2` (client20.go). A
+// contact that is not — a key pin from before 2.0 — is refused here rather than
+// downgraded, because there is nothing to downgrade to.
 func (c *Client) exchange(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
-	if c.speaks20(peer) {
-		return c.sealedExchange20(ctx, peer, peerSPKI, method, params, msgID)
+	if !c.speaks20(peer) {
+		return nil, nil, fmt.Errorf("outbound: %s is not a PACT 2.0 contact; add them again from their card to get their root", peer.Fingerprint)
 	}
-	return c.sealedExchange(ctx, peer, peerSPKI, method, params, msgID)
-}
-
-// sealedExchange seals one inner request to the peer, sends it as sealed_call,
-// and opens the answer: signature by the peer, addressed to us, for this
-// msg_id. A wrapper-level refusal comes back as a result, not an error — its
-// code is plaintext by design (SPEC §4.5).
-func (c *Client) sealedExchange(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
-	sum := sha256.Sum256(peerSPKI)
-	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != peer.Fingerprint {
-		return nil, nil, fmt.Errorf("outbound: peer key does not match the pinned fingerprint %s", peer.Fingerprint)
-	}
-	peerPub, err := x509.ParsePKIXPublicKey(peerSPKI)
-	if err != nil {
-		return nil, nil, fmt.Errorf("outbound: peer key: %w", err)
-	}
-	mySPKI, err := x509.MarshalPKIXPublicKey(c.Keypair.Signer.Public())
-	if err != nil {
-		return nil, nil, err
-	}
-	req := map[string]any{"method": method, "spk": base64.RawURLEncoding.EncodeToString(mySPKI)}
-	if params != nil {
-		req["params"] = params
-	}
-	inner, err := json.Marshal(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	now := c.now()
-	env, err := envelope.Seal(envelope.SealParams{
-		Sender: c.Keypair, RecipientPub: peerPub, To: peer.Fingerprint, MsgID: msgID,
-		TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(), CTY: "application/pact-call+json",
-	}, inner)
-	if err != nil {
-		return nil, nil, err
-	}
-	var wire map[string]any
-	b, _ := json.Marshal(env)
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return nil, nil, err
-	}
-	res, err := c.CallTool(ctx, peer, "sealed_call", wire, CallOptions{})
-	if err != nil {
-		return nil, nil, err
-	}
-	if res.IsError {
-		return nil, res, nil
-	}
-	// open the sealed result: signature by the peer, addressed to us
-	var out envelope.Envelope
-	if len(res.Content) == 0 {
-		return nil, nil, fmt.Errorf("outbound: empty sealed result")
-	}
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	if !ok {
-		return nil, nil, fmt.Errorf("outbound: sealed result is not text")
-	}
-	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
-		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
-	}
-	h, err := envelope.ParseHeader(&out)
-	if err != nil {
-		return nil, nil, err
-	}
-	if h.From != peer.Fingerprint || h.To != c.Keypair.Fingerprint || h.MsgID != msgID {
-		return nil, nil, fmt.Errorf("outbound: result envelope is not this call's answer")
-	}
-	if err := envelope.VerifySig(&out, peerPub); err != nil {
-		return nil, nil, err
-	}
-	plain, err := envelope.Open(c.Keypair, &out)
-	if err != nil {
-		return nil, nil, err
-	}
-	return plain, nil, nil
+	return c.sealedExchange20(ctx, peer, peerSPKI, method, params, msgID)
 }

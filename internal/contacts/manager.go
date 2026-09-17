@@ -7,11 +7,8 @@ package contacts
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -263,10 +260,15 @@ func (m *Manager) ContactRejected(ctx context.Context, accountID, callerFpr stri
 
 /* -------------------------- always-available --------------------------- */
 
-// UpdateContact performs verified key rotation (PACT §2): the NEW card's
-// fingerprint, signed by the OLD pinned key, re-pins the contact. The new SPKI is
-// the caller's presently proven key and MUST hash to the new card's X-PACT-KEY.
-func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard string, sig []byte, provenNewSPKI []byte) error {
+// UpdateContact refreshes a contact's card (PACT §6.2). The pin already followed
+// the chain that carried this call (§5.3, §14.3 — decided before dispatch) and the
+// root never moves, so what this writes is the card: it must be the root's own and
+// must carry the leaf the pin now holds.
+//
+// It used to be "verified key rotation": a new card's fingerprint signed by the old
+// pinned key. That was 1.x, where the identity WAS a key and so a key change had to
+// be provable. A root does not change, so there is nothing left to prove here.
+func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard string) error {
 	c, err := m.Store.GetContact(ctx, accountID, oldFpr)
 	if err != nil {
 		return fmt.Errorf("%w: caller is not a contact", ErrUnknownContact)
@@ -275,116 +277,19 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	// A 2.0 contact: the pin already followed the chain that carried this call
-	// (PACT §5.3, §14.3 — decided before dispatch), and the root never moves.
-	// What update_contact refreshes is the card, which must be the root's own
-	// and carry the leaf the pin now holds.
-	if c.Protocol == 2 {
-		if nc.Key != oldFpr {
-			return fmt.Errorf("%w: the card names another root", ErrIdentityRequired)
-		}
-		if len(c.Leaf) > 0 && !bytes.Equal(nc.Cert, c.Leaf) {
-			return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrIdentityRequired)
-		}
-		return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, CardName(newCard))
+	if nc.Key != oldFpr {
+		return fmt.Errorf("%w: the card names another root", ErrIdentityRequired)
 	}
-	newFpr := nc.Key
-	// PACT §6.2: the rotating peer calls as its OLD identity — that is what the
-	// pin recognizes — and the new key is proven by the card plus the old-key
-	// signature below.
-	//
-	// Which key the transport presents is therefore NOT a free choice, and this
-	// used to demand the wrong one. SPEC §3.9 step 4 is explicit that during the
-	// grace period "outbound calls to a contact that has not yet re-pinned
-	// present the OLD certificate", which is exactly what `account rotate`
-	// builds. Requiring the presented key to hash to the NEW card rejected every
-	// real rotation and turned rotation into contact loss.
-	//
-	// So there are two honest cases and one lie:
-	//   - the OLD key (the grace-period path): expected, proves no new key;
-	//   - the NEW key (a peer that already reconnected with it): proves it;
-	//   - anything else: a third key vouching for a card it does not own.
-	proven := provenNewSPKI
-	if len(proven) > 0 {
-		switch fingerprintOf(proven) {
-		case newFpr:
-			// the new key proved itself
-		case oldFpr:
-			proven = nil // the pinned identity, as §3.9 step 4 requires
-		default:
-			return fmt.Errorf("%w: presented key is neither the pinned identity "+
-				"nor the new card's", ErrIdentityRequired)
-		}
+	if len(c.Leaf) > 0 && !bytes.Equal(nc.Cert, c.Leaf) {
+		return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrIdentityRequired)
 	}
-	// Old-key endorsement: signature over the new fingerprint string (PACT §2).
-	//
-	// The verifying key is the PINNED one. Usually we hold its SPKI outright.
-	// After a rotation that proved no key we hold only the fingerprint (E7
-	// option B), and then the caller's presented certificate supplies the bytes
-	// — admissible because it is bound to the pin by hash, the same rule §4 uses
-	// for a sealed sender we have not pinned. A key that does not hash to the
-	// pin is not the pinned key, and never verifies anything.
-	verifySPKI := c.SPKI
-	if len(verifySPKI) == 0 && len(provenNewSPKI) > 0 && fingerprintOf(provenNewSPKI) == oldFpr {
-		verifySPKI = provenNewSPKI
-	}
-	if len(verifySPKI) == 0 {
-		return fmt.Errorf("%w: no pinned key to verify this rotation against — "+
-			"reconnect with the pinned identity first", ErrIdentityRequired)
-	}
-	oldPub, err := x509.ParsePKIXPublicKey(verifySPKI)
-	if err != nil {
-		return fmt.Errorf("%w: pinned key unreadable", ErrBadRequest)
-	}
-	msg := []byte(newFpr)
-	switch pk := oldPub.(type) {
-	case *ecdsa.PublicKey:
-		h := sha256.Sum256(msg)
-		if !ecdsa.VerifyASN1(pk, h[:], sig) {
-			return fmt.Errorf("%w: rotation signature invalid", ErrIdentityRequired)
-		}
-	case ed25519.PublicKey:
-		if !ed25519.Verify(pk, msg, sig) {
-			return fmt.Errorf("%w: rotation signature invalid", ErrIdentityRequired)
-		}
-	default:
-		return fmt.Errorf("%w: pinned key type unsupported", ErrBadRequest)
-	}
-	// An endpoint change re-sends the SAME identity. If this call proved no key
-	// — the peer reached us sealed-as-pinned, or through a path that carries no
-	// certificate — writing an empty SPKI would throw away a key we already
-	// hold and could no longer seal to them. A key CHANGE is different: keeping
-	// the old SPKI there would pin a key §3.9 step 5 destroys at grace expiry,
-	// leaving us sealing into a key the peer no longer holds. So a changed
-	// fingerprint drops to fingerprint-only until the new key connects and
-	// BindSPKI records it (escalation E7, option B).
-	spki := proven
-	if len(spki) == 0 && newFpr == oldFpr {
-		spki = c.SPKI
-	}
-	return m.Store.RepinContact(ctx, accountID, oldFpr, newFpr, spki, newCard, m.now().Unix())
+	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, CardName(newCard))
 }
 
 // fingerprintOf is PACT §2's identity for a DER SPKI.
 func fingerprintOf(spki []byte) string {
 	sum := sha256.Sum256(spki)
 	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
-// BindSPKI records a re-pinned contact's full public key the first time the
-// new key connects: the presented SPKI MUST hash to the pinned fingerprint.
-func (m *Manager) BindSPKI(ctx context.Context, accountID, fpr string, spki []byte) error {
-	if fingerprintOf(spki) != fpr {
-		return fmt.Errorf("%w: key does not match the pinned fingerprint", ErrIdentityRequired)
-	}
-	c, err := m.Store.GetContact(ctx, accountID, fpr)
-	if err != nil {
-		return fmt.Errorf("%w", ErrUnknownContact)
-	}
-	if len(c.SPKI) > 0 {
-		return nil // already bound
-	}
-	return m.Store.RepinContact(ctx, accountID, fpr, fpr, spki, c.Card, m.now().Unix())
 }
 
 // RemoveContact deletes the pin (PACT §6.2); enforcement is local by design.

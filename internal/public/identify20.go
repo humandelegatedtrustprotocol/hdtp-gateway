@@ -47,7 +47,6 @@ type State20 struct {
 	Protocol       int
 	Endpoint       string
 	AcceptNewHosts string
-	Accept1x       bool
 	Chain          [][]byte           // [current leaf, root]
 	Keys           []identity.LeafKey // current first, superseded until notAfter
 	Former         []string           // kids once held (§14.4)
@@ -75,18 +74,6 @@ func (s *State20) keyFor(kid string) *identity.Keypair {
 }
 
 func b64u(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
-
-// peekVersion reads `v` and nothing else, so the two generations can part
-// before either parser applies its own rules to the header.
-func peekVersion(protected []byte) int {
-	var h struct {
-		V int `json:"v"`
-	}
-	if err := json.Unmarshal(protected, &h); err != nil {
-		return 0
-	}
-	return h.V
-}
 
 // nodeState builds Decide's input from the store and the supplied state.
 func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State20) (pactidentity.NodeState, error) {
@@ -152,18 +139,6 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	}
 	d := pactidentity.Decide(now, wire, ns)
 	code, _ := d.Result["code"].(string)
-	// Appendix C row 6: a 1.x pin of key K, met by a chain whose leaf key is
-	// K, becomes the 2.0 pin of that root with no human step — and the call is
-	// then decided as the contact it always was. The unknown root shows as a
-	// guest, or as a guest refused a contact's tool; both name the leaf.
-	if why, _ := d.Result["why"].(string); why == "unknown root" || why == "guest may only redeem or request" {
-		if id.upgradeLegacyPin(ctx, accountID, d.Result, now) {
-			if ns, err = id.nodeState(ctx, accountID, st); err == nil {
-				d = pactidentity.Decide(now, wire, ns)
-				code, _ = d.Result["code"].(string)
-			}
-		}
-	}
 	switch code {
 	case "envelope_invalid":
 		why, _ := d.Result["why"].(string)
@@ -248,34 +223,6 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	return facts, nil
 }
 
-// upgradeLegacyPin re-pins a 1.x contact whose pinned key is the leaf key of a
-// validated chain (PACT Appendix C row 6). It reports whether a pin changed.
-func (id *Identifier) upgradeLegacyPin(ctx context.Context, accountID string, result map[string]any, now time.Time) bool {
-	leafB64, _ := result["leaf"].(string)
-	leaf, err := pactidentity.Parse(pactidentity.FromB64url(leafB64))
-	if err != nil {
-		return false
-	}
-	keyFpr := pactidentity.Fingerprint(leaf.SPKI)
-	c, err := id.Store.GetContact(ctx, accountID, keyFpr)
-	if err != nil || c.Protocol == 2 || c.Status == "blocked" {
-		return false
-	}
-	root, _ := result["root"].(string)
-	// The endpoint is the one the leaf names (PACT §14.1: exactly one URI), read
-	// from the certificate and never from the result — a refusal carries root
-	// and leaf but no endpoint, and a pin at "" would make every later call
-	// from the real address look like a move.
-	if len(leaf.URIs) != 1 {
-		return false
-	}
-	if err := id.Store.UpgradeContactPin(ctx, accountID, keyFpr, root, leaf.URIs[0], leaf.DER, leaf.SPKI, now.Unix()); err != nil {
-		return false
-	}
-	id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
-	return true
-}
-
 // apply records what Decide decided: the effects are the host's to apply in
 // the order returned. `seen` is left to Replay, which reserves the msg_id and
 // stores the real acknowledgment.
@@ -340,23 +287,8 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 	return nil
 }
 
-// holdsKey reports whether a fingerprint names a key this account serves under:
-// its identity key, or a leaf key held today (current or superseded).
-func (id *Identifier) holdsKey(ctx context.Context, accountFpr, fpr string) bool {
-	if fpr == accountFpr {
-		return true
-	}
-	if id.State20 != nil {
-		if st, err := id.State20(ctx); err == nil && st != nil && st.keyFor(fpr) != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// resolveKey is the `v: 1` kid step for a node that may hold more than one
+// resolveKey is the `kid` step for a node that may hold more than one
 // key: the current leaf's and superseded ones until their notAfter (PACT §2),
-// which is also what serves a 1.x rotation's retiring key on the inbound path.
 func (id *Identifier) resolveKey(ctx context.Context, accountID, accountFpr, kid string) (*identity.Keypair, error) {
 	if id.State20 != nil {
 		if st, err := id.State20(ctx); err == nil && st != nil {
@@ -410,8 +342,7 @@ func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
 // effects (identify20.go apply): a newer leaf at the pinned endpoint replaces
 // it; another endpoint is §5.3 — re-pinned with the former endpoint and the
 // owner's event under `auto`, parked as a pending address under `ask`, and
-// under `ask` after a removal within the tombstone window; a 1.x pin of the
-// leaf's key is upgraded in place (Appendix C row 6). It runs once per
+// and under `ask` after a removal within the tombstone window. It runs once per
 // request, before the per-caller server is composed and the session bound,
 // and its result is what PoolGate enforces on every call.
 func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) TransportCaller {
@@ -427,20 +358,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 	now := id.now()
 	c, err := id.Store.GetContact(ctx, id.AccountID, root)
 	if err != nil {
-		// Appendix C row 6 on the transport path: a 1.x pin of this leaf's key
-		// becomes the 2.0 pin of the root, and the call is then the contact's.
-		keyFpr := pactidentity.Fingerprint(leaf.SPKI)
-		old, gerr := id.Store.GetContact(ctx, id.AccountID, keyFpr)
-		if gerr != nil || old.Protocol == 2 || old.Status == "blocked" {
-			return TransportCaller{Fingerprint: root} // the store resolves a stranger to guest
-		}
-		if err := id.Store.UpgradeContactPin(ctx, id.AccountID, keyFpr, root, endpoint, leaf.DER, leaf.SPKI, now.Unix()); err != nil {
-			return TransportCaller{Fingerprint: root}
-		}
-		id.audit("contact_upgraded", "account:"+id.AccountID+" contact:"+root+" key:"+keyFpr, "ok")
-		if c, err = id.Store.GetContact(ctx, id.AccountID, root); err != nil {
-			return TransportCaller{Fingerprint: root}
-		}
+		return TransportCaller{Fingerprint: root} // the store resolves a stranger to guest
 	}
 	if c.Protocol != 2 || len(c.Leaf) == 0 {
 		return TransportCaller{Fingerprint: root}
