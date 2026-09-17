@@ -12,6 +12,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
 func landingEnv(t *testing.T) (http.Handler, *contacts.Manager, string) {
@@ -34,11 +35,7 @@ func landingEnv(t *testing.T) (http.Handler, *contacts.Manager, string) {
 	mux.Handle("/i/{token}", LandingHandler(LandingDeps{
 		Store: st,
 		SignCard: func(accountID string) (string, string, error) {
-			card, err := contacts.BuildCard(contacts.Card{
-				FN: "Sumit", Endpoint: "https://pact.example/mcp",
-				Key: "sha256:testkey", Seal: "required",
-			})
-			return card, "c2ln", err
+			return testid.CardFor(t, "Sumit", "https://pact.example/mcp"), "c2ln", nil
 		},
 		PublicURL: func() string { return "https://pact.example" },
 	}))
@@ -58,7 +55,7 @@ func TestLandingRendersSignedCardAndQR(t *testing.T) {
 		t.Fatalf("landing: %d", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Sumit", "X-PACT-KEY:sha256:testkey", "data:image/png;base64,", "signature"} {
+	for _, want := range []string{"Sumit", "X-PACT-CERT:", "data:image/png;base64,", "signature"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("landing missing %q", want)
 		}

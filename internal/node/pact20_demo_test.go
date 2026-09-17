@@ -5,14 +5,12 @@ package node
 // identities through an invite, message both ways in both envelope forms,
 // one renews (the other learns the leaf from the chain, and follows
 // certificate_renewed once its old pin has expired), one moves to a new
-// address with the other following under `auto`; and a third node on 1.x
-// pairs with one of them and still talks after the renewal. Hermetic: every
-// node is a whole in-process node behind an httptest listener, and a dial map
-// stands in for DNS so leaves can name real hosts.
+// address with the other following under `auto`. Hermetic: every node is a
+// whole in-process node behind an httptest listener, and a dial map stands in
+// for DNS so leaves can name real hosts.
 
 import (
 	"context"
-	"encoding/base64"
 	"net"
 	"net/http/httptest"
 	"path/filepath"
@@ -20,8 +18,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
@@ -253,7 +249,6 @@ func TestPact20ExitDemo(t *testing.T) {
 	dn := &demoNet{hosts: map[string]string{}}
 	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 2, 30)
 	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 2, 365)
-	chen := startDemoNode(t, clock, dn, "chen", "Chen Wei", 1, 0)
 
 	// --- pairing through an invite: Bharat redeems Alina's, as a 2.0 guest ---
 	token := alina.invite(true)
@@ -285,35 +280,6 @@ func TestPact20ExitDemo(t *testing.T) {
 		t.Fatal("bharat did not receive a1")
 	}
 
-	// --- a 1.x node pairs with Alina and talks ---
-	token = alina.invite(true)
-	clientC, _ := chen.n.OutboundClient(chen.acct.ID)
-	alinaKeyFpr := pactidentity.Fingerprint(alina.leafSPKI())
-	peerA1 := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alinaKeyFpr, Seal: "required"}
-	res, err = clientC.SealedCall(ctx, peerA1, alina.leafSPKI(), "redeem_invite", map[string]any{"token": token, "card": chen.card()}, "redeem-c")
-	if err != nil || res.IsError {
-		t.Fatalf("1.x redeem: %v %s\n%s", err, res.Content[0].(*mcp.TextContent).Text, strings.Join(alina.log, "\n"))
-	}
-	if c := alina.contact(chen.kp().Fingerprint); c.Status != "active" || c.Protocol != 1 {
-		t.Fatalf("alina must pin chen as 1.x: %+v", c)
-	}
-	compat, err := contacts.BuildCompatCard(alina.acct.DisplayName, alina.leaf(), "required")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := chen.st.InsertContact(ctx, store.Contact{AccountID: chen.acct.ID, Fingerprint: alinaKeyFpr, SPKI: alina.leafSPKI(), Status: "active",
-		Permissions: []string{"message.text"}, DisplayName: "Alina Rao", Card: compat, PinnedAt: clock.now().Unix()}); err != nil {
-		t.Fatal(err)
-	}
-	chen.send(alina, alinaKeyFpr, "c1", "hello from 1.x")
-	if !alina.received("hello from 1.x") {
-		t.Fatal("alina did not receive c1")
-	}
-	alina.send(chen, chen.kp().Fingerprint, "a2", "hello chen")
-	if !chen.received("hello chen") {
-		t.Fatal("chen did not receive a2")
-	}
-
 	// --- Alina renews with a fresh key ---
 	oldLeaf, oldKP := alina.leaf(), alina.kp()
 	clock.advance(time.Hour)
@@ -331,45 +297,6 @@ func TestPact20ExitDemo(t *testing.T) {
 	if !bharat.received("from the new key") {
 		t.Fatal("bharat did not receive a3")
 	}
-	// Toward Chen, pinned as 1.x, the renewal is a 1.x rotation (Appendix C
-	// row 2): the old key signs the new fingerprint, the compatibility card
-	// travels, and the new key introduces itself.
-	proof, _ := identity.SignBytes(ren.OldKP, []byte(ren.Kid))
-	compat, _ = contacts.BuildCompatCard(alina.acct.DisplayName, alina.leaf(), "required")
-	rot := identity.Rotation{AccountID: alina.acct.ID, OldFpr: ren.OldKid, NewFpr: ren.Kid, Proof: proof, GraceUntil: ren.NotAfter, LegacyOnly: true, Kind: "renewal_1x"}
-	rotator := &identity.Rotator{Manager: alina.idm, Now: clock.now}
-	oldClient := alina.n.wire20(alina.acct.ID, &outbound.Client{Keypair: ren.OldKP, Cert: tlsCertOf(ren.OldKP)})
-	newClient, _ := alina.n.OutboundClient(alina.acct.ID)
-	done, failed, _ := rotator.Fanout(ctx, rot, compat, func(ctx context.Context, c store.Contact, card string, proof []byte) error {
-		peer, err := alina.n.peerOf(alina.acct.ID, c)
-		if err != nil {
-			return err
-		}
-		r, err := oldClient.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{"card": card, "sig": base64.RawURLEncoding.EncodeToString(proof)}, "rotate-"+ren.Kid)
-		if err != nil || r.IsError {
-			return err
-		}
-		r, err = newClient.Call(ctx, peer, c.SPKI, "get_card", map[string]any{}, "introduce-"+ren.Kid)
-		if err != nil || r.IsError {
-			return err
-		}
-		return nil
-	})
-	if done != 1 || failed != 0 {
-		t.Fatalf("1.x rotation toward chen: done=%d failed=%d", done, failed)
-	}
-	if c := chen.contact(ren.Kid); c.Status != "active" || len(c.SPKI) == 0 {
-		t.Fatalf("chen must re-pin alina's new key: %+v", c)
-	}
-	chen.send(alina, ren.Kid, "c2", "after the rotation")
-	if !alina.received("after the rotation") {
-		t.Fatal("alina did not receive c2")
-	}
-	alina.send(chen, chen.kp().Fingerprint, "a4", "still here, chen")
-	if !chen.received("still here, chen") {
-		t.Fatal("chen did not receive a4")
-	}
-
 	// --- certificate_renewed: a stale pin past the old leaf's expiry ---
 	oldParsed, _ := pactidentity.Parse(oldLeaf)
 	if err := bharat.st.RepinContactAddress(ctx, bharat.acct.ID, alina.rootFpr(), alina.endpoint(), oldLeaf, oldParsed.SPKI, clock.now().Unix()); err != nil {
@@ -393,7 +320,7 @@ func TestPact20ExitDemo(t *testing.T) {
 		t.Fatalf("move: %+v", mv)
 	}
 	alina.host = "alina-new.test"
-	done, failed, err = alina.n.AnnounceMove(ctx, alina.acct.ID, mv.Kid)
+	done, failed, err := alina.n.AnnounceMove(ctx, alina.acct.ID, mv.Kid)
 	if err != nil || done != 1 || failed != 0 {
 		t.Fatalf("move campaign: %v done=%d failed=%d", err, done, failed)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/public"
+	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
 type recAudit struct {
@@ -70,10 +71,15 @@ func manageEnv(t *testing.T) (*http.ServeMux, *store.SQLite, *recAudit, string) 
 	_ = st.SetAccountKey(ctx, a.ID, "sha256:mykey", []byte{9})
 	aud := &recAudit{}
 	mux := http.NewServeMux()
+	// The node renders the card; the portal only serves what it is given. There is
+	// no fallback that assembles one from a bare fingerprint any more — a card IS a
+	// certificate — so the harness supplies the renderer the node would.
+	card := testid.CardFor(t, "Sumit", "https://pact.example/a/me/mcp")
 	MountManagePages(mux, ManageDeps{
 		Store: st, Contacts: &contacts.Manager{Store: st}, Audit: aud.fn,
 		PublicURL: func() string { return "https://pact.example" },
 		SignCard:  func(_, _ string) (string, error) { return "c2ln", nil },
+		Card:      func(context.Context, string) (string, error) { return card, nil },
 	})
 	return mux, st, aud, a.ID
 }
@@ -186,13 +192,13 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.FN != "Sumit" || c.Key != "sha256:mykey" || c.Endpoint != "https://pact.example/a/me/mcp" || c.Version == "" {
+	if c.FN != "Sumit" || c.Version != "2" {
 		t.Fatalf("card fields: %+v", c)
 	}
 	// The API hands the SPA the same card + its signature
 	rr2 := httptest.NewRecorder()
 	mux.ServeHTTP(rr2, httptest.NewRequest("GET", "/api/card?account="+acct, nil))
-	if !strings.Contains(rr2.Body.String(), "X-PACT-KEY:sha256:mykey") || !strings.Contains(rr2.Body.String(), "c2ln") {
+	if !strings.Contains(rr2.Body.String(), "X-PACT-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
 		t.Fatalf("card payload: %s", rr2.Body.String())
 	}
 }
