@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -291,12 +290,6 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	// move the name, because there we fetched the card ourselves; a card the peer
 	// pushed may not.
 	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, c.DisplayName)
-}
-
-// fingerprintOf is PACT §2's identity for a DER SPKI.
-func fingerprintOf(spki []byte) string {
-	sum := sha256.Sum256(spki)
-	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // RemoveContact deletes the pin (PACT §6.2); enforcement is local by design.

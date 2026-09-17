@@ -26,7 +26,6 @@ var nodeLevelActions = map[string]string{
 	"exposure_stale_guard":     "reached with an integration id alone",
 	"integration_availability": "reached with an integration id alone",
 	"set_exposure":             "refused before the integration is loaded",
-	"account_rotate_expire":    "a retired key expiring, swept for the whole node",
 	"contact_add":              "already names the account it adds to",
 	"invite_create":            "already names the account it issues for",
 	"media_fetch":              "already names the account it fetches for",

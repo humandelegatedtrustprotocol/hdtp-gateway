@@ -12,6 +12,10 @@
 // Nothing in it is a shape invented for tests: every certificate comes from
 // pact-identity's own builders, the same ones the wallet and the node use, so a
 // test that passes here passed against the real certificate profile.
+//
+// The parameter is `testing.TB`, not `*testing.T`, so a fuzz target can build a real identity for
+// its seed corpus — `*testing.F` is a TB too, and a corpus of documents that cannot verify teaches
+// a fuzzer nothing (internal/cli/offer_fuzz_test.go).
 package testid
 
 import (
@@ -32,7 +36,7 @@ type Wallet struct {
 
 // NewWallet makes a person's root. Ed25519 by default, which is what a derived
 // root is (PACT §2.1); pass "p256" for the other curve.
-func NewWallet(t *testing.T, cn string, alg ...string) *Wallet {
+func NewWallet(t testing.TB, cn string, alg ...string) *Wallet {
 	t.Helper()
 	a := "ed25519"
 	if len(alg) > 0 && alg[0] != "" {
@@ -64,7 +68,7 @@ type Host struct {
 }
 
 // Issue gives a host a leaf for one endpoint, valid for a year.
-func (w *Wallet) Issue(t *testing.T, endpoint string, alg ...string) *Host {
+func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 	t.Helper()
 	a := "p256"
 	if len(alg) > 0 && alg[0] != "" {
@@ -94,7 +98,7 @@ func (h *Host) Card(fn, seal string) string {
 }
 
 // Card is the one-liner most tests want: a whole identity, and its card.
-func Card(t *testing.T, fn, endpoint, seal string) (card string, w *Wallet, h *Host) {
+func Card(t testing.TB, fn, endpoint, seal string) (card string, w *Wallet, h *Host) {
 	t.Helper()
 	w = NewWallet(t, fn)
 	h = w.Issue(t, endpoint)
@@ -103,7 +107,7 @@ func Card(t *testing.T, fn, endpoint, seal string) (card string, w *Wallet, h *H
 
 // CardFor is the shortest form: a card for one name at one endpoint, with no seal
 // policy. It is what a test that only needs "a valid card" should reach for.
-func CardFor(t *testing.T, fn, endpoint string) string {
+func CardFor(t testing.TB, fn, endpoint string) string {
 	t.Helper()
 	card, _, _ := Card(t, fn, endpoint, "")
 	return card
@@ -112,7 +116,7 @@ func CardFor(t *testing.T, fn, endpoint string) string {
 // IssueOver issues a leaf for an endpoint over a key the caller already holds —
 // for a test whose account key exists before its certificate does, which is the
 // ordinary order: `account create` then `account csr` then `install-leaf`.
-func (w *Wallet) IssueOver(t *testing.T, endpoint string, hostSPKI []byte) *Host {
+func (w *Wallet) IssueOver(t testing.TB, endpoint string, hostSPKI []byte) *Host {
 	t.Helper()
 	pub, err := pactidentity.ParseSPKI(hostSPKI)
 	if err != nil {

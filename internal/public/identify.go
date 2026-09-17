@@ -13,8 +13,6 @@ package public
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,12 +160,6 @@ func (id *Identifier) audit(action, resource, outcome string) {
 	if id.Audit != nil {
 		id.Audit(action, resource, outcome)
 	}
-}
-
-// fingerprintOf is PACT §2's identity function over an SPKI.
-func fingerprintOf(spki []byte) string {
-	sum := sha256.Sum256(spki)
-	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 type envelopeFactsKey struct{}

@@ -100,7 +100,7 @@ type testPeer struct {
 func (p *testPeer) Card(fn string) string { return p.Host.Card(fn, "") }
 func (p *testPeer) Root() string          { return p.Wallet.Fpr }
 
-func newTestPeer(t *testing.T, cn, endpoint string) *testPeer {
+func newTestPeer(t testing.TB, cn, endpoint string) *testPeer {
 	t.Helper()
 	w := testid.NewWallet(t, cn)
 	h := w.Issue(t, endpoint)
@@ -148,25 +148,13 @@ func textOf(res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-// runServeCfg writes a config, seeds the store, and starts the real `serve`.
-// It lived in the relay wiring's test file until the relay went; the delivery
-// tests need it, so it has its own home rather than riding along with whatever
-// happens to survive next.
-func runServeCfg(t *testing.T, dir string, cfg map[string]any, seed func(*testing.T, string)) *running {
-	t.Helper()
-	b, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfgPath := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(cfgPath, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if seed != nil {
-		seed(t, dir)
-	}
-	return startServeAt(t, dir, cfgPath, cfg["internal_bind"].(string), cfg["public_bind"].(string))
-}
+// **`runServeCfg` went on 2026-09-18.** It wrote a config, seeded a store and started the real
+// `serve`, for the two CLI delivery tests that drove one node's portal into another node's store.
+// Those tests were retired with 1.x: a hermetic pair needs loopback addresses, and PACT §14.2
+// rule 5 forbids a leaf from naming one, so a two-node exchange over real certificates cannot be
+// stood up in-process without a dial seam `serve` does not have. `internal/integrationtest`'s
+// `pairing_test.go` is where that exchange is proven, with a dial map joining two nodes that
+// advertise public names.
 
 // guardSafe returns a public URL a leaf may actually name. These tests bind to
 // 127.0.0.1 because that is where they really listen, and they advertise that
