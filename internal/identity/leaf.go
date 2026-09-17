@@ -475,9 +475,12 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 			// account names the key its PREVIOUS host served under and does not hold it: a leaf key
 			// belongs to the host it was issued to (PACT §9), so an archive carries none and
 			// `backup restore -data-only` strips any that was there. Keeping that kid as a
-			// superseded leaf would promise `certificate_renewed` answers this host cannot seal,
-			// and reading the absent key as a failure made the first leaf after a move impossible
-			// to install at all — which is what it did until 2026-09-18.
+			// superseded leaf would promise `certificate_renewed` answers this host cannot seal.
+			//
+			// This branch was UNREACHABLE the day it was written: `GetAccountSealedKey` reported an
+			// absent key as an error, so the read above returned before the length was ever tested
+			// and the first leaf after a move could not be installed at all. The store now returns
+			// no key as no key, and `TestFirstLeafAfterADataOnlyImport` walks the whole move.
 			res.KeyChanged = true
 		} else {
 			oldKP, err := m.LoadKeypair(sealedOld)

@@ -602,6 +602,20 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if tst := adapter.Status(); tst.Detail != "" {
 		fmt.Fprintf(stdout, "tunnel:  %s\n", tst.Detail)
 	}
+	// An account with no certificate is not served. Saying only "serving" leaves
+	// the operator of a restored identity with a host that looks healthy and
+	// answers for nobody, so name each one and the commands that end the wait.
+	// A data-only import has no key of its own here — that is a move (PACT §5.3);
+	// an account created on this host already has one, so it signs up.
+	for _, slug := range nd.AwaitingLeaf() {
+		purpose := "signup"
+		if a, aerr := st.GetAccountBySlug(ctx, slug); aerr == nil {
+			if sealed, serr := st.GetAccountSealedKey(ctx, a.ID); serr == nil && len(sealed) == 0 {
+				purpose = "move"
+			}
+		}
+		fmt.Fprintf(stdout, "awaiting a certificate, not served: %s — run `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, slug, purpose, slug)
+	}
 	if n == 0 {
 		// First run (SPEC §12.4): print the portal URL and the setup token.
 		// The token is NOT burned on first use — a WebAuthn ceremony is two

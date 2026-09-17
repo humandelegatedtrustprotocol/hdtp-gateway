@@ -394,6 +394,13 @@ func Run(t *testing.T, newStore Factory) {
 		if a.AcceptNewHosts != "auto" {
 			t.Fatalf("account defaults wrong: %+v", a)
 		}
+		// An account with no key reads as NO KEY, in both engines, and not as an
+		// error: that is the shape a data-only archive arrives in, and the node,
+		// `csr -purpose signup` and `install-leaf` all decide from an empty slice
+		// (PACT §9). An error here made every one of those branches unreachable.
+		if k, kerr := s.GetAccountSealedKey(ctx, a.ID); kerr != nil || len(k) != 0 {
+			t.Fatalf("an account with no key must read as empty, not as an error: %q %v", k, kerr)
+		}
 		if err := s.SetAccountKey(ctx, a.ID, "sha256:leaf1", []byte("sealed1")); err != nil {
 			t.Fatal(err)
 		}

@@ -136,6 +136,13 @@ func (m *Manager) SignCard(ctx context.Context, accountID string, cardText strin
 	if err != nil {
 		return "", err
 	}
+	if len(sealed) == 0 {
+		// An identity that arrived in a data-only archive: its root is here and no
+		// key is, so there is nothing to sign a card with until its wallet issues a
+		// leaf to this host. Said here, because the alternative is a keyring
+		// decrypt error on the invite landing page (PACT §9).
+		return "", fmt.Errorf("identity: account %s holds no key on this host yet: install a leaf first", a.Slug)
+	}
 	kp, err := m.LoadKeypair(sealed)
 	if err != nil {
 		return "", err
