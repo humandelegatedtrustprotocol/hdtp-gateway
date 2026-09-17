@@ -14,7 +14,7 @@ type Data = {
   show_pair: boolean; paired: Record<string, boolean> | null;
   accounts: { id: string; label: string }[] | null;
   notice: string; error: boolean;
-  reach: SettingRow[] | null; security: SettingRow[] | null; relay: SettingRow[] | null;
+  reach: SettingRow[] | null; security: SettingRow[] | null;
   adapter_settings: AdapterSetting[] | null; adapters: string[] | null;
   show_probe: boolean; probe_verdict: string; probe_detail: string;
 };
@@ -58,7 +58,6 @@ export function Settings() {
         <CsrfFields />
         <Group title="Reachability" rows={d.reach ?? []} />
         <Group title="Security posture" rows={d.security ?? []} />
-        <Group title="Relay" rows={d.relay ?? []} />
         <Toolbar>
           <Button type="submit">Save settings</Button>
           {d.show_probe && (

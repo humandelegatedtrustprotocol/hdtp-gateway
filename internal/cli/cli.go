@@ -6,8 +6,6 @@ package cli
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"flag"
@@ -32,7 +30,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/node"
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
@@ -268,206 +265,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// SPEC §3.9 rotation: new key + grace, then update_contact fan-out over the
 	// outbound client PRESENTING THE OLD CERTIFICATE (the identity contacts
 	// still pin); per-contact progress is durable, so re-running resumes.
-	rotator := &identity.Rotator{Manager: idm}
 	// The serving node, assigned below. The admin handlers registered here close
 	// over it so they render cards through the ONE renderer the public surface
 	// uses, rather than assembling a second one (SPEC §9.3).
-	// rotateByID is the ONE rotation procedure. Both the CLI (over the admin
-	// socket) and the portal's Settings · identity page call it, so the two
-	// surfaces cannot drift into subtly different rotations of the same key.
-	// legacyFanout is SPEC §3.9's update_contact walk over the contacts pinned
-	// as 1.x: the outbound client presents the OLD certificate (the identity
-	// they still pin), the new key introduces itself right after. Both a 1.x
-	// rotation and a 2.0 leaf install with a fresh key run it (PACT Appendix C
-	// row 2), so the two cannot drift.
-	legacyFanout := func(ctx context.Context, acct store.Account, rot identity.Rotation, oldKP, newKP *identity.Keypair, cardOverride string) (done, failed int, err error) {
-		oldDER, err := identity.SelfSignedCert(oldKP, acct.Slug)
-		if err != nil {
-			return 0, 0, err
-		}
-		client := &outbound.Client{Keypair: oldKP, Cert: tls.Certificate{Certificate: [][]byte{oldDER}, PrivateKey: oldKP.Signer}}
-		// The peer learns the NEW key only from a certificate that hashes to the
-		// fingerprint it just pinned (§3.9); until then it cannot seal to us. With a
-		// grace period it keeps sealing to the old key meanwhile; with none there is
-		// nothing to seal to, so the new key introduces itself right after the notice.
-		var newCert tls.Certificate
-		if newKP.Protocol == 2 && len(newKP.Leaf) > 0 {
-			// A 2.0 leaf key introduces itself under its chain; a 1.x peer reads
-			// the leaf's key from it (PACT Appendix C).
-			newCert = tls.Certificate{Certificate: [][]byte{newKP.Leaf, newKP.Root}, PrivateKey: newKP.Signer}
-		} else {
-			newDER, err := identity.SelfSignedCert(newKP, acct.Slug)
-			if err != nil {
-				return 0, 0, err
-			}
-			newCert = tls.Certificate{Certificate: [][]byte{newDER}, PrivateKey: newKP.Signer}
-		}
-		introduce := &outbound.Client{Keypair: newKP, Cert: newCert}
-		// Rotate has already written the new fingerprint, so the node renders the
-		// post-rotation card — with the seal the gate actually enforces and the
-		// live endpoint. Falling back to a local build only matters for a rotate
-		// issued before the listener came up.
-		var newCard string
-		if cardOverride != "" {
-			newCard = cardOverride
-		} else if nd != nil {
-			newCard, err = nd.Card(ctx, acct.ID)
-		} else {
-			endpoint := ""
-			if cfg.PublicURL != "" {
-				endpoint = cfg.PublicURL + "/a/" + acct.Slug + "/mcp"
-			}
-			newCard, err = contacts.BuildCard(contacts.Card{
-				FN: acct.DisplayName, Endpoint: endpoint, Key: rot.NewFpr,
-				Seal: string(core.EffectiveSeal(cfg.Mode, cfg.Seal)),
-			})
-		}
-		if err != nil {
-			return 0, 0, err
-		}
-		done, failed, _ = rotator.Fanout(ctx, rot, newCard, func(ctx context.Context, c store.Contact, card string, proof []byte) error {
-			peerCard, err := contacts.ParseCard(c.Card)
-			if err != nil || peerCard.Endpoint == "" {
-				return fmt.Errorf("contact has no reachable endpoint on file")
-			}
-			peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: c.Fingerprint, Seal: peerCard.Seal}
-			// Obey the peer's card. This used to force plaintext, so any contact
-			// whose card asks for sealing refused the rotation outright — and a
-			// contact that never re-pins is lost when the old key is destroyed
-			// at grace expiry (§3.9 step 5).
-			res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{
-				"card": card, "sig": base64.RawURLEncoding.EncodeToString(proof),
-			}, "rotate-"+rot.NewFpr)
-			if err != nil {
-				return err
-			}
-			if res.IsError {
-				return fmt.Errorf("peer refused update_contact")
-			}
-			// Introduce the new key with a call the peer answers at contact tier
-			// without any permission. Sealed, it carries our key as `spk` and the
-			// peer binds it to the fingerprint it just pinned (§4.4 step 6); plain,
-			// the gate binds it from the client certificate. tools/list would not do:
-			// the binding hook runs only inside tools/call.
-			ires, ierr := introduce.Call(ctx, peer, c.SPKI, "get_card", map[string]any{}, "introduce-"+rot.NewFpr)
-			if ierr != nil || (ires != nil && ires.IsError) {
-				// They were told; they just have not seen the new key yet. They will
-				// the next time we call them — unless there is no grace period, in
-				// which case they cannot reach us until we do. Recorded, not fatal.
-				if rotator.Audit != nil {
-					rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "error")
-				}
-			} else if rotator.Audit != nil {
-				rotator.Audit("rotate_introduce", "account:"+c.AccountID+" contact:"+c.Fingerprint, "ok")
-			}
-			return nil
-		})
-		return done, failed, nil
-	}
-	rotateByID := func(ctx context.Context, accountID string, grace time.Duration) (internalui.RotateResult, error) {
-		var zero internalui.RotateResult
-		accts, err := st.ListAccounts(ctx)
-		if err != nil {
-			return zero, err
-		}
-		var acct store.Account
-		for _, a := range accts {
-			if a.ID == accountID {
-				acct = a
-			}
-		}
-		if acct.ID == "" {
-			return zero, fmt.Errorf("rotate: unknown account %q", accountID)
-		}
-		// A rotation already in its grace period is RESUMED, not repeated:
-		// rotating twice would invalidate the key the first one just published,
-		// but refusing outright left the owner told to "re-run to resume" with no
-		// way to do it, and an un-notified contact is lost at grace expiry
-		// (§3.9 step 5, P14-10a).
-		rot, resuming, err := rotator.InFlight(ctx, acct.ID)
-		if err != nil {
-			return zero, err
-		}
-		if !resuming {
-			rot, err = rotator.Rotate(ctx, acct.ID, grace)
-			if err != nil {
-				return zero, err
-			}
-			// The node loaded this account's key and certificate when it started.
-			// Rotate changed both in the store; until the live node rebuilds the
-			// account it keeps presenting the OLD certificate — and every contact
-			// the fan-out re-pins to the new fingerprint is then refused at the
-			// TLS layer ("server is neither the pinned key nor WebPKI-valid").
-			// AdoptAccount is idempotent and exists for exactly this.
-			if nd != nil {
-				if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
-					return zero, fmt.Errorf("rotate: reloading the account on the live node: %w", aerr)
-				}
-			}
-		}
-		newKP, oldKP, err := rotator.ActiveKeypairs(ctx, acct.ID)
-		if err != nil || oldKP == nil {
-			return zero, fmt.Errorf("rotate: retiring key unavailable: %v", err)
-		}
-		done, failed, ferr := legacyFanout(ctx, acct, rot, oldKP, newKP, "")
-		if ferr != nil {
-			return zero, ferr
-		}
-		until := rot.GraceUntil
-		if rot.Immediate {
-			// The owner asked for no grace: the old key has served its one purpose.
-			if err := rotator.RetireNow(ctx, acct.ID); err != nil {
-				return zero, fmt.Errorf("rotate: retiring the old key: %w", err)
-			}
-			until = time.Now()
-		}
-		return internalui.RotateResult{
-			NewFpr: rot.NewFpr, Notified: done, Failed: failed, GraceUntil: until, Immediate: rot.Immediate,
-		}, nil
-	}
-
-	admin.Handle("account.rotate", func(args map[string]string) (any, error) {
-		if args["slug"] == "" {
-			return nil, fmt.Errorf("account.rotate needs slug")
-		}
-		accts, err := st.ListAccounts(ctx)
-		if err != nil {
-			return nil, err
-		}
-		var acct store.Account
-		for _, a := range accts {
-			if a.Slug == args["slug"] {
-				acct = a
-			}
-		}
-		if acct.ID == "" {
-			return nil, fmt.Errorf("account.rotate: unknown slug %q", args["slug"])
-		}
-		// Omitted → the default (Rotate treats 0 as "unspecified"). An explicit
-		// "0" is the owner asking for no grace at all, which is a different thing
-		// and gets the sentinel.
-		var grace time.Duration
-		if v := args["grace"]; v != "" {
-			parsed, perr := time.ParseDuration(v)
-			if perr != nil || parsed < 0 {
-				return nil, fmt.Errorf("grace %q is not a duration (try 336h, or 0 to retire the old key as soon as contacts are told)", v)
-			}
-			grace = parsed
-			if parsed == 0 {
-				grace = identity.GraceImmediate
-			}
-		}
-		res, err := rotateByID(ctx, acct.ID, grace)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{
-			"Slug": acct.Slug, "NewFpr": res.NewFpr,
-			"GraceUntil": res.GraceUntil.UTC().Format(time.RFC3339),
-			"Done":       res.Notified, "Failed": res.Failed,
-		}, nil
-	})
-
 	admin.Handle("account.csr", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
 			return nil, fmt.Errorf("account.csr needs slug")
@@ -518,21 +318,13 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// pending". The install is the durable part and it answers now; the walks
 		// are durable too (`rotation_fanout`), so `account announce` reports and
 		// resumes them.
-		legacy := res.KeyChanged && res.OldKP != nil && nd != nil
 		moved := !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint && nd != nil
-		if legacy || moved {
+		if moved {
 			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
 			accountID, kid := acct.ID, res.Kid
 			go func() {
 				// The admin call's context ends with the call; these outlive it.
 				bg := context.WithoutCancel(ctx)
-				if legacy {
-					if d, f, aerr := nd.AnnounceLegacyRenewal(bg, accountID); aerr != nil {
-						auditFn("account_legacy_renewal", "account:"+accountID, "error")
-					} else {
-						auditFn("account_legacy_renewal", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), "ok")
-					}
-				}
 				if moved {
 					if d, f, merr := nd.AnnounceMove(bg, accountID, kid); merr != nil {
 						auditFn("account_move_campaign", "account:"+accountID, "error")
@@ -562,17 +354,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return nil, err
 		}
-		// Both kinds: a renewal's 1.x rotation is as durable as a move's campaign
-		// and had no resume at all, so a 1.x contact unreachable while an install
-		// ran kept pinning a key this node no longer presents.
-		ldone, lfailed, lerr := nd.AnnounceLegacyRenewal(ctx, acct.ID)
-		if lerr != nil {
-			return nil, lerr
-		}
-		return map[string]any{
-			"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed,
-			"LegacyDone": ldone, "LegacyFailed": lfailed,
-		}, nil
+		return map[string]any{"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
@@ -688,7 +470,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// ---- the public surface (SPEC §2.2) ----
 	auditLog := auditWriter(ctx, st, stderr)
 	auditFn = auditLog.system() // the node's own lifecycle and surface events
-	rotator.Audit = auditFn     // rotation and retirement are lifecycle events too
 	ownerFn := auditLog.owner() // the portal and the owner MCP act for the owner
 
 	// Owner-set configuration layers under the environment and re-derives, so a
@@ -758,18 +539,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// Mapped-mode providers, resolved per call so an integration connected
 		// or withheld after startup is reflected without a restart (§6.6, E5).
 		Capabilities: binder.forAccount,
-	}
-	if cfg.Relay {
-		// Relay mode for other people (SPEC §10.5). Config validation already
-		// refused this combination in edge mode; node.New refuses it again.
-		// A function, not a snapshot: the portal can change this while the node
-		// runs, and the relay must honour the change immediately (P14-13).
-		nodeOpts.Relay, nodeOpts.RelayControl = relayHandlers(st, settings.relayRecipients, auditFn)
-		if len(cfg.RelayRecipients) == 0 {
-			fmt.Fprintln(stderr, "relay:   OPEN — any node that reaches this relay may register "+
-				"an allow-list and have mail queued for it. Set relay_recipients to "+
-				"the fingerprints you mean to serve.")
-		}
 	}
 	nd, err = node.New(ctx, nodeOpts)
 	if err != nil {
@@ -857,36 +626,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// and the owner had to notice and retype it.
 	go nd.RunRetries(ctx)
 
-	// SPEC §3.9 step 5: "When the grace period ends, the old private key MUST be
-	// destroyed — at expiry, regardless of contacts that have not yet re-pinned."
-	// `Rotator.ExpireGrace` implemented exactly that and had no caller, so a
-	// retired key stayed live in the keyring forever, which is the opposite of
-	// what rotation is for.
-	go func() {
-		t := time.NewTicker(time.Hour)
-		defer t.Stop()
-		expire := func() {
-			accts, err := st.ListAccounts(ctx)
-			if err != nil {
-				return
-			}
-			for _, a := range accts {
-				if done, err := rotator.ExpireGrace(ctx, a.ID); err == nil && done {
-					auditFn("account_rotate_expire", "account:"+a.ID+" slug:"+a.Slug, "key_destroyed")
-				}
-			}
-		}
-		expire() // a node that was down past an expiry must not wait an hour
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				expire()
-			}
-		}
-	}()
-
 	// Contacts in sync (PACT §3): pull each active contact's signed card on a
 	// slow cadence, so an endpoint change whose announcement missed us — we
 	// were offline, or the peer could not seal to us mid-rotation — heals
@@ -918,11 +657,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			}
 		}
 	}()
-
-	if err := startRelayClients(ctx, cfg, nd, st, idm, auditFn, stderr); err != nil {
-		fmt.Fprintln(stderr, "serve:", err)
-		return 1
-	}
 
 	// ---- the internal surface; blocks until the context ends ----
 	// SPEC §8.3: binding decides authentication, and it is fixed at startup —
@@ -958,7 +692,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return integrations.SealClient(st, kr, settingsAAD(), integrationID, clientID, clientSecret)
 	}
 	identityDeps := internalui.IdentityDeps{
-		Accounts: st.ListAccounts, Rotate: rotateByID, Audit: auditFn,
+		Accounts: st.ListAccounts, Audit: auditFn,
 		Certificate: func(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
 			return idm.Certificate(ctx, accountID, time.Now())
 		},

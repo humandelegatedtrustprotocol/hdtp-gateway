@@ -33,13 +33,6 @@ import (
 // settingAAD binds a sealed setting to its column, per the keyring AAD rule.
 const settingAAD = "settings.value"
 
-// relayRecipients reports the recipient list the relay should honour right now.
-func (s *settingsService) relayRecipients() []string {
-	var out []string
-	s.readCfg(func(c *core.Config) { out = append([]string(nil), c.RelayRecipients...) })
-	return out
-}
-
 // settingsAAD is the same value for callers outside this package. Anything that
 // writes a secret row in the `settings` table MUST seal it with this: the one
 // decrypting reader opens every secret row there with it, and a mismatch fails
@@ -307,19 +300,6 @@ func (s *settingsService) applyLive(ctx context.Context, key, value string) erro
 				return err
 			}
 		}
-	case "relay_recipients":
-		// Applies LIVE. The relay reads this through a function rather than a
-		// snapshot, so narrowing the list takes effect on the next registration
-		// AND the next relay_call — which is what makes it safe to narrow at all
-		// (P13-01), and is the whole point of it being a portal knob rather than
-		// a config-file edit (P14-13).
-		list := core.SplitRecipients(value)
-		for _, f := range list {
-			if !strings.HasPrefix(f, "sha256:") {
-				return fmt.Errorf("settings: %q is not a PACT §2 fingerprint", f)
-			}
-		}
-		s.writeCfg(func(c *core.Config) { c.RelayRecipients = list })
 	case "lan_connections":
 		allow := value == "true"
 		s.writeCfg(func(c *core.Config) { c.LANConnections = allow })
