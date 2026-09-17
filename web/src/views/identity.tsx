@@ -3,12 +3,10 @@ import { fetchSession, getJSON, postForm } from "../api";
 import { Badge, Button, EmptyState, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
 
 type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string };
-type Data = { rows: Row[]; notice: string; error: string; default_grace: string; max_grace_days: number; can_create: boolean };
+type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
 
 export function Identity() {
   const [d, setD] = useState<Data | null>(null);
-  const [confirm, setConfirm] = useState<Record<string, string>>({});
-  const [grace, setGrace] = useState<Record<string, string>>({});
   const [note, setNote] = useState<Note | null>(null);
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
@@ -16,25 +14,6 @@ export function Identity() {
   const load = useCallback(() => getJSON<Data>("/api/identity").then(setD).catch(() => {}), []);
   useEffect(() => { load(); }, [load]);
   if (!d) return <main><PageHeader title="Identity" /><EmptyState loading /></main>;
-
-  const rotate = async (a: Row) => {
-    const r = await postForm("/identity/rotate", {
-      account_id: a.id, confirm: confirm[a.id] ?? "", grace: grace[a.id] ?? "",
-    });
-    fetchSession().catch(() => {}); // the fingerprint the shell shows has changed
-    // The endpoint answers the identity payload with the outcome in notice/error.
-    try {
-      const j = JSON.parse(r.body || "null") as Data | null;
-      if (j && j.rows !== undefined) {
-        setD(j);
-        if (j.notice || j.error) setNote({ kind: j.error ? "err" : "ok", text: j.notice || j.error });
-        setConfirm({ ...confirm, [a.id]: "" });
-        return;
-      }
-    } catch { /* not the payload */ }
-    setNote(r.ok ? null : { kind: "err", text: "rotation failed" });
-    load();
-  };
 
   const create = async () => {
     const r = await postForm("/identity/create", { slug, name, algo });
@@ -74,20 +53,9 @@ export function Identity() {
           </div>
         </Section>
       )}
-      <Notice kind="warn">
-        <strong>Rotating a key is not undoable.</strong> A new keypair is generated, the old one signs it
-        over, and every contact is told. Contacts that stay silent past the grace period must re-pair.
-      </Notice>
       {d.rows.map((a) => (
-        <Section key={a.id} title={a.display_name} meta={<><Badge mono>{a.slug}</Badge><Badge mono>{a.algo}</Badge></>}
-          footer={<Button variant="danger" disabled={(confirm[a.id] ?? "") !== a.slug} onClick={() => rotate(a)}>Rotate this key</Button>}>
+        <Section key={a.id} title={a.display_name} meta={<><Badge mono>{a.slug}</Badge><Badge mono>{a.algo}</Badge></>}>
           <p><Readout value={a.fingerprint} copy /></p>
-          <Field label={<>Type “{a.slug}” to confirm rotation</>}>
-            <input type="text" value={confirm[a.id] ?? ""} onChange={(e) => setConfirm({ ...confirm, [a.id]: e.target.value })} />
-          </Field>
-          <Field label="Grace period" help={<>default {d.default_grace}, at most {d.max_grace_days} days; <code>0</code> retires the old key as soon as contacts have been told — anyone unreachable at that moment is lost</>}>
-            <input type="text" placeholder={d.default_grace} value={grace[a.id] ?? ""} onChange={(e) => setGrace({ ...grace, [a.id]: e.target.value })} />
-          </Field>
         </Section>
       ))}
       {d.rows.length === 0 && <EmptyState title="No identities yet" />}

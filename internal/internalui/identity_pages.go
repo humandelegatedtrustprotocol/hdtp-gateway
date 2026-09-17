@@ -1,6 +1,6 @@
 package internalui
 
-// Settings · identity (SPEC §8.2, §3.9): rotate an account's identity key from
+// Settings · identity (SPEC §8.2): an account's identity and certificate, from
 // the portal.
 //
 // Rotation used to be CLI-only. It is routine key hygiene, and requiring shell
@@ -14,7 +14,6 @@ package internalui
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -31,10 +30,6 @@ type IdentityDeps struct {
 	// identity path to keep in step. Nil hides the affordance rather than
 	// offering a button that cannot work.
 	Create func(ctx context.Context, slug, displayName, algo string) (store.Account, error)
-	// Rotate runs SPEC §3.9's rotation AND the update_contact fan-out, exactly as
-	// `account rotate-key` does — the portal must not be a second, subtly
-	// different rotation procedure.
-	Rotate func(ctx context.Context, accountID string, grace time.Duration) (RotateResult, error)
 	Audit  func(action, resource, outcome string)
 	// Certificate reports a 2.0 account's leaf (PACT §2): the root that is
 	// the identity, the endpoint, the dates, and whether renewal is due —
@@ -48,27 +43,13 @@ func (d IdentityDeps) audit(action, resource, outcome string) {
 	}
 }
 
-// RotateResult is what the owner is told afterwards.
-type RotateResult struct {
-	NewFpr string
-	// Notified and Failed are the fan-out outcome. An incomplete fan-out is the
-	// NORMAL case when a contact is offline, so it is reported rather than
-	// rounded up to success: a contact that never re-pins is lost when the old
-	// key is destroyed at grace expiry (§3.9 step 5).
-	Notified, Failed int
-	GraceUntil       time.Time
-	// Immediate: the old key was retired as soon as the fan-out was attempted;
-	// the Failed contacts are not "not yet told", they are lost.
-	Immediate bool
-}
-
+// identityRow is one account as the portal renders it.
 type identityRow struct {
-	Slug        string `json:"slug"`
-	DisplayName string `json:"display_name"`
-	Fingerprint string `json:"fingerprint"`
-	Algo        string `json:"algo"`
-	ID          string `json:"id"`
-	// PACT 2.0: absent (zero) for a 1.x identity.
+	Slug            string `json:"slug"`
+	DisplayName     string `json:"display_name"`
+	Fingerprint     string `json:"fingerprint"`
+	Algo            string `json:"algo"`
+	ID              string `json:"id"`
 	Protocol        int    `json:"protocol,omitempty"`
 	RootFingerprint string `json:"root_fingerprint,omitempty"`
 	Endpoint        string `json:"endpoint,omitempty"`
@@ -76,7 +57,6 @@ type identityRow struct {
 	RenewalDue      bool   `json:"renewal_due,omitempty"`
 }
 
-// MountIdentityPages registers Settings · identity.
 func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, errMsg string) {
 		accts, err := d.Accounts(r.Context())
@@ -138,80 +118,4 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is servable now — no restart.", "")
 	})
 
-	mux.HandleFunc("POST /identity/rotate", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.Form.Get("account_id")
-		accts, err := d.Accounts(r.Context())
-		if err != nil {
-			http.Error(w, "store error", http.StatusInternalServerError)
-			return
-		}
-		var acct store.Account
-		for _, a := range accts {
-			if a.ID == id {
-				acct = a
-			}
-		}
-		if acct.ID == "" {
-			d.audit("account_rotate", "account:"+id, "unknown_account")
-			render(w, r, "", "That account no longer exists.")
-			return
-		}
-		// The guard. A rotation started by a misclick is a rotation nobody
-		// planned for, and the fan-out has already gone out by the time anyone
-		// notices.
-		if r.Form.Get("confirm") != acct.Slug {
-			d.audit("account_rotate", "account:"+acct.ID+" slug:"+acct.Slug, "not_confirmed")
-			render(w, r, "", fmt.Sprintf("Type %q exactly to confirm. Nothing was rotated.", acct.Slug))
-			return
-		}
-		grace := identity.DefaultGrace
-		if v := r.Form.Get("grace"); v != "" {
-			parsed, perr := time.ParseDuration(v)
-			if perr != nil || parsed < 0 {
-				render(w, r, "", fmt.Sprintf("%q is not a duration — try 336h, or 0 to retire the old key as soon as contacts are told. Nothing was rotated.", v))
-				return
-			}
-			grace = parsed
-			if parsed == 0 {
-				// Typed, not omitted: no grace period. Rotate treats a plain 0 as
-				// "use the default", so the request travels as the sentinel.
-				grace = identity.GraceImmediate
-			}
-		}
-		if d.Rotate == nil {
-			render(w, r, "", "Rotation is unavailable on this node.")
-			return
-		}
-		rot, rerr := d.Rotate(r.Context(), acct.ID, grace)
-		if rerr != nil {
-			d.audit("account_rotate", "account:"+acct.ID+" slug:"+acct.Slug, "failed")
-			render(w, r, "", "Rotation failed: "+rerr.Error())
-			return
-		}
-		// Reported honestly: an incomplete fan-out is the normal case when a
-		// contact is offline, and the owner needs to know to re-run rather than
-		// assume everyone has the new key.
-		var msg string
-		if rot.Immediate {
-			msg = fmt.Sprintf("Rotated. New fingerprint %s. Notified %d contact(s); the old key has been retired.",
-				rot.NewFpr, rot.Notified)
-			if rot.Failed > 0 {
-				msg += fmt.Sprintf(" %d could not be reached and are lost — the key they knew no longer exists, so they must re-pair.", rot.Failed)
-			}
-		} else {
-			msg = fmt.Sprintf("Rotated. New fingerprint %s. Notified %d contact(s); "+
-				"the old key stays valid until %s.",
-				rot.NewFpr, rot.Notified, rot.GraceUntil.UTC().Format("2 Jan 2006"))
-			if rot.Failed > 0 {
-				msg += fmt.Sprintf(" %d could not be reached — re-run this to resume the "+
-					"fan-out for them, or they will be lost when the old key expires.", rot.Failed)
-			}
-		}
-		d.audit("account_rotate", "account:"+acct.ID+" slug:"+acct.Slug, "rotated")
-		render(w, r, msg, "")
-	})
 }

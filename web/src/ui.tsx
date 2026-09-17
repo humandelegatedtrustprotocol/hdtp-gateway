@@ -212,8 +212,8 @@ export type Tone = "neutral" | "ok" | "warn" | "bad";
 // a refusal is recognised by shape, so a code added tomorrow lands red rather
 // than quietly grey — the audit view counts these as refusals, and a refusal
 // the portal cannot recognise is one the owner never sees.
-const OK = /^(ok|active|live|allowed|paired|set|read|delivered|delivered_on_retry|accepted|sealed|connected|rebuilt|started|rotated|stopped)$/;
-const WARN = /^(connecting|pending|pending_in|pending_out|pending_approval|write|waiting|retrying|queued|queued_at_relay|relay_deferred|late|skipped|replayed)$/;
+const OK = /^(ok|active|live|allowed|paired|set|read|delivered|delivered_on_retry|accepted|sealed|connected|rebuilt|started|stopped)$/;
+const WARN = /^(connecting|pending|pending_in|pending_out|pending_approval|write|waiting|retrying|queued|late|skipped|replayed)$/;
 const BAD = /(denied|error|failed|refused|reject|invalid|unreachable|unavailable|expired|revoked|blocked|mismatch|_required|unknown|^not_|too_large|missing|unreadable|^bad_|stale|undelivered)/;
 export function toneOf(status: string): Tone {
   if (OK.test(status)) return "ok";

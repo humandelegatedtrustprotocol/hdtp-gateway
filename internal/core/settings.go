@@ -43,12 +43,6 @@ func (c *Config) ApplyStoreSettings(values map[string]string) error {
 		case "lan_connections":
 			b := v == "true" || v == "1"
 			c.lanExplicit = &b
-		case "relay":
-			c.Relay = v == "true" || v == "1"
-		case "gateway_url":
-			c.GatewayURL = v
-		case "gateway_fingerprint":
-			c.GatewayFingerprint = v
 		case "limit.contact_per_hour":
 			c.LimitContactPerHour = atoiOrZero(v)
 		case "limit.guest_per_hour":
@@ -78,7 +72,6 @@ type Effective struct {
 // and the mode the active adapter derived.
 func (c *Config) EffectiveSettings() []Effective {
 	edge := c.Mode == ModeEdge
-	relayAssisted := c.Mode == ModeRelayAssisted
 	lock := func(cond bool, reason string) (bool, string) {
 		if cond {
 			return true, reason
@@ -98,8 +91,8 @@ func (c *Config) EffectiveSettings() []Effective {
 	add("public_url", c.PublicURL, false, "")
 	add("tunnel", c.Tunnel, false, "")
 
-	sealLocked, sealReason := lock(edge || relayAssisted,
-		"forced to `required` in "+string(c.Mode)+" mode: caller identity can only arrive as an envelope signature (SPEC §2.5)")
+	sealLocked, sealReason := lock(edge,
+		"forced to `required` in edge mode: caller identity can only arrive as an envelope signature (SPEC §2.5)")
 	add("seal", string(c.Seal), sealLocked, sealReason)
 
 	certLocked, certReason := lock(edge,
@@ -108,23 +101,10 @@ func (c *Config) EffectiveSettings() []Effective {
 
 	lanLocked, lanReason := lock(c.Tunnel == "" || c.Tunnel == "direct",
 		"inert without an active tunnel adapter: with no tunnel there is no non-tunnel source to refuse (SPEC §5.1)")
-	if relayAssisted {
-		lanLocked, lanReason = true, "not applicable in relay-assisted mode: there is no inbound listener (SPEC §10.1)"
-	}
 	add("lan_connections", boolStr(c.LANConnections), lanLocked, lanReason)
 
-	relayLocked, relayReason := lock(edge,
-		"a relay verifies senders by their client certificate, which a terminating edge strips (SPEC §10.5)")
-	add("relay", boolStr(c.Relay), relayLocked, relayReason)
-	// Only meaningful while this node IS a relay; locked otherwise so the field
-	// cannot be filled in hopefully and silently ignored.
-	recipLocked, recipReason := lock(!c.Relay,
-		"this node is not running a relay, so it serves no recipients")
-	add("relay_recipients", JoinRecipients(c.RelayRecipients), recipLocked, recipReason)
-	add("gateway_url", c.GatewayURL, false, "")
 	add("limit.contact_per_hour", intStr(c.LimitContactPerHour), false, "")
 	add("limit.guest_per_hour", intStr(c.LimitGuestPerHour), false, "")
-	add("gateway_fingerprint", c.GatewayFingerprint, false, "")
 	return out
 }
 
@@ -219,7 +199,7 @@ func ValidateSetting(key, value string) error {
 // v1 — the schema keeps the column, and nothing here reads it, so the two can
 // never drift.
 func EffectiveSeal(mode Mode, nodeSeal Seal) Seal {
-	if mode == ModeEdge || mode == ModeRelayAssisted {
+	if mode == ModeEdge {
 		return SealRequired
 	}
 	switch nodeSeal {

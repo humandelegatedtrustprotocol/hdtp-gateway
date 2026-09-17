@@ -3,6 +3,12 @@
 # (Dockerfile.full) or mount your own.
 FROM golang:1.26-alpine AS build
 WORKDIR /src
+# go.mod replaces pact-identity with a sibling checkout (../pact-identity/go), which sits
+# OUTSIDE this build context, so `go mod download` cannot see it and the build fails.
+# BuildKit's named context carries it in at the path the replace resolves to (WORKDIR is
+# /src, so ../pact-identity/go is /pact-identity/go). The Makefile passes
+# --build-context pactidentity=../pact-identity/go.
+COPY --from=pactidentity . /pact-identity/go
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .

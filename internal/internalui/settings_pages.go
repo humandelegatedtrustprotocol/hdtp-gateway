@@ -1,6 +1,6 @@
 package internalui
 
-// The settings page (SPEC §8.2): reachability, the security knobs, and relay
+// The settings page (SPEC §8.2): reachability and the security knobs
 // mode. Three rules shape it, and they are why this file is more than a form:
 //
 //   - A control that cannot take effect is never editable. A knob the
@@ -145,15 +145,11 @@ var settingMeta = map[string]struct{ label, help, kind string }{
 	"seal":                   {"Sealed envelopes (X-PACT-SEAL)", "Whether callers must seal. Applies immediately, and your card advertises exactly this.", "select"},
 	"client_cert":            {"Client certificates", "preferred requests one; required refuses calls without one; off omits the request entirely.", "select"},
 	"lan_connections":        {"Accept LAN connections", "With a tunnel active, whether connections straight off the local network are served. Refusals are audited.", "bool"},
-	"relay":                  {"Run a relay for my contacts", "Serves /relay/mcp so allow-listed peers can queue sealed envelopes for their contacts.", "bool"},
-	"relay_recipients":       {"Recipients this relay serves", "One fingerprint per line. LEAVE EMPTY AND ANY NODE THAT CAN REACH THIS RELAY MAY REGISTER WITH IT and have mail queued for it. List the nodes you mean to serve.", "textarea"},
-	"gateway_url":            {"My relay (gateway)", "Where THIS node fetches mail queued for it. Published on your card as X-PACT-GATEWAY.", "text"},
-	"gateway_fingerprint":    {"Relay fingerprint", "Pin the relay's key. Leave empty only if it has a real WebPKI certificate.", "text"},
 	"limit.contact_per_hour": {"Calls per hour, per contact", "PACT §12 says 60. Raise it for busy agent pairs. Empty restores the documented number.", "text"},
 	"limit.guest_per_hour":   {"Calls per hour, per guest", "PACT §12 says 10, counted per address AND key. Empty restores the documented number.", "text"},
 }
 
-func (d SettingsDeps) rows(pending map[string]string) (reach, security, relay []settingRow) {
+func (d SettingsDeps) rows(pending map[string]string) (reach, security []settingRow) {
 	for _, e := range d.Effective() {
 		m := settingMeta[e.Key]
 		row := settingRow{
@@ -179,16 +175,13 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security, relay []
 		switch e.Key {
 		case "public_url", "tunnel":
 			reach = append(reach, row)
-		case "seal", "client_cert", "lan_connections",
-			"limit.contact_per_hour", "limit.guest_per_hour":
-			// Budgets are a boundary control, so they belong with the other
-			// ones rather than falling through to the relay group.
-			security = append(security, row)
 		default:
-			relay = append(relay, row)
+			// Budgets are a boundary control, so they belong with the other ones;
+			// anything new lands here too rather than vanishing from the page.
+			security = append(security, row)
 		}
 	}
-	return reach, security, relay
+	return reach, security
 }
 
 // MountSettingsPages registers the settings routes.
@@ -198,7 +191,7 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 		if d.Pending != nil {
 			pending, _ = d.Pending(r.Context())
 		}
-		reach, security, relay := d.rows(pending)
+		reach, security := d.rows(pending)
 		var adapters []AdapterSetting
 		if d.AdapterSettings != nil {
 			adapters, _ = d.AdapterSettings(r.Context())
@@ -240,7 +233,7 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 			"show_pair":    d.Pair != nil, "paired": paired,
 			"accounts": choices,
 			"notice":   notice, "error": isErr,
-			"reach": reach, "security": security, "relay": relay,
+			"reach": reach, "security": security,
 			"adapter_settings": adapters, "adapters": d.Adapters,
 			"show_probe":    d.Probe != nil,
 			"probe_verdict": verdict, "probe_detail": detail,

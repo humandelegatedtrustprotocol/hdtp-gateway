@@ -314,7 +314,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 					return internalui.DashboardPosture{
 						Mode: string(cfg.Mode), Seal: string(cfg.Seal),
 						ClientCert: string(cfg.ClientCert), Tunnel: cfg.Tunnel,
-						PublicURL: nd.PublicURL(), Relay: cfg.Relay, Gateway: cfg.GatewayURL,
+						PublicURL: nd.PublicURL(),
 					}
 				},
 				Recent: func(ctx context.Context, limit int) ([]store.AuditRow, error) {

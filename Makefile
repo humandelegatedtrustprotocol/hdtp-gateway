@@ -118,7 +118,7 @@ harness:
 # The node image the harness stands topologies up from: the shipped artifact,
 # built from the repo's own Dockerfile.
 harness-image:
-	docker build -t pact-gateway:harness .
+	docker build --build-context pactidentity=../pact-identity/go -t pact-gateway:harness .
 
 # The calendar scenario (S4) needs the -FULL image — node and uv, so a supervised
 # stdio child can run in-container (SPEC §12.3) — with the upstream MCP server
@@ -126,7 +126,7 @@ harness-image:
 # time so the scenario does not depend on reaching a package registry mid-test,
 # and so what it exercises is a pinned version.
 harness-image-caldav:
-	docker build -f Dockerfile.full -t pact-gateway:harness-full .
+	docker build --build-context pactidentity=../pact-identity/go -f Dockerfile.full -t pact-gateway:harness-full .
 	printf 'FROM pact-gateway:harness-full\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
 	  | docker build -t pact-gateway:harness-caldav -
 

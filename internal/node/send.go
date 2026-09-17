@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,20 +32,14 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/public"
-	relayclient "github.com/tech-sumit/pact-gateway/internal/relay"
 )
 
 // Delivery statuses a message row can carry (SPEC §7.1).
 const (
 	StatusPending   = "pending"
 	StatusDelivered = "delivered"
-	// StatusQueuedAtRelay: the contact's relay accepted the envelope. That is
-	// NOT delivery — a third party is holding ciphertext for a peer who is
-	// offline, and it may never be drained. The owner is owed the distinction.
-	StatusQueuedAtRelay = "queued_at_relay"
-	StatusFailed        = "failed"
+	StatusFailed    = "failed"
 )
 
 // SendMessage records an owner-composed message and delivers it to the contact.
@@ -96,7 +89,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	// the budget below is what bounds this attempt.
 	dctx, cancelDelivery := context.WithTimeout(context.WithoutCancel(ctx), deliveryBudget)
 	defer cancelDelivery()
-	viaRelay, derr := n.deliverWithExpiry(dctx, accountID, c, in, res.ThreadID, exp, false)
+	derr := n.deliverWithExpiry(dctx, accountID, c, in, res.ThreadID, exp)
 	if derr != nil {
 		// Why it did not land, not just that it did not: a retry that succeeds
 		// leaves a trail that otherwise explains nothing.
@@ -104,9 +97,6 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		return res, derr
 	}
 	status := StatusDelivered
-	if viaRelay {
-		status = StatusQueuedAtRelay
-	}
 	// Same reasoning: a delivery that succeeded must be RECORDED as delivered
 	// even if the caller has gone, or the retry loop sends it a second time.
 	if err := n.setStatus(context.WithoutCancel(ctx),
@@ -119,8 +109,8 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 }
 
 // SendMedia records an outbound media message and delivers it through the
-// peer's `send_media`. Media goes direct only: PACT §9's relay carries sealed
-// send_message envelopes, and a 5 MiB blob has no business sitting in a relay
+// peer's `send_media`. Media goes direct only, as everything now does (PACT §9):
+// there is no relay, and a 5 MiB blob would have had no business in one
 // queue. Until it lands it stays pending and the retry sweep re-sends it like
 // text — from the blob, not from the row, whose body is only the metadata.
 func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in messaging.Input, filename, mime string, data []byte) (messaging.Result, error) {
@@ -217,49 +207,30 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 	return true
 }
 
-// deliverWithExpiry reports whether it reached the peer directly or only handed
-// the message to their relay, because those are different facts about where the
-// message is and the caller records them differently.
-// lastResort says this is the message's final chance: its deadline has arrived,
-// so the contact's relay may be used. Before then it may not — see the comment
-// at the fallback below.
-func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.Contact, in messaging.Input, threadID string, expiry time.Time, lastResort bool) (viaRelay bool, err error) {
+// deliverWithExpiry makes one attempt to reach the peer. Delivery is direct and
+// only direct (PACT §9): there is no relay role, so a peer that cannot be reached
+// before `expires` is a reported failure, not a message handed to a third party.
+func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.Contact, in messaging.Input, threadID string, expiry time.Time) error {
 	card, err := contacts.ParseCard(c.Card)
 	if err != nil {
-		return false, fmt.Errorf("send: that contact's card is unreadable")
+		return fmt.Errorf("send: that contact's card is unreadable")
 	}
-	// A 2.0 pin's endpoint is the leaf's (PACT §14.1), never a card property.
-	if p, perr := n.peerOf(accountID, c); perr == nil && c.Protocol == 2 {
-		card.Endpoint, card.Gateway = p.Endpoint, ""
+	// The endpoint is the leaf's (PACT §14.1), never a card property.
+	peer, perr := n.peerOf(accountID, c)
+	if perr != nil {
+		return perr
 	}
-	if card.Endpoint == "" && card.Gateway == "" {
-		return false, fmt.Errorf("send: that contact publishes neither an endpoint nor a gateway")
+	card.Endpoint = peer.Endpoint
+	if card.Endpoint == "" {
+		return fmt.Errorf("send: that contact publishes no endpoint")
 	}
-	pinned := len(c.SPKI) > 0
-	if card.Endpoint != "" {
-		if err := checkEndpoint(card.Endpoint, pinned); err != nil {
-			n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
-			return false, err
-		}
-	}
-	if card.Gateway != "" {
-		// Someone else's relay is verified by WebPKI, which a private address
-		// cannot satisfy — EXCEPT when it is the same gateway this node uses,
-		// where our own configuration supplies its fingerprint. That is the
-		// same condition relayFallback pins on, kept in one predicate so the
-		// two cannot disagree about whether the relay is known.
-		if err := checkEndpoint(card.Gateway, n.pinsGateway(card.Gateway)); err != nil {
-			n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "gateway_refused")
-			return false, err
-		}
+	if err := checkEndpoint(card.Endpoint, len(c.SPKI) > 0); err != nil {
+		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
+		return err
 	}
 	client, err := n.clientForContact(ctx, accountID, c)
 	if err != nil {
-		return false, err
-	}
-	peer := outbound.Peer{Endpoint: card.Endpoint, Fingerprint: c.Fingerprint, Seal: card.Seal}
-	if p, perr := n.peerOf(accountID, c); perr == nil && c.Protocol == 2 {
-		peer = p
+		return err
 	}
 	args := map[string]any{
 		"msg_id": in.MsgID, "text": in.Text, "thread_id": threadID,
@@ -271,56 +242,13 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	if in.ReplyTo != "" {
 		args["reply_to"] = in.ReplyTo
 	}
-
-	// A relay-assisted contact publishes no endpoint at all (§9.3, §10.1): their
-	// card carries only X-PACT-GATEWAY, and the relay IS their inbound path.
-	// Requiring an endpoint made those contacts permanently unreachable.
-	var res *mcp.CallToolResult
-	derr := errNoDirectPath
-	if card.Endpoint != "" {
-		// The peer's card decides whether this is sealed; Client.Call owns that
-		// rule so every outbound path obeys the same one.
-		res, derr = client.Call(ctx, peer, c.SPKI, "send_message", args, in.MsgID)
-		if derr == nil {
-			if rerr := refusal(res); rerr == nil {
-				return false, nil
-			} else if !isReachabilityFailure(rerr) {
-				// The peer answered and said no. A relay cannot improve that
-				// answer, and queueing it would deliver the same refusal later.
-				return false, rerr
-			}
-		}
+	// The peer's card decides whether this is sealed; Client.Call owns that rule so
+	// every outbound path obeys the same one.
+	res, derr := client.Call(ctx, peer, c.SPKI, "send_message", args, in.MsgID)
+	if derr != nil {
+		return derr
 	}
-
-	// Direct failed. SPEC §7.1 orders this precisely: the node "retries with
-	// backoff until the sender-chosen `expires` … THEN falls back to the
-	// contact's X-PACT-GATEWAY relay". The ordering is not a detail — a relay is
-	// a third party that sees sender, recipient, sizes and timing (§10.5, §13),
-	// and handing it the envelope on the first failed connection tells it about
-	// a message that direct delivery would very likely have carried a minute
-	// later. Only two things earn the relay: the contact publishing no endpoint
-	// at all, so the relay IS their inbound path (§9.3, §10.1), or the message
-	// having run out of time.
-	if !lastResort && card.Endpoint != "" {
-		// The REASON travels with the outcome. Recording only "relay_deferred"
-		// said a delivery had failed and never why, so an owner watching the
-		// audit or the container log could see that messages were not arriving
-		// and had nothing to act on.
-		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint+" "+whyFailed(derr), "relay_deferred")
-		return false, derr
-	}
-
-	// Reuse the SAME msg_id so their idempotency makes this safe.
-	if ferr := n.relayFallback(ctx, client, peer, c, card, args, in, expiry); ferr == nil {
-		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "queued_at_relay")
-		return true, nil
-	} else if !errors.Is(ferr, errNoRelayPath) {
-		return false, fmt.Errorf("%w (relay also failed: %v)", derr, ferr)
-	}
-	if derr == nil {
-		derr = refusal(res)
-	}
-	return false, derr
+	return refusal(res)
 }
 
 // refusal turns a peer's error result into an error. A peer that refuses is not
@@ -420,12 +348,6 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 	for _, m := range pending {
 		expiredNow := now >= expiryOf(m)
 		if expiredNow {
-			// SPEC §7.1: at the deadline the relay is the LAST RESORT, tried
-			// before failure is reported — not the first thing reached for.
-			if m.Kind != "media" && n.lastChanceViaRelay(ctx, m) {
-				delivered++
-				continue
-			}
 			// Nothing carried it. Say so on the row: an owner is owed the truth
 			// that this one never arrived.
 			if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, StatusFailed); err == nil {
@@ -453,8 +375,6 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			MsgID: m.MsgID, ThreadID: m.ThreadID, Text: m.Body,
 			ReplyTo: m.ReplyTo, Sender: messaging.Sender(m.Sender), Origin: messaging.OriginStored,
 		}
-		// Relay with the message's OWN deadline: an envelope handed to a relay
-		// must live as long as the message does, not five minutes.
 		// Record the attempt BEFORE trying, so a delivery that panics or a
 		// process that dies mid-send cannot leave the row due on every sweep.
 		attempt := m.Attempts + 1
@@ -462,15 +382,11 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			attempt, now+int64(retryDelay(attempt)/time.Second)); err != nil {
 			continue
 		}
-		viaRelay, err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,
-			time.Unix(expiryOf(m), 0), false)
-		if err != nil {
+		if err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,
+			time.Unix(expiryOf(m), 0)); err != nil {
 			continue // still unreachable; the next scheduled attempt tries again
 		}
 		status, detail := StatusDelivered, "delivered_on_retry"
-		if viaRelay {
-			status, detail = StatusQueuedAtRelay, "queued_at_relay_on_retry"
-		}
 		if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, status); err == nil {
 			n.auditFor(m.AccountID, "send_message", "contact:"+m.ContactFpr+" msg:"+m.MsgID, detail)
 			delivered++
@@ -479,61 +395,6 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 	return delivered, expired
 }
 
-// lastChanceViaRelay is the deadline attempt of SPEC §7.1: the contact's relay,
-// permitted now because there is no time left for direct delivery to succeed.
-// Reports whether the relay took it.
-func (n *Node) lastChanceViaRelay(ctx context.Context, m store.Message) bool {
-	c, err := n.opts.Store.GetContact(ctx, m.AccountID, m.ContactFpr)
-	if err != nil || c.Status != "active" {
-		return false
-	}
-	in := messaging.Input{
-		MsgID: m.MsgID, ThreadID: m.ThreadID, Text: m.Body,
-		ReplyTo: m.ReplyTo, Sender: messaging.Sender(m.Sender), Origin: messaging.OriginStored,
-	}
-	viaRelay, err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,
-		time.Unix(expiryOf(m), 0), true)
-	if err != nil {
-		return false
-	}
-	status, detail := StatusDelivered, "delivered_at_deadline"
-	if viaRelay {
-		status, detail = StatusQueuedAtRelay, "queued_at_relay_at_deadline"
-	}
-	if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, status); err != nil {
-		return false
-	}
-	n.auditFor(m.AccountID, "send_message", "contact:"+m.ContactFpr+" msg:"+m.MsgID, detail)
-	return true
-}
-
-// RunRetries sweeps until ctx ends. This is the piece that makes a failed send
-// recoverable rather than a message the owner has to notice and resend.
-func (n *Node) RunRetries(ctx context.Context) {
-	t := time.NewTicker(RetrySweep)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			n.RetryPending(ctx)
-		}
-	}
-}
-
-/* --------------------- relay fallback (SPEC §7.1, §10.5) --------------------- */
-
-// errNoRelayPath says this contact offers no usable relay, so the direct failure
-// stands on its own.
-var errNoRelayPath = errors.New("send: no relay path for this contact")
-
-// errNoDirectPath says the contact publishes no endpoint — relay-assisted mode
-// (§10.1), where the relay is the only inbound path they have.
-var errNoDirectPath = errors.New("send: that contact publishes no endpoint")
-
-// isReachabilityFailure reports whether a refusal came from the transport rather
-// than from the peer's own policy. Only the former is worth relaying.
 // setStatus records an outbound message's new delivery status and announces it.
 //
 // Every status write went straight to the store, so a conversation open in the
@@ -553,9 +414,6 @@ func (n *Node) setStatus(ctx context.Context, accountID, contactFpr, msgID, thre
 	return nil
 }
 
-// whyFailed renders a delivery failure for the audit and the log. It is the
-// error's own text, capped: these are transport errors naming an endpoint we
-// already publish on our card, not secrets.
 func whyFailed(err error) string {
 	if err == nil {
 		return "why:unknown"
@@ -568,76 +426,21 @@ func whyFailed(err error) string {
 	return "why:" + msg
 }
 
-func isReachabilityFailure(err error) bool {
-	return err == nil || !strings.Contains(err.Error(), "refused:")
+// RunRetries sweeps until ctx ends. This is the piece that makes a failed send
+// recoverable rather than a message the owner has to notice and resend.
+func (n *Node) RunRetries(ctx context.Context) {
+	t := time.NewTicker(RetrySweep)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n.RetryPending(ctx)
+		}
+	}
 }
 
-// relayFallback queues the same call at the contact's published gateway.
-//
-// SPEC §7.1 makes the precondition explicit and it is not a detail: the fallback
-// is "skipped when the contact's card does not advertise X-PACT-SEAL:
-// optional|required, since a relay queues only sealed envelopes (§10.5) and a
-// `none` card forbids sealing (§4.6)". Relaying a plaintext call would hand a
-// third party the message body, which is exactly what sealing exists to prevent.
-func (n *Node) relayFallback(ctx context.Context, client *outbound.Client, peer outbound.Peer,
-	c store.Contact, card contacts.Card, args map[string]any, in messaging.Input, expiry time.Time) error {
-
-	if card.Gateway == "" {
-		return errNoRelayPath
-	}
-	if card.Seal != string(core.SealRequired) && card.Seal != string(core.SealOptional) {
-		// Their card forbids sealing, so there is nothing a relay may carry.
-		return errNoRelayPath
-	}
-	if len(c.SPKI) == 0 {
-		// We hold only their fingerprint (§3.9), so we cannot seal to them.
-		return errNoRelayPath
-	}
-	env, err := client.SealEnvelope(peer, c.SPKI, "send_message", args, in.MsgID, expiry)
-	if err != nil {
-		return err
-	}
-	// The relay is a service the CONTACT chose. Everything it holds is
-	// ciphertext to it and it can only refuse or drop, never read (§10.5), so
-	// its TLS is checked against WebPKI for its own hostname — we have no
-	// pinned identity for someone else's relay.
-	//
-	// With one exception worth taking: when the contact publishes the SAME
-	// gateway this node uses, we already hold its fingerprint from our own
-	// configuration, and pinning is strictly stronger than WebPKI.
-	relay := outbound.Peer{Endpoint: strings.TrimSuffix(card.Gateway, "/") + "/relay/mcp"}
-	if n.cfg.GatewayURL != "" && n.cfg.GatewayFingerprint != "" &&
-		strings.TrimSuffix(n.cfg.GatewayURL, "/") == strings.TrimSuffix(card.Gateway, "/") {
-		relay.Fingerprint = n.cfg.GatewayFingerprint
-	}
-	// Go through relay.Fallback rather than calling relay_call here: it is the
-	// tested statement of PACT §7's sender rule, and it had no production caller
-	// at all — the sender half of relay mode shipped as a library. Direct is nil
-	// because this node has already made that attempt itself.
-	fb := relayclient.Fallback{
-		RelayTransport: relayTransport{client: client, peer: relay},
-		Audit:          func(a, r, o string) { n.opts.audit(a, r, o) },
-	}
-	_, err = fb.Deliver(ctx, c.Fingerprint, env)
-	return err
-}
-
-// relayTransport lets relay.Fallback speak to a gateway over this account's
-// pinned mTLS. Relay traffic is plaintext MCP carrying a sealed payload: the
-// relay must read the routing header without opening anything (§10.5).
-type relayTransport struct {
-	client *outbound.Client
-	peer   outbound.Peer
-}
-
-func (t relayTransport) Call(ctx context.Context, tool string, args map[string]any) (*mcp.CallToolResult, error) {
-	return t.client.CallTool(ctx, t.peer, tool, args, outbound.CallOptions{Plaintext: true})
-}
-
-// FetchMedia performs the owner-initiated fetch of a `url` a contact sent
-// (SPEC §7.5). It is never automatic: auto-fetching attacker-supplied URLs would
-// let any contact drive server-side requests into the node's own network. The
-// SSRF range check, the size cap and the quota accounting live in MediaService.
 func (n *Node) FetchMedia(ctx context.Context, accountID, rawURL string) (string, error) {
 	n.mu.RLock()
 	a := n.accounts[accountID]
@@ -790,11 +593,4 @@ func checkEndpoint(raw string, pinned bool) error {
 			"whose key is not pinned — nothing would verify what answered", ip)
 	}
 	return nil
-}
-
-// pinsGateway reports whether this node holds a pinned identity for a relay,
-// which is true exactly when the contact publishes the gateway we ourselves use.
-func (n *Node) pinsGateway(gateway string) bool {
-	return n.cfg.GatewayURL != "" && n.cfg.GatewayFingerprint != "" &&
-		strings.TrimSuffix(n.cfg.GatewayURL, "/") == strings.TrimSuffix(gateway, "/")
 }

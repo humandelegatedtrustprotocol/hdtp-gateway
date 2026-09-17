@@ -43,8 +43,6 @@ type DashboardPosture struct {
 	ClientCert string `json:"client_cert"`
 	Tunnel     string `json:"tunnel"`
 	PublicURL  string `json:"public_url"`
-	Relay      bool   `json:"relay"`
-	Gateway    string `json:"gateway"`
 }
 
 type dashAccount struct {
