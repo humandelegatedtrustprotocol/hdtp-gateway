@@ -10,18 +10,6 @@ import (
 	"database/sql"
 )
 
-const clearAccountPrevKey = `-- name: ClearAccountPrevKey :execrows
-UPDATE accounts SET prev_fingerprint = NULL, prev_key_sealed = NULL, grace_until = 0 WHERE id = ?
-`
-
-func (q *Queries) ClearAccountPrevKey(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, clearAccountPrevKey, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const countCredentialsByKind = `-- name: CountCredentialsByKind :one
 SELECT COUNT(*) FROM credentials WHERE kind = ?
 `
@@ -150,23 +138,6 @@ func (q *Queries) GetAccountBySlug(ctx context.Context, slug string) (Account, e
 		&i.AcceptNewHosts,
 		&i.Accept1x,
 	)
-	return i, err
-}
-
-const getAccountPrevKey = `-- name: GetAccountPrevKey :one
-SELECT prev_fingerprint, prev_key_sealed, grace_until FROM accounts WHERE id = ?
-`
-
-type GetAccountPrevKeyRow struct {
-	PrevFingerprint sql.NullString
-	PrevKeySealed   []byte
-	GraceUntil      int64
-}
-
-func (q *Queries) GetAccountPrevKey(ctx context.Context, id string) (GetAccountPrevKeyRow, error) {
-	row := q.db.QueryRowContext(ctx, getAccountPrevKey, id)
-	var i GetAccountPrevKeyRow
-	err := row.Scan(&i.PrevFingerprint, &i.PrevKeySealed, &i.GraceUntil)
 	return i, err
 }
 
@@ -734,32 +705,6 @@ type RevokeTokenParams struct {
 
 func (q *Queries) RevokeToken(ctx context.Context, arg RevokeTokenParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeToken, arg.RevokedAt, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const rotateAccountKey = `-- name: RotateAccountKey :execrows
-UPDATE accounts SET prev_fingerprint = fingerprint, prev_key_sealed = key_sealed,
-  fingerprint = ?, key_sealed = ?, grace_until = ?
-WHERE id = ? AND fingerprint IS NOT NULL
-`
-
-type RotateAccountKeyParams struct {
-	Fingerprint sql.NullString
-	KeySealed   []byte
-	GraceUntil  int64
-	ID          string
-}
-
-func (q *Queries) RotateAccountKey(ctx context.Context, arg RotateAccountKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, rotateAccountKey,
-		arg.Fingerprint,
-		arg.KeySealed,
-		arg.GraceUntil,
-		arg.ID,
-	)
 	if err != nil {
 		return 0, err
 	}

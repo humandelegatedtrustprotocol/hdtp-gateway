@@ -11,18 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const clearAccountPrevKey = `-- name: ClearAccountPrevKey :execrows
-UPDATE accounts SET prev_fingerprint = NULL, prev_key_sealed = NULL, grace_until = 0 WHERE id = $1
-`
-
-func (q *Queries) ClearAccountPrevKey(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, clearAccountPrevKey, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const countCredentialsByKind = `-- name: CountCredentialsByKind :one
 SELECT COUNT(*) FROM credentials WHERE kind = $1
 `
@@ -161,23 +149,6 @@ func (q *Queries) GetAccountBySlug(ctx context.Context, slug string) (Account, e
 		&i.AcceptNewHosts,
 		&i.Accept1x,
 	)
-	return i, err
-}
-
-const getAccountPrevKey = `-- name: GetAccountPrevKey :one
-SELECT prev_fingerprint, prev_key_sealed, grace_until FROM accounts WHERE id = $1
-`
-
-type GetAccountPrevKeyRow struct {
-	PrevFingerprint pgtype.Text
-	PrevKeySealed   []byte
-	GraceUntil      int64
-}
-
-func (q *Queries) GetAccountPrevKey(ctx context.Context, id string) (GetAccountPrevKeyRow, error) {
-	row := q.db.QueryRow(ctx, getAccountPrevKey, id)
-	var i GetAccountPrevKeyRow
-	err := row.Scan(&i.PrevFingerprint, &i.PrevKeySealed, &i.GraceUntil)
 	return i, err
 }
 
@@ -721,32 +692,6 @@ type RevokeTokenParams struct {
 
 func (q *Queries) RevokeToken(ctx context.Context, arg RevokeTokenParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeToken, arg.RevokedAt, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const rotateAccountKey = `-- name: RotateAccountKey :execrows
-UPDATE accounts SET prev_fingerprint = fingerprint, prev_key_sealed = key_sealed,
-  fingerprint = $1, key_sealed = $2, grace_until = $3
-WHERE id = $4 AND fingerprint IS NOT NULL
-`
-
-type RotateAccountKeyParams struct {
-	Fingerprint pgtype.Text
-	KeySealed   []byte
-	GraceUntil  int64
-	ID          string
-}
-
-func (q *Queries) RotateAccountKey(ctx context.Context, arg RotateAccountKeyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, rotateAccountKey,
-		arg.Fingerprint,
-		arg.KeySealed,
-		arg.GraceUntil,
-		arg.ID,
-	)
 	if err != nil {
 		return 0, err
 	}

@@ -128,17 +128,15 @@ func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer 
 // envelope is the proof of the new address, and the contact's setting decides
 // whether it re-pins at once or asks its owner. The walk is durable
 // (rotation_fanout, kind `move`), so an interrupted campaign resumes where it
-// stopped when run again for the same leaf. Contacts pinned as 1.x are not
-// here: a move puts the old key in a host that has deleted it, and they learn
-// of it from the card again over a human channel (PACT Appendix C row 2).
+// stopped when run again for the same leaf.
 func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done, failed int, err error) {
 	card, err := n.Card(ctx, accountID)
 	if err != nil {
 		return 0, 0, err
 	}
-	rot := identity.Rotation{AccountID: accountID, NewFpr: newKid, ModernOnly: true, Kind: "move"}
-	rotator := &identity.Rotator{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
-	done, failed, _ = rotator.Fanout(ctx, rot, card, func(ctx context.Context, c store.Contact, card string, _ []byte) error {
+	camp := identity.Campaign{AccountID: accountID, NewKid: newKid, Kind: "move"}
+	announcer := &identity.Announcer{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
+	done, failed, _ = announcer.Fanout(ctx, camp, card, func(ctx context.Context, c store.Contact, card string) error {
 		peer, err := n.peerOf(accountID, c)
 		if err != nil {
 			return err

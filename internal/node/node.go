@@ -345,8 +345,9 @@ func probeHandler(publicURL func() string) http.Handler {
 }
 
 // buildAccount loads one account's key and composes its serving state.
-// errAwaitingLeaf marks an account that holds no key: imported data-only,
-// waiting for the wallet's leaf before it serves (PACT §9).
+// errAwaitingLeaf marks an account that cannot serve yet: it holds no key (a
+// data-only import), or it holds one and no leaf has been issued over it. Both
+// wait on the same thing — the wallet (PACT §9).
 var errAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
@@ -393,11 +394,12 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		kp = keys[0].KP
 		cert = tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
 	} else {
-		// PACT 1.x is gone (2026-09-17). An account pinned by a bare key has no chain
-		// to present and no card to serve, so it cannot be served at all. It is named
-		// here rather than skipped quietly, because the remedy is a deliberate act by
-		// the owner: make the identity again and re-pair its contacts.
-		return nil, fmt.Errorf("node: account %s predates PACT 2.0 and cannot be served — it has no certificate chain; make the identity again and re-pair its contacts", rec.Slug)
+		// No leaf, so no chain to present and no card to serve — whether this account
+		// was made a moment ago and has not been to a wallet yet, or predates 2.0.
+		// Either way it cannot serve and the remedy is the same: `account csr`, the
+		// wallet, `account install-leaf`. Skipped and audited rather than fatal, so
+		// one account waiting on its wallet does not take the node down.
+		return nil, errAwaitingLeaf
 	}
 	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	if err != nil {
