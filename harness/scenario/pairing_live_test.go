@@ -14,7 +14,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
 )
 
 // PlaintextCanary is planted in message bodies so the relay invariant has an
@@ -199,14 +198,8 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 		t.Fatalf("guest surface has no redeem_invite: %v", names)
 	}
 	// --- bob redeems the invite, exchanging cards ---------------------------
-	bobCard, err := contacts.BuildCard(contacts.Card{
-		FN: "Bob", Key: bob.Fingerprint(), Endpoint: "https://bob.invalid/mcp", Seal: "optional",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	redeemed, err := bob.Call(ctx, target, "redeem_invite", map[string]any{
-		"token": invite.Token, "card": bobCard,
+		"token": invite.Token, "card": bob.Card("optional"),
 	}, "redeem-1")
 	if err != nil {
 		t.Fatalf("redeem_invite: %v", err)
