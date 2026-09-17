@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -163,20 +162,6 @@ func (p *portal) post(path string, form url.Values) string {
 		p.t.Fatalf("POST %s: %d %s", path, res.StatusCode, firstLine(string(b)))
 	}
 	return string(b)
-}
-
-// postExpectingStatus posts and returns (status, body) without failing the
-// test, for the cases where the interesting outcome IS an error status.
-func (p *portal) postExpectingStatus(path string, form url.Values) (int, string) {
-	p.t.Helper()
-	form.Set("csrf", p.csrf)
-	res, err := p.c.PostForm(p.base+path, form)
-	if err != nil {
-		p.t.Fatalf("POST %s: %v", path, err)
-	}
-	defer res.Body.Close()
-	b, _ := io.ReadAll(res.Body)
-	return res.StatusCode, string(b)
 }
 
 // cookieJar is the smallest jar that keeps one host's cookies.
@@ -444,40 +429,9 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 // and rejected: the harness notes retire exactly that kind of knob ("E11 is
 // retired. Do not add clock_offset_seconds").
 
-// recordingPeer is a contact's node: a real MCP server over TLS, presenting the
-// identity key the announcing node pinned, whose update_contact records what it
-// was told. Anything less and the outbound client's handshake never completes,
-// which would test the harness rather than the fan-out.
-type recordingPeer struct{ URL string }
-
-// newRecordingPeer builds the peer AND its identity, in that order, because a 2.0
-// leaf names the address it answers at (PACT §14.1) — and that address is not known
-// until the listener exists. A 1.x peer could be made first and started second; a
-// 2.0 one cannot.
-func newRecordingPeer(t *testing.T, cn string, mu *sync.Mutex, got *[]map[string]any) (*testPeer, *recordingPeer) {
-	t.Helper()
-	srv := mcp.NewServer(&mcp.Implementation{Name: cn, Version: "1"}, nil)
-	srv.AddTool(&mcp.Tool{Name: "update_contact", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			var args map[string]any
-			_ = json.Unmarshal(req.Params.Arguments, &args)
-			mu.Lock()
-			*got = append(*got, args)
-			mu.Unlock()
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"ok"}`}}}, nil
-		})
-
-	hs := httptest.NewUnstartedServer(mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{}))
-	url := "https://" + hs.Listener.Addr().String() + "/a/" + cn + "/mcp"
-	peer := newTestPeer(t, cn, url)
-	// The caller dials by IP and sends no SNI, so the certificate is set
-	// explicitly rather than through GetCertificate.
-	hs.TLS = &tls.Config{Certificates: []tls.Certificate{peer.Cert}, ClientAuth: tls.RequestClientCert}
-	hs.StartTLS()
-	t.Cleanup(hs.Close)
-	return peer, &recordingPeer{URL: hs.URL}
-}
+// `recordingPeer`/`newRecordingPeer` went with that test on 2026-09-18: a peer's whole node, built
+// listener-first because a 2.0 leaf names the address it answers at, driving the fan-out over real
+// TLS. With the test retired they were a fixture for nothing, which reads as coverage and is not.
 
 // AC (P7-01): a restart-scoped save is visible in the page immediately — the
 // control shows what was chosen and names what is still running. A save the

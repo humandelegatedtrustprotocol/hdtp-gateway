@@ -63,16 +63,6 @@ func (s *State20) currentKey() *identity.Keypair {
 	return nil
 }
 
-// keyFor resolves an envelope's kid to a key this endpoint still holds.
-func (s *State20) keyFor(kid string) *identity.Keypair {
-	for _, k := range s.Keys {
-		if k.Kid == kid {
-			return k.KP
-		}
-	}
-	return nil
-}
-
 func b64u(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 
 // nodeState builds Decide's input from the store and the supplied state.
@@ -285,29 +275,6 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 		id.OnPending(root, endpoint, why)
 	}
 	return nil
-}
-
-// resolveKey is the `kid` step for a node that may hold more than one
-// key: the current leaf's and superseded ones until their notAfter (PACT §2),
-func (id *Identifier) resolveKey(ctx context.Context, accountID, accountFpr, kid string) (*identity.Keypair, error) {
-	if id.State20 != nil {
-		if st, err := id.State20(ctx); err == nil && st != nil {
-			if kp := st.keyFor(kid); kp != nil {
-				return kp, nil
-			}
-			if st.Protocol == 2 {
-				return nil, fmt.Errorf("%w: unknown kid %q", envelope.ErrInvalid, kid)
-			}
-		}
-	}
-	if kid != accountFpr {
-		return nil, fmt.Errorf("%w: unknown kid %q", envelope.ErrInvalid, kid)
-	}
-	kp, err := id.Keypair(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: recipient key unavailable", envelope.ErrInvalid)
-	}
-	return kp, nil
 }
 
 // TransportCaller is what a 2.0 client certificate chain earned once the pin
