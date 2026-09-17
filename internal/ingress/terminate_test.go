@@ -25,6 +25,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // stubDNS answers every A query with 127.0.0.1 so Pebble's validator reaches
@@ -146,6 +147,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	// reverse tunnel under its INTERNAL name, paired in terminate mode
 	nodeKP, nodeCert := keypairCert(t, "node")
 	nodeSPKI, _ := x509.MarshalPKIXPublicKey(nodeKP.Signer.Public())
+	nodePKCS8, _ := x509.MarshalPKCS8PrivateKey(nodeKP.Signer)
 	if err := reg.Put(Node{Fingerprint: nodeKP.Fingerprint, SPKI: nodeSPKI, Subdomain: "alpha", Mode: ModeTerminate, Secret: "s"}); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +169,18 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 					fmt.Fprintf(c, "decode: %v", err)
 					return
 				}
-				plain, err := envelope.Open(nodeKP, &env)
+				nodePriv, perr := pactidentity.ParsePKCS8(nodePKCS8)
+				if perr != nil {
+					fmt.Fprintf(c, "key: %v", perr)
+					return
+				}
+				suite, serr := pactidentity.SuiteForKey(nodePriv.Public)
+				if serr != nil {
+					fmt.Fprintf(c, "suite: %v", serr)
+					return
+				}
+				plain, err := pactidentity.Open(suite, nodePriv,
+					[]byte(pactidentity.InfoV2), env.Protected, env.Enc, env.CT)
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
 					return
@@ -200,15 +213,25 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	go term.Serve(pubLn)
 	defer term.Close()
 
-	// a caller seals a call to the node's key and sends it through the public name
-	callerKP, _ := identity.Generate(identity.AlgoP256)
-	env, err := envelope.Seal(envelope.SealParams{
-		Sender: callerKP, RecipientPub: nodeKP.Signer.Public(), To: nodeKP.Fingerprint,
-		MsgID: "m1", TS: time.Now().Unix(), Exp: time.Now().Add(time.Minute).Unix(), CTY: "application/pact-call+json",
-	}, []byte(`{"tool":"send_message"}`))
+	// A caller seals a call to the node's key and sends it through the public name.
+	// What this proves is that a SEALED payload survives a terminating edge intact —
+	// which is the whole reason sealing exists (PACT §13) — so the envelope is built
+	// from the 2.0 primitives rather than the `v: 1` sealer that used to be here.
+	nodePub, err := pactidentity.ParseSPKI(nodeSPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
+	protected := []byte(`{"cty":"application/pact-call+json","v":2}`)
+	suite, err := pactidentity.SuiteForKey(nodePub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, ct, err := pactidentity.Seal(suite, nodePub,
+		[]byte(pactidentity.InfoV2), protected, []byte(`{"tool":"send_message"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := &envelope.Envelope{Protected: protected, Enc: enc, CT: ct, Sig: []byte("sig")}
 	body, _ := json.Marshal(env)
 	var reply string
 	deadline := time.Now().Add(30 * time.Second)

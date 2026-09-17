@@ -22,19 +22,21 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 type env struct {
-	t    *testing.T
-	st   store.Store
-	kr   *core.Keyring
-	idm  *identity.Manager
-	cfg  core.Config
-	mu   sync.Mutex
-	rows []string
+	root     *pactidentity.PrivateKey
+	rootCert []byte
+	t        *testing.T
+	st       store.Store
+	kr       *core.Keyring
+	idm      *identity.Manager
+	cfg      core.Config
+	mu       sync.Mutex
+	rows     []string
 }
 
 func newEnv(t *testing.T, slugs ...string) (*env, []store.Account) {
@@ -65,9 +67,47 @@ func newEnv(t *testing.T, slugs ...string) (*env, []store.Account) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// And give it a leaf. An account with a key and no chain cannot be served
+		// (PACT §2) — the node skips it as awaiting its wallet — so every account a
+		// node test expects to answer has to have been to one.
+		e.issueLeaf(a)
+		a, _ = st.GetAccountByID(ctx, a.ID)
 		accts = append(accts, a)
 	}
 	return e, accts
+}
+
+// issueLeaf plays the person's wallet: a root for this account, and a leaf over the
+// key the account already holds, for the endpoint the node advertises.
+func (e *env) issueLeaf(a store.Account) {
+	e.t.Helper()
+	ctx := context.Background()
+	if e.root == nil {
+		key, err := pactidentity.GenerateKey("ed25519")
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		rc, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Test Owner", Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		e.root, e.rootCert = key, rc
+	}
+	now := time.Now()
+	csr, err := e.idm.IssueCSR(ctx, a.ID, identity.PurposeSignup, identity.EndpointFor(e.cfg.PublicURL, a.Slug), now)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+		RootCN: "Test Owner", RootKey: e.root, RootSPKIs: [][]byte{e.root.Public.SPKI},
+		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.idm.InstallLeaf(ctx, a.ID, [][]byte{iss.DER, e.rootCert}, now); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 func (e *env) options() Options {
@@ -137,7 +177,7 @@ func TestRoutingAndNotFound(t *testing.T) {
 	if code := status(t, c, base+"/mcp"); code != http.StatusNotFound {
 		t.Fatalf("/mcp on a two-account node: %d", code)
 	}
-	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay/mcp"} {
+	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay/mcp"} { // /relay/mcp is gone: it must 404 like any other unknown path
 		if code := status(t, c, base+path); code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, code)
 		}
@@ -168,7 +208,7 @@ func TestRoutingAndNotFound(t *testing.T) {
 
 // AC: an edge-mode config yields seal=required + client_cert=off in the built
 // surface — the knobs are derived, never trusted from the wire.
-func TestEdgeModeKnobsAndRelayRefusal(t *testing.T) {
+func TestEdgeModeKnobs(t *testing.T) {
 	e, accts := newEnv(t, "alice")
 	e.cfg.Mode, e.cfg.Seal, e.cfg.ClientCert = core.ModeEdge, core.SealRequired, core.ClientCertOff
 	e.cfg.LANConnections = false
@@ -194,12 +234,6 @@ func TestEdgeModeKnobsAndRelayRefusal(t *testing.T) {
 		t.Fatalf("wrong refusal: %v", err)
 	}
 
-	// mounting a relay on an edge listener is refused at build time
-	o2 := e.options()
-	o2.Relay = http.NotFoundHandler()
-	if _, err := New(context.Background(), o2); err == nil {
-		t.Fatal("a relay was mounted on an edge-mode listener")
-	}
 }
 
 // AC: Stop releases the port — a second node binds the same address.
@@ -650,6 +684,8 @@ func TestAdoptAccountMakesANewAccountServableWithoutRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.issueLeaf(acct)
+	acct, _ = e.st.GetAccountByID(ctx, acct.ID)
 
 	// Before adoption the node cannot present a certificate for it.
 	if _, err := n.certificate(&tls.ClientHelloInfo{ServerName: "late"}); err == nil {
@@ -699,6 +735,8 @@ func TestAdoptAccountIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.issueLeaf(acct)
+	acct, _ = e.st.GetAccountByID(ctx, acct.ID)
 	for i := 0; i < 2; i++ {
 		if err := n.AdoptAccount(ctx, acct.ID); err != nil {
 			t.Fatalf("adopt #%d: %v", i+1, err)
@@ -805,12 +843,6 @@ func TestSetSealNoneRemovesSealedCallFromTheSurface(t *testing.T) {
 	}
 	if listed() {
 		t.Fatal("seal:none still lists sealed_call — the card and the surface disagree")
-	}
-	// An inbound envelope is refused outright at none, on BOTH inbound paths —
-	// the check lives in OpenSealed, which DeliverSealed shares.
-	if err := n.DeliverSealed(ctx, acct.ID, &envelope.Envelope{}, public.DeliveryRelay); err == nil ||
-		public.Code(err) != "seal_not_accepted" {
-		t.Fatalf("seal:none accepted an envelope: %v", err)
 	}
 	// And back: the group returns when the policy does.
 	if err := n.SetSeal(ctx, acct.ID, core.SealRequired); err != nil {
