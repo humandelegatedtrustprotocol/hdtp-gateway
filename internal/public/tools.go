@@ -123,7 +123,6 @@ type ToolDeps struct {
 }
 
 // speaks20 reports whether this account holds a leaf; a 1.x account reads a
-// presented chain as its leaf's key (PACT Appendix C row 4).
 func (d ToolDeps) speaks20(ctx context.Context) bool {
 	if d.Chain == nil {
 		return false
@@ -132,9 +131,10 @@ func (d ToolDeps) speaks20(ctx context.Context) bool {
 	return err == nil && len(chain) == 2
 }
 
-// proofOf is what the caller proved this call, for the guest tools to pin: in
-// 1.x the key (envelope `spk` or client certificate), in 2.0 the root, the
-// leaf's key, the endpoint and the leaf the chain carried (PACT §14.2 rule 6).
+// proofOf is what the caller proved this call, for the guest tools to pin: the
+// root, the leaf's key, the endpoint and the leaf the chain carried (PACT §14.2
+// rule 6). A caller that proved no chain proves no identity — there is no longer a
+// generation in which a bare key is one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Protocol == 2 {
 		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Protocol: 2, Endpoint: f.Endpoint, Leaf: f.Leaf}
@@ -151,8 +151,7 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 		}
 		return p
 	}
-	spki := CallerSPKI(ctx)
-	return contacts.Proof{Fingerprint: fingerprintOfSPKI(spki), SPKI: spki, Protocol: 1}
+	return contacts.Proof{}
 }
 
 // audit records one boundary event. The outcome is a verdict and nothing else:
