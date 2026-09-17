@@ -144,7 +144,7 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	}
 	if err := waitInbox(ctx, alice, PlaintextCanary, 3*time.Minute); err != nil {
 		t.Fatalf("the message never reached alice: %v\n%s\n%s",
-			auditRelay(ctx, t, bob, "bob"), auditRelay(ctx, t, alice, "alice"), err)
+			err, auditDelivery(ctx, t, bob, "bob"), auditDelivery(ctx, t, alice, "alice"))
 	}
 
 	// The edge saw ciphertext. Cloudflare terminated TLS, so the envelope is the
@@ -159,17 +159,34 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 }
 
 // mustFpr reads an account's fingerprint from a node that already has one.
+// mustFpr is the identity a contact pins: the node's ROOT fingerprint.
+//
+// It used to read `account list`, whose fingerprint column is the account's own
+// KEY. That was the identity in 1.x; it is the leaf key now and changes at every
+// renewal, so it is `account certificate` that answers the question — and a node
+// with no leaf yet has no identity to pin at all, which this says plainly rather
+// than handing back a key that pins nothing.
 func mustFpr(ctx context.Context, t *testing.T, f *fabric.Fabric, container string) string {
 	t.Helper()
-	out, err := f.Raw(ctx, "docker", "exec", container, "/pact-gateway", "account", "list")
+	out, err := f.Raw(ctx, "docker", "exec", container, "/pact-gateway", "account", "certificate", "-slug", slugOf(container))
 	if err != nil {
-		t.Fatalf("account list on %s: %v (%s)", container, err, out)
+		t.Fatalf("account certificate on %s: %v (%s)", container, err, out)
 	}
-	fpr := field(string(out), "sha256:")
-	if fpr == "" {
-		t.Fatalf("%s has no account yet: %s", container, shorten(string(out), 200))
+	root := field(string(out), "sha256:")
+	if root == "" {
+		t.Fatalf("%s has no certificate yet — it needs a leaf from its wallet before it has an identity to pin: %s",
+			container, shorten(string(out), 200))
 	}
-	return fpr
+	return root
+}
+
+// slugOf is the account slug a harness container serves: the last dash-separated
+// word of its name, which is how every scenario names them (pactcf-alice → alice).
+func slugOf(container string) string {
+	if i := strings.LastIndex(container, "-"); i >= 0 {
+		return container[i+1:]
+	}
+	return container
 }
 
 var _ = fmt.Sprintf

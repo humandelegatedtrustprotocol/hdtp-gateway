@@ -17,14 +17,30 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	"time"
 )
 
 // Agent is one contact's agent: an identity plus the client that speaks for it.
+//
+// A 2.0 identity is a person's self-signed ROOT and a leaf the root issued to the
+// host, and it is the root a node pins (PACT §2). The leaf names the address this
+// agent answers at — it never actually serves, but a leaf must name one, and it
+// MUST NOT be a loopback address (§14.2 rule 5), so it names a routable-looking one.
 type Agent struct {
 	Keypair *identity.Keypair
 	Client  *outbound.Client
+	// Root is this agent's identity: what a node pins it by.
+	Root string
+	// Leaf is the certificate its chain presents, DER.
+	Leaf []byte
+	// Endpoint is the address that leaf names.
+	Endpoint string
+	rootCert []byte
+	name     string
 }
 
 // NewAgent mints a fresh identity and the client that presents it. Each scenario
@@ -34,26 +50,59 @@ func NewAgent(name string) (*Agent, error) {
 	if name == "" {
 		name = "harness-peer"
 	}
-	algo := identity.AlgoP256
-	kp, err := identity.Generate(algo)
+	kp, err := identity.Generate(identity.AlgoP256)
 	if err != nil {
 		return nil, fmt.Errorf("peer: generating identity: %w", err)
 	}
-	der, err := identity.SelfSignedCert(kp, name)
+	rootKey, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
-		return nil, fmt.Errorf("peer: minting client certificate: %w", err)
+		return nil, fmt.Errorf("peer: generating root: %w", err)
 	}
-	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
+	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+		CN: name, Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("peer: minting root certificate: %w", err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
+	if err != nil {
+		return nil, fmt.Errorf("peer: host key: %w", err)
+	}
+	hostPub, err := pactidentity.ParseSPKI(spki)
+	if err != nil {
+		return nil, fmt.Errorf("peer: host key: %w", err)
+	}
+	endpoint := "https://" + name + ".harness.example/a/" + name + "/mcp"
+	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+		CN: name, RootCN: name, RootKey: rootKey, HostPub: hostPub, URIs: []string{endpoint},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(1, 0, 0),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("peer: minting leaf certificate: %w", err)
+	}
+	kp.Leaf, kp.Root, kp.Protocol = leaf, rootCert, 2
+	cert := tls.Certificate{Certificate: [][]byte{leaf, rootCert}, PrivateKey: kp.Signer}
 	return &Agent{
-		Keypair: kp,
-		// Roots is empty on purpose: a peer trusts the node by PINNED KEY, not by
-		// WebPKI (SPEC §2). An empty pool means a mis-pinned peer fails closed.
+		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public.SPKI),
+		Leaf: leaf, Endpoint: endpoint, rootCert: rootCert, name: name,
+		// Roots is empty on purpose: a peer trusts the node by its PINNED ROOT, not
+		// by WebPKI (PACT §2). An empty pool means a mis-pinned peer fails closed.
 		Client: &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()},
 	}, nil
 }
 
-// Fingerprint is this agent's PACT §2 identity.
-func (a *Agent) Fingerprint() string { return a.Keypair.Fingerprint }
+// Card is this agent's contact card: the leaf, and the seal policy it claims.
+func (a *Agent) Card(seal string) string {
+	return contacts.BuildCard20(a.name, a.Leaf, seal)
+}
+
+// Fingerprint is this agent's PACT §2 identity — its ROOT. It used to be the
+// identity key's, because in 1.x the key WAS the identity; a leaf key changes at
+// every renewal and a root does not, so the root is what a node pins.
+func (a *Agent) Fingerprint() string { return a.Root }
+
+// LeafKid is the leaf key's fingerprint, which is what an envelope's `kid` names.
+func (a *Agent) LeafKid() string { return a.Keypair.Fingerprint }
 
 // Target names a node this agent calls.
 type Target struct {
@@ -66,6 +115,20 @@ type Target struct {
 	SPKI []byte
 	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
 	Seal string
+	// Root and Leaf are the node's 2.0 identity: the root its chain must validate
+	// to, and the leaf it presents. Without them the chain check cannot run and the
+	// handshake falls through to a key pin that a root can never satisfy.
+	Root string
+	Leaf []byte
+}
+
+// peer is the outbound view of a target: 2.0 whenever the node's root is known.
+func (t Target) peer() outbound.Peer {
+	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
+	if t.Root != "" {
+		p.Protocol, p.Root, p.Leaf = 2, t.Root, t.Leaf
+	}
+	return p
 }
 
 // Call invokes one tool on the target and returns the decoded result content.
@@ -73,7 +136,7 @@ type Target struct {
 // msgID is the caller-supplied idempotency key of PACT §6.2 — the SAME value must
 // be reused across retries, which is what makes a retry safe.
 func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
-	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
+	p := t.peer()
 	res, err := a.Client.Call(ctx, p, t.SPKI, tool, args, msgID)
 	if err != nil {
 		return "", fmt.Errorf("peer: calling %s: %w", tool, err)
@@ -88,7 +151,7 @@ func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string
 // makes this the cheapest end-to-end proof that real mTLS reached a real node and
 // tier resolution ran — no pairing required.
 func (a *Agent) ListTools(ctx context.Context, t Target) ([]string, error) {
-	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
+	p := t.peer()
 	hc, err := a.Client.HTTPClient(p)
 	if err != nil {
 		return nil, fmt.Errorf("peer: building mTLS client: %w", err)
