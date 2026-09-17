@@ -10,6 +10,7 @@ package cli
 // therefore never be set up at all (E16).
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -29,6 +30,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/node"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // newContactInitiator builds the one initiator every surface uses.
@@ -57,12 +59,18 @@ func newContactInitiator(st store.Store, nd *node.Node,
 // have not yet pinned, so it is untrusted input in the strongest sense.
 const maxOfferBytes = 64 << 10
 
-// inviteOffer is the landing page's machine view (SPEC §9.2): the issuer's card,
-// its signature, and the full public key the card's fingerprint stands for.
+// inviteOffer is the landing page's machine view (SPEC §9.2): the issuer's card, the
+// `[leaf, root]` chain that proves it, the card's signature, and the leaf's public key.
+//
+// `Chain` is the 2.0 addition and it is the load-bearing one. A 1.x offer was a card naming a
+// KEY plus that key, so the three fields above were the whole proof. A 2.0 card carries a
+// certificate, and what a peer pins is the ROOT that signed it — which is inside the chain and
+// nowhere else in this document.
 type inviteOffer struct {
-	Card    string `json:"card"`
-	CardSig string `json:"card_sig"`
-	SPKI    string `json:"spki"`
+	Card    string   `json:"card"`
+	CardSig string   `json:"card_sig"`
+	SPKI    string   `json:"spki"`
+	Chain   []string `json:"chain"`
 }
 
 // splitInviteURL separates an invite link into the origin and its token.
@@ -117,38 +125,58 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 	return off, nil
 }
 
-// verifyOffer turns an untrusted document into a key we are willing to pin.
+// verifyOffer turns an untrusted document into an identity we are willing to pin.
 //
-// Both checks are load-bearing. The fingerprint check is what makes the pin mean
-// anything: without it a tampered document could hand us an attacker's key under
-// the peer's name, and every signature check afterwards would pass for the wrong
-// party. The signature check proves the card and the key belong together rather
-// than having been assembled from two different peers' documents.
+// **Rewritten for PACT 2.0 on 2026-09-18, because it could not accept a single card this
+// protocol produces.** It required the card to carry `X-PACT-KEY` and an endpoint, and
+// `contacts.ParseCard` stopped filling either when 1.x was removed: a 2.0 card carries a
+// certificate, and the address and the key are inside it. So `pact-gateway contact init
+// <invite-url>` — the path a person takes when somebody sends them an invite link — refused
+// every real invite with "the invite's card carries no X-PACT-KEY".
+//
+// Four checks, each load-bearing, in the order a receiver applies them (SPEC §14.2, §9.2):
+//
+//  1. the card decodes and its certificate parses, which is what `ValidateInbound` does — and
+//     which fills the ROOT as the identity and the leaf's subjectAltName as the address;
+//  2. the chain validates: two certificates, a self-signed root, a leaf it signed, in date,
+//     naming the address the card names. Without this the "root" is whatever the leaf claims
+//     its issuer is, and anybody can claim anything;
+//  3. the card's certificate IS the chain's leaf, byte for byte, so the card and the chain are
+//     one peer's documents rather than two assembled into a plausible pair; and
+//  4. `spki` is that leaf's key and it signed the card bytes — which is what makes the sealed
+//     redemption that follows reach the peer this document describes and nobody else.
 func verifyOffer(off inviteOffer) (card contacts.Card, spki []byte, err error) {
 	if len(off.Card) > maxOfferBytes {
 		return card, nil, fmt.Errorf("the card is implausibly large")
 	}
-	card, err = contacts.ParseCard(off.Card)
+	card, err = contacts.ValidateInbound(off.Card)
 	if err != nil {
-		return card, nil, fmt.Errorf("the invite's card does not parse: %w", err)
+		return card, nil, fmt.Errorf("the invite's card: %w", err)
 	}
-	if card.Key == "" {
-		return card, nil, fmt.Errorf("the invite's card carries no X-PACT-KEY")
+	if len(off.Chain) != 2 {
+		return card, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
 	}
-	if card.Endpoint == "" {
-		return card, nil, fmt.Errorf("the invite's card carries no endpoint to call")
+	chain := [][]byte{pactidentity.FromB64url(off.Chain[0]), pactidentity.FromB64url(off.Chain[1])}
+	v := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
+	if !v.OK {
+		return card, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)
+	}
+	if !bytes.Equal(chain[0], card.Cert) {
+		return card, nil, fmt.Errorf("the invite's chain does not carry the certificate its card does")
+	}
+	if v.RootFingerprint != card.Key {
+		return card, nil, fmt.Errorf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint)
 	}
 	spki, err = base64.RawURLEncoding.DecodeString(off.SPKI)
 	if err != nil || len(spki) == 0 {
 		return card, nil, fmt.Errorf("the invite carried no usable public key")
 	}
+	if !bytes.Equal(spki, v.LeafKey.SPKI) {
+		return card, nil, fmt.Errorf("the invite's key is not the one its certificate carries")
+	}
 	pub, err := x509.ParsePKIXPublicKey(spki)
 	if err != nil {
 		return card, nil, fmt.Errorf("the invite's key is unreadable")
-	}
-	fpr, err := identity.Fingerprint(pub)
-	if err != nil || fpr != card.Key {
-		return card, nil, fmt.Errorf("the invite's key does not match its card fingerprint")
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(off.CardSig)
 	if err != nil || len(sig) == 0 {
@@ -158,6 +186,16 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki []byte, err error) {
 		return card, nil, fmt.Errorf("the invite's card signature does not verify")
 	}
 	return card, spki, nil
+}
+
+// peerOfCard is the peer a validated 2.0 card describes: pinned by its ROOT, called at the
+// address its leaf names, and sealed to that leaf's key. `Protocol: 2` is what lets
+// `outbound.Client` speak at all — it refuses a pin that is not one (client.go, `speaks20`).
+func peerOfCard(card contacts.Card) outbound.Peer {
+	return outbound.Peer{
+		Endpoint: card.Endpoint, Fingerprint: card.Key, Seal: card.Seal,
+		Protocol: 2, Root: card.Key, Leaf: card.Cert,
+	}
 }
 
 // offerClient fetches invite landings.
@@ -245,7 +283,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err != nil {
 		return out, err
 	}
-	peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: peerCard.Key, Seal: peerCard.Seal}
+	peer := peerOfCard(peerCard)
 	res, err := client.Call(ctx, peer, spki, "redeem_invite",
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
@@ -326,9 +364,12 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	if len(peerCardText) > maxOfferBytes || len(note) > 1024 {
 		return out, fmt.Errorf("that card or note is too large")
 	}
-	peerCard, err := contacts.ParseCard(peerCardText)
-	if err != nil || peerCard.Key == "" || peerCard.Endpoint == "" {
-		return out, fmt.Errorf("that card needs both X-PACT-KEY and X-PACT-ENDPOINT")
+	// `ValidateInbound`, not `ParseCard`: a 2.0 card's identity and address are inside its
+	// certificate, and reading them is the difference between pinning a root and pinning
+	// nothing. With `ParseCard` this path refused every real card as having no key.
+	peerCard, err := contacts.ValidateInbound(peerCardText)
+	if err != nil {
+		return out, fmt.Errorf("that card cannot be pinned: %w", err)
 	}
 	ourCard, err := ci.card(ctx, accountID)
 	if err != nil {
@@ -338,14 +379,20 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	if err != nil {
 		return out, err
 	}
-	// No SPKI: a card carries a fingerprint, never a key (SPEC §2). The call is
-	// pinned to that fingerprint, and the key itself is bound on first contact.
-	peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: peerCard.Key, Seal: peerCard.Seal}
+	// **The key comes with the card now.** In 1.x a card named a fingerprint and nothing more, so
+	// this call went out in plain text and the key was bound on first contact. A 2.0 card carries
+	// the certificate, so the key is here — and the request is sealed to it, which is the only way
+	// to reach a peer whose card says `X-PACT-SEAL:required`.
+	peer := peerOfCard(peerCard)
+	leaf, lerr := pactidentity.Parse(peerCard.Cert)
+	if lerr != nil {
+		return out, fmt.Errorf("that card's certificate cannot be read: %w", lerr)
+	}
 	args := map[string]any{"card": ourCard}
 	if note != "" {
 		args["note"] = note
 	}
-	if _, err := client.Call(ctx, peer, nil, "request_contact", args, newCallID()); err != nil {
+	if _, err := client.Call(ctx, peer, leaf.SPKI, "request_contact", args, newCallID()); err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
 		return out, fmt.Errorf("the peer refused the request: %w", err)
 	}
@@ -373,9 +420,11 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 	if err != nil {
 		return err
 	}
-	peerCard, err := contacts.ParseCard(c.Card)
-	if err != nil || peerCard.Endpoint == "" {
-		return fmt.Errorf("they published no endpoint, so they cannot be told yet")
+	// The stored PIN, not the card, is the authority on where this contact answers: `update_contact`
+	// and a move both write the row, and a card kept from the first exchange can be older than
+	// either. It also means an approval reaches a contact whose card this node never parsed.
+	if c.Protocol != 2 || c.Endpoint == "" || len(c.Leaf) == 0 {
+		return fmt.Errorf("that contact is pinned by key, which PACT 2.0 has no form for; they must be added again from their card")
 	}
 	ourCard, err := ci.card(ctx, accountID)
 	if err != nil {
@@ -385,7 +434,10 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 	if err != nil {
 		return err
 	}
-	peer := outbound.Peer{Endpoint: peerCard.Endpoint, Fingerprint: peerFpr, Seal: peerCard.Seal}
+	peer := outbound.Peer{
+		Endpoint: c.Endpoint, Fingerprint: peerFpr, Seal: "required",
+		Protocol: 2, Root: peerFpr, Leaf: c.Leaf,
+	}
 	args := map[string]any{"card": ourCard}
 	if len(granted) > 0 {
 		// What we granted THEM, so their agent knows what it may call without

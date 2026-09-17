@@ -275,12 +275,20 @@ type CSRResult struct {
 	PreviousNotBefore *time.Time
 }
 
-// IssueCSR makes the request a wallet signs (PACT §9). signup and upgrade carry
-// the account's existing key, so every 1.x pin of that key stays valid
-// (Appendix C row 7); renew and move carry a fresh key, so a leaf key
-// compromised without anyone noticing dies with its leaf (§9). The endpoint
-// is the account's own unless the purpose is move. One pending request at a
-// time: a new one replaces the last.
+// IssueCSR makes the request a wallet signs (PACT §9).
+//
+// `signup` carries the key this host was created with, when it has one: at creation nothing has
+// been signed yet, so there is no reason to mint a second key and leave the first unused. A host
+// that holds NO key — an account that arrived as a data-only import, its root and its contacts
+// carried and its leaf key left behind on the host that issued it (PACT §9) — mints one, which is
+// the difference between "one `account csr` away from serving" and a dead end.
+//
+// `renew` and `move` always carry a fresh key, so a leaf key compromised without anyone noticing
+// dies with its leaf (§9). The endpoint is the account's own unless the purpose is move. One
+// pending request at a time: a new one replaces the last.
+//
+// `upgrade` was the fourth purpose and went with 1.x: it carried the identity's existing key so
+// that every pin of that key stayed valid, and there is no such pin any more.
 func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint string, now time.Time) (CSRResult, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
@@ -313,6 +321,13 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 		if err != nil {
 			return CSRResult{}, err
 		}
+		if len(sealed) == 0 {
+			// A data-only import: there is no key here to certify, so this host makes its own.
+			if kp, err = Generate(Algo(a.Algo)); err != nil {
+				return CSRResult{}, err
+			}
+			break
+		}
 		if kp, err = m.LoadKeypair(sealed); err != nil {
 			return CSRResult{}, err
 		}
@@ -323,7 +338,7 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 			return CSRResult{}, err
 		}
 	default:
-		return CSRResult{}, fmt.Errorf("identity: unknown purpose %q (signup|renew|move|upgrade)", purpose)
+		return CSRResult{}, fmt.Errorf("identity: unknown purpose %q (signup|renew|move)", purpose)
 	}
 	lib, err := ToLib(kp)
 	if err != nil {
@@ -447,26 +462,38 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 			}
 		}
 	} else if a.Fingerprint != "" && a.Fingerprint != pending.Kid {
-		// A first install that changes the key (a renewal requested as the first
-		// leaf): the 1.x identity key retires like a superseded leaf would, kept
-		// for a year so 1.x contacts can still reach us while they re-pin.
+		// A first install that changes the key — a renewal or a move requested as the first leaf.
+		// The key the account named retires like a superseded leaf would, kept for a year, so an
+		// envelope sealed to it is answered `certificate_renewed` with the new chain (PACT §14.4)
+		// instead of failing to open.
 		sealedOld, err := m.Store.GetAccountSealedKey(ctx, accountID)
 		if err != nil {
 			return InstallResult{}, fmt.Errorf("identity: read the key being retired: %w", err)
 		}
-		oldKP, err := m.LoadKeypair(sealedOld)
-		if err != nil {
-			return InstallResult{}, fmt.Errorf("identity: open the key being retired: %w", err)
-		}
-		res.OldKid, res.OldKP, res.KeyChanged = a.Fingerprint, oldKP, true
-		sealed, err := m.sealLeafKey(oldKP)
-		if err != nil {
-			return InstallResult{}, fmt.Errorf("identity: reseal the key being retired: %w", err)
-		}
-		// NotBefore is the account's own start, unknown here, so it stays zero: this
-		// row is the oldest key by construction, which is what the ordering wants.
-		if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: a.Fingerprint, KeySealed: sealed, NotAfter: now.Add(365 * 24 * time.Hour).Unix(), State: LeafSuperseded, Endpoint: vr.Endpoint, CreatedAt: now.Unix()}); err != nil {
-			return InstallResult{}, fmt.Errorf("identity: keep the key being retired: %w", err)
+		if len(sealedOld) == 0 {
+			// **Nothing to retire, and this is the ordinary case after a data-only import.** The
+			// account names the key its PREVIOUS host served under and does not hold it: a leaf key
+			// belongs to the host it was issued to (PACT §9), so an archive carries none and
+			// `backup restore -data-only` strips any that was there. Keeping that kid as a
+			// superseded leaf would promise `certificate_renewed` answers this host cannot seal,
+			// and reading the absent key as a failure made the first leaf after a move impossible
+			// to install at all — which is what it did until 2026-09-18.
+			res.KeyChanged = true
+		} else {
+			oldKP, err := m.LoadKeypair(sealedOld)
+			if err != nil {
+				return InstallResult{}, fmt.Errorf("identity: open the key being retired: %w", err)
+			}
+			res.OldKid, res.OldKP, res.KeyChanged = a.Fingerprint, oldKP, true
+			sealed, err := m.sealLeafKey(oldKP)
+			if err != nil {
+				return InstallResult{}, fmt.Errorf("identity: reseal the key being retired: %w", err)
+			}
+			// NotBefore is the account's own start, unknown here, so it stays zero: this
+			// row is the oldest key by construction, which is what the ordering wants.
+			if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: a.Fingerprint, KeySealed: sealed, NotAfter: now.Add(365 * 24 * time.Hour).Unix(), State: LeafSuperseded, Endpoint: vr.Endpoint, CreatedAt: now.Unix()}); err != nil {
+				return InstallResult{}, fmt.Errorf("identity: keep the key being retired: %w", err)
+			}
 		}
 	}
 	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
