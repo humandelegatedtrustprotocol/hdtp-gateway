@@ -29,10 +29,9 @@ func FuzzSealedPayload(f *testing.F) {
 		if err := dec.Decode(&p); err != nil {
 			return
 		}
-		// Everything the identity decision touches, in the order §4.4 touches it.
-		if p.SPK != "" {
-			_, _ = decodeSPK(p.SPK)
-		}
-		_, _ = guestCard(p)
+		// Everything the identity decision touches: the method, the params, and the
+		// chain-or-leaf the plaintext must carry exactly one of (PACT §13.2).
+		_ = p.Method
+		_ = p.Params
 	})
 }

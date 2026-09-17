@@ -79,14 +79,13 @@ const (
 type Payload struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
-	SPK    string          `json:"spk,omitempty"`
 }
 
 // EnvelopeFacts is what a successfully opened envelope yields (SPEC §5.3).
 type EnvelopeFacts struct {
 	Header  envelope.Header
 	From    string // the signer's fingerprint — the caller identity (2.0: the root's)
-	SPKI    []byte // the sender's key: pinned, or carried as `spk` (2.0: the leaf's)
+	SPKI    []byte // the sender's key: the leaf's, from the chain or the pin
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
