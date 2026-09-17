@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net"
@@ -542,5 +543,61 @@ func TestOwnerMCPRevocationEndsALiveSession(t *testing.T) {
 	defer res3.Body.Close()
 	if res3.StatusCode == http.StatusOK {
 		t.Fatal("a revoked token kept driving its established session")
+	}
+}
+
+// AC (F-rig, 2026-09-18): a node holding accounts it cannot serve SAYS so on the
+// banner, naming each slug and the two commands that end the wait.
+//
+// The plan for removing 1.x asked boot to "refuse to start with a message naming
+// the slug". Refusing takes every OTHER account on the node down with it, so the
+// node serves what it can and reports what it cannot — but an audit row is not a
+// message to the person running `serve`, and without this line a just-restored
+// identity is a host that reports "serving" and answers for nobody.
+func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
+	ctx := context.Background()
+	r := runServe(t, func(t *testing.T, dir string) {
+		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}
+		// alice was created here: she has a key of her own and no leaf over it yet.
+		if _, err := idm.CreateAccount(ctx, "alice", "Alice", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		bob, err := idm.CreateAccount(ctx, "bob", "Bob", identity.AlgoP256)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
+		// bob is what `npm run leave` writes: the account row without any key,
+		// because a leaf key belongs to the host that issued it and does not
+		// travel. Arriving from elsewhere makes his next certificate a move.
+		db, err := sql.Open("sqlite", filepath.Join(dir, "pact.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE accounts SET key_sealed = NULL WHERE id = ?", bob.ID); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+	})
+	// Read the banner after serve has returned, so nothing is still writing to it.
+	r.stop()
+	out := r.out.String()
+	for _, want := range []string{
+		"awaiting a certificate, not served: alice",
+		"account csr -slug alice -purpose signup",
+		"awaiting a certificate, not served: bob",
+		"account csr -slug bob -purpose move",
+		"account install-leaf -slug bob",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the banner never said %q:\n%s", want, out)
+		}
 	}
 }
