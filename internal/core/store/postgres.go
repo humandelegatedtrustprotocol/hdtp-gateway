@@ -365,35 +365,6 @@ func (s *Postgres) ListAuditEvents(ctx context.Context, actorFilter string) ([]A
 	return out, nil
 }
 
-func (s *Postgres) RotateAccountKey(ctx context.Context, accountID, newFingerprint string, newSealed []byte, graceUntil int64) error {
-	n, err := s.q.RotateAccountKey(ctx, pgdb.RotateAccountKeyParams{
-		Fingerprint: pgtype.Text{String: newFingerprint, Valid: true}, KeySealed: newSealed,
-		GraceUntil: graceUntil, ID: accountID,
-	})
-	if err != nil {
-		return fmt.Errorf("store: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("store: account %s missing or unkeyed", accountID)
-	}
-	return nil
-}
-
-func (s *Postgres) GetAccountPrevKey(ctx context.Context, accountID string) (string, []byte, int64, error) {
-	r, err := s.q.GetAccountPrevKey(ctx, accountID)
-	if err != nil {
-		return "", nil, 0, fmt.Errorf("store: %w", err)
-	}
-	return r.PrevFingerprint.String, r.PrevKeySealed, r.GraceUntil, nil
-}
-
-func (s *Postgres) ClearAccountPrevKey(ctx context.Context, accountID string) error {
-	if _, err := s.q.ClearAccountPrevKey(ctx, accountID); err != nil {
-		return fmt.Errorf("store: %w", err)
-	}
-	return nil
-}
-
 func (s *Postgres) UpsertRotationFanout(ctx context.Context, f RotationFanout) error {
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()

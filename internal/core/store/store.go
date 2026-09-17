@@ -395,11 +395,6 @@ type Store interface {
 	AckRelay(ctx context.Context, id, recipientFpr string) (bool, error)
 	PurgeExpiredRelay(ctx context.Context, now int64) (int64, error)
 
-	// Key rotation (SPEC §3.9): swap in the new key keeping the old sealed until
-	// grace_until; read/destroy the retiring key; durable fan-out progress.
-	RotateAccountKey(ctx context.Context, accountID, newFingerprint string, newSealed []byte, graceUntil int64) error
-	GetAccountPrevKey(ctx context.Context, accountID string) (prevFingerprint string, prevSealed []byte, graceUntil int64, err error)
-	ClearAccountPrevKey(ctx context.Context, accountID string) error
 	UpsertRotationFanout(ctx context.Context, f RotationFanout) error
 	ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error)
 

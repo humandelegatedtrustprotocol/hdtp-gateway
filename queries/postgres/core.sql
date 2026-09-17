@@ -91,17 +91,6 @@ ORDER BY seq DESC LIMIT $3;
 -- name: ListAuditEventsByActor :many
 SELECT * FROM audit_events WHERE actor_id = $1 ORDER BY seq;
 
--- name: RotateAccountKey :execrows
-UPDATE accounts SET prev_fingerprint = fingerprint, prev_key_sealed = key_sealed,
-  fingerprint = $1, key_sealed = $2, grace_until = $3
-WHERE id = $4 AND fingerprint IS NOT NULL;
-
--- name: GetAccountPrevKey :one
-SELECT prev_fingerprint, prev_key_sealed, grace_until FROM accounts WHERE id = $1;
-
--- name: ClearAccountPrevKey :execrows
-UPDATE accounts SET prev_fingerprint = NULL, prev_key_sealed = NULL, grace_until = 0 WHERE id = $1;
-
 -- name: UpsertRotationFanout :exec
 INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at, kind)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

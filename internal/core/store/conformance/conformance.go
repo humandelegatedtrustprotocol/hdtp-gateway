@@ -415,8 +415,10 @@ func Run(t *testing.T, newStore Factory) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
 		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "p20", DisplayName: "P", Algo: "ed25519"})
-		if a.Protocol != 1 || a.AcceptNewHosts != "auto" || !a.Accept1x {
-			t.Fatalf("1.x defaults wrong: %+v", a)
+		// A new account holds a key and no leaf: it is protocol 1 in the row until
+		// `install-leaf` writes 2, and it serves nothing until then.
+		if a.AcceptNewHosts != "auto" {
+			t.Fatalf("account defaults wrong: %+v", a)
 		}
 		if err := s.SetAccountKey(ctx, a.ID, "sha256:leaf1", []byte("sealed1")); err != nil {
 			t.Fatal(err)
@@ -486,8 +488,8 @@ func Run(t *testing.T, newStore Factory) {
 		if c.Protocol != 2 || c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
 			t.Fatalf("2.0 pin fields lost: %+v", c)
 		}
-		if old, _ := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:onex", SPKI: []byte{2}, Status: "active"}); old.Protocol != 1 {
-			t.Fatalf("a 1.x pin must default to protocol 1: %+v", old)
+		if old, _ := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:onex", SPKI: []byte{2}, Status: "active"}); old.Protocol != 2 {
+			t.Fatalf("a contact with no protocol set must default to 2: %+v", old)
 		}
 		if err := s.RepinContactAddress(ctx, a.ID, "sha256:peer-root", "https://q.example/mcp", []byte("pl2"), []byte{9}, 77); err != nil {
 			t.Fatal(err)
@@ -505,12 +507,12 @@ func Run(t *testing.T, newStore Factory) {
 		if err := s.RepinContactAddress(ctx, a.ID, "sha256:nobody", "x", nil, nil, 1); err == nil {
 			t.Fatal("repin of a missing contact reported success")
 		}
-		// Appendix C row 6: the 1.x pin of key K becomes the 2.0 pin of its root.
+		// Re-pinning a contact under a new fingerprint moves the row and its history.
 		if err := s.UpgradeContactPin(ctx, a.ID, "sha256:onex", "sha256:onex-root", "https://o.example/mcp", []byte("ol"), []byte{2}, 88); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.GetContact(ctx, a.ID, "sha256:onex"); err == nil {
-			t.Fatal("the 1.x fingerprint still resolves after the upgrade")
+			t.Fatal("the old fingerprint still resolves after the re-pin")
 		}
 		if up, _ := s.GetContact(ctx, a.ID, "sha256:onex-root"); up.Protocol != 2 || up.Endpoint != "https://o.example/mcp" || up.Status != "active" {
 			t.Fatalf("upgrade lost: %+v", up)

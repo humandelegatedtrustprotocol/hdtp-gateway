@@ -358,7 +358,10 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 
 // CardKey extracts X-PACT-KEY via the real parser; "" on any parse failure.
 func CardKey(card string) string {
-	c, err := ParseCard(card)
+	// ValidateInbound, not ParseCard: the identity is the ROOT the card's leaf
+	// names as its issuer, and only decoding the certificate produces it. A card
+	// used to spell it out as X-PACT-KEY; none does now.
+	c, err := ValidateInbound(card)
 	if err != nil {
 		return ""
 	}
