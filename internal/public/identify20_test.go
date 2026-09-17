@@ -112,7 +112,7 @@ func newEnv20(t *testing.T) *env20 {
 		t.Fatal(err)
 	}
 	e := &env20{st: st, m: m, nowAt: fixedNow, root: newTestRoot(t, "Me", fixedNow)}
-	e.install(t, identity.PurposeUpgrade, endpointMe)
+	e.install(t, identity.PurposeSignup, endpointMe)
 	e.acct, _ = st.GetAccountByID(ctx, a.ID)
 	e.id = &Identifier{
 		Store: st, AccountID: a.ID,
@@ -158,7 +158,7 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &State20{Protocol: int(rec.Protocol), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, Accept1x: rec.Accept1x, SiblingKids: e.sibling}
+	st := &State20{Protocol: int(rec.Protocol), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, SiblingKids: e.sibling}
 	if st.Chain, err = e.m.Chain(ctx, rec.ID); err != nil {
 		return nil, err
 	}
@@ -484,56 +484,6 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 	}
 }
 
-func TestV2LegacyPinUpgradesOnTheFirstChain(t *testing.T) {
-	e := newEnv20(t)
-	ctx := context.Background()
-	p := newPeer(t, fixedNow)
-	// A 1.x pin of the peer's LEAF key, as a 1.2 node would hold it.
-	leaf, _ := pactidentity.Parse(p.leaf)
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acct.ID, Fingerprint: pactidentity.Fingerprint(leaf.SPKI), SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"}}); err != nil {
-		t.Fatal(err)
-	}
-	f, err := e.open(t, e.seal20(t, p, "chain", "send_message", nil), TransportFacts{})
-	if err != nil || f.Tier != policy.TierContact || f.From != p.fpr() {
-		t.Fatalf("a chain whose leaf key is a 1.x pin: %v %+v", err, f)
-	}
-	c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
-	if err != nil || c.Protocol != 2 || c.Endpoint != endpointA || c.Status != "active" {
-		t.Fatalf("the pin was not upgraded: %v %+v", err, c)
-	}
-}
-
-func TestV1StillServedUntilTheOwnerSaysNot(t *testing.T) {
-	e := newEnv20(t)
-	ctx := context.Background()
-	// A 1.x guest sealing to our leaf key, as 1.2 defines it.
-	g, err := identity.Generate(identity.AlgoP256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	me := e.currentKey(t)
-	spk := b64u(spkiOf(t, g))
-	seal := func() *envelope.Envelope {
-		env, err := envelope.Seal(envelope.SealParams{
-			Sender: g, RecipientPub: me.Signer.Public(), To: me.Fingerprint, MsgID: "v1", TS: fixedNow.Unix(), Exp: fixedNow.Add(time.Hour).Unix(), CTY: envelope.CTYCall,
-		}, payload(t, "tools/call", "redeem_invite", cardFor(g.Fingerprint), spk))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return env
-	}
-	f, err := e.open(t, seal(), TransportFacts{})
-	if err != nil || !f.Guest || f.From != g.Fingerprint || f.Protocol != 0 {
-		t.Fatalf("a 1.x envelope to a 2.0 node: %v %+v", err, f)
-	}
-	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "auto", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.open(t, seal(), TransportFacts{}); err == nil || !strings.Contains(err.Error(), "no longer accepts 1.x") {
-		t.Fatalf("1.x refused once accept_1x is off: %v", err)
-	}
-}
-
 func TestV2TransportPinChecks(t *testing.T) {
 	// The transport path — a chain as the client certificate — resolves a 2.0
 	// caller through the same pin checks as the sealed path (PACT §2, §14.3,
@@ -642,61 +592,5 @@ func TestV2TransportPinChecks(t *testing.T) {
 	}
 	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 1 || ps[0].Why != "returned after removal" {
 		t.Fatalf("tombstone pending: %+v", ps)
-	}
-}
-
-func TestV2TransportUpgradesALegacyPinAtTheLeafsEndpoint(t *testing.T) {
-	// Appendix C row 6 on the transport path: the endpoint pinned is the one
-	// the leaf names, so the next resolution is the contact's, not a move.
-	e := newEnv20(t)
-	ctx := context.Background()
-	p := newPeer(t, fixedNow)
-	leaf, _ := pactidentity.Parse(p.leaf)
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acct.ID, Fingerprint: pactidentity.Fingerprint(leaf.SPKI), SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"}}); err != nil {
-		t.Fatal(err)
-	}
-	tf := TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI, ClientProtocol: 2, ClientLeaf: p.leaf, ClientEndpoint: endpointA}
-	var events []string
-	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event) }
-	for i := 0; i < 2; i++ {
-		if tc := e.id.ResolveTransport(ctx, tf); tc.Fingerprint != p.fpr() || tc.Demote || tc.Refusal != "" {
-			t.Fatalf("resolution %d: %+v", i, tc)
-		}
-	}
-	c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
-	if err != nil || c.Protocol != 2 || c.Endpoint != endpointA || string(c.Leaf) != string(p.leaf) {
-		t.Fatalf("upgraded pin: %v %+v", err, c)
-	}
-	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 0 || len(events) != 0 {
-		t.Fatalf("an upgrade is not a move: %+v %v", ps, events)
-	}
-}
-
-func TestV2LegacyPinUpgradeIsNotAMove(t *testing.T) {
-	// The sealed path's row 6: a 1.x pin met by a first chain carrying an
-	// ordinary contact tool is upgraded at the leaf's own endpoint and the
-	// call runs as the contact — no pending row, no new_address event.
-	e := newEnv20(t)
-	ctx := context.Background()
-	p := newPeer(t, fixedNow)
-	leaf, _ := pactidentity.Parse(p.leaf)
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acct.ID, Fingerprint: pactidentity.Fingerprint(leaf.SPKI), SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"}}); err != nil {
-		t.Fatal(err)
-	}
-	var events, pendings []string
-	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event) }
-	e.id.OnPending = func(root, endpoint, why string) { pendings = append(pendings, why) }
-	f, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"msg_id": "m", "text": "hi"}), TransportFacts{})
-	if err != nil || f.Tier != policy.TierContact || f.From != p.fpr() {
-		t.Fatalf("first chain after a 1.x pin: %v %+v", err, f)
-	}
-	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); c.Protocol != 2 || c.Endpoint != endpointA {
-		t.Fatalf("upgraded pin: %+v", c)
-	}
-	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 0 || len(events) != 0 || len(pendings) != 0 {
-		t.Fatalf("an upgrade is not a move: %+v %v %v", ps, events, pendings)
-	}
-	if fe, _ := e.st.ListFormerEndpoints(ctx, e.acct.ID); len(fe) != 0 {
-		t.Fatalf("no former endpoint: %+v", fe)
 	}
 }

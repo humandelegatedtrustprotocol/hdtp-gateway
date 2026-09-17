@@ -1,8 +1,8 @@
 package public
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +21,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
 type fakeCalendar struct {
@@ -85,10 +86,7 @@ func newToolEnv(t *testing.T) *toolEnv {
 	}
 	e := &toolEnv{t: t, st: st, acct: acct, kp: kp, cal: &fakeCalendar{}, status: &fakeStatus{s: "available"}}
 	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	card, err := contacts.BuildCard(contacts.Card{FN: "Me", Endpoint: "https://me.example/a/me/mcp", Key: kp.Fingerprint})
-	if err != nil {
-		t.Fatal(err)
-	}
+	card := testid.CardFor(t, "Me", "https://me.example/a/me/mcp")
 	reg := &Registry{}
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
@@ -164,9 +162,24 @@ func (e *toolEnv) list(fpr string) []string {
 // takes — so the test can present the transport facts the wire would carry.
 func (e *toolEnv) call(fpr, tool string, args map[string]any, spki []byte) (*mcp.CallToolResult, error) {
 	e.t.Helper()
+	return e.callAs(nil, fpr, tool, args, spki)
+}
+
+// callAs is call with a proven 2.0 identity: `guest` is the peer whose chain the
+// caller presented, which is what the guest tools pin (PACT §14.2 rule 6). A bare
+// key proves nothing now, so a guest tool reached without one answers
+// identity_required — which is why every guest-tier test here has to bring a peer.
+func (e *toolEnv) callAs(guest *testid.Host, fpr, tool string, args map[string]any, spki []byte) (*mcp.CallToolResult, error) {
+	e.t.Helper()
 	ctx := context.Background()
 	if spki != nil {
 		ctx = WithFacts(ctx, TransportFacts{ClientCertSPKI: spki, ClientCertFingerprint: fingerprintOfSPKI(spki)})
+	}
+	if guest != nil {
+		ctx = WithEnvelopeFacts(ctx, &EnvelopeFacts{
+			Protocol: 2, From: guest.RootFpr, SPKI: guest.Key.Public.SPKI,
+			Endpoint: guest.Endpoint, Leaf: guest.LeafDER, Guest: fpr == "",
+		})
 	}
 	params, err := json.Marshal(map[string]any{"name": tool, "arguments": args})
 	if err != nil {
@@ -327,7 +340,7 @@ func TestBoundaryCapsRejectOversizedInput(t *testing.T) {
 		t.Fatalf("5 MiB+1 inline media: %s", body(t, res))
 	}
 	// a note over 1 KiB on the guest tool
-	card, _ := contacts.BuildCard(contacts.Card{FN: "Stranger", Endpoint: "https://s.example/a/s/mcp", Key: "sha256:zzz"})
+	card := testid.CardFor(t, "Stranger", "https://s.example/a/s/mcp")
 	res, _ = e.call("", "request_contact", map[string]any{
 		"card": card, "note": strings.Repeat("n", 1025),
 	}, nil)
@@ -345,11 +358,10 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, _ := identity.Generate(identity.AlgoP256)
-	peerSPKI, _ := x509.MarshalPKIXPublicKey(peer.Signer.Public())
-	peerCard, _ := contacts.BuildCard(contacts.Card{FN: "Peer", Endpoint: "https://p.example/a/p/mcp", Key: peer.Fingerprint})
+	peerCard, _, peerHost := testid.Card(t, "Peer", "https://p.example/a/p/mcp", "")
+	peerSPKI := peerHost.Key.Public.SPKI
 
-	res, err := e.call("", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
+	res, err := e.callAs(peerHost, "", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
 	if err != nil || res.IsError {
 		t.Fatalf("redeem: %v %s", err, body(t, res))
 	}
@@ -364,29 +376,38 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if out.Status != "accepted" || out.Card == "" || out.SPKI == "" {
 		t.Fatalf("redeem result: %+v", out)
 	}
-	// the issuer's key it returned must hash to the card it returned
+	// The issuer's key it returned must be the key its card's certificate carries.
+	// This used to hash that key and compare it to the card's X-PACT-KEY; the card's
+	// identity is the ROOT now, and the key is the leaf's, so the comparison moved
+	// to where the two actually meet.
 	raw, err := base64.RawURLEncoding.DecodeString(out.SPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(raw)
-	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != contacts.CardKey(out.Card) {
-		t.Fatal("returned key does not match the returned card")
+	if _, err := contacts.ValidateInbound(out.Card); err != nil {
+		t.Fatalf("the card it returned does not validate: %v", err)
+	}
+	mine, err := x509.MarshalPKIXPublicKey(e.kp.Signer.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(mine, raw) {
+		t.Fatal("the key it returned is not this account's own")
 	}
 	// the contact is pinned with the FULL proven key, not just its hash
-	c, err := e.st.GetContact(ctx, e.acct.ID, peer.Fingerprint)
+	c, err := e.st.GetContact(ctx, e.acct.ID, peerHost.RootFpr)
 	if err != nil || c.Status != "active" || len(c.SPKI) == 0 {
 		t.Fatalf("pinned contact: %+v %v", c, err)
 	}
 	// and the promoted caller's cached guest server was dropped
 	e.mu.Lock()
-	dropped := len(e.drops) == 1 && e.drops[0] == peer.Fingerprint
+	dropped := len(e.drops) == 1 && e.drops[0] == peerHost.RootFpr
 	e.mu.Unlock()
 	if !dropped {
 		t.Fatalf("pool not invalidated: %v", e.drops)
 	}
 	// a second redemption of a one-time token fails with the PACT code
-	res, _ = e.call("", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
+	res, _ = e.callAs(peerHost, "", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
 	if !res.IsError || !strings.Contains(body(t, res), "invite_invalid") {
 		t.Fatalf("token reuse: %s", body(t, res))
 	}
@@ -466,7 +487,7 @@ func TestUnconfiguredCapabilityIsUnavailable(t *testing.T) {
 	acct, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "bare", DisplayName: "Bare", Algo: "p256"})
 	kp, _ := identity.Generate(identity.AlgoP256)
 	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	card, _ := contacts.BuildCard(contacts.Card{FN: "Bare", Endpoint: "https://b.example/a/bare/mcp", Key: kp.Fingerprint})
+	card := testid.CardFor(t, "Bare", "https://b.example/a/bare/mcp")
 	reg := &Registry{}
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
@@ -519,7 +540,7 @@ func TestAlwaysToolsAtContactTier(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("get_card: %v %s", err, body(t, res))
 	}
-	if !strings.Contains(body(t, res), "X-PACT-KEY") {
+	if !strings.Contains(body(t, res), "X-PACT-CERT") {
 		t.Fatalf("get_card body: %s", body(t, res))
 	}
 
@@ -569,16 +590,13 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 		t.Fatalf("blocked %s vs stranger %s", body(t, blRes), body(t, strRes))
 	}
 
-	// request_contact reads the same to both — the blocked one records nothing
-	card := func(kp *identity.Keypair) string {
-		c, err := contacts.BuildCard(contacts.Card{FN: "X", Endpoint: "https://x.example/a/x/mcp", Key: kp.Fingerprint})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c
-	}
-	blRes, _ = e.call("", "request_contact", map[string]any{"card": card(blockedKP), "note": "hi"}, blockedSPKI)
-	strRes, _ = e.call("", "request_contact", map[string]any{"card": card(strangerKP), "note": "hi"}, strangerSPKI)
+	// request_contact reads the same to both — the blocked one records nothing.
+	// Each brings its own identity: a guest tool pins what the chain proved, and the
+	// blocked caller has to arrive as the root it is blocked under.
+	blCard, _, blHost := testid.Card(t, "Blocked", "https://b.example/a/b/mcp", "")
+	strCard, _, strHost := testid.Card(t, "Stranger", "https://s.example/a/s/mcp", "")
+	blRes, _ = e.callAs(blHost, "", "request_contact", map[string]any{"card": blCard, "note": "hi"}, blockedSPKI)
+	strRes, _ = e.callAs(strHost, "", "request_contact", map[string]any{"card": strCard, "note": "hi"}, strangerSPKI)
 	if blRes.IsError || body(t, blRes) != body(t, strRes) {
 		t.Fatalf("request_contact blocked %s vs stranger %s", body(t, blRes), body(t, strRes))
 	}
@@ -588,7 +606,7 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 		t.Fatalf("blocked caller's status changed: %+v %v", c, err)
 	}
 	// a repeat request from the (now pending_in) stranger is pending_approval
-	strRes, _ = e.call("", "request_contact", map[string]any{"card": card(strangerKP), "note": "hi again"}, strangerSPKI)
+	strRes, _ = e.callAs(strHost, "", "request_contact", map[string]any{"card": strCard, "note": "hi again"}, strangerSPKI)
 	if !strRes.IsError || !strings.Contains(body(t, strRes), "pending_approval") {
 		t.Fatalf("duplicate request: %s", body(t, strRes))
 	}

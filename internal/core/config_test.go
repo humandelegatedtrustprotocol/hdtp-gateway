@@ -174,7 +174,6 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 	}
 }
 
-
 // PACT §12's caps are defaults, not a ceiling, so they are knobs — and a knob
 // has to behave like every other one: settable from the portal, overridable by
 // the file, and pinned by the environment above both (SPEC §12.2). A typo must

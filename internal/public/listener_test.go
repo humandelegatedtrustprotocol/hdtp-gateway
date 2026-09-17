@@ -55,7 +55,6 @@ func testServer(t *testing.T, slugs []string) (addr string, certs map[string]*tl
 			w.WriteHeader(200)
 			io.WriteString(w, "invite:"+r.PathValue("token"))
 		}),
-		Relay: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotImplemented) }),
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -145,9 +144,6 @@ func TestRouting(t *testing.T) {
 	}
 	if code, body, _ := get(t, addr, "work.example", "/i/tok123", nil); code != 200 || body != "invite:tok123" {
 		t.Fatalf("invite route: %d %q", code, body)
-	}
-	if code, _, _ := get(t, addr, "work.example", "/relay/mcp", nil); code != http.StatusNotImplemented {
-		t.Fatal("relay stub should be 501")
 	}
 	if code, _, _ := get(t, addr, "work.example", "/nope", nil); code != 404 {
 		t.Fatal("wrong path should 404")

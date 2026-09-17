@@ -59,6 +59,8 @@ type Host struct {
 	Endpoint string
 	// Kid is the leaf key's fingerprint — what a peer names in an envelope's `kid`.
 	Kid string
+	// RootFpr is the identity this host serves under: what a contact pins (PACT §2).
+	RootFpr string
 }
 
 // Issue gives a host a leaf for one endpoint, valid for a year.
@@ -82,7 +84,7 @@ func (w *Wallet) Issue(t *testing.T, endpoint string, alg ...string) *Host {
 	}
 	return &Host{
 		Key: hostKey, LeafDER: leaf, Chain: [][]byte{leaf, w.RootDER},
-		Endpoint: endpoint, Kid: pactidentity.Fingerprint(hostKey.Public.SPKI),
+		Endpoint: endpoint, Kid: pactidentity.Fingerprint(hostKey.Public.SPKI), RootFpr: w.Fpr,
 	}
 }
 
@@ -97,4 +99,12 @@ func Card(t *testing.T, fn, endpoint, seal string) (card string, w *Wallet, h *H
 	w = NewWallet(t, fn)
 	h = w.Issue(t, endpoint)
 	return h.Card(fn, seal), w, h
+}
+
+// CardFor is the shortest form: a card for one name at one endpoint, with no seal
+// policy. It is what a test that only needs "a valid card" should reach for.
+func CardFor(t *testing.T, fn, endpoint string) string {
+	t.Helper()
+	card, _, _ := Card(t, fn, endpoint, "")
+	return card
 }
