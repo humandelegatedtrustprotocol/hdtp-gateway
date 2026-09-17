@@ -37,7 +37,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 		return fmt.Errorf("%w: a contact needs a proven key", ErrIdentityRequired)
 	}
 	if CardKey(card) != peerFpr {
-		return fmt.Errorf("%w: the card's X-PACT-KEY is not the identity being pinned", ErrIdentityRequired)
+		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
 	if fingerprintOf(spki) != peerFpr {
 		return fmt.Errorf("%w: the key does not hash to the fingerprint being pinned", ErrIdentityRequired)
@@ -64,15 +64,14 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 }
 
 // InitiatedByFingerprint is Initiated for the `request_contact` path, where we
-// hold the peer's card but not their key: a card carries a fingerprint, never a
-// key (SPEC §2). The row is pinned to the fingerprint and BindSPKI records the
-// full key the first time that identity actually connects.
+// hold the peer's card and pin the root it names; the leaf and its key arrive with
+// the first chain that validates (PACT §14.3).
 func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr, card string) error {
 	if peerFpr == "" {
 		return fmt.Errorf("%w: a contact needs a fingerprint", ErrIdentityRequired)
 	}
 	if CardKey(card) != peerFpr {
-		return fmt.Errorf("%w: the card's X-PACT-KEY is not the identity being pinned", ErrIdentityRequired)
+		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, Status: "pending_out",

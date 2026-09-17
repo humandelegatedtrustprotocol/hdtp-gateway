@@ -9,11 +9,12 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
-// contactProtocol maps the zero value every 1.x caller passes to protocol 1;
-// only a 2.0 pin says 2.
+// contactProtocol defaults an unset protocol to 2. It used to default to 1,
+// because a 1.x caller passed nothing and 1 was the generation it meant; there is
+// no other generation now, so an unset value means the current one.
 func contactProtocol(p int64) int64 {
 	if p == 0 {
-		return 1
+		return 2
 	}
 	return p
 }

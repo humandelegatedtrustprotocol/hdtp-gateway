@@ -80,9 +80,7 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		}
 		apiJSON(w, map[string]any{
 			"rows": rows, "notice": notice, "error": errMsg,
-			"can_create":     d.Create != nil,
-			"default_grace":  identity.DefaultGrace.String(),
-			"max_grace_days": int(identity.MaxGrace.Hours() / 24),
+			"can_create": d.Create != nil,
 		})
 	}
 
