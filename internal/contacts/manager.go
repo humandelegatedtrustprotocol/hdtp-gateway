@@ -283,7 +283,14 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	if len(c.Leaf) > 0 && !bytes.Equal(nc.Cert, c.Leaf) {
 		return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrIdentityRequired)
 	}
-	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, CardName(newCard))
+	// The NAME the owner approved stays put. `update_contact` is available at
+	// contact tier regardless of permissions and replaces the stored card, which
+	// carries FN — so passing the new card's FN here would let a contact accepted
+	// as "Alina" rename itself to "Bharat" afterwards, and the owner's decision to
+	// trust the name they approved would be worth nothing. The periodic sync may
+	// move the name, because there we fetched the card ourselves; a card the peer
+	// pushed may not.
+	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, c.DisplayName)
 }
 
 // fingerprintOf is PACT §2's identity for a DER SPKI.

@@ -2,18 +2,13 @@ package contacts
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
 type env struct {
@@ -45,19 +40,22 @@ func newEnv(t *testing.T) *env {
 	}
 }
 
-// guest makes a keypair and a card claiming that keypair's fingerprint.
-func guest(t *testing.T, name string) (*identity.Keypair, string, []byte) {
+// guestID stands in for a peer identity in these tests. Fingerprint is the ROOT
+// fingerprint, which is what a contact is pinned by (PACT §2) — not the leaf key,
+// which changes at every renewal.
+type guestID struct {
+	Fingerprint string
+	Host        *testid.Host
+}
+
+// guest builds a whole peer: a root, a leaf naming an endpoint, and the card that
+// carries it. It used to hand back a bare keypair and a `X-PACT-VERSION:1` card
+// with the key spelled out; there is no such card now.
+func guest(t *testing.T, name string) (*guestID, string, []byte) {
 	t.Helper()
-	kp, err := identity.Generate(identity.AlgoP256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	if err != nil {
-		t.Fatal(err)
-	}
-	card := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:" + name + "\r\nX-PACT-VERSION:1\r\nX-PACT-ENDPOINT:https://" + name + ".example/mcp\r\nX-PACT-KEY:" + kp.Fingerprint + "\r\nEND:VCARD\r\n"
-	return kp, card, spki
+	w := testid.NewWallet(t, name)
+	h := w.Issue(t, "https://"+name+".example/mcp")
+	return &guestID{Fingerprint: w.Fpr, Host: h}, h.Card(name, ""), h.Key.Public.SPKI
 }
 
 func TestRedeemAutoAcceptYieldsActiveContact(t *testing.T) {
@@ -183,44 +181,6 @@ func TestPendingAnswerTools(t *testing.T) {
 	}
 }
 
-func TestUpdateContactVerifiedRotation(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	oldKP, oldCard, oldSPKI := guest(t, "Rotator")
-	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.account, Fingerprint: oldKP.Fingerprint, SPKI: oldSPKI,
-		Status: "active", Card: oldCard,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	newKP, newCard, newSPKI := guest(t, "Rotator")
-
-	// signature by the OLD key over the NEW fingerprint (PACT §2)
-	h := sha256.Sum256([]byte(newKP.Fingerprint))
-	sig, err := ecdsa.SignASN1(rand.Reader, oldKP.Signer.(*ecdsa.PrivateKey), h[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.m.UpdateContact(ctx, e.account, oldKP.Fingerprint, newCard, sig, newSPKI); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.st.GetContact(ctx, e.account, oldKP.Fingerprint); err == nil {
-		t.Fatal("old fingerprint still pinned")
-	}
-	c, err := e.st.GetContact(ctx, e.account, newKP.Fingerprint)
-	if err != nil || c.Status != "active" {
-		t.Fatalf("re-pin lost: %v %+v", err, c)
-	}
-
-	// a signature by the WRONG key must be refused
-	third, thirdCard, thirdSPKI := guest(t, "Third")
-	h2 := sha256.Sum256([]byte(third.Fingerprint))
-	badSig, _ := ecdsa.SignASN1(rand.Reader, third.Signer.(*ecdsa.PrivateKey), h2[:])
-	if err := e.m.UpdateContact(ctx, e.account, newKP.Fingerprint, thirdCard, badSig, thirdSPKI); !errors.Is(err, ErrIdentityRequired) {
-		t.Fatalf("forged rotation accepted: %v", err)
-	}
-}
-
 func TestRequestContactNoteCapAndBinding(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -239,171 +199,34 @@ func TestRequestContactNoteCapAndBinding(t *testing.T) {
 	}
 }
 
-// AC (P8-01, defect #4): an endpoint announcement repins a contact to its OWN
-// fingerprint. If that call proved no key, writing the empty SPKI straight over
-// the stored one would leave a contact we could no longer seal to. A genuine key
-// change is different: there the new key legitimately binds on first connection.
-func TestRepinKeepsThePinnedKeyWhenNoKeyIsProven(t *testing.T) {
-	ctx := context.Background()
-	e := newEnv(t)
-	st, m := e.st, e.m
-	acctID := e.account
-
-	kp, _ := identity.Generate(identity.AlgoP256)
-	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	oldCard, _ := BuildCard(Card{FN: "Peer", Endpoint: "https://old.example/a/p/mcp", Key: kp.Fingerprint})
-	if _, err := st.InsertContact(ctx, store.Contact{
-		AccountID: acctID, Fingerprint: kp.Fingerprint, SPKI: spki,
-		Status: "active", Card: oldCard, Permissions: []string{"message.text"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// same identity, new endpoint, signed by the key we already pinned — and no
-	// key proven on this call
-	newCard, _ := BuildCard(Card{FN: "Peer", Endpoint: "https://moved.example/a/p/mcp", Key: kp.Fingerprint})
-	sig, err := identity.SignBytes(kp, []byte(kp.Fingerprint))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.UpdateContact(ctx, acctID, kp.Fingerprint, newCard, sig, nil); err != nil {
-		t.Fatalf("endpoint announcement refused: %v", err)
-	}
-	got, err := st.GetContact(ctx, acctID, kp.Fingerprint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.SPKI) == 0 {
-		t.Fatal("the repin wiped the pinned key: this contact can no longer be sealed to")
-	}
-	if !strings.Contains(got.Card, "moved.example") {
-		t.Fatalf("the new endpoint was not stored:\n%s", got.Card)
-	}
-
-	// a genuine key change still binds the new key when it is proven
-	newKP, _ := identity.Generate(identity.AlgoP256)
-	newSPKI, _ := x509.MarshalPKIXPublicKey(newKP.Signer.Public())
-	rotated, _ := BuildCard(Card{FN: "Peer", Endpoint: "https://moved.example/a/p/mcp", Key: newKP.Fingerprint})
-	proof, err := identity.SignBytes(kp, []byte(newKP.Fingerprint))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.UpdateContact(ctx, acctID, kp.Fingerprint, rotated, proof, newSPKI); err != nil {
-		t.Fatalf("rotation refused: %v", err)
-	}
-	after, err := st.GetContact(ctx, acctID, newKP.Fingerprint)
-	if err != nil {
-		t.Fatalf("the rotated contact is gone: %v", err)
-	}
-	if string(after.SPKI) != string(newSPKI) {
-		t.Fatal("the rotation did not bind the new key")
-	}
-}
-
-// AC (P10-09a): the rotation SPEC §3.9 step 3 actually performs must succeed.
-//
-// TestUpdateContactVerifiedRotation passes the NEW SPKI as the proven key, which
-// is not what the wire delivers. §3.9 step 4 is explicit: during the grace period
-// "outbound calls to a contact that has not yet re-pinned present the OLD
-// certificate", and internal/cli/cli.go builds exactly that client. So the
-// receiver sees the old key, and requiring it to hash to the new card rejects
-// every real rotation — turning `account rotate` into contact loss.
-func TestRotationPresentingTheOldCertificateIsAccepted(t *testing.T) {
+// UpdateContact is a card refresh now, not a key rotation. The chain that carried
+// the call already decided the pin (PACT §5.3, §14.3), so the two things left to
+// check are that the card names the pinned ROOT and carries the leaf the call
+// proved. These replace four tests of the 1.x rotation proof, which required a
+// signature by the old key because in 1.x the identity WAS a key.
+func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	oldKP, oldCard, oldSPKI := guest(t, "Rotator")
+	g, card, spki := guest(t, "Bharat")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.account, Fingerprint: oldKP.Fingerprint, SPKI: oldSPKI,
-		Status: "active", Card: oldCard,
+		AccountID: e.account, Fingerprint: g.Fingerprint, SPKI: spki, Status: "active",
+		Card: card, Protocol: 2, Leaf: g.Host.LeafDER, Endpoint: g.Host.Endpoint,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	newKP, newCard, _ := guest(t, "Rotator")
-	h := sha256.Sum256([]byte(newKP.Fingerprint))
-	sig, err := ecdsa.SignASN1(rand.Reader, oldKP.Signer.(*ecdsa.PrivateKey), h[:])
-	if err != nil {
-		t.Fatal(err)
+	// The same root and the same leaf, a different display name: accepted.
+	refreshed := g.Host.Card("Bharat Mehta", "required")
+	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, refreshed); err != nil {
+		t.Fatalf("a card refresh from the pinned root was refused: %v", err)
+	}
+	if c, _ := e.st.GetContact(ctx, e.account, g.Fingerprint); c.Card != refreshed {
+		t.Error("the card was not replaced")
 	}
 
-	// The peer calls as its OLD identity — the one our pin recognizes.
-	if err := e.m.UpdateContact(ctx, e.account, oldKP.Fingerprint, newCard, sig, oldSPKI); err != nil {
-		t.Fatalf("the rotation SPEC §3.9 performs was refused: %v", err)
-	}
-	c, err := e.st.GetContact(ctx, e.account, newKP.Fingerprint)
-	if err != nil || c.Status != "active" {
-		t.Fatalf("re-pin lost: %v %+v", err, c)
-	}
-	// The old key must NOT survive as the pinned SPKI: it is destroyed at grace
-	// expiry (§3.9 step 5), and sealing to it after that would be undeliverable.
-	if len(c.SPKI) != 0 {
-		t.Fatalf("kept a stale SPKI for a key that is about to be destroyed (%d bytes)", len(c.SPKI))
-	}
-
-	// A fingerprint-only pin must still support the NEXT rotation: the peer
-	// presents the pinned identity, and its certificate supplies the key bytes
-	// we no longer store.
-	newSPKI, err := x509.MarshalPKIXPublicKey(newKP.Signer.Public())
-	if err != nil {
-		t.Fatal(err)
-	}
-	third, thirdCard, _ := guest(t, "Third")
-	h2 := sha256.Sum256([]byte(third.Fingerprint))
-	sig2, _ := ecdsa.SignASN1(rand.Reader, newKP.Signer.(*ecdsa.PrivateKey), h2[:])
-	if err := e.m.UpdateContact(ctx, e.account, newKP.Fingerprint, thirdCard, sig2, newSPKI); err != nil {
-		t.Fatalf("a fingerprint-only pin could not rotate: %v", err)
-	}
-	if _, err := e.st.GetContact(ctx, e.account, third.Fingerprint); err != nil {
-		t.Fatalf("second re-pin lost: %v", err)
-	}
-
-	// A third key vouching for a card it does not own is still a lie.
-	fourth, fourthCard, fourthSPKI := guest(t, "Fourth")
-	h3 := sha256.Sum256([]byte(fourth.Fingerprint))
-	badSig, _ := ecdsa.SignASN1(rand.Reader, fourth.Signer.(*ecdsa.PrivateKey), h3[:])
-	if err := e.m.UpdateContact(ctx, e.account, third.Fingerprint, fourthCard, badSig, fourthSPKI); !errors.Is(err, ErrIdentityRequired) {
-		t.Fatalf("forged rotation accepted: %v", err)
-	}
-}
-
-// AC (P10-09b): a contact left fingerprint-only by a rotation binds its key the
-// next time that key connects (SPEC §3.9, escalation E7 option B).
-//
-// Without this the drop to fingerprint-only would be permanent and we could
-// never seal to that contact again — which would make E7's choice a bug rather
-// than a trade-off.
-func TestFingerprintOnlyContactBindsItsKeyOnNextConnection(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	kp, card, spki := guest(t, "Rotated")
-	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.account, Fingerprint: kp.Fingerprint, Status: "active", Card: card,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	before, _ := e.st.GetContact(ctx, e.account, kp.Fingerprint)
-	if len(before.SPKI) != 0 {
-		t.Fatal("the fixture is not fingerprint-only")
-	}
-
-	if err := e.m.BindSPKI(ctx, e.account, kp.Fingerprint, spki); err != nil {
-		t.Fatalf("binding the pinned key failed: %v", err)
-	}
-	after, _ := e.st.GetContact(ctx, e.account, kp.Fingerprint)
-	if string(after.SPKI) != string(spki) {
-		t.Fatal("the key was not recorded")
-	}
-	if after.Card != card {
-		t.Fatalf("binding a key rewrote the contact's card: %q", after.Card)
-	}
-
-	// A key that does NOT hash to the pin is not that contact's key.
-	other, _, otherSPKI := guest(t, "Other")
+	// A card from another root is not a refresh of this contact.
+	other, otherCard, _ := guest(t, "Mallory")
 	_ = other
-	if err := e.m.BindSPKI(ctx, e.account, kp.Fingerprint, otherSPKI); err == nil {
-		t.Fatal("a key that does not match the pin was bound")
-	}
-	// Binding again is a no-op, not an error: it happens on every connection.
-	if err := e.m.BindSPKI(ctx, e.account, kp.Fingerprint, spki); err != nil {
-		t.Fatalf("re-binding an already-bound key failed: %v", err)
+	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, otherCard); err == nil {
+		t.Error("a card naming another root was accepted as a refresh")
 	}
 }

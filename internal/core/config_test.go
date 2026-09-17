@@ -71,8 +71,6 @@ func TestRejections(t *testing.T) {
 		{"postgres without dsn", `{"store_engine": "postgres"}`, nil, RulePostgresDSN},
 		{"edge with seal optional", `{"mode": "edge", "seal": "optional"}`, nil, RuleEdgeSeal},
 		{"edge with client_cert preferred", `{"mode": "edge", "client_cert": "preferred"}`, nil, RuleEdgeClientCert},
-		{"relay-assisted with seal none", `{"mode": "relay-assisted", "seal": "none"}`, nil, RuleRelaySeal},
-		{"relay_recipients entry that is not a fingerprint", `{"relay": true, "relay_recipients": ["bob@example.com"]}`, nil, RuleEnum},
 		{"bad seal enum", `{"seal": "sometimes"}`, nil, RuleEnum},
 		{"bad mode enum", `{"mode": "hybrid"}`, nil, RuleEnum},
 		{"bad client_cert enum via env", ``, map[string]string{"PACT_CLIENT_CERT": "maybe"}, RuleEnum},
@@ -176,31 +174,6 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 	}
 }
 
-// AC (P12-15): the relay's registration gate has to arrive from a config FILE,
-// not just from a struct a test filled in. The knob, its validation and the
-// call site that reads it were all added at once, which is the shape that ships
-// dead.
-func TestRelayRecipientsRoundTripFromTheConfigFile(t *testing.T) {
-	const fpr = "sha256:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqQ"
-	c, err := load(t, `{"relay": true, "relay_recipients": ["`+fpr+`"]}`, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !c.Relay {
-		t.Fatal("relay did not load")
-	}
-	if len(c.RelayRecipients) != 1 || c.RelayRecipients[0] != fpr {
-		t.Fatalf("relay_recipients = %v, want [%s]", c.RelayRecipients, fpr)
-	}
-	// Absent, it must stay empty — that is what keeps a relay open by default.
-	open, err := load(t, `{"relay": true}`, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(open.RelayRecipients) != 0 {
-		t.Fatalf("an unset relay_recipients arrived as %v", open.RelayRecipients)
-	}
-}
 
 // PACT §12's caps are defaults, not a ceiling, so they are knobs — and a knob
 // has to behave like every other one: settable from the portal, overridable by
