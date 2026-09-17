@@ -4,7 +4,7 @@ import { getJSON } from "../api";
 import { Link } from "../router";
 import { Badge, Button, EmptyState, Notice, PageHeader, Readout, Section, Table } from "../ui";
 
-type Posture = { mode: string; seal: string; client_cert: string; tunnel: string; public_url: string; relay: boolean; gateway: string };
+type Posture = { mode: string; seal: string; client_cert: string; tunnel: string; public_url: string };
 type Acct = { slug: string; display_name: string; fingerprint: string; contacts: number; pending: number };
 type Audit = { Action: string; ActorKind: string; Outcome: string };
 type Data = { posture: Posture; accounts: Acct[]; recent: Audit[] | null };
@@ -38,7 +38,6 @@ export function Dashboard() {
           <Cell k="tunnel" v={d.posture.tunnel || "direct"} />
           <Cell k="sealed envelopes" v={d.posture.seal} />
           <Cell k="client certificates" v={d.posture.client_cert} />
-          {d.posture.relay && <Cell k="relay" v="serving" />}
           {d.posture.gateway && <Cell k="my gateway" v={d.posture.gateway} />}
         </div>
       </Section>

@@ -63,12 +63,6 @@ type Server struct {
 	Accounts       func() []string
 	MCP            http.Handler // /a/{slug}/mcp (and /mcp alias when exactly one account)
 	Invite         http.Handler // /i/{token}
-	Relay          http.Handler // /relay/mcp
-	// RelayControl is the relay's own control plane at /relay/allowlist — a
-	// recipient telling its relay who may queue for it. It is plain HTTP over
-	// the same mTLS rather than a fourth MCP tool, because PACT §9 defines
-	// exactly three relay verbs (SPEC §10.5).
-	RelayControl http.Handler // /relay/allowlist
 	// Probe answers the reachability probe (SPEC §10.4) at tunnel.ProbePath;
 	// nil disables it.
 	Probe http.Handler
@@ -104,12 +98,6 @@ func (s *Server) Handler() http.Handler {
 		s.MCP.ServeHTTP(w, r)
 	})
 	mux.Handle("/i/{token}", s.Invite)
-	mux.Handle("/relay/mcp", s.Relay)
-	if s.RelayControl != nil {
-		// Unset means this node runs no relay, and the route simply is not
-		// there — the same answer a 404 gives, without a nil handler.
-		mux.Handle("/relay/allowlist", s.RelayControl)
-	}
 	if s.Probe != nil {
 		mux.Handle(tunnel.ProbePath, s.Probe)
 	}

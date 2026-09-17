@@ -30,7 +30,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/internalui"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
@@ -75,18 +74,6 @@ type Options struct {
 	// through them, which contradicts §6.10's lifecycle. nil falls back to the
 	// maps, and then to §6.7's node-local default.
 	Capabilities func(accountID string) (public.Calendar, public.StatusSource)
-
-	// Relay, when set, is mounted at /relay/mcp (SPEC §5.2). Mounting a relay
-	// on an edge-mode listener is refused: the relay verifies signatures with
-	// the caller's certificate key, which a terminating edge never delivers
-	// (SPEC §10.5).
-	Relay http.Handler
-
-	// RelayControl is the relay's control plane at /relay/allowlist — a
-	// recipient telling its relay who may queue for it. It rides the same mTLS
-	// and carries the same edge restriction as Relay, and is plain HTTP rather
-	// than a fourth MCP tool because PACT §9 defines exactly three relay verbs.
-	RelayControl http.Handler
 
 	// Adapter names the active tunnel adapter; it shapes the LAN guard and the
 	// trusted source-IP header. "" or "direct" means the node's own listener.
@@ -193,10 +180,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	if o.Store == nil {
 		return nil, fmt.Errorf("node: no store")
 	}
-	if o.Relay != nil && o.Config.Mode == core.ModeEdge {
-		return nil, fmt.Errorf("node: relay mode cannot run on an edge-mode listener (SPEC §10.5): " +
-			"a terminating edge never delivers the caller's certificate, and the relay verifies signatures with it")
-	}
 	if o.Bus == nil {
 		o.Bus = messaging.NewBus()
 	}
@@ -243,8 +226,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		Accounts:       n.Slugs,
 		MCP:            n.mcpHandler(),
 		Invite:         n.inviteHandler(),
-		Relay:          http.NotFoundHandler(),
-		RelayControl:   http.NotFoundHandler(),
 		// the probe answers for whatever the node currently advertises
 		Probe: probeHandler(n.PublicURL),
 		SourceIP: func(r *http.Request) string {
@@ -254,12 +235,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		// leg. It is checked at the handshake and must go no further: caller
 		// identity in terminate mode comes from the sealed envelope (§10.1).
 		IgnoreClientCert: func() bool { return o.IngressFingerprint != "" },
-	}
-	if o.Relay != nil {
-		n.srv.Relay = o.Relay
-	}
-	if o.RelayControl != nil {
-		n.srv.RelayControl = o.RelayControl
 	}
 
 	// Order matters, outermost first: cap the body before anything parses it,
@@ -391,9 +366,9 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	if kp.Fingerprint != rec.Fingerprint {
 		return nil, fmt.Errorf("node: account %s: stored key does not match its pinned fingerprint", rec.Slug)
 	}
-	// A 2.0 account (PACT §2) serves under the leaf the person's root issued:
-	// the leaf's key is the key above, and the chain — leaf then root — is what
-	// TLS presents. A 1.x account keeps its self-signed certificate.
+	// An account (PACT §2) serves under the leaf the person's root issued: the
+	// leaf's key is the key above, and the chain — leaf then root — is what TLS
+	// presents. There is no other shape.
 	var cert tls.Certificate
 	if rec.Protocol == 2 {
 		keys, err := n.idm.ActiveLeafKeypairs(ctx, rec.ID, n.now())
@@ -418,11 +393,11 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		kp = keys[0].KP
 		cert = tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
 	} else {
-		der, err := identity.SelfSignedCert(kp, rec.Slug)
-		if err != nil {
-			return nil, fmt.Errorf("node: account %s certificate: %w", rec.Slug, err)
-		}
-		cert = tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
+		// PACT 1.x is gone (2026-09-17). An account pinned by a bare key has no chain
+		// to present and no card to serve, so it cannot be served at all. It is named
+		// here rather than skipped quietly, because the remedy is a deliberate act by
+		// the owner: make the identity again and re-pair its contacts.
+		return nil, fmt.Errorf("node: account %s predates PACT 2.0 and cannot be served — it has no certificate chain; make the identity again and re-pair its contacts", rec.Slug)
 	}
 	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	if err != nil {
@@ -606,26 +581,13 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	if err != nil {
 		rec = a.rec // a store blip must not stop us answering with what we know
 	}
-	// PACT §3: a 2.0 card carries the leaf and nothing the leaf already says.
-	if rec.Protocol == 2 {
-		chain, err := n.idm.Chain(ctx, accountID)
-		if err != nil {
-			return "", err
-		}
-		return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue())), nil
+	// PACT §3: the card carries the leaf and nothing the leaf already says. The seal
+	// is the SAME value the gate enforces, never the raw row.
+	chain, err := n.idm.Chain(ctx, accountID)
+	if err != nil {
+		return "", err
 	}
-	endpoint := ""
-	if base := n.PublicURL(); base != "" {
-		endpoint = base + "/a/" + rec.Slug + "/mcp"
-	}
-	return contacts.BuildCard(contacts.Card{
-		FN: rec.DisplayName, Endpoint: endpoint, Key: rec.Fingerprint,
-		// the SAME value the gate enforces, never the raw row
-		Seal: string(a.sealValue()),
-		// A peer whose direct delivery fails looks here for somewhere to queue
-		// (PACT §9). Without it, "your node was down" is simply a lost message.
-		Gateway: n.cfg.GatewayURL,
-	})
+	return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue())), nil
 }
 
 func (n *Node) now() time.Time {
@@ -1198,51 +1160,7 @@ func (n *Node) inviteHandler() http.Handler {
 	})
 }
 
-// DeliverSealed runs one envelope through the standard open order and dispatch
-// (SPEC §4.4) on behalf of an account. The relay fetch loop uses it: an envelope
-// handed over by a relay is NOT trusted because the relay handed it over — it
-// takes the same path a directly delivered one would, with the documented
-// timestamp relaxation that `d` selects.
-func (n *Node) DeliverSealed(ctx context.Context, accountID string, e *envelope.Envelope, d public.Delivery) error {
-	n.mu.RLock()
-	a := n.accounts[accountID]
-	n.mu.RUnlock()
-	if a == nil {
-		return fmt.Errorf("node: unknown account %s", accountID)
-	}
-	facts, err := a.ident.OpenSealed(ctx, accountID, a.kp.Fingerprint, public.TransportFacts{}, e, d)
-	if err != nil {
-		return err
-	}
-	// Envelope idempotency (PACT §13.3) applies HERE most of all: relay-fetched
-	// envelopes are the exp-bounded ones — no 300 s window protects them — so a
-	// relay that re-serves an item must get "handled", never a re-execution.
-	// This path skipped the check entirely; only the direct sealed_call wrapper
-	// had it. A replay returns nil so the fetch loop acks and deletes the item.
-	if _, replayed, rerr := a.ident.Replay(ctx, n.opts.Store, accountID, facts); rerr == nil && replayed {
-		n.auditFor(accountID, "sealed_call", "contact:"+facts.From+" via:relay", "replayed")
-		return nil
-	}
-	out, err := a.pool.Dispatch(public.WithEnvelopeFacts(ctx, facts), accountID, facts.From, facts.Payload)
-	if err != nil {
-		return err
-	}
-	// A refused call is still "handled": the item must not wedge the queue, and
-	// the refusal is already audited by the surface that issued it.
-	if len(out) == 0 {
-		return fmt.Errorf("node: empty dispatch result")
-	}
-	// Finalize the idempotency record with the result, mirroring the direct
-	// path: the reservation Replay made above holds the ack from now on.
-	if facts.Header.MsgID != "" {
-		_ = n.opts.Store.UpdateIdempotencyAck(ctx, accountID, facts.From,
-			public.EnvelopeKey(facts.Header.MsgID), string(out))
-	}
-	return nil
-}
-
-/* ------------------------------- lifecycle ------------------------------ */
-
+// Addr is the listening address, or "" before Start.
 // Start listens and serves. A nil listener means "dial the configured bind";
 // a tunnel adapter supplies its own.
 func (n *Node) Start(ctx context.Context, ln net.Listener) error {
@@ -1273,6 +1191,7 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 }
 
 // Addr is the listening address, or "" before Start.
+
 func (n *Node) Addr() string {
 	n.lnMu.Lock()
 	defer n.lnMu.Unlock()

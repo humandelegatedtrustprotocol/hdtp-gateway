@@ -19,9 +19,8 @@ type Seal string
 type ClientCert string
 
 const (
-	ModeDirect        Mode = "direct"
-	ModeEdge          Mode = "edge"
-	ModeRelayAssisted Mode = "relay-assisted"
+	ModeDirect Mode = "direct"
+	ModeEdge   Mode = "edge"
 
 	SealNone     Seal = "none"
 	SealOptional Seal = "optional"
@@ -39,8 +38,6 @@ const (
 	RulePostgresDSN      = "postgres_dsn_required"                // SPEC §11.1
 	RuleEdgeSeal         = "edge_mode_forces_seal_required"       // SPEC §2.5
 	RuleEdgeClientCert   = "edge_mode_forces_client_cert_off"     // SPEC §2.5
-	RuleRelaySeal        = "relay_assisted_forces_seal_required"  // SPEC §2.5
-	RuleRelayEdge        = "relay_role_needs_client_certificates" // SPEC §10.5
 	RuleEnum             = "invalid_enum_value"
 	RuleRange            = "value_out_of_range"
 )
@@ -82,28 +79,6 @@ type Config struct {
 	// edge: off, relay-assisted: inert). Pointer in the wire forms so "unset" is
 	// distinguishable from "explicit false"; resolved to a plain bool here.
 	LANConnections bool `json:"-"`
-
-	// Relay, when true, mounts this node's relay surface at /relay/mcp so
-	// allow-listed peers can queue sealed envelopes for their contacts
-	// (SPEC §10.5). It is refused in edge mode: the relay verifies signatures
-	// with the caller's certificate key, which a terminating edge strips.
-	Relay bool `json:"relay"`
-	// RelayRecipients names the fingerprints this relay serves. Empty means an
-	// OPEN relay: any node that can reach it may register an allow-list and
-	// have mail queued for it. That is a real choice for a public relay and the
-	// wrong one for a household, so it stays the default only because changing
-	// it silently would break relays that already work — `serve` warns about it
-	// at startup instead (SPEC §10.5).
-	RelayRecipients []string `json:"relay_recipients"`
-	// GatewayURL is the relay THIS node fetches its own mail from. It is
-	// published on the card as `X-PACT-GATEWAY`, which is how a peer whose
-	// direct delivery fails knows where to queue instead (PACT §9).
-	GatewayURL string `json:"gateway_url"`
-	// GatewayFingerprint pins the relay's certificate by SPKI fingerprint.
-	// Empty means WebPKI validation, which is right for a hosted relay with a
-	// real certificate and wrong for a self-signed one — a self-hosted relay
-	// must be pinned here, the same way contacts pin each other (PACT §2).
-	GatewayFingerprint string `json:"gateway_fingerprint"`
 
 	// EnvPinned names the owner-settable knobs the environment fixed, so the
 	// portal can lock them instead of pretending they are editable.
@@ -217,14 +192,6 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("PACT_POSTGRES_DSN", &c.PostgresDSN)
 	envStr("PACT_MASTER_KEY_FILE", &c.MasterKeyFile)
 	envStr("PACT_TUNNEL", &c.Tunnel)
-	envStr("PACT_GATEWAY_URL", &c.GatewayURL)
-	envStr("PACT_GATEWAY_FINGERPRINT", &c.GatewayFingerprint)
-	if v, ok := lookup("PACT_RELAY_RECIPIENTS"); ok {
-		c.RelayRecipients = SplitRecipients(v)
-	}
-	if v, ok := lookup("PACT_RELAY"); ok {
-		c.Relay = v == "true" || v == "1"
-	}
 	if v, ok := lookup("PACT_MODE"); ok {
 		c.Mode = Mode(v)
 	}
@@ -277,10 +244,6 @@ var ownerSettableEnv = []struct{ key, env string }{
 	{"seal", "PACT_SEAL"},
 	{"client_cert", "PACT_CLIENT_CERT"},
 	{"lan_connections", "PACT_LAN_CONNECTIONS"},
-	{"relay", "PACT_RELAY"},
-	{"relay_recipients", "PACT_RELAY_RECIPIENTS"},
-	{"gateway_url", "PACT_GATEWAY_URL"},
-	{"gateway_fingerprint", "PACT_GATEWAY_FINGERPRINT"},
 	{"limit.contact_per_hour", "PACT_LIMIT_CONTACT_PER_HOUR"},
 	{"limit.guest_per_hour", "PACT_LIMIT_GUEST_PER_HOUR"},
 }
@@ -333,7 +296,7 @@ func (c *Config) Derive() error {
 			c.Mode = ModeEdge
 			c.Seal = SealRequired
 			c.ClientCert = ClientCertOff
-		} else if c.Mode != ModeRelayAssisted {
+		} else {
 			c.Mode = ModeDirect
 		}
 	}
@@ -353,9 +316,9 @@ func (c *Config) Derive() error {
 
 func (c *Config) validate() error {
 	switch c.Mode {
-	case ModeDirect, ModeEdge, ModeRelayAssisted:
+	case ModeDirect, ModeEdge:
 	default:
-		return fmt.Errorf("%s: mode %q (want direct|edge|relay-assisted)", RuleEnum, c.Mode)
+		return fmt.Errorf("%s: mode %q (want direct|edge)", RuleEnum, c.Mode)
 	}
 	switch c.Seal {
 	case SealNone, SealOptional, SealRequired:
@@ -398,18 +361,6 @@ func (c *Config) validate() error {
 	if !isLoopbackBind(c.InternalBind) && c.InternalHost == "" {
 		return fmt.Errorf("%s: a non-loopback internal_bind needs internal_host — "+
 			"the hostname the portal is served at, which passkeys are bound to", RuleInternalHost)
-	}
-	if c.Relay && c.Mode == ModeEdge {
-		return fmt.Errorf("%s: relay mode needs the caller's client certificate, which a terminating edge never delivers",
-			RuleRelayEdge)
-	}
-	for _, f := range c.RelayRecipients {
-		if !strings.HasPrefix(f, "sha256:") {
-			return fmt.Errorf("%s: relay_recipients entry %q is not a PACT §2 fingerprint", RuleEnum, f)
-		}
-	}
-	if c.Mode == ModeRelayAssisted && c.Seal != SealRequired {
-		return fmt.Errorf("%s: relay-assisted mode forces seal=required, got %q", RuleRelaySeal, c.Seal)
 	}
 	return nil
 }
