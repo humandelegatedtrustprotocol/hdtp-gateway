@@ -169,32 +169,3 @@ func (q *Queries) RevokeInvite(ctx context.Context, arg RevokeInviteParams) (int
 	}
 	return result.RowsAffected(), nil
 }
-
-const updateContactRepin = `-- name: UpdateContactRepin :execrows
-UPDATE contacts SET fingerprint = $1, spki = $2, card = $3, pinned_at = $4
-WHERE account_id = $5 AND fingerprint = $6
-`
-
-type UpdateContactRepinParams struct {
-	Fingerprint   string
-	Spki          []byte
-	Card          string
-	PinnedAt      pgtype.Int8
-	AccountID     string
-	Fingerprint_2 string
-}
-
-func (q *Queries) UpdateContactRepin(ctx context.Context, arg UpdateContactRepinParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateContactRepin,
-		arg.Fingerprint,
-		arg.Spki,
-		arg.Card,
-		arg.PinnedAt,
-		arg.AccountID,
-		arg.Fingerprint_2,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}

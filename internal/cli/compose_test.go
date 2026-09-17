@@ -163,6 +163,7 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		acct = issueLeafFor(t, idm, acct, configPublicURL(t, dir))
 	})
 
 	// 1. the portal answers on the internal bind
@@ -170,10 +171,12 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 		t.Fatalf("portal: %d", code)
 	}
 
-	// 2. the PUBLIC surface completes a TLS handshake and lists guest tools
-	kp, _ := identity.Generate(identity.AlgoP256)
-	der, _ := identity.SelfSignedCert(kp, "peer")
-	client := &outbound.Client{Keypair: kp, Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}}
+	// 2. the PUBLIC surface completes a TLS handshake and lists guest tools.
+	// The peer presents a CHAIN — leaf then root — because that is what proves an
+	// identity now; a single self-signed certificate proves nothing (PACT §14.2
+	// rule 1) and its bearer would be refused identity_required.
+	tp := newTestPeer(t, "Peer", "https://peer.example/a/p/mcp")
+	client := &outbound.Client{Keypair: tp.KP, Cert: tp.Cert}
 	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
 	hc, err := client.HTTPClient(peer)
 	if err != nil {
@@ -205,18 +208,18 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := getBody(t, insecureGet(t, "https://"+r.public+"/i/"+token))
-	if !strings.Contains(body, "X-PACT-KEY") {
+	if !strings.Contains(body, "X-PACT-CERT") {
 		t.Fatalf("landing page: %s", firstLine(body))
 	}
 
 	// 4. and redeeming it over the public surface really pairs
-	peerCard, _ := contacts.BuildCard(contacts.Card{FN: "Peer", Endpoint: "https://peer.example/a/p/mcp", Key: kp.Fingerprint})
+	peerCard := tp.Card("Peer")
 	res, err := client.CallTool(ctx, peer, "redeem_invite",
 		map[string]any{"token": token, "card": peerCard}, outbound.CallOptions{Plaintext: true})
 	if err != nil || res.IsError {
 		t.Fatalf("redeem over the real binary: %v %+v", err, res)
 	}
-	c, err := st.GetContact(ctx, acct.ID, kp.Fingerprint)
+	c, err := st.GetContact(ctx, acct.ID, tp.Root())
 	if err != nil || c.Status != "active" {
 		t.Fatalf("pairing did not persist: %+v %v", c, err)
 	}
@@ -240,6 +243,7 @@ func TestServeOwnerMCPBearerGate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		a = issueLeafFor(t, idm, a, configPublicURL(t, dir))
 		owner, err := st.CreateOwnerWithID(ctx, "", "Owner")
 		if err != nil {
 			t.Fatal(err)
@@ -372,9 +376,11 @@ func TestServeShutsDownAndReleasesTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}
-	if _, err := idm.CreateAccount(ctx, "alice", "Alice", identity.AlgoP256); err != nil {
+	created, err := idm.CreateAccount(ctx, "alice", "Alice", identity.AlgoP256)
+	if err != nil {
 		t.Fatal(err)
 	}
+	issueLeafFor(t, idm, created, configPublicURL(t, dir))
 	st.Close()
 
 	runCtx, cancel := context.WithCancel(ctx)

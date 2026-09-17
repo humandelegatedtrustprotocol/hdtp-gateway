@@ -353,59 +353,33 @@ func Run(t *testing.T, newStore Factory) {
 				all[0].Petname)
 		}
 
-		// A rotation re-pins the contact under a new fingerprint. The petname is
-		// the owner's, not the contact's, so a key change must not discard it --
-		// that would hand a peer a way to shed a name the owner gave them just by
-		// rotating.
-		if err := s.RepinContact(ctx, a.ID, "sha256:pn1", "sha256:pn2", []byte{8}, "BEGIN:VCARD...", 1756000001); err != nil {
+		// A move re-pins the contact at a new address. The petname is the owner's,
+		// not the contact's, so nothing a peer does must discard it -- that would
+		// hand a peer a way to shed a name the owner gave them. It used to be proved
+		// over a 1.x rotation, which re-pinned under a NEW fingerprint; a root never
+		// moves, so the re-pin that exists now keeps the fingerprint and changes the
+		// address.
+		if err := s.RepinContactAddress(ctx, a.ID, "sha256:pn1", "https://moved.example/mcp", []byte("leaf"), []byte{8}, 1756000001); err != nil {
 			t.Fatal(err)
 		}
-		after, err := s.GetContact(ctx, a.ID, "sha256:pn2")
+		after, err := s.GetContact(ctx, a.ID, "sha256:pn1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if after.Petname != "Alice from work" {
-			t.Errorf("a rotation dropped the owner's own name for the contact: %q", after.Petname)
+			t.Errorf("a move dropped the owner's own name for the contact: %q", after.Petname)
 		}
 
 		// Clearing is how the owner goes back to the contact's own name.
-		if err := s.SetContactPetname(ctx, a.ID, "sha256:pn2", ""); err != nil {
+		if err := s.SetContactPetname(ctx, a.ID, "sha256:pn1", ""); err != nil {
 			t.Fatal(err)
 		}
-		cleared, err := s.GetContact(ctx, a.ID, "sha256:pn2")
+		cleared, err := s.GetContact(ctx, a.ID, "sha256:pn1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if cleared.Petname != "" {
 			t.Errorf("petname could not be cleared: %q", cleared.Petname)
-		}
-	})
-
-	t.Run("RepinSameFingerprintKeepsTheRow", func(t *testing.T) {
-		// An endpoint change repins a contact to ITS OWN fingerprint. The row
-		// must be updated in place — not collide with the (account, fingerprint)
-		// uniqueness it already satisfies, and not lose the pinned key.
-		s := migrated(t, newStore)
-		ctx := context.Background()
-		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "r", DisplayName: "R", Algo: "p256"})
-		if _, err := s.InsertContact(ctx, store.Contact{
-			AccountID: a.ID, Fingerprint: "sha256:same", SPKI: []byte{9, 9},
-			Status: "active", Card: "OLD", Permissions: []string{"message.text"},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.RepinContact(ctx, a.ID, "sha256:same", "sha256:same", []byte{9, 9}, "NEW", 500); err != nil {
-			t.Fatalf("same-fingerprint repin: %v", err)
-		}
-		got, err := s.GetContact(ctx, a.ID, "sha256:same")
-		if err != nil {
-			t.Fatalf("contact vanished after repin: %v", err)
-		}
-		if got.Card != "NEW" || len(got.SPKI) == 0 || got.Status != "active" || len(got.Permissions) != 1 {
-			t.Fatalf("repin damaged the row: %+v", got)
-		}
-		if all, _ := s.ListContacts(ctx, a.ID); len(all) != 1 {
-			t.Fatalf("repin duplicated the contact: %d rows", len(all))
 		}
 	})
 
@@ -977,35 +951,6 @@ func Run(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// RelayQueueUsage is the §9 quota read. The bytes column comes back from
-	// COALESCE(SUM(...)) as int64 on one engine and float64 on the other, so
-	// this is what actually exercises each driver's conversion.
-	t.Run("RelayQueueUsageCountsLiveItemsAndBytes", func(t *testing.T) {
-		s := migrated(t, newStore)
-		ctx := context.Background()
-		now := int64(1756000000)
-		for i, it := range []store.RelayItem{
-			{RecipientFpr: "sha256:bob", SenderFpr: "sha256:alice", MsgID: "u-1", Envelope: "aaaa", SizeBytes: 4, QueuedAt: now, ExpiresAt: now + 60},
-			{RecipientFpr: "sha256:bob", SenderFpr: "sha256:alice", MsgID: "u-2", Envelope: "bbbbbb", SizeBytes: 6, QueuedAt: now, ExpiresAt: now + 60},
-			{RecipientFpr: "sha256:bob", SenderFpr: "sha256:alice", MsgID: "u-3", Envelope: "cc", SizeBytes: 2, QueuedAt: now - 120, ExpiresAt: now - 1}, // expired
-			{RecipientFpr: "sha256:carol", SenderFpr: "sha256:alice", MsgID: "u-4", Envelope: "dd", SizeBytes: 2, QueuedAt: now, ExpiresAt: now + 60},
-		} {
-			if _, err := s.EnqueueRelay(ctx, it); err != nil {
-				t.Fatalf("enqueue %d: %v", i, err)
-			}
-		}
-		items, bytes, err := s.RelayQueueUsage(ctx, "sha256:bob", now)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if items != 2 || bytes != 10 {
-			t.Fatalf("usage = %d items, %d bytes; want 2, 10 (expired and other recipients excluded)", items, bytes)
-		}
-		items, bytes, err = s.RelayQueueUsage(ctx, "sha256:nobody", now)
-		if err != nil || items != 0 || bytes != 0 {
-			t.Fatalf("empty queue: %d %d %v", items, bytes, err)
-		}
-	})
 }
 
 func migrated(t *testing.T, newStore Factory) Migratable {

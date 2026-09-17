@@ -125,9 +125,9 @@ type Proof struct {
 	SelfEndpoint string
 }
 
-// vet checks a guest's card against what the guest proved: the 1.x binding is
-// the key, the 2.0 binding the root and the leaf, and a 2.0 endpoint must pass
-// the address guard — never loopback, link-local or private, never our own.
+// vet checks a guest's card against what the guest proved: the card must name the
+// ROOT the chain proved, carry the leaf that chain presented, and name an endpoint
+// the address guard allows — never loopback, link-local or private, never our own.
 func (p Proof) vet(card string) (Card, error) {
 	if p.Fingerprint == "" || len(p.SPKI) == 0 {
 		return Card{}, fmt.Errorf("%w: needs a proven key", ErrIdentityRequired)
@@ -137,7 +137,7 @@ func (p Proof) vet(card string) (Card, error) {
 		return Card{}, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	if pc.Key != p.Fingerprint {
-		return Card{}, fmt.Errorf("%w: proven key does not match the card's X-PACT-KEY", ErrIdentityRequired)
+		return Card{}, fmt.Errorf("%w: the card names another root than the chain proved", ErrIdentityRequired)
 	}
 	if p.Protocol == 2 {
 		if !bytes.Equal(pc.Cert, p.Leaf) {

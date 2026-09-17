@@ -1,17 +1,19 @@
 package integrationtest
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,12 +27,16 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/public"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // node is a whole pact-gateway node in-process: store, identity, public TLS
 // listener with the real per-caller server pool, the guest/contact tool set,
 // sealed_call at every tier, and the invite landing page.
 type pactNode struct {
+	leafDER  []byte
+	rootFpr  string
+	rootCert []byte
 	t        *testing.T
 	st       store.Store
 	acct     store.Account
@@ -60,13 +66,45 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	if err != nil {
 		t.Fatal(err)
 	}
-	der, err := identity.SelfSignedCert(kp, slug)
+	// A 2.0 node serves under a leaf its person's root issued, and that leaf names
+	// the address it answers at. It CANNOT name a loopback address (PACT §14.2
+	// rule 5), so the node advertises a public-looking name and `pactNet` maps that
+	// name to the httptest listener — the same trick internal/node's exit demo uses,
+	// and the only way to run 2.0 hermetically.
+	rootKey, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
+	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+		CN: strings.ToUpper(slug), Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostSPKI, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostPub, err := pactidentity.ParseSPKI(hostSPKI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertised := "https://" + slug + ".pact.example"
+	leafDER, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+		CN: strings.ToUpper(slug), RootCN: strings.ToUpper(slug), RootKey: rootKey, HostPub: hostPub,
+		URIs: []string{advertised + "/a/" + slug + "/mcp"}, NotBefore: time.Now().Add(-time.Hour),
+		NotAfter: time.Now().AddDate(1, 0, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := tls.Certificate{Certificate: [][]byte{leafDER, rootCert}, PrivateKey: kp.Signer}
+	kp.Leaf, kp.Root, kp.Protocol = leafDER, rootCert, 2
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: slug, DisplayName: strings.ToUpper(slug), Algo: "p256"})
 	if err := st.SetAccountKey(ctx, a.ID, kp.Fingerprint, []byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountProtocol(ctx, a.ID, 2, pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert); err != nil {
 		t.Fatal(err)
 	}
 	if seal != "" {
@@ -77,6 +115,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	a, _ = st.GetAccountByID(ctx, a.ID)
 
 	n := &pactNode{t: t, st: st, acct: a, kp: kp, cert: cert, seal: seal,
+		leafDER: leafDER, rootFpr: pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert: rootCert,
 		cm:  &contacts.Manager{Store: st},
 		msg: &messaging.Service{Store: st, Bus: messaging.NewBus()}}
 
@@ -96,11 +135,30 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		Invalidate: func(ctx context.Context, accountID, fpr string) error {
 			return n.pool.Invalidate(ctx, accountID, fpr)
 		},
+		// The node's own chain and endpoint. Without these the tool surface cannot
+		// tell that it speaks 2.0, and a guest arriving with a valid chain is read as
+		// having proved nothing.
+		Chain:    func(context.Context) ([][]byte, error) { return [][]byte{n.leafDER, n.rootCert}, nil },
+		Endpoint: func() string { return n.endpoint },
 	})...)
 	ident := &public.Identifier{
-		Store:   st,
-		Keypair: func(context.Context, string) (*identity.Keypair, error) { return kp, nil },
-		Seal:    seal, Cert: core.ClientCertPreferred,
+		Store:     st,
+		AccountID: a.ID,
+		Keypair:   func(context.Context, string) (*identity.Keypair, error) { return kp, nil },
+		Seal:      seal, Cert: core.ClientCertPreferred,
+		// What a `v: 2` envelope is decided against (PACT §13.3). Without it the
+		// identifier refuses every envelope as "does not speak 2.0" — which is the
+		// right answer for an identity with no leaf, and the wrong one here.
+		State20: func(context.Context) (*public.State20, error) {
+			return &public.State20{
+				Protocol: 2, Endpoint: n.endpoint, AcceptNewHosts: "auto",
+				Chain: [][]byte{n.leafDER, n.rootCert},
+				Keys: []identity.LeafKey{{
+					Kid: kp.Fingerprint, Leaf: n.leafDER, KP: kp, Current: true,
+					NotAfter: time.Now().AddDate(1, 0, 0), Endpoint: n.endpoint,
+				}},
+			}, nil
+		},
 	}
 	// the plaintext seal/client_cert gate every call passes through (SPEC §5.1)
 	n.pool.Gate = ident.PoolGate()
@@ -118,13 +176,20 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 			return nil
 		}
 		return srv
-	}, nil)
+	}, &mcp.StreamableHTTPOptions{
+		// The advertised Host with a loopback socket is precisely what the SDK's
+		// DNS-rebinding protection refuses (E14), and it is what a 2.0 leaf forces:
+		// the certificate cannot name a loopback address. Production disables the
+		// guard on the public surface for the same reason — it is always TLS and
+		// presents the node's own chain, so a rebinding page cannot complete a
+		// handshake for its name.
+		DisableLocalhostProtection: true,
+	})
 	ps := &public.Server{
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return &cert, nil },
 		Accounts:       func() []string { return []string{slug} },
 		MCP:            mcpHandler,
 		Invite:         http.NotFoundHandler(),
-		Relay:          http.NotFoundHandler(),
 	}
 	srv := httptest.NewUnstartedServer(ps.Handler())
 	// httptest.StartTLS injects its OWN certificate when Certificates is empty,
@@ -138,7 +203,11 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	n.srv = srv
-	n.endpoint = srv.URL + "/a/" + slug + "/mcp"
+	// The node ADVERTISES the name its leaf carries and LISTENS on loopback; the map
+	// is what joins the two. Callers dial the advertised address, so the chain's
+	// subjectAltName and the endpoint agree, which is what §14.2 rule 5 requires.
+	n.endpoint = advertised + "/a/" + slug + "/mcp"
+	pactNet.set(slug+".pact.example:443", srv.Listener.Addr().String())
 
 	// the invite landing page (P1-13), now carrying the issuer's key
 	idm := &identity.Manager{Store: st}
@@ -159,9 +228,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 }
 
 func (n *pactNode) card() (string, error) {
-	return contacts.BuildCard(contacts.Card{
-		FN: n.acct.DisplayName, Endpoint: n.endpoint, Key: n.kp.Fingerprint, Seal: string(n.seal),
-	})
+	return contacts.BuildCard20(n.acct.DisplayName, n.leafDER, string(n.seal)), nil
 }
 
 func (n *pactNode) spki() []byte {
@@ -172,9 +239,44 @@ func (n *pactNode) spki() []byte {
 	return b
 }
 
+// asPeer is what another node holds of this one: the root it pins, the leaf it
+// presents, and the address its leaf names.
+func (n *pactNode) asPeer(seal string) outbound.Peer {
+	return outbound.Peer{
+		Endpoint: n.endpoint, Fingerprint: n.rootFpr, Root: n.rootFpr,
+		Leaf: n.leafDER, Protocol: 2, Seal: seal,
+	}
+}
+
 func (n *pactNode) client() *outbound.Client {
 	pool := x509.NewCertPool()
-	return &outbound.Client{Keypair: n.kp, Cert: n.cert, Roots: pool}
+	return &outbound.Client{Keypair: n.kp, Cert: n.cert, Roots: pool, DialContext: pactNet.dial}
+}
+
+// pactNet stands in for DNS: a leaf must name a routable-looking address, and these
+// nodes listen on loopback. It maps the advertised name to the real listener.
+var pactNet = &dialMap{hosts: map[string]string{}}
+
+type dialMap struct {
+	mu    sync.Mutex
+	hosts map[string]string
+}
+
+func (d *dialMap) set(name, addr string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.hosts[name] = addr
+}
+
+func (d *dialMap) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	d.mu.Lock()
+	target, ok := d.hosts[addr]
+	d.mu.Unlock()
+	if !ok {
+		target = addr
+	}
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, target)
 }
 
 // fetchInvite is the redeemer's pre-redemption step: the landing page hands over
@@ -204,10 +306,20 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 	if err != nil || len(spki) == 0 {
 		t.Fatalf("landing page did not serve the issuer key: %s", b)
 	}
-	// the redeemer's own check: the key must hash to the card's X-PACT-KEY
-	sum := sha256.Sum256(spki)
-	if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != contacts.CardKey(doc.Card) {
-		t.Fatal("issuer key does not match the card fingerprint")
+	// The redeemer's own check. It used to hash the served key and compare it to the
+	// card's X-PACT-KEY, because in 1.x the identity WAS that key. The card's
+	// identity is now the ROOT, and the key it serves is the LEAF's, so what has to
+	// agree is the key and the certificate the card carries.
+	issuer, err := contacts.ValidateInbound(doc.Card)
+	if err != nil {
+		t.Fatalf("the landing page served a card that does not validate: %v", err)
+	}
+	issuerLeaf, err := pactidentity.Parse(issuer.Cert)
+	if err != nil {
+		t.Fatalf("the card's certificate does not parse: %v", err)
+	}
+	if !bytes.Equal(issuerLeaf.SPKI, spki) {
+		t.Fatal("the key the landing page served is not the one its card's certificate carries")
 	}
 	return doc.Card, spki
 }
@@ -232,7 +344,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			// B reads the landing page: card + key, before redeeming
 			aliceCard, aliceSPKI := fetchInvite(t, alice.landing.URL, token)
 			bobCard, _ := bob.card()
-			peer := outbound.Peer{Endpoint: alice.endpoint, Fingerprint: alice.kp.Fingerprint, Seal: string(sealMode)}
+			peer := alice.asPeer(string(sealMode))
 
 			// B redeems — sealed when A requires it, plaintext otherwise
 			var res *mcp.CallToolResult
@@ -260,20 +372,32 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 				t.Fatalf("status: %s", redeemed.Status)
 			}
 			// A pinned B, with the FULL key (not just its hash)
-			bobOnA, err := alice.st.GetContact(ctx, alice.acct.ID, bob.kp.Fingerprint)
+			bobOnA, err := alice.st.GetContact(ctx, alice.acct.ID, bob.rootFpr)
 			if err != nil || bobOnA.Status != "active" || len(bobOnA.SPKI) == 0 {
 				t.Fatalf("A did not pin B: %+v %v", bobOnA, err)
 			}
-			// B pins A from the redemption answer (card + key, hash-checked)
+			// B pins A from the redemption answer: the ROOT its card names, the LEAF
+			// that card carries, and the key it served — which must be that leaf's.
 			gotSPKI, _ := base64.RawURLEncoding.DecodeString(redeemed.SPKI)
-			sum := sha256.Sum256(gotSPKI)
-			if "sha256:"+base64.RawURLEncoding.EncodeToString(sum[:]) != contacts.CardKey(redeemed.Card) {
-				t.Fatal("redemption answer key/card mismatch")
+			answered, err := contacts.ValidateInbound(redeemed.Card)
+			if err != nil {
+				t.Fatalf("the redemption answer's card does not validate: %v", err)
+			}
+			answeredLeaf, err := pactidentity.Parse(answered.Cert)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(answeredLeaf.SPKI, gotSPKI) {
+				t.Fatal("the key the redemption answered with is not the one its card carries")
+			}
+			if answered.Key != alice.rootFpr {
+				t.Fatalf("the answer's card names %s, not A's root %s", answered.Key, alice.rootFpr)
 			}
 			if _, err := bob.st.InsertContact(ctx, store.Contact{
-				AccountID: bob.acct.ID, Fingerprint: alice.kp.Fingerprint, SPKI: gotSPKI,
+				AccountID: bob.acct.ID, Fingerprint: alice.rootFpr, SPKI: gotSPKI,
 				Status: "active", Card: redeemed.Card, Permissions: []string{"message.text"},
 				PinnedAt: time.Now().Unix(),
+				Protocol: 2, Leaf: answered.Cert, Endpoint: answered.Endpoint,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -302,7 +426,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			}
 
 			// A → B: always SEALED (B pinned A's key, A pinned B's)
-			bobPeer := outbound.Peer{Endpoint: bob.endpoint, Fingerprint: bob.kp.Fingerprint, Seal: string(core.SealOptional)}
+			bobPeer := bob.asPeer(string(core.SealOptional))
 			reply, err := alice.client().SealedCall(ctx, bobPeer, bobOnA.SPKI, "send_message",
 				map[string]any{"msg_id": "a-1", "text": "hi bob"}, "a-1")
 			if err != nil {
@@ -320,10 +444,10 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			}
 			aMsgs, _ := alice.msg.Thread(ctx, alice.acct.ID, aThreads[0].ID)
 			bMsgs, _ := bob.msg.Thread(ctx, bob.acct.ID, bThreads[0].ID)
-			if len(aMsgs) != 1 || aMsgs[0].Body != "hello alice" || aMsgs[0].ContactFpr != bob.kp.Fingerprint {
+			if len(aMsgs) != 1 || aMsgs[0].Body != "hello alice" || aMsgs[0].ContactFpr != bob.rootFpr {
 				t.Fatalf("A's message: %+v", aMsgs)
 			}
-			if len(bMsgs) != 1 || bMsgs[0].Body != "hi bob" || bMsgs[0].ContactFpr != alice.kp.Fingerprint {
+			if len(bMsgs) != 1 || bMsgs[0].Body != "hi bob" || bMsgs[0].ContactFpr != alice.rootFpr {
 				t.Fatalf("B's message: %+v", bMsgs)
 			}
 

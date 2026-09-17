@@ -108,3 +108,26 @@ func CardFor(t *testing.T, fn, endpoint string) string {
 	card, _, _ := Card(t, fn, endpoint, "")
 	return card
 }
+
+// IssueOver issues a leaf for an endpoint over a key the caller already holds —
+// for a test whose account key exists before its certificate does, which is the
+// ordinary order: `account create` then `account csr` then `install-leaf`.
+func (w *Wallet) IssueOver(t *testing.T, endpoint string, hostSPKI []byte) *Host {
+	t.Helper()
+	pub, err := pactidentity.ParseSPKI(hostSPKI)
+	if err != nil {
+		t.Fatalf("testid: host key: %v", err)
+	}
+	now := time.Now()
+	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: pub,
+		URIs: []string{endpoint}, NotBefore: now.Add(-time.Hour), NotAfter: now.AddDate(1, 0, 0),
+	})
+	if err != nil {
+		t.Fatalf("testid: leaf for %s: %v", endpoint, err)
+	}
+	return &Host{
+		LeafDER: leaf, Chain: [][]byte{leaf, w.RootDER}, Endpoint: endpoint,
+		Kid: pactidentity.Fingerprint(hostSPKI), RootFpr: w.Fpr,
+	}
+}

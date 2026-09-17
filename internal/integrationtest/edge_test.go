@@ -2,9 +2,13 @@ package integrationtest
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
+	"crypto/x509/pkix"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -19,7 +23,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/public"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
@@ -47,7 +50,11 @@ func terminatingEdge(t *testing.T, nodeURL string) *httptest.Server {
 		},
 	}
 	// the edge speaks TLS to callers with a certificate of its own
-	srv := httptest.NewTLSServer(proxy)
+	// httptest's own certificate names example.com; the edge has to answer for the
+	// name the identity's leaf advertises, because that is the name a contact dials.
+	srv := httptest.NewUnstartedServer(proxy)
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{edgeCertFor(t, "alice.pact.example")}}
+	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -67,7 +74,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	}
 	_, aliceSPKI := fetchInvite(t, alice.landing.URL, token)
 	bobCard, _ := bob.card()
-	direct := outbound.Peer{Endpoint: alice.endpoint, Fingerprint: alice.kp.Fingerprint, Seal: "required"}
+	direct := alice.asPeer("required")
 	if _, err := bob.client().SealedCall(ctx, direct, aliceSPKI, "redeem_invite",
 		map[string]any{"token": token, "card": bobCard}, "r-1"); err != nil {
 		t.Fatalf("pairing: %v", err)
@@ -75,9 +82,14 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 
 	// now everything goes through the edge: TLS terminates there
 	edge := terminatingEdge(t, alice.srv.URL)
-	edgePeer := outbound.Peer{
-		Endpoint: edge.URL + "/a/alice/mcp", Fingerprint: alice.kp.Fingerprint, Seal: "required",
-	}
+	// The pin does not change when an edge appears in front of the identity: a
+	// contact holds the address the LEAF names, and the edge is what that address
+	// resolves to. Pointing the peer at the edge's own URL instead would be a
+	// different address, and the chain in the answer would rightly refuse it
+	// (§14.2 rule 5). So the map is repointed, exactly as DNS would be.
+	edgeHost := strings.TrimPrefix(edge.URL, "https://")
+	pactNet.set("alice.pact.example:443", edgeHost)
+	edgePeer := alice.asPeer("required")
 	edgeRoots := edgeCertPool(t, edge)
 	client := bob.client()
 	client.Roots = edgeRoots // the edge's WebPKI-ish cert, not alice's key
@@ -92,7 +104,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 		t.Fatalf("sealed call refused: %s", res.Content[0].(*mcp.TextContent).Text)
 	}
 	msgs := allMessages(t, alice)
-	if len(msgs) != 1 || msgs[0].Body != "through the edge" || msgs[0].ContactFpr != bob.kp.Fingerprint {
+	if len(msgs) != 1 || msgs[0].Body != "through the edge" || msgs[0].ContactFpr != bob.rootFpr {
 		t.Fatalf("stored: %+v", msgs)
 	}
 
@@ -232,106 +244,13 @@ func TestLANFlagOffRefusesDirectConnectionsAndAudits(t *testing.T) {
 	}
 }
 
-// P4-05 AC: an endpoint change (mode switch) fans out update_contact.
-// AC (P4-05, P7-01): changing the endpoint tells every active contact, and a
-// REAL receiving node accepts the announcement — repinning the same identity
-// with its new card, keeping the key it had.
+// NOT COVERED HERE: an endpoint change fanned out as `update_contact`.
 //
-// This drives the production fan-out (node.AnnounceEndpointChange) end to end
-// rather than a loop written in the test: the earlier version proved only that
-// a hand-rolled closure could be called.
-func TestEndpointChangeFansOutUpdateContact(t *testing.T) {
-	ctx := context.Background()
-	alice := startPactNode(t, "alice", core.SealOptional)
-	bob := startPactNode(t, "bob", core.SealOptional)
-
-	// Bob knows Alice at her CURRENT endpoint, with her key pinned.
-	aliceSPKI := alice.spki()
-	aliceCard, err := alice.card()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bob.st.InsertContact(ctx, store.Contact{
-		AccountID: bob.acct.ID, Fingerprint: alice.kp.Fingerprint, SPKI: aliceSPKI,
-		Status: "active", Card: aliceCard, Permissions: []string{"message.text"},
-		PinnedAt: time.Now().Unix(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// ...and Alice knows Bob, at his real listener, so the announcement can
-	// actually reach him.
-	bobCard, err := bob.card()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := alice.st.InsertContact(ctx, store.Contact{
-		AccountID: alice.acct.ID, Fingerprint: bob.kp.Fingerprint, SPKI: bob.spki(),
-		Status: "active", Card: bobCard, Permissions: []string{"message.text"},
-		PinnedAt: time.Now().Unix(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Alice moves. The announcement carries her new card and a signature over
-	// her unchanged fingerprint, made with the key Bob pinned.
-	const moved = "https://pact.example.com"
-	newCard, err := contacts.BuildCard(contacts.Card{
-		FN: alice.acct.DisplayName, Endpoint: moved + "/a/alice/mcp",
-		Key: alice.kp.Fingerprint, Seal: string(alice.seal),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig, err := identity.SignBytes(alice.kp, []byte(alice.kp.Fingerprint))
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := alice.client().CallTool(ctx,
-		outbound.Peer{Endpoint: bob.endpoint, Fingerprint: bob.kp.Fingerprint},
-		"update_contact", map[string]any{
-			"card": newCard, "sig": base64.RawURLEncoding.EncodeToString(sig),
-		}, outbound.CallOptions{Plaintext: true})
-	if err != nil {
-		t.Fatalf("update_contact: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("a real node refused the endpoint announcement: %s", res.Content[0].(*mcp.TextContent).Text)
-	}
-
-	// Bob repinned the SAME identity at the new endpoint, and still holds her key.
-	got, err := bob.st.GetContact(ctx, bob.acct.ID, alice.kp.Fingerprint)
-	if err != nil {
-		t.Fatalf("Alice fell out of Bob's contacts: %v", err)
-	}
-	if !strings.Contains(got.Card, moved) {
-		t.Fatalf("Bob still has the old endpoint:\n%s", got.Card)
-	}
-	if len(got.SPKI) == 0 {
-		t.Fatal("the repin wiped the pinned key: Bob can no longer seal to Alice")
-	}
-	if got.Status != "active" || len(got.Permissions) != 1 {
-		t.Fatalf("the repin damaged the relationship: %+v", got)
-	}
-
-	// A forged announcement — right card, wrong signer — changes nothing.
-	mallory, _ := identity.Generate(identity.AlgoP256)
-	forged, _ := identity.SignBytes(mallory, []byte(alice.kp.Fingerprint))
-	bad, err := alice.client().CallTool(ctx,
-		outbound.Peer{Endpoint: bob.endpoint, Fingerprint: bob.kp.Fingerprint},
-		"update_contact", map[string]any{
-			"card": aliceCard, "sig": base64.RawURLEncoding.EncodeToString(forged),
-		}, outbound.CallOptions{Plaintext: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bad.IsError {
-		t.Fatal("a card signed by the wrong key moved a contact's endpoint")
-	}
-	again, _ := bob.st.GetContact(ctx, bob.acct.ID, alice.kp.Fingerprint)
-	if !strings.Contains(again.Card, moved) {
-		t.Fatal("the refused announcement still changed the stored card")
-	}
-}
+// This proved the 1.x shape — a new card plus a signature over the unchanged
+// fingerprint, made with the key the peer pinned. 2.0 has no such proof: a move is
+// a new leaf for a new address, and the chain the envelope carries is what
+// authorises it (PACT §5.3, §14.3). The 2.0 move, including the receiver following
+// it under `auto`, is proven end to end by `internal/node.TestPact20ExitDemo`.
 
 /* ------------------------------ helpers ------------------------------ */
 
@@ -373,4 +292,27 @@ func names(tools []*mcp.Tool) []string {
 		out = append(out, t.Name)
 	}
 	return out
+}
+
+// edgeCertFor mints a self-signed server certificate for one name — what a
+// terminating edge presents. It is WebPKI-shaped, not a PACT chain: an edge is not
+// an identity, which is exactly why identity has to come from the envelope.
+func edgeCertFor(t *testing.T, name string) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name},
+		DNSNames: []string{name}, NotBefore: time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true, IsCA: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }

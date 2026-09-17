@@ -88,17 +88,3 @@ func (s *Postgres) RevokeInvite(ctx context.Context, inviteID string, nowTS int6
 	}
 	return nil
 }
-
-func (s *Postgres) RepinContact(ctx context.Context, accountID, oldFpr, newFpr string, newSPKI []byte, card string, nowTS int64) error {
-	n, err := s.q.UpdateContactRepin(ctx, pgdb.UpdateContactRepinParams{
-		Fingerprint: newFpr, Spki: newSPKI, Card: card,
-		PinnedAt: pgtype.Int8{Int64: nowTS, Valid: true}, AccountID: accountID, Fingerprint_2: oldFpr,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found for repin")
-	}
-	return nil
-}

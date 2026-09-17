@@ -94,17 +94,3 @@ func (s *SQLite) RevokeInvite(ctx context.Context, inviteID string, nowTS int64)
 	}
 	return nil
 }
-
-func (s *SQLite) RepinContact(ctx context.Context, accountID, oldFpr, newFpr string, newSPKI []byte, card string, nowTS int64) error {
-	n, err := s.q.UpdateContactRepin(ctx, sqlitedb.UpdateContactRepinParams{
-		Fingerprint: newFpr, Spki: newSPKI, Card: card,
-		PinnedAt: sql.NullInt64{Int64: nowTS, Valid: true}, AccountID: accountID, Fingerprint_2: oldFpr,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found for repin")
-	}
-	return nil
-}
