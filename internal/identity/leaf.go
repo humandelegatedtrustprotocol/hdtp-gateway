@@ -39,10 +39,9 @@ const (
 // CSR purposes. signup and upgrade both certify the account's EXISTING key —
 // the difference is what the wallet is told; renew and move certify a fresh key.
 const (
-	PurposeSignup  = "signup"
-	PurposeRenew   = "renew"
-	PurposeMove    = "move"
-	PurposeUpgrade = "upgrade"
+	PurposeSignup = "signup"
+	PurposeRenew  = "renew"
+	PurposeMove   = "move"
 )
 
 // RenewalWindow is how far ahead a host asks for a renewal (PACT §2: thirty days).
@@ -309,7 +308,7 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 	}
 	var kp *Keypair
 	switch purpose {
-	case PurposeSignup, PurposeUpgrade:
+	case PurposeSignup:
 		sealed, err := m.Store.GetAccountSealedKey(ctx, accountID)
 		if err != nil {
 			return CSRResult{}, err

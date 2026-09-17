@@ -448,7 +448,6 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		AccountID: rec.ID,
 		// A contact re-pinned during rotation holds only a fingerprint until
 		// its key next connects (§3.9); this is where that key is recorded.
-		BindKey: a.cm.BindSPKI,
 		Keypair: func(context.Context, string) (*identity.Keypair, error) { return kp, nil },
 		Cert:    n.cfg.ClientCert,
 		SealFn:  func() core.Seal { return a.sealValue() },
@@ -609,7 +608,7 @@ func (n *Node) state20(ctx context.Context, accountID, slug string) (*public.Sta
 	}
 	st := &public.State20{
 		Protocol: int(rec.Protocol), Endpoint: identity.EndpointFor(n.PublicURL(), slug),
-		AcceptNewHosts: rec.AcceptNewHosts, Accept1x: rec.Accept1x,
+		AcceptNewHosts: rec.AcceptNewHosts,
 	}
 	if rec.Protocol != 2 {
 		return st, nil
@@ -1004,9 +1003,6 @@ func (n *Node) mcpHandler() http.Handler {
 		}
 		f := public.FactsFrom(r.Context())
 		caller := f.ClientCertFingerprint
-		if f.ClientProtocol == 2 && a.rec.Protocol != 2 {
-			caller = public.LegacyCaller(f) // Appendix C row 4: a 1.x identity reads the leaf's key
-		}
 		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
 			// A 2.0 chain earns exactly what the pin checks allowed
 			// (resolveTransport): the root, or an anonymous guest.
