@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // testServer starts a real TLS listener with two SNI accounts and an echo handler
@@ -37,9 +38,10 @@ func testServer(t *testing.T, slugs []string) (addr string, certs map[string]*tl
 	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f := FactsFrom(r.Context())
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"account": r.PathValue("slug"),
-			"caller":  f.ClientCertFingerprint,
-			"path":    r.URL.Path,
+			"account":  r.PathValue("slug"),
+			"caller":   f.ClientCertFingerprint,
+			"protocol": f.ClientProtocol,
+			"path":     r.URL.Path,
 		})
 	})
 	srv := &Server{
@@ -92,22 +94,38 @@ func get(t *testing.T, addr, sni, path string, clientCert *tls.Certificate) (int
 	return resp.StatusCode, string(body), serverCert
 }
 
-func TestHandshakeAcceptsNoCertUnknownCertKnownCert(t *testing.T) {
+// TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain is PACT §2 at the
+// transport: unknown and absent certificates MUST complete the handshake, and
+// only a chain that validates (§14.2) says who is calling — the ROOT, never the
+// leaf and never a certificate that names no root.
+//
+// The retired generation read a lone self-signed certificate as an identity,
+// because there the identity WAS a key. Under 2.0 anyone mints one in a second,
+// so believing it made `client_cert: required` a door anybody walks through and
+// handed every caller a fresh guest budget per certificate.
+func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 	addr, certs, stop := testServer(t, []string{"work"})
 	defer stop()
+
+	read := func(body string) (string, float64) {
+		var f map[string]any
+		_ = json.Unmarshal([]byte(body), &f)
+		caller, _ := f["caller"].(string)
+		proto, _ := f["protocol"].(float64)
+		return caller, proto
+	}
 
 	// no client cert
 	code, body, _ := get(t, addr, "work.example", "/a/work/mcp", nil)
 	if code != 200 {
 		t.Fatalf("no-cert: %d", code)
 	}
-	var f1 map[string]any
-	_ = json.Unmarshal([]byte(body), &f1)
-	if f1["caller"] != "" {
-		t.Fatalf("no-cert caller should be empty, got %v", f1["caller"])
+	if caller, _ := read(body); caller != "" {
+		t.Fatalf("no-cert caller should be empty, got %v", caller)
 	}
 
-	// unknown (fresh) client cert — must still handshake (guest tier, PACT §2)
+	// A stranger's lone self-signed certificate: the handshake completes (PACT
+	// §2 — tiering happens above the transport), and it establishes NOTHING.
 	kp, _ := identity.Generate(identity.AlgoP256)
 	der, _ := identity.SelfSignedCert(kp, "stranger")
 	cc := &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
@@ -115,11 +133,36 @@ func TestHandshakeAcceptsNoCertUnknownCertKnownCert(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("unknown-cert: %d", code)
 	}
-	_ = json.Unmarshal([]byte(body), &f1)
-	if f1["caller"] != kp.Fingerprint {
-		t.Fatalf("caller fpr = %v, want %s", f1["caller"], kp.Fingerprint)
+	caller, proto := read(body)
+	if caller != "" || proto != 0 {
+		t.Fatalf("a lone certificate must establish no identity, got caller=%q protocol=%v (its own key is %s)", caller, proto, kp.Fingerprint)
+	}
+
+	// A chain that validates: the caller is the ROOT it proves, not the leaf.
+	p := newPeer(t, time.Now())
+	chain := &tls.Certificate{Certificate: p.chain(), PrivateKey: p.host.Ed}
+	code, body, _ = get(t, addr, "work.example", "/a/work/mcp", chain)
+	if code != 200 {
+		t.Fatalf("chain: %d", code)
+	}
+	caller, proto = read(body)
+	if caller != p.fpr() || proto != 2 {
+		t.Fatalf("a validated chain names its root: caller=%q protocol=%v, want %s / 2", caller, proto, p.fpr())
+	}
+	leafFpr := pactidentity.Fingerprint(mustParse(t, p.leaf).SPKI)
+	if caller == leafFpr {
+		t.Fatal("the caller must be the root, never the leaf")
 	}
 	_ = certs
+}
+
+func mustParse(t *testing.T, der []byte) *pactidentity.Cert {
+	t.Helper()
+	c, err := pactidentity.Parse(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
 func TestSNISelectsPerAccountCert(t *testing.T) {
