@@ -1,4 +1,4 @@
--- PACT 2.0 state (SPEC §2, §14; migration 0027): the account's root and leaf
+-- PACT 2.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
 -- ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 -- addresses awaiting the owner under `accept_new_hosts = ask`.
 
@@ -26,7 +26,7 @@ SELECT * FROM leaves WHERE account_id = ? ORDER BY created_at, kid;
 
 -- name: RetireLeafKey :execrows
 -- A superseded leaf past its not_after: the key is destroyed, the kid kept so
--- an envelope still sealed to it is answered certificate_renewed (PACT §14.4).
+-- an envelope still sealed to it is answered certificate_renewed (PACT sec. 14.4).
 UPDATE leaves SET key_sealed = NULL, state = 'former' WHERE account_id = ? AND kid = ?;
 
 -- name: DeleteLeavesByState :execrows
@@ -64,14 +64,14 @@ DELETE FROM pending_addresses WHERE account_id = ? AND root = ?;
 -- name: RepinContactAddress :execrows
 -- The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
 -- address replaces the leaf, its key and the endpoint; the root (the
--- fingerprint column) never moves (PACT §14.3, §5.3).
+-- fingerprint column) never moves (PACT sec. 14.3, sec. 5.3).
 UPDATE contacts SET endpoint = ?, leaf = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: SetContactChainSentKid :execrows
 UPDATE contacts SET chain_sent_kid = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: ClearChainSentKids :execrows
--- After a leaf install every contact must see the new chain once (PACT §13.2).
+-- After a leaf install every contact must see the new chain once (PACT sec. 13.2).
 UPDATE contacts SET chain_sent_kid = '' WHERE account_id = ?;
 
 -- name: UpgradeContactPin :execrows

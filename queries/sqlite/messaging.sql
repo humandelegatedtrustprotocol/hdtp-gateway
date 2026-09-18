@@ -42,8 +42,8 @@ UPDATE threads SET last_read_seq = (
 DELETE FROM messages WHERE account_id = ? AND created_at < ?;
 
 -- name: DeleteEmptyThreads :execrows
-DELETE FROM threads WHERE account_id = ?
-  AND id NOT IN (SELECT thread_id FROM messages WHERE account_id = ?);
+DELETE FROM threads WHERE threads.account_id = ?
+  AND threads.id NOT IN (SELECT thread_id FROM messages WHERE messages.account_id = ?);
 
 -- name: ListBlobs :many
 SELECT * FROM blobs WHERE account_id = ? ORDER BY created_at;
@@ -68,7 +68,7 @@ UPDATE messages SET status = ? WHERE account_id = ? AND contact_fpr = ? AND msg_
 UPDATE messages SET attempts = ?, next_attempt_at = ?
 WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out';
 
--- ListPendingOutbound is the retry sweeper's work list (SPEC §7.1): outbound
+-- ListPendingOutbound is the retry sweeper's work list (SPEC sec. 7.1): outbound
 -- messages still awaiting delivery, oldest first.
 -- name: ListPendingOutbound :many
 SELECT seq, id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at, expires_at, attempts, next_attempt_at

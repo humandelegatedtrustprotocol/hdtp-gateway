@@ -15,6 +15,7 @@ const clearChainSentKids = `-- name: ClearChainSentKids :execrows
 UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1
 `
 
+// After a leaf install every contact must see the new chain once (PACT sec. 13.2).
 func (q *Queries) ClearChainSentKids(ctx context.Context, accountID string) (int64, error) {
 	result, err := q.db.Exec(ctx, clearChainSentKids, accountID)
 	if err != nil {
@@ -286,6 +287,9 @@ type RepinContactAddressParams struct {
 	Fingerprint string
 }
 
+// The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
+// address replaces the leaf, its key and the endpoint; the root (the
+// fingerprint column) never moves (PACT sec. 14.3, sec. 5.3).
 func (q *Queries) RepinContactAddress(ctx context.Context, arg RepinContactAddressParams) (int64, error) {
 	result, err := q.db.Exec(ctx, repinContactAddress,
 		arg.Endpoint,
@@ -310,6 +314,8 @@ type RetireLeafKeyParams struct {
 	Kid       string
 }
 
+// A superseded leaf past its not_after: the key is destroyed, the kid kept so
+// an envelope still sealed to it is answered certificate_renewed (PACT sec. 14.4).
 func (q *Queries) RetireLeafKey(ctx context.Context, arg RetireLeafKeyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, retireLeafKey, arg.AccountID, arg.Kid)
 	if err != nil {
@@ -347,6 +353,9 @@ type SetAccountLeafKeyParams struct {
 	ID          string
 }
 
+// Re-points the account at its CURRENT leaf key. SetAccountKey binds once and
+// never moves; a leaf install moves it, keeping every fingerprint-keyed path
+// (routing, audit, pins) on the key that signs and seals today.
 func (q *Queries) SetAccountLeafKey(ctx context.Context, arg SetAccountLeafKeyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setAccountLeafKey,
 		arg.Fingerprint,
@@ -361,6 +370,7 @@ func (q *Queries) SetAccountLeafKey(ctx context.Context, arg SetAccountLeafKeyPa
 }
 
 const setAccountProtocol = `-- name: SetAccountProtocol :execrows
+
 UPDATE accounts SET protocol = $1, root_fingerprint = $2, root_cert = $3 WHERE id = $4
 `
 
@@ -371,6 +381,9 @@ type SetAccountProtocolParams struct {
 	ID              string
 }
 
+// PACT 2.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
+// ledger, 2.0 pins, the removal tombstone, former endpoints, and the
+// addresses awaiting the owner under `accept_new_hosts = ask`.
 func (q *Queries) SetAccountProtocol(ctx context.Context, arg SetAccountProtocolParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setAccountProtocol,
 		arg.Protocol,
@@ -446,6 +459,8 @@ type UpgradeContactPinParams struct {
 	Fingerprint_2 string
 }
 
+// Appendix C row 6: a 1.x pin of key K, met by a chain whose leaf key is K,
+// becomes a 2.0 pin of the root with no human step.
 func (q *Queries) UpgradeContactPin(ctx context.Context, arg UpgradeContactPinParams) (int64, error) {
 	result, err := q.db.Exec(ctx, upgradeContactPin,
 		arg.Fingerprint,

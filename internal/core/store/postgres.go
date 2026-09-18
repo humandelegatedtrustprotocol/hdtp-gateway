@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"math"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -252,7 +253,9 @@ func (s *Postgres) ListCredentialsByKind(ctx context.Context, kind string) ([]Cr
 }
 
 func (s *Postgres) RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error) {
-	n, err := s.q.DeleteCredentialIfNotLast(ctx, pgdb.DeleteCredentialParams{ID: id, Kind: kind})
+	// The kind is named twice because the statement compares it twice: once to pick
+	// the row, once to count the survivors of the same kind.
+	n, err := s.q.DeleteCredentialIfNotLast(ctx, pgdb.DeleteCredentialIfNotLastParams{ID: id, Kind: kind})
 	if err != nil {
 		return false, err
 	}
@@ -413,8 +416,16 @@ func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]Audi
 	if f.Limit <= 0 {
 		f.Limit = 200
 	}
+	// Postgres types LIMIT as int32, so a page size that cannot fit is clamped
+	// rather than wrapped to a negative one (gosec G115). No real page reaches it.
+	var lim int32 = math.MaxInt32
+	if f.Limit >= 0 && f.Limit <= math.MaxInt32 {
+		lim = int32(f.Limit)
+	}
+	// Column1 and Column2 are sqlc's names for `$1` and `$2` - the actor and the
+	// account. See the sqlite side for why named parameters are not used.
 	rs, err := p.q.ListAuditEventsPage(ctx, pgdb.ListAuditEventsPageParams{
-		ActorID: f.Actor, AccountID: f.Account, Limit: int64(f.Limit),
+		Column1: f.Actor, Column2: f.Account, Limit: lim,
 	})
 	if err != nil {
 		return nil, err

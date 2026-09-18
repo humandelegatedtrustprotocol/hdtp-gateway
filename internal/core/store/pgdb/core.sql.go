@@ -22,30 +22,38 @@ func (q *Queries) CountCredentialsByKind(ctx context.Context, kind string) (int6
 	return count, err
 }
 
-type DeleteCredentialParams struct {
-	ID   string
-	Kind string
+const deleteAuditEventsThrough = `-- name: DeleteAuditEventsThrough :execrows
+DELETE FROM audit_events WHERE seq <= $1
+`
+
+func (q *Queries) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAuditEventsThrough, seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteCredentialIfNotLast = `-- name: DeleteCredentialIfNotLast :execrows
 WITH held AS (
   SELECT id FROM credentials WHERE kind = $2 ORDER BY id FOR UPDATE
 )
-DELETE FROM credentials WHERE id = $1 AND kind = $2
+DELETE FROM credentials WHERE credentials.id = $1 AND credentials.kind = $2
   AND (SELECT COUNT(*) FROM held) > 1
 `
 
+type DeleteCredentialIfNotLastParams struct {
+	ID   string
+	Kind string
+}
+
 // DeleteCredentialIfNotLast removes a credential only while another of the same
-// kind survives.
-//
-// One statement is NOT sufficient on Postgres. A bare `(SELECT COUNT(*) …)` is an
-// uncorrelated sub-plan evaluated once against the statement's snapshot, so under
-// READ COMMITTED two concurrent removals of the last two passkeys each see "there
-// are two", each delete a different row, and the node is left with NONE — locking
-// the owner out of the portal and re-opening the setup wizard to whoever reaches
-// it first. The `FOR UPDATE` CTE takes row locks on that kind first, so the second
-// statement blocks, re-reads, and finds one.
-func (q *Queries) DeleteCredentialIfNotLast(ctx context.Context, arg DeleteCredentialParams) (int64, error) {
+// kind survives - the guard that stops the owner locking themselves out.
+// FOR UPDATE over the kind's rows makes the guard atomic: an uncorrelated
+// COUNT is an InitPlan evaluated once against the statement's own snapshot, so
+// under READ COMMITTED two concurrent removals could each see two and each
+// delete one, leaving zero.
+func (q *Queries) DeleteCredentialIfNotLast(ctx context.Context, arg DeleteCredentialIfNotLastParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteCredentialIfNotLast, arg.ID, arg.Kind)
 	if err != nil {
 		return 0, err
@@ -92,6 +100,15 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteSetting = `-- name: DeleteSetting :exec
+DELETE FROM settings WHERE key = $1
+`
+
+func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
+	_, err := q.db.Exec(ctx, deleteSetting, key)
+	return err
 }
 
 const getAccount = `-- name: GetAccount :one
@@ -148,6 +165,23 @@ func (q *Queries) GetAccountBySlug(ctx context.Context, slug string) (Account, e
 		&i.RootCert,
 		&i.AcceptNewHosts,
 		&i.Accept1x,
+	)
+	return i, err
+}
+
+const getAuditAnchor = `-- name: GetAuditAnchor :one
+SELECT id, archived_through_seq, terminal_hash, archive_path, updated_at FROM audit_anchor WHERE id = 1
+`
+
+func (q *Queries) GetAuditAnchor(ctx context.Context) (AuditAnchor, error) {
+	row := q.db.QueryRow(ctx, getAuditAnchor)
+	var i AuditAnchor
+	err := row.Scan(
+		&i.ID,
+		&i.ArchivedThroughSeq,
+		&i.TerminalHash,
+		&i.ArchivePath,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -463,21 +497,12 @@ func (q *Queries) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
 	return items, nil
 }
 
-const listAuditEventsPage = `-- name: ListAuditEventsPage :many
-SELECT seq, ts, account_id, actor_kind, actor_id, "action", resource, outcome, request_id, details, prev_hash, hash FROM audit_events
-WHERE ($1 = '' OR actor_id = $1)
-  AND ($2 = '' OR account_id = $2 OR account_id IS NULL OR account_id = '')
-ORDER BY seq DESC LIMIT $3
+const listAuditEventsByActor = `-- name: ListAuditEventsByActor :many
+SELECT seq, ts, account_id, actor_kind, actor_id, action, resource, outcome, request_id, details, prev_hash, hash FROM audit_events WHERE actor_id = $1 ORDER BY seq
 `
 
-type ListAuditEventsPageParams struct {
-	ActorID   string
-	AccountID string
-	Limit     int64
-}
-
-func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPageParams) ([]AuditEvent, error) {
-	rows, err := q.db.Query(ctx, listAuditEventsPage, arg.ActorID, arg.AccountID, arg.Limit)
+func (q *Queries) ListAuditEventsByActor(ctx context.Context, actorID string) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsByActor, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -486,8 +511,18 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 	for rows.Next() {
 		var i AuditEvent
 		if err := rows.Scan(
-			&i.Seq, &i.Ts, &i.AccountID, &i.ActorKind, &i.ActorID, &i.Action,
-			&i.Resource, &i.Outcome, &i.RequestID, &i.Details, &i.PrevHash, &i.Hash,
+			&i.Seq,
+			&i.Ts,
+			&i.AccountID,
+			&i.ActorKind,
+			&i.ActorID,
+			&i.Action,
+			&i.Resource,
+			&i.Outcome,
+			&i.RequestID,
+			&i.Details,
+			&i.PrevHash,
+			&i.Hash,
 		); err != nil {
 			return nil, err
 		}
@@ -499,12 +534,29 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 	return items, nil
 }
 
-const listAuditEventsByActor = `-- name: ListAuditEventsByActor :many
-SELECT seq, ts, account_id, actor_kind, actor_id, action, resource, outcome, request_id, details, prev_hash, hash FROM audit_events WHERE actor_id = $1 ORDER BY seq
+const listAuditEventsPage = `-- name: ListAuditEventsPage :many
+SELECT seq, ts, account_id, actor_kind, actor_id, action, resource, outcome, request_id, details, prev_hash, hash FROM audit_events
+WHERE ($1 = '' OR actor_id = $1)
+  AND ($2 = '' OR account_id = $2 OR account_id IS NULL OR account_id = '')
+ORDER BY seq DESC LIMIT $3
 `
 
-func (q *Queries) ListAuditEventsByActor(ctx context.Context, actorID string) ([]AuditEvent, error) {
-	rows, err := q.db.Query(ctx, listAuditEventsByActor, actorID)
+type ListAuditEventsPageParams struct {
+	Column1 interface{}
+	Column2 interface{}
+	Limit   int32
+}
+
+// The portal reads the trail from the present backwards and never needs all of
+// it. ListAuditEvents stays ascending because that is the order the hash chain
+// must be VERIFIED in; this is the reading order: newest first and bounded.
+//
+// Both filters are optional and empty means "any". The account filter keeps the
+// node's own rows, which belong to no account: a listener starting or an owner
+// signing in is a fact about the node, not about anybody's identity. account_id
+// is nullable, and a row with no account arrives as NULL, not as ”.
+func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPageParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsPage, arg.Column1, arg.Column2, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -649,6 +701,35 @@ func (q *Queries) ListRotationFanout(ctx context.Context, accountID string) ([]R
 	return items, nil
 }
 
+const listSettings = `-- name: ListSettings :many
+SELECT key, value, secret, updated_at FROM settings ORDER BY key
+`
+
+func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
+	rows, err := q.db.Query(ctx, listSettings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Setting
+	for rows.Next() {
+		var i Setting
+		if err := rows.Scan(
+			&i.Key,
+			&i.Value,
+			&i.Secret,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTokens = `-- name: ListTokens :many
 SELECT id, owner_id, label, hash, account_id, created_at, revoked_at FROM tokens ORDER BY created_at, id
 `
@@ -679,6 +760,28 @@ func (q *Queries) ListTokens(ctx context.Context) ([]Token, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const putSetting = `-- name: PutSetting :exec
+INSERT INTO settings (key, value, secret, updated_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, secret = excluded.secret, updated_at = excluded.updated_at
+`
+
+type PutSettingParams struct {
+	Key       string
+	Value     string
+	Secret    bool
+	UpdatedAt int64
+}
+
+func (q *Queries) PutSetting(ctx context.Context, arg PutSettingParams) error {
+	_, err := q.db.Exec(ctx, putSetting,
+		arg.Key,
+		arg.Value,
+		arg.Secret,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const revokeToken = `-- name: RevokeToken :execrows
@@ -714,6 +817,31 @@ func (q *Queries) SetAccountKey(ctx context.Context, arg SetAccountKeyParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setAuditAnchor = `-- name: SetAuditAnchor :exec
+INSERT INTO audit_anchor (id, archived_through_seq, terminal_hash, archive_path, updated_at)
+VALUES (1, $1, $2, $3, $4)
+ON CONFLICT(id) DO UPDATE SET archived_through_seq = excluded.archived_through_seq,
+    terminal_hash = excluded.terminal_hash, archive_path = excluded.archive_path,
+    updated_at = excluded.updated_at
+`
+
+type SetAuditAnchorParams struct {
+	ArchivedThroughSeq int64
+	TerminalHash       string
+	ArchivePath        string
+	UpdatedAt          int64
+}
+
+func (q *Queries) SetAuditAnchor(ctx context.Context, arg SetAuditAnchorParams) error {
+	_, err := q.db.Exec(ctx, setAuditAnchor,
+		arg.ArchivedThroughSeq,
+		arg.TerminalHash,
+		arg.ArchivePath,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const updateAccountSeal = `-- name: UpdateAccountSeal :execrows
@@ -764,112 +892,4 @@ func (q *Queries) UpsertRotationFanout(ctx context.Context, arg UpsertRotationFa
 		arg.Kind,
 	)
 	return err
-}
-
-const listSettings = `-- name: ListSettings :many
-SELECT key, value, secret, updated_at FROM settings ORDER BY key
-`
-
-type Setting struct {
-	Key       string
-	Value     string
-	Secret    bool
-	UpdatedAt int64
-}
-
-func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
-	rows, err := q.db.Query(ctx, listSettings)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Setting
-	for rows.Next() {
-		var i Setting
-		if err := rows.Scan(&i.Key, &i.Value, &i.Secret, &i.UpdatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const putSetting = `-- name: PutSetting :exec
-INSERT INTO settings (key, value, secret, updated_at) VALUES ($1, $2, $3, $4)
-ON CONFLICT(key) DO UPDATE SET value = excluded.value, secret = excluded.secret, updated_at = excluded.updated_at
-`
-
-type PutSettingParams struct {
-	Key       string
-	Value     string
-	Secret    bool
-	UpdatedAt int64
-}
-
-func (q *Queries) PutSetting(ctx context.Context, arg PutSettingParams) error {
-	_, err := q.db.Exec(ctx, putSetting, arg.Key, arg.Value, arg.Secret, arg.UpdatedAt)
-	return err
-}
-
-const deleteSetting = `-- name: DeleteSetting :exec
-DELETE FROM settings WHERE key = $1
-`
-
-func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
-	_, err := q.db.Exec(ctx, deleteSetting, key)
-	return err
-}
-
-const getAuditAnchor = `-- name: GetAuditAnchor :one
-SELECT id, archived_through_seq, terminal_hash, archive_path, updated_at FROM audit_anchor WHERE id = 1
-`
-
-type AuditAnchor struct {
-	ID                 int64
-	ArchivedThroughSeq int64
-	TerminalHash       string
-	ArchivePath        string
-	UpdatedAt          int64
-}
-
-func (q *Queries) GetAuditAnchor(ctx context.Context) (AuditAnchor, error) {
-	row := q.db.QueryRow(ctx, getAuditAnchor)
-	var i AuditAnchor
-	err := row.Scan(&i.ID, &i.ArchivedThroughSeq, &i.TerminalHash, &i.ArchivePath, &i.UpdatedAt)
-	return i, err
-}
-
-const setAuditAnchor = `-- name: SetAuditAnchor :exec
-INSERT INTO audit_anchor (id, archived_through_seq, terminal_hash, archive_path, updated_at)
-VALUES (1, $1, $2, $3, $4)
-ON CONFLICT(id) DO UPDATE SET archived_through_seq = excluded.archived_through_seq,
-    terminal_hash = excluded.terminal_hash, archive_path = excluded.archive_path,
-    updated_at = excluded.updated_at
-`
-
-type SetAuditAnchorParams struct {
-	ArchivedThroughSeq int64
-	TerminalHash       string
-	ArchivePath        string
-	UpdatedAt          int64
-}
-
-func (q *Queries) SetAuditAnchor(ctx context.Context, arg SetAuditAnchorParams) error {
-	_, err := q.db.Exec(ctx, setAuditAnchor, arg.ArchivedThroughSeq, arg.TerminalHash, arg.ArchivePath, arg.UpdatedAt)
-	return err
-}
-
-const deleteAuditEventsThrough = `-- name: DeleteAuditEventsThrough :execrows
-DELETE FROM audit_events WHERE seq <= $1
-`
-
-func (q *Queries) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAuditEventsThrough, seq)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

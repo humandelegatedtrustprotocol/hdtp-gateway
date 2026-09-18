@@ -28,6 +28,14 @@ type Account struct {
 	Accept1x        int64
 }
 
+type AuditAnchor struct {
+	ID                 int64
+	ArchivedThroughSeq int64
+	TerminalHash       string
+	ArchivePath        string
+	UpdatedAt          int64
+}
+
 type AuditEvent struct {
 	Seq       int64
 	Ts        int64
@@ -101,6 +109,13 @@ type Exposure struct {
 	CreatedAt      int64
 }
 
+type FormerEndpoint struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	At        int64
+}
+
 type Idempotency struct {
 	AccountID  string
 	ContactFpr string
@@ -139,6 +154,18 @@ type Invite struct {
 	CreatedAt   int64
 }
 
+type Leaf struct {
+	AccountID string
+	Kid       string
+	Leaf      []byte
+	KeySealed []byte
+	NotBefore int64
+	NotAfter  int64
+	State     string
+	Endpoint  string
+	CreatedAt int64
+}
+
 type Membership struct {
 	OwnerID   string
 	AccountID string
@@ -168,6 +195,15 @@ type Owner struct {
 	ID          string
 	DisplayName string
 	CreatedAt   int64
+}
+
+type PendingAddress struct {
+	AccountID string
+	Root      string
+	Endpoint  string
+	Leaf      []byte
+	Why       string
+	At        int64
 }
 
 type PendingRequest struct {
@@ -219,6 +255,13 @@ type Session struct {
 	ExpiresAt int64
 }
 
+type Setting struct {
+	Key       string
+	Value     string
+	Secret    int64
+	UpdatedAt int64
+}
+
 type Thread struct {
 	ID          string
 	AccountID   string
@@ -237,34 +280,6 @@ type Token struct {
 	AccountID sql.NullString
 	CreatedAt int64
 	RevokedAt sql.NullInt64
-}
-
-type FormerEndpoint struct {
-	AccountID string
-	Root      string
-	Endpoint  string
-	At        int64
-}
-
-type Leaf struct {
-	AccountID string
-	Kid       string
-	Leaf      []byte
-	KeySealed []byte
-	NotBefore int64
-	NotAfter  int64
-	State     string
-	Endpoint  string
-	CreatedAt int64
-}
-
-type PendingAddress struct {
-	AccountID string
-	Root      string
-	Endpoint  string
-	Leaf      []byte
-	Why       string
-	At        int64
 }
 
 type Tombstone struct {

@@ -128,9 +128,9 @@ ON CONFLICT(id) DO UPDATE SET archived_through_seq = excluded.archived_through_s
 DELETE FROM audit_events WHERE seq <= ?;
 
 -- DeleteCredentialIfNotLast removes a credential only while another of the same
--- kind survives — the guard that stops the owner locking themselves out. The
+-- kind survives - the guard that stops the owner locking themselves out. The
 -- count and the delete are ONE statement so two concurrent removals cannot both
 -- observe "there are two" and both delete.
 -- name: DeleteCredentialIfNotLast :execrows
-DELETE FROM credentials WHERE id = ? AND kind = ?
-  AND (SELECT COUNT(*) FROM credentials WHERE kind = ?) > 1;
+DELETE FROM credentials WHERE credentials.id = ? AND credentials.kind = ?
+  AND (SELECT COUNT(*) FROM credentials WHERE credentials.kind = ?) > 1;

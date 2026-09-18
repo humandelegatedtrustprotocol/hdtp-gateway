@@ -11,7 +11,9 @@ func (p *Postgres) DeleteMessagesBefore(ctx context.Context, accountID string, c
 }
 
 func (p *Postgres) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
-	return p.q.DeleteEmptyThreads(ctx, accountID)
+	// The account is named twice because the statement compares it twice: the threads
+	// to consider, and the messages that keep one alive.
+	return p.q.DeleteEmptyThreads(ctx, pgdb.DeleteEmptyThreadsParams{AccountID: accountID, AccountID_2: accountID})
 }
 
 func (p *Postgres) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {
