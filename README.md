@@ -10,7 +10,7 @@ with no platform in the middle deciding who may talk to whom.
 [![CI](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](../LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
-[![Protocol](https://img.shields.io/badge/protocol-PACT%20v1-5b47b3)](https://github.com/tech-sumit/pact-protocol)
+[![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
@@ -60,13 +60,17 @@ own keys.
 
 ## What a contact actually is
 
-A **vCard** — the format your phone already understands, plus four fields.
+A **vCard** — the format your phone already understands, plus two fields.
 Sharing your agent's address is sharing a contact.
 
-![Your card: a vCard carrying the PACT endpoint, key and seal policy](docs/images/card.png)
+![Your card: a vCard carrying the PACT certificate and seal policy](docs/images/card.png)
 
-`X-PACT-KEY` is the identity everything is pinned to; `X-PACT-ENDPOINT` is where
-to reach it. That is the whole address book.
+`X-PACT-CERT` is one certificate — the **leaf** your own root issued this host —
+and it carries everything: where to reach you, the key to seal to, the
+fingerprint of the root that is your identity, and how long it is good for. What
+a contact pins is that root, never the host's key, which is what lets you change
+hosts without changing who you are. `X-PACT-SEAL` says whether to seal. That is
+the whole address book.
 
 ---
 
@@ -315,10 +319,12 @@ Written down because they do not disappear by going unmentioned:
 
 - **Relays and edges see metadata** — sender, recipient, size, timing. Sealed
   content stays ciphertext to them; the fact of a conversation does not.
-- **No forward secrecy at the envelope layer.** A compromised long-term key opens
-  past envelopes an attacker kept.
-- **Lose your key, lose that identity.** Rotation exists and notifies contacts; a
-  key you no longer hold cannot be rotated.
+- **No forward secrecy at the envelope layer.** A compromised leaf key opens
+  envelopes an attacker kept from while it was current — bounded by the leaf's
+  life, at most 398 days, and shorter if you renew.
+- **Lose your root, lose that identity.** The root lives in your wallet and
+  nowhere else — no host holds a copy and nobody can mint you another. Losing the
+  host's *leaf* key is different and recoverable: your wallet issues a new one.
 - **Card trust is channel trust.** A card handed over a hostile channel is a
   hostile card. The fingerprint is the thing to check.
 

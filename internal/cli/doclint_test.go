@@ -331,12 +331,27 @@ func TestSpecTablesMatchTheCode(t *testing.T) {
 			t.Fatalf("no migrations found: %v", err)
 		}
 		create := regexp.MustCompile(`(?i)CREATE TABLE (?:IF NOT EXISTS )?([a-z_]+)`)
+		drop := regexp.MustCompile(`(?i)DROP TABLE (?:IF EXISTS )?([a-z_]+)`)
+		rename := regexp.MustCompile(`(?i)ALTER TABLE ([a-z_]+) RENAME TO ([a-z_]+)`)
+		// In migration order, and a DROP counts: the guard used to read CREATEs
+		// alone, so a table a later migration retired was still demanded of
+		// §11.2 forever. That made the section un-shrinkable — the only way to
+		// pass was to keep documenting a table nothing has, which is the shape
+		// of defect this guard exists to catch.
+		//
+		// Only the Up half is read. A Down re-creating what it rolls back is
+		// correct goose and says nothing about the schema a node runs.
+		sort.Strings(files)
 		for _, f := range files {
 			b, err := os.ReadFile(f)
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, m := range create.FindAllStringSubmatch(string(b), -1) {
+			up := string(b)
+			if i := strings.Index(up, "-- +goose Down"); i >= 0 {
+				up = up[:i]
+			}
+			for _, m := range create.FindAllStringSubmatch(up, -1) {
 				name := m[1]
 				// A table rebuild (SQLite cannot alter a CHECK) creates a
 				// temporary twin; it is not part of the schema.
@@ -344,6 +359,15 @@ func TestSpecTablesMatchTheCode(t *testing.T) {
 					continue
 				}
 				want[name] = true
+			}
+			for _, m := range drop.FindAllStringSubmatch(up, -1) {
+				delete(want, m[1])
+			}
+			// A SQLite table rebuild is create-twin, drop, rename: the name the
+			// schema ends with is never CREATEd under that name at all.
+			for _, m := range rename.FindAllStringSubmatch(up, -1) {
+				delete(want, m[1])
+				want[m[2]] = true
 			}
 		}
 		got, dups := specTableRows(t, root)
