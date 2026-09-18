@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -83,6 +84,19 @@ func SealedEntries(d SealedDeps) []Entry {
 // errEnvelope is the wire failure of the WRAPPER itself: a call that never got
 // far enough to have a sealed answer (bad envelope, refused policy). The code
 // travels as a plain tool error — there is no key to seal it to yet.
+// bodyOf reads the JSON body a plaintext refusal carries, so the same refusal
+// can be re-emitted sealed without rebuilding it.
+func bodyOf(res *mcp.CallToolResult) json.RawMessage {
+	if res == nil || len(res.Content) == 0 {
+		return json.RawMessage(`{"code":"unavailable"}`)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return json.RawMessage(`{"code":"unavailable"}`)
+	}
+	return json.RawMessage(tc.Text)
+}
+
 func errEnvelope(code string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + code + `"}`}}}
@@ -144,10 +158,10 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// §5.3): the seed's plain code, nothing dispatched — and charged, so
 			// a host calling from an unapproved address cannot do it for free.
 			if limited := spendGuestBudget(ctx, d); limited != nil {
-				return limited, nil
+				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
 			}
 			d.audit("sealed_call", "account:"+d.AccountID, facts.Refusal)
-			return errEnvelope(facts.Refusal), nil
+			return d.sealedCode(ctx, facts, facts.Refusal), nil
 		}
 		if facts.Tier == TierPendingAddress {
 			// PACT §5.3 under `ask`, or a root returned after a removal: the
@@ -155,13 +169,13 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// every other call from that address, until the owner decides,
 			// answers pending_approval — nothing runs either way.
 			if limited := spendGuestBudget(ctx, d); limited != nil {
-				return limited, nil
+				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
 			}
 			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == "update_contact" {
 				return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
 			}
-			return errEnvelope("pending_approval"), nil
+			return d.sealedCode(ctx, facts, "pending_approval"), nil
 		}
 		// Envelope-level idempotency (§4.4 step 8): a replay is acknowledged
 		// with its recorded result, never re-executed.
@@ -197,14 +211,45 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 // sealBack seals the inner result to the caller (PACT §13.2: a sealed request
 // MUST get a sealed result — same format, the request's msg_id).
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
-	return d.sealBack20(ctx, facts, inner)
+	return d.sealBack20(ctx, facts, inner, false)
+}
+
+// sealBackErr seals a wrapper-level refusal — one of §12's codes, in §13.2's
+// `error` form.
+//
+// PACT §13.2: "once a request envelope has been successfully opened, an error
+// result MUST be sealed back like any other result — a plaintext error is only
+// for an envelope that could not be opened at all, where there is no proven key
+// to seal toward." Past the open there IS a proven key, so the only reason to
+// answer in the clear is not having thought about it.
+//
+// It is not a formality. `pending_approval` in plaintext tells whatever carried
+// the call that this sender is one the recipient PINS — a stranger's envelope
+// never produces it — so the carrier separates "someone the recipient knows,
+// calling from an address not yet approved" from "a stranger", by reading an
+// answer it was never meant to be able to read. That correlation is precisely
+// what sealing denies it (PACT §13.5, §12).
+//
+// Falling back to plaintext when sealing itself fails is deliberate: at that
+// point the caller cannot be answered at all, and a bare code beats a hang.
+func (d SealedDeps) sealBackErr(ctx context.Context, facts *EnvelopeFacts, body json.RawMessage) *mcp.CallToolResult {
+	res, err := d.sealBack20(ctx, facts, body, true)
+	if err != nil || res == nil {
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}
+	}
+	return res
+}
+
+// sealedCode is sealBackErr for a bare §12 code.
+func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code string) *mcp.CallToolResult {
+	return d.sealBackErr(ctx, facts, json.RawMessage(`{"code":`+strconv.Quote(code)+`}`))
 }
 
 // sealBack20 seals a result to a 2.0 caller (PACT §13.2): kid names the
 // caller's leaf key, the plaintext carries our chain until this contact has
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.
-func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
+func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage, asError bool) (*mcp.CallToolResult, error) {
 	st, err := d.Identifier.State20(ctx)
 	if err != nil || st == nil || st.currentKey() == nil || len(st.Chain) != 2 {
 		return errEnvelope("unavailable"), nil
@@ -228,10 +273,15 @@ func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner 
 		}
 	}
 	now := d.now()
-	out, err := pactidentity.SealResult(pactidentity.SealOpts{
+	opts := pactidentity.SealOpts{
 		RecipientKey: recipient, Sender: sender, Form: form, SenderChain: st.Chain, Result: json.RawMessage(inner),
 		MsgID: facts.Header.MsgID, TS: now.Unix(), Exp: now.Add(ResultLifetime).Unix(),
-	})
+	}
+	if asError {
+		// §13.2's result plaintext is `result` OR `error`, never both.
+		opts.Result, opts.Error = nil, json.RawMessage(inner)
+	}
+	out, err := pactidentity.SealResult(opts)
 	if err != nil {
 		return errEnvelope("unavailable"), nil
 	}
