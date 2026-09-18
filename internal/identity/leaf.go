@@ -92,14 +92,7 @@ type LeafKey struct {
 	Current  bool
 	NotAfter time.Time
 	Endpoint string
-	// notBefore of the leaf this key was issued under, for ordering.
-	notBefore int64
 }
-
-// LeafNotBefore is the notBefore of the leaf this key was issued under; zero
-// for a retiring 1.x key, which has no leaf. Picking the greatest is how a
-// caller finds the most recently superseded key.
-func (k LeafKey) LeafNotBefore() int64 { return k.notBefore }
 
 func (m *Manager) sealLeafKey(kp *Keypair) ([]byte, error) {
 	der, err := MarshalPKCS8(kp)
@@ -176,7 +169,7 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		} else {
 			kp.Leaf, kp.Root, kp.Protocol = nil, nil, 1
 		}
-		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint, notBefore: l.NotBefore}
+		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
 		if lk.Current {
 			out = append([]LeafKey{lk}, out...)
 		} else {

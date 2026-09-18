@@ -6,11 +6,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"github.com/tech-sumit/pact-gateway/internal/public"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,6 +24,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	"github.com/tech-sumit/pact-gateway/internal/public"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
@@ -75,6 +76,41 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 		accts = append(accts, a)
 	}
 	return e, accts
+}
+
+// peerFor is the 2.0 pin a test caller holds for an account this env serves, and
+// the dialer that reaches it.
+//
+// A server is recognised by the chain it presents, validated to the ROOT pinned
+// at the address DIALED (PACT §2, §14.2 rule 5) — and the address the leaf names
+// is the configured public URL, never the loopback the test listener is on. So
+// the caller dials the name and the resolver sends it to the listener, which is
+// what DNS does for a real caller. Pinning the node's leaf KEY instead used to
+// work; that was the key-pinned generation's rule, and it is gone.
+func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(context.Context, string, string) (net.Conn, error)) {
+	e.t.Helper()
+	chain, err := e.idm.Chain(context.Background(), acct.ID)
+	if err != nil || len(chain) != 2 {
+		e.t.Fatalf("peerFor: the account holds no chain: %v", err)
+	}
+	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()})
+	if !vr.OK {
+		e.t.Fatalf("peerFor: the node's own chain does not validate: rule %d", vr.Rule)
+	}
+	u, err := url.Parse(vr.Endpoint)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	listen := strings.TrimPrefix(base, "https://")
+	named := u.Hostname() + ":443"
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if addr == named {
+			addr = listen
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, addr)
+	}
+	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Protocol: 2, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }
 
 // callerChain plays another person's wallet: an independent root and a leaf over
@@ -462,9 +498,9 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 
 	kp, _ := identity.Generate(identity.AlgoP256)
 	der, _ := identity.SelfSignedCert(kp, "guest")
-	client := &outbound.Client{Keypair: kp,
+	peer, dial := e.peerFor(accts[0], base)
+	client := &outbound.Client{Keypair: kp, DialContext: dial,
 		Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}}
-	peer := outbound.Peer{Endpoint: base + "/a/alice/mcp", Fingerprint: accts[0].Fingerprint}
 
 	// A guest gets 10 calls an hour (PACT §12). Each of these is refused on its
 	// merits — the token is nonsense — but it is still a call, and the 11th must

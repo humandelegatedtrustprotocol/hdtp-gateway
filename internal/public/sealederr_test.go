@@ -59,4 +59,15 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 	if body.Code != "pending_approval" {
 		t.Fatalf("sealed error code = %q, want pending_approval", body.Code)
 	}
+
+	// The third path out of the same place: the guest budget. It is charged
+	// before the refusal is written, and its answer opened in the clear too.
+	// A carrier reading `rate_limited` learns the recipient is metering THIS
+	// sender, which is the same correlation by another name.
+	s.pool.Limit = func(context.Context) (bool, time.Duration) { return false, time.Minute }
+	res = s.call(t, s.seal20(t, moved, "chain", "send_message", map[string]any{"text": "again"}), TransportFacts{})
+	_, errObj = s.opened(t, res, moved, "send_message")
+	if err := json.Unmarshal(errObj, &body); err != nil || body.Code != "rate_limited" {
+		t.Fatalf("a budget refusal past the open must be sealed too: %v (%s)", err, errObj)
+	}
 }

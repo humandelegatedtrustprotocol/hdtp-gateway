@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/tls"
 	"encoding/json"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/testid"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
@@ -204,4 +206,49 @@ func waitFor(t *testing.T, budget time.Duration, msg string, cond func() bool) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// nodePeer is the 2.0 pin a caller holds for a node under test, and the dialer
+// that reaches it.
+//
+// Under 2.0 a server is recognised two ways and no third: the chain it presents,
+// validated to the ROOT the caller pinned at the address the caller dialed, or
+// WebPKI for that hostname (PACT §2). A test that pins the node's LEAF key was
+// relying on a branch that belonged to the key-pinned generation, deleted on
+// 2026-09-18 — and while it stood, none of these tests exercised the rule a real
+// caller meets.
+//
+// The address is the wrinkle. §14.2 rule 5 is byte-equality between the leaf's
+// URI and the address dialed, and a mismatch is a refusal, never a warning; but
+// the address guard refuses a loopback endpoint, so `guardSafe` gives the leaf a
+// public-looking name while the listener is on 127.0.0.1. The caller therefore
+// dials the name and a resolver sends it to the listener — which is what a real
+// caller does through DNS.
+func nodePeer(t *testing.T, dir string, acct store.Account, listen string) (outbound.Peer, func(context.Context, string, string) (net.Conn, error)) {
+	t.Helper()
+	// Read the address out of the LEAF, not out of the config. They differ on
+	// purpose: the address guard refuses a loopback endpoint, so a leaf issued for
+	// a node listening on 127.0.0.1 names something public-looking instead, and
+	// which name that is depends on what the test wrote before issuing.
+	chain, err := (&identity.Manager{Store: openStoreAt(t, dir)}).Chain(context.Background(), acct.ID)
+	if err != nil || len(chain) != 2 {
+		t.Fatalf("nodePeer: the account holds no chain: %v", err)
+	}
+	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()})
+	if !vr.OK {
+		t.Fatalf("nodePeer: the node's own chain does not validate: rule %d", vr.Rule)
+	}
+	u, err := url.Parse(vr.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := u.Hostname() + ":443"
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if addr == named {
+			addr = listen
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, addr)
+	}
+	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Protocol: 2, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }
