@@ -3,7 +3,9 @@
 What pact-gateway defends, against whom, and where the defence actually lives.
 This is the reviewer-facing companion to SPEC.md §13, which is normative: §13
 states the posture, this states the adversaries and points at the code and the
-tests that hold each claim.
+tests that hold each claim. The protocol it implements is PACT 2.0.0: the
+person's self-signed root is the identity, the host holds a leaf that root
+issued it, and a chain is what proves anything.
 
 Read it with SECURITY.md's hardening-status table, which says what has **not**
 been done yet. Nothing here has had independent cryptographic review.
@@ -12,8 +14,9 @@ been done yet. Nothing here has had independent cryptographic review.
 
 | Asset | Where it lives | Loss means |
 |---|---|---|
-| Account identity private key | `key_sealed` in the store, sealed at rest | Full impersonation of that identity to every contact. There is no revocation authority: recovery is a new identity and re-pairing everyone |
-| Contact pins (SPKI per contact) | `contacts` table | Silent substitution of a contact — every later signature check passes for the wrong party |
+| Account **leaf** private key | `leaves.key_sealed` in the store, sealed at rest | Impersonation of that identity **until the leaf expires or is renewed**. A leaf lives at most 398 days, and the newest leaf at the pinned endpoint outranks the stolen one with every contact it reaches (PACT §14.3). The thief cannot issue itself another: that takes the root |
+| The **root** private key | Not here. The person's wallet (PACT §9) | The identity itself, fought over by two holders, with no authority to appeal to (PACT §14.5). It is deliberately out of this node's custody |
+| Contact pins (a root fingerprint, the endpoint, and the latest leaf accepted) | `contacts` table | Silent substitution of a contact — every later chain check validates for the wrong party |
 | Message content and media | Store plus the media blob directory | Disclosure of private correspondence |
 | Owner credentials (passkeys, bearer tokens) | `owners`, `tokens` | Full control of the node: it can message, book, and rewrite permissions as the owner |
 | Integration credentials | `settings`, sealed at rest | Access to whatever third-party account was connected |
@@ -30,10 +33,17 @@ why they are fuzzed (`FuzzSealedPayload`).
 node trusts, and can call every tool their permissions allow. The relevant
 question is never "can they be stopped" but "can they act as *someone else*".
 
-**A3 — A carrier: relay, edge terminator, tunnel provider, or the network.** Sees
-and can drop, delay, reorder or replay traffic. On terminating deployments it also
-terminates TLS. It is explicitly **not trusted**: a relay-delivered envelope runs
-the same §4.4 open order as a direct one.
+**A3 — A carrier: edge terminator, tunnel provider, or the network.** Sees and can
+drop, delay, reorder, replay — **and answer**. On terminating deployments it also
+terminates TLS, so in edge mode the carrier is a MITM by construction, not a
+position an attacker has to reach. It is explicitly **not trusted**, and the
+containment is stated in four parts: content is sealed past it; the sender's
+identity rides inside the ciphertext, so it sees `kid` and timing but not who
+sent what (PACT §13.2); an answer it forges in plaintext is refused by the caller
+unless it carries one of the few codes a node can legitimately reach *before*
+opening an envelope; and a refusal it might have read is sealed, so it cannot
+tell whether the recipient pins this sender. What it keeps is metadata and
+availability.
 
 **A4 — A hostile invite counterparty, or anyone who can intercept the invite
 fetch.** The owner is about to pin a key out of a document this adversary
@@ -51,13 +61,23 @@ closes it.
 **A5 — A compromised upstream MCP server.** An integration the owner connected,
 returning hostile tool definitions or results.
 
+**A7 — A former host.** Held the identity's leaf and all its data until the person
+moved. Its leaf is still valid until it expires. It can still answer at the old
+address, and it knows every contact. What it cannot do: issue itself a new leaf,
+follow the person to the new address, or keep a contact that has seen the newer
+leaf — PACT §14.3 is what makes leaving safe, and PACT §9 requires the vacated
+address not be reassigned until the last leaf for it has expired.
+
 **A6 — Local attacker with disk access.** Out of scope below.
 
 ## Trust boundaries
 
-1. **Public surface → node.** Every caller is a fingerprint, proven by a TLS
-   client certificate or an envelope signature, never by transport position
-   (SPEC §3.5, §13.1). Where both proofs exist they must agree.
+1. **Public surface → node.** Every caller is the **root of a chain that
+   validated** (PACT §14.2), proven by presenting that chain as the TLS client
+   certificate or by carrying it inside a sealed envelope — never by transport
+   position (SPEC §3.5). Where both proofs exist their leaf keys must agree. A
+   lone self-signed certificate is neither proof: it names no root, and anyone
+   mints one in a second.
 2. **Node → owner surface.** Separate mux, bearer token on every bind including
    loopback (`TestOwnerMCPRequiresATokenEvenOnLoopback`), passkey for the portal,
    CSRF on state change (`TestCSRFCookieOnGETAndEnforcedOnPOST`).
@@ -79,24 +99,41 @@ returning hostile tool definitions or results.
 | Rate limits apply on the real listener, not just in unit tests | `TestGuestRateLimitIsEnforcedOnTheRealListener`, `TestContactRateLimit60PerHour` |
 | The audit chain detects tampering and survives pruning | `TestAuditTamperedExportDetected`, `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
 | Parsers on untrusted input do not crash | Four fuzz targets, run in CI, kept honest by `TestEveryFuzzTargetRunsInCI` |
+| Only a chain that validates names a caller; a lone certificate names nobody | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestClientCertRequiredTakesAChainAndNothingElse` |
+| A refusal past the open is sealed, so a carrier cannot tell a pinned sender from a stranger | `TestARefusalPastTheOpenIsSealed` |
+| A carrier's forged plaintext answer is not the peer's answer | `TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer` |
+| A key-pinned server is not an identity; the chain to the pinned root is | `TestASelfSignedServerCertificateIsNotAnIdentity`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
+| Chain confusion, the validity and skew boundaries, and the retired generation are all refused — offline in both ports, and live against the deployed node | `pact-identity/js/intrude.mjs` (115 scenarios), `pact vectors intrude` (26, over the public internet) |
 
 ## Explicitly out of scope
 
 These are decisions, not backlog (SPEC §13.2):
 
-- **Forward secrecy at the envelope layer.** HPKE Base to a long-lived key: a
-  later key compromise decrypts recorded traffic.
-- **Metadata privacy against carriers.** A relay or edge sees who, when and how
-  big. Sealed content stays ciphertext; the fact of a conversation does not.
-- **Key loss.** No recovery authority. A lost key is a new identity.
-- **Key separation.** One keypair serves TLS client, TLS server, HPKE recipient
-  and signing (SPEC §2, §13). Accepted, documented, and the `kid` field is the
-  reserved seam for changing it. A reviewer should expect to raise this.
+- **Forward secrecy at the envelope layer.** HPKE Base to a long-lived leaf key:
+  a later compromise of that key decrypts traffic recorded while it was current.
+  Bounded by the leaf's 398-day ceiling and by renewal, not fixed.
+- **Metadata privacy against carriers.** An edge sees `kid` — which names the
+  RECIPIENT's leaf key — along with timing and sizes. It no longer sees who sent
+  a message: the sender's chain rides inside the ciphertext (PACT §13.2). Sealed
+  content stays ciphertext; the fact of a conversation does not.
+- **Root loss.** No recovery authority, and the root is not on this node. A lost
+  root is a lost identity (PACT §9). A lost *leaf* is not: the wallet issues
+  another (SPEC §3.9).
+- **Key separation.** One **leaf** keypair serves TLS client, TLS server, HPKE
+  recipient and signing (SPEC §2.5, §13). PACT §13.5 bounds it: that key signs
+  exactly four structures, each distinguishable by its first bytes, and nothing
+  else. Accepted, documented, and `kid` is the reserved seam for changing it. A
+  reviewer should expect to raise this.
 - **Local attacker with disk access (A6).** Secrets are sealed at rest, but the
   sealing key is on the same machine. Disk encryption is the operator's job.
 - **Malicious owner.** The owner is the trust root of their own node.
 - **Denial of service by a determined network adversary.** Rate limits and input
   caps blunt abuse; they are not DoS protection.
+- **A root fought over by two holders.** PACT §14.5 records this as residual: if
+  a thief has the root, both parties can issue leaves and the newest one wins with
+  whichever contact it reaches first. The defence is a root that is never at rest
+  — in a hardware key, or derived from a passkey on each use — which is the
+  wallet's business and outside this node.
 - **Impersonation by name.** A contact chooses the name on its card, and two
   contacts may legitimately share one. Names are capped, control- and
   bidi-stripped, and cross-script confusables are folded for collision detection,
@@ -106,11 +143,19 @@ These are decisions, not backlog (SPEC §13.2):
 
 ## Where a reviewer should start
 
-1. `internal/public/identify.go` — `OpenSealed`, the numbered open order of
-   SPEC §4.4. Order is load-bearing: addressing, then kid, then open, then
-   signature, then the unified identity rule, then freshness, then replay.
-2. `internal/envelope/` — the HPKE Base + detached signature construction, with
-   the protected header as AAD. Test vectors in `testdata/vectors.json`.
-3. `internal/core/policy/` — Cedar authorization, four call sites (three filter
+1. `internal/public/identify20.go` — `openSealed2` and the pin checks around it.
+   The open order is PACT §13.3's and is load-bearing: version and suite, then
+   `kid` against the keys this endpoint holds, then HPKE-open, then the signature
+   under the chain's leaf, then the tier, then freshness, then replay. The
+   decision itself is the library's pure `Decide`; this file is the seam that
+   supplies the node's state and applies the effects.
+2. `internal/public/listener.go` and `internal/outbound/client.go` — what the
+   transport is allowed to prove, in both directions. Both were wrong in the same
+   way on 2026-09-18 and both now accept only a validated chain.
+3. `pact-identity/` — chain validation and the certificate profile, with the
+   shared vectors in PACT Appendix B and the intrusion battery over both ports.
+   Nothing in this repository re-implements §14.2, and nothing reaches for a
+   general X.509 path validator.
+4. `internal/core/policy/` — Cedar authorization, four call sites (three filter
    `tools/list`, one gates the call and re-resolves the tier).
-4. `internal/core/audit/` — the hash chain and its archive/prune path.
+5. `internal/core/audit/` — the hash chain and its archive/prune path.

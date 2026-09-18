@@ -1,6 +1,6 @@
 # pact-gateway — Product Specification
 
-**Version 0.1.0-draft · 2026-08-24 · implements PACT 1.0 + the 1.1 delta (§15)**
+**Version 0.2.0-draft · 2026-09-18 · implements PACT 2.0.0**
 
 pact-gateway is a self-hosted personal node for the PACT protocol: your agent's public,
 permission-gated MCP server to the people you approve, your private control panel and
@@ -16,23 +16,22 @@ wire-visible. This document is normative for the pact-gateway implementation.
 
 ### 1.1 What pact-gateway is
 
-pact-gateway is a self-hosted personal PACT node: one static Go binary that gives a person a permanent agent presence on the network. It implements PACT 1.0 — the protocol spec remains normative for all wire behavior and is cited throughout as "PACT §N" — plus the PACT 1.1 delta this product required, summarized in §15. A single node is three things at once:
+pact-gateway is a self-hosted personal PACT node: one static Go binary that gives a person a permanent agent presence on the network. It implements PACT 2.0.0 — the protocol spec remains normative for all wire behaviour and is cited throughout as "PACT §N". There is one generation: the person's self-signed root is the identity, the host holds a leaf the person issued it, and a card is `X-PACT-VERSION:2` plus that leaf. PACT 1.x was removed entirely on 2026-09-18; nothing here speaks it. A single node is three things at once:
 
 - **An MCP server to the outside.** Contacts and strangers reach the node's public surface (§5) as an MCP server over HTTPS. What a caller sees and may call is decided by caller identity (§3), tier, and the owner's per-contact permission switchboard (PACT §8) — never by anything the caller asserts.
 - **An MCP client to the inside.** The owner's own integrations — calendar, mail, anything speaking MCP — are upstreams the node connects to as an MCP client (§6). Contacts never reach an upstream directly: every exposed capability passes through versioned catalog snapshots and exposure sets, and is served in one of three modes — passthrough, mapped, or agent-answered (§6).
 - **An internal surface for the owner.** A browser portal and an owner MCP server (§8) are how the owner, and the owner's own agent, read the inbox, manage contacts, invites, and permissions, and administer the node.
 
-### 1.2 Three roles, one binary
+### 1.2 Two roles, one binary
 
 The same binary plays three roles, selected by configuration (§12):
 
 | Role | What it does | Detail |
 |---|---|---|
 | **node** | The default and the subject of most of this spec: a person's agent server — public surface, integrations, portal, owner MCP. | §2–§9 |
-| **relay mode** | The store-and-forward relay of PACT §9: queues sealed calls for recipients that are offline or unreachable, enforces each recipient's allow-list and quotas, and verifies the envelope signature **without decrypting** — it can refuse unwanted senders while never reading sealed content. | §10 |
 | **ingress role** | An own-domain front door: routes each subdomain either as **passthrough** (SNI routing, end-to-end mTLS preserved) or **terminate** (public ACME TLS at the front, converted to a fresh, mutually pinned mTLS hop to the node). Nodes pair with an ingress via a one-time token. | §10 |
 
-A node MAY additionally run relay mode for its contacts; the roles compose rather than exclude each other.
+The two roles compose rather than exclude each other: one binary, one configuration, and which role it is playing follows from what is configured.
 
 ### 1.3 Audience, license, telemetry
 
@@ -40,7 +39,7 @@ A node MAY additionally run relay mode for its contacts; the roles compose rathe
 
 **License and posture.** Apache-2.0 from day one. The repository starts private and is flipped public by the owner; CONTRIBUTING.md and a SECURITY.md with a private disclosure route ship from the first commit so the flip needs no cleanup.
 
-**No telemetry.** The binary reports nothing to anyone, and the documentation states this explicitly. Its only outbound connections are the ones the owner configured: peer nodes, upstream integrations, and tunnel/relay carriers (§10).
+**No telemetry.** The binary reports nothing to anyone, and the documentation states this explicitly. Its only outbound connections are the ones the owner configured: peer nodes, upstream integrations, and tunnel carriers (§10).
 
 ---
 
@@ -53,7 +52,6 @@ pact-gateway ships as a single static Go binary (`CGO_ENABLED=0`) containing eve
 ```mermaid
 flowchart LR
     CA["Contact / guest agents"]
-    RL["Recipient's relay<br/>(a pact-gateway in relay mode)"]
     OB["Owner's browser"]
     OA["Owner's agent"]
     CL["CLI"]
@@ -68,8 +66,6 @@ flowchart LR
         UPC["MCP client pool<br/>HTTP-first, stdio children"]
     end
     CA -->|"mTLS / sealed_call"| PUB
-    CA -.->|"relay_call when node unreachable"| RL
-    CORE -.->|"fetch_queued, ack"| RL
     PUB --> REG
     REG --> CORE
     OB --> INT
@@ -96,18 +92,18 @@ Internally the binary is organized into twelve packages; the names below are nor
 | 8 | `message` | Threads, messages, blob store, internal event bus | §7 |
 | 9 | `integration` | MCP client pool, upstream OAuth, catalog snapshots, exposure sets, three serving modes | §6 |
 | 10 | `internal` | Portal (server-side rendered, zero external assets) and the owner MCP server | §8 |
-| 11 | `reach` | Tunnel adapters, relay mode (both sides), ingress role | §10 |
+| 11 | `reach` | Tunnel adapters and the ingress role | §10 |
 | 12 | `cli` | CLI over the admin socket, config loading (environment > file > store > defaults, §12.2), doctor, migrate | §12 |
 
 ### 2.2 Three entry points
 
 | Surface | Default bind | Authentication | Serves |
 |---|---|---|---|
-| Public | `:8443`, TLS | Caller identity per §3: client certificate (per the `client_cert` knob) and/or envelope signature | The per-caller MCP endpoint (§5); invite landing pages `https://<host>/i/<token>` (§9) |
+| Public | `:8443`, TLS | Caller identity per §3.5: the root of a chain that validated, presented on the transport (per the `client_cert` knob) or carried in a sealed envelope | The per-caller MCP endpoint (§5); invite landing pages `https://<host>/i/<token>` (§9) |
 | Internal | `127.0.0.1:8080` | Portal: an owner session on **every** bind, loopback included (§8.3); CSRF protection stays on regardless. Any non-loopback bind MUST refuse to start unless passkey authentication and TLS are configured (§3). Owner MCP: named, revocable bearer tokens, also on every bind (§8.4) | Portal (browser) and owner MCP (§8) |
 | Admin | Unix socket | Filesystem permissions | CLI (§12); offline DB operations only with the node stopped |
 
-The default binds (`:8443`, `127.0.0.1:8080`), the path scheme of §5.2 (`/a/<account>/mcp`, the single-account `/mcp` alias, `/relay/mcp`), and the per-account endpoint slug of §3.2 are spec-chosen defaults, not plan-fixed decisions — of the URL surface only the invite path `/i/<token>` is plan-sourced; they stand unless the owner objects at review. Binds are configuration, not constants (§12); the portal and owner MCP can be kept local, tunneled, or split per the owner's deployment matrix (§10). One consequence of the surface split is worth stating here: when the owner sends outbound to a contact, the `sender` label of PACT §6.2 is **derived from the surface** — portal → `human`, owner MCP → `agent` — and is never accepted as a caller-supplied parameter (§7).
+The default binds (`:8443`, `127.0.0.1:8080`), the path scheme of §5.2 (`/a/<account>/mcp`, the single-account `/mcp` alias), and the per-account endpoint slug of §3.2 are spec-chosen defaults, not plan-fixed decisions — of the URL surface only the invite path `/i/<token>` is plan-sourced; they stand unless the owner objects at review. Binds are configuration, not constants (§12); the portal and owner MCP can be kept local, tunneled, or split per the owner's deployment matrix (§10). One consequence of the surface split is worth stating here: when the owner sends outbound to a contact, the `sender` label of PACT §6.2 is **derived from the surface** — portal → `human`, owner MCP → `agent` — and is never accepted as a caller-supplied parameter (§7).
 
 ### 2.3 The public call path
 
@@ -115,8 +111,8 @@ Every inbound call on the public surface travels one path:
 
 1. **Accept.** TLS handshake on the public listener. A client certificate is requested according to the `client_cert` knob (`required` | `preferred` | `off` — §3): `preferred` is the direct-mode default; edge mode forces `off` because no client certificate survives a terminating edge (§10). Unknown certificates are accepted at the TLS layer — tiering happens above it (PACT §2).
 2. **LAN check.** The LAN connections flag governs whether the public listener accepts connections that bypass the configured carrier from private-range addresses; it defaults to off in edge mode, and every refusal is audited (§10, §11).
-3. **Identity.** The caller identity is the envelope-signature fingerprint or the client-certificate SPKI fingerprint; when both are present they MUST match. Fingerprints are `"sha256:" + base64url(SHA-256(SPKI))` (PACT §2). A call carrying neither where one is required fails with `identity_required` (§15).
-4. **Seal.** The `seal` knob (`none` | `optional` | `required`, advertised on the card as `X-PACT-SEAL` — §4) is enforced. With `seal: required` — the default, and forced in edge mode and relay-assisted mode — unsealed substantive calls are rejected with `seal_required`; a `sealed_call` passes the open order of §4 (decode → suite → to==me → kid → open → verify signature against the pinned key, or the card inside the payload for guests → timestamp window → `msg_id` idempotency → dispatch).
+3. **Identity.** The caller is the **root** of a chain that validated (PACT §2, §14.2) — presented as the TLS client certificate, or carried inside a sealed envelope. A lone certificate is not a chain and names no root, so it establishes nothing. When both proofs are present their leaf keys MUST match, else `envelope_invalid`. Fingerprints are `"sha256:" + base64url(SHA-256(SPKI))`. A call carrying no usable proof where one is required fails with `identity_required` (§5.3).
+4. **Seal.** The `seal` knob (`none` | `optional` | `required`, advertised on the card as `X-PACT-SEAL`) is enforced. With `seal: required` — the default, and forced in edge mode — unsealed substantive calls are rejected with `seal_required`; a `sealed_call` passes the open order of PACT §13.3 (decode → version and suite → resolve `kid` to a leaf key this endpoint holds → HPKE-open → verify the signature under the chain's leaf, or under the leaf the small form names → tier → time window → `msg_id` idempotency → dispatch).
 5. **Tier.** The identity is looked up in the account's contact list and lands in exactly one tier: guest, pending, contact, or blocked — and blocked callers are silently served the guest tier, indistinguishable from strangers (PACT §6.1, §9).
 6. **Serve.** The caller's per-caller MCP server (§2.4) answers `tools/list` and receives `tools/call`.
 7. **Dispatch.** Every call re-passes `policy.Allow` at call time, enforces PACT §12 limits at the boundary, honors `msg_id` idempotency, and appends an audit event — bodies referenced, not copied (§11).
@@ -140,9 +136,8 @@ Reachability is the tunnel adapters' only job: an adapter never changes protocol
 |---|---|---|---|
 | **direct mode** | End-to-end mTLS terminating at the node (port forward, Tailscale Funnel, frp, ngrok TLS) | `seal: required` by default; `client_cert: preferred` by default | The carrier moves ciphertext; no third party reads content |
 | **edge mode** | Public TLS terminates at a third-party edge (Cloudflare Tunnel; ngrok HTTPS) which re-originates to the node | `seal` forced `required`; `client_cert` forced `off`; LAN connections flag defaults off | The edge sees all metadata and would see any unsealed content — which is why seal is forced; sealed content stays unreadable to it (§4, §13) |
-| **relay-assisted mode** | No inbound path at all: senders queue sealed calls at the recipient's relay; the recipient fetches and acknowledges | `seal` forced `required`; envelope timestamp window relaxed up to the envelope's `exp` (≤ 30 days) (§4) | The relay verifies signatures without decrypting: it sees the protected header — sender, recipient, timing — but never content |
 
-The honest residue, carried in full in §13: sealing uses HPKE Base mode to a long-lived identity key, so there is **no forward secrecy** — a later key compromise decrypts recorded sealed traffic; edges and relays always see **metadata** even when content is sealed; and the sealing keypair is the **same keypair as mTLS** (an accepted key-reuse caveat, with the envelope's `kid` field as the seam for a future separate encryption key).
+The honest residue, carried in full in §13: sealing uses HPKE Base mode to a long-lived leaf key, so there is **no forward secrecy** — a later compromise of that key decrypts traffic recorded while it was current, bounded by the leaf's 398-day ceiling and by renewal with a fresh key; an edge always sees **metadata** even when content is sealed; and the sealing keypair is the **same keypair as mTLS** (an accepted key-reuse caveat, with the envelope's `kid` as the seam for a future separate encryption key).
 
 
 ---
@@ -169,20 +164,20 @@ An account is one PACT identity served by this node; a node serves one or many. 
 
 | Field | Meaning |
 |---|---|
-| identity keypair | ECDSA P-256 default, Ed25519 permitted (PACT §2); private key encrypted under the keyring (§3.7) |
-| fingerprint | `"sha256:" + base64url(SHA-256(SPKI))` — the public identity (PACT §2) |
+| leaf keypair | ECDSA P-256 default, Ed25519 permitted (PACT §14.1); private key encrypted under the keyring (§3.7). The ROOT is not here: it is in the person's wallet (PACT §9) |
+| root fingerprint | `"sha256:" + base64url(SHA-256(SPKI))` of the root's key — the identity, and what contacts pin (PACT §2, §14.3) |
 | vCard fields | FN, TEL, EMAIL, … rendered by the card builder (§9); the `X-PACT-*` properties are derived by the node, never hand-edited |
-| endpoint slug | path component addressing this account on the public listener; `X-PACT-ENDPOINT` = the node's public base URL + slug |
-| seal policy | `none\|optional\|required`, published as card property `X-PACT-SEAL` (§4, §15); default `required`, and edge mode and relay-assisted mode force `required` (§10) |
+| endpoint slug | path component addressing this account on the public listener. The endpoint is the node's public base URL plus the slug, and it is named inside the leaf's `subjectAltName` — nowhere else on the card (PACT §14.2 rule 5) |
+| seal policy | `none\|optional\|required`, published as card property `X-PACT-SEAL` (PACT §13.4); default `required`, and edge mode forces `required` (§10) |
 | status | whether the node currently serves this account; a disabled account keeps its data and contacts but its endpoint answers `unavailable` (PACT §12) |
 
-**Key reuse, stated plainly.** The identity keypair is simultaneously (a) the TLS client-certificate key for outbound calls, (b) the TLS server key when the listener runs an identity-key self-signed certificate (§3.8), and (c) the HPKE recipient key and detached-signature key for sealed envelopes (§4) — Ed25519 identities are converted to X25519 for PACT-SEAL-X25519. Compromise of one private key therefore breaks transport identity **and** envelope confidentiality at once. This is a deliberate, accepted caveat (§13); the envelope's `kid` field is the seam that lets a later version introduce a separate encryption key without a format change (§4).
+**Key reuse, stated plainly.** The leaf keypair is simultaneously (a) the TLS client key, presenting the chain on outbound calls, (b) the TLS server key, presenting the same chain, and (c) the HPKE recipient key and detached-signature key for sealed envelopes — Ed25519 leaves are converted to X25519 for PACT-SEAL-X25519. Compromise of one private key therefore breaks transport identity **and** envelope confidentiality at once, for that leaf. What it does not break is the identity: the root is elsewhere, a leaf lives at most 398 days, and a renewal with a fresh key outranks the stolen one with every contact it reaches (PACT §14.3, §14.5). This is a deliberate, accepted caveat (§13); the envelope's `kid` is the seam that lets a later version introduce a separate encryption key without a format change (PACT §13.5).
 
 ### 3.3 Membership and node administration
 
 `memberships` (§11) relates owners to accounts many-to-many, with a role attribute on each row: several owners can share one account (a family assistant), and one owner can hold several accounts (personal and business personas). The role attribute is data handed to Cedar as an entity attribute (§3.6); the shipped static policies decide what each role may do. v1 defines exactly one membership role: `admin` — full control of the account. Finer-grained roles are post-v1; the role column is pre-shaped for them the same way `credentials` is pre-shaped for later login kinds (§3.1).
 
-`node_admin` is node-scoped — a flag on the owner, not a membership role. Node-wide configuration — tunnel settings and the LAN connections flag, relay settings, ingress pairing, storage, and the owner roster itself (§8) — requires `node_admin`; account-scoped actions require membership in that account.
+`node_admin` is node-scoped — a flag on the owner, not a membership role. Node-wide configuration — tunnel settings and the LAN connections flag, ingress pairing, storage, and the owner roster itself (§8) — requires `node_admin`; account-scoped actions require membership in that account.
 
 ### 3.4 Bearer tokens for the owner MCP
 
@@ -190,27 +185,60 @@ The owner MCP surface (§8) authenticates with **named, revocable bearer tokens*
 
 ### 3.5 Caller identity on the public surface
 
-The unified identity rule (PACT 1.1 delta, §15) defines who a public caller is:
+Under PACT 2.0 the identity is the **root**, and the only thing that names a root is a
+chain that validated (§14.2). There are two carriers and no third:
 
-> Caller identity is the fingerprint whose key signed the sealed envelope (§4) **or** the SPKI fingerprint of the presented TLS client certificate. When both are present, they MUST match; a mismatch MUST be refused and audited (§11).
+> The caller is the root of a chain presented as the TLS client certificate, **or** the
+> root of the chain carried inside a sealed envelope. When both are present, their leaf
+> keys MUST match; a mismatch MUST be refused `envelope_invalid` and audited (§11).
 
-Which sources are available follows from the deployment knobs (§10): seal = `none|optional|required` and client_cert = `required|preferred|off`. In direct mode the defaults are seal `required`, client_cert `preferred`; edge mode forces client_cert `off` and seal `required`, so identity there is always the envelope signature. Guest calls under seal carry the caller's card inside the sealed payload, and the signature is verified against that card's key (§4) — that key's fingerprint is the caller identity.
+**A lone certificate establishes nothing.** The retired generation read the fingerprint
+of whatever single certificate arrived as the caller, because there the identity WAS a
+key. A self-signed certificate names no root and anyone mints one in a second, so the
+node records no identity for it at all. Three things depended on that and were wrong
+while it stood: `client_cert: required` — the posture PACT §13.4 permits, about who may
+knock at all — was satisfied by any certificate; the guest rate budget bucketed on a
+fingerprint the caller chose per request; and the "both proofs must match" rule compared
+a proven leaf against an unproven key.
 
-- A tool call that establishes no identity at all MUST be refused with `identity_required` (§15).
-- An unsealed call to an account whose seal policy is `required` MUST be refused with `seal_required` (§15).
-- An envelope that fails any of the validation steps 1–7 of the open order MUST be refused with `envelope_invalid` (§4.4, §15).
-- A mismatch between the envelope-signature and client-certificate fingerprints MUST be refused with `envelope_invalid` (§4.7, §4.11).
+Which carrier is available follows from the deployment knobs (§10): seal is
+`none|optional|required`, client_cert is `required|preferred|off`. Direct mode defaults
+to seal `required`, client_cert `preferred`; edge mode forces client_cert `off` and seal
+`required`, so identity there is always the envelope. A guest's sealed call carries its
+card inside the payload, and the chain inside that payload is what the card's
+certificate must byte-equal (PACT §13.2).
 
-The resolved fingerprint is looked up in the account's contact list and maps to a tier — guest, pending, contact, blocked — per PACT §6.1. Blocking is silent guest demotion (PACT §5): a blocked caller is indistinguishable from a stranger. MCP sessions are bound to the identity that created them; a session resumed under any other identity MUST be rejected (§5).
+- A call that establishes no identity at all where one is needed MUST be refused
+  `identity_required`.
+- An unsealed substantive call to an account whose seal policy is `required` MUST be
+  refused `seal_required`.
+- An envelope that fails any step of PACT §13.3's open order MUST be refused
+  `envelope_invalid`. A small-form envelope the receiver cannot verify against a leaf it
+  holds is answered `chain_required` instead — one answer for unknown, blocked, expired
+  and mis-signed alike, so the answer tells a stranger nothing.
+- Once an envelope has opened, a refusal MUST be **sealed** back like any other result
+  (PACT §13.2). A plaintext refusal past the open tells the carrier what state the
+  recipient holds this sender in, and in edge mode the carrier is there by construction.
+
+The resolved root is looked up in the account's contact list and maps to a tier — guest,
+pending, contact, blocked — per PACT §6.1, and the pin checks of §14.3 and §5.3 run
+first: a leaf older than the pinned one proves nothing, and a leaf naming a different
+endpoint is a request to move, not a call. Blocking is silent guest demotion: a blocked
+caller is indistinguishable from a stranger. MCP sessions are bound to the identity that
+created them; a session resumed under any other identity MUST be rejected (§5).
 
 ```mermaid
 flowchart TD
-    IN["Tool call on an account endpoint"] --> RES["Resolve identity:<br/>envelope-signature fpr / client-cert SPKI fpr"]
-    RES -- "both present, mismatch" --> RF["refuse + audit"]
-    RES -- "neither present" --> IR["identity_required"]
-    RES -- "one source, or both match" --> LK{"fingerprint in<br/>account's contacts?"}
+    IN["Tool call on an account endpoint"] --> RES["Resolve identity:<br/>chain as client certificate / chain in the envelope"]
+    RES -- "a lone certificate, or a chain that fails §14.2" --> AN["no identity: anonymous guest"]
+    RES -- "both present, leaf keys differ" --> RF["envelope_invalid + audit"]
+    RES -- "neither, where one is needed" --> IR["identity_required"]
+    RES -- "a validated chain" --> PIN{"pin checks<br/>(§14.3, §5.3)"}
+    PIN -- "older leaf, or blocked" --> AN
+    PIN -- "a different endpoint under ask" --> PA["pending_approval"]
+    PIN -- "the pinned root at the pinned address" --> LK{"root in<br/>the contact list?"}
+    AN --> LK
     LK -- "no" --> GT["guest tier"]
-    LK -- "blocked" --> GT
     LK -- "pending_out" --> PT["pending tier"]
     LK -- "active" --> CT["contact tier"]
     GT --> CE["Cedar policy.Allow<br/>(single call site)"]
@@ -232,7 +260,7 @@ Authorization is Cedar via **cedar-go**, on the model *static policies, dynamic 
 
 ### 3.7 Keyring and secret storage
 
-All secrets at rest are encrypted under a keyring **master key**, supplied — in the configuration precedence order of §12.2 — via environment variable, a key file, or the OS keyring where one is available. A key file with permissions broader than `0600` MUST cause the node to refuse to start. Containers (distroless, §12.3) have no OS keyring: there the key arrives via the environment or a key file on the `/data` volume. The keyring encrypts, inside the store (§11): account identity private keys, owner-token secrets, integration credentials such as OAuth refresh tokens (§6), and tunnel/relay credentials (§10). A copy of the database alone is therefore not enough to impersonate an account. The corollary is stated honestly: losing the master key loses every encrypted key with it — for identity keys that is key loss, and the rule of §3.9 applies to every account at once.
+All secrets at rest are encrypted under a keyring **master key**, supplied — in the configuration precedence order of §12.2 — via environment variable, a key file, or the OS keyring where one is available. A key file with permissions broader than `0600` MUST cause the node to refuse to start. Containers (distroless, §12.3) have no OS keyring: there the key arrives via the environment or a key file on the `/data` volume. The keyring encrypts, inside the store (§11): account leaf private keys, owner-token secrets, integration credentials such as OAuth refresh tokens (§6), and tunnel credentials (§10). A copy of the database alone is therefore not enough to impersonate an account. The corollary is stated honestly: losing the master key loses every encrypted key with it — for leaf keys that is the loss of §3.9, applied to every account at once — an inconvenience, not the loss of the identities, because the roots are in wallets.
 
 ### 3.8 Server certificates by deployment mode
 
@@ -240,28 +268,30 @@ What certificate the node presents depends on the deployment mode (§10):
 
 | Mode | Public leg | Node's listener |
 |---|---|---|
-| direct mode, own domain | ACME autocert (WebPKI, Let's Encrypt) or a user-supplied certificate | the same — the node terminates public TLS itself |
-| direct mode, no domain | identity-key self-signed certificate; peers validate it by the pinned fingerprint (PACT §2) | the same |
+| direct mode, own domain | the account's chain, or an ACME/WebPKI certificate for the hostname — PACT §2 accepts either, and a peer that cannot validate the chain falls back to WebPKI for the name it dialed | the same — the node terminates public TLS itself |
+| direct mode, no domain | the account's **chain** — leaf then root; a peer validates it to the root it pinned, at the address the leaf names (PACT §2, §14.2). A lone self-signed certificate is not accepted by a 2.0 peer: it names no root | the same |
 | edge mode | the edge provider's certificate — public TLS terminates at the edge (§10, §13) | an origin-leg cert on the tunnel-only listener, serving only the connector's leg |
-| relay-assisted mode | the relay (a pact-gateway in relay mode, §10) presents its own certificate for queued traffic | the node may run no reachable listener at all; it only originates outbound fetches |
 
 The ingress role (§10) splits per subdomain: a **passthrough** subdomain carries the node's own certificate end-to-end (any direct-mode strategy above, routed by SNI); a **terminate** subdomain holds an ACME certificate at the ingress and speaks a fresh, mutually-pinned mTLS leg to the node, both ends pinned at one-time-token pairing.
 
-Client side, in every mode: outbound connections MUST supply the identity certificate through Go's `GetClientCertificate` callback rather than default certificate selection — edges advertise CA distinguished names in their CertificateRequest, and default selection would silently send no certificate at all (§10).
+Client side, in every mode: outbound connections MUST supply the **chain** through Go's `GetClientCertificate` callback rather than default certificate selection — edges advertise CA distinguished names in their CertificateRequest, and default selection would silently send nothing at all (§10). A key that holds no leaf presents no certificate rather than self-signing one: a lone certificate establishes no identity with a conforming peer (§3.5), so sending one would make the call anonymous while looking like it carried credentials.
 
-### 3.9 Key rotation, grace period, and key loss
+### 3.9 Losing a leaf, losing a root
 
-`account rotate-key` (§12) runs the rotation of PACT §2:
+The node holds a **leaf** private key and nothing more (§3.2). Losing it is an
+inconvenience, not the loss of an identity: the owner generates a fresh key,
+`account csr -purpose renew` emits a signing request for the same endpoint, and the
+wallet issues a new leaf under the same root. Contacts learn it the first time the node
+calls them — the chain travels in that envelope (PACT §13.2) — and a contact that hears
+nothing keeps the old pin until the old leaf expires, because the newest leaf at the
+pinned endpoint wins whenever it arrives (PACT §14.3). There is no rotation ceremony and
+no grace period to configure: nothing contacts hold is pinned to anything the node keeps.
 
-1. Generate the new keypair; store it in the keyring alongside the old one.
-2. Re-derive and re-sign the account's card (new `X-PACT-KEY`; `X-PACT-SEAL` and endpoint unchanged unless edited).
-3. Walk the account's active contacts, calling each contact's `update_contact` with the new card plus a signature over the new fingerprint by the **old** key (PACT §2). Each success re-pins that contact; per-contact completion is recorded.
-4. **Grace period — both keys stay live.** Outbound calls to a contact that has not yet re-pinned present the old certificate (via `GetClientCertificate`); inbound sealed envelopes addressed to the old key still open, selected by the envelope `kid` (§4). New pins are always the new fingerprint. The grace period defaults to **14 days** with a hard cap of **90 days**, configurable per rotation.
-5. When the grace period ends, the old private key MUST be destroyed — at expiry, regardless of contacts that have not yet re-pinned. A contact that missed the rotation re-verifies by receiving the card again over any human channel — same as a first add (PACT §2).
-
-**Lost key = new identity** (PACT §2). There is deliberately no recovery ceremony: no third party holds a copy, and the node can only mint a fresh keypair for the account, after which the owner re-shares the card to every contact. Losing the keyring master key (§3.7) has the same consequence for every account on the node at once. This trade-off is kept visible in docs and UX copy (§13), never papered over.
-
-**Identity backup (§3.10)** is the one thing that changes the outcome, and it changes it only for an owner who acted in advance. `backup identity` exports ONE account's keypair, encrypted under a passphrase the owner supplies rather than under the node's keyring, so the file is portable to a different node — which is exactly what makes it a backup and exactly what makes it dangerous. It is not a recovery ceremony: nobody can perform it for you, and a backup you did not take does not exist. Losing both the key and the backup is still a new identity.
+Losing the **root** is losing the identity, and the root is not here. It lives in the
+person's wallet (PACT §9): no third party holds a copy, this node cannot mint one, and
+there is no recovery ceremony. That trade-off is the wallet's to state; it is repeated
+once here so that nobody reads the leaf backup of §3.10 as a backup of the identity. It
+is not.
 
 ### 3.10 Identity backup and restore
 
@@ -276,169 +306,51 @@ Restore refuses to overwrite: an account whose slug or fingerprint already exist
 
 ## 4. Sealed envelopes
 
-PACT 1.0 accepts a plain trade-off: security is the mTLS session, and any party that terminates that session — a store-and-forward relay (PACT §9) or a TLS-terminating edge (PACT §10) — can read the traffic. PACT 1.0 also anticipated the remedy: "the hardened draft's sealed envelope drops back in as an optional layer without changing anything else here" (PACT §9). The sealed envelope defined in this section is exactly that layer, adopted by the owner as a deliberate reversal of the earlier "no envelope crypto" stance and carried into the protocol as the PACT 1.1 delta (§15). It solves two problems at once:
+**Normative elsewhere.** The envelope format, the two suites, the sealing and opening
+order, the `sealed_call` tool and the error codes are `pact-protocol/SPEC.md` §13; the
+certificate profile and chain validation they rest on are §14. This document does not
+restate them. It used to, in 146 lines describing the `v: 1` envelope, and two normative
+texts for one wire format is how implementations drift — the node is not the protocol's
+author.
 
-- **Confidentiality past intermediaries.** In edge mode and relay-assisted mode (§10) the caller's TLS session ends at the intermediary. The envelope keeps the call content readable only by the recipient node.
-- **Caller identity through terminating edges.** An edge that terminates TLS cannot deliver the caller's client certificate end-to-end (client_cert is forced off in edge mode, §10). The envelope's detached signature carries the caller's identity — the same SPKI fingerprint identity as PACT §2 — through any intermediary.
+What belongs here is what is the node's own:
 
-In direct mode, end-to-end mTLS already provides confidentiality (with forward secrecy, which the seal does not have — §4.9); the seal is not needed there and is a matter of policy (§4.6).
-
-### 4.1 Format
-
-An envelope is a JSON object with four members. Binary values are base64url-encoded, consistent with fingerprint encoding (PACT §2).
-
-| Member | Field | Meaning |
-|---|---|---|
-| `protected` | `v` | Envelope format version; `1` in this revision |
-| | `suite` | `PACT-SEAL-P256` or `PACT-SEAL-X25519` (§4.2) |
-| | `from` | Sender identity fingerprint: `"sha256:" + base64url(SHA-256(SPKI))` |
-| | `to` | Recipient identity fingerprint, same form |
-| | `msg_id` | Caller-supplied idempotency id for this envelope (PACT §6.2 semantics) |
-| | `ts` | Time of sealing |
-| | `exp` | Expiry; `exp − ts` MUST NOT exceed 30 days (aligned with relay retention, PACT §9) |
-| | `cty` | Content type of the plaintext; for `sealed_call` the plaintext is a single JSON object holding the inner MCP request (§4.5) |
-| | `kid` | Identifier of the recipient key sealed to (§4.10) |
-| `enc` | | HPKE encapsulated key (Base mode) |
-| `ct` | | HPKE ciphertext of the plaintext |
-| `sig` | | Detached signature by the **sender identity key** over `protected‖enc‖ct` |
-
-The signature is detached and the HPKE mode is Base — not Auth — so the sender-authentication role and the encryption role are fully independent. This is what makes cross-curve pairs work (a P-256 sender sealing to an Ed25519 recipient, and vice versa); HPKE Auth mode was rejected for exactly this reason. Pinned encodings (PACT §13.1): ECDSA P-256/SHA-256 signatures are ASN.1 DER; Ed25519 signatures are pure Ed25519 per RFC 8032; the HPKE `info` parameter is the ASCII string `PACT-SEAL-v1`; Ed25519→X25519 conversion uses RFC 7748 §4.1's birational map for the public key and RFC 8032 §5.1.5's SHA-512-derived clamped scalar for the private key.
-
-Wire encodings, pinned here and exercised by the PACT 1.1 test-vectors appendix (new PACT §13; §14.1, §15): the byte serialization of `protected` for signing is its canonical JSON — UTF-8, object keys sorted lexicographically, no insignificant whitespace — and those same bytes are the HPKE AAD for the seal; `ts` and `exp` are integers, Unix seconds (UTC); the registered `cty` for sealed MCP calls is `application/pact-call+json` (§4.5).
-
-### 4.2 Suites
-
-Two suites, selected by the **recipient's** identity key type:
-
-| Suite | KEM | KDF | AEAD | Recipient identity key |
-|---|---|---|---|---|
-| `PACT-SEAL-P256` | DHKEM(P-256, HKDF-SHA256) | HKDF-SHA256 | AES-128-GCM | ECDSA P-256 |
-| `PACT-SEAL-X25519` | DHKEM(X25519, HKDF-SHA256) | HKDF-SHA256 | ChaCha20-Poly1305 | Ed25519, converted to X25519 for the DH operation |
-
-The signature always uses the sender's identity key in its native algorithm (ECDSA P-256 or Ed25519); only the recipient's Ed25519 key is converted, and only for the KEM.
-
-### 4.3 Sealing
-
-To seal a call to a recipient, the sender MUST:
-
-1. Build `protected`: `v: 1`; `suite` per the recipient's key type; `from` = own fingerprint; `to` = the recipient's pinned fingerprint from their card; a fresh `msg_id` (reused verbatim on retries of the same call); `ts` = now; `exp ≤ ts + 30 days`.
-2. Derive the recipient's public encryption key from the pinned SPKI: P-256 used directly for ECDH; Ed25519 converted to X25519.
-3. HPKE-seal the plaintext in Base mode under the suite, producing `enc` and `ct`.
-4. Sign `protected‖enc‖ct` with the sender identity key, producing `sig`.
-5. Deliver: as the arguments of `sealed_call` on the recipient's node (§4.5), or via the recipient's relay with `relay_call` (§4.8).
-
-### 4.4 Opening and validating
-
-A node receiving an envelope MUST perform these steps, in this order:
-
-1. **Decode.** Parse the envelope; reject malformed input.
-2. **Suite.** `suite` MUST be a known suite matching the addressed account's key type.
-3. **Addressing.** `to` MUST equal the fingerprint of the account whose endpoint received the call (§5.2).
-4. **Key id.** `kid` MUST identify a key the node holds for that account (in this revision: the account's identity key, §4.10).
-5. **Open.** HPKE-open `ct` with the identified private key; failure rejects the envelope.
-6. **Verify the signature** over `protected‖enc‖ct`. If `from` is known to the contact store at contact or pending tier, verify against the pinned key — the full SPKI stored at pinning time (§9.2) — and if the opened payload also carries `spk`, it MUST equal that pinned key. If `from` is unknown (guest), verify against the payload's `spk` (the sender's SubjectPublicKeyInfo, base64url DER, PACT §13.2): `SHA-256(spk)` MUST equal `from` AND the `X-PACT-KEY` of the `card` argument of the inner `tools/call` — `redeem_invite` or `request_contact`, the only guest tools with a card slot. A card carries a fingerprint, never a key (§2), so `spk` is what makes an unpinned sender's signature verifiable at all; a guest envelope without `spk` is rejected `envelope_invalid`. A **blocked** sender takes this same guest path — pin present or not — because verifying it against its pin would let acceptance itself distinguish "blocked" from "never met" (§9.1); the demotion happens later, at tiering. Note the order: step 5 has already decrypted (HPKE Base needs no sender key), so the key is in hand before it is needed, and it arrives inside the ciphertext — carriers continue to see only fingerprints (§13); a guest envelope whose inner request is `tools/list`, or whose inner call lacks a `card` argument, MUST be rejected `envelope_invalid` (guests therefore discover their surface via unsealed `tools/list`, not sealed — §4.5, §5.3). If the transport connection also presented a client certificate, its SPKI fingerprint MUST equal `from` (§4.7).
-7. **Freshness.** On every path, reject when `now > exp` or `exp − ts > 30 days`. For directly delivered envelopes, additionally reject when `|now − ts| > 300 s`; envelopes fetched from a relay are exempt from the 300 s window and accepted while `now ≤ exp`.
-8. **Idempotency.** A `msg_id` already processed for this caller MUST return the recorded acknowledgment without re-executing (PACT §6.2); this is not an error. The record lives in the `idempotency` table (§11.2), retained at least until the envelope's `exp`.
-9. **Dispatch** the inner request against the caller's permission-filtered surface (§3, §5), with `from` as the caller identity.
-
-Failures in steps 1–7 MUST return `envelope_invalid` — a single, deliberately coarse code (§4.11). Every rejection is an audit event (§11).
-
-### 4.5 The `sealed_call` tool
-
-`sealed_call` is a wrapper tool present at **every tier** — guest, pending, and contact; blocked callers see the guest surface (§3) and therefore also see it. Its arguments are the four envelope members of §4.1 at top level. The plaintext is one bare JSON object `{"method": …, "params": …, "spk": …}` — no JSON-RPC framing — whose method MUST be `tools/call` or `tools/list`, and whose `spk` (the sender's SubjectPublicKeyInfo, base64url DER) is REQUIRED whenever the recipient does not pin `from` (§4.4 step 6):
-
-- an inner `tools/call` is dispatched exactly as if it had arrived directly from the established identity — same tiers, permission switchboard, and tool semantics (§5, PACT §6, §8);
-- an inner `tools/list` returns the caller's permission-filtered tool surface. This is how a caller behind a terminating edge discovers its tools, since an unsealed `tools/list` there carries no caller identity and shows only the identity-free surface.
-
-Guest exception: an unknown caller's sealed envelope must carry both its `spk` and its card (in the inner call's `card` argument) — the key verifies the signature, the hash binds it to `from` and to the card (§4.4 step 6). A **blocked** sender's envelope MUST be processed exactly the same way — the pinned key is ignored, the card-binding rules apply, and a blocked sender's sealed `tools/list` is rejected `envelope_invalid` like any stranger's — so sealing never becomes an oracle distinguishing blocked from unknown (PACT §12's `blocked_or_unknown` guarantee). An inner `tools/list` has no arguments, so a sealed `tools/list` from an unknown `from` is rejected `envelope_invalid`; guests use unsealed `tools/list`, which always answers (§4.6).
-
-The envelope `msg_id` deduplicates the envelope; an inner tool that itself takes a `msg_id` (e.g. `send_message`, `book_slot`) keeps its own tool-level idempotency unchanged. Errors of the inner call (e.g. `permission_denied`, PACT §12) are returned as the inner call's result and are distinct from envelope errors.
-
-**Results are sealed iff the request was sealed.** The result of a `sealed_call` MUST be returned as an envelope of the same format, sealed to the caller's identity key and signed by the responder: `from`/`to` swapped relative to the request, the request's `msg_id` (correlation — result envelopes are never dispatched, so envelope idempotency does not apply to them), `cty: application/pact-result+json`, and `kid` naming the caller's key. A plaintext request gets a plaintext result. Since edge mode forces `seal=required`, nothing but ciphertext and metadata ever crosses a terminating edge in either direction.
-
-### 4.6 Negotiation: `X-PACT-SEAL` and the seal knob
-
-The PACT 1.1 delta (§15) adds one card property, `X-PACT-SEAL`, with values `none|optional|required` (§9). It advertises the card owner's inbound seal policy, driven by the node's `seal` knob:
-
-| Value | Inbound meaning | Outbound rule for callers |
-|---|---|---|
-| `none` | Node does not accept sealed envelopes (`sealed_call` absent) | MUST NOT seal |
-| `optional` | Both sealed and unsealed calls accepted | MAY seal |
-| `required` | Every unsealed `tools/call` other than `sealed_call` from an identified caller is refused with `seal_required` — anonymous calls fail `identity_required` first (§5.3); unsealed `tools/list` still answers, filtered to what the transport identity (if any) earns | MUST seal |
-
-The `seal` knob defaults to `required`. In edge mode and relay-assisted mode it is **forced** to `required` — the constraint is derived from the deployment mode (`TerminatesAtEdge`, §10), not owner-adjustable there, because in those modes the seal is the only confidentiality and (in edge mode) the only identity. A card without `X-PACT-SEAL` is treated as `none`: a PACT 1.0 peer that cannot open envelopes.
-
-Guests can always comply with `required`: the invite landing page serves the issuer's signed card before redemption (§9), and the manual flow starts from a card already in hand (PACT §5.2), so the recipient's key is known before the first call.
-
-### 4.7 Caller identity, unified
-
-Caller identity is the **envelope-signature fingerprint OR the client-cert SPKI fingerprint; when both are present they MUST match** (mismatch: `envelope_invalid`). This is the PACT 1.1 generalization of PACT §2 (§15) and the single identity rule for the whole public surface (§3, §5). A call that requires a caller identity and has established neither — no client certificate on the connection and no envelope — MUST be refused with `identity_required`.
-
-### 4.8 Relay mode and the seal
-
-A node in relay mode (§10, PACT §9) never holds a key that opens relayed envelopes. It can still enforce its policy, because signature verification needs no decryption: `relay_call` arrives over mTLS, so the relay verifies `sig` over `protected‖enc‖ct` using the caller's presented client-certificate key, checks `from` equals that certificate's fingerprint, and checks `from` against the recipient's synced allow-list — allow-list enforcement without plaintext. What the relay does see, and this trade-off stays stated plainly: the full `protected` header (`from`, `to`, `msg_id`, `ts`, `exp`), ciphertext sizes, and timing. **Sealed traffic is unreadable to the relay; metadata is visible to it.**
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant S as Sender node
-    participant R as Relay
-    participant D as Recipient node
-    S->>S: seal to D's key (HPKE Base) + sign protected‖enc‖ct
-    S->>R: relay_call(envelope)  [mTLS: S's client cert]
-    Note over R: verifies sig with S's presented key<br/>from == cert fingerprint? on D's allow-list?<br/>sees protected metadata · cannot decrypt ct
-    R-->>D: envelope (fetch_queued)
-    D->>D: open-and-validate (§4.4) → dispatch inner call
-```
-
-### 4.9 No forward secrecy — stated plainly
-
-HPKE Base mode to a long-lived static identity key has **no forward secrecy**. Anyone who records sealed envelopes and later obtains the recipient's private key can decrypt everything recorded. This is accepted and documented, with mitigations that bound the exposure rather than remove it:
-
-- **Retention bounds**: relays keep queued envelopes at most 30 days (PACT §9); local message retention is per-account and deletes locally (§7, §11). What is not stored cannot be decrypted later.
-- **Rotation** (PACT §2): rotating limits how much history a single compromised key unlocks — provided retired private keys are destroyed.
-- **Direct mode needs no seal**: end-to-end mTLS (TLS 1.3) already has forward secrecy; the seal exists for intermediary paths.
-
-### 4.10 Key reuse and the `kid` seam
-
-One identity keypair serves TLS client authentication, envelope signing, and HPKE decryption (P-256: ECDSA and ECDH; Ed25519: EdDSA and converted-X25519 DH). Cross-protocol key reuse of this kind is normally discouraged; it is accepted here deliberately — one key is one identity, matching PACT §2's "one keypair per person" — and the caveat stays on record (§13). The `kid` field is the designed exit: in this revision it names the recipient's identity key (matching `to`), and a future revision can introduce a dedicated encryption key under a new `kid` value without changing the envelope format. That seam stays parked deliberately: a dedicated encryption subkey was designed and reviewed (2026-08-24) and deferred, because it fixes none of the goals that motivated it — an unpinned sender's signature is a sender-side problem answered by `spk` (§4.4), rotation survival is identity-key work (§3.9) — while adding endorsement bindings, overlap windows that must exceed relay retention, and a second rotation procedure. Re-open it on a concrete driver: an identity key held in an HSM or secure enclave that cannot perform ECDH, or a decision to buy rotation-granular forward secrecy on the envelope path.
-
-### 4.11 Error codes
-
-Three codes are new in PACT 1.1 (§15); all existing codes of PACT §12 (`permission_denied`, `invite_invalid`, `unavailable`, …) are unchanged and apply to inner calls.
-
-| Code | Returned when |
-|---|---|
-| `seal_required` | An unsealed `tools/call` arrived under `seal = required` (including the forced setting in edge and relay-assisted modes) |
-| `identity_required` | The call needs a caller identity and neither a client certificate nor an envelope signature established one — or `client_cert: required` demanded a certificate the connection did not present (§5.1) |
-| `envelope_invalid` | Any failure of §4.4 steps 1–7, including a `from`/client-cert mismatch |
-
-### 4.12 Implementation notes (Go)
-
-A candidate library for both suites' HPKE operations is `github.com/cloudflare/circl` (its `hpke` package), with `crypto/ecdh` for P-256 and X25519 key handling — a dependency choice to be recorded in PLAN.md and confirmed by the owner before implementation, not fixed by this spec. The Ed25519→X25519 conversion applies only to the recipient key's KEM role; signatures use `crypto/ed25519` (or ECDSA P-256) natively. Envelope test vectors are published with the PACT 1.1 delta and exercised by the conformance suite (§14), which includes fuzzing of the envelope parser.
-
-
----
+- **Where it lives.** `internal/public/sealed.go` and `identify20.go` open and dispatch
+  an inbound envelope; `internal/outbound/client20.go` seals an outbound one;
+  `internal/envelope` carries the wire struct and its JSON. Chain validation and the
+  certificate profile come from `pact-identity` (`CONTRACT.md`) and never from a general
+  X.509 path validator — PACT §14.2 is deliberately not RFC 5280 path validation, and
+  reaching for one refuses chains a conforming implementation accepts.
+- **What the node requires.** `seal` defaults to `required` and is forced `required` in
+  edge mode (§10.1), where the edge terminates TLS and the envelope is the only identity
+  carrier that survives it.
+- **Where the node's posture is its own.** The `client_cert` knob (§5.1) is the
+  front-door hardening PACT §13.4 permits and does not require: it decides who may knock
+  at all, and is satisfied only by a chain that validates.
+- **What a refusal costs.** Once an envelope has opened there is a proven key, so §13.2
+  requires the answer sealed — including an error. The node seals `pending_approval`,
+  the §5.3 refusal and a budget refusal, and answers in plaintext only where nothing
+  opened: `chain_required`, `certificate_renewed`, and envelopes that failed to open.
 
 ## 5. Public surface
 
-The public surface is the node's internet-facing listener: the MCP server that contacts, guests, and peers' relays call. Every request on it is authorized by transport-and-envelope identity per the rules of (§3) — there is no OAuth on this surface (PACT §6). The internal surface — portal and owner MCP — never shares this listener; it binds separately under its own auth rules (§8). Everything below applies uniformly across direct mode, edge mode, and relay-assisted mode; deployment mode changes which identity carrier is available and which knob values are forced (§10), never the pipeline itself.
+The public surface is the node's internet-facing listener: the MCP server that contacts and guests call. Every request on it is authorized by transport-and-envelope identity per the rules of §3.5 — there is no OAuth on this surface (PACT §6). The internal surface — portal and owner MCP — never shares this listener; it binds separately under its own auth rules (§8). Everything below applies uniformly across direct and edge mode; the deployment mode changes which identity carrier is available and which knob values are forced (§10), never the pipeline itself.
 
 ### 5.1 Listener and TLS posture
 
-**Server certificate.** The listener MUST select its server certificate through an SNI-driven `GetCertificate` callback, never a single static certificate, so one node can serve several hostnames (per-account endpoints, tunnel hostnames, ingress-paired names, §10) without restart. Certificates may be WebPKI or the account's self-signed identity certificate, per the server-side validation rule of PACT §2.
+**Server certificate.** The listener MUST select its server certificate through an SNI-driven `GetCertificate` callback, never a single static certificate, so one node can serve several hostnames (per-account endpoints, tunnel hostnames, ingress-paired names, §10) without restart. What it serves is the account's **chain** — leaf then root — which is what a peer validates to the root it pinned (PACT §2); behind a terminating edge the certificate a caller sees is the edge's, and WebPKI for that hostname is the rule there (§10.1).
 
-**Client certificates: request, never require.** The listener MUST operate in request-client-cert mode and MUST NOT require a certificate at the TLS layer (in Go terms: `RequestClientCert`, never `RequireAnyClientCert` or stricter). Two reasons: with sealing (§4), a caller's identity can arrive solely as an envelope signature, with no certificate on the wire at all; and a policy denial must surface as a structured PACT §12 error the caller's agent can act on, not as an opaque TLS alert. A presented certificate is never chain-validated — the pinned SPKI fingerprint is the identity (PACT §2): `fingerprint = "sha256:" + base64url(SHA-256(SPKI))`.
+**Client certificates: request, never require.** The listener MUST operate in request-client-cert mode and MUST NOT require a certificate at the TLS layer (in Go terms: `RequestClientCert`, never `RequireAnyClientCert` or stricter). Two reasons: with sealing (§4), a caller's identity can arrive solely as an envelope signature, with no certificate on the wire at all; and a policy denial must surface as a structured PACT §12 error the caller's agent can act on, not as an opaque TLS alert. A presented certificate is never validated against a CA pool — there is no authority above the person — but a presented **chain** is validated against the profile of PACT §14.2, and its root is the caller. A single certificate is not a chain: it names no root and establishes no identity (§3.5).
 
 **Knobs.** Three per-node knobs shape the surface; their forced values derive from the active adapter's `TerminatesAtEdge` property (§10):
 
 | Knob | Values | Default | Forced |
 |---|---|---|---|
-| seal (card property `X-PACT-SEAL`) | `none` \| `optional` \| `required` | `required` | `required` in edge mode and relay-assisted mode |
+| seal (card property `X-PACT-SEAL`) | `none` \| `optional` \| `required` | `required` | `required` in edge mode |
 | client_cert | `required` \| `preferred` \| `off` | `preferred` in direct mode | `off` in edge mode (a terminating edge never delivers the caller's certificate) |
-| LAN connections flag | on \| off | direct mode: on; edge mode: off | meaningful only while a tunnel adapter is active; n/a in relay-assisted mode (no inbound listener) (§10.1) |
+| LAN connections flag | on \| off | direct mode: on; edge mode: off | meaningful only while a tunnel adapter is active (§10.1) |
 
-`client_cert: off` means the handshake omits the CertificateRequest entirely. `preferred` and `required` both request-without-requiring at the TLS layer; `required` is enforced post-handshake at the application layer so the denial is a PACT §12 error. Under `client_cert: required`, any `tools/call` on a connection that presented no client certificate is refused with `identity_required` — including a `sealed_call` whose envelope signature alone established an identity: the knob demands certificate-carried identity, and an envelope signature does not satisfy it (§4.11, §5.8). `required` is therefore unusable behind a terminating edge, where no certificate can arrive (§10).
+`client_cert: off` means the handshake omits the CertificateRequest entirely. `preferred` and `required` both request-without-requiring at the TLS layer; `required` is enforced post-handshake at the application layer so the denial is a PACT §12 error. Under `client_cert: required`, any `tools/call` on a connection that did not present a **chain that validates** is refused with `identity_required` — including a `sealed_call` whose envelope alone established an identity: the knob demands transport-carried identity, and an envelope does not satisfy it (PACT §13.4, §5.8). A lone self-signed certificate does not satisfy it either, and this is the point of the knob: it is satisfied only by something a stranger cannot mint (§3.5). `required` is therefore unusable behind a terminating edge, where no certificate can arrive (§10).
 
 **LAN connections flag.** The flag applies only to configurations with an active tunnel adapter (§10.1); with no tunnel it is inert. When the flag is off, connections from private-range source addresses MUST be refused, and every refusal MUST still produce an audit event (§11). Private ranges are the SSRF range list of §7.5 — RFC 1918, unique-local, link-local — plus CGNAT `100.64.0.0/10` on OS listeners; connections arriving via the `tailscale` adapter's own listener are not classified as LAN by their `100.64.0.0/10` source, which is Tailscale's own address space. **Loopback is likewise not classified as LAN**: it is the carrier's own delivery, not a bypass of it. Every reverse tunnel dials this bind from this host — `frp`, `ngrok` and `tailscale` in-process, `cloudflared` as a child process — so classifying loopback as LAN left every edge-mode deployment refusing its own connector and unable to serve a single request. No LAN host can present a loopback source; the kernel drops `127/8` arriving on an external interface. This is safe because loopback grants no authority on the public surface — the caller remains a guest without a client certificate or a sealed envelope — and is therefore not in tension with §8.4, which refuses loopback as authority for the owner MCP, where it would grant everything. The §7.5 SSRF list itself is unchanged and still blocks loopback. Residual: a connector run OUT of process and off-host — the `cloudflared` compose sidecar of §10 — reaches the node from an RFC 1918 address and is still refused; such a deployment must turn the flag on. Mode defaults and rationale are in (§10).
 
@@ -448,7 +360,6 @@ The public surface is the node's internet-facing listener: the MCP server that c
 |---|---|
 | `/a/<account>/mcp` | The account's public MCP endpoint (a node hosts multiple accounts, §3) |
 | `/mcp` | Alias for the account's endpoint, mounted only while the node has exactly one account |
-| `/relay/mcp` | Relay mode surface — `relay_call`, `fetch_queued`, `ack` per PACT §9; mounted only when relay mode is enabled (§10) |
 | `/i/<token>` | Invite landing page (§9): human-facing HTML serving the issuer's signed card and its QR before any redemption |
 
 The invite URL is bearer-token-only: possession of the URL is the whole credential, and nothing else sensitive rides in it (PACT §4). The landing page is informational; redemption itself is always the `redeem_invite` MCP tool call on the account endpoint. Requests to unknown paths or nonexistent accounts MUST receive a plain HTTP 404.
@@ -464,19 +375,26 @@ Each accepted connection and request is reduced to two fact records before any d
 | adapter, `TerminatesAtEdge` | which listener/tunnel adapter accepted the connection (§10) |
 | source address, LAN classification | socket; drives the LAN connections flag check |
 | SNI server name | TLS handshake |
-| client-cert SPKI fingerprint, or absence | presented certificate, if any |
+| the root of a validated client chain, its leaf, the leaf's key and the endpoint it names — or absence | presented certificates, if two of them validated as a chain (PACT §14.2). A single certificate records nothing (§3.5) |
 | account | path routing (§5.2) |
 
-**EnvelopeFacts** — produced only by a successfully opened `sealed_call` per the open order of (§4): the signer's key fingerprint, the protected header `{v, suite, from, to, msg_id, ts, exp, cty, kid}`, the suite, the sender's `spk` when the payload carried one, and — for guests — the verified card carried inside the sealed payload. Envelope failures are (§4)'s to classify; the pipeline sees either EnvelopeFacts or a §12 error.
+**EnvelopeFacts** — produced only by a successfully opened `sealed_call` per the open order of PACT §13.3: the sender's root and leaf, the protected header `{v, suite, kid, msg_id, ts, exp, cty}`, the suite, and — for guests — the card carried inside the sealed payload, whose certificate must byte-equal the chain's leaf. Envelope failures are the library's to classify; the pipeline sees either EnvelopeFacts or a PACT §12 error.
 
-**Caller identity — the unified rule (1.1 delta, §15).** The caller's identity is the envelope-signature fingerprint OR the client-cert SPKI fingerprint; when both are present they MUST match, and a mismatch MUST be rejected with `envelope_invalid` (§4) — the envelope may be valid in isolation but is invalid for this connection. The outcomes:
+**Caller identity.** The rule and its outcomes are §3.5. In summary: the caller is the
+root of a chain that validated, presented on the transport or carried in the envelope;
+when both are present their leaf keys MUST match, else `envelope_invalid`; a lone
+certificate is not a proof, and a plaintext caller with none is anonymous — free to
+complete MCP `initialize` and `tools/list` and see the guest view, refused
+`identity_required` on any `tools/call`.
 
-- **Envelope signature only** (typical in edge mode and relay-assisted mode): identity is the signer fingerprint.
-- **Client certificate only** (plaintext call in direct mode with `seal: optional|none`): identity is the SPKI fingerprint.
-- **Both:** MUST match; matching identity proceeds.
-- **Neither** — a plaintext call with no certificate: the caller is anonymous. Anonymous callers MAY complete MCP `initialize` and `tools/list` and see exactly the guest view; any `tools/call` MUST be rejected with `identity_required`.
-
-**Guest binding rule.** A guest has no pinned key, so any identity it claims via a card must be proven in the same request: on a plaintext guest call the presented client certificate's fingerprint MUST equal the card's `X-PACT-KEY` (PACT §5.1); on a sealed guest call the envelope signature MUST verify under the key of the card inside the sealed payload — the signature is what binds the caller to the card key. A plaintext, certificate-less caller gets the guest `tools/list` only, and `identity_required` on `redeem_invite` / `request_contact`. A sealed guest `tools/list` is impossible for the same reason — an inner `tools/list` has no `card` argument to bind the signature to — and is rejected `envelope_invalid` (§4.4 step 6).
+**Guest binding rule.** A guest has no pin, so the identity it claims through a card must
+be proven in the same request. On a sealed guest call the chain inside the payload MUST
+validate, the signature MUST verify under its leaf key, and that leaf MUST byte-equal the
+`card` argument's `X-PACT-CERT` (PACT §13.2). On a plaintext guest call the chain
+presented on the transport binds the same way. A sealed guest `tools/list` has no card to
+bind and is refused `envelope_invalid` — guests discover their surface with plain
+`tools/list`, which always answers. A guest whose leaf names this node's own address is
+refused: no honest card carries it (PACT §14.5).
 
 **Seal enforcement.** With `seal: required`, any plaintext inner-tool call from an identified caller MUST be rejected with `seal_required`; `tools/list` remains answerable so callers can discover `sealed_call` and the requirement. An inner `tools/list` carried inside a sealed call is answered with the tier view of the envelope identity (§4).
 
@@ -484,11 +402,10 @@ Each accepted connection and request is reduced to two fact records before any d
 flowchart TD
     C["TLS accepted - TransportFacts recorded"] --> R{"route by path"}
     R -- "invite landing" --> L["/i/token page: signed card + QR"]
-    R -- "relay mode" --> RM["/relay/mcp tools (§10)"]
     R -- "account endpoint" --> B["boundary checks: size caps, rate limits"]
     B --> S{"sealed_call?"}
-    S -- "yes" --> E["open envelope (§4) - EnvelopeFacts"]
-    E --> I["resolve caller identity: envelope sig / client cert, both must match"]
+    S -- "yes" --> E["open envelope (PACT §13.3) - EnvelopeFacts"]
+    E --> I["resolve caller: the ROOT of a validated chain;<br/>transport and envelope leaf keys must match"]
     S -- "no" --> I
     I --> T["tier: guest / pending / contact / blocked-as-guest"]
     T --> P["per-caller server (LRU) - policy.Allow at call time"]
@@ -550,7 +467,7 @@ The listener MUST cap request bodies before JSON parsing at **8 MiB** — sized 
 
 ### 5.8 Denials and audit
 
-Every deny on this surface maps to a PACT §12 error code — the 1.0 set plus the 1.1 delta's `seal_required`, `identity_required`, and `envelope_invalid` (§15). The denials §5 itself issues:
+Every deny on this surface maps to a PACT §12 error code, including `seal_required`, `identity_required`, `envelope_invalid`, `chain_required` and `certificate_renewed`. The denials §5 itself issues:
 
 | Condition | Code |
 |---|---|
@@ -635,7 +552,7 @@ Snapshots refresh: on connect, when `ClientOptions.ToolListChangedHandler` fires
 
 An **exposure set vM** binds to exactly one catalog snapshot vN and lists what is actually served. The portal's picker is two columns — snapshot tools on the left, exposed capabilities on the right — and the right column starts **empty**: nothing is exposed by default. Each exposed entry records the upstream tool, the serving mode (§6.6), a mapped entry's recipe binding (§6.7), an optional `fallback` serving mode for agent-answered entries (`passthrough` or `mapped` only — falling back to agent-answered would be circular; default none, §6.8), and the exposed name. For passthrough and agent-answered entries the name defaults to `<slug>_<tool>`, normalized to snake_case, editable, unique within the account's exposed surface; a mapped entry is always exposed under the exact PACT §6.2 capability name it implements (`book_slot`, never `<slug>_book_slot` — §6.6, §6.7). Every edit mints vM+1; activating a set rebuilds the per-caller servers and emits `notifications/tools/list_changed` to connected callers (§5). Contacts holding `integration.<slug>` see all of that integration's exposed capabilities; per-tool grants are deliberately not in v1.
 
-**Stale guard.** When a new catalog snapshot arrives, each exposed entry's confirmed hash is compared against the same tool in the new snapshot. A missing tool or a changed hash makes the entry a **stale mapping**: it is withheld from every caller's `tools/list`, in-flight or racing calls return `unavailable` (PACT §12; the 1.1 delta records this use for stale or withheld tools — §15), and the transition is audited. The portal shows the definition diff and offers a **one-click reconfirm** (per entry or all), which re-binds the entry to the new snapshot in a fresh exposure set vM+1 — also audited. A silently changed upstream can therefore never widen what contacts reach.
+**Stale guard.** When a new catalog snapshot arrives, each exposed entry's confirmed hash is compared against the same tool in the new snapshot. A missing tool or a changed hash makes the entry a **stale mapping**: it is withheld from every caller's `tools/list`, in-flight or racing calls return `unavailable` (PACT §12 records this use for a tool an implementation is temporarily withholding), and the transition is audited. The portal shows the definition diff and offers a **one-click reconfirm** (per entry or all), which re-binds the entry to the new snapshot in a fresh exposure set vM+1 — also audited. A silently changed upstream can therefore never widen what contacts reach.
 
 ### 6.6 Serving modes
 
@@ -732,7 +649,7 @@ Messaging on the public surface follows PACT §7 unchanged: a conversation is a 
 
 The node persists conversations in the `threads` and `messages` tables (§11). An inbound `send_message` passes, in order: caller identity resolution (§3), permission check via the single `policy.Allow` call site (§3), PACT §12 limit checks at the boundary, the idempotency check of §7.2, then a store append and an event-bus publish (§7.8). Responses use the PACT §6.2 statuses (`delivered | queued_for_human`).
 
-Outbound messages originate from exactly three places: the portal composer (§8.2), the owner-MCP `send_to_contact` / `call_contact` tools (§8.4), and agent-answered integration flows (§6). For outbound delivery the node is the MCP client: it mints the `msg_id`, retries with backoff until the sender-chosen `expires` (default 24 h, PACT §7), then falls back to the contact's `X-PACT-GATEWAY` relay (relay-assisted mode, §10) if one is set — skipped when the contact's card does not advertise `X-PACT-SEAL: optional|required`, since a relay queues only sealed envelopes (§10.5) and a `none` card forbids sealing (§4.6) — else reports failure to the owner. The same `msg_id` MUST be reused across every retry and the relay fallback, so the recipient's idempotency handling makes the retry path safe.
+Outbound messages originate from exactly three places: the portal composer (§8.2), the owner-MCP `send_to_contact` / `call_contact` tools (§8.4), and agent-answered integration flows (§6). For outbound delivery the node is the MCP client: it mints the `msg_id`, retries with backoff until the sender-chosen `expires` (default 24 h, PACT §7), and then reports failure to the owner. There is nowhere to fall back to: PACT 2.0 has no relay role and no store-and-forward gateway, because one would see every sender, recipient and timestamp for its trouble (PACT §9). The same `msg_id` MUST be reused across every retry, so the recipient's idempotency handling makes the retry path safe.
 
 ### 7.2 Idempotency
 
@@ -804,7 +721,6 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Integrations | Catalog diff against the current catalog snapshot vN, exposure picker over the exposure set vM, per-server recipes, warnings with recorded acknowledgment; stale mappings withheld until re-confirmed (§6) |
 | Settings · security | `seal` knob (`none\|optional\|required`), `client_cert` knob (`required\|preferred\|off`), LAN connections flag (§3, §4, §10, §12.2) |
 | Settings · reachability | Public URL, tunnel adapter selection, adapter credentials (sealed), reachability probe (§10, §12.2) |
-| Settings · relay | Relay mode, the gateway this node fetches from, and its pinned fingerprint (§10) |
 | Settings · identity | Rotate an account's identity key: new keypair, grace period, `update_contact` fan-out to every active contact (§3.9). Guarded by typing the account slug, because it is consequential and not undoable — a contact that never receives the fan-out must re-pin by hand. |
 | Settings · ingress | Ingress pairing via one-time token (§10) |
 | Settings · owners | Owners, tagged passkeys, named owner-MCP bearer tokens (§3) |
@@ -923,7 +839,7 @@ The shareable form is the URL `https://<host>/i/<token>` (and a QR of it). The U
 
 **Human path — the landing page.** An HTTPS GET of the invite URL, before any redemption, serves the issuer's **signed card** — the vCard bytes plus a detached signature over them by the account identity key (PACT §4) — rendered for saving into a phone book and as a QR. Viewing the page consumes nothing: no use is decremented and no contact is created. Under the default `client_cert = preferred` (§3) the TLS handshake completes without a client certificate, so plain browsers can load the page; an owner who forces `client_cert = required` cuts plain browsers off, leaving only the machine path — that trade-off is theirs. In edge mode `client_cert` is forced off (§3, §10) and the page is always browser-reachable.
 
-**Machine path — redemption.** The redeemer's agent calls the guest-tier `redeem_invite(token, card)` (PACT §6.2). The node MUST check: the token resolves by hash, is not expired, not revoked, and has uses left (else `invite_invalid`); and the caller identity per §3 equals the submitted card's `X-PACT-KEY` — for sealed guest redemption the verifying key comes from the card inside the payload (§4). On success the use count is decremented and the response returns the issuer's signed card plus either `accepted` with the granted permissions (`auto_accept`) or `pending`, in which case the owner is notified with the redeemer's card and the invite's `label`. Guest-tier rate limits (PACT §12) apply throughout. Redemption needs a reachable endpoint: a node in relay-assisted mode has no inbound path and its relay queues only allow-listed senders, so `redeem_invite` and `request_contact` cannot reach it — guest onboarding requires direct or edge mode (§10.1).
+**Machine path — redemption.** The redeemer's agent calls the guest-tier `redeem_invite(token, card)` (PACT §6.2). The node MUST check: the token resolves by hash, is not expired, not revoked, and has uses left (else `invite_invalid`); and the caller's proven leaf byte-equals the submitted card's `X-PACT-CERT` — for a sealed redemption the chain inside the payload is what binds (PACT §13.2). On success the use count is decremented and the response returns the issuer's signed card plus either `accepted` with the granted permissions (`auto_accept`) or `pending`, in which case the owner is notified with the redeemer's card and the invite's `label`. Guest-tier rate limits (PACT §12) apply throughout. Redemption needs a reachable endpoint, which every deployment mode now has: there is no mode without an inbound path (§10.1).
 
 ### 9.3 The card and the card builder
 
@@ -931,15 +847,13 @@ The card builder (portal, §8) produces the account's PACT contact card: a stand
 
 | Property | Derived from |
 |---|---|
-| `X-PACT-VERSION` | constant `1` (unchanged by the 1.1 delta, §15) |
-| `X-PACT-ENDPOINT` | the account's public base URL plus endpoint slug, always in the `/a/<slug>/mcp` form — the single-account `/mcp` alias is inbound convenience only and never appears on cards (§5.2); omitted in relay-assisted mode, where `X-PACT-GATEWAY` is mandatory (§10.1) |
-| `X-PACT-KEY` | the account identity fingerprint, `"sha256:" + base64url(SHA-256(SPKI))` (§3) |
-| `X-PACT-SEAL` | the seal knob, `none\|optional\|required` (§4; new card property in the 1.1 delta, §15) |
-| `X-PACT-GATEWAY` | the configured relay, whenever one is configured — relay-assisted mode or the direct/edge-mode fallback relay (§10); omitted when no relay is configured |
+| `X-PACT-VERSION` | constant `2` |
+| `X-PACT-CERT` | the account's current **leaf**, base64url DER. It carries the endpoint, the leaf's key, the root's fingerprint as its issuer key identifier, and the validity — so the card is one property where it used to be three (PACT §3, §14.1) |
+| `X-PACT-SEAL` | the seal knob, `none\|optional\|required` (PACT §13.4) |
 
 **Export** is offered as a `.vcf` download, a QR, and a shareable link; `get_card` returns the current signed card to contacts (PACT §6.2), and invite responses carry it signed (§9.2).
 
-**Import** accepts a `.vcf` in the portal. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the imported `X-PACT-ENDPOINT` (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's identity against the imported card's `X-PACT-KEY` before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §13).
+**Import** accepts a `.vcf` in the portal. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the address the imported card's certificate names (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's chain against the root that certificate names as its issuer before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §14.2). `X-PACT-ENDPOINT`, `X-PACT-KEY` and `X-PACT-GATEWAY` belong to the retired generation: the node writes none of them and honours none of them (PACT §3).
 
 ### 9.4 Phone-book sync
 
@@ -948,33 +862,32 @@ Live synchronization with the phone contact book is explicitly **not in v1**. Ca
 
 ---
 
-## 10. Reachability: deployment modes, tunnels, relay, ingress
+## 10. Reachability: deployment modes, tunnels, ingress
 
-A node is only a node if peers can call it. PACT §10 sketches the reachability landscape; this section fixes it for pact-gateway: three deployment modes with derived constraint sets, a small verified matrix of tunnel adapters, relay mode in both directions, and the ingress role for owners with their own domain. Throughout, the caller identity rule of §3 applies unchanged: a caller is identified by its envelope-signature fingerprint or its client-cert SPKI fingerprint, and when both are present they MUST match.
+A node is only a node if peers can call it. PACT §10 sketches the reachability landscape; this section fixes it for pact-gateway: two deployment modes with derived constraint sets, a small verified matrix of tunnel adapters, and the ingress role for owners with their own domain. Throughout, the caller identity rule of §3.5 applies unchanged: a caller is the root of a chain that validated, and when both carriers are present their leaf keys MUST match.
 
-### 10.1 The three deployment modes
+### 10.1 The two deployment modes
 
 The deployment mode is **derived from configuration, never declared**. Tunnel adapters affect reachability only; the protocol surface never changes because of a tunnel. Each adapter declares a single boolean, `TerminatesAtEdge`, and the derivation rule is:
 
 - An inbound path whose adapter has `TerminatesAtEdge = false` (or no tunnel at all) puts the node in **direct mode**: the caller's TLS session terminates at the node, so client certificates are visible end to end.
-- An inbound path whose adapter has `TerminatesAtEdge = true` puts the node in **edge mode**: a third party terminates the public TLS session, client certificates never reach the node, and caller identity rests entirely on sealed envelopes (§4).
-- No inbound path at all, with a relay configured as `X-PACT-GATEWAY` on the card (§9), is **relay-assisted mode**: inbound traffic arrives only as sealed calls fetched from the relay (§10.5).
+- An inbound path whose adapter has `TerminatesAtEdge = true` puts the node in **edge mode**: a third party terminates the public TLS session, client certificates never reach the node, and caller identity rests entirely on sealed envelopes (PACT §13).
 
-A node in direct or edge mode MAY additionally configure a relay as fallback; senders switch to it automatically after direct retries fail (PACT §7). Relay-assisted mode serves **contacts only**: the relay queues sealed calls from allow-listed active contacts (§10.5) and the node has no inbound path, so invite redemption and guest contact requests cannot reach it (§9.2, §13.2). A relay-assisted node adds contacts by issuing invites while temporarily reachable in direct or edge mode, or by the outbound manual flow of §9.3 (card import → `request_contact`); its card omits `X-PACT-ENDPOINT` and carries `X-PACT-GATEWAY` (§9.3).
+There is no third. PACT 2.0 removed the relay role with the rest of 1.x: a store-and-forward gateway would see every sender, recipient and timestamp for its trouble, and what 2.0 makes safe instead is **being hosted** — a host runs the identity's server all the time under a leaf the person issued, and can be replaced without the person losing anything (PACT §9). A node that cannot accept inbound connections uses a tunnel. `X-PACT-GATEWAY` is never written and never honoured.
 
 `TerminatesAtEdge` drives the three knobs:
 
-| Knob | direct mode | edge mode | relay-assisted mode |
-|---|---|---|---|
-| `seal` (`none\|optional\|required`, card property `X-PACT-SEAL`, §4) | `required` by default; owner MAY relax | forced `required` | forced `required` |
-| `client_cert` (`required\|preferred\|off`) | `preferred` by default | forced `off` | not applicable — inbound arrives via relay fetch; mTLS runs toward the relay |
-| LAN connections flag | **on** by default — carries no security weight (see below) | default **off**; refusals audited | not applicable |
+| Knob | direct mode | edge mode |
+|---|---|---|
+| `seal` (`none\|optional\|required`, card property `X-PACT-SEAL`, PACT §13.4) | `required` by default; owner MAY relax | forced `required` |
+| `client_cert` (`required\|preferred\|off`) | `preferred` by default | forced `off` |
+| LAN connections flag | **on** by default — carries no security weight (see below) | default **off**; refusals audited |
 
-In edge mode a call that is not sealed fails with `seal_required` when a transport identity was established, and with `identity_required` when no identity was established at all — the identity check precedes the seal check (§5.3, §15).
+In edge mode a call that is not sealed fails with `seal_required` when a transport identity was established, and with `identity_required` when none was — the identity check precedes the seal check (§5.3).
 
 ```mermaid
 flowchart TD
-    A["Configured inbound path?"] -->|"none, X-PACT-GATEWAY set"| R["relay-assisted mode<br/>seal forced required"]
+    A["Configured inbound path?"] -->|"none"| N["unreachable: use a tunnel<br/>(there is no relay role)"]
     A -->|"listener or tunnel adapter"| T{"adapter<br/>TerminatesAtEdge?"}
     T -->|"false"| D["direct mode<br/>client_cert preferred (default)<br/>seal required (default)"]
     T -->|"true"| E["edge mode<br/>client_cert forced off<br/>seal forced required<br/>LAN flag default off"]
@@ -1007,16 +920,6 @@ When the node calls a peer, its `tls.Config` MUST supply the identity keypair vi
 
 The node MUST be able to verify that its advertised `X-PACT-ENDPOINT` actually reaches this instance. The reachability probe dials the advertised `X-PACT-ENDPOINT` hostname, validates the served certificate as a peer would (identity-fingerprint pin on a self-signed listener, WebPKI on a domain, the edge's certificate in edge mode), and confirms the connection lands on this instance by round-tripping a fresh nonce through a probe handler; the portal's tunnel settings page surfaces the result (§8). Hairpin NAT can make a self-originated probe pass or fail unrepresentatively; the probe reports that possibility as a caveat, never as a clean pass. The `doctor` CLI command (§12) runs the probe together with configuration, store, and tunnel-state checks and reports a single diagnosis. Probe failures are the expected first stop when a peer reports `unavailable`.
 
-### 10.5 Relay mode — both roles
-
-Any pact-gateway can run **relay mode** (PACT §9's gateway, reworded in the 1.1 delta, §15). The node participates on both sides.
-
-**Serving others.** In relay mode the node exposes `relay_call`, `fetch_queued`, and `ack` per PACT §9 — those three tools and no others. Recipients sync their active contact fingerprints into the relay's `relay_allowlist` (§11). Which nodes may do so is the relay operator's choice: `relay_recipients` names the fingerprints this relay serves, and a sync from any other identity is refused `permission_denied` and audited, before the body is read. An empty `relay_recipients` means an **open relay** — any node that can reach it may register and have mail queued for it. That is a deliberate configuration for a public relay and the wrong one for a household, so it remains the default only for compatibility and `serve` warns at startup when it is in force. Note that `relay_call` was always gated: a sender absent from the recipient's allow-list is refused. What `relay_recipients` gates is *becoming* a recipient, which was open to anyone able to present a certificate. a `relay_call` whose sender fingerprint is not on the recipient's allow-list MUST be refused, and the refusal audited. Because seal is forced `required` for relayed traffic, every queued item is a sealed envelope: the relay verifies the detached signature over `protected‖enc‖ct` against the claimed sender **without decrypting** — allow-list enforcement without plaintext (§4). The verifying key comes from the transport, not the envelope: `relay_call` arrives over mTLS and the relay uses the caller's presented client-certificate key, checking that `from` equals that certificate's fingerprint (§4.8). A relay therefore MUST run on a listener that requests client certificates — it MUST NOT be mounted on an edge-mode listener, where `client_cert` is forced off (§10.1) and no certificate would reach it. An envelope that fails signature verification is rejected with `envelope_invalid` (§15). The relay therefore cannot read message content; it still sees metadata — sender and recipient fingerprints, sizes, timing — which is the accepted trade-off recorded in §13. Retention MUST be `min(expires, 30 days)` per PACT §9, with expired items deleted; quotas and rate limits follow PACT §12.
-
-**The allow-list control plane.** Syncing the allow-list is not a PACT verb. PACT §9 defines exactly three relay tools, so a recipient telling its relay who may queue for it MUST NOT appear on the MCP surface: a fourth tool there would make every peer's `tools/list` advertise something the protocol does not define, and a peer cannot tell a local extension from a verb it should have implemented. A relay MUST instead expose `POST /relay/allowlist` on the same mTLS listener, taking `{"senders": [...]}` and answering `{"synced": <n>}`. The recipient is the fingerprint of the presented client certificate and MUST NOT be read from the body, so a caller can only ever replace its own list; a request with no client certificate MUST be refused `identity_required` and audited. Entries that are not §2 fingerprints, and lists past the implementation's cap, MUST be refused rather than stored. This endpoint is pact-gateway's own control plane: a PACT relay that does not implement it is still conformant, and a node whose relay lacks it simply cannot sync.
-
-**Fetching from mine.** A node with a relay configured publishes it as `X-PACT-GATEWAY` on its card (§9). It fetches queued calls with `fetch_queued` under mTLS with its own certificate, opens and executes each sealed call locally exactly as if it had been called directly — applying the relay-relaxed timestamp window: the envelope `ts` is accepted within the envelope's `exp`, capped at 30 days (§4) — and then acknowledges with `ack` to delete. The relay MAY push a content-free "you have mail" signal when the queue is non-empty, per PACT §9.
-
 ### 10.6 Ingress role
 
 An owner with a domain can run pact-gateway in the **ingress role** on a public host: a front door that holds DNS and certificates for the domain and fronts one or more nodes on subdomains. Each subdomain is served in one of two modes:
@@ -1026,7 +929,7 @@ An owner with a domain can run pact-gateway in the **ingress role** on a public 
 
 **Both modes share the public port.** One front door reads the ClientHello, routes by SNI, and hands passthrough connections to the data plane with their bytes untouched while terminate connections go to the terminating listener. A fronted node is therefore reachable at plain `https://<sub>.<domain>` in either mode — which is what a peer's card can carry.
 
-**What the card advertises.** A fronted node has no inbound port of its own, so its card names the ingress-fronted hostname; `X-PACT-KEY` remains the NODE's fingerprint, never the ingress's. In terminate mode a peer therefore cannot pin the node at the transport layer — its TLS ends at the ingress — which is precisely why `seal` is forced `required` there: the caller's identity and the content both ride in the envelope, past the edge (§4, §10.1).
+**What the card advertises.** A fronted node has no inbound port of its own, so the leaf on its card names the ingress-fronted hostname; the root that leaf names is the NODE owner's, never the ingress's. In terminate mode a peer therefore cannot pin the node at the transport layer — its TLS ends at the ingress — which is precisely why `seal` is forced `required` there: the caller's identity and the content both ride in the envelope, past the edge (§4, §10.1).
 
 **Pairing** uses a one-time token: the owner mints a pairing token on the ingress, enters it on the node (portal settings, §8), and the node connects outbound, authenticates with the token once, and registers its subdomain and serving mode. Pairing establishes the mutual key pins used by the data plane and by terminate-mode onward connections. Because the node connects outbound, a fronted node needs no inbound port of its own.
 
@@ -1072,14 +975,12 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `invites` | Invite state — expiry, uses, auto_accept, preset, label; stores the token **hash only**, never the token (§9) |
 | `threads` | Conversation threads (§7) |
 | `messages` | Messages, idempotent on `(account, contact, msg_id)` (§7) |
-| `idempotency` | Recorded acknowledgments for `msg_id`-bearing calls that append no `messages` row: envelope-level `sealed_call` dedup (§4.4 step 8) and `book_slot` replays (§6.7), keyed `(account, caller fingerprint, msg_id)` with a reference to the recorded result; retained at least until the envelope's `exp`, else 30 days |
+| `idempotency` | Recorded acknowledgments for `msg_id`-bearing calls that append no `messages` row: envelope-level `sealed_call` dedup (PACT §13.3) and `book_slot` replays (§6.7), keyed `(account, caller fingerprint, msg_id)` with a reference to the recorded result; retained at least until the envelope's `exp`, else 30 days |
 | `blobs` | Content-addressed media store (§7) |
 | `integrations` | Configured upstream integrations (§6) |
 | `catalogs` | Versioned catalog snapshots (catalog snapshot vN) with per-tool content hashes (§6) |
 | `exposures` | Versioned exposure sets (exposure set vM) (§6) |
 | `pending_requests` | Agent-answered requests awaiting the owner's agent (§6) |
-| `relay_queue` | Sealed calls queued for offline recipients (§10.5) |
-| `relay_allowlist` | Per-recipient allowed sender fingerprints (§10.5) |
 | `settings` | Owner-set configuration the portal writes (§8.2, §12.2), including `tunnel.<adapter>.*` adapter state and sealed values |
 | `rotation_fanout` | Per-contact completion of an `update_contact` walk (§3.9): `kind` names the campaign — a 1.x key rotation, a 2.0 move, or the 1.x rotation a 2.0 renewal is toward 1.x pins (migration 0028) |
 | `leaves` | PACT 2.0 (PACT §2, §14): every leaf certificate this host holds for an account — `pending` while a CSR awaits the wallet, `current`, `superseded` with its key kept until `not_after`, `former` with the key destroyed and the key id kept so an envelope sealed to it is answered `certificate_renewed` |
@@ -1095,7 +996,7 @@ Columns that hold secrets — upstream OAuth tokens, tunnel credentials, and the
 
 ### 11.4 The audit hash chain
 
-`audit_events` is append-only. Every row carries `prev_hash` and its own hash, computed as SHA-256 over `prev_hash ‖ canonical row` — the previous row's hash concatenated with the canonical serialization of this row's fields. The canonical row is precisely defined and versioned: each row carries a chain-format version (`1` in this revision) naming the enumerated field list included in the hash, and those fields are serialized as canonical JSON — UTF-8, keys sorted lexicographically, no insignificant whitespace — the same canonicalization as the envelope's (§4.1). The genesis `prev_hash` is 32 zero bytes, and hashes are stored lowercase-hex. A future change to the row fields bumps the chain-format version and re-anchors the chain (§11.6) instead of silently breaking historical verification. Any retroactive edit or reordering breaks the chain and is detected by `audit verify`. **Deletion has exactly one sanctioned form: archiving (§11.6).** Archiving writes the removed segment to a file, verifies that file, records its terminal hash as a durable anchor, and only then removes those rows — so the retained chain is measured against the anchor rather than against its own first row, and a head removed WITHOUT archiving is therefore visible rather than self-consistent. Verification spans the archive files and the live table as one chain. An archive run interrupted between recording the anchor and removing the rows leaves the two disagreeing; that state is reported as unfinished, not as tampering, and `audit repair` completes it (§12.1).
+`audit_events` is append-only. Every row carries `prev_hash` and its own hash, computed as SHA-256 over `prev_hash ‖ canonical row` — the previous row's hash concatenated with the canonical serialization of this row's fields. The canonical row is precisely defined and versioned: each row carries a chain-format version (`1` in this revision) naming the enumerated field list included in the hash, and those fields are serialized as canonical JSON — UTF-8, keys sorted lexicographically, no insignificant whitespace — the same canonicalization as the envelope's protected header (PACT §13.1). The genesis `prev_hash` is 32 zero bytes, and hashes are stored lowercase-hex. A future change to the row fields bumps the chain-format version and re-anchors the chain (§11.6) instead of silently breaking historical verification. Any retroactive edit or reordering breaks the chain and is detected by `audit verify`. **Deletion has exactly one sanctioned form: archiving (§11.6).** Archiving writes the removed segment to a file, verifies that file, records its terminal hash as a durable anchor, and only then removes those rows — so the retained chain is measured against the anchor rather than against its own first row, and a head removed WITHOUT archiving is therefore visible rather than self-consistent. Verification spans the archive files and the live table as one chain. An archive run interrupted between recording the anchor and removing the rows leaves the two disagreeing; that state is reported as unfinished, not as tampering, and `audit repair` completes it (§12.1).
 
 ### 11.5 What is audited, and where the writes live
 
@@ -1105,7 +1006,6 @@ The audited event classes are:
 - every internal mutation;
 - authentication events, including refused LAN connection attempts (§10.1);
 - integration lifecycle events (§6);
-- relay decisions — queue accepts, allow-list refusals, expiry deletions (§10.5).
 
 Audit writes live in exactly three places: the public dispatch path (§5), the internal dispatch path (§8), and the store mutation layer. Because every call flows through one of the two dispatchers and every state change through the store mutation layer, nothing can execute or mutate unaudited.
 
@@ -1131,7 +1031,7 @@ One binary, subcommand-per-concern:
 
 | Command | Purpose |
 |---|---|
-| `serve` | Run the node — including relay mode, per configuration (§10) |
+| `serve` | Run the node, per configuration (§10) |
 | `ingress` | `serve` \| `token` — the ingress role: an own-domain front door for paired nodes (§10.6) |
 | `migrate` | Run store migrations; the node must be stopped (§11) |
 | `doctor` | Diagnostics: configuration, data dir, store, lock (§10.4) |
@@ -1149,13 +1049,13 @@ Against a running node, CLI commands operate through an **admin unix socket**, g
 
 Configuration precedence is **environment > file > store > defaults**. Secrets never live in the configuration file: they are encrypted in the store under the keyring master key of §3.7, itself supplied via environment variable, a `0600` key file, or the OS keyring where one is available (§11.3).
 
-**Owner-set configuration.** The knobs the portal exposes — `public_url`, `tunnel`, `seal`, `client_cert`, the LAN flag, `relay`, `gateway_url`, `gateway_fingerprint` — persist in the store's `settings` table and slot in *below* the file and the environment. That ordering is normative and has a reason: an operator who pins `PACT_SEAL` in a deployment must not have it overridden by a row in a database they may not be looking at. A knob the environment pinned MUST render **locked, naming the variable**, rather than offering a control whose value would be discarded; the same applies to a knob a deployment mode forces (§2.5). Everything else — data directory, binds, store engine, master-key location — is **bootstrap** and is never owner-settable: it decides where the node's state lives, so it cannot come from that state.
+**Owner-set configuration.** The knobs the portal exposes — `public_url`, `tunnel`, `seal`, `client_cert`, and the LAN flag — persist in the store's `settings` table and slot in *below* the file and the environment. That ordering is normative and has a reason: an operator who pins `PACT_SEAL` in a deployment must not have it overridden by a row in a database they may not be looking at. A knob the environment pinned MUST render **locked, naming the variable**, rather than offering a control whose value would be discarded; the same applies to a knob a deployment mode forces (§2.5). Everything else — data directory, binds, store engine, master-key location — is **bootstrap** and is never owner-settable: it decides where the node's state lives, so it cannot come from that state.
 
 **`internal_host` is bootstrap.** The hostname the portal is served at is the only non-loopback name a WebAuthn ceremony may bind a credential to, and `Host` is attacker-controlled — a spoofed header must not be able to register a credential for a domain the owner does not control. It is therefore configured at startup and never owner-settable: it gates authentication, so it cannot come from data the authenticated surface writes. A consequence worth stating plainly: a passkey registered while the portal was on `localhost` will NOT work once it moves to a domain, because the browser binds each credential to the relying party it was created for. That is WebAuthn, not a defect; `passkey reset-wizard` (§12) is the recovery path.
 
 Owner-set values go through the same derivation as any other layer (§10.1): choosing an edge adapter in the portal forces `seal: required` and `client_cert: off` exactly as setting it in the environment would. Secret values (adapter credentials, ingress tokens) are sealed with the keyring before they are stored and are never rendered back — the page shows whether a value is set, never what it is.
 
-**When a change takes effect.** `seal`, `public_url` and the LAN flag apply to the next call with no restart; the node's advertised card and its envelope gate read the same live value, so a card can never advertise a policy the gate does not enforce (§4.6). Knobs that own a socket or a goroutine — the tunnel adapter, relay mode, the gateway, and the `client_cert` TLS posture — take effect on the next start, and the portal MUST say so next to the control. Changing `public_url` MUST fan out `update_contact` to every active contact (§9.4), signed by the pinned identity key over the unchanged fingerprint.
+**When a change takes effect.** `seal`, `public_url` and the LAN flag apply to the next call with no restart; the node's advertised card and its envelope gate read the same live value, so a card can never advertise a policy the gate does not enforce (PACT §13.4). Knobs that own a socket or a goroutine — the tunnel adapter and the `client_cert` TLS posture — take effect on the next start, and the portal MUST say so next to the control. Changing `public_url` changes the address the leaf must name, so it is a **move**: the person issues a leaf for the new endpoint and the node campaigns `update_contact` to every active contact (§9.4, PACT §5.3).
 
 ### 12.3 Container image
 
@@ -1169,7 +1069,7 @@ First run is `docker compose up`: the node starts, and the logs print the **port
 
 ### 12.5 Releases and telemetry
 
-Releases (binaries and images) are built with **goreleaser** from tags. pact-gateway contains **no telemetry** of any kind: it makes no network connections other than those the owner configures — peers, upstream integrations, tunnel, relay, ingress, and DNS/ACME when the ingress role is enabled. This is stated in the documentation, not merely implied.
+Releases (binaries and images) are built with **goreleaser** from tags. pact-gateway contains **no telemetry** of any kind: it makes no network connections other than those the owner configures — peers, upstream integrations, tunnel, ingress, and DNS/ACME when the ingress role is enabled. This is stated in the documentation, not merely implied.
 
 
 ---
@@ -1180,9 +1080,9 @@ This section states what pact-gateway defends and — with equal weight — what
 
 ### 13.1 What the design defends
 
-**Caller authentication through any pipe.** The unified identity rule (§3) makes caller identity independent of whichever transport happened to carry the call: a caller *is* a fingerprint — `"sha256:" + base64url(SHA-256(SPKI))` — proven either by a TLS client certificate or by the detached signature on a sealed envelope (§4). When both proofs are present they MUST match; a node MUST reject the call otherwise. Three knobs bind this rule to deployment reality (§10): `seal` (`none|optional|required`, default `required`, forced `required` in edge mode and relay-assisted mode; advertised on the card as `X-PACT-SEAL`), `client_cert` (`required|preferred|off`, default `preferred` in direct mode, forced `off` in edge mode, where the edge strips certificates), and the LAN connections flag (default off in edge mode; every refused LAN connection is audited). The consequence: there is no deployment mode in which a caller is trusted on transport position alone — behind an edge, identity rides the envelope signature; direct, it rides mTLS; when both are available they must corroborate. Outbound, a node MUST present its certificate via `GetClientCertificate`, so a pinned self-signed certificate is sent even when the far end's CertificateRequest advertises a CA list the certificate cannot satisfy (§10).
+**Caller authentication through any pipe.** The identity rule of §3.5 makes caller identity independent of whichever transport happened to carry the call: a caller *is* the root of a chain that validated (PACT §14.2), proven either by presenting that chain as the TLS client certificate or by carrying it inside a sealed envelope. When both proofs are present their leaf keys MUST match; a node MUST reject the call otherwise. A single certificate is neither proof: it names no root, and anyone can mint one. Three knobs bind this rule to deployment reality (§10): `seal` (`none|optional|required`, default `required`, forced `required` in edge mode; advertised on the card as `X-PACT-SEAL`), `client_cert` (`required|preferred|off`, default `preferred` in direct mode, forced `off` in edge mode, where the edge strips certificates), and the LAN connections flag (default off in edge mode; every refused LAN connection is audited). The consequence: there is no deployment mode in which a caller is trusted on transport position alone — behind an edge, identity rides the envelope; direct, it rides mTLS; when both are available they must corroborate. Outbound, a node MUST present its chain via `GetClientCertificate`, so it is sent even when the far end's CertificateRequest advertises a CA list a self-signed root cannot satisfy (§10).
 
-**Content confidentiality past edges and relays.** A sealed envelope (§4) is HPKE Base mode to the recipient's identity key plus a detached signature by the sender's identity key over `protected‖enc‖ct`. A node in relay mode verifies that signature — and enforces its allow-list — without decrypting anything; an edge never carries unsealed tool requests **or results**: `seal` is forced `required` in edge mode and a sealed request's result is sealed back to the caller (§4.5). On receipt, the strict open order of §4 (decode → suite → to==me → kid → open → verify signature against the pinned key → timestamp window → `msg_id` idempotency → dispatch) rejects malformed, misdirected, mis-signed, and replayed envelopes before any payload reaches dispatch.
+**Content confidentiality past an edge.** A sealed envelope (PACT §13) is HPKE Base mode to the recipient's leaf key plus a detached signature by the sender's leaf key over `protected‖enc‖ct`, with the sender's own chain — or, after the first exchange, its leaf's fingerprint — inside the ciphertext, so a carrier no longer sees who sent a message. An edge never carries unsealed tool requests **or results**: `seal` is forced `required` in edge mode, a sealed request's result is sealed back to the caller, and so is a refusal once the envelope has opened (PACT §13.2). On receipt, the strict open order of PACT §13.3 rejects malformed, misdirected, mis-signed, expired and replayed envelopes before any payload reaches dispatch.
 
 **The permission switchboard.** Authorization has exactly one call site: `policy.Allow`, evaluating Cedar's static shipped policies against dynamic entities (§3). Each caller sees a per-caller MCP server composed for (account, caller-fingerprint): `tools/list` contains only what the switchboard grants; guests see exactly `redeem_invite`, `request_contact`, and the `sealed_call` wrapper (§4); blocked contacts silently drop to guest tier; integrations expose nothing by default — an owner opts capabilities into an exposure set vM, and a stale mapping is withheld (`unavailable`) until re-confirmed against the current catalog snapshot vN (§6). Every call is re-checked at call time, so revocation is instant regardless of cached tool lists, and denied calls return `permission_denied` per PACT §12.
 
@@ -1205,23 +1105,19 @@ flowchart TB
     end
     subgraph EM["edge mode - seal forced required"]
         A2["caller"] -- "TLS to edge" --> E["edge"]
-        E -- "edge sees: metadata +<br/>ciphertext only (§4.5)" --> B2["node"]
-    end
-    subgraph RM["relay-assisted mode - seal forced required"]
-        A3["caller"] --> R["relay"]
-        R -. "stored ciphertext, retention capped<br/>relay sees: protected header + ciphertext" .-> B3["node"]
+        E -- "edge sees: metadata +<br/>ciphertext only (PACT §13.2)" --> B2["node"]
     end
 ```
 
-**No envelope forward secrecy.** HPKE Base mode encrypts to a long-lived identity key; there is no ephemeral ratchet. An adversary who records sealed traffic today and obtains the recipient's private key later decrypts everything it recorded. Why accepted: HPKE Auth mode was rejected because cross-curve contact pairs (a P-256 sender and a converted-Ed25519/X25519 recipient) cannot share an authentication DH, and a ratchet would reintroduce per-pair session state — exactly the machinery PACT 1.0 deliberately removed. Mitigations, not fixes: relayed ciphertext is retained at most `min(expires, 30 days)` (PACT §9) and envelope `exp` on the relay path is capped at 30 days; outside relay the `ts` acceptance window is 300 s; key rotation (`update_contact`, PACT §2) re-keys all future traffic; and the `kid` field is the seam for a later dedicated encryption key. Nothing retroactively protects ciphertext a carrier already recorded.
+**No envelope forward secrecy.** HPKE Base mode encrypts to a long-lived leaf key; there is no ephemeral ratchet. An adversary who records sealed traffic today and obtains that leaf's private key later decrypts everything it recorded. Why accepted: HPKE Auth mode was rejected because cross-curve pairs (a P-256 sender and a converted-Ed25519/X25519 recipient) cannot share an authentication DH, and a ratchet would reintroduce per-pair session state. Mitigations, not fixes: the `ts` acceptance window is 300 seconds, a leaf lives at most 398 days (PACT §14.1), a renewal with a fresh key retires the old one, and the `kid` field is the seam for a later dedicated encryption key. Nothing retroactively protects ciphertext a carrier already recorded.
 
-**Metadata is visible to carriers.** Sealing hides content, not shape. A relay must read the protected header to enforce its allow-list, so it sees `from`, `to`, `msg_id`, timestamps, sizes, and frequency; an edge sees the same plus the HTTP exchange it terminates. PACT claims no anonymity or traffic-analysis resistance (PACT §11), and neither does this spec. Direct mode over a tunnel carrier (tailscale, frp, ngrok) is no exception: the carrier cannot read content, but it still sees endpoints, SNI, ciphertext sizes, and timing. Where who-talks-to-whom is itself sensitive, use the `direct` adapter — your own port forward or VPS — since direct mode over a tunnel carrier still exposes connection metadata to that carrier.
+**Metadata is visible to carriers.** Sealing hides content, not shape. A carrier sees `kid` — which names the RECIPIENT's leaf key, so it can tie every message to one recipient for that leaf's life — along with `msg_id`, timestamps, sizes and frequency, plus the HTTP exchange an edge terminates. What it no longer sees is **who sent** a message: the sender's chain rides inside the ciphertext, and after the first exchange only its fingerprint does (PACT §13.2, §13.5). PACT claims no anonymity or traffic-analysis resistance (PACT §11), and neither does this spec. Direct mode over a tunnel carrier (tailscale, frp, ngrok) is no exception: the carrier cannot read content, but it still sees endpoints, SNI, ciphertext sizes, and timing. Where who-talks-to-whom is itself sensitive, use the `direct` adapter — your own port forward or VPS — since direct mode over a tunnel carrier still exposes connection metadata to that carrier.
 
-**One keypair across TLS, envelope signatures, and HPKE.** The same identity keypair authenticates TLS handshakes, signs envelopes, and receives HPKE decryption (directly for P-256; converted to X25519 for Ed25519 identities). Cross-protocol key reuse is generally disfavored; it is accepted here because "one keypair per person" is PACT's identity model, and a second key would need its own card field, pinning, and rotation story — doubling the surface the contact-card design exists to keep small (§9). The `kid` field in the protected header is the deliberate escape hatch: a card can later publish a separate encryption key under a new `kid` with no change to the envelope format.
+**One keypair across TLS, envelope signatures, and HPKE.** The same **leaf** keypair authenticates TLS handshakes, signs envelopes, and receives HPKE decryption (directly for P-256; converted to X25519 for Ed25519 leaves). PACT §13.5 is explicit that this key signs exactly four structures — a TLS handshake, a certificate signing request, a card, an envelope — each distinguishable by its first bytes, and that an implementation MUST NOT sign anything else with it. Cross-protocol key reuse is generally disfavoured; it is accepted because a second key would need its own place in the leaf, its own pinning and its own renewal story. What bounds it is that this is a LEAF: it expires within 398 days, a renewal retires it, and the identity — the root — is not in play. The `kid` field is the deliberate escape hatch for a later separate encryption key.
 
-**Edge trust.** In edge mode the provider terminates the public TLS session and can read what it carries. The containment is structural and bidirectional: `seal` is forced `required`, a node MUST refuse to serve unsealed tool requests through an edge, and every sealed request's result is sealed back to the caller (§4.5) — the edge carries ciphertext in both directions. What remains in the edge's hands is the metadata limit above, plus availability: an edge can drop, delay, or replay traffic. Replays die at the `ts` window and `msg_id` idempotency; delivery through an edge is only as reliable as the edge.
+**Edge trust.** In edge mode the provider terminates the public TLS session and can read what it carries. The containment is structural and bidirectional: `seal` is forced `required`, a node MUST refuse to serve unsealed tool requests through an edge, and every sealed request's result is sealed back to the caller — including an error, once the envelope has opened (PACT §13.2) — so the edge carries ciphertext in both directions and cannot tell a refusal from a reply. What remains in the edge's hands is the metadata limit above, plus availability: an edge can drop, delay, replay, and **answer**. Replays die at the 300-second `ts` window and `msg_id` idempotency; a forged plaintext answer is refused by the caller unless it carries one of the few codes a node can legitimately reach before opening an envelope. Delivery through an edge is only as reliable as the edge.
 
-**Relay-assisted mode serves contacts only.** A relay queues sealed calls from allow-listed active contacts (§10.5) and a relay-assisted node has no inbound path, so invite redemption and guest contact requests cannot reach it (§10.1): onboarding new contacts requires temporary direct or edge reachability, or the outbound manual flow (§9.3).
+**A stolen leaf key is bounded; a stolen root is not.** A leaf key taken from a host speaks as that identity until the leaf expires or the person renews — at which point the newer leaf outranks it with every contact it reaches (PACT §14.3), and the thief cannot issue itself another. A stolen ROOT is the identity, fought over by two holders, and PACT §14.5 records that as residual rather than solved: the defence is a root that is never at rest — in a hardware key, or derived from a passkey on each use — which is the wallet's business and not this node's.
 
 **Lost key = new identity.** Unchanged from PACT §2: there is deliberately no recovery ceremony, and no third party holds a copy. Rotation exists (`account rotate-key`, §12; `update_contact` signed by the old key, PACT §2) and works only while the old key can still sign. A destroyed or lost key means a new identity: re-share your card and re-pin with every contact.
 
@@ -1235,7 +1131,7 @@ The one exception is an owner who prepared: `backup identity` (§3.10) exports a
 
 ### 14.1 Test strategy
 
-**Envelope test vectors.** Vectors for both suites (`PACT-SEAL-P256`, `PACT-SEAL-X25519`) are published with the PACT 1.1 test-vectors appendix (§15). pact-gateway's envelope implementation MUST pass them, and any independent implementation can interoperate by doing the same.
+**Envelope test vectors.** Vectors for both suites (`PACT-SEAL-P256`, `PACT-SEAL-X25519`) and for the certificate profile live in PACT Appendix B, generated by `pact-protocol/vectors/gen.mjs`. pact-gateway's envelope implementation MUST pass them, and any independent implementation can interoperate by doing the same.
 
 **Fuzzing.** The two parsers this project itself implements that consume attacker-controlled bytes — the envelope parser and the vCard parser — carry fuzz targets; MCP/JSON framing and HTTP parsing are delegated to the go-sdk and the standard library rather than fuzzed here.
 
@@ -1262,24 +1158,6 @@ The one exception is an owner who prepared: `backup identity` (§3.10) exports a
 | P1 | accounts/keyring, public mTLS listener, tiers, guest + pending tools, contacts, invites, card, envelope | two local nodes pair and message |
 | P2 | messaging, passkeys, tokens, Cedar, switchboard, owner MCP | browser pairing demo; agent reads inbox |
 | P3 | upstream transports + OAuth, catalogs, exposures, three serving modes, providers, recipes, warnings | contact books a real Google Calendar slot |
-| P4 | outbound hardening, tunnel adapters, relay (both roles), LAN flag, doctor | NAT-crossing via tailscale AND relay; sealed cloudflared edge |
-| P5 | ingress role, key rotation, backups, docs | own-domain VPS passthrough + terminate front |
-
----
-
-## 15. Protocol delta (PACT 1.1)
-
-PACT 1.0 is normative for wire behavior. pact-gateway implements 1.0 plus a small delta that lands in the protocol spec as version **1.1.0**. This section is an informative summary; the normative text is the edited pact-protocol spec itself.
-
-| PACT § | Edit | Rationale (one line) |
-|---|---|---|
-| PACT §2 | Caller identity generalized: envelope-signature fingerprint ∨ client-cert SPKI fingerprint; both present ⇒ MUST match | identity must survive pipes that strip client certificates (edge mode, relay-assisted mode) |
-| PACT §3 | Card property table gains `X-PACT-SEAL: none\|optional\|required` | the recipient's sealing policy travels where their identity already does — the card |
-| PACT §9 | "Gateway mode" reworded to **relay mode**; relay verifies signatures without decrypting; trust note softened | with sealing, a relay enforces its allow-list on ciphertext: sealed traffic unreadable, metadata visible |
-| PACT §10 | Tunnel findings (Tailscale Funnel does not decrypt; Cloudflare Tunnel = edge mode) + ingress/platform note | replace the deployment table's assumptions with verified carrier behavior and the ingress role seam (§10) |
-| PACT §12 | New error codes `seal_required`, `identity_required`, `envelope_invalid`; `unavailable` for stale/withheld tools | callers need deterministic errors for the new failure classes |
-| new PACT §13 | Sealed envelopes: format, suites, open order, errors + test-vectors appendix | a normative home for the envelope so independent implementations interoperate |
-
-The document version becomes 1.1.0 while `X-PACT-VERSION` stays `1`: the delta is additive to the 1.0 wire surface, so the card's major version does not move.
-
-These edits ship as a **reviewed diff in the pact-protocol repository** — drafted uncommitted for owner review, gated by that repo's site build — not as part of this document. The same diff carries the dated CLAUDE.md north-star edit recording the owner's deliberate reversal of the "no envelope crypto" rule.
+| P4 | outbound hardening, tunnel adapters, LAN flag, doctor | NAT-crossing via tailscale; sealed cloudflared edge |
+| P5 | ingress role, backups, docs | own-domain VPS passthrough + terminate front |
+| P6 | PACT 2.0: root and leaf, chains on the wire, the move campaign, 1.x removed | two nodes pair through Cloudflare under chains they never share a key for |
