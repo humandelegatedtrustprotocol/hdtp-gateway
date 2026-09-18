@@ -118,7 +118,11 @@ for who in alice bob; do
   # no certificate; the person's root is what makes it an identity, and it lives in a
   # vault this script owns because the two users here are fictional. A real owner does
   # these three commands themselves, which is the point of the separation.
-  if ! docker exec "pactcf-$who" /pact-gateway account certificate -slug "$who" 2>/dev/null | grep -q "^root"; then
+  # `account certificate` prints "<slug>: root sha256:..." when there is one, and
+  # "<slug> has no leaf yet" when there is not. Matching the ROOT line is what makes a
+  # re-run against a kept volume a no-op; matching "^root" matched neither, so every
+  # re-run minted a fresh leaf for an identity that already had one.
+  if ! docker exec "pactcf-$who" /pact-gateway account certificate -slug "$who" 2>/dev/null | grep -q "^$who: root sha256:"; then
     if [ ! -x "$WALLET" ]; then
       echo "  ($who has no certificate and no wallet at $WALLET: build it with 'cargo build --release -p pact' in pact-identity, or set PACT_WALLET)"
     else
