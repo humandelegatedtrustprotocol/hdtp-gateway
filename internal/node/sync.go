@@ -22,11 +22,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
+	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // SyncContacts re-fetches every active contact's card across every account.
@@ -74,6 +77,10 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	var out struct {
 		Card    string `json:"card"`
 		CardSig string `json:"card_sig"`
+		// The answer has carried the peer's [leaf, root] all along (public/tools.go,
+		// `get_card`) and nothing read it, so every pin made over a sealed call kept
+		// the root's fingerprint and never its certificate (F11).
+		Chain []string `json:"chain"`
 	}
 	text := ""
 	for _, c := range res.Content {
@@ -85,14 +92,28 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "invalid")
 		return false
 	}
+	stored, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
+	if err != nil {
+		return false
+	}
+	// The root certificate first, and deliberately BEFORE the card is verified.
+	//
+	// The two checks are independent and neither implies the other: the card is checked
+	// against the pinned LEAF key, which moves at every renewal, while the chain is
+	// checked against the pinned ROOT, which is the thing that cannot move (PACT §14.3).
+	// So the case where the card signature legitimately fails — a peer that has renewed
+	// and whose announce has not reached us yet — is exactly a case where the answer
+	// still carries a root we can verify against what we pinned. Doing it after the card
+	// check would skip the pins most likely to be missing one, and doing it before costs
+	// nothing: `fillRootCert` writes only what validates to the pinned root.
+	n.fillRootCert(ctx, accountID, contactFpr, stored, out.Chain)
 	if err := verifySyncedCard(contactFpr, spki, out.Card, out.CardSig); err != nil {
 		// A card that does not verify, or names a different key, is refused —
 		// loudly, because a peer serving one is worth the owner's attention.
 		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr+" why:"+err.Error(), "invalid")
 		return false
 	}
-	stored, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
-	if err != nil || stored.Card == out.Card {
+	if stored.Card == out.Card {
 		return false // unchanged: the common case, and no write
 	}
 	name := contacts.CardName(out.Card)
@@ -127,4 +148,44 @@ func verifySyncedCard(pinnedFpr string, pinnedSPKI []byte, card, sigB64 string) 
 		return fmt.Errorf("the card signature does not verify under the pinned key")
 	}
 	return nil
+}
+
+// fillRootCert stores the root certificate of a pin that has none, from the chain
+// `get_card` answers with.
+//
+// The chain travels once (PACT §13.2), so a pin made over a SEALED call kept the root's
+// fingerprint and nothing else: the sender's chain is inside the ciphertext, where only
+// the library's Decide sees it, and behind an edge no client certificate ever arrives to
+// fill the gap. A fingerprint authenticates a chain that shows up; it cannot prove a
+// stored leaf, and an archive taken here could prove none of its contacts elsewhere.
+//
+// Nothing new goes on the wire for this. The answer already carries [leaf, root] inside
+// the same sealed reply, so the carrier learns nothing it did not already fail to learn.
+//
+// What makes it safe is that the pin NAMES the root: `ExpectedRoot` is the pinned
+// fingerprint, so a peer that answers with somebody else's root — or with a root that did
+// not issue the leaf beside it — is refused rather than recorded.
+func (n *Node) fillRootCert(ctx context.Context, accountID, contactFpr string, stored store.Contact, chain []string) {
+	if len(stored.RootCert) > 0 || len(chain) != 2 {
+		return
+	}
+	der := make([][]byte, 0, 2)
+	for _, c := range chain {
+		b, err := base64.RawURLEncoding.DecodeString(c)
+		if err != nil || len(b) == 0 {
+			n.auditFor(accountID, "contact_root_cert", "contact:"+contactFpr, "invalid")
+			return
+		}
+		der = append(der, b)
+	}
+	vr := pactidentity.ValidateChain(der, pactidentity.ChainOpts{Now: n.now(), ExpectedRoot: contactFpr})
+	if !vr.OK {
+		n.auditFor(accountID, "contact_root_cert", "contact:"+contactFpr+" rule:"+strconv.Itoa(vr.Rule), "refused")
+		return
+	}
+	if err := n.opts.Store.SetContactRootCert(ctx, accountID, contactFpr, der[1]); err != nil {
+		n.auditFor(accountID, "contact_root_cert", "contact:"+contactFpr, "error")
+		return
+	}
+	n.auditFor(accountID, "contact_root_cert", "contact:"+contactFpr, "ok")
 }
