@@ -6,12 +6,10 @@ package public
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"net"
 	"net/http"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
@@ -33,9 +31,10 @@ type TransportFacts struct {
 	// PACT 2.0 (PACT §2, §14.2): a client that presented a chain — a leaf and
 	// the root that issued it — that validated. ClientCertFingerprint is then
 	// the ROOT's, ClientCertSPKI the leaf's key, ClientLeaf the leaf, and
-	// ClientEndpoint the one address it names. A single self-signed
-	// certificate stays a 1.x proof, and a chain that does not validate
-	// establishes no identity at all.
+	// ClientEndpoint the one address it names. That chain is the ONLY thing
+	// that fills these fields: a single certificate, or a chain that does not
+	// validate, establishes no identity at all, because in 2.0 the identity is
+	// the root and a lone certificate names none.
 	ClientProtocol int
 	ClientLeaf     []byte
 	ClientEndpoint string
@@ -146,20 +145,21 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), factsKey{}, f)))
 			return
 		}
+		// Only a validated chain is an identity. The retired generation took the
+		// fingerprint of whatever single certificate arrived, which is a proof
+		// only while the identity IS a key; under 2.0 the identity is the root,
+		// a lone certificate names no root, and anyone can mint one in a second.
+		// Reading it as identity made `client_cert: required` — the "who may
+		// knock at all" posture of PACT §13.4 — satisfiable by any self-signed
+		// certificate, gave a caller a fresh guest budget per certificate, and
+		// gave PACT §2's "both proofs present, their leaf keys MUST match" an
+		// unproven key to compare a proven one against.
 		if r.TLS != nil && len(r.TLS.PeerCertificates) == 2 {
 			chain := [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
 			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
 				f.ClientProtocol, f.ClientLeaf, f.ClientEndpoint = 2, chain[0], vr.Endpoint
 				f.ClientRoot = chain[1]
-			}
-		} else if r.TLS != nil && len(r.TLS.PeerCertificates) == 1 {
-			leaf := r.TLS.PeerCertificates[0]
-			if fpr, err := identity.Fingerprint(leaf.PublicKey); err == nil {
-				f.ClientCertFingerprint = fpr
-				if spki, err := x509.MarshalPKIXPublicKey(leaf.PublicKey); err == nil {
-					f.ClientCertSPKI = spki
-				}
 			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), factsKey{}, f)))

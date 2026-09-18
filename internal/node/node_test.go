@@ -77,6 +77,34 @@ func newEnv(t *testing.T, slugs ...string) (*env, []store.Account) {
 	return e, accts
 }
 
+// callerChain plays another person's wallet: an independent root and a leaf over
+// a fresh host key, presented as a TLS client certificate. Under 2.0 this is the
+// ONLY thing that establishes a transport identity — a lone self-signed
+// certificate names no root and so names nobody (PACT §2, §14.2).
+func callerChain(t *testing.T, endpoint string) (tls.Certificate, string) {
+	t.Helper()
+	rootKey, err := pactidentity.GenerateKey("ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Caller", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := pactidentity.GenerateKey("ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+		CN: "Caller", RootCN: "Caller", RootKey: rootKey, HostPub: host.Public, Endpoint: endpoint,
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{leaf, rc}, PrivateKey: host.Ed}, pactidentity.Fingerprint(rootKey.Public.SPKI)
+}
+
 // issueLeaf plays the person's wallet: a root for this account, and a leaf over the
 // key the account already holds, for the endpoint the node advertises.
 func (e *env) issueLeaf(a store.Account) {
@@ -493,18 +521,11 @@ func TestSessionIdCannotBeReplayedByAnotherIdentity(t *testing.T) {
 	e, _ := newEnv(t, "alice")
 	_, base := e.start(e.options())
 
-	kp, err := identity.Generate(identity.AlgoP256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	der, err := identity.SelfSignedCert(kp, "caller")
-	if err != nil {
-		t.Fatal(err)
-	}
+	chain, _ := callerChain(t, "https://caller.example/a/caller/mcp")
 	withCert := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
-			Certificates:       []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: kp.Signer}},
+			Certificates:       []tls.Certificate{chain},
 		},
 	}}
 

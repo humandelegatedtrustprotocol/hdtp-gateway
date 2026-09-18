@@ -15,7 +15,7 @@ PACT §12: *"an implementation is a PACT agent server if it…"*
 
 | Clause | Where it lives | Tests |
 |---|---|---|
-| exposes an MCP server over HTTPS accepting TLS client certificates | `internal/public/listener.go`, `internal/node` | `TestHandshakeAcceptsNoCertUnknownCertKnownCert`, `TestSNISelectsPerAccountIdentityCertificates`, `TestServeRunsTheWholeNode` |
+| exposes an MCP server over HTTPS accepting TLS client certificates | `internal/public/listener.go`, `internal/node` | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestSNISelectsPerAccountIdentityCertificates`, `TestServeRunsTheWholeNode` |
 | identifies callers by SPKI fingerprint against a contact list | `internal/identity`, `internal/public/identify.go` | `TestFingerprintMatchesOpenSSLFixture`, `TestFingerprintFormat` |
 | guest / pending / contact tiers | `internal/core/policy`, `internal/public/servers.go` | `TestTierFor`, `TestAllowExactTierAndPermission`, `TestToolsListPerTier`, `TestBuiltinToolSurfacePerTier` |
 | implements the guest and pending tools | `internal/public/tools.go` | `TestBuiltinToolSurfacePerTier`, `TestRedeemInvitePinsProvenKeyAndInvalidates`, `TestPendingAnswerTools` |

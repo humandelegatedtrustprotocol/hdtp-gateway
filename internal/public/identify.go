@@ -211,8 +211,11 @@ func (id *Identifier) seal() core.Seal {
 // re-deciding, so a re-pin or a pending address is recorded once per request,
 // not once per tool call.
 func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, tool string, substantive bool) (string, error) {
-	// identity first: identity_required precedes seal_required (§4.11, §5.3)
-	if id.Cert == core.ClientCertRequired && tf.ClientCertFingerprint == "" {
+	// identity first: identity_required precedes seal_required (§4.11, §5.3).
+	// "A certificate" means a chain that validated (PACT §14.2) and nothing
+	// else — the posture PACT §13.4 permits is about who may knock at all, and
+	// a lone self-signed certificate is not a knock anyone can be held to.
+	if id.Cert == core.ClientCertRequired && tf.ClientProtocol != 2 {
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
 		return "", fmt.Errorf("%w: this node requires a client certificate", ErrIdentityRequired)
 	}

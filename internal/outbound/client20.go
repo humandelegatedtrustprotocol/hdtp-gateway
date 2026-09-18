@@ -47,6 +47,33 @@ func pinOf(peer Peer) pactidentity.Pin {
 	return pactidentity.Pin{Root: peer.Root, Endpoint: peer.Endpoint, Leaf: pactidentity.B64url(peer.Leaf), State: "active"}
 }
 
+// plaintextLegal is the set of §12 codes a peer may legitimately answer IN THE
+// CLEAR to a sealed call: everything decided before the envelope opened, where
+// there is no proven key to seal toward (PACT §13.2). Past the open there is
+// one, and §13.2 requires the answer sealed — so a plaintext `permission_denied`
+// is not the peer speaking. It is whatever carried the call, and in edge mode
+// something always does.
+//
+// Believing those was a free hand to the carrier: forge `permission_denied` and
+// the owner is shown a contact refusing them; forge `blocked_or_unknown` and a
+// working relationship reads as revoked. Neither costs a key.
+//
+// `unavailable`, `bad_request`, `too_large` and `rate_limited` stay on the list
+// because a node can reach them on either side of the open — a disabled account
+// and a withheld tool answer the same code — and the caller cannot tell which.
+var plaintextLegal = map[string]bool{
+	"chain_required":      true,
+	"certificate_renewed": true,
+	"envelope_invalid":    true,
+	"seal_required":       true,
+	"seal_not_accepted":   true,
+	"identity_required":   true,
+	"rate_limited":        true,
+	"unavailable":         true,
+	"bad_request":         true,
+	"too_large":           true,
+}
+
 // refusalCode reads the plaintext code a wrapper-level refusal carries.
 func refusalCode(res *mcp.CallToolResult) (code string, data map[string]any) {
 	if res == nil || len(res.Content) == 0 {
@@ -150,6 +177,19 @@ type errUnverifiable struct{ why string }
 
 func (e *errUnverifiable) Error() string { return "outbound: unverifiable answer: " + e.why }
 
+// errUnattributable is a plaintext refusal that §13.2 says the peer would have
+// sealed. Nobody proved they sent it, so it is not reported as the peer's
+// answer — the call failed, and the owner is told that rather than told a lie
+// about what their contact said.
+type errUnattributable struct{ code string }
+
+func (e *errUnattributable) Error() string {
+	if e.code == "" {
+		return "outbound: the peer answered in plaintext with no code; a sealed call is answered sealed (PACT §13.2)"
+	}
+	return "outbound: " + e.code + " arrived in plaintext; §13.2 requires it sealed, so it is not the peer's answer"
+}
+
 // attempt20 seals one request in the given form, sends it, and opens the answer.
 func (c *Client) attempt20(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
 	recipient, err := pactidentity.ParseSPKI(peerSPKI)
@@ -185,6 +225,10 @@ func (c *Client) attempt20(ctx context.Context, peer Peer, peerSPKI []byte, meth
 		c.OnChainSent(peer)
 	}
 	if res.IsError {
+		// §13.2: only a refusal that precedes the open may arrive in plaintext.
+		if code, _ := refusalCode(res); !plaintextLegal[code] {
+			return nil, nil, &errUnattributable{code: code}
+		}
 		return nil, res, nil
 	}
 	if len(res.Content) == 0 {
