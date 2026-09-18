@@ -26,8 +26,10 @@ it is cited for. Every finding below is an instance.
 | H14 | `pact-identity/js/musts.json` (3.#1, 9.#2) | The MUST map's eleven "held elsewhere" entries named their holders in free prose that nothing checked. Two of the eleven were wrong: 3.#1 cited a `TestDisplayNameCollision` that has never existed in any repository, and 9.#2 credited `check-slug-rules.mjs`, which compares the portal's reserved-name list against the server's and has nothing to do with holding a vacated address. The artifact built to catch unchecked citations was carrying two of its own | medium | closed |
 | H15 | `internal/node/node.go:403`, `internal/node/outbound20.go:109` | Two spellings of "what a key presents on the wire". `tlsCertOf` carries the §2 reasoning and the guard; `node.go` built the same chain inline and unguarded, and only a test called `tlsCertOf` — so a key with a leaf but no root would have gone out as a malformed chain, and a later change to the guard would not have reached production | low | closed |
 | H16 | `docs/conformance.md:54,68` | `pending_approval` had two rows after H5 — the original and a new sealed one — and the table's dup-detection runs over §11.2, not this table. A reader taking either row alone gets half the rule | low | closed |
-| H17 | `internal/node/sync.go:194` (`verifySyncedCard`), `internal/cli/cli.go:652` | The contact-sync sweep verifies a re-fetched card under `stored.SPKI` — the pinned **leaf** key, which a renewal replaces — so a peer that has renewed is audited `contact_sync … invalid`. `"sync can never move a pin"` and `"key changes go through update_contact"` are 1.x invariants: under 2.0 a newer leaf signed by the pinned root is self-authorizing (§2, "because the endpoint is unchanged it needs no one's approval to accept it") | medium | **open** |
+| H17 | `internal/node/sync.go:194` (`verifySyncedCard`), `internal/cli/cli.go:652` | The contact-sync sweep verifies a re-fetched card under `stored.SPKI` — the pinned **leaf** key, which a renewal replaces — so a peer that has renewed is audited `contact_sync … invalid`. `"sync can never move a pin"` and `"key changes go through update_contact"` are 1.x invariants: under 2.0 a newer leaf signed by the pinned root is self-authorizing (§2, "because the endpoint is unchanged it needs no one's approval to accept it") | medium | closed |
 | H18 | `internal/node/sync.go` (§14.3's confirmation rule) | The node keeps every pin inside no interval at all: `SyncContacts` runs when an owner or a schedule calls it, and nothing records when a pin was last confirmed. PACT 2.1's §14.3 bound is therefore unimplemented here — which is why this node's `SPEC.md` still says *implements PACT 2.0.0*, correctly | low | **open** |
+| H19 | `pact-identity/js/manifest.json`, `js/build.sh`, `js/verify.mjs`, `.github/workflows/pact-identity.yml` | The wasm byte-pin is presented as reproducible from a recorded toolchain, and is not reproducible across platforms. A **no-op** `sh js/build.sh` on darwin/arm64 with the manifest's exact `rustc 1.92.0` and `wasm-pack 0.15.0` produced 636920 bytes / `304c91d6…` against the pinned 639118 / `78a62973…`. The manifest records the compiler and wasm-pack versions and **no platform at all**, so it reads as a toolchain pin while the build host is the actual determinant | medium | **open** |
+| H20 | `pact-cloud/gateway/scripts/ceremony-smoke.mjs`, `package.json` | `test:ceremony` is in neither `check:fast` nor `check`, so the 103-check wallet suite is in no gate. Its section 4c tested `purpose: 'upgrade'` — a 1.x identity gaining a root — which `ceremony.js` itself records as removed on 2026-09-18, so the suite had been failing since that removal with nothing to notice. The dead section is deleted; being ungated is not fixed | medium | partly closed |
 
 ## What the benchmarks say
 
@@ -95,9 +97,17 @@ for, so that half still rests on a reader, and H13's lesson applies to H14's own
 
 ## H17 and H18: what is claimed, and how far it was checked
 
-H17 is **open and characterised by reading, not by a test**, and the distinction matters
-because the behaviour differs by the recipient's seal posture and only one branch was
-traced to its end:
+H17 is **closed**. `verifySyncedCard` now takes the pin and the answered chain, validates
+that chain against the pinned root **and** the pinned endpoint, applies §14.3 to decide
+which leaf is current, and verifies the card under the leaf that actually validated —
+returning the newer leaf so `syncOne` can repin it. `TestSyncLearnsARenewalAndNeverAnAddress`
+covers all four outcomes: a renewal is learned, a chain valid at another address is refused
+because that is §5.3's decision and not a poll's, a superseded leaf proves nothing, and —
+kept as a standing assertion so the regression cannot return quietly — a renewal's card does
+**not** verify under the pinned key, which is precisely the refusal the old code produced.
+
+The reading below is what the finding rested on before the fix, and is kept because the
+per-posture behaviour was inferred rather than tested and the fix did not need to settle it:
 
 - `peerFor` returns `c.SPKI`, which a 2.0 pin fills with the pinned **leaf** key
   (`store.Contact`'s own comment). Verified.
@@ -109,11 +119,13 @@ traced to its end:
   the owner is shown `invalid`; for a **plaintext** peer no repin fires at all. Both of
   those are **inferred**. Neither has a test, and a test is what would settle them.
 
-The fix is not one line. A chain fetched from a poll must be validated with
-`ExpectedEndpoint` as well as `ExpectedRoot`: a chain that validates to the pinned root at
-a *different* endpoint is §5.3, a new address needing the owner or `accept_new_hosts`, and
-advancing a pin from it would turn the sweep into an unattended address-follow — worse than
-the defect it fixed.
+The fix was not one line, for the reason anticipated: a chain fetched from a poll is
+validated with `ExpectedEndpoint` as well as `ExpectedRoot`, because a chain that validates
+to the pinned root at a *different* endpoint is §5.3 — a new address needing the owner or
+`accept_new_hosts` — and advancing a pin from it would have turned the sweep into an
+unattended address-follow, worse than the defect it fixed. `sync.go`'s own header comment,
+which still stated the 1.x rule ("moving a pin requires update_contact's old-key
+signature"), was rewritten with it.
 
 H18 is not a defect in 2.0 and is recorded so nobody reads the node's version line as an
 oversight. The protocol gained the confirmation bound at 2.1.0 on 2026-09-19; the node does
@@ -125,6 +137,39 @@ left the pin untouched on a failed confirmation. So unlike the twelve findings a
 does not demonstrate a fix — it pins behaviour that was already right, before a future
 implementation of the interval bound can quietly break it. That is worth having and is not
 the same claim.
+
+## H19: the byte-pin that cannot be reproduced where it is documented
+
+This one was found by trying to do something else. Fixing the ports' stale
+`spec: "2.0.0-draft"` constant means rebuilding the wasm, so the first step was to check
+that a rebuild reproduces the committed bytes. It does not:
+
+```
+committed   639118 bytes  sha256 78a62973a2efb8d995c0f9ad8cead611f47a39d919295f5b35593063794d23ec
+no-op build 636920 bytes  sha256 304c91d675f5ae5c4d090d5bb6ce113453c5163b413e821cbff2bb492b91ee5a
+```
+
+Same crate, same source, same `rustc 1.92.0 (ded5c06cf 2025-12-08)`, same
+`wasm-pack 0.15.0` — the two values the manifest records. The difference is the build host:
+the committed bytes come from the Linux runner, the second from darwin/arm64.
+
+Three things follow, and the third is why this is filed rather than fixed:
+
+1. `js/verify.mjs` **fails on any machine that is not the one that produced the manifest**,
+   which is every contributor following `README.md`'s own build instruction.
+2. The workflow's `git diff --exit-code js/manifest.json` turns that into a trap: a
+   contributor who rebuilds and commits the manifest their machine produced breaks the gate
+   for everyone, and the error text — "js/manifest.json does not describe this build" —
+   points at the manifest rather than at the platform.
+3. **It cannot be fixed from this machine.** Recording the host triple in the manifest is
+   the right fix, but committing a manifest that says `aarch64-apple-darwin` would fail the
+   same diff check on the Linux runner. So the fix belongs where CI builds, and the
+   `2.0.0-draft` constant is blocked behind it — not behind the ceremony re-pin, which
+   turned out to be the cheap half.
+
+Nothing was committed from the diagnostic build: `js/pkg-*` is gitignored and
+`js/manifest.json` was restored to the pinned values byte for byte. The vendored copy in
+pact-cloud was never touched, and `check-wasm.mjs` still verifies it.
 
 ## What is proven where
 

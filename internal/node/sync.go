@@ -10,19 +10,25 @@ package node
 // re-fetched on a slow cadence and the stored card replaced when — and only
 // when — the signature verifies under the key we already pin.
 //
-// What sync is NOT: a key-change channel. The re-fetched card MUST name the
-// key we pin; a card naming any other key is refused outright, because moving
-// a pin requires update_contact's old-key signature (PACT §2), not a poll. A
-// compromised or confused peer endpoint therefore cannot walk our pin
-// anywhere — the worst a bad sync answer can do is be ignored.
+// What sync can and cannot move. The re-fetched card MUST name the ROOT we pin, which
+// nothing can change (§14.3). The LEAF beneath it is different: a renewal is a new leaf
+// signed by that same root for the same address, it authorizes itself — PACT §2, "because
+// the endpoint is unchanged it needs no one's approval to accept it" — and the sweep now
+// learns one where it used to refuse it as a bad signature. What sync still cannot do is
+// move an ADDRESS: the chain is validated against the pinned endpoint as well as the
+// pinned root, so a chain valid at some other address is §5.3's business and not a poll's.
+// A compromised or confused endpoint therefore cannot walk the pin anywhere the person's
+// own root did not sign it to, and cannot move it off the address at all.
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -107,11 +113,27 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	// check would skip the pins most likely to be missing one, and doing it before costs
 	// nothing: `fillRootCert` writes only what validates to the pinned root.
 	n.fillRootCert(ctx, accountID, contactFpr, stored, out.Chain)
-	if err := verifySyncedCard(contactFpr, spki, out.Card, out.CardSig); err != nil {
-		// A card that does not verify, or names a different key, is refused —
-		// loudly, because a peer serving one is worth the owner's attention.
+	der := make([][]byte, 0, 2)
+	for _, c := range out.Chain {
+		if b, derr := base64.RawURLEncoding.DecodeString(c); derr == nil && len(b) > 0 {
+			der = append(der, b)
+		}
+	}
+	renewed, err := verifySyncedCard(stored, der, out.Card, out.CardSig, n.now())
+	if err != nil {
+		// A card that does not verify, or a chain that does not belong to this pin, is
+		// refused — loudly, because a peer serving one is worth the owner's attention.
 		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr+" why:"+err.Error(), "invalid")
 		return false
+	}
+	// A renewal the chain proved. The endpoint is the pinned one — `verifySyncedCard`
+	// validated against it — so this moves the leaf and never the address.
+	if renewed != nil {
+		if rerr := n.opts.Store.RepinContactAddress(ctx, accountID, contactFpr, stored.Endpoint, renewed.Leaf, renewed.SPKI, n.now().Unix()); rerr != nil {
+			n.auditFor(accountID, "contact_renewal", "contact:"+contactFpr, "error")
+			return false
+		}
+		n.auditFor(accountID, "contact_renewal", "contact:"+contactFpr, "ok")
 	}
 	if stored.Card == out.Card {
 		return false // unchanged: the common case, and no write
@@ -125,29 +147,81 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	return true
 }
 
-// verifySyncedCard is the whole trust decision, kept together so it can be
-// tested without a wire: the card must still name the pinned key, and the
-// signature over its bytes must verify under that key.
-func verifySyncedCard(pinnedFpr string, pinnedSPKI []byte, card, sigB64 string) error {
+// verifySyncedCard is the whole trust decision of the periodic sync, kept together so it
+// can be tested without a wire: what the answer proves about the contact, and what — if
+// anything — the pin should become.
+//
+// It used to refuse a renewal. The card was checked under `stored.SPKI`, the pinned LEAF
+// key, and a peer that had renewed signs its card with the new one — so the honest case
+// came back "the card signature does not verify under the pinned key" and was audited as
+// though the endpoint were compromised. The rule being enforced, "key changes go through
+// update_contact", belongs to the generation where the identity WAS a key and a successor
+// had to be signed by its predecessor. Under 2.0 a leaf signed by the pinned root
+// authorizes itself: PACT §2, "because the endpoint is unchanged it needs no one's
+// approval to accept it."
+//
+// The chain is therefore what decides, and it is validated against BOTH halves of the pin:
+//
+//   - `ExpectedRoot` is the pinned root, which cannot change (§14.3), so a peer answering
+//     with somebody else's root is refused rather than followed.
+//   - `ExpectedEndpoint` is the pinned endpoint, and it is the one that makes this safe to
+//     do unattended. A chain that validates to the pinned root at a DIFFERENT address is
+//     not a renewal, it is §5.3 — a new address, which needs the owner or
+//     `accept_new_hosts`. Advancing a pin from it would turn this sweep into an address
+//     follow nobody asked for, which is worse than the refusal it replaced.
+//
+// Then §14.3 decides which leaf is the identity's voice: a later `notBefore` supersedes,
+// an earlier one proves nothing, and equal dates with different bytes is a refusal.
+func verifySyncedCard(pin store.Contact, chain [][]byte, card, sigB64 string, now time.Time) (renewed *syncedLeaf, err error) {
 	parsed, err := contacts.ValidateInbound(card)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if parsed.Key != pinnedFpr {
-		return fmt.Errorf("the card names %s, not the pinned key — key changes go through update_contact", parsed.Key)
+	if parsed.Key != pin.Fingerprint {
+		return nil, fmt.Errorf("the card names %s, not the pinned root", parsed.Key)
 	}
-	pub, err := x509.ParsePKIXPublicKey(pinnedSPKI)
+	// The key the card's signature must verify under: the pinned leaf's, unless the answer
+	// carried a chain that proves a newer one.
+	signer := pin.SPKI
+	if len(chain) == 2 {
+		vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{
+			Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
+		})
+		if !vr.OK {
+			return nil, fmt.Errorf("the chain it answered with fails rule %d: %s", vr.Rule, vr.Reason)
+		}
+		held, perr := pactidentity.Parse(pin.Leaf)
+		if perr != nil {
+			return nil, fmt.Errorf("the pinned leaf is unreadable: %v", perr)
+		}
+		switch {
+		case vr.Leaf.NotBefore.After(held.NotBefore):
+			// A renewal, and it takes effect the instant it is seen (§14.3).
+			signer = vr.LeafKey.SPKI
+			renewed = &syncedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
+		case vr.Leaf.NotBefore.Before(held.NotBefore):
+			return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (§14.3)")
+		case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
+			return nil, fmt.Errorf("two different leaves claim the same notBefore (§14.3)")
+		}
+	}
+	pub, err := x509.ParsePKIXPublicKey(signer)
 	if err != nil {
-		return fmt.Errorf("pinned key unreadable")
+		return nil, fmt.Errorf("the key to check this card under is unreadable")
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
 	if err != nil {
-		return fmt.Errorf("signature is not base64url")
+		return nil, fmt.Errorf("signature is not base64url")
 	}
 	if !identity.VerifyBytes(pub, []byte(card), sig) {
-		return fmt.Errorf("the card signature does not verify under the pinned key")
+		return nil, fmt.Errorf("the card signature does not verify under the proven leaf key")
 	}
-	return nil
+	return renewed, nil
+}
+
+// syncedLeaf is a newer leaf a sync proved, and what the pin should become.
+type syncedLeaf struct {
+	Leaf, SPKI []byte
 }
 
 // fillRootCert stores the root certificate of a pin that has none, from the chain
