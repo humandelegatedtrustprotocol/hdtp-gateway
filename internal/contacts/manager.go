@@ -122,6 +122,11 @@ type Proof struct {
 	Endpoint     string
 	Leaf         []byte
 	SelfEndpoint string
+	// RootCert is the root's DER when the proof came with a full chain. Empty
+	// for a sealed call, where the chain is inside the ciphertext and only the
+	// library's Decide sees it - such a pin gets its certificate the first time
+	// the contact connects with a client certificate (migration 0029).
+	RootCert []byte
 }
 
 // vet checks a guest's card against what the guest proved: the card must name the
@@ -153,6 +158,7 @@ func (p Proof) pin(c store.Contact) store.Contact {
 	c.Fingerprint, c.SPKI = p.Fingerprint, p.SPKI
 	if p.Protocol == 2 {
 		c.Protocol, c.Endpoint, c.Leaf = 2, p.Endpoint, p.Leaf
+		c.RootCert = p.RootCert
 	}
 	return c
 }
@@ -336,7 +342,7 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 		// active contact at the address it asked from, the way approving a
 		// request would, with its former permissions gone.
 		_, err = m.Store.InsertContact(ctx, store.Contact{AccountID: accountID, Fingerprint: root, SPKI: leaf.SPKI, Status: "active",
-			Protocol: 2, Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject})
+			Protocol: 2, Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject, RootCert: p.RootCert})
 		if err != nil {
 			return p, err
 		}

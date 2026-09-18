@@ -70,6 +70,9 @@ type PendingAddress struct {
 	Leaf      []byte
 	Why       string
 	At        int64
+	// RootCert is the root's DER, as for Contact: the owner may sit on this
+	// decision for days, and the chain that carried it does not come back.
+	RootCert []byte
 }
 
 // RotationFanout is per-contact progress of a key rotation (SPEC §3.9).
@@ -142,6 +145,13 @@ type Contact struct {
 	Endpoint     string
 	Leaf         []byte
 	ChainSentKid string
+	// RootCert is the DER of the root that named this contact (migration 0029).
+	// The chain travels once (PACT sec. 13.2), so without it the certificate is
+	// gone the moment the envelope that carried it is - the pin keeps the root's
+	// fingerprint, and a fingerprint cannot prove a stored leaf, nor can an
+	// archive taken here prove its contacts anywhere else. Empty for a pin made
+	// before this column existed; filled the next time a chain arrives.
+	RootCert []byte
 }
 
 type Invite struct {
@@ -392,6 +402,9 @@ type Store interface {
 	GetPendingAddress(ctx context.Context, accountID, root string) (PendingAddress, error)
 	DeletePendingAddress(ctx context.Context, accountID, root string) error
 	RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, now int64) error
+	// SetContactRootCert fills a pin's root certificate when it has none, and
+	// leaves an existing one alone: the root of a pin cannot change (PACT sec. 14.3).
+	SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error
 	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
 	ClearChainSentKids(ctx context.Context, accountID string) error
 	UpgradeContactPin(ctx context.Context, accountID, oldFpr, root, endpoint string, leaf, spki []byte, now int64) error

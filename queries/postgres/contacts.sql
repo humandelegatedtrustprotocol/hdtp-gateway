@@ -1,6 +1,6 @@
 -- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, protocol, endpoint, leaf, chain_sent_kid)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, protocol, endpoint, leaf, chain_sent_kid, root_cert)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
 
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = $1 AND fingerprint = $2;

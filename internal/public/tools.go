@@ -145,7 +145,7 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	}
 	tf := FactsFrom(ctx)
 	if tf.ClientProtocol == 2 && d.speaks20(ctx) {
-		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Protocol: 2, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf}
+		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Protocol: 2, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf, RootCert: tf.ClientRoot}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}

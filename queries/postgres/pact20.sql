@@ -49,8 +49,11 @@ INSERT INTO former_endpoints (account_id, root, endpoint, at) VALUES ($1, $2, $3
 SELECT * FROM former_endpoints WHERE account_id = $1 ORDER BY at, root, endpoint;
 
 -- name: UpsertPendingAddress :exec
-INSERT INTO pending_addresses (account_id, root, endpoint, leaf, why, at) VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (account_id, root) DO UPDATE SET endpoint = excluded.endpoint, leaf = excluded.leaf, why = excluded.why, at = excluded.at;
+INSERT INTO pending_addresses (account_id, root, endpoint, leaf, why, at, root_cert) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (account_id, root) DO UPDATE SET endpoint = excluded.endpoint, leaf = excluded.leaf, why = excluded.why, at = excluded.at,
+  -- A later note for the same root must not erase a certificate already kept: the
+  -- envelope path has none to offer, and the root of a pending address cannot change.
+  root_cert = COALESCE(excluded.root_cert, pending_addresses.root_cert);
 
 -- name: ListPendingAddresses :many
 SELECT * FROM pending_addresses WHERE account_id = $1 ORDER BY at, root;
@@ -78,3 +81,10 @@ UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1;
 -- Appendix C row 6: a 1.x pin of key K, met by a chain whose leaf key is K,
 -- becomes a 2.0 pin of the root with no human step.
 UPDATE contacts SET fingerprint = $1, protocol = 2, endpoint = $2, leaf = $3, spki = $4, pinned_at = $5 WHERE account_id = $6 AND fingerprint = $7;
+
+-- name: SetContactRootCert :execrows
+-- Fills in a pin's root certificate the first time a chain carries one: a pin made
+-- before this column existed, or one restored from an archive that could not carry it.
+-- Never overwrites, because the root a pin names cannot change (PACT sec. 14.3) and the
+-- cert already stored is the one that was checked when the pin was made.
+UPDATE contacts SET root_cert = $1 WHERE account_id = $2 AND fingerprint = $3 AND (root_cert IS NULL OR length(root_cert) = 0);

@@ -145,47 +145,47 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 //     one peer's documents rather than two assembled into a plausible pair; and
 //  4. `spki` is that leaf's key and it signed the card bytes — which is what makes the sealed
 //     redemption that follows reach the peer this document describes and nobody else.
-func verifyOffer(off inviteOffer) (card contacts.Card, spki []byte, err error) {
+func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, err error) {
 	if len(off.Card) > maxOfferBytes {
-		return card, nil, fmt.Errorf("the card is implausibly large")
+		return card, nil, nil, fmt.Errorf("the card is implausibly large")
 	}
 	card, err = contacts.ValidateInbound(off.Card)
 	if err != nil {
-		return card, nil, fmt.Errorf("the invite's card: %w", err)
+		return card, nil, nil, fmt.Errorf("the invite's card: %w", err)
 	}
 	if len(off.Chain) != 2 {
-		return card, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
+		return card, nil, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
 	}
 	chain := [][]byte{pactidentity.FromB64url(off.Chain[0]), pactidentity.FromB64url(off.Chain[1])}
 	v := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
 	if !v.OK {
-		return card, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)
+		return card, nil, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)
 	}
 	if !bytes.Equal(chain[0], card.Cert) {
-		return card, nil, fmt.Errorf("the invite's chain does not carry the certificate its card does")
+		return card, nil, nil, fmt.Errorf("the invite's chain does not carry the certificate its card does")
 	}
 	if v.RootFingerprint != card.Key {
-		return card, nil, fmt.Errorf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint)
+		return card, nil, nil, fmt.Errorf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint)
 	}
 	spki, err = base64.RawURLEncoding.DecodeString(off.SPKI)
 	if err != nil || len(spki) == 0 {
-		return card, nil, fmt.Errorf("the invite carried no usable public key")
+		return card, nil, nil, fmt.Errorf("the invite carried no usable public key")
 	}
 	if !bytes.Equal(spki, v.LeafKey.SPKI) {
-		return card, nil, fmt.Errorf("the invite's key is not the one its certificate carries")
+		return card, nil, nil, fmt.Errorf("the invite's key is not the one its certificate carries")
 	}
 	pub, err := x509.ParsePKIXPublicKey(spki)
 	if err != nil {
-		return card, nil, fmt.Errorf("the invite's key is unreadable")
+		return card, nil, nil, fmt.Errorf("the invite's key is unreadable")
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(off.CardSig)
 	if err != nil || len(sig) == 0 {
-		return card, nil, fmt.Errorf("the invite's card is not signed")
+		return card, nil, nil, fmt.Errorf("the invite's card is not signed")
 	}
 	if !identity.VerifyBytes(pub, []byte(off.Card), sig) {
-		return card, nil, fmt.Errorf("the invite's card signature does not verify")
+		return card, nil, nil, fmt.Errorf("the invite's card signature does not verify")
 	}
-	return card, spki, nil
+	return card, spki, chain[1], nil
 }
 
 // peerOfCard is the peer a validated 2.0 card describes: pinned by its ROOT, called at the
@@ -270,7 +270,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err != nil {
 		return out, err
 	}
-	peerCard, spki, err := verifyOffer(off)
+	peerCard, spki, peerRootCert, err := verifyOffer(off)
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" url:"+inviteURL, "refused")
 		return out, err
@@ -296,6 +296,12 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err := ci.manager.Initiated(ctx, accountID, peerCard.Key, off.Card, spki,
 		answer.Status == "accepted", answer.Permissions); err != nil {
 		return out, err
+	}
+	// The pin keeps the ROOT's certificate, not just its fingerprint (migration 0029):
+	// this is the one moment it is in hand, since the offer's chain carried it and a
+	// later sealed call will not. Not fatal - the pin is the thing that had to happen.
+	if err := ci.manager.Store.SetContactRootCert(ctx, accountID, peerCard.Key, peerRootCert); err != nil {
+		ci.audit("contact_root_cert", "account:"+accountID+" peer:"+peerCard.Key, "error")
 	}
 	status := "pending_out"
 	if answer.Status == "accepted" {

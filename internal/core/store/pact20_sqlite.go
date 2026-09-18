@@ -154,6 +154,7 @@ func (s *SQLite) UpsertPendingAddress(ctx context.Context, p PendingAddress) err
 	}
 	return s.q.UpsertPendingAddress(ctx, sqlitedb.UpsertPendingAddressParams{
 		AccountID: p.AccountID, Root: p.Root, Endpoint: p.Endpoint, Leaf: p.Leaf, Why: p.Why, At: p.At,
+		RootCert: p.RootCert,
 	})
 }
 
@@ -164,7 +165,7 @@ func (s *SQLite) ListPendingAddresses(ctx context.Context, accountID string) ([]
 	}
 	out := make([]PendingAddress, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At})
+		out = append(out, PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At, RootCert: r.RootCert})
 	}
 	return out, nil
 }
@@ -174,7 +175,7 @@ func (s *SQLite) GetPendingAddress(ctx context.Context, accountID, root string) 
 	if err != nil {
 		return PendingAddress{}, err
 	}
-	return PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At}, nil
+	return PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At, RootCert: r.RootCert}, nil
 }
 
 func (s *SQLite) DeletePendingAddress(ctx context.Context, accountID, root string) error {
@@ -235,4 +236,19 @@ func boolInt(b bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+// SetContactRootCert fills in the root certificate of a pin that has none. A pin
+// whose cert is already stored is left alone: the root cannot change (PACT sec. 14.3),
+// so the stored one is the cert that was checked when the pin was made.
+func (s *SQLite) SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error {
+	if len(cert) == 0 {
+		return nil
+	}
+	if _, err := s.q.SetContactRootCert(ctx, sqlitedb.SetContactRootCertParams{
+		RootCert: cert, AccountID: accountID, Fingerprint: root,
+	}); err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	return nil
 }
