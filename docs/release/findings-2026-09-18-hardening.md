@@ -23,6 +23,9 @@ it is cited for. Every finding below is an instance.
 | H11 | `internal/node/outbound20.go` (was `:87-123`), `tlsCertOf` | The outbound mirror of H2: a contact pinned as 1.x that had not re-pinned was answered with the SUPERSEDED key and a self-signed certificate for it, citing Appendix C — deleted with 1.x. After H2 a conforming peer grants a lone certificate no identity, so presenting one makes the call anonymous rather than compatible | medium | closed |
 | H12 | `internal/outbound/client.go:92` | "Pinned identity as server certificate" compared the presented LEAF's key against `peer.Fingerprint`, which for a 2.0 peer is the ROOT. Dead — and three tests were passing *through* it, so nothing exercised the rule a real caller meets | medium | closed |
 | H13 | `docs/conformance.md:19`, error-code table | The mechanically-checked map stated a 1.x rule ("identifies callers by SPKI fingerprint") with real test names attached, and listed no row for `chain_required`, `certificate_renewed` or `seal_not_accepted`. `TestConformanceDocCitesRealTests` checks that cited names exist; it cannot check that a claim is true or that a list is complete | medium | closed |
+| H14 | `pact-identity/js/musts.json` (3.#1, 9.#2) | The MUST map's eleven "held elsewhere" entries named their holders in free prose that nothing checked. Two of the eleven were wrong: 3.#1 cited a `TestDisplayNameCollision` that has never existed in any repository, and 9.#2 credited `check-slug-rules.mjs`, which compares the portal's reserved-name list against the server's and has nothing to do with holding a vacated address. The artifact built to catch unchecked citations was carrying two of its own | medium | closed |
+| H15 | `internal/node/node.go:403`, `internal/node/outbound20.go:109` | Two spellings of "what a key presents on the wire". `tlsCertOf` carries the §2 reasoning and the guard; `node.go` built the same chain inline and unguarded, and only a test called `tlsCertOf` — so a key with a leaf but no root would have gone out as a malformed chain, and a later change to the guard would not have reached production | low | closed |
+| H16 | `docs/conformance.md:54,68` | `pending_approval` had two rows after H5 — the original and a new sealed one — and the table's dup-detection runs over §11.2, not this table. A reader taking either row alone gets half the rule | low | closed |
 
 ## What the benchmarks say
 
@@ -57,6 +60,28 @@ per call, with no statement cache. The same query through a prepared statement i
 would buy it, and it changes the shape of every generated file and every `New(db)`
 call site. Against a budget with three orders of magnitude of headroom that is a large
 blast radius for nothing, so it is written down here instead of taken.
+
+## The addendum: verifying the verifier
+
+H14–H16 came out of re-reading this register's own artifacts rather than the node's
+code, and H14 is the one worth stating plainly. `js/musts.mjs` was written during this
+pass to find MUSTs that nothing holds. It checked every name it could — scenarios, Rust
+tests, Go tests in `pact-identity` — and printed the eleven cross-repo holders as prose
+it never checked at all. Two were fabricated. The fix is not to correct the two: it is
+that `elsewhere_names` is now a machine-checked list (`gateway:<GoTest>`,
+`cloud:<path>`), confirmed against the sibling repositories whenever they are on disk,
+and the run prints how many names it could **not** confirm rather than passing quietly.
+Locally that is 17 of 17; on the CI runner, where `pact-cloud` is a gitlink nobody
+checks out, it is 10 of 17 with the remaining 7 named as unverified. Restoring the
+original citation reproduces the failure:
+
+```
+DANGLING 3.#1  names gateway:TestDisplayNameCollision, which does not exist in the gateway repository
+```
+
+`js/musts.mjs` is also now a step in `.github/workflows/pact-identity.yml`. Before this
+it was a README command, which is to say it would have rotted on the same schedule as
+the map it guards.
 
 ## What is proven where
 
