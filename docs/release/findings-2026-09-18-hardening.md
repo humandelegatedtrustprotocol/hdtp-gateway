@@ -26,6 +26,8 @@ it is cited for. Every finding below is an instance.
 | H14 | `pact-identity/js/musts.json` (3.#1, 9.#2) | The MUST map's eleven "held elsewhere" entries named their holders in free prose that nothing checked. Two of the eleven were wrong: 3.#1 cited a `TestDisplayNameCollision` that has never existed in any repository, and 9.#2 credited `check-slug-rules.mjs`, which compares the portal's reserved-name list against the server's and has nothing to do with holding a vacated address. The artifact built to catch unchecked citations was carrying two of its own | medium | closed |
 | H15 | `internal/node/node.go:403`, `internal/node/outbound20.go:109` | Two spellings of "what a key presents on the wire". `tlsCertOf` carries the §2 reasoning and the guard; `node.go` built the same chain inline and unguarded, and only a test called `tlsCertOf` — so a key with a leaf but no root would have gone out as a malformed chain, and a later change to the guard would not have reached production | low | closed |
 | H16 | `docs/conformance.md:54,68` | `pending_approval` had two rows after H5 — the original and a new sealed one — and the table's dup-detection runs over §11.2, not this table. A reader taking either row alone gets half the rule | low | closed |
+| H17 | `internal/node/sync.go:194` (`verifySyncedCard`), `internal/cli/cli.go:652` | The contact-sync sweep verifies a re-fetched card under `stored.SPKI` — the pinned **leaf** key, which a renewal replaces — so a peer that has renewed is audited `contact_sync … invalid`. `"sync can never move a pin"` and `"key changes go through update_contact"` are 1.x invariants: under 2.0 a newer leaf signed by the pinned root is self-authorizing (§2, "because the endpoint is unchanged it needs no one's approval to accept it") | medium | **open** |
+| H18 | `internal/node/sync.go` (§14.3's confirmation rule) | The node keeps every pin inside no interval at all: `SyncContacts` runs when an owner or a schedule calls it, and nothing records when a pin was last confirmed. PACT 2.1's §14.3 bound is therefore unimplemented here — which is why this node's `SPEC.md` still says *implements PACT 2.0.0*, correctly | low | **open** |
 
 ## What the benchmarks say
 
@@ -90,6 +92,39 @@ shape — a name nobody can find — for good. It does not close the 9.#2 shape:
 unchanged; the only reason that entry was corrected is that someone read the script. No
 check in this repository can tell whether a cited file holds the sentence it is cited
 for, so that half still rests on a reader, and H13's lesson applies to H14's own fix.
+
+## H17 and H18: what is claimed, and how far it was checked
+
+H17 is **open and characterised by reading, not by a test**, and the distinction matters
+because the behaviour differs by the recipient's seal posture and only one branch was
+traced to its end:
+
+- `peerFor` returns `c.SPKI`, which a 2.0 pin fills with the pinned **leaf** key
+  (`store.Contact`'s own comment). Verified.
+- `syncOne` binds `spki` *before* the `get_card` call and hands that value to
+  `verifySyncedCard` afterwards. Verified by reading both.
+- `repin`, and therefore `OnRepin` and the pin write, is reached only from
+  `internal/outbound/client20.go` — the sealed path. Verified: that is the sole call site.
+- So for a **sealing** peer the pin is expected to advance while the card is refused and
+  the owner is shown `invalid`; for a **plaintext** peer no repin fires at all. Both of
+  those are **inferred**. Neither has a test, and a test is what would settle them.
+
+The fix is not one line. A chain fetched from a poll must be validated with
+`ExpectedEndpoint` as well as `ExpectedRoot`: a chain that validates to the pinned root at
+a *different* endpoint is §5.3, a new address needing the owner or `accept_new_hosts`, and
+advancing a pin from it would turn the sweep into an unattended address-follow — worse than
+the defect it fixed.
+
+H18 is not a defect in 2.0 and is recorded so nobody reads the node's version line as an
+oversight. The protocol gained the confirmation bound at 2.1.0 on 2026-09-19; the node does
+not carry it; its `SPEC.md` saying *implements PACT 2.0.0* is the accurate record.
+
+One honest note on `TestAnUnansweredConfirmationChangesNoPin`, which holds §14.3's MUST
+NOT: **it passed on its first run, against unchanged production code.** The node already
+left the pin untouched on a failed confirmation. So unlike the twelve findings above it
+does not demonstrate a fix — it pins behaviour that was already right, before a future
+implementation of the interval bound can quietly break it. That is worth having and is not
+the same claim.
 
 ## What is proven where
 
