@@ -456,6 +456,31 @@ func Run(t *testing.T, newStore Factory) {
 		if l := byKid["sha256:leaf3"]; l.State != "current" || string(l.Leaf) != "l3" || l.NotAfter != 30 || string(l.KeySealed) != "k3" {
 			t.Fatalf("update lost: %+v", l)
 		}
+		// The sibling kids: what another identity on this node holds. One inbound
+		// envelope asks for this to tell a kid held elsewhere on the node from one
+		// this endpoint never held (PACT §13.3, §14.4), so it must never answer
+		// with the asking account's own kids, and must see every other account's.
+		other, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "sibling", DisplayName: "Sibling", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: other.ID, Kid: "sha256:sibling-leaf", State: "current", Endpoint: "https://s.example/mcp"}); err != nil {
+			t.Fatal(err)
+		}
+		mine, err := s.ListKidsExcept(ctx, a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(mine) != 1 || mine[0] != "sha256:sibling-leaf" {
+			t.Fatalf("the siblings' kids and nothing of our own: %v", mine)
+		}
+		theirs, err := s.ListKidsExcept(ctx, other.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(theirs) != 3 {
+			t.Fatalf("every kid of the other account: %v", theirs)
+		}
 		if n, _ := s.DeleteLeavesByState(ctx, a.ID, "former"); n != 1 {
 			t.Fatalf("delete former: %d", n)
 		}

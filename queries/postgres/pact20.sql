@@ -24,6 +24,14 @@ UPDATE leaves SET leaf = $1, not_before = $2, not_after = $3, state = $4, endpoi
 -- name: ListLeaves :many
 SELECT * FROM leaves WHERE account_id = $1 ORDER BY created_at, kid;
 
+-- name: ListKidsExcept :many
+-- Every leaf kid on this node that does NOT belong to one account. State20 asks
+-- this once per inbound envelope, to tell a kid held for a SIBLING identity from
+-- one this endpoint never held (PACT sec. 13.3, sec. 14.4). It used to be one
+-- query per other account, so the cost of every message grew with the number of
+-- identities the node hosts.
+SELECT account_id, kid FROM leaves WHERE account_id != $1 ORDER BY account_id, kid;
+
 -- name: RetireLeafKey :execrows
 -- A superseded leaf past its not_after: the key is destroyed, the kid kept so
 -- an envelope still sealed to it is answered certificate_renewed (PACT sec. 14.4).

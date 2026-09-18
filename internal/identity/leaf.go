@@ -133,6 +133,14 @@ func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now 
 	if err != nil {
 		return nil, err
 	}
+	return m.ActiveLeafKeypairsFor(ctx, a, now)
+}
+
+// ActiveLeafKeypairsFor is the same read for a caller that already holds the
+// account row. The one on the inbound path does — it is read to answer the
+// envelope — and reading it twice per message bought nothing.
+func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, now time.Time) ([]LeafKey, error) {
+	accountID := a.ID
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
 		return nil, err

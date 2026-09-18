@@ -30,7 +30,7 @@ import (
 type env struct {
 	root     *pactidentity.PrivateKey
 	rootCert []byte
-	t        *testing.T
+	t        testing.TB
 	st       store.Store
 	kr       *core.Keyring
 	idm      *identity.Manager
@@ -39,7 +39,7 @@ type env struct {
 	rows     []string
 }
 
-func newEnv(t *testing.T, slugs ...string) (*env, []store.Account) {
+func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -81,7 +81,7 @@ func newEnv(t *testing.T, slugs ...string) (*env, []store.Account) {
 // a fresh host key, presented as a TLS client certificate. Under 2.0 this is the
 // ONLY thing that establishes a transport identity — a lone self-signed
 // certificate names no root and so names nobody (PACT §2, §14.2).
-func callerChain(t *testing.T, endpoint string) (tls.Certificate, string) {
+func callerChain(t testing.TB, endpoint string) (tls.Certificate, string) {
 	t.Helper()
 	rootKey, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
