@@ -647,9 +647,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	// Contacts in sync (PACT §3): pull each active contact's signed card on a
 	// slow cadence, so an endpoint change whose announcement missed us — we
-	// were offline, or the peer could not seal to us mid-rotation — heals
-	// without waiting for a failed call. The card must verify under the PINNED
-	// key; sync can never move a pin (node.SyncContacts documents the rule).
+	// were offline — heals without waiting for a failed call. The card must name the
+	// pinned ROOT and verify under the leaf the answered chain proves: a renewal is
+	// learned here, an address change is not (node.SyncContacts documents the rule).
 	go func() {
 		const every = 6 * time.Hour
 		t := time.NewTicker(every)
