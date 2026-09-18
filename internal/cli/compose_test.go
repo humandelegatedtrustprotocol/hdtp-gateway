@@ -177,8 +177,8 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 	// identity now; a single self-signed certificate proves nothing (PACT §14.2
 	// rule 1) and its bearer would be refused identity_required.
 	tp := newTestPeer(t, "Peer", "https://peer.example/a/p/mcp")
-	client := &outbound.Client{Keypair: tp.KP, Cert: tp.Cert}
-	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, r.dir, acct, r.public)
+	client := &outbound.Client{Keypair: tp.KP, Cert: tp.Cert, DialContext: dial}
 	hc, err := client.HTTPClient(peer)
 	if err != nil {
 		t.Fatal(err)

@@ -89,11 +89,21 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 					return nil
 				}
 			}
-			// (a) pinned identity as server certificate
-			if fpr, err := identity.Fingerprint(leaf.PublicKey); err == nil && fpr == peer.Fingerprint {
-				return nil
-			}
-			// (b) WebPKI for the hostname
+			// There is no third way. A pinned 2.0 peer is recognised by the chain
+			// above — validated to the root we pinned, at the address we dialed —
+			// and everything else by WebPKI for the hostname, which is what a
+			// terminating edge presents.
+			//
+			// A branch used to sit here comparing the fingerprint of the presented
+			// LEAF's key against `peer.Fingerprint`, described as "pinned identity
+			// as server certificate". For a 2.0 peer `peer.Fingerprint` is the
+			// ROOT, so the two can only be equal if the server is presenting the
+			// root certificate itself — which needs the root's private key, and
+			// that lives in the person's wallet and never on a host. It was the
+			// key-pinned generation's rule, dead since 2026-09-18, and a dead pin
+			// check that reads like a live one is worse than none.
+			//
+			// WebPKI for the hostname:
 			inter := x509.NewCertPool()
 			for _, raw := range rawCerts[1:] {
 				if ic, err := x509.ParseCertificate(raw); err == nil {

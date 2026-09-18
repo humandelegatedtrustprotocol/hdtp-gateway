@@ -62,10 +62,10 @@ func (i *identity20) peerOf() Peer {
 	return Peer{Endpoint: i.endpoint, Fingerprint: i.rootFpr, Seal: "required", Protocol: 2, Root: i.rootFpr, Leaf: i.leaf}
 }
 
-// TestChainAsServerCertificateValidatesToThePinnedRoot: PACT §2 server side,
-// option (b) — a 2.0 node presents its own chain; a 2.0 caller validates it to
-// the root it pinned at the address it dialed, refuses another root, and a 1.x
-// caller still recognises the leaf's key (Appendix C).
+// TestChainAsServerCertificateValidatesToThePinnedRoot: PACT §2 server side —
+// a 2.0 node presents its own chain; a caller validates it to the root it
+// pinned at the address it dialed, refuses another root, refuses another
+// address, and refuses a pin that names a leaf key rather than a root.
 func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 8)
@@ -97,20 +97,27 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	if err := dial(elsewhere); err == nil {
 		t.Fatal("a chain naming another address must be refused (PACT §14.2 rule 5)")
 	}
-	// A 1.x caller pins the leaf's key and reads PeerCertificates[0].
+	// And a pin of the LEAF's key is not a pin at all. The retired generation
+	// recognised a server by the key of the certificate it presented; under 2.0
+	// the identity is the root, so this reaches neither the chain branch (the pin
+	// names no root) nor WebPKI (the chain is not publicly trusted), and the dial
+	// fails. This test asserted the opposite, and passed, which is how a rule
+	// nobody meant to keep survives its own deletion.
 	lib, _ := identity.ToLib(server.kp)
-	if err := dial(Peer{Endpoint: server.endpoint, Fingerprint: pactidentity.Fingerprint(lib.Public.SPKI), Seal: "required"}); err != nil {
-		t.Fatalf("a 1.x pin of the leaf's key must still connect: %v", err)
+	if err := dial(Peer{Endpoint: server.endpoint, Fingerprint: pactidentity.Fingerprint(lib.Public.SPKI), Seal: "required"}); err == nil {
+		t.Fatal("a pin of the leaf's key must not connect: the identity is the root (PACT §2)")
 	}
 }
 
 func TestClientPresentsItsChain(t *testing.T) {
 	got := make(chan []*x509.Certificate, 2)
-	srvKP, _ := identity.Generate(identity.AlgoP256)
-	srvDER, _ := identity.SelfSignedCert(srvKP, "peer")
-	addr := startTLS(t, &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{srvDER}, PrivateKey: srvKP.Signer}}, ClientAuth: tls.RequestClientCert}, got)
+	// The server presents a real chain, because since 2026-09-18 nothing else is
+	// recognised: a self-signed certificate names no root and a caller refuses it
+	// whatever fingerprint it is pinned under.
+	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
+	addr := startTLS(t, &tls.Config{Certificates: []tls.Certificate{server.tlsCert()}, ClientAuth: tls.RequestClientCert}, got)
 	me := newIdentity20(t, "Alina", "https://agent.alina.example/mcp")
-	conn, err := tls.Dial("tcp", addr, me.client().tlsConfig(Peer{Endpoint: "https://x.example/mcp", Fingerprint: srvKP.Fingerprint}, "x.example"))
+	conn, err := tls.Dial("tcp", addr, me.client().tlsConfig(server.peerOf(), "agent.bharat.example"))
 	if err != nil {
 		t.Fatal(err)
 	}
