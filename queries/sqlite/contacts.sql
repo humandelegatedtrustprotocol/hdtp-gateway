@@ -22,13 +22,13 @@ UPDATE contacts SET trust_flag = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: UpdateContactCard :execrows
 -- The periodic contact sync's write: a re-fetched card whose signature
--- verified under the PINNED key. The key itself never moves here — rotation
--- is update_contact's job — so only the card text and the display name change.
+-- verified under the PINNED key. The key itself never moves here - rotation
+-- is update_contact's job - so only the card text and the display name change.
 UPDATE contacts SET card = ?, display_name = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: UpdateContactPetname :execrows
 -- The owner's own name for a contact. Local by construction: no peer surface
--- reaches it, which is the point — display_name is the contact's own claim.
+-- reaches it, which is the point - display_name is the contact's own claim.
 UPDATE contacts SET petname = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: SetContactAccepted :execrows

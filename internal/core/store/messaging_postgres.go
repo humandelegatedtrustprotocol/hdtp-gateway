@@ -33,7 +33,7 @@ func (s *Postgres) TouchThread(ctx context.Context, accountID, threadID string, 
 // ListPendingOutbound returns outbound messages still awaiting delivery, oldest
 // first — the retry sweeper's work list (SPEC §7.1).
 func (s *Postgres) ListPendingOutbound(ctx context.Context, limit int32) ([]Message, error) {
-	rows, err := s.q.ListPendingOutbound(ctx, int64(limit))
+	rows, err := s.q.ListPendingOutbound(ctx, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -134,18 +134,9 @@ func (s *Postgres) GetBlob(ctx context.Context, accountID, hash string) (Blob, e
 }
 
 func (s *Postgres) SumBlobBytes(ctx context.Context, accountID string) (int64, error) {
-	v, err := s.q.SumBlobBytes(ctx, accountID)
-	if err != nil {
-		return 0, err
-	}
-	switch n := v.(type) {
-	case int64:
-		return n, nil
-	case float64:
-		return int64(n), nil
-	default:
-		return 0, nil
-	}
+	// COALESCE(SUM(...), 0) types as a plain int64 here; the type switch this
+	// replaced dated from a generated signature of `interface{}`.
+	return s.q.SumBlobBytes(ctx, accountID)
 }
 
 func (s *Postgres) ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error) {

@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: distclean hooks all analyze vulncheck staticcheck gosec fuzz web dist sbom build check fmt vet test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec fuzz web dist sbom build check fmt vet test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -96,6 +96,43 @@ sbom:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
 check: fmt vet test
+
+# SQLC pins the generator. It is pinned HERE and nowhere else: `sqlc` is not
+# installed on any machine that builds this, and the version matters more than
+# usual because v1.30.0 slices statements out of the query files by a RUNE offset
+# while reading BYTES — one em dash in a comment silently corrupts every statement
+# after it (see TestQuerySourcesAreASCII, and F8 in
+# pact-cloud/docs/release/findings-2026-09-18-rig.md). v1.27.0 and below do not
+# build on a current macOS SDK at all (strchrnul, pg_query_go v5).
+SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+
+# `make sqlc` after any change to migrations/ or queries/. The generated code is
+# committed, so a change that skips this leaves the store reading a schema that
+# does not exist.
+sqlc:
+	$(SQLC) generate
+	@gofmt -l internal/core/store/sqlitedb internal/core/store/pgdb | (! grep .) \
+		|| { echo "sqlc output is not gofmt-clean"; exit 1; }
+	@echo "sqlc: internal/core/store/{sqlitedb,pgdb} regenerated"
+
+# sqlc-check fails when the committed generated code does not match what the
+# current sources produce. NOT part of `check`: it builds sqlc from source, which
+# is minutes, and `check` runs on every commit. CI and `make all` are where it
+# belongs, and it is named here rather than left implicit because the drift it
+# catches is exactly what went unnoticed for weeks.
+sqlc-check:
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+		cp -R internal/core/store/sqlitedb internal/core/store/pgdb "$$tmp/"; \
+		$(SQLC) generate; \
+		if diff -r "$$tmp/sqlitedb" internal/core/store/sqlitedb >/dev/null \
+		&& diff -r "$$tmp/pgdb" internal/core/store/pgdb >/dev/null; then \
+			echo "sqlc-check: generated code matches its sources"; \
+		else \
+			echo "sqlc-check: generated code is STALE - run make sqlc and commit the result"; \
+			diff -r "$$tmp/sqlitedb" internal/core/store/sqlitedb | head -20; \
+			diff -r "$$tmp/pgdb" internal/core/store/pgdb | head -20; \
+			exit 1; \
+		fi
 
 fmt:
 	@d=$$(gofmt -l .); if [ -n "$$d" ]; then echo "gofmt needed:"; echo "$$d"; exit 1; fi

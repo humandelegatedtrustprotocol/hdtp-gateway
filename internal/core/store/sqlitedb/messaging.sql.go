@@ -9,6 +9,69 @@ import (
 	"context"
 )
 
+const countBlobRefs = `-- name: CountBlobRefs :one
+SELECT COUNT(*) FROM blobs WHERE hash = ?
+`
+
+func (q *Queries) CountBlobRefs(ctx context.Context, hash string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countBlobRefs, hash)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteBlob = `-- name: DeleteBlob :execrows
+DELETE FROM blobs WHERE account_id = ? AND hash = ?
+`
+
+type DeleteBlobParams struct {
+	AccountID string
+	Hash      string
+}
+
+func (q *Queries) DeleteBlob(ctx context.Context, arg DeleteBlobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteBlob, arg.AccountID, arg.Hash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteEmptyThreads = `-- name: DeleteEmptyThreads :execrows
+DELETE FROM threads WHERE threads.account_id = ?
+  AND threads.id NOT IN (SELECT thread_id FROM messages WHERE messages.account_id = ?)
+`
+
+type DeleteEmptyThreadsParams struct {
+	AccountID   string
+	AccountID_2 string
+}
+
+func (q *Queries) DeleteEmptyThreads(ctx context.Context, arg DeleteEmptyThreadsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEmptyThreads, arg.AccountID, arg.AccountID_2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteMessagesBefore = `-- name: DeleteMessagesBefore :execrows
+DELETE FROM messages WHERE account_id = ? AND created_at < ?
+`
+
+type DeleteMessagesBeforeParams struct {
+	AccountID string
+	CreatedAt int64
+}
+
+func (q *Queries) DeleteMessagesBefore(ctx context.Context, arg DeleteMessagesBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteMessagesBefore, arg.AccountID, arg.CreatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getBlob = `-- name: GetBlob :one
 SELECT account_id, hash, size, mime, filename, created_at FROM blobs WHERE account_id = ? AND hash = ?
 `
@@ -44,7 +107,12 @@ type GetMessageByMsgIDParams struct {
 }
 
 func (q *Queries) GetMessageByMsgID(ctx context.Context, arg GetMessageByMsgIDParams) (Message, error) {
-	row := q.db.QueryRowContext(ctx, getMessageByMsgID, arg.AccountID, arg.ContactFpr, arg.Direction, arg.MsgID)
+	row := q.db.QueryRowContext(ctx, getMessageByMsgID,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.Direction,
+		arg.MsgID,
+	)
 	var i Message
 	err := row.Scan(
 		&i.Seq,
@@ -122,7 +190,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertMessageParams struct {
-	ExpiresAt  int64
 	ID         string
 	AccountID  string
 	ContactFpr string
@@ -135,6 +202,7 @@ type InsertMessageParams struct {
 	ReplyTo    string
 	Status     string
 	CreatedAt  int64
+	ExpiresAt  int64
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) error {
@@ -154,33 +222,6 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) er
 		arg.ExpiresAt,
 	)
 	return err
-}
-
-const listPendingOutbound = `-- name: ListPendingOutbound :many
-SELECT seq, id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at, expires_at, attempts, next_attempt_at
-FROM messages WHERE direction = 'out' AND status = 'pending' ORDER BY seq LIMIT ?
-`
-
-func (q *Queries) ListPendingOutbound(ctx context.Context, limit int64) ([]Message, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingOutbound, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Message
-	for rows.Next() {
-		var i Message
-		if err := rows.Scan(&i.Seq, &i.ID, &i.AccountID, &i.ContactFpr, &i.MsgID, &i.ThreadID,
-			&i.Direction, &i.Sender, &i.Kind, &i.Body, &i.ReplyTo, &i.Status, &i.CreatedAt, &i.ExpiresAt,
-			&i.Attempts, &i.NextAttemptAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const insertThread = `-- name: InsertThread :exec
@@ -206,6 +247,40 @@ func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) erro
 		arg.LastAt,
 	)
 	return err
+}
+
+const listBlobs = `-- name: ListBlobs :many
+SELECT account_id, hash, size, mime, filename, created_at FROM blobs WHERE account_id = ? ORDER BY created_at
+`
+
+func (q *Queries) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {
+	rows, err := q.db.QueryContext(ctx, listBlobs, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Blob
+	for rows.Next() {
+		var i Blob
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.Hash,
+			&i.Size,
+			&i.Mime,
+			&i.Filename,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listMessagesByThread = `-- name: ListMessagesByThread :many
@@ -240,6 +315,72 @@ func (q *Queries) ListMessagesByThread(ctx context.Context, arg ListMessagesByTh
 			&i.Status,
 			&i.CreatedAt,
 			&i.Kind,
+			&i.ExpiresAt,
+			&i.Attempts,
+			&i.NextAttemptAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingOutbound = `-- name: ListPendingOutbound :many
+SELECT seq, id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at, expires_at, attempts, next_attempt_at
+FROM messages WHERE direction = 'out' AND status = 'pending' ORDER BY seq LIMIT ?
+`
+
+type ListPendingOutboundRow struct {
+	Seq           int64
+	ID            string
+	AccountID     string
+	ContactFpr    string
+	MsgID         string
+	ThreadID      string
+	Direction     string
+	Sender        string
+	Kind          string
+	Body          string
+	ReplyTo       string
+	Status        string
+	CreatedAt     int64
+	ExpiresAt     int64
+	Attempts      int64
+	NextAttemptAt int64
+}
+
+// ListPendingOutbound is the retry sweeper's work list (SPEC sec. 7.1): outbound
+// messages still awaiting delivery, oldest first.
+func (q *Queries) ListPendingOutbound(ctx context.Context, limit int64) ([]ListPendingOutboundRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingOutbound, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingOutboundRow
+	for rows.Next() {
+		var i ListPendingOutboundRow
+		if err := rows.Scan(
+			&i.Seq,
+			&i.ID,
+			&i.AccountID,
+			&i.ContactFpr,
+			&i.MsgID,
+			&i.ThreadID,
+			&i.Direction,
+			&i.Sender,
+			&i.Kind,
+			&i.Body,
+			&i.ReplyTo,
+			&i.Status,
+			&i.CreatedAt,
 			&i.ExpiresAt,
 			&i.Attempts,
 			&i.NextAttemptAt,
@@ -292,25 +433,6 @@ func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([
 	return items, nil
 }
 
-const setMessageStatus = `-- name: SetMessageStatus :execrows
-UPDATE messages SET status = ? WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out'
-`
-
-type SetMessageStatusParams struct {
-	Status     string
-	AccountID  string
-	ContactFpr string
-	MsgID      string
-}
-
-func (q *Queries) SetMessageStatus(ctx context.Context, arg SetMessageStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setMessageStatus, arg.Status, arg.AccountID, arg.ContactFpr, arg.MsgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const markThreadRead = `-- name: MarkThreadRead :execrows
 UPDATE threads SET last_read_seq = (
   SELECT COALESCE(MAX(m.seq), 0) FROM messages m WHERE m.account_id = ? AND m.thread_id = ?
@@ -330,6 +452,64 @@ func (q *Queries) MarkThreadRead(ctx context.Context, arg MarkThreadReadParams) 
 		arg.ThreadID,
 		arg.AccountID_2,
 		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setMessageAttempt = `-- name: SetMessageAttempt :execrows
+UPDATE messages SET attempts = ?, next_attempt_at = ?
+WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out'
+`
+
+type SetMessageAttemptParams struct {
+	Attempts      int64
+	NextAttemptAt int64
+	AccountID     string
+	ContactFpr    string
+	MsgID         string
+}
+
+// SetMessageAttempt records that a delivery attempt was made and when the next
+// one is due. Backoff is a function of attempts MADE, so the count has to
+// survive the sweep that made it.
+func (q *Queries) SetMessageAttempt(ctx context.Context, arg SetMessageAttemptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setMessageAttempt,
+		arg.Attempts,
+		arg.NextAttemptAt,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.MsgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setMessageStatus = `-- name: SetMessageStatus :execrows
+UPDATE messages SET status = ? WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out'
+`
+
+type SetMessageStatusParams struct {
+	Status     string
+	AccountID  string
+	ContactFpr string
+	MsgID      string
+}
+
+// SetMessageStatus records what became of a message AFTER it was written. It is
+// scoped to direction='out' on purpose: only a message we sent has a delivery
+// outcome, and without the scope an outbound msg_id colliding with an inbound
+// one rewrote the peer's row instead.
+func (q *Queries) SetMessageStatus(ctx context.Context, arg SetMessageStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setMessageStatus,
+		arg.Status,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.MsgID,
 	)
 	if err != nil {
 		return 0, err
@@ -378,105 +558,4 @@ func (q *Queries) UnreadCount(ctx context.Context, arg UnreadCountParams) (int64
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const deleteMessagesBefore = `-- name: DeleteMessagesBefore :execrows
-DELETE FROM messages WHERE account_id = ? AND created_at < ?
-`
-
-type DeleteMessagesBeforeParams struct {
-	AccountID string
-	CreatedAt int64
-}
-
-func (q *Queries) DeleteMessagesBefore(ctx context.Context, arg DeleteMessagesBeforeParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteMessagesBefore, arg.AccountID, arg.CreatedAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const deleteEmptyThreads = `-- name: DeleteEmptyThreads :execrows
-DELETE FROM threads WHERE account_id = ?
-  AND id NOT IN (SELECT thread_id FROM messages WHERE account_id = ?)
-`
-
-func (q *Queries) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteEmptyThreads, accountID, accountID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const listBlobs = `-- name: ListBlobs :many
-SELECT account_id, hash, size, mime, filename, created_at FROM blobs WHERE account_id = ? ORDER BY created_at
-`
-
-func (q *Queries) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {
-	rows, err := q.db.QueryContext(ctx, listBlobs, accountID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Blob
-	for rows.Next() {
-		var i Blob
-		if err := rows.Scan(&i.AccountID, &i.Hash, &i.Size, &i.Mime, &i.Filename, &i.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	return items, rows.Err()
-}
-
-const deleteBlob = `-- name: DeleteBlob :execrows
-DELETE FROM blobs WHERE account_id = ? AND hash = ?
-`
-
-type DeleteBlobParams struct {
-	AccountID string
-	Hash      string
-}
-
-func (q *Queries) DeleteBlob(ctx context.Context, arg DeleteBlobParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteBlob, arg.AccountID, arg.Hash)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const countBlobRefs = `-- name: CountBlobRefs :one
-SELECT COUNT(*) FROM blobs WHERE hash = ?
-`
-
-func (q *Queries) CountBlobRefs(ctx context.Context, hash string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countBlobRefs, hash)
-	var n int64
-	err := row.Scan(&n)
-	return n, err
-}
-
-const setMessageAttempt = `-- name: SetMessageAttempt :execrows
-UPDATE messages SET attempts = ?, next_attempt_at = ?
-WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out'
-`
-
-type SetMessageAttemptParams struct {
-	Attempts      int64
-	NextAttemptAt int64
-	AccountID     string
-	ContactFpr    string
-	MsgID         string
-}
-
-func (q *Queries) SetMessageAttempt(ctx context.Context, arg SetMessageAttemptParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setMessageAttempt,
-		arg.Attempts, arg.NextAttemptAt, arg.AccountID, arg.ContactFpr, arg.MsgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }

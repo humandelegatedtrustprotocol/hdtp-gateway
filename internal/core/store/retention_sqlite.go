@@ -11,7 +11,9 @@ func (s *SQLite) DeleteMessagesBefore(ctx context.Context, accountID string, cut
 }
 
 func (s *SQLite) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
-	return s.q.DeleteEmptyThreads(ctx, accountID)
+	// The account is named twice because the statement compares it twice: the threads
+	// to consider, and the messages that keep one alive.
+	return s.q.DeleteEmptyThreads(ctx, sqlitedb.DeleteEmptyThreadsParams{AccountID: accountID, AccountID_2: accountID})
 }
 
 func (s *SQLite) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {

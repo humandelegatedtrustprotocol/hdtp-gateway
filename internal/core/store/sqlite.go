@@ -253,7 +253,9 @@ func (s *SQLite) ListCredentialsByKind(ctx context.Context, kind string) ([]Cred
 }
 
 func (s *SQLite) RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error) {
-	n, err := s.q.DeleteCredentialIfNotLast(ctx, sqlitedb.DeleteCredentialParams{ID: id, Kind: kind})
+	// The kind is named twice because the statement compares it twice: once to pick
+	// the row, once to count the survivors of the same kind.
+	n, err := s.q.DeleteCredentialIfNotLast(ctx, sqlitedb.DeleteCredentialIfNotLastParams{ID: id, Kind: kind, Kind_2: kind})
 	if err != nil {
 		return false, err
 	}
@@ -414,8 +416,12 @@ func (s *SQLite) ListAuditEventsPage(ctx context.Context, p AuditPage) ([]AuditR
 	if p.Limit <= 0 {
 		p.Limit = 200
 	}
+	// Column1 and Column2 are sqlc's names for `?1` and `?2` - the actor and the
+	// account. Named parameters would read better and cannot be used: sqlc rewrites
+	// `sqlc.arg(x)` back to a placeholder in the SQL it emits, and
+	// TestQueriesMatchTheHandWrittenCode compares that text with the source.
 	rs, err := s.q.ListAuditEventsPage(ctx, sqlitedb.ListAuditEventsPageParams{
-		ActorID: p.Actor, AccountID: p.Account, Limit: int64(p.Limit),
+		Column1: p.Actor, Column2: p.Account, Limit: int64(p.Limit),
 	})
 	if err != nil {
 		return nil, err
