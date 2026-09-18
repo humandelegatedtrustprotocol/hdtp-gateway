@@ -22,6 +22,7 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Protocol: contactProtocol(c.Protocol), Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
+		RootCert: c.RootCert,
 	})
 	if err != nil {
 		return Contact{}, err
@@ -43,6 +44,7 @@ func pgContact(r pgdb.Contact) Contact {
 		Endpoint:         r.Endpoint,
 		Leaf:             r.Leaf,
 		ChainSentKid:     r.ChainSentKid,
+		RootCert:         r.RootCert,
 	}
 }
 

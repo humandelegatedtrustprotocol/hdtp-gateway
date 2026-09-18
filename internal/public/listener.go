@@ -39,6 +39,10 @@ type TransportFacts struct {
 	ClientProtocol int
 	ClientLeaf     []byte
 	ClientEndpoint string
+	// ClientRoot is the root's own DER from that chain (migration 0029). The pin
+	// keeps the root's fingerprint, and the chain does not come back: a contact
+	// that connects here is the node's chance to keep the certificate itself.
+	ClientRoot []byte
 }
 
 type factsKey struct{}
@@ -147,6 +151,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
 				f.ClientProtocol, f.ClientLeaf, f.ClientEndpoint = 2, chain[0], vr.Endpoint
+				f.ClientRoot = chain[1]
 			}
 		} else if r.TLS != nil && len(r.TLS.PeerCertificates) == 1 {
 			leaf := r.TLS.PeerCertificates[0]

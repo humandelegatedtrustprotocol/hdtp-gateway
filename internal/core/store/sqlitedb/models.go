@@ -88,6 +88,7 @@ type Contact struct {
 	Endpoint         string
 	Leaf             []byte
 	ChainSentKid     string
+	RootCert         []byte
 }
 
 type Credential struct {
@@ -204,6 +205,7 @@ type PendingAddress struct {
 	Leaf      []byte
 	Why       string
 	At        int64
+	RootCert  []byte
 }
 
 type PendingRequest struct {

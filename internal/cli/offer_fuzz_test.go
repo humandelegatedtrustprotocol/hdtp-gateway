@@ -41,7 +41,7 @@ func FuzzInviteOffer(f *testing.F) {
 		if err := json.Unmarshal(data, &off); err != nil {
 			return
 		}
-		card, spki, err := verifyOffer(off)
+		card, spki, rootCert, err := verifyOffer(off)
 		if err != nil {
 			return
 		}
@@ -61,6 +61,11 @@ func FuzzInviteOffer(f *testing.F) {
 		}
 		if len(off.Chain) != 2 {
 			t.Fatal("verifyOffer accepted an offer with no [leaf, root] chain")
+		}
+		// The root's certificate comes back because the pin keeps it: an offer that
+		// verified without one would pin a root this host could never prove again.
+		if len(rootCert) == 0 {
+			t.Fatal("verifyOffer accepted an offer and returned no root certificate")
 		}
 	})
 }

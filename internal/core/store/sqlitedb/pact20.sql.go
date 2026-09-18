@@ -75,7 +75,7 @@ func (q *Queries) DeleteTombstone(ctx context.Context, arg DeleteTombstoneParams
 }
 
 const getPendingAddress = `-- name: GetPendingAddress :one
-SELECT account_id, root, endpoint, leaf, why, at FROM pending_addresses WHERE account_id = ? AND root = ?
+SELECT account_id, root, endpoint, leaf, why, at, root_cert FROM pending_addresses WHERE account_id = ? AND root = ?
 `
 
 type GetPendingAddressParams struct {
@@ -93,6 +93,7 @@ func (q *Queries) GetPendingAddress(ctx context.Context, arg GetPendingAddressPa
 		&i.Leaf,
 		&i.Why,
 		&i.At,
+		&i.RootCert,
 	)
 	return i, err
 }
@@ -220,7 +221,7 @@ func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, err
 }
 
 const listPendingAddresses = `-- name: ListPendingAddresses :many
-SELECT account_id, root, endpoint, leaf, why, at FROM pending_addresses WHERE account_id = ? ORDER BY at, root
+SELECT account_id, root, endpoint, leaf, why, at, root_cert FROM pending_addresses WHERE account_id = ? ORDER BY at, root
 `
 
 func (q *Queries) ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error) {
@@ -239,6 +240,7 @@ func (q *Queries) ListPendingAddresses(ctx context.Context, accountID string) ([
 			&i.Leaf,
 			&i.Why,
 			&i.At,
+			&i.RootCert,
 		); err != nil {
 			return nil, err
 		}
@@ -426,6 +428,28 @@ func (q *Queries) SetContactChainSentKid(ctx context.Context, arg SetContactChai
 	return result.RowsAffected()
 }
 
+const setContactRootCert = `-- name: SetContactRootCert :execrows
+UPDATE contacts SET root_cert = ? WHERE account_id = ? AND fingerprint = ? AND (root_cert IS NULL OR length(root_cert) = 0)
+`
+
+type SetContactRootCertParams struct {
+	RootCert    []byte
+	AccountID   string
+	Fingerprint string
+}
+
+// Fills in a pin's root certificate the first time a chain carries one: a pin made
+// before this column existed, or one restored from an archive that could not carry it.
+// Never overwrites, because the root a pin names cannot change (PACT sec. 14.3) and the
+// cert already stored is the one that was checked when the pin was made.
+func (q *Queries) SetContactRootCert(ctx context.Context, arg SetContactRootCertParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setContactRootCert, arg.RootCert, arg.AccountID, arg.Fingerprint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateLeaf = `-- name: UpdateLeaf :execrows
 UPDATE leaves SET leaf = ?, not_before = ?, not_after = ?, state = ?, endpoint = ? WHERE account_id = ? AND kid = ?
 `
@@ -489,8 +513,11 @@ func (q *Queries) UpgradeContactPin(ctx context.Context, arg UpgradeContactPinPa
 }
 
 const upsertPendingAddress = `-- name: UpsertPendingAddress :exec
-INSERT INTO pending_addresses (account_id, root, endpoint, leaf, why, at) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (account_id, root) DO UPDATE SET endpoint = excluded.endpoint, leaf = excluded.leaf, why = excluded.why, at = excluded.at
+INSERT INTO pending_addresses (account_id, root, endpoint, leaf, why, at, root_cert) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (account_id, root) DO UPDATE SET endpoint = excluded.endpoint, leaf = excluded.leaf, why = excluded.why, at = excluded.at,
+  -- A later note for the same root must not erase a certificate already kept: the
+  -- envelope path has none to offer, and the root of a pending address cannot change.
+  root_cert = COALESCE(excluded.root_cert, pending_addresses.root_cert)
 `
 
 type UpsertPendingAddressParams struct {
@@ -500,6 +527,7 @@ type UpsertPendingAddressParams struct {
 	Leaf      []byte
 	Why       string
 	At        int64
+	RootCert  []byte
 }
 
 func (q *Queries) UpsertPendingAddress(ctx context.Context, arg UpsertPendingAddressParams) error {
@@ -510,6 +538,7 @@ func (q *Queries) UpsertPendingAddress(ctx context.Context, arg UpsertPendingAdd
 		arg.Leaf,
 		arg.Why,
 		arg.At,
+		arg.RootCert,
 	)
 	return err
 }
