@@ -390,6 +390,12 @@ type Store interface {
 	InsertLeaf(ctx context.Context, l Leaf) error
 	UpdateLeaf(ctx context.Context, l Leaf) error
 	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)
+	// ListKidsExcept is every leaf kid on this node that belongs to some OTHER
+	// account. One inbound envelope needs it to tell a kid held for a sibling
+	// identity from one this endpoint never held (PACT §13.3, §14.4), and it is
+	// one query rather than one per sibling: the per-account form made the cost
+	// of every message grow with the number of identities the node hosts.
+	ListKidsExcept(ctx context.Context, accountID string) ([]string, error)
 	RetireLeafKey(ctx context.Context, accountID, kid string) error
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
 	UpsertTombstone(ctx context.Context, t Tombstone) error

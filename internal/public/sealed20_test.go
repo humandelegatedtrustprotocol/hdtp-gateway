@@ -41,7 +41,7 @@ func echoTool(name string, tier policy.Tier, perm string) Entry {
 	}
 }
 
-func newSealedEnv(t *testing.T) *sealedEnv {
+func newSealedEnv(t testing.TB) *sealedEnv {
 	t.Helper()
 	e := newEnv20(t)
 	reg := &Registry{}
@@ -63,7 +63,7 @@ func newSealedEnv(t *testing.T) *sealedEnv {
 }
 
 // call invokes sealed_call the way an MCP server would.
-func (s *sealedEnv) call(t *testing.T, env *envelope.Envelope, tf TransportFacts) *mcp.CallToolResult {
+func (s *sealedEnv) call(t testing.TB, env *envelope.Envelope, tf TransportFacts) *mcp.CallToolResult {
 	t.Helper()
 	args, err := json.Marshal(env)
 	if err != nil {
@@ -80,7 +80,7 @@ func (s *sealedEnv) call(t *testing.T, env *envelope.Envelope, tf TransportFacts
 }
 
 // text is the answer's payload, sealed or plaintext, as a string.
-func text(t *testing.T, res *mcp.CallToolResult) string {
+func text(t testing.TB, res *mcp.CallToolResult) string {
 	t.Helper()
 	if res == nil || len(res.Content) == 0 {
 		t.Fatal("no content in the result")
@@ -96,7 +96,7 @@ func text(t *testing.T, res *mcp.CallToolResult) string {
 func msgIDFor(tool, form string) string { return "m-" + tool + "-" + form }
 
 // opened unseals the answer to a peer and reports the inner result and error.
-func (s *sealedEnv) opened(t *testing.T, res *mcp.CallToolResult, p *peer, tool string) (result, errObj json.RawMessage) {
+func (s *sealedEnv) opened(t testing.TB, res *mcp.CallToolResult, p *peer, tool string) (result, errObj json.RawMessage) {
 	t.Helper()
 	if res.IsError {
 		t.Fatalf("a refusal that could be sealed came back in plaintext: %s", text(t, res))

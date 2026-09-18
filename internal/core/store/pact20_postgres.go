@@ -88,6 +88,20 @@ func (s *Postgres) ListLeaves(ctx context.Context, accountID string) ([]Leaf, er
 	return out, nil
 }
 
+// ListKidsExcept is the flat form of "every other identity's leaf kids": one
+// query for the whole node, not one per account (§13.3, §14.4).
+func (s *Postgres) ListKidsExcept(ctx context.Context, accountID string) ([]string, error) {
+	rows, err := s.q.ListKidsExcept(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Kid)
+	}
+	return out, nil
+}
+
 func (s *Postgres) RetireLeafKey(ctx context.Context, accountID, kid string) error {
 	if _, err := s.q.RetireLeafKey(ctx, pgdb.RetireLeafKeyParams{AccountID: accountID, Kid: kid}); err != nil {
 		return fmt.Errorf("store: %w", err)

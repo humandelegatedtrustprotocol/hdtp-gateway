@@ -183,6 +183,43 @@ func (q *Queries) ListFormerEndpoints(ctx context.Context, accountID string) ([]
 	return items, nil
 }
 
+const listKidsExcept = `-- name: ListKidsExcept :many
+SELECT account_id, kid FROM leaves WHERE account_id != ? ORDER BY account_id, kid
+`
+
+type ListKidsExceptRow struct {
+	AccountID string
+	Kid       string
+}
+
+// Every leaf kid on this node that does NOT belong to one account. State20 asks
+// this once per inbound envelope, to tell a kid held for a SIBLING identity from
+// one this endpoint never held (PACT sec. 13.3, sec. 14.4). It used to be one
+// query per other account, so the cost of every message grew with the number of
+// identities the node hosts.
+func (q *Queries) ListKidsExcept(ctx context.Context, accountID string) ([]ListKidsExceptRow, error) {
+	rows, err := q.db.QueryContext(ctx, listKidsExcept, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListKidsExceptRow
+	for rows.Next() {
+		var i ListKidsExceptRow
+		if err := rows.Scan(&i.AccountID, &i.Kid); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLeaves = `-- name: ListLeaves :many
 SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at FROM leaves WHERE account_id = ? ORDER BY created_at, kid
 `
