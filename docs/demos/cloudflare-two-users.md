@@ -4,8 +4,9 @@ The only demo where the product meets a **third-party edge it does not control**
 Two nodes, each behind its own Cloudflare tunnel on a subdomain of a real zone,
 pairing and messaging across the public internet.
 
-Executed against `pact-gateway.com` — `Last manual run: 2026-09-06`; the first run, on `pact-protocol.com`, was 2026-08-26. It found
-E17 on its first attempt.
+Executed against `pact-gateway.com` — `Last manual run: 2026-09-18`; the first run, on `pact-protocol.com`, was 2026-08-26. It found
+E17 on its first attempt, and F9 through F11 on the run that proved PACT 1.x was gone (see
+`pact-cloud/docs/release/findings-2026-09-18-rig.md`).
 
 It is worth the setup because edge mode cannot be faked convincingly. Cloudflare
 terminates TLS, so the node never sees a caller's certificate and identity comes
@@ -20,6 +21,11 @@ them break locally.
 - An API token with **Zone.DNS:Edit** on that zone
 - `cloudflared` logged in (`cloudflared tunnel login`)
 - Docker, and `make harness-image`
+- **A wallet**: `cargo build --release -p pact` in `../pact-identity`, or `PACT_WALLET=<path>`.
+  A PACT 2.0 account holds a key and no certificate until a person's root issues a leaf for
+  it, so a rig whose nodes never meet a wallet has no identity to pin and the scenario stops
+  at *"has no certificate yet"*. Alice and bob are fictional, so the script keeps their vaults
+  in its work directory; a real owner runs those three commands themselves.
 
 ## Run it
 
@@ -32,13 +38,32 @@ export CF_API_TOKEN=<a token with Zone.DNS:Edit>
 ```
 
 That creates two tunnels (`pact-alice`, `pact-bob`), two proxied CNAMEs
-(`alice.` and `bob.`), and four containers: a node and a connector for each. Then:
+(`alice.` and `bob.`), six containers — a node, a connector and a portal bridge each — and
+then **certifies both identities**: a vault per user, `account csr` out of the container,
+`pact id issue`, `install-leaf` back in. It prints the installed leaf for each, and skips the
+whole step for an identity that already has a certificate, so a re-run against a kept volume
+changes nothing. Then:
 
 ```
 cd harness
 PACT_HARNESS_LIVE=1 PACT_CF_DOMAIN=example.com \
-  go test ./scenario/ -run TestTwoUsersOverRealCloudflare -v
+  go test ./scenario/ -run TestTwoUsersOverRealCloudflare -v -count=1
 ```
+
+`-count=1` matters: Go caches a passing live test, and a cached pass against a rig you have
+since rebuilt reports the *previous* rig's fingerprints.
+
+And the black-box battery, which is the other half of a run:
+
+```
+pact vectors intrude --against https://alice.example.com/a/alice/mcp --card alice.vcf
+```
+
+It needs `--card` because the node serves **no card at a URL of its own**: SPEC §9 puts a
+host's card on its invite landing page, and the public surface is three routes —
+`/a/{slug}/mcp`, `/i/{token}`, `/mcp`. Save the card from the landing page (or from a peer
+that has already paired). A good run says `11 scenarios: 11 blocked, 0 reproduce`; anything
+it cannot classify prints as `unknown:` and counts as a REPRODUCTION, on purpose.
 
 The test registers a passkey on each node through a real browser, connects to
 each owner MCP, has alice issue an invite, has **bob redeem it across the
