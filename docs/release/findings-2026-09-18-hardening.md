@@ -83,6 +83,14 @@ DANGLING 3.#1  names gateway:TestDisplayNameCollision, which does not exist in t
 it was a README command, which is to say it would have rotted on the same schedule as
 the map it guards.
 
+**Half of H14 is mechanical and half is not**, and the register should not imply
+otherwise. A token is checked for existence, never for relevance. That closes the 3.#1
+shape — a name nobody can find — for good. It does not close the 9.#2 shape:
+`check-slug-rules.mjs` is a real file at a real path and would pass the new guard
+unchanged; the only reason that entry was corrected is that someone read the script. No
+check in this repository can tell whether a cited file holds the sentence it is cited
+for, so that half still rests on a reader, and H13's lesson applies to H14's own fix.
+
 ## What is proven where
 
 Worth separating, because the two kinds of evidence are not interchangeable and one of
