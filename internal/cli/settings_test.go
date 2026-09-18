@@ -371,8 +371,8 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
-	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, dir, acct, r.public)
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool(), DialContext: dial}
 
 	// while seal is optional, a plaintext message lands
 	res, err := client.CallTool(ctx, peer, "send_message",
@@ -490,10 +490,9 @@ func TestOwnerActionsAreAuditedAsOwner(t *testing.T) {
 
 	// …and a peer action
 	kp, cert := peerIdentity(t, "bob")
-	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
-	pres, perr := client.CallTool(ctx, outbound.Peer{
-		Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint,
-	}, "send_message", map[string]any{"msg_id": "x", "text": "hi"}, outbound.CallOptions{Plaintext: true})
+	peer, dial := nodePeer(t, dir, acct, r.public)
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool(), DialContext: dial}
+	pres, perr := client.CallTool(ctx, peer, "send_message", map[string]any{"msg_id": "x", "text": "hi"}, outbound.CallOptions{Plaintext: true})
 	_, _ = pres, perr
 
 	st := openStoreAt(t, dir)
@@ -568,8 +567,8 @@ func TestEveryCardEmitterAgreesWithTheServedCard(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
-	peer := outbound.Peer{Endpoint: "https://" + r.public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, dir, acct, r.public)
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool(), DialContext: dial}
 
 	served := func() string {
 		t.Helper()

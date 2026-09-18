@@ -126,8 +126,8 @@ func TestGetStatusAnswersWithoutAnyIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
-	peer := outbound.Peer{Endpoint: "https://" + public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, dir, acct, public)
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool(), DialContext: dial}
 	res, err := client.CallTool(ctx, peer, "get_status", map[string]any{}, outbound.CallOptions{Plaintext: true})
 	if err != nil {
 		t.Fatalf("get_status: %v", err)
@@ -221,18 +221,18 @@ func TestPublishedExposureBecomesAPermittedTool(t *testing.T) {
 	st1.Close()
 
 	startServeAt(t, dir, cfgPath, internal, public)
-	peer := outbound.Peer{Endpoint: "https://" + public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, dir, acct, public)
 
 	// The surface is rebuilt at BOOT, not only on an edit: a node that restarts
 	// must serve what it served before.
-	gc := &outbound.Client{Keypair: granted.KP, Cert: grantedCert, Roots: x509.NewCertPool()}
+	gc := &outbound.Client{Keypair: granted.KP, Cert: grantedCert, Roots: x509.NewCertPool(), DialContext: dial}
 	if !listHasTool(t, ctx, gc, peer, "cal_find_slots") {
 		t.Fatal("a published exposure did not become a tool for a permitted contact")
 	}
 
 	// Nothing an upstream offers is exposed by default, and the gate is the
 	// per-integration permission `integration.<slug>` (§6, §6.6).
-	pc := &outbound.Client{Keypair: plain.KP, Cert: plainCert, Roots: x509.NewCertPool()}
+	pc := &outbound.Client{Keypair: plain.KP, Cert: plainCert, Roots: x509.NewCertPool(), DialContext: dial}
 	if listHasTool(t, ctx, pc, peer, "cal_find_slots") {
 		t.Fatal("a contact without integration.cal could see the exposed tool")
 	}
@@ -414,8 +414,8 @@ func TestExposureChangeThroughOwnerMCPReachesAContact(t *testing.T) {
 	st0.Close()
 
 	r := startServeAt(t, dir, cfgPath, internal, public)
-	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool()}
-	peer := outbound.Peer{Endpoint: "https://" + public + "/a/alice/mcp", Fingerprint: acct.Fingerprint}
+	peer, dial := nodePeer(t, dir, acct, public)
+	client := &outbound.Client{Keypair: kp.KP, Cert: cert, Roots: x509.NewCertPool(), DialContext: dial}
 
 	if listHasTool(t, ctx, client, peer, "cal_find_slots") {
 		t.Fatal("a tool was served before anything was published")

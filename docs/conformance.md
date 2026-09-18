@@ -16,7 +16,8 @@ PACT §12: *"an implementation is a PACT agent server if it…"*
 | Clause | Where it lives | Tests |
 |---|---|---|
 | exposes an MCP server over HTTPS accepting TLS client certificates | `internal/public/listener.go`, `internal/node` | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestSNISelectsPerAccountIdentityCertificates`, `TestServeRunsTheWholeNode` |
-| identifies callers by SPKI fingerprint against a contact list | `internal/identity`, `internal/public/identify.go` | `TestFingerprintMatchesOpenSSLFixture`, `TestFingerprintFormat` |
+| identifies callers by fingerprint against a contact list — **the root of a validated chain** | `internal/public/listener.go`, `internal/public/identify20.go` | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestPact20TransportChainResolvesThroughThePinChecks`, `TestV2PinnedContactBothForms`, `TestClientCertRequiredTakesAChainAndNothingElse` |
+| the fingerprint itself is `"sha256:" + base64url(SHA-256(SPKI))` | `internal/identity` | `TestFingerprintMatchesOpenSSLFixture`, `TestFingerprintFormat` |
 | guest / pending / contact tiers | `internal/core/policy`, `internal/public/servers.go` | `TestTierFor`, `TestAllowExactTierAndPermission`, `TestToolsListPerTier`, `TestBuiltinToolSurfacePerTier` |
 | implements the guest and pending tools | `internal/public/tools.go` | `TestBuiltinToolSurfacePerTier`, `TestRedeemInvitePinsProvenKeyAndInvalidates`, `TestPendingAnswerTools` |
 | implements `send_message` | `internal/public/tools.go`, `internal/messaging` | `TestSendMessageRecordsAndIsIdempotent`, `TestThreadIDSharedAcrossDirections` |
@@ -39,8 +40,13 @@ optional|required` additionally implements §13"*.
 
 ## Error codes
 
-Every code of PACT §12 (the 1.0 set plus the 1.1 delta) and the test that
-produces it from the surface, not from a unit stub.
+Every code of PACT §12 and the test that produces it from the surface, not from a
+unit stub.
+
+This table used to say "the 1.0 set plus the 1.1 delta" and stop at
+`seal_required`, which left the three codes 2.0 added with no row at all — while
+`TestConformanceDocCitesRealTests` reported the map as sound, because it checks
+that cited test names exist and cannot check that the list is complete.
 
 | Code | Tests |
 |---|---|
@@ -54,6 +60,12 @@ produces it from the surface, not from a unit stub.
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
+| `identity_required` | `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored`, `TestClientCertRequiredTakesAChainAndNothingElse` |
+| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `FuzzSealedPayload`, and the whole intrusion battery (`pact vectors intrude`) |
+| `chain_required` (2.0 — a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike) | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
+| `certificate_renewed` (2.0 — an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
+| `seal_not_accepted` (1.2 — a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
+| `pending_approval` **sealed**, because the envelope had already opened (§13.2) | `TestARefusalPastTheOpenIsSealed` |
 
 ## Limits
 

@@ -1,11 +1,9 @@
 package node
 
-// SNI selection and the 1.x fan-out's reading of its own progress: two places
-// where the node chose the wrong key, and one where two accounts could quietly
-// take each other's host.
+// SNI selection: where the node chose the wrong key, and where two accounts
+// could quietly take each other's host.
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -60,52 +58,5 @@ func TestIndexHostRefusesToTakeAnotherAccountsHost(t *testing.T) {
 	}
 	if !clashed {
 		t.Fatalf("the clash was not audited: %v", d.log[before:])
-	}
-}
-
-func TestLegacyContactToldReadsItsOwnCampaign(t *testing.T) {
-	// A fan-out row naming an OLDER key says the contact was told of THAT key,
-	// not of the one we hold now — so it is not told. Reading it as told (which
-	// "no row for this key" legitimately means) presented the current key to a
-	// contact still pinning an earlier one, which its pin refuses. Two renewals
-	// inside one leaf's life are all it takes.
-	ctx := context.Background()
-	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
-	dn := &demoNet{hosts: map[string]string{}}
-	d := startDemoNode(t, clock, dn, "alina", "Alina Rao", 2, 365)
-	const contact = "sha256:onexcontact"
-
-	told, err := d.n.legacyContactTold(ctx, d.acct.ID, contact, "kid-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !told {
-		t.Fatal("no row at all: the contact pinned the current key when it was added")
-	}
-	// Told of kid-1, while we now hold kid-2.
-	if err := d.st.UpsertRotationFanout(ctx, store.RotationFanout{
-		AccountID: d.acct.ID, ContactFpr: contact, NewFpr: "kid-1", Status: "done", Attempts: 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	told, err = d.n.legacyContactTold(ctx, d.acct.ID, contact, "kid-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if told {
-		t.Fatal("a row for an earlier key is not this campaign: the contact still pins kid-1")
-	}
-	// Told of kid-2 itself: told.
-	if err := d.st.UpsertRotationFanout(ctx, store.RotationFanout{
-		AccountID: d.acct.ID, ContactFpr: contact, NewFpr: "kid-2", Status: "done", Attempts: 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	told, err = d.n.legacyContactTold(ctx, d.acct.ID, contact, "kid-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !told {
-		t.Fatal("a done row for the current key is told")
 	}
 }

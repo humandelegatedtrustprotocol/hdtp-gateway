@@ -80,84 +80,37 @@ func (n *Node) wire20(accountID string, client *outbound.Client) *outbound.Clien
 }
 
 // clientForContact is the client that speaks for an account toward one contact.
-// PACT Appendix C row 2: after a renewal with a fresh key, a contact pinned as
-// 1.x that has not yet re-pinned still recognises the OLD key — so until the
-// rotation fan-out has reached it, the superseded key and its leaf are what
-// we present there, as 1.2 §2 requires.
+//
+// One account, one live leaf, one client. There used to be a second: a contact
+// pinned as 1.x that had not yet re-pinned after a renewal still recognised the
+// OLD key, so until the fan-out reached it the SUPERSEDED key and a self-signed
+// certificate for it were what we presented there — PACT Appendix C row 2, an
+// appendix deleted with 1.x on 2026-09-18.
+//
+// It was the outbound mirror of a hole closed inbound the same day: a lone
+// self-signed certificate names no root, so a conforming 2.0 peer grants it no
+// identity at all. Presenting one would make the call anonymous rather than
+// compatible. The branch could only be entered by a contact row whose protocol is
+// not 2, which migration 0029 left none of, and it read `rotation_fanout` rows of
+// kinds the same migration deleted.
 func (n *Node) clientForContact(ctx context.Context, accountID string, c store.Contact) (*outbound.Client, error) {
-	client, err := n.OutboundClient(accountID)
-	if err != nil {
-		return nil, err
-	}
-	n.mu.RLock()
-	a := n.accounts[accountID]
-	n.mu.RUnlock()
-	if a == nil || a.rec.Protocol != 2 || c.Protocol == 2 {
-		return client, nil
-	}
-	if told, err := n.legacyContactTold(ctx, accountID, c.Fingerprint, a.kp.Fingerprint); err != nil || told {
-		return client, nil
-	}
-	keys, err := n.idm.ActiveLeafKeypairs(ctx, accountID, n.now())
-	if err != nil {
-		return client, nil
-	}
-	// The most recently superseded key is the one a 1.x contact pinned — the
-	// latest by the notBefore of the leaf it was issued under, not the first row
-	// the store happened to return (which is the oldest, by created_at).
-	var latest *identity.LeafKey
-	for i := range keys {
-		k := &keys[i]
-		if k.Current || k.KP.Fingerprint == a.kp.Fingerprint {
-			continue
-		}
-		if latest == nil || k.LeafNotBefore() > latest.LeafNotBefore() {
-			latest = k
-		}
-	}
-	if latest != nil {
-		old := &outbound.Client{Keypair: latest.KP, Cert: tlsCertOf(latest.KP)}
-		return n.wire20(accountID, old), nil
-	}
-	return client, nil
+	return n.OutboundClient(accountID)
 }
 
-// legacyContactTold reports whether the rotation fan-out has reached a 1.x
-// contact with our current key.
-func (n *Node) legacyContactTold(ctx context.Context, accountID, contactFpr, currentKid string) (bool, error) {
-	rows, err := n.opts.Store.ListRotationFanout(ctx, accountID)
-	if err != nil {
-		return false, err
-	}
-	for _, r := range rows {
-		if r.ContactFpr != contactFpr {
-			continue
-		}
-		if r.NewFpr == currentKid {
-			return r.Status == "done", nil
-		}
-		// A row for this contact naming an OLDER key: it was told of that key, not
-		// of the one we hold now, so it is not told. Reading it as told presents
-		// the current key to a contact still pinning an earlier one, which its pin
-		// refuses (two renewals inside one leaf's life do exactly this).
-		return false, nil
-	}
-	// No row for this contact at all: the fan-out never had to reach it — the
-	// contact was added after the change and pinned the current key.
-	return true, nil
-}
-
-// tlsCertOf is what a key presents on the wire: its chain for a 2.0 leaf key,
-// a self-signed certificate otherwise.
+// tlsCertOf is what a key presents on the wire: the chain — leaf then root —
+// and nothing else.
+//
+// A key with no leaf presents NOTHING rather than a self-signed certificate of
+// its own. The identity is the root (PACT §2); a lone certificate names no root,
+// so a conforming peer reads it as no identity, and presenting one would make an
+// outbound call anonymous while looking like it carried credentials. The only key
+// here without a leaf is the account key a first install retires (§14.4) — kept
+// so an envelope still sealed to it can be answered, never to speak under.
 func tlsCertOf(kp *identity.Keypair) tls.Certificate {
-	if kp.Protocol == 2 && len(kp.Leaf) > 0 && len(kp.Root) > 0 {
-		return tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
-	}
-	der, err := identity.SelfSignedCert(kp, "")
-	if err != nil {
+	if kp == nil || len(kp.Leaf) == 0 || len(kp.Root) == 0 {
 		return tls.Certificate{}
 	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}
+	return tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
 }
 
 // hostOfEndpoint is the host a leaf's endpoint names, for SNI selection. The

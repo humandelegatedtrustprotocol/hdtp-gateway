@@ -76,18 +76,19 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(caCert)
 
-	srvKP, _ := identity.Generate(identity.AlgoP256)
-	srvDER, _ := identity.SelfSignedCert(srvKP, "peer")
+	// The server presents a real chain: a self-signed certificate is not an
+	// identity under 2.0, so pinning one would refuse the dial before the thing
+	// this test is about — which certificate the CLIENT sends — could be observed.
+	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 1)
 	addr := startTLS(t, &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{srvDER}, PrivateKey: srvKP.Signer}},
+		Certificates: []tls.Certificate{server.tlsCert()},
 		ClientAuth:   tls.RequestClientCert, // request with CA list, don't verify
 		ClientCAs:    pool,
 	}, got)
 
 	c := accountClient(t)
-	peer := Peer{Endpoint: "https://" + addr, Fingerprint: srvKP.Fingerprint}
-	conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "127.0.0.1"))
+	conn, err := tls.Dial("tcp", addr, c.tlsConfig(server.peerOf(), "agent.bharat.example"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +103,17 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	}
 }
 
-func TestPinnedSelfSignedServerAcceptedAndWrongPinRejected(t *testing.T) {
+// A self-signed server certificate is not an identity, whatever fingerprint it
+// carries.
+//
+// This test used to assert the opposite — "pinned self-signed server accepted" —
+// which was right while the identity WAS a key. Under 2.0 the identity is the
+// root, a lone certificate names no root, and the two ways to recognise a server
+// are the chain validated to the pinned root (PACT §2) and WebPKI for the
+// hostname. A key fingerprint is neither, so both halves of the old test now
+// refuse: the "correct" pin and the wrong one are the same thing to a 2.0 caller,
+// and that is the point.
+func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 	srvKP, _ := identity.Generate(identity.AlgoP256)
 	srvDER, _ := identity.SelfSignedCert(srvKP, "peer")
 	got := make(chan []*x509.Certificate, 4)
@@ -111,24 +122,22 @@ func TestPinnedSelfSignedServerAcceptedAndWrongPinRejected(t *testing.T) {
 	}, got)
 	c := accountClient(t)
 
-	// correct pin
-	okPeer := Peer{Endpoint: "https://" + addr, Fingerprint: srvKP.Fingerprint}
-	conn, err := tls.Dial("tcp", addr, c.tlsConfig(okPeer, "127.0.0.1"))
-	if err != nil {
-		t.Fatalf("pinned peer rejected: %v", err)
-	}
-	conn.Close()
-	<-got
-
-	// wrong pin: the server presents a key that is NOT the contact's
-	other, _ := identity.Generate(identity.AlgoP256)
-	badPeer := Peer{Endpoint: "https://" + addr, Fingerprint: other.Fingerprint}
-	if conn, err := tls.Dial("tcp", addr, c.tlsConfig(badPeer, "127.0.0.1")); err == nil {
+	// The server's own key as the pin: refused. There is no chain to validate and
+	// the certificate is not publicly trusted.
+	its := Peer{Endpoint: "https://" + addr, Fingerprint: srvKP.Fingerprint}
+	if conn, err := tls.Dial("tcp", addr, c.tlsConfig(its, "127.0.0.1")); err == nil {
 		conn.Close()
-		t.Fatal("wrong pin accepted — impersonation possible")
+		t.Fatal("a key-pinned self-signed server was accepted: the identity is the root (PACT §2)")
+	}
+
+	// Another key as the pin: refused for the same reason, by the same words. A
+	// caller learns nothing from the difference, because there is none.
+	other, _ := identity.Generate(identity.AlgoP256)
+	if conn, err := tls.Dial("tcp", addr, c.tlsConfig(Peer{Endpoint: "https://" + addr, Fingerprint: other.Fingerprint}, "127.0.0.1")); err == nil {
+		conn.Close()
+		t.Fatal("wrong pin accepted - impersonation possible")
 	}
 }
-
 func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 	// CA-signed server cert for "pact.example"; client trusts the CA via Roots.
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
