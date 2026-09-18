@@ -156,6 +156,60 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 	return items, nil
 }
 
+const setContactAccepted = `-- name: SetContactAccepted :execrows
+UPDATE contacts SET status = 'active', card = ?, their_permissions = ?, pinned_at = ?
+WHERE account_id = ? AND fingerprint = ?
+`
+
+type SetContactAcceptedParams struct {
+	Card             string
+	TheirPermissions string
+	PinnedAt         sql.NullInt64
+	AccountID        string
+	Fingerprint      string
+}
+
+func (q *Queries) SetContactAccepted(ctx context.Context, arg SetContactAcceptedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setContactAccepted,
+		arg.Card,
+		arg.TheirPermissions,
+		arg.PinnedAt,
+		arg.AccountID,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateContactCard = `-- name: UpdateContactCard :execrows
+UPDATE contacts SET card = ?, display_name = ? WHERE account_id = ? AND fingerprint = ?
+`
+
+type UpdateContactCardParams struct {
+	Card        string
+	DisplayName string
+	AccountID   string
+	Fingerprint string
+}
+
+// The periodic contact sync's write: a re-fetched card whose signature
+// verified under the PINNED key. The key itself never moves here - rotation
+// is update_contact's job - so only the card text and the display name change.
+func (q *Queries) UpdateContactCard(ctx context.Context, arg UpdateContactCardParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateContactCard,
+		arg.Card,
+		arg.DisplayName,
+		arg.AccountID,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateContactPermissions = `-- name: UpdateContactPermissions :execrows
 UPDATE contacts SET permissions = ?, preset = ? WHERE account_id = ? AND fingerprint = ?
 `
@@ -174,6 +228,26 @@ func (q *Queries) UpdateContactPermissions(ctx context.Context, arg UpdateContac
 		arg.AccountID,
 		arg.Fingerprint,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateContactPetname = `-- name: UpdateContactPetname :execrows
+UPDATE contacts SET petname = ? WHERE account_id = ? AND fingerprint = ?
+`
+
+type UpdateContactPetnameParams struct {
+	Petname     string
+	AccountID   string
+	Fingerprint string
+}
+
+// The owner's own name for a contact. Local by construction: no peer surface
+// reaches it, which is the point - display_name is the contact's own claim.
+func (q *Queries) UpdateContactPetname(ctx context.Context, arg UpdateContactPetnameParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateContactPetname, arg.Petname, arg.AccountID, arg.Fingerprint)
 	if err != nil {
 		return 0, err
 	}
@@ -210,65 +284,6 @@ type UpdateContactTrustParams struct {
 
 func (q *Queries) UpdateContactTrust(ctx context.Context, arg UpdateContactTrustParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateContactTrust, arg.TrustFlag, arg.AccountID, arg.Fingerprint)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const setContactAccepted = `-- name: SetContactAccepted :execrows
-UPDATE contacts SET status = 'active', card = ?, their_permissions = ?, pinned_at = ?
-WHERE account_id = ? AND fingerprint = ?
-`
-
-type SetContactAcceptedParams struct {
-	Card             string
-	TheirPermissions string
-	PinnedAt         sql.NullInt64
-	AccountID        string
-	Fingerprint      string
-}
-
-func (q *Queries) SetContactAccepted(ctx context.Context, arg SetContactAcceptedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setContactAccepted,
-		arg.Card, arg.TheirPermissions, arg.PinnedAt, arg.AccountID, arg.Fingerprint)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateContactCard = `-- name: UpdateContactCard :execrows
-UPDATE contacts SET card = ?, display_name = ? WHERE account_id = ? AND fingerprint = ?
-`
-
-type UpdateContactCardParams struct {
-	Card        string
-	DisplayName string
-	AccountID   string
-	Fingerprint string
-}
-
-func (q *Queries) UpdateContactCard(ctx context.Context, arg UpdateContactCardParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateContactCard, arg.Card, arg.DisplayName, arg.AccountID, arg.Fingerprint)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateContactPetname = `-- name: UpdateContactPetname :execrows
-UPDATE contacts SET petname = ? WHERE account_id = ? AND fingerprint = ?
-`
-
-type UpdateContactPetnameParams struct {
-	Petname     string
-	AccountID   string
-	Fingerprint string
-}
-
-func (q *Queries) UpdateContactPetname(ctx context.Context, arg UpdateContactPetnameParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateContactPetname, arg.Petname, arg.AccountID, arg.Fingerprint)
 	if err != nil {
 		return 0, err
 	}

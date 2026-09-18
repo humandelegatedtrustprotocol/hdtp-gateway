@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
 
@@ -17,7 +19,7 @@ func (p *Postgres) SetContactAccepted(ctx context.Context, accountID, fingerprin
 		return err
 	}
 	n, err := p.q.SetContactAccepted(ctx, pgdb.SetContactAcceptedParams{
-		Card: card, TheirPermissions: string(raw), PinnedAt: now,
+		Card: card, TheirPermissions: string(raw), PinnedAt: pgtype.Int8{Int64: now, Valid: true},
 		AccountID: accountID, Fingerprint: fingerprint,
 	})
 	if err != nil {

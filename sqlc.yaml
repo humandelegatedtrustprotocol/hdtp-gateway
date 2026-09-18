@@ -7,6 +7,10 @@ sql:
       go:
         package: "sqlitedb"
         out: "internal/core/store/sqlitedb"
+        # `leaves` singularises to `Leafe`. The name was fixed BY HAND in the
+        # generated file once, which is why regenerating used to break the build.
+        rename:
+          leafe: "Leaf"
   - engine: "postgresql"
     schema: "migrations/postgres"
     queries: "queries/postgres"
@@ -14,4 +18,6 @@ sql:
       go:
         package: "pgdb"
         out: "internal/core/store/pgdb"
+        rename:
+          leafe: "Leaf"
         sql_package: "pgx/v5"

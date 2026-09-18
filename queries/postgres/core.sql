@@ -128,7 +128,7 @@ ON CONFLICT(id) DO UPDATE SET archived_through_seq = excluded.archived_through_s
 DELETE FROM audit_events WHERE seq <= $1;
 
 -- DeleteCredentialIfNotLast removes a credential only while another of the same
--- kind survives — the guard that stops the owner locking themselves out.
+-- kind survives - the guard that stops the owner locking themselves out.
 -- FOR UPDATE over the kind's rows makes the guard atomic: an uncorrelated
 -- COUNT is an InitPlan evaluated once against the statement's own snapshot, so
 -- under READ COMMITTED two concurrent removals could each see two and each
@@ -137,5 +137,5 @@ DELETE FROM audit_events WHERE seq <= $1;
 WITH held AS (
   SELECT id FROM credentials WHERE kind = $2 ORDER BY id FOR UPDATE
 )
-DELETE FROM credentials WHERE id = $1 AND kind = $2
+DELETE FROM credentials WHERE credentials.id = $1 AND credentials.kind = $2
   AND (SELECT COUNT(*) FROM held) > 1;
