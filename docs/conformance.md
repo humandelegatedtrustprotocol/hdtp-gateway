@@ -51,7 +51,7 @@ that cited test names exist and cannot check that the list is complete.
 | Code | Tests |
 |---|---|
 | `unknown_contact` | `TestPendingAnswerTools`, `TestAlwaysToolsAtContactTier` |
-| `pending_approval` | `TestBlockedCallerIsIndistinguishableFromAStranger` |
+| `pending_approval` — plaintext before the envelope opens, **sealed** once it has (§13.2) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestARefusalPastTheOpenIsSealed` |
 | `permission_denied` | `TestCallTimeDenyMidSession`, `TestSealedGuestReachesGuestToolsOnly`, `TestOwnerActionsAreAuditedAsOwner` (audited, per §5.8) |
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
@@ -64,8 +64,7 @@ that cited test names exist and cannot check that the list is complete.
 | `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `FuzzSealedPayload`, and the whole intrusion battery (`pact vectors intrude`) |
 | `chain_required` (2.0 — a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike) | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
 | `certificate_renewed` (2.0 — an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
-| `seal_not_accepted` (1.2 — a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
-| `pending_approval` **sealed**, because the envelope had already opened (§13.2) | `TestARefusalPastTheOpenIsSealed` |
+| `seal_not_accepted` (a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
 
 ## Limits
 
