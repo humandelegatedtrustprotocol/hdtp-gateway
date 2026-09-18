@@ -14,6 +14,11 @@ ZONE_ID="${CF_ZONE_ID:?set CF_ZONE_ID for $DOMAIN}"
 TOKEN="${CF_API_TOKEN:?set CF_API_TOKEN with Zone.DNS:Edit on $DOMAIN}"
 IMAGE="${PACT_IMAGE:-pact-gateway:harness}"
 WORK="${PACT_CF_WORK:-$(mktemp -d)}"
+mkdir -p "$WORK"   # a named PACT_CF_WORK may not exist yet; `install` below does not create it
+# The wallet. An account is created with no certificate (PACT 2.0), so a rig whose nodes
+# are never taken to a wallet has no identity to pin and the scenario stops at
+# "has no certificate yet". `pact` is the wallet here, the way a person's is.
+WALLET="${PACT_WALLET:-../pact-identity/target/release/pact}"
 # A public resolver, on purpose: Docker Desktop forwards the host's resolver into
 # containers, so one NXDOMAIN cached before the record existed makes the name
 # unresolvable for the whole negative TTL — long after the record is live.
@@ -104,12 +109,37 @@ done
 
 sleep 12
 for who in alice bob; do
+  name="$(printf '%s' "${who:0:1}" | tr a-z A-Z)${who:1}"
   docker exec "pactcf-$who" /pact-gateway account create \
-    --slug "$who" --name "$(printf '%s' "${who:0:1}" | tr a-z A-Z)${who:1}" >/dev/null 2>&1 \
+    --slug "$who" --name "$name" >/dev/null 2>&1 \
     || true  # already there on a re-run against a kept volume
+
+  # THE WALLET STEP, and the rig is not a 2.0 rig without it. An account holds a key and
+  # no certificate; the person's root is what makes it an identity, and it lives in a
+  # vault this script owns because the two users here are fictional. A real owner does
+  # these three commands themselves, which is the point of the separation.
+  if ! docker exec "pactcf-$who" /pact-gateway account certificate -slug "$who" 2>/dev/null | grep -q "^root"; then
+    if [ ! -x "$WALLET" ]; then
+      echo "  ($who has no certificate and no wallet at $WALLET: build it with 'cargo build --release -p pact' in pact-identity, or set PACT_WALLET)"
+    else
+      if [ ! -e "$WORK/$who.vault" ]; then
+        printf 'rig-%s-passphrase' "$who" > "$WORK/$who.pass"
+        chmod 600 "$WORK/$who.pass"   # the wallet refuses a passphrase file others can read
+        PACT_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id create --name "$name" --vault "$WORK/$who.vault" >/dev/null
+      fi
+      docker exec "pactcf-$who" /pact-gateway account csr -slug "$who" > "$WORK/$who.csr"
+      PACT_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id issue --vault "$WORK/$who.vault" \
+        --csr "$WORK/$who.csr" --yes --chain-out "$WORK/$who.chain.pem" >/dev/null
+      docker cp "$WORK/$who.chain.pem" "pactcf-$who:/tmp/chain.pem" >/dev/null
+      docker exec "pactcf-$who" /pact-gateway account install-leaf -slug "$who" -chain /tmp/chain.pem
+    fi
+  fi
+
   n=$(docker logs "pactcf-$who-cfd" 2>&1 | grep -c "Registered tunnel connection" || true)
   port=$([ "$who" = alice ] && echo 18120 || echo 18121)
   echo "pactcf-$who: $n edge connections | public https://$who.$DOMAIN | portal http://localhost:$port/"
 done
 echo
 echo "now: PACT_HARNESS_LIVE=1 PACT_CF_DOMAIN=$DOMAIN go test ./scenario/ -run TestTwoUsersOverRealCloudflare -v"
+echo "then, black-box: pact vectors intrude --against https://alice.$DOMAIN/a/alice/mcp --card <alice's card>"
+echo "  (the node serves no card at a URL of its own - SPEC sec. 9 puts it on the invite landing page)"
