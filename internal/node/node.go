@@ -400,7 +400,12 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			rec.Fingerprint = keys[0].Kid
 		}
 		kp = keys[0].KP
-		cert = tls.Certificate{Certificate: [][]byte{kp.Leaf, kp.Root}, PrivateKey: kp.Signer}
+		// Through `tlsCertOf`, not inline: what a key presents on the wire is one
+		// rule (leaf then root, or nothing at all) and it had two spellings, of
+		// which only the guarded one carried the §2 reasoning — and only a test
+		// called it. A key here with a leaf but no root would have gone out as a
+		// malformed chain; it now goes out as no credential.
+		cert = tlsCertOf(kp)
 	} else {
 		// No leaf, so no chain to present and no card to serve — whether this account
 		// was made a moment ago and has not been to a wallet yet, or predates 2.0.
