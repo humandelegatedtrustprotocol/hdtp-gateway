@@ -36,7 +36,7 @@ func offerFor(t testing.TB, p *testPeer, fn string) inviteOffer {
 
 func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	p := newTestPeer(t, "Alina Rao", "https://agent.alina.example/mcp")
-	card, spki, err := verifyOffer(offerFor(t, p, "Alina Rao"))
+	card, spki, rootCert, err := verifyOffer(offerFor(t, p, "Alina Rao"))
 	if err != nil {
 		t.Fatalf("a real 2.0 offer was refused: %v", err)
 	}
@@ -50,6 +50,12 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	}
 	if base64.RawURLEncoding.EncodeToString(spki) != base64.RawURLEncoding.EncodeToString(p.Host.Key.Public.SPKI) {
 		t.Error("the key returned is not the leaf's")
+	}
+	// The ROOT's own certificate comes back too, because the pin keeps it (migration
+	// 0029): the offer's chain is the one moment this host holds it, and a sealed call
+	// afterwards carries the chain inside its ciphertext where only Decide sees it.
+	if len(rootCert) == 0 {
+		t.Error("the offer verified and returned no root certificate to pin")
 	}
 	// And the peer that describes: called at that address, pinned by that root, sealed to that
 	// leaf. `Protocol: 2` is what `outbound.Client` requires before it will speak at all.
@@ -107,7 +113,7 @@ func TestVerifyOfferRefusals(t *testing.T) {
 		t.Run(tc.name+" is refused", func(t *testing.T) {
 			off := offerFor(t, p, "Alina Rao")
 			tc.mut(&off)
-			if _, _, err := verifyOffer(off); err == nil {
+			if _, _, _, err := verifyOffer(off); err == nil {
 				t.Errorf("accepted an offer with %s — %s", tc.name, tc.why)
 			}
 		})

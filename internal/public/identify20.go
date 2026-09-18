@@ -239,7 +239,11 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 		case "pending":
 			why, _ := ef["why"].(string)
 			leafDER := pactidentity.FromB64url(func() string { s, _ := ef["leaf"].(string); return s }())
-			if err := id.notePendingAddress(ctx, accountID, root, endpoint, why, leafDER, now); err != nil {
+			// No root certificate on this path: the chain the sender carried is inside
+			// the ciphertext, and only the library's Decide ever sees it. The pending
+			// row keeps the leaf; the cert arrives if that host connects with a client
+			// certificate (migration 0029).
+			if err := id.notePendingAddress(ctx, accountID, root, endpoint, why, leafDER, nil, now); err != nil {
 				return err
 			}
 		case "event":
@@ -261,10 +265,10 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 // root — a former host after a move, or a compromised one — grew the chain and
 // the owner's feed one row per request, for as long as it kept calling. The row
 // itself is idempotent; the telling is what had to become so.
-func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, endpoint, why string, leafDER []byte, now time.Time) error {
+func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, endpoint, why string, leafDER, rootCert []byte, now time.Time) error {
 	prev, err := id.Store.GetPendingAddress(ctx, accountID, root)
 	unchanged := err == nil && prev.Root == root && prev.Endpoint == endpoint && prev.Why == why
-	if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: accountID, Root: root, Endpoint: endpoint, Leaf: leafDER, Why: why, At: now.Unix()}); err != nil {
+	if err := id.Store.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: accountID, Root: root, Endpoint: endpoint, Leaf: leafDER, Why: why, At: now.Unix(), RootCert: rootCert}); err != nil {
 		return err
 	}
 	if unchanged {
@@ -334,6 +338,15 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 		// Served as a stranger, and indistinguishable from one (§6.1, §13.3).
 		return TransportCaller{Demote: true}
 	}
+	// This is where a pin without its root certificate gets one (migration 0029):
+	// the chain that just validated carries the root, and a pin made over a sealed
+	// call never saw it. Never overwrites — the root of a pin cannot change — and a
+	// failure is not fatal to the request, which is about the caller, not the column.
+	if len(c.RootCert) == 0 && len(tf.ClientRoot) > 0 {
+		if err := id.Store.SetContactRootCert(ctx, id.AccountID, root, tf.ClientRoot); err != nil {
+			id.audit("contact_root_cert", "account:"+id.AccountID+" contact:"+root, "error")
+		}
+	}
 	cmp, err := pactidentity.CompareLeaves(c.Leaf, tf.ClientLeaf)
 	if err != nil || cmp == "superseded" || cmp == "conflict" {
 		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root, "superseded_leaf")
@@ -360,7 +373,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 			}
 		}
 		if policy != "auto" {
-			_ = id.notePendingAddress(ctx, id.AccountID, root, endpoint, why, leaf.DER, now)
+			_ = id.notePendingAddress(ctx, id.AccountID, root, endpoint, why, leaf.DER, tf.ClientRoot, now)
 			// Until the owner decides, the pin stands where it was and nothing
 			// from the new address runs: the caller is composed as an anonymous
 			// guest and every substantive call is refused pending_approval.

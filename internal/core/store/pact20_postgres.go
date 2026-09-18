@@ -154,6 +154,7 @@ func (s *Postgres) UpsertPendingAddress(ctx context.Context, p PendingAddress) e
 	}
 	return s.q.UpsertPendingAddress(ctx, pgdb.UpsertPendingAddressParams{
 		AccountID: p.AccountID, Root: p.Root, Endpoint: p.Endpoint, Leaf: p.Leaf, Why: p.Why, At: p.At,
+		RootCert: p.RootCert,
 	})
 }
 
@@ -164,7 +165,7 @@ func (s *Postgres) ListPendingAddresses(ctx context.Context, accountID string) (
 	}
 	out := make([]PendingAddress, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At})
+		out = append(out, PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At, RootCert: r.RootCert})
 	}
 	return out, nil
 }
@@ -174,7 +175,7 @@ func (s *Postgres) GetPendingAddress(ctx context.Context, accountID, root string
 	if err != nil {
 		return PendingAddress{}, err
 	}
-	return PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At}, nil
+	return PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At, RootCert: r.RootCert}, nil
 }
 
 func (s *Postgres) DeletePendingAddress(ctx context.Context, accountID, root string) error {
@@ -226,6 +227,21 @@ func (s *Postgres) UpgradeContactPin(ctx context.Context, accountID, oldFpr, roo
 	}
 	if n == 0 {
 		return fmt.Errorf("store: contact not found")
+	}
+	return nil
+}
+
+// SetContactRootCert fills in the root certificate of a pin that has none. A pin
+// whose cert is already stored is left alone: the root cannot change (PACT sec. 14.3),
+// so the stored one is the cert that was checked when the pin was made.
+func (s *Postgres) SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error {
+	if len(cert) == 0 {
+		return nil
+	}
+	if _, err := s.q.SetContactRootCert(ctx, pgdb.SetContactRootCertParams{
+		RootCert: cert, AccountID: accountID, Fingerprint: root,
+	}); err != nil {
+		return fmt.Errorf("store: %w", err)
 	}
 	return nil
 }
