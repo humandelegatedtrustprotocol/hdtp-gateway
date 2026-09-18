@@ -44,7 +44,7 @@ type testRoot struct {
 	fpr  string
 }
 
-func newTestRoot(t *testing.T, cn string, at time.Time) *testRoot {
+func newTestRoot(t testing.TB, cn string, at time.Time) *testRoot {
 	t.Helper()
 	key, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
@@ -68,7 +68,7 @@ func (p *peer) chain() [][]byte { return [][]byte{p.leaf, p.root.cert} }
 func (p *peer) fpr() string     { return p.root.fpr }
 
 // leafFor issues a leaf under the peer's root for an endpoint, dated from `at`.
-func (p *peer) leafFor(t *testing.T, endpoint string, at time.Time) []byte {
+func (p *peer) leafFor(t testing.TB, endpoint string, at time.Time) []byte {
 	t.Helper()
 	der, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
 		CN: "Alina Rao", RootCN: "Alina Rao", RootKey: p.root.key, HostPub: p.host.Public, Endpoint: endpoint,
@@ -80,7 +80,7 @@ func (p *peer) leafFor(t *testing.T, endpoint string, at time.Time) []byte {
 	return der
 }
 
-func newPeer(t *testing.T, at time.Time) *peer {
+func newPeer(t testing.TB, at time.Time) *peer {
 	t.Helper()
 	host, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
@@ -91,7 +91,7 @@ func newPeer(t *testing.T, at time.Time) *peer {
 	return p
 }
 
-func newEnv20(t *testing.T) *env20 {
+func newEnv20(t testing.TB) *env20 {
 	t.Helper()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "id20.db"))
 	if err != nil {
@@ -131,7 +131,7 @@ func newEnv20(t *testing.T) *env20 {
 }
 
 // install runs the CSR round trip of PACT §9 for our account under our root.
-func (e *env20) install(t *testing.T, purpose, endpoint string) {
+func (e *env20) install(t testing.TB, purpose, endpoint string) {
 	t.Helper()
 	ctx := context.Background()
 	accts, _ := e.st.ListAccounts(ctx)
@@ -169,7 +169,7 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 	return st, nil
 }
 
-func (e *env20) currentKey(t *testing.T) *identity.Keypair {
+func (e *env20) currentKey(t testing.TB) *identity.Keypair {
 	t.Helper()
 	kp, err := e.id.Keypair(context.Background(), e.acct.ID)
 	if err != nil {
@@ -181,7 +181,7 @@ func (e *env20) currentKey(t *testing.T) *identity.Keypair {
 type seal20Opt func(*pactidentity.SealOpts)
 
 // seal20 seals a `v: 2` request from a peer to our current leaf key.
-func (e *env20) seal20(t *testing.T, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *envelope.Envelope {
+func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *envelope.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
 	spki, _ := identity.SPKI(kp)
@@ -209,13 +209,13 @@ func (e *env20) seal20(t *testing.T, p *peer, form, tool string, args map[string
 	return &wire
 }
 
-func (e *env20) open(t *testing.T, env *envelope.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
+func (e *env20) open(t testing.TB, env *envelope.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
 	return e.id.OpenSealed(context.Background(), e.acct.ID, e.acct.Fingerprint, tf, env, DeliveryDirect)
 }
 
 // pin records a 2.0 contact as a first chain would have.
-func (e *env20) pin(t *testing.T, p *peer, status string) {
+func (e *env20) pin(t testing.TB, p *peer, status string) {
 	t.Helper()
 	leaf, _ := pactidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{

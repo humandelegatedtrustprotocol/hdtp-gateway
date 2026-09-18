@@ -19,4 +19,38 @@ it is cited for. Every finding below is an instance.
 | H7 | `pact-cloud/gateway/src/router/profile.ts:27` | The public profile page reads `X-PACT-KEY` from the card. PACT §3: the retired properties are written by nobody and **honoured by nobody** | low | open |
 | H8 | `docs/threat-model.md` | Pins described as SPKI, adversary A3 as a relay, the reviewer pointed at `internal/envelope/`'s deleted vectors — the reviewer-facing document describes the retired generation | medium | open |
 | H9 | `README.md:68` | `X-PACT-KEY` presented as the identity everything is pinned to | low | open |
-| H10 | `internal/**` | No benchmark exists anywhere in the node. Performance work has no baseline to move | medium | open |
+| H10 | `internal/**` | No benchmark exists anywhere in the node. Performance work has no baseline to move | medium | closed |
+
+## What the benchmarks say
+
+Nothing in the node had ever been measured, so every performance statement about it
+was an opinion. The baseline, on an M2 Max, one core:
+
+| Path | ns/op |
+|---|---|
+| `sealed_call` end to end — open, tier, dispatch, seal the answer back | 884 000 |
+| open a small-form envelope (every message after the first) | 379 000 |
+| open a chain-form envelope (first contact, first after a renewal) | 526 000 |
+| validate a chain (§14.2, two signatures and the whole profile) | 139 000 |
+| seal a result back | 264 000 |
+| one indexed store read (SQLite, `GetAccountByID`) | 16 000 |
+
+**The constant factor does not need tuning, and saying so is the finding.** 884 µs is
+about 1 100 sealed calls a second on one core. PACT §12 caps a contact at 60 calls an
+hour and a guest at 10; a node with a hundred active contacts all at their limit is
+1.7 calls a second. Three orders of magnitude of headroom, on a personal node. Chasing
+the constant would be speculative work against a budget nothing is spending.
+
+**What did need fixing was the part that grows.** `state20` walked every other account
+on the node and asked for its leaves, one query each, on every inbound envelope —
+134 µs at one identity, 262 µs at eight, about 18 µs per extra identity per message,
+unbounded. It is two queries now: 128 µs and 155 µs, a 39% cut at eight and flat in
+query count whatever the node holds. The same read also asked for the account row
+twice; `ActiveLeafKeypairsFor` takes the row the caller already has.
+
+**Measured and deliberately not taken:** sqlc emits `QueryRowContext(ctx, sql, args)`
+per call, with no statement cache. The same query through a prepared statement is
+3.3 µs against 7.3 — **2.2×** on every read in the node. `emit_prepared_queries: true`
+would buy it, and it changes the shape of every generated file and every `New(db)`
+call site. Against a budget with three orders of magnitude of headroom that is a large
+blast radius for nothing, so it is written down here instead of taken.
