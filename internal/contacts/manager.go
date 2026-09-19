@@ -1,7 +1,7 @@
 // Package contacts implements the contact lifecycle of SPEC §9 / PACT §5–§6:
 // invite issuance and redemption, guest contact requests, the pending-tier answer
-// tools, and the always-available contact-tier tools including verified key
-// rotation (update_contact).
+// tools, and the always-available contact-tier tools, including the card refresh
+// a renewal or a move is followed by (update_contact).
 package contacts
 
 import (

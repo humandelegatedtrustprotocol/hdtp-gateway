@@ -55,7 +55,7 @@ func newSealedEnv(t testing.TB) *sealedEnv {
 	pool := NewPool(reg, StoreResolver(e.st), 8)
 	deps := SealedDeps{
 		Pool: pool, Identifier: e.id, AccountID: e.acct.ID, AccountFpr: e.acct.Fingerprint,
-		Keypair: func(ctx context.Context) (*identity.Keypair, error) { return e.id.Keypair(ctx, e.acct.ID) },
+		Keypair: func(ctx context.Context) (*identity.Keypair, error) { return e.keypair(ctx) },
 		Idem:    e.st, Now: func() time.Time { return e.nowAt },
 	}
 	reg.Add(SealedEntries(deps)...)

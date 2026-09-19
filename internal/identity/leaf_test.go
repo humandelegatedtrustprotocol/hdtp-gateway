@@ -176,9 +176,8 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if res3.Endpoint != elsewhere || !res3.KeyChanged {
 		t.Fatalf("move install: %+v", res3)
 	}
-	// Two keys are superseded by now — the 1.x key the upgrade retired and the
-	// renewal's — and both are still inside their notAfter at this moment, so
-	// both are held. (They used to be reported as one because a READ retired the
+	// Two keys are superseded by now — the first leaf's and the renewal's — and both are
+	// still inside their notAfter at this moment, so both are held. (They used to be reported as one because a READ retired the
 	// first; reads no longer write, and `RetireExpiredLeafKeys` does that.)
 	if info, _ := m.Certificate(ctx, a.ID, later.Add(time.Hour)); info.Endpoint != elsewhere || len(info.Superseded) != 2 {
 		t.Fatalf("certificate after move: %+v", info)

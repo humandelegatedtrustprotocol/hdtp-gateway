@@ -110,7 +110,7 @@ func toolsFromGrants(perms []string) []ContactTool {
 	obj := json.RawMessage(`{"type":"object"}`)
 	out := []ContactTool{
 		{Name: "get_card", Description: "Fetch their current signed contact card", InputSchema: obj},
-		{Name: "update_contact", Description: "Replace your card after a key rotation", InputSchema: obj},
+		{Name: "update_contact", Description: "Replace the card this contact holds for you: a new certificate, or a new address", InputSchema: obj},
 		{Name: "remove_contact", Description: "Remove yourself from their contacts", InputSchema: obj},
 	}
 	add := func(perm, name, desc string) {

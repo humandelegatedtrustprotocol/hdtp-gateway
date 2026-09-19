@@ -3,14 +3,12 @@ package internalui
 // Settings · identity (SPEC §8.2): an account's identity and certificate, from
 // the portal.
 //
-// Rotation used to be CLI-only. It is routine key hygiene, and requiring shell
-// access for it is the kind of gap that means it never gets done — the same
-// reasoning that already puts passkey removal on this surface.
-//
-// It is guarded by typing the account slug rather than by a bare button, because
-// it is consequential and not undoable: every active contact is sent an
-// `update_contact` signed by the OLD key, and any contact that never receives it
-// has to re-pin by hand. A misclick should not be able to start that.
+// What it shows is each identity's root, the endpoint its leaf names, the leaf's
+// notAfter and whether a renewal is due; what it does is create a second identity.
+// There is nothing here to rotate: the identity is a root this node does not hold,
+// and a leaf is replaced by the wallet signing a new one. This header described a
+// slug-guarded rotation button, and an `update_contact` "signed by the OLD key", for
+// as long after 1.x went as it took somebody to read it.
 
 import (
 	"context"
@@ -31,7 +29,7 @@ type IdentityDeps struct {
 	// offering a button that cannot work.
 	Create func(ctx context.Context, slug, displayName, algo string) (store.Account, error)
 	Audit  func(action, resource, outcome string)
-	// Certificate reports a 2.0 account's leaf (PACT §2): the root that is
+	// Certificate reports an account's leaf (PACT §2): the root that is
 	// the identity, the endpoint, the dates, and whether renewal is due —
 	// the thirty-day prompt a host owes the person. nil hides the columns.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
@@ -112,7 +110,10 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 			return
 		}
 		d.audit("account_create", "account:"+a.ID+" slug:"+a.Slug, "ok")
-		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is servable now — no restart.", "")
+		// Not "servable now". It said that, and a new identity is not: it has a key and no
+		// certificate, and answers nobody until its wallet has signed one (PACT §2).
+		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is not served yet: run `pact-gateway account csr -slug "+a.Slug+
+			"`, have your wallet sign it, then `pact-gateway account install-leaf`. No restart is needed for either.", "")
 	})
 
 }

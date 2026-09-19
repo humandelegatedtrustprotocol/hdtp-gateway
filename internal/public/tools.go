@@ -120,7 +120,7 @@ type ToolDeps struct {
 	Chain func(ctx context.Context) ([][]byte, error)
 }
 
-// speaks20 reports whether this account holds a leaf; a 1.x account reads a
+// speaks20 reports whether this account holds a leaf, and so has a chain to answer with.
 func (d ToolDeps) speaks20(ctx context.Context) bool {
 	if d.Chain == nil {
 		return false
@@ -266,7 +266,7 @@ func BuiltinEntries(d ToolDeps) []Entry {
 
 		// always available at contact tier, regardless of the switchboard
 		contact("get_card", "", "Fetch my current signed contact card", d.getCard()),
-		contact("update_contact", "", "Replace my card after a key rotation", d.updateContact()),
+		contact("update_contact", "", "Replace the card you hold for me: I have a new certificate, or a new address", d.updateContact()),
 		contact("remove_contact", "", "Remove yourself from my contacts", d.removeContact()),
 
 		contact("send_message", "message.text", "Send a text message", d.sendMessage()),

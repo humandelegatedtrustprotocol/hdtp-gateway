@@ -17,7 +17,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	ctx := context.Background()
 	clock := &demoClock{t: time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
-	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 2, 30)
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 30)
 
 	served := func() bool {
 		for _, s := range bharat.n.Slugs() {
@@ -69,7 +69,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	// And a node that was DOWN when the leaf ran out boots the account as what it is: awaiting a
 	// leaf. It used to boot it as broken — "is 2.0 but holds no current leaf" — and, being the only
 	// account, that refused the whole node.
-	bharat2 := startDemoNode(t, clock, dn, "carol", "Carol", 2, 30)
+	bharat2 := startDemoNode(t, clock, dn, "carol", "Carol", 30)
 	clock.advance(31 * 24 * time.Hour)
 	again, err := New(ctx, Options{
 		Config: core.Config{DataDir: t.TempDir(), PublicURL: "https://" + bharat2.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true},
