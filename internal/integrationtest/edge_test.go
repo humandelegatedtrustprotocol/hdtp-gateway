@@ -72,10 +72,10 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, aliceSPKI := fetchInvite(t, alice.landing.URL, token)
+	fetchInvite(t, alice.landing.URL, token) // reads and verifies the landing, as a redeemer would
 	bobCard, _ := bob.card()
 	direct := alice.asPeer("required")
-	if _, err := bob.client().SealedCall(ctx, direct, aliceSPKI, "redeem_invite",
+	if _, err := bob.client().SealedCall(ctx, direct, "redeem_invite",
 		map[string]any{"token": token, "card": bobCard}, "r-1"); err != nil {
 		t.Fatalf("pairing: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	client.Roots = edgeRoots // the edge's WebPKI-ish cert, not alice's key
 
 	// sealed: succeeds, and the node identifies Bob from the ENVELOPE alone
-	res, err := client.SealedCall(ctx, edgePeer, aliceSPKI, "send_message",
+	res, err := client.SealedCall(ctx, edgePeer, "send_message",
 		map[string]any{"msg_id": "e-1", "text": "through the edge"}, "e-1")
 	if err != nil {
 		t.Fatalf("sealed call through the edge: %v", err)
@@ -118,7 +118,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	if has(plainList, "send_message") || !has(plainList, "redeem_invite") {
 		t.Fatalf("an identity-less list was not the guest surface: %v", names(plainList))
 	}
-	sealedList, err := client.SealedListTools(ctx, edgePeer, aliceSPKI, "l-1")
+	sealedList, err := client.SealedListTools(ctx, edgePeer, "l-1")
 	if err != nil {
 		t.Fatalf("sealed tools/list through the edge: %v", err)
 	}

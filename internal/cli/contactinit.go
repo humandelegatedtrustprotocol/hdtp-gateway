@@ -282,7 +282,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		return out, err
 	}
 	peer := peerOfCard(peerCard)
-	res, err := client.Call(ctx, peer, spki, "redeem_invite",
+	res, err := client.Call(ctx, peer, "redeem_invite",
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
@@ -388,15 +388,11 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	// the certificate, so the key is here — and the request is sealed to it, which is the only way
 	// to reach a peer whose card says `X-PACT-SEAL:required`.
 	peer := peerOfCard(peerCard)
-	leaf, lerr := pactidentity.Parse(peerCard.Cert)
-	if lerr != nil {
-		return out, fmt.Errorf("that card's certificate cannot be read: %w", lerr)
-	}
 	args := map[string]any{"card": ourCard}
 	if note != "" {
 		args["note"] = note
 	}
-	if _, err := client.Call(ctx, peer, leaf.SPKI, "request_contact", args, newCallID()); err != nil {
+	if _, err := client.Call(ctx, peer, "request_contact", args, newCallID()); err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
 		return out, fmt.Errorf("the peer refused the request: %w", err)
 	}
@@ -448,7 +444,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 		// probing (PACT §6.2).
 		args["permissions"] = granted
 	}
-	if _, err := client.Call(ctx, peer, c.SPKI, "contact_accepted", args, newCallID()); err != nil {
+	if _, err := client.Call(ctx, peer, "contact_accepted", args, newCallID()); err != nil {
 		ci.audit("contact_accepted", "account:"+accountID+" peer:"+peerFpr, "unreachable")
 		return err
 	}

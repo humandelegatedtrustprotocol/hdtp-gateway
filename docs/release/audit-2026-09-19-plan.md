@@ -284,13 +284,36 @@ superseded leaf's key; its doc no longer says "for the 1.x rotation toward 1.x p
 `ActiveLeafKeypairs`'s doc contradicted its own body — "destroyed on this path" above a comment
 explaining why destruction is deliberately *not* on this path — which is corrected.
 
-### B8 · `outbound.Client.Call` still reasons about fingerprint-only pins — `TODO`
+### B8 · `outbound.Client.Call` still reasons about fingerprint-only pins — `DONE`
 Found in B3c. Its doc comment cites `spk`, SPEC §4.4/§4.5/§3.9, "the rotation fan-out" and
 `account rotate`; its body has a branch for `len(peerSPKI) == 0` — "a contact re-pinned but not yet
 reconnected holds only a fingerprint (§3.9)", a state only 1.x key rotation produced. `peerOf` now
 refuses any contact without a leaf, so establish whether that branch is reachable; if not, it and
 the plaintext downgrade behind it go, and the comment is rewritten for the one generation.
 *Verify:* `make check`; the outbound seal-decision tests.
+*Result.* The branch was reachable, and by a 2.0 route. `InitiatedByFingerprint` — our own
+`request_contact` — stored the peer's leaf **without the leaf's key**, reasoning that the key
+"arrives with the first chain"; its test *required* "pending_out with no key yet". Nothing filled
+it in later: `contact_accepted` writes the card and the grant, and a chain presenting the same
+leaf re-pins nothing. So a contact we requested became active with no key, and every call to it
+went **plaintext** (`optional`) or failed (`required`), with the key inside the certificate on
+file. `TestAContactWeRequestedIsSealableOnceTheyAccept` fails without the fix ("holds 0 bytes of
+key") and passes with it. Then the redundancy itself went: `Call`, `SealedCall`,
+`SealedListTools`, `exchange`, `sealedExchange20` and `attempt20` no longer take `peerSPKI` — the
+first thing done with it was to check it equalled the key in `peer.Leaf`. With it went `Call`'s
+downgrade branch and `peerFor`'s third return.
+**Removing the downgrade exposed two more bugs it had been hiding**, because one test reached the
+sealed exchange in plaintext by passing a nil key:
+- **A regression from this session's own H6.** The transport identity gate refused *every* tool,
+  `sealed_call` included, when the client chain was at an unapproved address — so the envelope was
+  never opened and `pending_approval` went out in plaintext, which H6 taught the caller to reject
+  as forged. A contact presenting both proofs from a new address — a sealed move announcement over
+  mTLS — got an error it could not act on. The gate now lets a `sealed_call` be answered by its
+  envelope, which meets the same §5.3 decision and answers **sealed**.
+- The sealed path answered `update_contact` at a pending address with the bare object
+  `{"status":"pending"}` rather than a tool result, so a sealed caller decoded an empty answer.
+**Reorder, deliberately:** the node's API moved under the cloud's Go battery twice today and broke
+it silently both times. E3 runs next rather than last, since B6, F1 and F2 move it again.
 
 ### B6 · `accept_new_hosts` cannot be set by an owner — `TODO`
 Found during B2. PACT §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
@@ -407,5 +430,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, B6, B2c, F1, F2, C1–C4, D1, E1, E2, E3. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
 next starts.

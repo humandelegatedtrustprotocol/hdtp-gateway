@@ -107,15 +107,12 @@ func (c *Client) repin(peer Peer, leaf []byte) (Peer, []byte, error) {
 
 // sealedExchange20 is one 2.0 request and its answer, with the three
 // one-time follow-ups of PACT §13.2 and §14.4 applied.
-func (c *Client) sealedExchange20(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
-	if pactidentity.Fingerprint(peerSPKI) != pactidentity.Fingerprint(mustSPKIOfLeaf(peer.Leaf)) {
-		return nil, nil, fmt.Errorf("outbound: the pinned key is not the pinned leaf's")
-	}
+func (c *Client) sealedExchange20(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	form := "chain"
 	if peer.ChainSeen {
 		form = "leaf"
 	}
-	plain, refusal, err := c.attempt20(ctx, peer, peerSPKI, method, params, msgID, form)
+	plain, refusal, err := c.attempt20(ctx, peer, method, params, msgID, form)
 	var unverifiable *errUnverifiable
 	switch {
 	case err == nil && refusal == nil:
@@ -127,7 +124,7 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, peerSPKI []byt
 			// The peer no longer holds our leaf — a renewal it has not seen, or
 			// a pin it lost. Once, with the chain (§13.2).
 			if form == "leaf" {
-				return c.attempt20(ctx, peer, peerSPKI, method, params, msgID, "chain")
+				return c.attempt20(ctx, peer, method, params, msgID, "chain")
 			}
 		case "certificate_renewed":
 			// The key we sealed to has been renewed. The chain proves nothing by
@@ -145,11 +142,11 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, peerSPKI []byt
 			if !ok {
 				return nil, refusal, fmt.Errorf("outbound: certificate_renewed not followed: %s", why)
 			}
-			next, spki, err := c.repin(peer, leaf)
+			next, _, err := c.repin(peer, leaf)
 			if err != nil {
 				return nil, refusal, err
 			}
-			return c.attempt20(ctx, next, spki, method, params, msgID, form)
+			return c.attempt20(ctx, next, method, params, msgID, form)
 		}
 		return nil, refusal, nil
 	case errors.As(err, &unverifiable):
@@ -161,11 +158,11 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, peerSPKI []byt
 		if gerr != nil {
 			return nil, nil, fmt.Errorf("%w; and get_card: %v", err, gerr)
 		}
-		next, spki, rerr := c.repin(peer, leaf)
+		next, _, rerr := c.repin(peer, leaf)
 		if rerr != nil {
 			return nil, nil, rerr
 		}
-		return c.attempt20(ctx, next, spki, method, params, msgID, form)
+		return c.attempt20(ctx, next, method, params, msgID, form)
 	default:
 		return nil, nil, err
 	}
@@ -191,8 +188,16 @@ func (e *errUnattributable) Error() string {
 }
 
 // attempt20 seals one request in the given form, sends it, and opens the answer.
-func (c *Client) attempt20(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
-	recipient, err := pactidentity.ParseSPKI(peerSPKI)
+func (c *Client) attempt20(ctx context.Context, peer Peer, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
+	// Sealed to the key of the leaf we hold for this peer, read from that leaf. It used to arrive
+	// as a second argument beside `peer`, and the first thing done with it was to check it was
+	// this same key — two copies of one fact, and a plaintext downgrade wherever a caller had
+	// only one of them.
+	leafKey := mustSPKIOfLeaf(peer.Leaf)
+	if len(leafKey) == 0 {
+		return nil, nil, fmt.Errorf("outbound: the leaf held for %s does not parse, so there is no key to seal to", peer.Fingerprint)
+	}
+	recipient, err := pactidentity.ParseSPKI(leafKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("outbound: peer key: %w", err)
 	}

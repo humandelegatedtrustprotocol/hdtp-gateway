@@ -189,36 +189,29 @@ func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) 
 	return res.Tools, nil
 }
 
-// SealedCall wraps one inner tools/call in an envelope, invokes the peer's
-// `sealed_call`, and opens the sealed answer (SPEC §4.5). peerSPKI is the
-// recipient's public key — pinned at add-contact time, or taken from the invite
-// landing page for a first, guest call — and MUST hash to peer.Fingerprint.
-// spk carries OUR key inside the payload so an unpinned recipient can verify
-// the signature (§4.4 step 6); it costs nothing to include when already pinned.
 // Call makes a tool call the way the PEER'S CARD says it must be made.
 //
-// The seal decision is one rule and belongs in one place: every outbound call
-// site was choosing for itself, and the rotation fan-out chose `Plaintext: true`
-// unconditionally — so `account rotate` was refused `seal_required` by any peer
-// whose card asks for sealing, silently losing that contact at grace expiry.
+// The seal decision is one rule and belongs in one place — every outbound call site used to
+// choose for itself. A peer whose card says `required` or `optional` is sealed to; only a peer
+// that says `none` gets plaintext (PACT §13.4).
 //
-// peerSPKI may be nil: a contact re-pinned but not yet reconnected holds only a
-// fingerprint (§3.9). Then a peer that REQUIRES sealing is a hard failure, and
-// one that merely accepts it gets plaintext.
-func (c *Client) Call(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
-	sealable := peer.Seal == "required" || peer.Seal == "optional"
-	if sealable && len(peerSPKI) > 0 {
-		return c.SealedCall(ctx, peer, peerSPKI, tool, args, msgID)
-	}
-	if peer.Seal == "required" {
-		return nil, fmt.Errorf("outbound: %s requires sealed calls and only their "+
-			"fingerprint is pinned — they must reach us once so their key can be recorded", peer.Fingerprint)
+// The key sealed to is the one in the leaf held for the peer (`Peer.Leaf`). It used to be a
+// separate argument that "may be nil: a contact re-pinned but not yet reconnected holds only a
+// fingerprint" — a state 1.x key rotation produced — and a nil one sent the call PLAINTEXT to an
+// `optional` peer and failed it outright for a `required` one. 2.0 had a way into that state too:
+// a contact we requested was stored with its leaf and without the leaf's key, so once they
+// accepted, every call to them downgraded. The key is in the leaf; nothing needs to carry it twice.
+func (c *Client) Call(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
+	if peer.Seal == "required" || peer.Seal == "optional" {
+		return c.SealedCall(ctx, peer, tool, args, msgID)
 	}
 	return c.CallTool(ctx, peer, tool, args, CallOptions{Plaintext: true})
 }
 
-func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
-	plain, refusal, err := c.exchange(ctx, peer, peerSPKI, "tools/call",
+// SealedCall wraps one inner tools/call in an envelope sealed to the peer's leaf key, invokes the
+// peer's `sealed_call`, and opens the sealed answer (PACT §13.2).
+func (c *Client) SealedCall(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
+	plain, refusal, err := c.exchange(ctx, peer, "tools/call",
 		map[string]any{"name": tool, "arguments": args}, msgID)
 	if err != nil {
 		return nil, err
@@ -237,8 +230,8 @@ func (c *Client) SealedCall(ctx context.Context, peer Peer, peerSPKI []byte, too
 // way a caller behind a terminating edge learns its real surface, since the
 // plaintext list there arrives with no identity and is answered as to a
 // stranger. The peer applies its own switchboard to the answer.
-func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte, msgID string) ([]*mcp.Tool, error) {
-	plain, refusal, err := c.exchange(ctx, peer, peerSPKI, "tools/list", nil, msgID)
+func (c *Client) SealedListTools(ctx context.Context, peer Peer, msgID string) ([]*mcp.Tool, error) {
+	plain, refusal, err := c.exchange(ctx, peer, "tools/list", nil, msgID)
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +257,9 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, peerSPKI []byte
 // generation: a contact is pinned by its root and speaks `v: 2` (client20.go). A
 // contact that is not — a key pin from before 2.0 — is refused here rather than
 // downgraded, because there is nothing to downgrade to.
-func (c *Client) exchange(ctx context.Context, peer Peer, peerSPKI []byte, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
+func (c *Client) exchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	if !c.speaks20(peer) {
 		return nil, nil, fmt.Errorf("outbound: %s is not a PACT 2.0 contact; add them again from their card to get their root", peer.Fingerprint)
 	}
-	return c.sealedExchange20(ctx, peer, peerSPKI, method, params, msgID)
+	return c.sealedExchange20(ctx, peer, method, params, msgID)
 }
