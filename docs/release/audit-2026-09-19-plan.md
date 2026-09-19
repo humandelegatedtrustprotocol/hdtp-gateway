@@ -195,13 +195,24 @@ fixture's own endpoint — `https://G.example/mcp`, an uppercase host, not RFC 3
 *Verify (all three):* `make check`, `make analyze`, Postgres conformance, and the intrusion
 battery's node-side tests — this is identity resolution, so a green compile is not the bar.
 
-### B4 · The cloud's `v: 1` envelope reader — `TODO`
+### B4 · The cloud's `v: 1` envelope reader — `DONE`
 `src/envelope/envelope.ts`: remove the `h.v !== 1` version check and whatever only it reaches;
 keep the four-member shape codec (`decodeEnvelope`/`encodeEnvelope`, used by the 2.0 path in
 `identity/surface.ts`) and the KEM helpers used by `export/seal.ts`. Rewrite the module header,
 which still describes info `PACT-SEAL-v1` as what this file does.
 *Verify:* `check:fast`, the full test suite, `check-unwired.mjs` (deleting an allowlisted symbol
 makes it "wired" and exits 1 — the allowlist entry goes in the same commit).
+*Result.* `parseHeader` and `Header` — the `v: 1` header shape, `from`/`to` and `if (h.v !== 1)
+throw` — had no caller in `src/` or `workers/`; only their own test file. Removed, with the two
+tests of them. A third test read four `v: 1` envelopes to prove the fingerprint rule through their
+`from`/`to`; the rule belongs to no generation, so it is proven directly now, and
+`test/vectors/envelope-vectors.json` — its only reader gone, its source in the node deleted with
+1.x, `harvest.sh` still naming that source — went with it. Six imports in `envelope.ts` were dead
+too (`hpkeSeal`, `hpkeOpen`, `signDetached`…); the linter does not flag an unused named import,
+so they were found by counting references. **One slip on the way:** the first edit's slice bounds
+were wrong and took `Envelope`, `WireEnvelope` and the KEM helpers along with the parser. `tsc`
+would have caught it; the file was restored from HEAD and the edit redone as two exact blocks
+with every survivor asserted. `npm run check` green: 1376 tests, unwired ok, ceremony 103/103.
 
 ### B5 · Prose that mislabels live behaviour — `TODO`
 Not comments about history, which are records worth keeping — these three describe what the code
