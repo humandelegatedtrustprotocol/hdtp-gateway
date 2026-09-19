@@ -38,9 +38,9 @@ func (s *Postgres) SetAccountLeafKey(ctx context.Context, accountID, fingerprint
 	return nil
 }
 
-func (s *Postgres) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string, accept1x bool) error {
+func (s *Postgres) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error {
 	n, err := s.q.SetAccountHostPolicy(ctx, pgdb.SetAccountHostPolicyParams{
-		AcceptNewHosts: acceptNewHosts, Accept1x: boolInt(accept1x), ID: accountID,
+		AcceptNewHosts: acceptNewHosts, ID: accountID,
 	})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)

@@ -381,7 +381,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	}
 
 	// Under `ask` the move waits for the owner; every other call is pending.
-	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask", true); err != nil {
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask"); err != nil {
 		t.Fatal(err)
 	}
 	var pendings []string
@@ -417,7 +417,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 	ctx := context.Background()
 	p := newPeer(t, fixedNow.Add(-time.Hour))
 	e.pin(t, p, "active")
-	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask", true); err != nil {
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask"); err != nil {
 		t.Fatal(err)
 	}
 	var pendings int
@@ -551,7 +551,7 @@ func TestV2TransportPinChecks(t *testing.T) {
 		t.Fatalf("former endpoint / event: %+v %v", fe, events)
 	}
 	// Another endpoint under ask: parked, nothing runs, update_contact answers pending.
-	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask", true); err != nil {
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "ask"); err != nil {
 		t.Fatal(err)
 	}
 	back := &peer{root: p.root, host: p.host}
@@ -574,7 +574,7 @@ func TestV2TransportPinChecks(t *testing.T) {
 		t.Fatalf("update_contact from the unapproved address: %v", err)
 	}
 	// After a removal, a newer leaf within the window is asked about whatever the setting.
-	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "auto", true); err != nil {
+	if err := e.st.SetAccountHostPolicy(ctx, e.acct.ID, "auto"); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.st.DeletePendingAddress(ctx, e.acct.ID, p.fpr()); err != nil {

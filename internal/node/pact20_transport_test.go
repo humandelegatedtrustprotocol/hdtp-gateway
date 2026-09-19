@@ -84,7 +84,7 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	// Another address under `ask`: nothing runs until the owner decides —
 	// every call answers pending_approval, the update_contact that brought
 	// the address answers pending, and the pin does not move.
-	if err := alina.st.SetAccountHostPolicy(ctx, alina.acct.ID, "ask", true); err != nil {
+	if err := alina.st.SetAccountHostPolicy(ctx, alina.acct.ID, "ask"); err != nil {
 		t.Fatal(err)
 	}
 	clock.advance(time.Hour)

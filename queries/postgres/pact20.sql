@@ -12,7 +12,7 @@ UPDATE accounts SET protocol = $1, root_fingerprint = $2, root_cert = $3 WHERE i
 UPDATE accounts SET fingerprint = $1, key_sealed = $2, algo = $3 WHERE id = $4;
 
 -- name: SetAccountHostPolicy :execrows
-UPDATE accounts SET accept_new_hosts = $1, accept_1x = $2 WHERE id = $3;
+UPDATE accounts SET accept_new_hosts = $1 WHERE id = $2;
 
 -- name: InsertLeaf :exec
 INSERT INTO leaves (account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at)

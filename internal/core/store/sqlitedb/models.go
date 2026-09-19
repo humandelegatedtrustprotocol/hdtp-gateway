@@ -22,7 +22,6 @@ type Account struct {
 	RootFingerprint sql.NullString
 	RootCert        []byte
 	AcceptNewHosts  string
-	Accept1x        int64
 }
 
 type AuditAnchor struct {
