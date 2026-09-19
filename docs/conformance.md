@@ -123,6 +123,7 @@ of it, and are listed so a reader can tell the two apart.
 | a saved credential is sealed at rest and never rendered or logged | `TestAdapterSecretIsSealedAndNeverRendered` |
 | the card advertises exactly the seal policy the gate enforces, live — from **every** emitter (served, portal page, `/card.vcf`, the move campaign) | `TestSealChangeAppliesLiveAndCardMatchesTheGate`, `TestEveryCardEmitterAgreesWithTheServedCard`, `TestSetSealPersistsTheEffectiveValueNotTheRequestedOne` |
 | a live `public_url` change reaches everything that renders it | `TestLandingLinkFollowsALivePublicURL`, `TestEveryCardEmitterAgreesWithTheServedCard` |
+| a `public_url` change calls no contact — an address is inside a leaf, and a setting moves nobody — and names each account that now needs a move (§12) | `TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove` |
 | every audit write carries an actor kind the store accepts | `TestAuditActorKindIsAlwaysWritable`, `TestOwnerActionsAreAuditedAsOwner` |
 | every refusal is audited, and an availability failure is not recorded as a denial | `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial` |
 | an undelivered message retries with backoff until its deadline (§7.1) | `TestOutboundExpiryDefaultsToTwentyFourHours`, `TestRetryBackoffWidensWithAge` |

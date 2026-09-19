@@ -1,22 +1,25 @@
 package node
 
-// Telling contacts where to find you (SPEC §9.4, §10.1).
+// Telling contacts where to find you (PACT §5.3, §9).
 //
-// A node's endpoint is not a detail it keeps to itself: contacts pinned a card
-// carrying `X-PACT-ENDPOINT`, and if the owner changes the public URL — or the
-// tunnel that produces it — every one of them is still calling the old address.
-// PACT's answer is `update_contact`, the same tool key rotation uses.
+// An address is not a setting. It is INSIDE the leaf — the one URI the person's root signed this
+// host for — so it changes when the wallet issues a leaf naming another endpoint, and at no other
+// time. When that leaf is installed the node tells every contact from the new address with
+// `update_contact`, its chain in the envelope: the chain is the proof, and the contact's own
+// `accept_new_hosts` decides whether it re-pins at once or asks its owner.
 //
-// The signature is what makes it trustworthy. `update_contact` verifies a
-// signature over the new card's fingerprint against the key the peer already
-// pinned. On an endpoint change the fingerprint is unchanged, so the node signs
-// its OWN current fingerprint: proof that whoever sent the new card holds the
-// pinned key. No new protocol surface, and an attacker who cannot sign cannot
-// move a contact's endpoint.
+// This file used to have a second way. `AnnounceEndpointChange` ran when the owner saved a new
+// `public_url`: it signed the account's OWN fingerprint with its key — "proof that whoever sent
+// the new card holds the pinned key" — and called `update_contact{card, sig}` on every contact of
+// every account. That was 1.x, where a card carried `X-PACT-ENDPOINT` and a pin was a key. Under
+// 2.0 saving a setting does not change a leaf, so the card it sent was the card the contact
+// already held, `sig` was an argument nothing read, and the calls accomplished nothing — while the
+// thing that does move an address was not started, and nobody was told it was now needed. What
+// replaced it is in `internal/cli/settings.go`: a `public_url` change names the accounts whose
+// leaf was issued for the old address, and sends nothing.
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -24,97 +27,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
 )
-
-// Announcer delivers one update_contact call. The default reaches the peer over
-// the outbound client; tests substitute their own.
-type Announcer func(ctx context.Context, accountID string, peer outbound.Peer, card, sigB64 string) error
-
-// AnnounceEndpointChange tells every active contact of every account the node's
-// current card. It reports how many calls landed and how many did not: a peer
-// that is offline is a fact to surface, not an error to abort on — the owner's
-// endpoint really did change, and the contacts that did hear are correct.
-func (n *Node) AnnounceEndpointChange(ctx context.Context, send Announcer) (done, failed int, err error) {
-	if send == nil {
-		send = n.deliverUpdateContact
-	}
-	n.mu.RLock()
-	accounts := make([]*account, 0, len(n.accounts))
-	for _, a := range n.accounts {
-		accounts = append(accounts, a)
-	}
-	n.mu.RUnlock()
-
-	for _, a := range accounts {
-		card, cerr := n.Card(ctx, a.rec.ID)
-		if cerr != nil {
-			return done, failed, cerr
-		}
-		// The proof: our own fingerprint, signed by the key contacts pinned.
-		sig, serr := identity.SignBytes(a.kp, []byte(a.kp.Fingerprint))
-		if serr != nil {
-			return done, failed, serr
-		}
-		sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-
-		list, lerr := n.opts.Store.ListContacts(ctx, a.rec.ID)
-		if lerr != nil {
-			return done, failed, lerr
-		}
-		for _, c := range list {
-			if c.Status != "active" {
-				continue
-			}
-			peer, perr := n.peerOf(a.rec.ID, c)
-			if perr != nil {
-				failed++
-				n.auditFor(a.rec.ID, "endpoint_announce", "contact:"+c.Fingerprint, "unreachable")
-				continue
-			}
-			if err := send(ctx, a.rec.ID, peer, card, sigB64); err != nil {
-				failed++
-				n.auditFor(a.rec.ID, "endpoint_announce", "contact:"+c.Fingerprint, "failed")
-				continue
-			}
-			done++
-			n.auditFor(a.rec.ID, "endpoint_announce", "contact:"+c.Fingerprint, "ok")
-		}
-	}
-	return done, failed, nil
-}
-
-// deliverUpdateContact is the real call, presenting the account's identity
-// certificate — the contact recognizes us by the key it pinned.
-func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer outbound.Peer, card, sigB64 string) error {
-	n.mu.RLock()
-	a := n.accounts[accountID]
-	n.mu.RUnlock()
-	if a == nil {
-		return fmt.Errorf("node: unknown account %s", accountID)
-	}
-	// nil Roots = the system roots. A rotation has to reach contacts wherever they
-	// are, including behind an edge that terminates TLS (SPEC §10.3). A 2.0
-	// account presents its chain and, toward a 2.0 contact, carries it in the
-	// envelope: the proof of the new address is the chain itself (PACT §5.3).
-	client, err := n.OutboundClient(accountID)
-	if err != nil {
-		return err
-	}
-	// The seal decision is one rule in one place (outbound.Client.Call): this
-	// site forced Plaintext and so every seal-required contact refused the
-	// announcement locally — the peers who most needed the new endpoint were
-	// exactly the ones never told.
-	res, err := client.Call(ctx, peer, "update_contact",
-		map[string]any{"card": card, "sig": sigB64}, newCallID())
-	if err != nil {
-		return err
-	}
-	if res.IsError {
-		return fmt.Errorf("peer refused update_contact")
-	}
-	return nil
-}
 
 // AnnounceMove is PACT §5.3 and §9 after a leaf install that changed the
 // account's address: every contact pinned by our root is reached with
