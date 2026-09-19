@@ -73,7 +73,10 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	if got := names(old); got["send_message"] || !got["request_contact"] {
 		t.Fatalf("a superseded chain must be listed as a guest: %v", got)
 	}
-	r, err := old.Call(ctx, peerA, nil, "send_message", map[string]any{"msg_id": "stale-1", "text": "from the old leaf"}, "stale-1")
+	// Plaintext over mTLS, asked for by name: this is the TRANSPORT path, where the chain is the
+	// client certificate. It used to get there by passing a nil key to `Call`, which downgraded a
+	// call it could not seal — the downgrade is gone, so the test says what it means.
+	r, err := old.CallTool(ctx, peerA, "send_message", map[string]any{"msg_id": "stale-1", "text": "from the old leaf"}, outbound.CallOptions{Plaintext: true})
 	if err != nil || !r.IsError || !strings.Contains(textOf(r), "blocked_or_unknown") {
 		t.Fatalf("a superseded chain must not send: %v %s", err, textOf(r))
 	}
@@ -91,11 +94,11 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	moved := identity.EndpointFor("https://bharat-2.test", bharat.slug)
 	bharat.install(identity.PurposeMove, moved, 365, clock.now())
 	mover := clientFor(bharat.kp())
-	r, err = mover.Call(ctx, peerA, nil, "send_message", map[string]any{"msg_id": "moved-1", "text": "from the new address"}, "moved-1")
+	r, err = mover.Call(ctx, peerA, "send_message", map[string]any{"msg_id": "moved-1", "text": "from the new address"}, "moved-1")
 	if err != nil || !r.IsError || !strings.Contains(textOf(r), "pending_approval") {
 		t.Fatalf("a call from an unapproved address: %v %s\n%s", err, textOf(r), strings.Join(alina.log, "\n"))
 	}
-	r, err = mover.Call(ctx, peerA, nil, "update_contact", map[string]any{"card": bharat.card()}, "moved-2")
+	r, err = mover.Call(ctx, peerA, "update_contact", map[string]any{"card": bharat.card()}, "moved-2")
 	if err != nil || r.IsError || !strings.Contains(textOf(r), `"pending"`) {
 		t.Fatalf("update_contact from an unapproved address: %v %s", err, textOf(r))
 	}

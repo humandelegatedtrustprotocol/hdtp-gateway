@@ -239,6 +239,18 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 				tc = id.ResolveTransport(ctx, tf)
 			}
 			if tc.Refusal != "" {
+				// A `sealed_call` is answered by its envelope, not here. The envelope carries the
+				// same chain, meets the same §5.3 decision in `identify20`, and its refusal goes
+				// back SEALED (PACT §13.2) — whereas refusing at this gate answered in plaintext
+				// before anything was opened. A caller that holds §13.2 to its word reads a
+				// plaintext `pending_approval` to a sealed call as forged, so a contact presenting
+				// both proofs from a new address — a sealed move announcement over mTLS, say — was
+				// told nothing it could believe. The transport earns no identity for this request;
+				// the both-proofs key match (PACT §2) still runs on the facts, and the envelope
+				// decides.
+				if tool == "sealed_call" {
+					return "", nil
+				}
 				if tool == "update_contact" {
 					return "", ErrPendingStatus
 				}

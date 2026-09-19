@@ -22,37 +22,34 @@ type ContactTool struct {
 
 // peerFor resolves an ACTIVE contact into the outbound peer and client for it.
 // A blocked or pending contact is not somebody this node reaches out to.
-func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outbound.Client, outbound.Peer, []byte, error) {
+func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outbound.Client, outbound.Peer, error) {
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if err != nil || c.Status != "active" {
-		return nil, outbound.Peer{}, nil, fmt.Errorf("unknown contact")
+		return nil, outbound.Peer{}, fmt.Errorf("unknown contact")
 	}
 	peer, err := n.peerOf(accountID, c)
 	if err != nil {
-		return nil, outbound.Peer{}, nil, fmt.Errorf("that contact has no endpoint on file")
+		return nil, outbound.Peer{}, fmt.Errorf("that contact has no endpoint on file")
 	}
 	client, err := n.clientForContact(ctx, accountID, c)
 	if err != nil {
-		return nil, outbound.Peer{}, nil, err
+		return nil, outbound.Peer{}, err
 	}
-	return client, peer, c.SPKI, nil
+	return client, peer, nil
 }
 
 // ListContactTools asks a contact's server what this identity may call there.
 func (n *Node) ListContactTools(ctx context.Context, accountID, contactFpr string) ([]ContactTool, error) {
-	client, peer, spki, err := n.peerFor(ctx, accountID, contactFpr)
+	client, peer, err := n.peerFor(ctx, accountID, contactFpr)
 	if err != nil {
 		return nil, err
 	}
-	// A sealed tools/list is answered for the identity in the envelope
-	// (SPEC §4.5), so it is right even where TLS terminates before the peer
-	// and a plaintext list would be answered as to a stranger. It needs the
-	// peer's key; a peer that only ever reached us by fingerprint gets the
-	// plaintext list and, failing that, the grants-based rebuild below.
+	// A sealed tools/list is answered for the identity in the envelope (PACT §13.2), so it is
+	// right even where TLS terminates before the peer and a plaintext list would be answered as
+	// to a stranger. It is sealed to the key in the leaf held for them.
 	var tools []*mcp.Tool
-	sealable := peer.Seal == "required" || peer.Seal == "optional"
-	if sealable && len(spki) > 0 {
-		tools, err = client.SealedListTools(ctx, peer, spki, newCallID())
+	if peer.Seal == "required" || peer.Seal == "optional" {
+		tools, err = client.SealedListTools(ctx, peer, newCallID())
 	} else {
 		tools, err = client.ListTools(ctx, peer)
 	}
@@ -137,7 +134,7 @@ func toolsFromGrants(perms []string) []ContactTool {
 // both go through here, so the two surfaces cannot disagree about what a call
 // to a contact is.
 func (n *Node) CallContact(ctx context.Context, accountID, contactFpr, tool string, args map[string]any) (string, error) {
-	client, peer, spki, err := n.peerFor(ctx, accountID, contactFpr)
+	client, peer, err := n.peerFor(ctx, accountID, contactFpr)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +145,7 @@ func (n *Node) CallContact(ctx context.Context, accountID, contactFpr, tool stri
 	if msgID == "" {
 		msgID = newCallID()
 	}
-	res, err := client.Call(ctx, peer, spki, tool, args, msgID)
+	res, err := client.Call(ctx, peer, tool, args, msgID)
 	if err != nil {
 		n.auditFor(accountID, "call_contact", "contact:"+contactFpr+" tool:"+tool, "failed")
 		return "", err

@@ -343,7 +343,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 				t.Fatal(err)
 			}
 			// B reads the landing page: card + key, before redeeming
-			aliceCard, aliceSPKI := fetchInvite(t, alice.landing.URL, token)
+			aliceCard, _ := fetchInvite(t, alice.landing.URL, token)
 			bobCard, _ := bob.card()
 			peer := alice.asPeer(string(sealMode))
 
@@ -351,7 +351,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			var res *mcp.CallToolResult
 			args := map[string]any{"token": token, "card": bobCard}
 			if sealMode == core.SealRequired {
-				res, err = bob.client().SealedCall(ctx, peer, aliceSPKI, "redeem_invite", args, "redeem-1")
+				res, err = bob.client().SealedCall(ctx, peer, "redeem_invite", args, "redeem-1")
 			} else {
 				res, err = bob.client().CallTool(ctx, peer, "redeem_invite", args, outbound.CallOptions{Plaintext: true})
 			}
@@ -413,7 +413,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			// B → A: plaintext mTLS when allowed, sealed when A requires it
 			msgArgs := map[string]any{"msg_id": "b-1", "text": "hello alice"}
 			if sealMode == core.SealRequired {
-				res, err = bob.client().SealedCall(ctx, peer, aliceSPKI, "send_message", msgArgs, "b-1")
+				res, err = bob.client().SealedCall(ctx, peer, "send_message", msgArgs, "b-1")
 			} else {
 				res, err = bob.client().CallTool(ctx, peer, "send_message", msgArgs, outbound.CallOptions{Plaintext: true})
 			}
@@ -434,7 +434,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 
 			// A → B: always SEALED (B pinned A's key, A pinned B's)
 			bobPeer := bob.asPeer(string(core.SealOptional))
-			reply, err := alice.client().SealedCall(ctx, bobPeer, bobOnA.SPKI, "send_message",
+			reply, err := alice.client().SealedCall(ctx, bobPeer, "send_message",
 				map[string]any{"msg_id": "a-1", "text": "hi bob"}, "a-1")
 			if err != nil {
 				t.Fatalf("A→B sealed reply: %v", err)
