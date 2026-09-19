@@ -36,7 +36,7 @@ func TestIndexHostRefusesToTakeAnotherAccountsHost(t *testing.T) {
 	// peer validating to its own pinned root refused whatever arrived.
 	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
-	d := startDemoNode(t, clock, dn, "alina", "Alina Rao", 2, 365)
+	d := startDemoNode(t, clock, dn, "alina", "Alina Rao", 365)
 
 	first := d.n.accounts[d.acct.ID]
 	host := hostOfEndpoint(d.endpoint())

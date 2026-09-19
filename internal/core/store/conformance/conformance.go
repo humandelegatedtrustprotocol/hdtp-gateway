@@ -321,7 +321,7 @@ func Run(t *testing.T, newStore Factory) {
 		}
 	})
 
-	t.Run("PetnameIsLocalAndSurvivesARotation", func(t *testing.T) {
+	t.Run("PetnameIsLocalAndSurvivesAMove", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
 		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "pn", DisplayName: "PN", Algo: "p256"})

@@ -64,7 +64,6 @@ through a real socket rather than a function call.
 | `acme` | Pebble | **already a dependency** — today it runs *in-process* in `internal/ingress/terminate_test.go`; here it moves to a container so ACME crosses a real network |
 | `frps` | upstream `frp` server | **`internal/tunnel/frp.go` imports `frp/client` only** — it is the `frpc` half. `frps` is separately self-hostable and needs no account, which is what makes a *real* tunnel testable |
 | `caldav` | Radicale + an off-the-shelf calendar MCP server | an upstream we did not write |
-| `relay` | `node-*` in relay mode | third-party relay semantics |
 | `hostile` | small Go binary | SSRF targets: redirects into private ranges, oversized bodies, slow-loris |
 | `postgres` | `postgres:16-alpine` | the engine CI already skips without a DSN |
 
@@ -90,7 +89,7 @@ project has already had, which is why they are cross-cutting rather than local:
 1. **The audit chain verifies**, and its anchor matches (§11.6).
 2. **No session-binding growth** — the map is proportional to live sessions (P12-10).
 3. **Nothing withdrawn is still callable** — every tool absent from `tools/list` is refused on call (P12-02, P12-05).
-4. **No plaintext at the relay** — every queued row is ciphertext (§10.5).
+4. *(withdrawn with PACT 1.x, 2026-09-18: there is no relay role, so there is no relay to hold ciphertext)*
 5. **The store passes conformance** after the scenario's writes, on both engines.
 
 ---
@@ -100,8 +99,8 @@ project has already had, which is why they are cross-cutting rather than local:
 | ID | Shape | Exercises |
 |---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path |
-| **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits; relay fallback |
-| **T3** `double-nat` | both behind separate NATs | relay-assisted mode is the only path |
+| **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel |
+| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing |
@@ -116,12 +115,12 @@ project has already had, which is why they are cross-cutting rather than local:
 | **S2** | Pairing | invite → QR → redeem → approve → first message, per topology |
 | **S3** | Messaging & media | text, inline media, URL media; SSRF guard against `hostile` redirecting into a private range |
 | **S4** | Calendar | availability filtering (≤5 slots, never raw free/busy) and `book_slot` against real CalDAV |
-| **S5** | Reachability matrix | T1–T6 × {direct, edge, relay-assisted}; asserts the §10.1 mode rules refuse what they must |
-| **S6** | Relay semantics | deferral until deadline (P13-04); recipient gate at registration **and** at use (P12-15, P13-01); sealed-only; metadata-only visibility |
+| **S5** | Reachability matrix | T1–T6 × {direct, edge}; asserts the §10.1 mode rules refuse what they must |
+| **S6** | *(withdrawn)* | Relay semantics. The relay role went with PACT 1.x on 2026-09-18 and `relay_live_test.go` with it; the number is kept so the others do not move |
 | **S7** | Resilience | `tc netem` partition/loss/latency; `kill -9` mid-send; retry schedule holds (P12-03); `msg_id` idempotency across every retry |
 | **S8** | Time | 24 h message expiry → failed; 30-day queue retention; 90-day invite expiry; 24 h setup token. **Requires §5.** |
 | **S9** | Adversarial | session-id replay under a second identity (P11-05); tier escalation attempts; envelope tampering; audit tamper → `repair` refuses (P12-14) |
-| **S10** | Rotation | `account rotate-key` fan-out under partition; interrupted fan-out resumes |
+| **S10** | *(withdrawn)* | Key rotation. There is none: the identity is a root the node does not hold. Its successor would be the MOVE campaign under partition — `account announce` resuming an interrupted `update_contact` walk — which no scenario covers yet |
 | **S11** | Portal (CDP) | every page, both themes, screenshot diff; keyboard-only traversal; no console errors |
 
 ---
@@ -200,8 +199,8 @@ Verified by reading the code:
 - **CAVEAT — the WebPKI path IS time-dependent.** The fallback branch in the same
   function calls `leaf.Verify`, which checks `NotBefore`/`NotAfter` against the
   current clock. A time-travelled node talking to anything trusted by WebPKI
-  rather than by pin — a third-party relay, or an ACME-issued ingress certificate
-  — can fail on cert validity. Today this is latent, because Pebble runs
+  rather than by pin — an ACME-issued ingress certificate — can fail on cert
+  validity. Today this is latent, because Pebble runs
   in-process inside the test binaries rather than as a separate machine. In a VM
   fabric with a containerised ACME it becomes live, and S8 scenarios must either
   stay on pinned peers or issue certs whose validity spans the jump.
@@ -251,7 +250,7 @@ is genuinely good at: `make check` on both storage engines, the analyzers, and
 the fuzzers.
 
 **What the fast tier does not run, stated so it is not mistaken for full coverage:**
-T3–T6 entirely, resilience (S7), time travel (S8), rotation (S10) and portal
+T3–T6 entirely, resilience (S7), time travel (S8) and portal
 screenshots (S11). A green PR run means "the common paths and the adversarial
 probes hold", not "the system is verified".
 

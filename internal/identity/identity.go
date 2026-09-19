@@ -134,7 +134,7 @@ func ParsePKCS8(der []byte) (*Keypair, error) {
 
 // VerifyBytes checks a signature made by signBytes' conventions (ECDSA ASN.1
 // DER over SHA-256, or pure Ed25519) against a public key — the verifier side
-// of rotation proofs and card signatures.
+// of card signatures.
 func VerifyBytes(pub crypto.PublicKey, msg, sig []byte) bool {
 	switch pk := pub.(type) {
 	case *ecdsa.PublicKey:

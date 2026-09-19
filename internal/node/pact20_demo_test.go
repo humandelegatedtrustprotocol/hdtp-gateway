@@ -146,7 +146,7 @@ func (d *demoNode) install(purpose, endpoint string, days int, now time.Time) id
 	return res
 }
 
-func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name string, protocol int, leafDays int) *demoNode {
+func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name string, leafDays int) *demoNode {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -168,16 +168,15 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 		t.Fatal(err)
 	}
 	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test"}
-	if protocol == 2 {
-		d.root, err = pactidentity.GenerateKey("ed25519")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if d.rc, err = pactidentity.BuildRoot(pactidentity.RootOpts{CN: name, Key: d.root, NotBefore: clock.now().Add(-24 * time.Hour)}); err != nil {
-			t.Fatal(err)
-		}
-		d.install(identity.PurposeSignup, d.endpoint(), leafDays, clock.now())
+	d.root, err = pactidentity.GenerateKey("ed25519")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if d.rc, err = pactidentity.BuildRoot(pactidentity.RootOpts{CN: name, Key: d.root, NotBefore: clock.now().Add(-24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	d.install(identity.PurposeSignup, d.endpoint(), leafDays, clock.now())
+
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial,
 		Audit: func(action, resource, outcome string) { d.log = append(d.log, action+" "+resource+" → "+outcome) }})
@@ -247,8 +246,8 @@ func TestPact20ExitDemo(t *testing.T) {
 	ctx := context.Background()
 	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
-	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 2, 30)
-	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 2, 365)
+	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 30)
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)
 
 	// --- pairing through an invite: Bharat redeems Alina's, as a 2.0 guest ---
 	token := alina.invite(true)

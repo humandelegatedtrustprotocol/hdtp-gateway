@@ -268,9 +268,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	admin.Handle("account.list", func(map[string]string) (any, error) {
 		return st.ListAccounts(ctx)
 	})
-	// SPEC §3.9 rotation: new key + grace, then update_contact fan-out over the
-	// outbound client PRESENTING THE OLD CERTIFICATE (the identity contacts
-	// still pin); per-contact progress is durable, so re-running resumes.
 	// The serving node, assigned below. The admin handlers registered here close
 	// over it so they render cards through the ONE renderer the public surface
 	// uses, rather than assembling a second one (SPEC §9.3).

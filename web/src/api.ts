@@ -92,7 +92,7 @@ export type Session = {
 
 let lastSession: Session | null = null;
 const sessionListeners = new Set<(s: Session) => void>();
-// Views that change what the session says (creating an identity, rotating a key)
+// Views that change what the session says (creating an identity, installing a leaf)
 // call fetchSession afterwards; the shell subscribes so the switcher and the
 // selected identity follow without a reload.
 export function onSessionChange(f: (s: Session) => void): () => void {
