@@ -203,7 +203,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	csrFor := func(acct store.Account, purpose, endpoint string) (map[string]any, error) {
 		if purpose == "" {
 			purpose = identity.PurposeRenew
-			if acct.Protocol != 2 {
+			if !acct.HasRoot() {
 				purpose = identity.PurposeSignup
 			}
 		}
@@ -352,8 +352,8 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return nil, err
 		}
-		if acct.Protocol != 2 || nd == nil {
-			return nil, fmt.Errorf("account.announce: %s is not a 2.0 identity on the live node", acct.Slug)
+		if !acct.HasRoot() || nd == nil {
+			return nil, fmt.Errorf("account.announce: %s has no certificate yet, or the node is not running", acct.Slug)
 		}
 		done, failed, err := nd.AnnounceMove(ctx, acct.ID, acct.Fingerprint)
 		if err != nil {
@@ -374,10 +374,10 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			return nil, err
 		}
 		out := map[string]any{
-			"Slug": acct.Slug, "Protocol": info.Protocol, "Root": info.RootFingerprint, "Kid": info.Kid, "Endpoint": info.Endpoint,
+			"Slug": acct.Slug, "Certified": info.Certified, "Root": info.RootFingerprint, "Kid": info.Kid, "Endpoint": info.Endpoint,
 			"RenewalDue": info.RenewalDue, "PendingCSR": info.PendingCSR, "Superseded": info.Superseded, "Former": info.Former,
 		}
-		if info.Protocol == 2 {
+		if info.Certified {
 			out["NotBefore"], out["NotAfter"] = info.NotBefore.Format(time.RFC3339), info.NotAfter.Format(time.RFC3339)
 			var chain strings.Builder
 			for _, c := range info.Chain {
@@ -818,7 +818,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
 		}
-		if p, _ := out["Protocol"].(float64); p != 2 {
+		if certified, _ := out["Certified"].(bool); !certified {
 			fmt.Fprintf(stdout, "%v has no leaf yet; `account csr -slug %v` prints the request for the wallet\n", out["Slug"], out["Slug"])
 			return 0
 		}
@@ -1258,7 +1258,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 				// doctor is where an operator without the portal hears it.
 				idm := &identity.Manager{Store: s}
 				for _, a := range accts {
-					if a.Protocol != 2 {
+					if !a.HasRoot() {
 						continue
 					}
 					info, cerr := idm.Certificate(context.Background(), a.ID, time.Now())

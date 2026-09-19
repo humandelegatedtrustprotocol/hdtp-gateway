@@ -94,7 +94,7 @@ func exportIdentity(cfg *core.Config, slug, out, passFile string, stdout, stderr
 		return 1
 	}
 	var doc identity.IdentityBackup
-	if a.Protocol == 2 {
+	if a.HasRoot() {
 		// PACT §9: the host's half of a 2.0 identity is the leaf and its key;
 		// the root stays in the wallet and travels here as a certificate only.
 		chain, cerr := idm.Chain(ctx, a.ID)
@@ -122,7 +122,7 @@ func exportIdentity(cfg *core.Config, slug, out, passFile string, stdout, stderr
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", out)
 	fmt.Fprintf(stdout, "  identity %s (%s)\n  %s\n", a.DisplayName, a.Slug, kp.Fingerprint)
-	if a.Protocol == 2 {
+	if a.HasRoot() {
 		fmt.Fprintf(stdout, "  a PACT 2.0 leaf under root %s, valid until %s; the root stays in the wallet\n", a.RootFingerprint, leafNotAfter(doc))
 		fmt.Fprintln(stdout, "This file is the host's half of that identity: whoever opens it speaks as this")
 		fmt.Fprintln(stdout, "person from this address until the leaf expires or the wallet issues a newer one.")

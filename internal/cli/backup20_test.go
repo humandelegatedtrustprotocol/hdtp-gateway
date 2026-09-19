@@ -86,7 +86,7 @@ func TestIdentityBackupMovesA20LeafToAnotherNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Protocol != 2 || got.RootFingerprint != rootFpr || len(got.RootCert) == 0 {
+	if !got.HasRoot() || got.RootFingerprint != rootFpr || len(got.RootCert) == 0 {
 		t.Fatalf("the restored account must be the same 2.0 identity: %+v", got)
 	}
 	leaves, _ := dstStore.ListLeaves(t.Context(), got.ID)

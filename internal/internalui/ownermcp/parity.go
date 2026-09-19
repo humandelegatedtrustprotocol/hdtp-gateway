@@ -132,8 +132,8 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 				if err != nil {
 					return nil, nil, err
 				}
-				out := map[string]any{"protocol": info.Protocol}
-				if info.Protocol == 2 {
+				out := map[string]any{"certified": info.Certified}
+				if info.Certified {
 					chain := make([]string, 0, len(info.Chain))
 					for _, c := range info.Chain {
 						chain = append(chain, base64.RawURLEncoding.EncodeToString(c))

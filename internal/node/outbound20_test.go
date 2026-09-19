@@ -44,7 +44,7 @@ func TestIndexHostRefusesToTakeAnotherAccountsHost(t *testing.T) {
 		t.Fatalf("the account that installed the leaf holds its host")
 	}
 	// A second account whose leaf names the same host.
-	second := &account{rec: store.Account{ID: "acc-second", Slug: "second", Protocol: 2}, kp: first.kp}
+	second := &account{rec: store.Account{ID: "acc-second", Slug: "second", RootFingerprint: "sha256:second-root"}, kp: first.kp}
 	before := len(d.log)
 	d.n.indexHost(second)
 	if d.n.byHost[host] != first {
