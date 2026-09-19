@@ -40,7 +40,7 @@ func TestVerifySyncedCard(t *testing.T) {
 		return base64.RawURLEncoding.EncodeToString(sig)
 	}
 	pin := store.Contact{
-		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI, Protocol: 2,
+		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
 		Endpoint: h.Endpoint, Leaf: h.LeafDER,
 	}
 
@@ -101,7 +101,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 		return base64.RawURLEncoding.EncodeToString(sig)
 	}
 	pin := store.Contact{
-		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI, Protocol: 2,
+		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
 		Endpoint: h.Endpoint, Leaf: h.LeafDER,
 	}
 	// A renewal: the same root, the same address, a fresh key, a later notBefore.
@@ -206,7 +206,7 @@ func TestFillRootCertTakesOnlyThePinnedRoot(t *testing.T) {
 
 	// The pin as a sealed pairing leaves it: the root's name, and no certificate.
 	pin, err := st.InsertContact(ctx, store.Contact{AccountID: acct.ID, Fingerprint: peer.Fpr,
-		SPKI: host.Key.Public.SPKI, Status: "active", Protocol: 2, Endpoint: host.Endpoint, Leaf: host.LeafDER})
+		SPKI: host.Key.Public.SPKI, Status: "active", Endpoint: host.Endpoint, Leaf: host.LeafDER})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -220,7 +220,7 @@ func (e *env20) pin(t testing.TB, p *peer, status string) {
 	leaf, _ := pactidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: p.fpr(), SPKI: leaf.SPKI, Status: status, Permissions: []string{"message.text"},
-		Protocol: 2, Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: contacts.BuildCard20("Alina Rao", p.leaf, "required"),
+		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: contacts.BuildCard20("Alina Rao", p.leaf, "required"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 	if _, err := cm.DecideAddress(ctx, e.acct.ID, p.fpr(), true); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr()); err != nil || c.Status != "active" || c.Protocol != 2 {
+	if c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr()); err != nil || c.Status != "active" || len(c.Leaf) == 0 {
 		t.Fatalf("approving a returned root re-adds it: %v %+v", err, c)
 	}
 }

@@ -80,7 +80,6 @@ type Contact struct {
 	TheirPermissions string
 	Petname          string
 	InviteID         string
-	Protocol         int64
 	Endpoint         string
 	Leaf             []byte
 	ChainSentKid     string

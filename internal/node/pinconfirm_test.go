@@ -44,7 +44,7 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 	host := peer.Issue(t, "https://"+dead+"/mcp")
 	before, err := e.st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: peer.Fpr, SPKI: host.Key.Public.SPKI,
-		Status: "active", Protocol: 2, Endpoint: host.Endpoint,
+		Status: "active", Endpoint: host.Endpoint,
 		Leaf: host.LeafDER, RootCert: peer.RootDER, Card: host.Card("Peer", "optional"),
 	})
 	if err != nil {
@@ -114,7 +114,7 @@ func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
 	rh := reachable.Issue(t, "https://"+dead+"/mcp")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: reachable.Fpr, SPKI: rh.Key.Public.SPKI,
-		Status: "active", Protocol: 2, Endpoint: rh.Endpoint, Leaf: rh.LeafDER,
+		Status: "active", Endpoint: rh.Endpoint, Leaf: rh.LeafDER,
 		Card: rh.Card("Up", "optional"),
 	}); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
 	bh := blocked.Issue(t, "https://"+dead+"/mcp")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: blocked.Fpr, SPKI: bh.Key.Public.SPKI,
-		Status: "blocked", Protocol: 2, Endpoint: bh.Endpoint, Leaf: bh.LeafDER,
+		Status: "blocked", Endpoint: bh.Endpoint, Leaf: bh.LeafDER,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -429,8 +429,8 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 	// The stored PIN, not the card, is the authority on where this contact answers: `update_contact`
 	// and a move both write the row, and a card kept from the first exchange can be older than
 	// either. It also means an approval reaches a contact whose card this node never parsed.
-	if c.Protocol != 2 || c.Endpoint == "" || len(c.Leaf) == 0 {
-		return fmt.Errorf("that contact is pinned by key, which PACT 2.0 has no form for; they must be added again from their card")
+	if c.Endpoint == "" || len(c.Leaf) == 0 {
+		return fmt.Errorf("that contact has no certificate on file, so there is no address to reach it at; add them again from their card")
 	}
 	ourCard, err := ci.card(ctx, accountID)
 	if err != nil {

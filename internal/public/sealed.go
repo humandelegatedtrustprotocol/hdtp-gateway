@@ -265,7 +265,7 @@ func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner 
 	ourKid := st.currentKey().Fingerprint
 	form, pinned := "chain", false
 	if !facts.Guest && !facts.Demote && facts.From != "" {
-		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil && c.Protocol == 2 {
+		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil {
 			pinned = true
 			if c.ChainSentKid == ourKid {
 				form = "leaf"

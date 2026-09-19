@@ -127,12 +127,45 @@ Two things this item turned up:
   drives goose to exactly version 30, which cannot go stale that way.
 *The cloud half is its own item, B2c* — see below for why it is not a side effect of this one.
 
-### B3 · `protocol` columns still default to 1 — `TODO`
-`0027_pact20.sql` created `accounts.protocol` and `contacts.protocol` with `DEFAULT 1`, so a row
-written without the field is born into a generation that no longer exists. Flip the defaults
-forward. Confirm first whether anything still writes without it — `contacts/initiate.go` was fixed
-earlier, so this may be schema-only.
-*Verify:* the store conformance suite, which asserts engine defaults.
+### B3 · The `protocol` discriminator — `DOING`
+Planned as "flip two column defaults". The diagnosis made it larger, because the defaults are the
+least of it: `protocol` is the generation switch itself, and there is one generation.
+- **Contacts: every row is 2.** `contactProtocol()` maps an unset value to 2 and says why in its own
+  comment — "there is no other generation now". Every production `InsertContact` sets 2 or leaves it
+  unset. So the column carries nothing, and every `else` on `c.Protocol == 2` is dead by invariant —
+  including `node/outbound20.go`'s fallback, which still builds a **1.x peer from a card's endpoint**.
+- **Accounts: `1` no longer means 1.x.** It means "no leaf installed yet" (`identity/leaf.go:170`,
+  `FirstInstall: a.Protocol != 2`). A live 2.0 state, stored under a retired generation's number,
+  and a duplicate of `root_fingerprint IS NOT NULL` — the same statement sets both.
+- **In memory, `Protocol == 2` means "a chain was proven".** `public/tools.go`'s `proofOf` returns
+  either a fully-filled `Proof{Protocol: 2}` or the zero Proof. Same for `outbound.Peer`,
+  `EnvelopeFacts`, `TransportFacts.ClientProtocol`, `Keypair`, `CertificateInfo`.
+
+Taken in three steps, each compiled and gated before the next, because these are the paths that
+decide who a caller is:
+
+#### B3a · `contacts.protocol` goes — `DONE`
+Drop the column (migration 0033), remove `store.Contact.Protocol` and `contactProtocol`, and let the
+compiler name every site. `c.Protocol == 2 && len(c.Leaf) > 0` becomes `len(c.Leaf) > 0`; a dead
+`else` is deleted, not kept "just in case"; a contact with no leaf becomes an error where it was a
+1.x fallback.
+*Result.* Migration 0033 on both engines. Beyond the column: **`UpgradeContactPin`** — "Appendix C
+row 6: a 1.x pin of key K… becomes a 2.0 pin of the root" — was on the `Store` interface, in both
+engines and in conformance, citing an appendix deleted on 2026-09-18, with **no production caller**;
+deleted. `node/outbound20.go`'s `peerOf` documented and implemented "a 1.x pin dials the card's
+endpoint and is recognised by its key"; that branch is gone. `contactProtocol` deleted. Test
+assertions of `c.Protocol == 2` became `len(c.Leaf) > 0` — the fact they stood for — rather than
+being dropped. A user-facing error that blamed "pinned by key" now says what is true.
+
+#### B3b · `accounts.protocol` goes — `TODO`
+Replace with what it duplicates — the account has a root — and drop the column.
+
+#### B3c · The in-memory flags say what they mean — `TODO`
+`Protocol == 2` → a name for "a chain was proven". Owner-facing output (`ownermcp/parity.go`, the
+CLI's certificate view) reports `"protocol"`; the cloud's parity fixture compares those tool shapes,
+so that surface is checked against `gateway/test/fixtures/go-owner-tools.json` before it moves.
+*Verify (all three):* `make check`, `make analyze`, Postgres conformance, and the intrusion
+battery's node-side tests — this is identity resolution, so a green compile is not the bar.
 
 ### B4 · The cloud's `v: 1` envelope reader — `TODO`
 `src/envelope/envelope.ts`: remove the `h.v !== 1` version check and whatever only it reaches;
@@ -176,6 +209,46 @@ through 29"; and the change runs forward-only against production objects on the 
 deploy. Each of those is checkable. None of them is a side effect.
 *Verify:* `check:fast` (migration locks, `gen-schema --check`, the leave self-test), the full suite.
 
+## Part F — a leaf key never leaves the host it was issued to
+
+Proposed by the owner on 2026-09-19, mid-B3, and the reasoning is the protocol's own. A leaf is
+the person's root entrusting **this host**, for **one address**, until **one date**. Its private key
+is therefore not the person's data — it is the host's credential. A bundle that carries it lets
+whoever holds the bundle speak as this host from this address until the leaf runs out, and a
+message sent that way says "this came from the host the person chose" when it did not. Nothing
+about moving or restoring needs it: the wallet issues a fresh leaf to whoever serves next, which
+is exactly what §2 means by renewal being cheap.
+
+What is true today, checked rather than assumed:
+- **A node backup is a complete credential.** `backup create` copies the whole database —
+  `accounts.key_sealed` and `leaves.key_sealed` included — and adds the master key that unseals
+  them. The only protection is on the *importer's* side (`-data-only` strips on restore).
+- **The cloud's export includes it too.** `src/export/archive.ts:81`: the leaf's PKCS#8 key is
+  "included" in the sealed archive; the leave converter then declines to carry it onward.
+- **Expiry destruction is partial.** `RetireExpiredLeafKeys` skips every leaf that is not
+  `superseded`, so a *current* leaf that expires un-renewed keeps its key indefinitely; and it runs
+  only "where the node already writes" (`node.go:946`), so on a quiet node an expired key just sits.
+
+### F1 · A bundle never carries a leaf key — `TODO`
+Exporter-side, not only importer-side. Node: the snapshot is stripped before it enters the archive
+— `Store.StripKeys`, built in B1, on the copy — so the ledger rows travel as former leaves and the
+keys do not. Establish first what else the master key seals (integration credentials?) before
+deciding whether it still belongs in a bundle. A restored node then awaits a leaf and says so
+(`account csr` → wallet → `install-leaf`), which is the point: a restored host earns its leaf again.
+Importer-side stripping stays, as the rule that holds for bundles made by older builds and by
+anybody else. Cloud: `archive.ts` stops including the key. Spec §9 currently binds only the
+importer ("refuses key material"); consider binding the exporter too.
+*Verify:* a created bundle, opened in a test, has no non-null `*key_sealed` anywhere; the backup
+round-trip tests; the cloud's export tests and leave self-test.
+
+### F2 · A leaf's key is destroyed when the leaf expires — `TODO`
+Every state, not only `superseded`, and on the node's existing retention sweep rather than as a
+side effect of some other write. An expired leaf is refused everywhere (§2), so its key can do
+nothing legitimate; keeping it is pure exposure. The kid stays, so an envelope sealed to it is still
+answered `certificate_renewed` (§14.4).
+*Verify:* a test with an injected clock: a current leaf past `notAfter` loses its key on the sweep,
+the ledger row survives as former, and the account reports awaiting a leaf rather than serving.
+
 ## Part C — bugs introduced this session
 
 Audit this session's own diffs rather than trusting them. In commit order: the listener chain
@@ -218,5 +291,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B6, B2c, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
 next starts.
