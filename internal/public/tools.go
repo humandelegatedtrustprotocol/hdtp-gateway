@@ -87,13 +87,12 @@ type StatusSource interface {
 	GetStatus(ctx context.Context) (string, error)
 }
 
-// CardFn returns this account's current SIGNED card, the signature over it, and
-// the key it names. PACT §4 says redemption returns the issuer's signed card;
-// this surface used to return the raw key instead, so the same card went out
-// signed over the invite landing page and unsigned over MCP. The key travels too
-// because a card carries only its hash, and a guest sealing toward a
-// `seal: required` issuer needs the key itself (§13).
-type CardFn func(ctx context.Context) (card, sig string, spki []byte, err error)
+// CardFn returns this account's current SIGNED card and the signature over it. PACT §4 says
+// redemption returns the issuer's signed card, and the same card has to read the same over every
+// transport — signed on the landing page and signed over MCP. It used to return the leaf's key as
+// well, for a `spki` member beside the card: 1.2's answer to a card that carried only a key's
+// hash. A 2.0 card carries the certificate, and the chain travels beside it instead.
+type CardFn func(ctx context.Context) (card, sig string, err error)
 
 // ToolDeps is everything the built-in set touches. A nil capability is not an
 // error: its tools answer `unavailable` (PACT §12's code for a capability the
@@ -116,9 +115,8 @@ type ToolDeps struct {
 	// Endpoint is this account's own address, for the guard a 2.0 guest's card
 	// must pass (PACT §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
-	// Chain is this account's [leaf, root] for a 2.0 identity, nil for 1.x:
-	// get_card always answers with it (PACT §13.2), so a caller that cannot
-	// verify a result has one place to ask.
+	// Chain is this account's [leaf, root]. `redeem_invite` and `get_card` both answer with
+	// it (PACT §6.1, §13.2), so a caller that cannot verify a result has one place to ask.
 	Chain func(ctx context.Context) ([][]byte, error)
 }
 
@@ -307,15 +305,20 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		}
 		// The caller's tier just changed: its cached guest server must go.
 		d.invalidate(ctx, fpr)
-		card, sig, mySPKI, cerr := d.card(ctx)
+		card, sig, cerr := d.card(ctx)
+		if cerr != nil {
+			return toolErr("unavailable"), nil
+		}
+		// PACT §6.1: the result carries the issuer's CHAIN, so the redeemer pins a root it can
+		// verify. It used to carry `spki` instead — 1.2's key-beside-the-card — and no chain.
+		chain, cerr := d.chainB64(ctx)
 		if cerr != nil {
 			return toolErr("unavailable"), nil
 		}
 		d.audit("redeem_invite", "caller:"+fpr, res.Status)
 		return toolOK(map[string]any{
 			"status": res.Status, "permissions": res.Permissions,
-			"card": card, "card_sig": sig,
-			"spki": base64.RawURLEncoding.EncodeToString(mySPKI),
+			"card": card, "card_sig": sig, "chain": chain,
 		})
 	}
 }
@@ -428,16 +431,39 @@ func (d ToolDeps) contactRejected() mcp.ToolHandler {
 
 /* ---------------------- contact tier: always present -------------------- */
 
-func (d ToolDeps) card(ctx context.Context) (string, string, []byte, error) {
+func (d ToolDeps) card(ctx context.Context) (string, string, error) {
 	if d.Card == nil {
-		return "", "", nil, fmt.Errorf("no card configured")
+		return "", "", fmt.Errorf("no card configured")
 	}
 	return d.Card(ctx)
 }
 
+// chainB64 is this account's [leaf, root], base64url — what `redeem_invite` and `get_card` both
+// answer with (PACT §6.1, §13.2). It is never optional: a result that cannot carry the chain is
+// one the caller cannot verify, and the honest answer then is `unavailable`.
+func (d ToolDeps) chainB64(ctx context.Context) ([]string, error) {
+	if d.Chain == nil {
+		return nil, fmt.Errorf("no chain configured")
+	}
+	chain, err := d.Chain(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(chain) != 2 {
+		return nil, fmt.Errorf("a chain is a leaf and a root, got %d certificates", len(chain))
+	}
+	return []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}, nil
+}
+
 func (d ToolDeps) getCard() mcp.ToolHandler {
 	return func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		card, sig, spki, err := d.card(ctx)
+		card, sig, err := d.card(ctx)
+		if err != nil {
+			return toolErr("unavailable"), nil
+		}
+		// "always the chain" (PACT §6.1): this is where a caller that cannot verify a result
+		// comes to ask, so an answer without one would be no answer.
+		chain, err := d.chainB64(ctx)
 		if err != nil {
 			return toolErr("unavailable"), nil
 		}
@@ -447,14 +473,8 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 		}
 		d.audit("get_card", "caller:"+callerFpr(ctx), "ok")
 		out := map[string]any{
-			"card": card, "card_sig": sig,
-			"spki":   base64.RawURLEncoding.EncodeToString(spki),
+			"card": card, "card_sig": sig, "chain": chain,
 			"limits": limits,
-		}
-		if d.Chain != nil {
-			if chain, err := d.Chain(ctx); err == nil && len(chain) == 2 {
-				out["chain"] = []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}
-			}
 		}
 		return toolOK(out)
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/testid"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 type fakeCalendar struct {
@@ -85,8 +86,10 @@ func newToolEnv(t *testing.T) *toolEnv {
 		t.Fatal(err)
 	}
 	e := &toolEnv{t: t, st: st, acct: acct, kp: kp, cal: &fakeCalendar{}, status: &fakeStatus{s: "available"}}
-	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	card := testid.CardFor(t, "Me", "https://me.example/a/me/mcp")
+	// The card AND the chain that proves it, from one wallet: `redeem_invite` and `get_card` both
+	// answer with the chain (PACT §6.1). This fixture used to wire a `spki` and no chain at all,
+	// and every test of those two results passed against an answer no caller could have verified.
+	card, _, host := testid.Card(t, "Me", "https://me.example/a/me/mcp", "")
 	reg := &Registry{}
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
@@ -95,7 +98,8 @@ func newToolEnv(t *testing.T) *toolEnv {
 		Media:     &messaging.MediaService{Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}},
 		Calendar:  e.cal,
 		Status:    e.status,
-		Card:      func(context.Context) (string, string, []byte, error) { return card, "sig", spki, nil },
+		Card:      func(context.Context) (string, string, error) { return card, "sig", nil },
+		Chain:     func(context.Context) ([][]byte, error) { return host.Chain, nil },
 		Invalidate: func(_ context.Context, _, fpr string) error {
 			e.mu.Lock()
 			defer e.mu.Unlock()
@@ -366,33 +370,37 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 		t.Fatalf("redeem: %v %s", err, body(t, res))
 	}
 	var out struct {
-		Status string `json:"status"`
-		Card   string `json:"card"`
-		SPKI   string `json:"spki"`
+		Status string   `json:"status"`
+		Card   string   `json:"card"`
+		Chain  []string `json:"chain"`
 	}
 	if err := json.Unmarshal([]byte(body(t, res)), &out); err != nil {
 		t.Fatalf("body: %s", body(t, res))
 	}
-	if out.Status != "accepted" || out.Card == "" || out.SPKI == "" {
+	if out.Status != "accepted" || out.Card == "" {
 		t.Fatalf("redeem result: %+v", out)
 	}
-	// The issuer's key it returned must be the key its card's certificate carries.
-	// This used to hash that key and compare it to the card's X-PACT-KEY; the card's
-	// identity is the ROOT now, and the key is the leaf's, so the comparison moved
-	// to where the two actually meet.
-	raw, err := base64.RawURLEncoding.DecodeString(out.SPKI)
-	if err != nil {
-		t.Fatal(err)
+	// PACT §6.1: `redeem_invite` answers with the issuer's signed card AND its chain, so the
+	// redeemer pins a root it can verify. This asserted a `spki` member instead — 1.2's key beside
+	// the card — and the result carried no chain at all, which no test noticed because the
+	// fixture never wired one.
+	if len(out.Chain) != 2 {
+		t.Fatalf("the result must carry the issuer's [leaf, root], got %d certificates", len(out.Chain))
 	}
-	if _, err := contacts.ValidateInbound(out.Card); err != nil {
+	issued, err := contacts.ValidateInbound(out.Card)
+	if err != nil {
 		t.Fatalf("the card it returned does not validate: %v", err)
 	}
-	mine, err := x509.MarshalPKIXPublicKey(e.kp.Signer.Public())
-	if err != nil {
-		t.Fatal(err)
+	chain := [][]byte{pactidentity.FromB64url(out.Chain[0]), pactidentity.FromB64url(out.Chain[1])}
+	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issued.Key, ExpectedEndpoint: issued.Endpoint})
+	if !vr.OK {
+		t.Fatalf("the chain it returned fails rule %d: %s", vr.Rule, vr.Reason)
 	}
-	if !bytes.Equal(mine, raw) {
-		t.Fatal("the key it returned is not this account's own")
+	if !bytes.Equal(chain[0], issued.Cert) {
+		t.Fatal("the chain's leaf is not the certificate on the card it came with")
+	}
+	if strings.Contains(body(t, res), `"spki"`) {
+		t.Fatal("the result still carries `spki`, a member PACT §6.1 does not define")
 	}
 	// the contact is pinned with the FULL proven key, not just its hash
 	c, err := e.st.GetContact(ctx, e.acct.ID, peerHost.RootFpr)
@@ -485,15 +493,13 @@ func TestUnconfiguredCapabilityIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	acct, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "bare", DisplayName: "Bare", Algo: "p256"})
-	kp, _ := identity.Generate(identity.AlgoP256)
-	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	card := testid.CardFor(t, "Bare", "https://b.example/a/bare/mcp")
 	reg := &Registry{}
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
 		Contacts:  &contacts.Manager{Store: st},
 		Messages:  &messaging.Service{Store: st},
-		Card:      func(context.Context) (string, string, []byte, error) { return card, "sig", spki, nil },
+		Card:      func(context.Context) (string, string, error) { return card, "sig", nil },
 	})...) // no Calendar, no Status, no Media
 	pool := NewPool(reg, StoreResolver(st), 4)
 	peer, _ := identity.Generate(identity.AlgoP256)

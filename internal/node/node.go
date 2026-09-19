@@ -13,7 +13,6 @@ package node
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -114,7 +113,6 @@ type account struct {
 	rec   store.Account
 	kp    *identity.Keypair
 	cert  tls.Certificate
-	spki  []byte
 	pool  *public.Pool
 	ident *public.Identifier
 	cm    *contacts.Manager
@@ -414,12 +412,8 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		// one account waiting on its wallet does not take the node down.
 		return nil, ErrAwaitingLeaf
 	}
-	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	if err != nil {
-		return nil, err
-	}
 	a := &account{
-		rec: rec, kp: kp, spki: spki,
+		rec: rec, kp: kp,
 		cert: cert,
 		cm: &contacts.Manager{
 			Store: n.opts.Store,
@@ -507,16 +501,16 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		Media:     a.media,
 		Calendar:  calendarAt{n: n, accountID: rec.ID},
 		Status:    statusAt{n: n, accountID: rec.ID},
-		Card: func(ctx context.Context) (string, string, []byte, error) {
+		Card: func(ctx context.Context) (string, string, error) {
 			card, err := n.Card(ctx, rec.ID)
 			if err != nil {
-				return "", "", nil, err
+				return "", "", err
 			}
 			// The SAME signature the invite landing page serves: a card that is
 			// signed over one transport and bare over another is a card a
 			// redeemer cannot rely on (PACT §4).
 			sig, err := n.idm.SignCard(ctx, rec.ID, card)
-			return card, sig, spki, err
+			return card, sig, err
 		},
 		Invalidate: a.pool.Invalidate,
 		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
@@ -758,18 +752,6 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 	}
 	n.opts.auditAs("owner", "settings_seal", "account:"+accountID, string(a.sealValue()))
 	return nil
-}
-
-// SPKI returns an account's public key, for the invite landing page and any
-// caller that must verify a fingerprint itself.
-func (n *Node) SPKI(accountID string) ([]byte, error) {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	a := n.accounts[accountID]
-	if a == nil {
-		return nil, fmt.Errorf("node: unknown account %s", accountID)
-	}
-	return a.spki, nil
 }
 
 // Bus is the node-wide event bus every account's messaging service publishes to.
@@ -1192,7 +1174,6 @@ func (n *Node) inviteHandler() http.Handler {
 			sig, err := n.idm.SignCard(context.Background(), accountID, card)
 			return card, sig, err
 		},
-		SPKI:      n.SPKI,
 		Chain:     func(accountID string) ([][]byte, error) { return n.idm.Chain(context.Background(), accountID) },
 		PublicURL: n.PublicURL,
 		Now:       n.opts.Now,

@@ -214,7 +214,7 @@ were wrong and took `Envelope`, `WireEnvelope` and the KEM helpers along with th
 would have caught it; the file was restored from HEAD and the edit redone as two exact blocks
 with every survivor asserted. `npm run check` green: 1376 tests, unwired ok, ceremony 103/103.
 
-### B5 · Prose that mislabels live behaviour — `TODO`
+### B5 · Prose that mislabels live behaviour — `DONE`
 Not comments about history, which are records worth keeping — these three describe what the code
 does *now*, wrongly:
 - `internal/outbound/client.go:32` — `Fingerprint string // X-PACT-KEY — the pinned identity`.
@@ -223,6 +223,46 @@ does *now*, wrongly:
 - `internal/internalui/invite_landing.go:37,73` — **live page text** telling a person to hash a
   key "to check it matches X-PACT-KEY". A user-facing instruction in a retired vocabulary.
 *Verify:* `make check`; read the rendered landing page text in its test.
+*Result.* `Peer`'s field comments were fixed in B3c while the struct was open; `CardKey`'s doc now
+says it returns the root a card's leaf names. **The third was not prose at all**, and became B9:
+the landing page's "hash it to check it matches X-PACT-KEY" sits on a `spki` member that is itself
+the residue.
+
+### B9 · `spki` on the wire: 1.x's "SPKI distribution", and a redeemer that depends on it — `DONE`
+Found in B5. PACT 1.2 distributed a key beside every card because a card carried only the key's
+*hash*. A 2.0 card carries the leaf **certificate**, which contains the key, and §4 defines the
+invite landing's machine view as exactly `{"card","card_sig","chain"}`. The node's landing also
+emits `"spki"`, its human page tells a person to "hash it to check it matches X-PACT-KEY above" —
+an instruction nobody can follow, there being no such property — and the cloud's landing emits it
+too (`identity.ts:2193`).
+**It is an interop bug, not only residue.** `cli/contactinit.go`'s `verifyOffer` *requires* the
+member: no `spki`, and the invite is refused with "the invite carried no usable public key". It
+then requires `spki == v.LeafKey.SPKI` — bytes it already holds from the chain it just validated.
+So this node cannot redeem an invite from an implementation that follows §4 to the letter; node
+and cloud interoperate only because both carry the same extra member. Take the key from the
+validated leaf; stop emitting and stop requiring `spki` on the landing; then establish whether
+`redeem_invite` and `get_card` results carry the same residue (`public/tools.go`).
+*Verify:* a test redeeming from a landing that returns exactly the three spec members; `make check`;
+the cloud's `invite-landing.test.ts`; the Go conformance battery's landing reads.
+*Result.* Proven before it was fixed: `TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries`
+builds an offer with exactly the three §4 members and **failed** against the old code with "the
+invite carried no usable public key". `verifyOffer` now reads the key from the validated leaf.
+Following the member outward found more than the landing:
+- **`redeem_invite` returned `spki` and no `chain`** — §6.1 requires the chain. **`get_card`
+  returned the chain only "if there is one"** — §6.1 says *always*. Both now answer `unavailable`
+  rather than an answer nobody can verify. `chainB64` is the one place that builds it.
+- `public/tools_test.go`'s fixture **wired no chain at all**, so every test of those two results
+  passed against an unverifiable answer. It carries a real card-and-chain pair now.
+- `node_test.go` asserted the landing HTML **contains the string "X-PACT-KEY"** — a test pinning
+  the retired vocabulary in front of a person. It now requires `X-PACT-CERT` and forbids the other.
+- Dead once `spki` went: `Node.SPKI()`, `account.spki`, the marshalling that fed them, and a test
+  helper staticcheck named (`pactNode.spki`).
+- **How it spread.** The cloud emitted `spki` because the Go conformance battery *required* it —
+  its failure text cites "contactinit.go:141 refuses it". The reference's defect became a
+  conformance requirement. The battery now fails on any member §4 does not define.
+- **The battery had stopped compiling** — it imports the node's `internal/`, and B3c's removal of
+  `Keypair.Protocol`/`Peer.Protocol` broke two lines. Nothing noticed: it is in no gate. See E3.
+The protocol spec itself never named `spki` in 2.0; the residue was only in the implementations.
 
 ### B7 · The account's pre-leaf key is kept alive for 1.x contacts — `TODO`
 Found in B3c. `identity/leaf.go` retires the key an account was created with into a leafless
@@ -340,6 +380,14 @@ the one place a storage-maintenance command may live — and is named in E2's gu
 allowed exception, with the reason beside it.
 *Verify:* `make sqlc-check`, the backup round-trip tests.
 
+### E3 · The Go conformance battery is in no gate, so it rots when the node moves — `TODO`
+Found in B9. `pact-cloud/gateway/conformance/` imports the node's `internal/` packages and runs
+from `scripts/conformance.sh` against a deployed node. Nothing compiles it otherwise, so B3c broke
+it and only an unrelated `go vet` noticed. At minimum `go vet ./...` there belongs in a gate that
+has the node on disk (the umbrella's, or `check:fast` behind an existence check that says so when
+it skips — never silently).
+*Verify:* break a node symbol the battery uses and watch the gate fail.
+
 ### E2 · A guard, so the rule survives its author — `TODO`
 A test that walks non-test Go outside `sqlitedb/` and `pgdb/` and fails on a SQL string literal or a
 `database/sql` Exec/Query call, with an explicit, reasoned allowlist. Conventions rot; this session
@@ -348,5 +396,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B7, B8, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, B6, B2c, F1, F2, C1–C4, D1, E1, E2, E3. One item at a time, each verified and committed before the
 next starts.

@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/tech-sumit/pact-gateway/internal/identity"
@@ -29,7 +31,6 @@ func offerFor(t testing.TB, p *testPeer, fn string) inviteOffer {
 	return inviteOffer{
 		Card:    card,
 		CardSig: base64.RawURLEncoding.EncodeToString(sig),
-		SPKI:    base64.RawURLEncoding.EncodeToString(p.Host.Key.Public.SPKI),
 		Chain:   []string{pactidentity.B64url(p.Host.LeafDER), pactidentity.B64url(p.Wallet.RootDER)},
 	}
 }
@@ -65,6 +66,57 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	}
 }
 
+// PACT §4 defines an invite landing's machine view as exactly three members:
+// `{"card","card_sig","chain"}`. This redeemer also demanded a fourth, `spki`, and refused the
+// invite without it — "the invite carried no usable public key" — and then required that key to
+// equal the one in the chain's leaf, which it had validated a few lines earlier and already held.
+// So the member was pure redundancy, and the demand for it meant this node could not redeem an
+// invite from any implementation that follows §4 to the letter. It interoperated with the cloud
+// only because the cloud carries the same leftover: `spki` is PACT 1.2's "SPKI distribution",
+// from when a card carried a key's HASH and the key had to travel beside it. A 2.0 card carries
+// the leaf certificate, and the key is in it.
+func TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries(t *testing.T) {
+	p := newTestPeer(t, "Alina Rao", "https://alina.example/mcp")
+	off := offerFor(t, p, "Alina Rao")
+
+	// Exactly what §4 says travels: marshal the offer and keep only the three spec members.
+	raw, err := json.Marshal(off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for k := range wire {
+		if k != "card" && k != "card_sig" && k != "chain" {
+			delete(wire, k)
+		}
+	}
+	exact, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var specOffer inviteOffer
+	if err := json.Unmarshal(exact, &specOffer); err != nil {
+		t.Fatal(err)
+	}
+
+	card, spki, rootCert, err := verifyOffer(specOffer)
+	if err != nil {
+		t.Fatalf("a landing carrying exactly {card, card_sig, chain} was refused: %v", err)
+	}
+	if card.Key != p.Root() {
+		t.Fatalf("the offer names root %s, want %s", card.Key, p.Root())
+	}
+	if !bytes.Equal(spki, p.Host.Key.Public.SPKI) {
+		t.Fatal("the key to seal to must be the validated leaf's own, since nothing else carries it")
+	}
+	if !bytes.Equal(rootCert, p.Wallet.RootDER) {
+		t.Fatal("the root certificate must come from the validated chain")
+	}
+}
+
 func TestVerifyOfferRefusals(t *testing.T) {
 	p := newTestPeer(t, "Alina Rao", "https://agent.alina.example/mcp")
 	other := newTestPeer(t, "Someone Else", "https://agent.alina.example/mcp")
@@ -86,13 +138,9 @@ func TestVerifyOfferRefusals(t *testing.T) {
 			"the root is the identity: accepting an unrelated one pins the wrong person",
 			func(o *inviteOffer) { o.Chain[1] = pactidentity.B64url(other.Wallet.RootDER) },
 		},
-		{
-			"a key that is not the leaf's",
-			"the redemption is sealed to this key, so it must be the one the certificate carries",
-			func(o *inviteOffer) {
-				o.SPKI = base64.RawURLEncoding.EncodeToString(other.Host.Key.Public.SPKI)
-			},
-		},
+		// "a key that is not the leaf's" was a case here: the offer carried the key a second time
+		// as `spki`, and swapping it was refused. There is no second key now — the one sealed to is
+		// read from the validated leaf — so the swap cannot be attempted rather than being caught.
 		{"no signature", "SPEC §9.2 serves a SIGNED card", func(o *inviteOffer) { o.CardSig = "" }},
 		{
 			"a signature over something else",

@@ -258,8 +258,14 @@ func TestRoutingAndNotFound(t *testing.T) {
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 || !strings.Contains(string(b), "X-PACT-KEY") {
+	// The page shows the signed card, so it shows the certificate the card carries. This used to
+	// require the string "X-PACT-KEY" on the page — a test pinning the retired vocabulary in front
+	// of a person, which is how "hash it to check it matches X-PACT-KEY" outlived the property.
+	if res.StatusCode != 200 || !strings.Contains(string(b), "X-PACT-CERT") {
 		t.Fatalf("landing page: %d %s", res.StatusCode, firstLine(string(b)))
+	}
+	if strings.Contains(string(b), "X-PACT-KEY") {
+		t.Fatal("the landing page still speaks of X-PACT-KEY, which no card carries")
 	}
 
 	// single-account node: the alias works
