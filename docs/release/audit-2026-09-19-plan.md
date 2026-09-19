@@ -127,7 +127,7 @@ Two things this item turned up:
   drives goose to exactly version 30, which cannot go stale that way.
 *The cloud half is its own item, B2c* — see below for why it is not a side effect of this one.
 
-### B3 · The `protocol` discriminator — `DOING`
+### B3 · The `protocol` discriminator — `DONE`
 Planned as "flip two column defaults". The diagnosis made it larger, because the defaults are the
 least of it: `protocol` is the generation switch itself, and there is one generation.
 - **Contacts: every row is 2.** `contactProtocol()` maps an unset value to 2 and says why in its own
@@ -175,10 +175,23 @@ identity" / "does not speak 2.0" now say what is true: the identity has no certi
 `identity.ExportIdentity`, reached by an account with no root — writes a bare key with no chain,
 which is the 1.x identity format. Left untouched here; it is F1's subject.
 
-#### B3c · The in-memory flags say what they mean — `TODO`
+#### B3c · The in-memory flags say what they mean — `DONE`
 `Protocol == 2` → a name for "a chain was proven". Owner-facing output (`ownermcp/parity.go`, the
 CLI's certificate view) reports `"protocol"`; the cloud's parity fixture compares those tool shapes,
 so that surface is checked against `gateway/test/fixtures/go-owner-tools.json` before it moves.
+*Result.* All five were redundant with facts the structs already carried, so each became a named
+predicate over those facts and the field was deleted: `Keypair.HasChain()`, `Peer.Known()`,
+`TransportFacts.ChainProven()`; `EnvelopeFacts.Protocol` and `Proof.Protocol` simply went. No
+`Protocol` field remains in non-generated Go, production or test.
+**This step found a real gap, not just residue.** In `contacts.Manager`, the binding of a guest's
+card to the leaf it proved, and the address guard, both sat inside `if p.Protocol == 2`. A `Proof`
+without the flag — a fingerprint and a key and nothing else — skipped both and came out as an
+**active contact with no leaf and no endpoint**. `proofOf` never built one, so it was not reachable
+over the wire; but the Manager accepted it, and **all eleven proofs in its test suite were that
+shape** (`Protocol: 1`), so the whole suite exercised the Manager through the retired proof and
+never through the real one. The checks are unconditional now. Giving the tests real proofs made
+the address guard run in them for the first time, where it promptly and correctly refused the
+fixture's own endpoint — `https://G.example/mcp`, an uppercase host, not RFC 3986 normal form.
 *Verify (all three):* `make check`, `make analyze`, Postgres conformance, and the intrusion
 battery's node-side tests — this is identity resolution, so a green compile is not the bar.
 
@@ -199,6 +212,23 @@ does *now*, wrongly:
 - `internal/internalui/invite_landing.go:37,73` — **live page text** telling a person to hash a
   key "to check it matches X-PACT-KEY". A user-facing instruction in a retired vocabulary.
 *Verify:* `make check`; read the rendered landing page text in its test.
+
+### B7 · The account's pre-leaf key is kept alive for 1.x contacts — `TODO`
+Found in B3c. `identity/leaf.go` retires the key an account was created with into a leafless
+`superseded` ledger row on first install, and serves it until its `notAfter` "so 1.x contacts still
+reach us while they re-pin" — with a comment that still says `tlsCertOf` self-signs for it, which
+H11 stopped. Under 2.0 nothing can have been sealed to a bare key: every card carries a leaf. Settle
+whether that row has any 2.0 purpose (§14.4 is about superseded *leaves*); if not, the retirement,
+the row and `TestFirstInstall…`'s "the retiring 1.x key is served second" all go.
+*Verify:* `make check`; the leaf ledger tests; a first-install test that finds no leafless row.
+
+### B8 · `outbound.Client.Call` still reasons about fingerprint-only pins — `TODO`
+Found in B3c. Its doc comment cites `spk`, SPEC §4.4/§4.5/§3.9, "the rotation fan-out" and
+`account rotate`; its body has a branch for `len(peerSPKI) == 0` — "a contact re-pinned but not yet
+reconnected holds only a fingerprint (§3.9)", a state only 1.x key rotation produced. `peerOf` now
+refuses any contact without a leaf, so establish whether that branch is reachable; if not, it and
+the plaintext downgrade behind it go, and the comment is rewritten for the one generation.
+*Verify:* `make check`; the outbound seal-decision tests.
 
 ### B6 · `accept_new_hosts` cannot be set by an owner — `TODO`
 Found during B2. PACT §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
@@ -307,5 +337,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B7, B8, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
 next starts.

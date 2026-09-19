@@ -93,7 +93,6 @@ type EnvelopeFacts struct {
 	// whatever the pool would resolve; Endpoint and Leaf are the proven
 	// address and certificate; Form is chain or leaf; Refusal is a code the
 	// wrapper answers in plaintext (pending_approval) with nothing dispatched.
-	Protocol     int
 	Tier         policy.Tier
 	Demote       bool
 	Endpoint     string
@@ -215,7 +214,7 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 	// "A certificate" means a chain that validated (PACT §14.2) and nothing
 	// else — the posture PACT §13.4 permits is about who may knock at all, and
 	// a lone self-signed certificate is not a knock anyone can be held to.
-	if id.Cert == core.ClientCertRequired && tf.ClientProtocol != 2 {
+	if id.Cert == core.ClientCertRequired && !tf.ChainProven() {
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
 		return "", fmt.Errorf("%w: this node requires a client certificate", ErrIdentityRequired)
 	}
@@ -233,7 +232,7 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 	// root is a stranger — both an anonymous guest here; another address is
 	// §5.3 — re-pinned under `auto`, parked under `ask` with every call
 	// answered pending_approval until the owner decides.
-	if tf.ClientProtocol == 2 {
+	if tf.ChainProven() {
 		if id.speaks20(ctx) {
 			tc, ok := TransportCallerFrom(ctx)
 			if !ok {

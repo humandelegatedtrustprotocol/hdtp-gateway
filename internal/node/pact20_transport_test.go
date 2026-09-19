@@ -29,7 +29,7 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	alina.pin20(bharat)
-	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "optional", Protocol: 2, Root: alina.rootFpr(), Leaf: alina.leaf()}
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	clientFor := func(kp *identity.Keypair) *outbound.Client {
 		return bharat.n.wire20(bharat.acct.ID, &outbound.Client{Keypair: kp, Cert: tlsCertOf(kp)})
 	}

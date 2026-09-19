@@ -28,19 +28,22 @@ var ErrSealRequired = errors.New("seal_required")
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
-	Endpoint    string // X-PACT-ENDPOINT
-	Fingerprint string // X-PACT-KEY — the pinned identity
+	Endpoint    string // the address the pinned leaf names (PACT §2) — a card carries no separate one
+	Fingerprint string // the pinned ROOT's fingerprint: the identity (PACT §2)
 	Seal        string // X-PACT-SEAL: none | optional | required ("" = none)
-	// PACT 2.0 (PACT §2, §14.3): a contact pinned by its root. Fingerprint is
-	// then the root's, Root names it again, Leaf is the latest leaf accepted
-	// (its key is what the call is sealed to and the answer verified under),
-	// and ChainSeen says this contact has already seen OUR current leaf, so
-	// the call carries our leaf's fingerprint rather than the chain (§13.2).
-	Protocol  int
+	// A contact is pinned by its root (PACT §2, §14.3). Root names the pinned root, Leaf is
+	// the latest leaf accepted — its key is what the call is sealed to and the answer
+	// verified under — and ChainSeen says this contact has already seen OUR current leaf,
+	// so the call carries our leaf's fingerprint rather than the chain (§13.2).
 	Root      string
 	Leaf      []byte
 	ChainSeen bool
 }
+
+// Known reports whether we hold what it takes to recognise this peer: the root it is pinned by
+// and a leaf under it. Every peer built from a pin or a card has both; the zero Peer has
+// neither. It used to be asked as `Protocol == 2`, a field every construction set to 2.
+func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
 
 type Client struct {
 	Keypair *identity.Keypair
@@ -83,7 +86,7 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 			}
 			// (a2) PACT 2.0: the contact's own chain as the server certificate
 			// (PACT §2), validated to the pinned root at the dialed address.
-			if peer.Protocol == 2 && len(rawCerts) == 2 {
+			if peer.Known() && len(rawCerts) == 2 {
 				vr := pactidentity.ValidateChain([][]byte{rawCerts[0], rawCerts[1]}, pactidentity.ChainOpts{Now: c.now(), ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint})
 				if vr.OK {
 					return nil

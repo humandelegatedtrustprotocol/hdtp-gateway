@@ -253,7 +253,7 @@ func TestPact20ExitDemo(t *testing.T) {
 	// --- pairing through an invite: Bharat redeems Alina's, as a 2.0 guest ---
 	token := alina.invite(true)
 	clientB, _ := bharat.n.OutboundClient(bharat.acct.ID)
-	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "required", Protocol: 2, Root: alina.rootFpr(), Leaf: alina.leaf()}
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "required", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	res, err := clientB.SealedCall(ctx, peerA, alina.leafSPKI(), "redeem_invite", map[string]any{"token": token, "card": bharat.card()}, "redeem-b")
 	if err != nil || res.IsError {
 		t.Fatalf("redeem: %v %+v", err, res)

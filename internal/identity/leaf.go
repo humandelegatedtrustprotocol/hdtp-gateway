@@ -165,9 +165,7 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		// key — `tlsCertOf` self-signs for it — and it is served until its
 		// notAfter so 1.x contacts still reach us while they re-pin.
 		if len(l.Leaf) > 0 {
-			kp.Leaf, kp.Root, kp.Protocol = l.Leaf, a.RootCert, 2
-		} else {
-			kp.Leaf, kp.Root, kp.Protocol = nil, nil, 1
+			kp.Leaf, kp.Root = l.Leaf, a.RootCert
 		}
 		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
 		if lk.Current {
@@ -519,7 +517,7 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
 		return InstallResult{}, err
 	}
-	kp.Leaf, kp.Root, kp.Protocol = chain[0], chain[1], 2
+	kp.Leaf, kp.Root = chain[0], chain[1]
 	return res, nil
 }
 
@@ -582,7 +580,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 // keyring, the ledger row current, the root beside the account. kp carries
 // Leaf and Root as OpenIdentity attached them.
 func (m *Manager) RestoreLeaf(ctx context.Context, accountID string, kp *Keypair, _ []byte) error {
-	if kp.Protocol != 2 || len(kp.Leaf) == 0 || len(kp.Root) == 0 {
+	if !kp.HasChain() {
 		return errors.New("identity: the key carries no leaf to restore")
 	}
 	vr := pactidentity.ValidateChain([][]byte{kp.Leaf, kp.Root}, pactidentity.ChainOpts{Now: time.Now()})

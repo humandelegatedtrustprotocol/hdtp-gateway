@@ -197,7 +197,7 @@ func TestPlaintextToSealRequiredAccountRefused(t *testing.T) {
 	// With an identity, the seal policy is what refuses it.
 	leaf, _ := pactidentity.Parse(p.leaf)
 	tf := TransportFacts{
-		ClientProtocol: 2, ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI,
+		ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI,
 		ClientLeaf: p.leaf, ClientEndpoint: endpointA,
 	}
 	if _, err := s.id.PlaintextGateCtx(ctx, tf, "send_message", true); err == nil ||
