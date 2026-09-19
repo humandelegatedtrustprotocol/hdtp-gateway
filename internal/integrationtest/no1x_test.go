@@ -97,8 +97,9 @@ func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 		}
 		_ = f.Close()
 	}
-	// A guard that read nothing passes. This tree has well over a thousand tracked files.
-	if scanned < 500 {
+	// A guard that read nothing passes. This tree has about 570 tracked files of text outside its
+	// migrations and records; the floor is there to catch a walk that broke, not to track the count.
+	if scanned < 300 {
 		t.Fatalf("scanned only %d files: the walk is broken, not the tree", scanned)
 	}
 	sort.Strings(found)
