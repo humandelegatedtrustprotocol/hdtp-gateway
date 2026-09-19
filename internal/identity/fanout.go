@@ -24,7 +24,6 @@ import (
 type Campaign struct {
 	AccountID string
 	NewKid    string
-	Kind      string
 }
 
 // Announcer runs campaigns for a node's accounts.
@@ -84,7 +83,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		}
 		_ = st.UpsertRotationFanout(ctx, store.RotationFanout{
 			AccountID: c.AccountID, ContactFpr: ct.Fingerprint, NewFpr: c.NewKid,
-			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: a.now().Unix(), Kind: c.Kind,
+			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: a.now().Unix(),
 		})
 		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint, status)
 	}

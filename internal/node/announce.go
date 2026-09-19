@@ -34,14 +34,14 @@ import (
 // update_contact carrying the new card, in chain form — the chain in the
 // envelope is the proof of the new address, and the contact's setting decides
 // whether it re-pins at once or asks its owner. The walk is durable
-// (rotation_fanout, kind `move`), so an interrupted campaign resumes where it
+// (rotation_fanout), so an interrupted campaign resumes where it
 // stopped when run again for the same leaf.
 func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done, failed int, err error) {
 	card, err := n.Card(ctx, accountID)
 	if err != nil {
 		return 0, 0, err
 	}
-	camp := identity.Campaign{AccountID: accountID, NewKid: newKid, Kind: "move"}
+	camp := identity.Campaign{AccountID: accountID, NewKid: newKid}
 	announcer := &identity.Announcer{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
 	done, failed, _ = announcer.Fanout(ctx, camp, card, func(ctx context.Context, c store.Contact, card string) error {
 		peer, err := n.peerOf(accountID, c)

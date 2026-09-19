@@ -88,10 +88,6 @@ type RotationFanout struct {
 	Attempts   int64
 	LastError  string
 	UpdatedAt  int64
-	// Kind names the campaign (migration 0028): rotation — a 1.x key
-	// rotation; move — a 2.0 identity's new address, proved by its chain;
-	// renewal_1x — the 1.x rotation a 2.0 renewal is toward 1.x pins.
-	Kind string
 }
 
 // Setting is one owner-set configuration value (SPEC §8.2).
