@@ -168,7 +168,7 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 		"msg_id": msgID, "thread_id": threadID, "filename": filename, "mime": mime,
 		"data": base64.StdEncoding.EncodeToString(data), "sender": sender,
 	}
-	res, err := client.Call(ctx, peer, c.SPKI, "send_media", args, msgID)
+	res, err := client.Call(ctx, peer, "send_media", args, msgID)
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	}
 	// The peer's card decides whether this is sealed; Client.Call owns that rule so
 	// every outbound path obeys the same one.
-	res, derr := client.Call(ctx, peer, c.SPKI, "send_message", args, in.MsgID)
+	res, derr := client.Call(ctx, peer, "send_message", args, in.MsgID)
 	if derr != nil {
 		return derr
 	}

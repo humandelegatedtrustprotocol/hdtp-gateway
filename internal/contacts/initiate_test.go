@@ -1,6 +1,7 @@
 package contacts
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -136,7 +137,7 @@ func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
 // state 2.0 cannot produce.
 func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 	m, st, ctx, acct := newInitEnv(t)
-	card, fpr, _ := peerCard(t, "Bob")
+	card, fpr, spki := peerCard(t, "Bob")
 	if err := m.InitiatedByFingerprint(ctx, acct, fpr, card); err != nil {
 		t.Fatal(err)
 	}
@@ -144,11 +145,47 @@ func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no contact row: %v", err)
 	}
-	if c.Status != "pending_out" || len(c.SPKI) != 0 {
-		t.Errorf("status=%q spki=%d bytes; want pending_out with no key yet", c.Status, len(c.SPKI))
+	if c.Status != "pending_out" {
+		t.Errorf("status=%q, want pending_out", c.Status)
+	}
+	// This asserted the OPPOSITE — "want pending_out with no key yet" — on the reasoning that a
+	// card carries only a key's hash and the key arrives later. A 2.0 card carries the leaf, the
+	// key is in it, and the pin is incomplete without it.
+	if !bytes.Equal(c.SPKI, spki) {
+		t.Errorf("the pin holds %d bytes of key, want the %d-byte key in the card's own certificate", len(c.SPKI), len(spki))
+	}
+	if len(c.Leaf) == 0 || c.Endpoint == "" {
+		t.Errorf("the pin is missing its leaf or its address: leaf=%d bytes endpoint=%q", len(c.Leaf), c.Endpoint)
 	}
 	if c.DisplayName != "Bob" {
 		t.Errorf("display name = %q, want Bob", c.DisplayName)
+	}
+}
+
+// The consequence the missing key had, walked end to end: we send `request_contact`, the peer
+// accepts, and the contact is ACTIVE — and must still be sealable. `contact_accepted` writes the
+// card and the grant and never touched the key, and a chain presenting the same leaf re-pins
+// nothing (PACT §14.3), so a key not stored at the start was never stored at all. Every later call
+// then went plaintext to a `seal: optional` peer and failed outright to a `required` one.
+func TestAContactWeRequestedIsSealableOnceTheyAccept(t *testing.T) {
+	m, st, ctx, acct := newInitEnv(t)
+	card, fpr, spki := peerCard(t, "Bob")
+	if err := m.InitiatedByFingerprint(ctx, acct, fpr, card); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ContactAccepted(ctx, acct, fpr, card, []string{"message.text"}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.GetContact(ctx, acct, fpr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Status != "active" {
+		t.Fatalf("status=%q, want active", c.Status)
+	}
+	if !bytes.Equal(c.SPKI, spki) {
+		t.Fatalf("an accepted contact holds %d bytes of key: there is nothing to seal to, so calls to it "+
+			"downgrade to plaintext or fail", len(c.SPKI))
 	}
 }
 

@@ -71,11 +71,11 @@ func (n *Node) SyncContacts(ctx context.Context) (checked, changed int) {
 
 // syncOne re-fetches one contact's card and applies it when it verifies.
 func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
-	client, peer, spki, err := n.peerFor(ctx, accountID, contactFpr)
+	client, peer, err := n.peerFor(ctx, accountID, contactFpr)
 	if err != nil {
 		return false // no endpoint on file: nothing to pull from
 	}
-	res, err := client.Call(ctx, peer, spki, "get_card", map[string]any{}, newCallID())
+	res, err := client.Call(ctx, peer, "get_card", map[string]any{}, newCallID())
 	if err != nil || res == nil || res.IsError {
 		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "unreachable")
 		return false

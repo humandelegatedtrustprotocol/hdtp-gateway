@@ -173,7 +173,16 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			}
 			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == "update_contact" {
-				return d.sealBack(ctx, facts, json.RawMessage(`{"status":"pending"}`))
+				// The same tool result the plaintext gate answers (servers.go), sealed. This sealed
+				// the bare object `{"status":"pending"}` instead — not a tool result at all — so a
+				// caller that sealed its announcement decoded an answer with no content and could
+				// not see that it was pending. Nothing caught it: the one test of this exchange
+				// reached it in plaintext, by passing a nil key to a `Call` that downgraded.
+				pending, err := json.Marshal(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"pending"}`}}})
+				if err != nil {
+					return d.sealedCode(ctx, facts, "unavailable"), nil
+				}
+				return d.sealBack(ctx, facts, pending)
 			}
 			return d.sealedCode(ctx, facts, "pending_approval"), nil
 		}

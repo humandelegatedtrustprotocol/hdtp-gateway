@@ -79,9 +79,17 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	return m.ContactAccepted(ctx, accountID, peerFpr, card, permissions)
 }
 
-// InitiatedByFingerprint is Initiated for the `request_contact` path, where we
-// hold the peer's card and pin the root it names; the leaf and its key arrive with
-// the first chain that validates (PACT §14.3).
+// InitiatedByFingerprint is Initiated for the `request_contact` path, where we hold the peer's
+// card and pin the root it names, the address its leaf names, the leaf, and the leaf's KEY.
+//
+// The key was left out, on the reasoning that it "arrives with the first chain that validates".
+// That was true when a card carried only a key's hash. A 2.0 card carries the leaf certificate,
+// and the key is in it — this function already stored that leaf. Storing the leaf without its key
+// left a contact that, once the peer accepted, was active with no key to seal to: every later
+// call went PLAINTEXT to a `seal: optional` peer and failed outright to a `required` one
+// ("only their fingerprint is pinned"), while the key sat inside the certificate on file.
+// Nothing fills it in later either: `contact_accepted` writes the card and the grant, and a
+// chain presenting the SAME leaf is the pinned leaf, so it re-pins nothing (PACT §14.3).
 func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr, card string) error {
 	if peerFpr == "" {
 		return fmt.Errorf("%w: a contact needs a fingerprint", ErrIdentityRequired)
@@ -93,8 +101,12 @@ func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr
 	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
+	leaf, err := pactidentity.Parse(c.Cert)
+	if err != nil {
+		return fmt.Errorf("%w: the card's certificate does not parse: %v", ErrBadRequest, err)
+	}
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
-		AccountID: accountID, Fingerprint: peerFpr, Status: "pending_out",
+		AccountID: accountID, Fingerprint: peerFpr, SPKI: leaf.SPKI, Status: "pending_out",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
 		Endpoint: c.Endpoint, Leaf: c.Cert,
 	}); err != nil {

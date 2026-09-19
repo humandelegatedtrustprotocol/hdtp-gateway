@@ -104,14 +104,8 @@ func (n *Node) deliverUpdateContact(ctx context.Context, accountID string, peer 
 	// The seal decision is one rule in one place (outbound.Client.Call): this
 	// site forced Plaintext and so every seal-required contact refused the
 	// announcement locally — the peers who most needed the new endpoint were
-	// exactly the ones never told. The pinned SPKI makes sealing possible; a
-	// contact holding only a fingerprint (mid-rotation) degrades the way Call
-	// documents.
-	var spki []byte
-	if c, cerr := n.opts.Store.GetContact(ctx, accountID, peer.Fingerprint); cerr == nil {
-		spki = c.SPKI
-	}
-	res, err := client.Call(ctx, peer, spki, "update_contact",
+	// exactly the ones never told.
+	res, err := client.Call(ctx, peer, "update_contact",
 		map[string]any{"card": card, "sig": sigB64}, newCallID())
 	if err != nil {
 		return err
@@ -146,7 +140,7 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 		if err != nil {
 			return err
 		}
-		res, err := client.Call(ctx, peer, c.SPKI, "update_contact", map[string]any{"card": card}, "move-"+newKid+"-"+c.Fingerprint)
+		res, err := client.Call(ctx, peer, "update_contact", map[string]any{"card": card}, "move-"+newKid+"-"+c.Fingerprint)
 		if err != nil {
 			return err
 		}
