@@ -791,7 +791,7 @@ Specific questions to answer, not assume:
   sibling-kid query.
 *Verified:* `make check` (27), `make analyze`; identity `musts.mjs`, `record.mjs --check`, parity 270/270.
 
-### B15 · The cloud advertises 1.x arguments for `update_contact` — `TODO`
+### B15 · The cloud advertises 1.x arguments for `update_contact` — `DONE`
 Found answering C2. `pact-cloud/gateway/src/identity/tools.ts` lists the tool as "Replace my card
 after a key rotation" with `inputSchema` requiring `card`, `fingerprint` ("the new fingerprint") and
 `signature` ("the old key over the new fingerprint"). The handler reads `card` and nothing else, and
@@ -800,6 +800,12 @@ nothing validates arguments against the schema, so no call fails — but the sch
 would refuse to send the only form this host accepts. The node's copy of the same sentence went in
 B11. Not B2c: no stored data is involved.
 *Verify:* the schema is `{card}`; a test reads `tools/list` and checks it; `npm run check`.
+*Done, 2026-09-19.* The schema is `{card}` and the description says what the card is for.
+`test/tool-schemas.test.ts` is a guard over EVERY tool, not a test of this one: it reads each
+handler's own source and fails if a schema requires an argument the handler never reads. It found
+`update_contact` and nothing else, and asserts that it found argument reads at all. The node
+advertises a bare object schema for every tool — uninformative, and nothing false, so left alone.
+*Verified:* `npm run check` (1396 tests, ceremony 103/103).
 
 ## Part D — optimisation
 
