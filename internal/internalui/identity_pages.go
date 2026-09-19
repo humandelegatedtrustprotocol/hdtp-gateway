@@ -50,7 +50,6 @@ type identityRow struct {
 	Fingerprint     string `json:"fingerprint"`
 	Algo            string `json:"algo"`
 	ID              string `json:"id"`
-	Protocol        int    `json:"protocol,omitempty"`
 	RootFingerprint string `json:"root_fingerprint,omitempty"`
 	Endpoint        string `json:"endpoint,omitempty"`
 	NotAfter        string `json:"not_after,omitempty"`
@@ -70,9 +69,9 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 				ID: a.ID, Slug: a.Slug, DisplayName: a.DisplayName,
 				Algo: a.Algo, Fingerprint: a.Fingerprint,
 			}
-			if a.Protocol == 2 && d.Certificate != nil {
-				if info, err := d.Certificate(r.Context(), a.ID); err == nil && info.Protocol == 2 {
-					row.Protocol, row.RootFingerprint, row.Endpoint = 2, info.RootFingerprint, info.Endpoint
+			if a.HasRoot() && d.Certificate != nil {
+				if info, err := d.Certificate(r.Context(), a.ID); err == nil && info.Certified {
+					row.RootFingerprint, row.Endpoint = info.RootFingerprint, info.Endpoint
 					row.NotAfter, row.RenewalDue = info.NotAfter.UTC().Format(time.RFC3339), info.RenewalDue
 				}
 			}

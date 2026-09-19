@@ -104,7 +104,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	if err := st.SetAccountKey(ctx, a.ID, kp.Fingerprint, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAccountProtocol(ctx, a.ID, 2, pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert); err != nil {
+	if err := st.SetAccountRoot(ctx, a.ID, pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert); err != nil {
 		t.Fatal(err)
 	}
 	if seal != "" {
@@ -151,7 +151,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		// right answer for an identity with no leaf, and the wrong one here.
 		State20: func(context.Context) (*public.State20, error) {
 			return &public.State20{
-				Protocol: 2, Endpoint: n.endpoint, AcceptNewHosts: "auto",
+				HasRoot: true, Endpoint: n.endpoint, AcceptNewHosts: "auto",
 				Chain: [][]byte{n.leafDER, n.rootCert},
 				Keys: []identity.LeafKey{{
 					Kid: kp.Fingerprint, Leaf: n.leafDER, KP: kp, Current: true,

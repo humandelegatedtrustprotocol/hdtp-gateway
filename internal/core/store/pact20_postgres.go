@@ -11,10 +11,10 @@ import (
 // PACT 2.0 state (migration 0027): the account's root and leaf ledger, the
 // 2.0 pins, the removal tombstone, former endpoints and pending addresses.
 
-func (s *Postgres) SetAccountProtocol(ctx context.Context, accountID string, protocol int64, rootFingerprint string, rootCert []byte) error {
-	n, err := s.q.SetAccountProtocol(ctx, pgdb.SetAccountProtocolParams{
-		Protocol: protocol, RootFingerprint: pgtype.Text{String: rootFingerprint, Valid: rootFingerprint != ""},
-		RootCert: rootCert, ID: accountID,
+func (s *Postgres) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
+	n, err := s.q.SetAccountRoot(ctx, pgdb.SetAccountRootParams{
+		RootFingerprint: pgtype.Text{String: rootFingerprint, Valid: rootFingerprint != ""},
+		RootCert:        rootCert, ID: accountID,
 	})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)

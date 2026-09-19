@@ -20,15 +20,19 @@ type Account struct {
 	Seal        string
 	Status      string
 	CreatedAt   int64
-	// PACT 2.0 (migration 0027). Protocol is 1 until a leaf is installed; then
-	// RootFingerprint is the identity's name, RootCert the root's DER, and
-	// Fingerprint above names the CURRENT leaf key. AcceptNewHosts is the
-	// owner's §5.3 setting (auto|ask).
-	Protocol        int64
+	// RootFingerprint is the identity's name and RootCert the root's DER, both empty
+	// until the wallet's first leaf is installed; Fingerprint above names the CURRENT
+	// leaf key. AcceptNewHosts is the owner's §5.3 setting (auto|ask).
 	RootFingerprint string
 	RootCert        []byte
 	AcceptNewHosts  string
 }
+
+// HasRoot reports whether the wallet has issued this identity a leaf yet. An account is made
+// with a host key and no root; the first leaf installed names the root, and only then can it be
+// served (PACT §2). This used to be asked as `Protocol == 2`, a generation number that had come
+// to stand for it.
+func (a Account) HasRoot() bool { return a.RootFingerprint != "" }
 
 // Leaf is one certificate this host holds for an account (PACT §2, §14):
 // pending (a CSR awaiting the wallet), current, superseded (key kept until
@@ -382,7 +386,7 @@ type Store interface {
 
 	// PACT 2.0 (migration 0027): the account's root and leaf ledger, 2.0 pins,
 	// the removal tombstone, former endpoints and pending addresses.
-	SetAccountProtocol(ctx context.Context, accountID string, protocol int64, rootFingerprint string, rootCert []byte) error
+	SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error
 	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
 	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error
 	InsertLeaf(ctx context.Context, l Leaf) error

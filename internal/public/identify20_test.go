@@ -158,7 +158,7 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &State20{Protocol: int(rec.Protocol), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, SiblingKids: e.sibling}
+	st := &State20{HasRoot: rec.HasRoot(), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, SiblingKids: e.sibling}
 	if st.Chain, err = e.m.Chain(ctx, rec.ID); err != nil {
 		return nil, err
 	}

@@ -454,7 +454,7 @@ func Run(t *testing.T, newStore Factory) {
 		if err := s.SetAccountKey(ctx, a.ID, "sha256:leaf1", []byte("sealed1")); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAccountProtocol(ctx, a.ID, 2, "sha256:root", []byte("root-der")); err != nil {
+		if err := s.SetAccountRoot(ctx, a.ID, "sha256:root", []byte("root-der")); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.SetAccountHostPolicy(ctx, a.ID, "ask"); err != nil {
@@ -465,7 +465,7 @@ func Run(t *testing.T, newStore Factory) {
 			t.Fatal(err)
 		}
 		got, _ := s.GetAccountByID(ctx, a.ID)
-		if got.Protocol != 2 || got.RootFingerprint != "sha256:root" || string(got.RootCert) != "root-der" || got.AcceptNewHosts != "ask" || got.Fingerprint != "sha256:leaf2" || got.Algo != "p256" {
+		if !got.HasRoot() || got.RootFingerprint != "sha256:root" || string(got.RootCert) != "root-der" || got.AcceptNewHosts != "ask" || got.Fingerprint != "sha256:leaf2" || got.Algo != "p256" {
 			t.Fatalf("2.0 account fields lost: %+v", got)
 		}
 		if k, _ := s.GetAccountSealedKey(ctx, a.ID); string(k) != "sealed2" {

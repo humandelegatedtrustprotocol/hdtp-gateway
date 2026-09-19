@@ -251,7 +251,7 @@ func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	if a.Protocol != 2 {
+	if !a.HasRoot() {
 		return nil, nil
 	}
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
@@ -377,7 +377,6 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 type InstallResult struct {
 	AccountID       string
 	Slug            string
-	Protocol        int
 	RootFingerprint string
 	Kid             string // the new current leaf's key id
 	OldKid          string // the superseded leaf's key id, "" on a first install
@@ -440,8 +439,8 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		return InstallResult{}, err
 	}
 	res := InstallResult{
-		AccountID: a.ID, Slug: a.Slug, Protocol: 2, RootFingerprint: vr.RootFingerprint, Kid: pending.Kid,
-		FirstInstall: a.Protocol != 2, Endpoint: vr.Endpoint, NotBefore: vr.Leaf.NotBefore, NotAfter: vr.Leaf.NotAfter, NewKP: kp,
+		AccountID: a.ID, Slug: a.Slug, RootFingerprint: vr.RootFingerprint, Kid: pending.Kid,
+		FirstInstall: !a.HasRoot(), Endpoint: vr.Endpoint, NotBefore: vr.Leaf.NotBefore, NotAfter: vr.Leaf.NotAfter, NewKP: kp,
 	}
 	if current != nil {
 		res.OldKid, res.OldEndpoint = current.Kid, current.Endpoint
@@ -514,7 +513,7 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.SetAccountLeafKey(ctx, a.ID, pending.Kid, sealedAcct, string(kp.Algo)); err != nil {
 		return InstallResult{}, err
 	}
-	if err := m.Store.SetAccountProtocol(ctx, a.ID, 2, vr.RootFingerprint, chain[1]); err != nil {
+	if err := m.Store.SetAccountRoot(ctx, a.ID, vr.RootFingerprint, chain[1]); err != nil {
 		return InstallResult{}, err
 	}
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
@@ -526,7 +525,9 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 
 // CertificateInfo is `account certificate`'s answer.
 type CertificateInfo struct {
-	Protocol        int
+	// Certified is whether the wallet has issued this identity a leaf yet. It was `Protocol`, 1
+	// or 2, a generation number that had come to mean exactly this.
+	Certified       bool
 	RootFingerprint string
 	Chain           [][]byte
 	Kid             string
@@ -546,7 +547,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	if err != nil {
 		return CertificateInfo{}, err
 	}
-	info := CertificateInfo{Protocol: int(a.Protocol), RootFingerprint: a.RootFingerprint}
+	info := CertificateInfo{Certified: a.HasRoot(), RootFingerprint: a.RootFingerprint}
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
 		return CertificateInfo{}, err
@@ -599,5 +600,5 @@ func (m *Manager) RestoreLeaf(ctx context.Context, accountID string, kp *Keypair
 		NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint, CreatedAt: time.Now().Unix()}); err != nil {
 		return err
 	}
-	return m.Store.SetAccountProtocol(ctx, accountID, 2, vr.RootFingerprint, kp.Root)
+	return m.Store.SetAccountRoot(ctx, accountID, vr.RootFingerprint, kp.Root)
 }

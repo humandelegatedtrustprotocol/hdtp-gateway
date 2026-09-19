@@ -2,8 +2,9 @@
 -- ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 -- addresses awaiting the owner under `accept_new_hosts = ask`.
 
--- name: SetAccountProtocol :execrows
-UPDATE accounts SET protocol = $1, root_fingerprint = $2, root_cert = $3 WHERE id = $4;
+-- name: SetAccountRoot :execrows
+-- The first leaf installed names the account's root; the root never changes after (PACT sec. 2).
+UPDATE accounts SET root_fingerprint = $1, root_cert = $2 WHERE id = $3;
 
 -- name: SetAccountLeafKey :execrows
 -- Re-points the account at its CURRENT leaf key. SetAccountKey binds once and

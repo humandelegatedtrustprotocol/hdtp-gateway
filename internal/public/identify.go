@@ -258,7 +258,7 @@ func (id *Identifier) speaks20(ctx context.Context) bool {
 		return false
 	}
 	st, err := id.State20(ctx)
-	return err == nil && st != nil && st.Protocol == 2
+	return err == nil && st != nil && st.HasRoot
 }
 
 // PoolGate adapts an Identifier into the Pool.Gate hook: it applies the
