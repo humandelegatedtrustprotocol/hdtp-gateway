@@ -38,9 +38,9 @@ func (s *SQLite) SetAccountLeafKey(ctx context.Context, accountID, fingerprint s
 	return nil
 }
 
-func (s *SQLite) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string, accept1x bool) error {
+func (s *SQLite) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error {
 	n, err := s.q.SetAccountHostPolicy(ctx, sqlitedb.SetAccountHostPolicyParams{
-		AcceptNewHosts: acceptNewHosts, Accept1x: boolInt(accept1x), ID: accountID,
+		AcceptNewHosts: acceptNewHosts, ID: accountID,
 	})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -243,13 +243,6 @@ func (s *SQLite) UpgradeContactPin(ctx context.Context, accountID, oldFpr, root,
 		return fmt.Errorf("store: contact not found")
 	}
 	return nil
-}
-
-func boolInt(b bool) int64 {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // SetContactRootCert fills in the root certificate of a pin that has none. A pin

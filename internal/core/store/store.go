@@ -23,12 +23,11 @@ type Account struct {
 	// PACT 2.0 (migration 0027). Protocol is 1 until a leaf is installed; then
 	// RootFingerprint is the identity's name, RootCert the root's DER, and
 	// Fingerprint above names the CURRENT leaf key. AcceptNewHosts is the
-	// owner's §5.3 setting (auto|ask); Accept1x whether 1.x proofs still resolve.
+	// owner's §5.3 setting (auto|ask).
 	Protocol        int64
 	RootFingerprint string
 	RootCert        []byte
 	AcceptNewHosts  string
-	Accept1x        bool
 }
 
 // Leaf is one certificate this host holds for an account (PACT §2, §14):
@@ -386,7 +385,7 @@ type Store interface {
 	// the removal tombstone, former endpoints and pending addresses.
 	SetAccountProtocol(ctx context.Context, accountID string, protocol int64, rootFingerprint string, rootCert []byte) error
 	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
-	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string, accept1x bool) error
+	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error
 	InsertLeaf(ctx context.Context, l Leaf) error
 	UpdateLeaf(ctx context.Context, l Leaf) error
 	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)

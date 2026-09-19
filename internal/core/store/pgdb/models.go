@@ -22,7 +22,6 @@ type Account struct {
 	RootFingerprint pgtype.Text
 	RootCert        []byte
 	AcceptNewHosts  string
-	Accept1x        int64
 }
 
 type AuditAnchor struct {

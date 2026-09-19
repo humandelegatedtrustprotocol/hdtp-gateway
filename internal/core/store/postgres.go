@@ -209,7 +209,7 @@ func pgAccount(r pgdb.Account) Account {
 		ID: r.ID, Slug: r.Slug, DisplayName: r.DisplayName, Algo: r.Algo,
 		Fingerprint: fp, Seal: r.Seal, Status: r.Status, CreatedAt: r.CreatedAt,
 		Protocol: r.Protocol, RootFingerprint: r.RootFingerprint.String, RootCert: r.RootCert,
-		AcceptNewHosts: r.AcceptNewHosts, Accept1x: r.Accept1x != 0,
+		AcceptNewHosts: r.AcceptNewHosts,
 	}
 }
 

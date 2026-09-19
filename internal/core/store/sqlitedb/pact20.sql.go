@@ -375,17 +375,16 @@ func (q *Queries) RetireLeafKey(ctx context.Context, arg RetireLeafKeyParams) (i
 }
 
 const setAccountHostPolicy = `-- name: SetAccountHostPolicy :execrows
-UPDATE accounts SET accept_new_hosts = ?, accept_1x = ? WHERE id = ?
+UPDATE accounts SET accept_new_hosts = ? WHERE id = ?
 `
 
 type SetAccountHostPolicyParams struct {
 	AcceptNewHosts string
-	Accept1x       int64
 	ID             string
 }
 
 func (q *Queries) SetAccountHostPolicy(ctx context.Context, arg SetAccountHostPolicyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setAccountHostPolicy, arg.AcceptNewHosts, arg.Accept1x, arg.ID)
+	result, err := q.db.ExecContext(ctx, setAccountHostPolicy, arg.AcceptNewHosts, arg.ID)
 	if err != nil {
 		return 0, err
 	}
