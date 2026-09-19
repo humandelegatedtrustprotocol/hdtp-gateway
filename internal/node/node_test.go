@@ -110,7 +110,7 @@ func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(cont
 		var d net.Dialer
 		return d.DialContext(ctx, network, addr)
 	}
-	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
+	return outbound.Peer{Endpoint: vr.Endpoint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }
 
 // callerChain plays another person's wallet: an independent root and a leaf over
@@ -290,20 +290,42 @@ func TestEdgeModeKnobs(t *testing.T) {
 	if got := n.TLSConfig().ClientAuth; got != tls.NoClientCert {
 		t.Fatalf("edge listener still requests certificates: %v", got)
 	}
-	// a plaintext substantive call is refused seal_required, before authorization
+	// A plaintext substantive call is refused BY THE NODE, before authorization, and the code is
+	// `identity_required`: behind an edge no client certificate ever arrives, so an unsealed call
+	// establishes nobody, and identity precedes sealing (§4.11, §5.3).
+	//
+	// This test used to build its peer with `Seal: "required"` and call `send_message`. A client
+	// that reads "required" off a card refuses to send plaintext at all (`ErrSealRequired`), so
+	// the refusal it asserted was the client's own, made before a byte left the process — true
+	// of `outbound`, and saying nothing about the node's knobs, which is what the test is named
+	// for. Here the caller believes the policy is "none", the pin is real (the node's chain, at
+	// the address its leaf names) so the call arrives, and the tool is one a stranger's surface
+	// HAS: `send_message` is not, and a stranger asking for it is told `blocked_or_unknown`
+	// before any policy is consulted.
 	kp, _ := identity.Generate(identity.AlgoP256)
 	der, _ := identity.SelfSignedCert(kp, "peer")
-	client := &outbound.Client{Keypair: kp, Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}}
-	peer := outbound.Peer{Endpoint: base + "/a/alice/mcp", Fingerprint: accts[0].Fingerprint, Seal: "required"}
-	_, err := client.CallTool(context.Background(), peer, "send_message",
-		map[string]any{"msg_id": "p-1", "text": "unsealed"}, outbound.CallOptions{Plaintext: true})
-	if err == nil {
-		t.Fatal("an unsealed call was accepted under seal=required")
+	peer, dial := e.peerFor(accts[0], base)
+	if peer.Seal == "required" {
+		t.Fatal("the caller must believe plaintext is allowed, or the client refuses locally and the node is never asked")
 	}
-	if !strings.Contains(err.Error(), "seal_required") && !strings.Contains(err.Error(), "identity_required") {
-		t.Fatalf("wrong refusal: %v", err)
+	client := &outbound.Client{Keypair: kp, Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}, DialContext: dial}
+	res, err := client.CallTool(context.Background(), peer, "request_contact",
+		map[string]any{"card": "BEGIN:VCARD\nEND:VCARD", "note": "unsealed"}, outbound.CallOptions{Plaintext: true})
+	if err != nil {
+		t.Fatalf("the call never reached the node, so its refusal is unobserved: %v", err)
 	}
-
+	if !res.IsError {
+		t.Fatal("an unsealed substantive call was accepted under seal=required")
+	}
+	refusal := ""
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			refusal += tc.Text
+		}
+	}
+	if !strings.Contains(refusal, "identity_required") {
+		t.Fatalf("the node refused an unsealed call with %q, want identity_required", refusal)
+	}
 }
 
 // AC: Stop releases the port — a second node binds the same address.

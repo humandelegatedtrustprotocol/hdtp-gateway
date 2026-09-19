@@ -59,7 +59,7 @@ func (i *identity20) client() *Client { return &Client{Keypair: i.kp, Cert: i.tl
 
 // peerOf is the pin a caller holds for this identity.
 func (i *identity20) peerOf() Peer {
-	return Peer{Endpoint: i.endpoint, Fingerprint: i.rootFpr, Seal: "required", Root: i.rootFpr, Leaf: i.leaf}
+	return Peer{Endpoint: i.endpoint, Seal: "required", Root: i.rootFpr, Leaf: i.leaf}
 }
 
 // TestChainAsServerCertificateValidatesToThePinnedRoot: PACT §2 server side —
@@ -88,8 +88,8 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	// saw two certificates, the leaf first.
 	other := newIdentity20(t, "Mallory", "https://agent.bharat.example/mcp")
 	wrong := server.peerOf()
-	wrong.Root, wrong.Fingerprint = other.rootFpr, other.rootFpr
-	if err := dial(wrong); err == nil || !strings.Contains(err.Error(), "neither the pinned key nor WebPKI-valid") {
+	wrong.Root = other.rootFpr
+	if err := dial(wrong); err == nil || !strings.Contains(err.Error(), "neither a chain under the pinned root nor a WebPKI-valid certificate") {
 		t.Fatalf("a chain to another root must be refused: %v", err)
 	}
 	elsewhere := server.peerOf()
@@ -97,15 +97,22 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	if err := dial(elsewhere); err == nil {
 		t.Fatal("a chain naming another address must be refused (PACT §14.2 rule 5)")
 	}
-	// And a pin of the LEAF's key is not a pin at all. The retired generation
-	// recognised a server by the key of the certificate it presented; under 2.0
-	// the identity is the root, so this reaches neither the chain branch (the pin
-	// names no root) nor WebPKI (the chain is not publicly trusted), and the dial
-	// fails. This test asserted the opposite, and passed, which is how a rule
+	// And the LEAF's key is not the identity. The retired generation recognised a server by the
+	// key of the certificate it presented; under 2.0 the identity is the root. So a pin that
+	// names the leaf key's fingerprint where the root belongs is a pin of somebody who does not
+	// exist: the chain does not validate to it, the chain is not publicly trusted either, and
+	// the dial fails. A test here once asserted the opposite, and passed, which is how a rule
 	// nobody meant to keep survives its own deletion.
 	lib, _ := identity.ToLib(server.kp)
-	if err := dial(Peer{Endpoint: server.endpoint, Fingerprint: pactidentity.Fingerprint(lib.Public.SPKI), Seal: "required"}); err == nil {
+	byLeafKey := server.peerOf()
+	byLeafKey.Root = pactidentity.Fingerprint(lib.Public.SPKI)
+	if err := dial(byLeafKey); err == nil {
 		t.Fatal("a pin of the leaf's key must not connect: the identity is the root (PACT §2)")
+	}
+	// Nor is no pin at all: with no root held there is no chain to validate to, and what is left
+	// is WebPKI, which this chain is not.
+	if err := dial(Peer{Endpoint: server.endpoint, Seal: "required"}); err == nil {
+		t.Fatal("a peer we hold no root for connected on the strength of a chain nobody checked")
 	}
 }
 

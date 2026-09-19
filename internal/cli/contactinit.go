@@ -191,7 +191,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 // `outbound.Client` speak at all — it refuses a peer it holds neither for (`Peer.Known`).
 func peerOfCard(card contacts.Card) outbound.Peer {
 	return outbound.Peer{
-		Endpoint: card.Endpoint, Fingerprint: card.Key, Seal: card.Seal,
+		Endpoint: card.Endpoint, Seal: card.Seal,
 		Root: card.Key, Leaf: card.Cert,
 	}
 }
@@ -435,7 +435,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 		return err
 	}
 	peer := outbound.Peer{
-		Endpoint: c.Endpoint, Fingerprint: peerFpr, Seal: "required",
+		Endpoint: c.Endpoint, Seal: "required",
 		Root: peerFpr, Leaf: c.Leaf,
 	}
 	args := map[string]any{"card": ourCard}

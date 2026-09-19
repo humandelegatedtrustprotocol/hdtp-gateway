@@ -157,8 +157,8 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 	}
 	out.Contact = bob
 	out.Target = peer.Target{
-		Endpoint:    "https://127.0.0.1:" + p.Public + "/a/alice/mcp",
-		Fingerprint: out.NodeFpr,
+		Endpoint: "https://127.0.0.1:" + p.Public + "/a/alice/mcp",
+		Root:     out.NodeFpr,
 	}
 	// The card IS the leaf certificate (PACT §3). It used to be a 1.x card naming a
 	// key and an address; the address is inside the certificate now, and it has to be

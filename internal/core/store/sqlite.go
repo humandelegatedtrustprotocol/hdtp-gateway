@@ -402,24 +402,24 @@ func (s *SQLite) ListAuditEvents(ctx context.Context, actorFilter string) ([]Aud
 	return out, nil
 }
 
-func (s *SQLite) UpsertRotationFanout(ctx context.Context, f RotationFanout) error {
+func (s *SQLite) UpsertMoveFanout(ctx context.Context, f MoveFanout) error {
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()
 	}
-	return s.q.UpsertRotationFanout(ctx, sqlitedb.UpsertRotationFanoutParams{
-		AccountID: f.AccountID, ContactFpr: f.ContactFpr, NewFpr: f.NewFpr, Status: f.Status,
+	return s.q.UpsertMoveFanout(ctx, sqlitedb.UpsertMoveFanoutParams{
+		AccountID: f.AccountID, ContactFpr: f.ContactFpr, LeafKid: f.LeafKid, Status: f.Status,
 		Attempts: f.Attempts, LastError: f.LastError, UpdatedAt: f.UpdatedAt,
 	})
 }
 
-func (s *SQLite) ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error) {
-	rows, err := s.q.ListRotationFanout(ctx, accountID)
+func (s *SQLite) ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error) {
+	rows, err := s.q.ListMoveFanout(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	out := make([]RotationFanout, 0, len(rows))
+	out := make([]MoveFanout, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, RotationFanout{AccountID: r.AccountID, ContactFpr: r.ContactFpr, NewFpr: r.NewFpr,
+		out = append(out, MoveFanout{AccountID: r.AccountID, ContactFpr: r.ContactFpr, LeafKid: r.LeafKid,
 			Status: r.Status, Attempts: r.Attempts, LastError: r.LastError, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil

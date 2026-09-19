@@ -42,7 +42,7 @@ func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 	}
 	n.mu.RUnlock()
 	return outbound.Peer{
-		Endpoint: endpoint, Fingerprint: c.Fingerprint, Seal: seal,
+		Endpoint: endpoint, Seal: seal,
 		Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
 	}, nil
 }
@@ -72,24 +72,6 @@ func (n *Node) wire20(accountID string, client *outbound.Client) *outbound.Clien
 		n.auditFor(accountID, "contact_renewal", "contact:"+peer.Root, "ok")
 	}
 	return client
-}
-
-// clientForContact is the client that speaks for an account toward one contact.
-//
-// One account, one live leaf, one client. There used to be a second: a contact
-// pinned as 1.x that had not yet re-pinned after a renewal still recognised the
-// OLD key, so until the fan-out reached it the SUPERSEDED key and a self-signed
-// certificate for it were what we presented there — PACT Appendix C row 2, an
-// appendix deleted with 1.x on 2026-09-18.
-//
-// It was the outbound mirror of a hole closed inbound the same day: a lone
-// self-signed certificate names no root, so a conforming 2.0 peer grants it no
-// identity at all. Presenting one would make the call anonymous rather than
-// compatible. The branch could only be entered by a contact row whose protocol is
-// not 2, which migration 0029 left none of, and it read `rotation_fanout` rows of
-// kinds the same migration deleted.
-func (n *Node) clientForContact(ctx context.Context, accountID string, c store.Contact) (*outbound.Client, error) {
-	return n.OutboundClient(accountID)
 }
 
 // tlsCertOf is what a key presents on the wire: the chain — leaf then root —

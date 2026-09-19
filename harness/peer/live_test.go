@@ -80,7 +80,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	// Leaving it unpinned fails, correctly: the endpoint is an IP with no SAN, so
 	// the WebPKI fallback refuses. That is the pinning behaviour P13-04 documented,
 	// observed from the outside.
-	target := Target{Endpoint: "https://127.0.0.1:18443/a/alice/mcp", Fingerprint: nodeFpr}
+	target := Target{Endpoint: "https://127.0.0.1:18443/a/alice/mcp", Root: nodeFpr}
 
 	var names []string
 	listDeadline := time.Now().Add(45 * time.Second)
