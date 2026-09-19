@@ -107,8 +107,11 @@ func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Containe
 // by its owner's wallet — until which it is nobody, and serves nothing — and its owner surface
 // connected. publicURL is the address the leaf will name, so it is a name other nodes on the
 // network can dial and never a loopback address, which no wallet issues for.
+//
+// `aliases` are extra names the node answers to on its network: the address a scenario MOVES the
+// identity to has to resolve before anybody is told of it.
 func StartOwnedNode(ctx context.Context, f *fabric.Fabric, image string, net *fabric.Network,
-	slug, ownerPort, publicURL string, extraEnv map[string]string) (*Owned, error) {
+	slug, ownerPort, publicURL string, extraEnv map[string]string, aliases ...string) (*Owned, error) {
 
 	env := map[string]string{
 		"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
@@ -120,7 +123,7 @@ func StartOwnedNode(ctx context.Context, f *fabric.Fabric, image string, net *fa
 		env[k] = v
 	}
 	node, err := f.Container(ctx, fabric.Spec{
-		Name: slug, Image: image, Network: net, Env: env,
+		Name: slug, Image: image, Network: net, Env: env, Aliases: aliases,
 		Ports: []string{ownerPort + ":8081"},
 		Cmd:   []string{"serve"},
 	})

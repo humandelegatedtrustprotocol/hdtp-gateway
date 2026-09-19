@@ -321,42 +321,27 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if len(res.Retired) > 0 {
 			out["Retired"] = res.Retired
 		}
-		// The campaign an install can start — the move's update_contact toward
-		// contacts pinned by our root (PACT §5.3, §9) — runs DETACHED.
-		//
-		// They used to run inside this call. One unreachable contact costs up to
-		// the outbound timeout, the admin client waits 30 seconds, and the leaf
-		// was already installed: so a single dead host timed out the CLI on a
-		// success, and the obvious retry answered "no certificate request is
-		// pending". The install is the durable part and it answers now; the walks
-		// are durable too (`move_fanout`), so `account announce` reports and
-		// resumes them.
+		// The campaign an install can start — the move's update_contact toward contacts pinned by
+		// our root (PACT §5.3, §9) — runs DETACHED (node.ResumeMove): an unreachable contact holds
+		// the walk until the call gives up, the admin client waits thirty seconds for anything, and
+		// the leaf is already installed. The install is the durable part and it answers now; the walk is
+		// durable too (`move_fanout`), and `account announce` reports it and resumes it.
 		//
 		// Whether it moved is the install's to say (identity.InstallResult.Moved). This worked it
 		// out here from the superseded leaf's endpoint, and so never campaigned after an import.
 		if res.Moved && nd != nil {
+			nd.ResumeMove(ctx, acct.ID, res.Kid)
 			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
-			accountID, kid := acct.ID, res.Kid
-			go func() {
-				// The admin call's context ends with the call; these outlive it.
-				bg := context.WithoutCancel(ctx)
-				if d, f, merr := nd.AnnounceMove(bg, accountID, kid); merr != nil {
-					auditFn("account_move_campaign", "account:"+accountID, "error")
-				} else {
-					// "ok" with contacts unreached was what this said whatever the counts were.
-					outcome := "ok"
-					if f > 0 {
-						outcome = "failed"
-					}
-					auditFn("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), outcome)
-				}
-			}()
 		}
 		return out, nil
 	})
-	// account.announce resumes the campaign an install starts — the move's
-	// update_contact walk — for the current leaf. The walk is durable, so contacts
-	// already told are skipped and the rest are tried.
+	// account.announce reports the campaign an install starts — the move's update_contact walk —
+	// for the current leaf, and resumes it if contacts are still waiting and no walk is running.
+	//
+	// It REPORTS THE LEDGER and returns. It used to run the walk and answer when the walk ended:
+	// 17 seconds for one unreachable contact on the container harness, more for each further one,
+	// out of the thirty the admin socket gives a command — and beside the walk the install had
+	// started, not instead of it (internal/node/campaign.go).
 	admin.Handle("account.announce", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
 			return nil, fmt.Errorf("account.announce needs slug")
@@ -368,11 +353,15 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if !acct.HasRoot() || nd == nil {
 			return nil, fmt.Errorf("account.announce: %s has no certificate yet, or the node is not running", acct.Slug)
 		}
-		done, failed, err := nd.AnnounceMove(ctx, acct.ID, acct.Fingerprint)
+		before, err := nd.MoveProgress(ctx, acct.ID, acct.Fingerprint)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"Slug": acct.Slug, "MoveDone": done, "MoveFailed": failed}, nil
+		resumed := before.Waiting > 0 && nd.ResumeMove(ctx, acct.ID, acct.Fingerprint)
+		return map[string]any{
+			"Slug": acct.Slug, "Told": before.Told, "Waiting": before.Waiting,
+			"Walking": before.Walking || resumed, "Resumed": resumed, "Unreached": before.Unreached,
+		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
@@ -856,8 +845,8 @@ func account(args []string, stdout, stderr io.Writer) int {
 		if r, ok := out["Retired"]; ok {
 			fmt.Fprintf(stdout, "retired %v: this node could not open the superseded key (it was sealed under another master key), so an envelope still sealed to it is answered certificate_renewed\n", r)
 		}
-		if d, ok := out["MoveDone"]; ok {
-			fmt.Fprintf(stdout, "contacts told of the new address: done=%v failed=%v (re-run `account announce` for the rest)\n", d, out["MoveFailed"])
+		if c, ok := out["Campaigns"]; ok {
+			fmt.Fprintf(stdout, "telling contacts of the new address: %v\n", c)
 		}
 		return 0
 	case "announce":
@@ -866,7 +855,22 @@ func account(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "contacts told of the address: done=%v failed=%v\n", out["MoveDone"], out["MoveFailed"])
+		fmt.Fprintf(stdout, "contacts told of the address: told=%v waiting=%v\n", out["Told"], out["Waiting"])
+		if unreached, _ := out["Unreached"].([]any); len(unreached) > 0 {
+			for _, u := range unreached {
+				if m, ok := u.(map[string]any); ok {
+					fmt.Fprintf(stdout, "  not reached: %v (tried %v): %v\n", m["contact"], m["attempts"], m["last_error"])
+				}
+			}
+		}
+		// Two different facts, said differently: a walk that was already running is reported, and
+		// one this command has just started is said to have been started by it.
+		switch resumed, _ := out["Resumed"].(bool); {
+		case resumed:
+			fmt.Fprintln(stdout, "resumed: trying the contacts still waiting; run `account announce` again to see how far it has got")
+		case out["Walking"] == true:
+			fmt.Fprintln(stdout, "a walk is under way; run `account announce` again to see how far it has got")
+		}
 		return 0
 	case "certificate":
 		var out map[string]any
