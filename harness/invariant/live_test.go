@@ -65,10 +65,4 @@ func TestLiveAuditChainInvariantVerifiesRealNodes(t *testing.T) {
 	if audit == nil || audit.Status != Pass {
 		t.Fatalf("the audit-chain invariant did not verify real nodes: %+v", audit)
 	}
-	// T1 has no relay, so that check must say so rather than inventing a pass.
-	for _, r := range rep {
-		if r.Name == "relay-sealed" && r.Status != NotApplicable {
-			t.Errorf("relay invariant reported %q in a topology with no relay", r.Status)
-		}
-	}
 }

@@ -66,7 +66,7 @@ func TestLiveInternalNetworkIsGenuinelyUnreachable(t *testing.T) {
 	out, _ := dockerRunner(ctx, "docker", "exec", "pactlive1-isolated",
 		"sh", "-c", "ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && echo REACHED || echo BLOCKED")
 	if !strings.Contains(string(out), "BLOCKED") {
-		t.Fatalf("a container on an --internal network reached the internet, so T2/T3 "+
+		t.Fatalf("a container on an --internal network reached the internet, so T2 "+
 			"isolation is not real: %q", out)
 	}
 }

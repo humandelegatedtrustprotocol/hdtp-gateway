@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 const nodeImage = "pact-gateway:harness"
@@ -31,7 +33,9 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	// Published so the Go test process — the peer's agent — can dial it directly.
 	if _, err := run("run", "-d", "--name", name, "-p", "18443:8443",
 		"-e", "PACT_PUBLIC_BIND=0.0.0.0:8443",
-		"-e", "PACT_PUBLIC_URL=https://127.0.0.1:18443",
+		// A NAME, because a wallet does not issue a leaf for a loopback address (PACT §14.2 rule
+		// 5). The agent dials it to the published port below, which is DNS's job for a real caller.
+		"-e", "PACT_PUBLIC_URL=https://alice.harness.example:18443",
 		"-e", "PACT_INTERNAL_BIND=127.0.0.1:8080",
 		"-e", "PACT_CLIENT_CERT=preferred",
 		nodeImage, "serve"); err != nil {
@@ -51,36 +55,40 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	acct, err := run("exec", name, "/pact-gateway", "account", "create",
-		"--slug", "alice", "--name", "Alice")
-	if err != nil {
+	if acct, err := run("exec", name, "/pact-gateway", "account", "create",
+		"--slug", "alice", "--name", "Alice"); err != nil {
 		t.Fatalf("creating account: %v (%s)", err, acct)
 	}
-	nodeFpr := ""
-	for _, f := range strings.Fields(string(acct)) {
-		if strings.HasPrefix(f, "sha256:") {
-			nodeFpr = f
-		}
+	// An account is nobody until a wallet has signed it a leaf (PACT §2): this one's owner is
+	// played by the harness. Until that happens the node has no certificate to present, and
+	// every dial ends `tls: internal error` — which is what this test did from the day 1.x
+	// went until 2026-09-19, skipped, because PACT_HARNESS_LIVE is not set by any hook.
+	alice, err := wallet.New("Alice")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if nodeFpr == "" {
-		t.Fatalf("no fingerprint in account output: %s", acct)
+	pin, err := alice.Certify(ctx, wallet.Docker(name), "alice", "", "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// No restart: since P14-05a a live-created account is servable at once. The
-	// workaround is gone so a regression fails here rather than hiding.
+	// No restart: a live-created account is servable as soon as it is certified. There is no
+	// workaround here so a regression fails rather than hiding.
 
 	agent, err := NewAgent("stranger")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The node's key IS pinned, because that is how a real guest arrives: they hold
-	// the card (and its X-PACT-KEY) before they ever call. What is UNKNOWN here is
-	// the caller — the node has never seen this agent's certificate — and that is
-	// what puts them at guest tier.
+	// The node IS pinned, because that is how a real guest arrives: they hold its card — its
+	// leaf, and through the invite landing its root — before they ever call. What is UNKNOWN
+	// here is the caller: the node has never seen this agent's chain, and that is what puts them
+	// at guest tier.
 	//
-	// Leaving it unpinned fails, correctly: the endpoint is an IP with no SAN, so
-	// the WebPKI fallback refuses. That is the pinning behaviour P13-04 documented,
-	// observed from the outside.
-	target := Target{Endpoint: "https://127.0.0.1:18443/a/alice/mcp", Root: nodeFpr}
+	// Leaving it unpinned fails, correctly: what the node presents is its own chain, which no
+	// public authority signed, so the WebPKI fallback refuses.
+	target := Target{Endpoint: pin.Endpoint, Dial: "127.0.0.1:18443", Root: pin.Root, Leaf: pin.Leaf}
+	if pin.Endpoint != "https://alice.harness.example:18443/a/alice/mcp" {
+		t.Fatalf("the leaf names %q, not the address this node was given", pin.Endpoint)
+	}
 
 	var names []string
 	listDeadline := time.Now().Add(45 * time.Second)

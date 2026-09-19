@@ -1,8 +1,9 @@
 package scenario
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 // T6 — a node behind a self-hosted `frps`.
@@ -77,10 +79,16 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	// "frp needs server_addr (your frps host)" — so the real journey is: bring the
 	// node up, configure the adapter in the portal, then switch the tunnel on.
 	// That is what an owner does, so it is what this exercises.
+	//
+	// Its public URL is the tunnel's from the start, because the account's leaf names the
+	// address it answers at (PACT §2) and the wallet signs it before the tunnel exists.
+	const ownerPort = "18691"
 	node, err := f.Container(ctx, fabric.Spec{
 		Name: "node", Image: nodeImage, Network: net,
+		Ports: []string{ownerPort + ":8081"},
 		Env: map[string]string{
 			"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
+			"PACT_PUBLIC_URL":    "https://" + domain + ":8443",
 			"PACT_INTERNAL_BIND": "127.0.0.1:8080",
 			"PACT_CLIENT_CERT":   "preferred",
 		},
@@ -96,9 +104,20 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 		"--slug", "alice", "--name", "Alice"); err != nil {
 		t.Fatalf("account create: %v (%s)", err, out)
 	}
+	aliceWallet, err := wallet.New("Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := aliceWallet.Certify(ctx, wallet.Docker(node.Name), "alice", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://" + domain + ":8443/a/alice/mcp"; pin.Endpoint != want {
+		t.Fatalf("the leaf names %q, want the tunnel's address %q", pin.Endpoint, want)
+	}
 
 	// The portal is loopback-bound (SPEC §8.3); a sidecar in the node's own netns
-	// reaches it without the node binding non-loopback.
+	// publishes it for the owner's browser without the node binding non-loopback.
 	bridge, err := f.Container(ctx, fabric.Spec{
 		Name: "bridge", Image: "alpine/socat", NetworkMode: "container:" + node.Name,
 		Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
@@ -108,10 +127,14 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	// Reached by CONTAINER NAME on the harness network, not through a published
-	// port: the bridge shares the node's namespace, so node:8081 is its listener.
-	// (`--network host` does not reach published ports on Docker Desktop.)
-	portal := "http://" + node.Name + ":8081"
+	// Settings are the owner's, and the portal requires a session on every bind (SPEC §8.3):
+	// so the owner registers a passkey, and sets them as that owner. This posted forms as
+	// nobody, with a CSRF cookie read off an unauthenticated GET, while a loopback bind needed
+	// no session; every POST has been refused since, three steps before the symptom.
+	_, _, owner, err := BootstrapOwner(ctx, f, node, ownerPort)
+	if err != nil {
+		t.Fatalf("the owner's session: %v", err)
+	}
 	for k, v := range map[string]string{
 		"tunnel.frp.server_addr":   frps.Name,
 		"tunnel.frp.server_port":   "7000",
@@ -120,11 +143,11 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 		"tunnel.frp.custom_domain": domain,
 		"tunnel.frp.vhost_port":    "8443",
 	} {
-		if err := postForm(ctx, f, net.Name, portal+"/settings/adapter", map[string]string{"key": k, "value": v}); err != nil {
+		if err := owner.PostForm(ctx, "/settings/adapter", "", map[string]string{"key": k, "value": v}); err != nil {
 			t.Fatalf("setting %s through the portal: %v", k, err)
 		}
 	}
-	if err := postForm(ctx, f, net.Name, portal+"/settings", map[string]string{
+	if err := owner.PostForm(ctx, "/settings", "", map[string]string{
 		"tunnel": "frp", "public_url": "https://" + domain + ":8443",
 	}); err != nil {
 		t.Fatalf("enabling the tunnel: %v", err)
@@ -160,13 +183,27 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	frpsIP := strings.TrimSpace(string(ip))
 	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name,
 		"--add-host", domain+":"+frpsIP, "alpine:3.20", "sh", "-c",
-		"apk add -q openssl; echo | openssl s_client -connect "+domain+":8443 -servername "+domain+" 2>&1")
-	got := string(out)
-	if !strings.Contains(got, "subject=CN=alice") {
-		t.Fatalf("the node's own certificate did not survive the tunnel — mTLS identity "+
-			"(PACT §2) depends on it:\n%s", shorten(got, 500))
+		"apk add -q openssl; echo | openssl s_client -showcerts -connect "+domain+":8443 -servername "+domain+" 2>&1")
+	// What arrives must be the chain the node serves under — the leaf Alice's wallet issued,
+	// byte for byte, then her root (PACT §2, §14.2) — because that chain IS the identity a
+	// caller validates, and a hop that re-terminated TLS would present something else. This
+	// looked for `subject=CN=alice`, the lone self-signed certificate of a key-pinned node.
+	var presented [][]byte
+	for rest := out; ; {
+		block, tail := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type == "CERTIFICATE" {
+			presented = append(presented, block.Bytes)
+		}
+		rest = tail
 	}
-	t.Log("through frps: the node's own CN=alice certificate reached the caller")
+	if len(presented) != 2 || !bytes.Equal(presented[0], pin.Leaf) || !bytes.Equal(presented[1], aliceWallet.RootDER) {
+		t.Fatalf("the node's own chain did not survive the tunnel (%d certificate(s) presented) — "+
+			"identity (PACT §2) depends on it:\n%s", len(presented), shorten(string(out), 500))
+	}
+	t.Log("through frps: the leaf Alice's wallet issued, and her root, reached the caller")
 
 	// And a real MCP call through the same tunnel. E14 hid for as long as it did
 	// because no tunnel scenario ever made one: every messaging scenario runs
@@ -188,71 +225,6 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 			shorten(string(body), 600))
 	}
 	t.Log("through frps: a full MCP initialize completed against the node")
-}
-
-// postForm submits a portal form from a throwaway container.
-//
-// The CSRF cookie is fetched and parsed in GO rather than in an inline shell
-// script: the first version built one with nested quoting, the sed silently
-// produced an empty token, every POST was rejected, and the failure surfaced
-// three steps later as "frps never registered the node's proxy". Two plain docker
-// runs are longer and debuggable.
-func postForm(ctx context.Context, f *fabric.Fabric, network, url string, fields map[string]string) error {
-	// The CSRF cookie comes from a page that certainly exists, derived from the
-	// ORIGIN. Deriving it from the posted path worked only for /settings/* and
-	// silently produced a 404 — and so an empty cookie — for anything else.
-	origin := url
-	if i := strings.Index(url[len("http://"):], "/"); i >= 0 {
-		origin = url[:len("http://")+i]
-	}
-	base := origin + "/settings"
-	head, err := f.Raw(ctx, "docker", "run", "--rm", "--network", network,
-		"curlimages/curl:latest", "-s", "-i", "-m", "10", base)
-	if err != nil {
-		return fmt.Errorf("fetching the CSRF cookie: %w (%s)", err, shorten(string(head), 200))
-	}
-	csrf := ""
-	for _, line := range strings.Split(string(head), "\n") {
-		if !strings.Contains(strings.ToLower(line), "set-cookie: pact_csrf=") {
-			continue
-		}
-		v := line[strings.Index(line, "pact_csrf=")+len("pact_csrf="):]
-		if i := strings.IndexAny(v, ";\r"); i >= 0 {
-			v = v[:i]
-		}
-		csrf = strings.TrimSpace(v)
-	}
-	if csrf == "" {
-		return fmt.Errorf("no pact_csrf cookie from %s; the portal keeps CSRF on even on "+
-			"a loopback bind, so a POST without it is refused", base)
-	}
-
-	args := []string{"run", "--rm", "--network", network, "curlimages/curl:latest",
-		"-s", "-m", "15", "-X", "POST",
-		"-H", "X-Pact-Csrf: " + csrf, "-b", "pact_csrf=" + csrf}
-	for k, v := range fields {
-		args = append(args, "--data-urlencode", k+"="+v)
-	}
-	// The BODY is kept: the portal explains a refusal in it — a missing
-	// acknowledgment, a validation message — and discarding it left a bare "400"
-	// with nothing to act on.
-	args = append(args, url, "-w", "\nHTTP_STATUS:%{http_code}")
-	out, err := f.Raw(ctx, "docker", args...)
-	if err != nil {
-		return fmt.Errorf("posting to %s: %w (%s)", url, err, shorten(string(out), 200))
-	}
-	body := string(out)
-	code := ""
-	if i := strings.LastIndex(body, "HTTP_STATUS:"); i >= 0 {
-		code = strings.TrimSpace(body[i+len("HTTP_STATUS:"):])
-		body = body[:i]
-	}
-	// Anything but 2xx/3xx means the setting did not land, and the consequences
-	// only show up much later — so it fails here, where the cause is visible.
-	if !strings.HasPrefix(code, "2") && !strings.HasPrefix(code, "3") {
-		return fmt.Errorf("%s answered HTTP %s: %s", url, code, shorten(strings.TrimSpace(body), 400))
-	}
-	return nil
 }
 
 // waitLog polls a container's logs for a substring.

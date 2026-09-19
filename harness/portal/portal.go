@@ -10,12 +10,14 @@ package portal
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/webauthn"
 	"github.com/chromedp/chromedp"
@@ -128,6 +130,102 @@ func (s *Session) RegisterFirstPasskey(ctx context.Context, setupURL, tag string
 		return msg, fmt.Errorf("portal: registering a passkey: %w", err)
 	}
 	return strings.TrimSpace(msg), nil
+}
+
+// Cookies returns what the browser holds for a URL — after RegisterFirstPasskey, the owner's
+// session and its CSRF token.
+//
+// The portal requires a session on EVERY bind (SPEC §8.3), loopback included, so a scenario
+// that wants to do what an owner does — read a conversation, change a setting — has to be one.
+// The ceremony is the only way to become one, and only a browser can run it; this hands the
+// result to plain HTTP, so the rest of a scenario does not have to be a browser too.
+func (s *Session) Cookies(ctx context.Context, rawURL string) ([]*http.Cookie, error) {
+	var got []*network.Cookie
+	runCtx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+	defer cancel()
+	if err := chromedp.Run(runCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var err error
+		got, err = network.GetCookies().WithURLs([]string{rawURL}).Do(ctx)
+		return err
+	})); err != nil {
+		return nil, fmt.Errorf("portal: reading the browser's cookies for %s: %w", rawURL, err)
+	}
+	out := make([]*http.Cookie, 0, len(got))
+	for _, c := range got {
+		out = append(out, &http.Cookie{Name: c.Name, Value: c.Value})
+	}
+	return out, nil
+}
+
+// SignIn gives this browser an owner's session — the cookies another browser earned by running
+// the passkey ceremony (Cookies). The virtual authenticator that holds the passkey dies with the
+// browser that registered it, so a later browser cannot sign in the way a person would; what it
+// can do is carry the session that person already has.
+func (s *Session) SignIn(ctx context.Context, base string, cookies []*http.Cookie) error {
+	runCtx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+	defer cancel()
+	return chromedp.Run(runCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		for _, c := range cookies {
+			if err := network.SetCookie(c.Name, c.Value).WithURL(base + "/").Do(ctx); err != nil {
+				return fmt.Errorf("portal: setting %s for %s: %w", c.Name, base, err)
+			}
+		}
+		return nil
+	}))
+}
+
+// Page is what a person is looking at once the application has drawn a view: the words, where
+// the links go, what can be pressed or typed into, and whether there is a way to go anywhere.
+type Page struct {
+	Text     string   `json:"text"`
+	Links    []string `json:"links"`
+	Controls []string `json:"controls"`
+	HasNav   bool     `json:"hasNav"`
+}
+
+// Rendered opens a URL and reports the view once it has settled.
+//
+// The portal is one page over a JSON API: the document a server returns for any path is the same
+// empty shell, and what an owner can DO is decided by what the script draws. So an affordance is
+// asserted on the drawn page or not at all — fetching the HTML and looking for a form asserts on
+// a document no browser ever shows anybody.
+func (s *Session) Rendered(ctx context.Context, url string) (Page, error) {
+	runCtx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
+	defer cancel()
+	var page Page
+	const read = `(() => {
+		const label = (e) => (e.innerText || e.value || e.getAttribute("aria-label") || e.getAttribute("placeholder") || e.getAttribute("name") || "").trim();
+		return {
+			text: document.body.innerText,
+			links: [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")),
+			controls: [...document.querySelectorAll("button, input, textarea, select")].map(label).filter(Boolean),
+			hasNav: !!document.querySelector("nav"),
+		};
+	})()`
+	err := chromedp.Run(runCtx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible("main", chromedp.ByQuery),
+		// A view draws its frame first and its data after the first fetch answers. Wait for the
+		// loading placeholder to go rather than sleeping a guessed interval.
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			deadline := time.Now().Add(20 * time.Second)
+			for {
+				var loading bool
+				if err := chromedp.Evaluate(`!!document.querySelector("[aria-busy=true], .loading")`, &loading).Do(ctx); err != nil {
+					return err
+				}
+				if !loading || time.Now().After(deadline) {
+					return nil
+				}
+				time.Sleep(150 * time.Millisecond)
+			}
+		}),
+		chromedp.Evaluate(read, &page),
+	)
+	if err != nil {
+		return page, fmt.Errorf("portal: rendering %s: %w", url, err)
+	}
+	return page, nil
 }
 
 // LogConsole prints browser console output and page errors to stdout. A WebAuthn
