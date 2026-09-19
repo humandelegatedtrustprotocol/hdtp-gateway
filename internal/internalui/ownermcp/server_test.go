@@ -3,7 +3,9 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -472,5 +474,53 @@ func TestTrustFlagRejectsUnknownValues(t *testing.T) {
 	c, err := e.st.GetContact(ctx, e.acctA, "sha256:frank")
 	if err != nil || c.TrustFlag != "messages_only" {
 		t.Fatalf("the stored flag moved on a refused write: %+v (%v)", c, err)
+	}
+}
+
+// refresh_contact names ONE contact and says what was found. There was a `sync_contacts` here that
+// took an account and swept every contact it had; the tool that replaced it has no form that names
+// nobody, and a token narrowed to one identity reaches no contact of another.
+func TestRefreshContactNamesOneContactOfTheCallersAccount(t *testing.T) {
+	e := newEnv(t)
+	type asked struct{ account, fpr string }
+	var calls []asked
+	e.deps.RefreshContact = func(_ context.Context, accountID, fpr string) (string, string, error) {
+		calls = append(calls, asked{accountID, fpr})
+		if fpr == "sha256:gone" {
+			return "", "", errors.New("unknown contact")
+		}
+		return "refused", "the chain it answered with fails rule 5", nil
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner, AccountID: e.acctA}, nil)
+
+	tools, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "sync_contacts" {
+			t.Fatal("sync_contacts is still offered: no tool refreshes more than one contact")
+		}
+	}
+
+	text, isErr := callJSON(t, cs, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:alina"})
+	if isErr {
+		t.Fatalf("refresh_contact: %s", text)
+	}
+	var got struct{ Outcome, Why string }
+	if err := json.Unmarshal([]byte(text), &got); err != nil || got.Outcome != "refused" || !strings.Contains(got.Why, "rule 5") {
+		t.Fatalf("the agent must be told what was found and why: %s", text)
+	}
+	// Another identity's contact: denied before anything is dialled.
+	if _, isErr := callJSON(t, cs, "refresh_contact", map[string]any{"account_id": e.acctB, "contact_fpr": "sha256:alina"}); !isErr {
+		t.Fatal("a token narrowed to one account refreshed a contact of another")
+	}
+	// A contact that cannot be called is an error, not an outcome about a peer.
+	if _, isErr := callJSON(t, cs, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:gone"}); !isErr {
+		t.Fatal("refreshing nobody answered as though somebody had been asked")
+	}
+	want := []asked{{e.acctA, "sha256:alina"}, {e.acctA, "sha256:gone"}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("the node was asked for %v, want exactly %v", calls, want)
 	}
 }

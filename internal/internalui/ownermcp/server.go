@@ -57,9 +57,10 @@ type Deps struct {
 	// a row and sent nothing while telling the agent "delivered". nil keeps the
 	// record-only behaviour for tests that do not compose a node.
 	Send func(ctx context.Context, accountID, contactFpr string, in messaging.Input) (messaging.Result, error)
-	// SyncContacts pulls every contact's signed card now (node.SyncContacts);
-	// nil hides the tool.
-	SyncContacts func(ctx context.Context, accountID string) (checked, changed int)
+	// RefreshContact re-fetches ONE contact's signed card now (node.RefreshContact), the
+	// same function behind the button on the portal's contact page. There is no tool that
+	// refreshes more than the contact it is given. nil hides the tool.
+	RefreshContact func(ctx context.Context, accountID, contactFpr string) (outcome, why string, err error)
 	// Audit records owner-agent actions that change security posture. The trust
 	// flip is the one that matters most: it decides whether a contact's words
 	// may INSTRUCT the owner's agent, and an unaudited flip is exactly the kind
@@ -163,6 +164,12 @@ type PetnameArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
 	Petname    string `json:"petname" jsonschema:"the owner's own name for this contact; empty clears it"`
+}
+
+// RefreshArgs names the one contact to refresh. There is no form of it that names none.
+type RefreshArgs struct {
+	AccountID  string `json:"account_id"`
+	ContactFpr string `json:"contact_fpr" jsonschema:"the contact whose card to re-fetch"`
 }
 
 type ApproveArgs struct {
@@ -421,15 +428,22 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 			return r, nil, err
 		})
 
-	if d.SyncContacts != nil {
-		mcp.AddTool(s, &mcp.Tool{Name: "sync_contacts", Description: "Re-fetch the signed card of every active contact of this account, now: a renewed certificate or a changed seal policy is learned; the pinned root and the address never move"},
-			func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if d.RefreshContact != nil {
+		mcp.AddTool(s, &mcp.Tool{Name: "refresh_contact", Description: "Re-fetch ONE contact's signed card, now: a renewed certificate, a changed name or seal policy is learned; the pinned root and the address never move. Answers unchanged, updated, renewed, unreachable or refused (with why); an unreachable or refused contact keeps its pin as it was"},
+			func(ctx context.Context, req *mcp.CallToolRequest, a RefreshArgs) (*mcp.CallToolResult, any, error) {
 				if !allow(ctx, a.AccountID) {
 					r, err := deny()
 					return r, nil, err
 				}
-				checked, changed := d.SyncContacts(ctx, a.AccountID)
-				r, err := jsonResult(map[string]int{"checked": checked, "updated": changed})
+				outcome, why, err := d.RefreshContact(ctx, a.AccountID, a.ContactFpr)
+				if err != nil {
+					return nil, nil, err
+				}
+				out := map[string]string{"outcome": outcome}
+				if why != "" {
+					out["why"] = why
+				}
+				r, err := jsonResult(out)
 				return r, nil, err
 			})
 	}

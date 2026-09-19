@@ -156,7 +156,14 @@ one job it always had: healing a card change whose announcement missed us.
 > said the node polls nobody. The ticker is gone. `SyncContacts` remains for the owner MCP's
 > `sync_contacts`, which is a person asking, is scoped to the account that asked, and is guarded
 > by `TestNothingSyncsContactsOnATimer`. "Healing a card change whose announcement missed us" is
-> done by the protocol, on use, as the paragraph above this one already said. What survives from
+> done by the protocol, on use, as the paragraph above this one already said.
+>
+> **And again, 2026-09-19 (round 2, R3).** The owner's answer to that was "Remove it then, we dont
+> need periodic sync. give user button to refresh contact state which does this on demand for a
+> specific contact only." `SyncContacts` and `sync_contacts` are gone. What is left is
+> `node.RefreshContact` — ONE contact, named by the caller — behind a *Refresh now* button on the
+> contact's page and the owner MCP's `refresh_contact`, guarded by
+> `TestNothingRefreshesContactsByItself`. What survives from
 this line of work is the part that was always sound — §14.3's MUST NOT, held by
 `TestAnUnansweredConfirmationChangesNoPin`, that an unanswered confirmation may never refuse
 or un-pin a contact.

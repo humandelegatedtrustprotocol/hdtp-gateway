@@ -37,6 +37,11 @@ type ContactsDeps struct {
 	// a second set of bugs. Nil hides the form rather than offering a button that
 	// cannot work.
 	AddContact func(ctx context.Context, accountID, inviteURL, grant string) (fingerprint string, err error)
+	// RefreshContact re-fetches ONE contact's signed card because the owner pressed the
+	// button on that contact's page: a renewed certificate, a changed name or seal policy.
+	// The same function as the owner MCP's refresh_contact (§8.4 parity). There is no
+	// route that refreshes more than the contact in its path. Nil answers 404.
+	RefreshContact func(ctx context.Context, accountID, fpr string) (outcome, why string, err error)
 	// ServedPermissions names every contact-tier permission this account's
 	// public surface currently gates a tool with, beyond the core five. It is
 	// how a live integration's permission reaches the switchboard; nil offers
@@ -400,6 +405,23 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 		http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
 	})
 
+	// Refresh THIS contact. JSON rather than a redirect, because what the owner wants is
+	// the outcome — unchanged, updated, renewed, unreachable, refused and why — and a
+	// redirect would throw it away. The audit rows are the node's own (`contact_refresh`,
+	// `contact_renewal`), written where the decision is made.
+	mux.HandleFunc("POST /contacts/{fpr}/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if d.RefreshContact == nil {
+			http.NotFound(w, r)
+			return
+		}
+		outcome, why, err := d.RefreshContact(r.Context(), r.URL.Query().Get("account"), r.PathValue("fpr"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		apiJSON(w, map[string]string{"outcome": outcome, "why": why})
+	})
+
 	mux.HandleFunc("POST /contacts/{fpr}/trust", func(w http.ResponseWriter, r *http.Request) {
 		account := r.URL.Query().Get("account")
 		fpr := r.PathValue("fpr")
@@ -421,8 +443,6 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 		http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
 	})
 }
-
-var _ = strings.TrimSpace
 
 func apiJSONStatus(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
