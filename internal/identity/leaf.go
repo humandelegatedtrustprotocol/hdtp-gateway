@@ -110,17 +110,13 @@ func (m *Manager) openLeafKey(sealed []byte) (*Keypair, error) {
 	return ParsePKCS8(der)
 }
 
-// ActiveLeafKeypairs returns the current leaf's key first and every superseded
-// key not yet past its notAfter, each with its leaf and the root attached. A
-// superseded key past its notAfter is retired on this path: destroyed, its kid
-// kept (§14.4).
+// ActiveLeafKeypairs returns the current leaf's key first and every superseded key not yet past
+// its notAfter, each with its leaf and the root attached. That is what closes the gap after a
+// RENEWAL: a contact that has not heard yet still seals to the superseded leaf, and the host
+// keeps that key until the leaf's notAfter so the envelope opens (PACT §14.4).
 //
-// It closes the grace gap for a 2.0 RENEWAL, whose retiring key is in this
-// ledger. A 1.x account's own rotation is not here — `Rotate` writes the
-// prev_key columns and this reads `leaves` — so the 1.x grace gap is unchanged
-// for an account that has never installed a leaf. Folding `Rotator`'s previous
-// key in here would close that too; it is left alone because a 1.x account's
-// grace is the 1.x path's business and this one has no claim on it.
+// A superseded key past its notAfter is simply not returned. Destroying it is
+// `RetireExpiredLeafKeys`, on a write path — this is a read, taken by every inbound request.
 func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now time.Time) ([]LeafKey, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
@@ -153,20 +149,18 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		default:
 			continue
 		}
-		if len(l.KeySealed) == 0 {
+		// A row with a key and no leaf is not a leaf's key, and nothing can have been sealed to it:
+		// a card carries a leaf, so a key that never had one was never anybody's target. Installs
+		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for 1.x
+		// contacts); a store from before then may still hold one, and it is not served.
+		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
 			continue
 		}
 		kp, err := m.openLeafKey(l.KeySealed)
 		if err != nil {
 			return nil, err
 		}
-		// A superseded row with a key and no leaf is the 1.x identity key a first
-		// install retired (below): it has no chain to present, so it stays a 1.x
-		// key — `tlsCertOf` self-signs for it — and it is served until its
-		// notAfter so 1.x contacts still reach us while they re-pin.
-		if len(l.Leaf) > 0 {
-			kp.Leaf, kp.Root = l.Leaf, a.RootCert
-		}
+		kp.Leaf, kp.Root = l.Leaf, a.RootCert
 		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
 		if lk.Current {
 			out = append([]LeafKey{lk}, out...)
@@ -243,7 +237,7 @@ func (m *Manager) FormerKids(ctx context.Context, accountID string, now time.Tim
 	return out, nil
 }
 
-// Chain is [current leaf, root] for a 2.0 account; nil for a 1.x one.
+// Chain is [current leaf, root], or nil for an account the wallet has not issued a leaf to yet.
 func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
@@ -384,7 +378,7 @@ type InstallResult struct {
 	Endpoint        string
 	NotBefore       time.Time
 	NotAfter        time.Time
-	OldKP           *Keypair // the superseded key, for the 1.x rotation toward 1.x pins
+	OldKP           *Keypair // the superseded LEAF's key on a renewal; nil on a first install
 	NewKP           *Keypair
 }
 
@@ -453,49 +447,26 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 				return InstallResult{}, err
 			}
 		} else {
-			// The same key under a newer leaf (an upgrade of a 1.x rotation's
-			// key, or a wallet that reused one): there is nothing to keep.
+			// The same key under a newer leaf — a wallet that re-issued over the key it
+			// was given rather than a fresh one: there is nothing to keep.
 			if _, err := m.Store.DeleteLeavesByState(ctx, accountID, LeafCurrent); err != nil {
 				return InstallResult{}, err
 			}
 		}
 	} else if a.Fingerprint != "" && a.Fingerprint != pending.Kid {
-		// A first install that changes the key — a renewal or a move requested as the first leaf.
-		// The key the account named retires like a superseded leaf would, kept for a year, so an
-		// envelope sealed to it is answered `certificate_renewed` with the new chain (PACT §14.4)
-		// instead of failing to open.
-		sealedOld, err := m.Store.GetAccountSealedKey(ctx, accountID)
-		if err != nil {
-			return InstallResult{}, fmt.Errorf("identity: read the key being retired: %w", err)
-		}
-		if len(sealedOld) == 0 {
-			// **Nothing to retire, and this is the ordinary case after a data-only import.** The
-			// account names the key its PREVIOUS host served under and does not hold it: a leaf key
-			// belongs to the host it was issued to (PACT §9), so an archive carries none and
-			// `backup restore -data-only` strips any that was there. Keeping that kid as a
-			// superseded leaf would promise `certificate_renewed` answers this host cannot seal.
-			//
-			// This branch was UNREACHABLE the day it was written: `GetAccountSealedKey` reported an
-			// absent key as an error, so the read above returned before the length was ever tested
-			// and the first leaf after a move could not be installed at all. The store now returns
-			// no key as no key, and `TestFirstLeafAfterADataOnlyImport` walks the whole move.
-			res.KeyChanged = true
-		} else {
-			oldKP, err := m.LoadKeypair(sealedOld)
-			if err != nil {
-				return InstallResult{}, fmt.Errorf("identity: open the key being retired: %w", err)
-			}
-			res.OldKid, res.OldKP, res.KeyChanged = a.Fingerprint, oldKP, true
-			sealed, err := m.sealLeafKey(oldKP)
-			if err != nil {
-				return InstallResult{}, fmt.Errorf("identity: reseal the key being retired: %w", err)
-			}
-			// NotBefore is the account's own start, unknown here, so it stays zero: this
-			// row is the oldest key by construction, which is what the ordering wants.
-			if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: a.Fingerprint, KeySealed: sealed, NotAfter: now.Add(365 * 24 * time.Hour).Unix(), State: LeafSuperseded, Endpoint: vr.Endpoint, CreatedAt: now.Unix()}); err != nil {
-				return InstallResult{}, fmt.Errorf("identity: keep the key being retired: %w", err)
-			}
-		}
+		// A first leaf over a key other than the one the account names: requested as a renewal or
+		// a move rather than a signup, or installed after a data-only import, where the account
+		// names the key its PREVIOUS host served under and does not hold it (a leaf key belongs to
+		// the host it was issued to, PACT §9; `TestFirstLeafAfterADataOnlyImport` walks that move).
+		//
+		// Either way there is nothing to retire. PACT §14.4 keeps a superseded LEAF's key until
+		// its notAfter, so an envelope sealed to it is answered `certificate_renewed` — and the
+		// key being replaced here was never a leaf. Before the first leaf an identity has no card
+		// and cannot be served, so no 2.0 sender can have sealed anything to it. It used to be
+		// kept for a year anyway, as a leafless ledger row that was loaded and served, "so 1.x
+		// contacts still reach us while they re-pin"; those were the only callers who ever held
+		// it. `SetAccountLeafKey` below overwrites the sealed key, which is what destroys it.
+		res.KeyChanged = true
 	}
 	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
 		return InstallResult{}, err
