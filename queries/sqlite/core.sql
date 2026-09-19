@@ -92,11 +92,11 @@ ORDER BY seq DESC LIMIT ?3;
 SELECT * FROM audit_events WHERE actor_id = ? ORDER BY seq;
 
 -- name: UpsertRotationFanout :exec
-INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at, kind)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (account_id, contact_fpr) DO UPDATE SET
   new_fpr = excluded.new_fpr, status = excluded.status, attempts = excluded.attempts,
-  last_error = excluded.last_error, updated_at = excluded.updated_at, kind = excluded.kind;
+  last_error = excluded.last_error, updated_at = excluded.updated_at;
 
 -- name: ListRotationFanout :many
 SELECT * FROM rotation_fanout WHERE account_id = ? ORDER BY contact_fpr;

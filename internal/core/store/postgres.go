@@ -376,12 +376,9 @@ func (s *Postgres) UpsertRotationFanout(ctx context.Context, f RotationFanout) e
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()
 	}
-	if f.Kind == "" {
-		f.Kind = "rotation"
-	}
 	return s.q.UpsertRotationFanout(ctx, pgdb.UpsertRotationFanoutParams{
 		AccountID: f.AccountID, ContactFpr: f.ContactFpr, NewFpr: f.NewFpr, Status: f.Status,
-		Attempts: f.Attempts, LastError: f.LastError, UpdatedAt: f.UpdatedAt, Kind: f.Kind,
+		Attempts: f.Attempts, LastError: f.LastError, UpdatedAt: f.UpdatedAt,
 	})
 }
 
@@ -393,7 +390,7 @@ func (s *Postgres) ListRotationFanout(ctx context.Context, accountID string) ([]
 	out := make([]RotationFanout, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, RotationFanout{AccountID: r.AccountID, ContactFpr: r.ContactFpr, NewFpr: r.NewFpr,
-			Status: r.Status, Attempts: r.Attempts, LastError: r.LastError, UpdatedAt: r.UpdatedAt, Kind: r.Kind})
+			Status: r.Status, Attempts: r.Attempts, LastError: r.LastError, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }
