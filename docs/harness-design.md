@@ -100,7 +100,7 @@ project has already had, which is why they are cross-cutting rather than local:
 |---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path |
 | **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel |
-| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path |
+| **T3** `double-nat` | both behind separate NATs | *(not built)* a tunnel on each side is the only path. The builder that existed stood a RELAY between them and started both nodes `relay-assisted`, a mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing |
@@ -228,6 +228,36 @@ the binary is `CGO_ENABLED=0` static, so the guest needs no Docker inside it —
 just a minimal arm64 rootfs — and S8 is nightly-tier only. What remains to build
 is that rootfs; nothing else about the harness changes.
 
+## 5a. The harness plays the wallet
+
+A PACT 2.x account is nobody until a wallet has signed it a leaf: the identity is the person's
+root, which no host holds, and `account create` makes an account with no certificate to present.
+So `harness/wallet` holds a root per person and does what an owner does with the `pact` CLI —
+`account csr`, issue under the root, `account install-leaf` — and hands a scenario the pin a
+caller holds: the root, the leaf, the address in it. Three things follow, each learned by
+running it:
+
+- **A node's public URL is a name, never a loopback address.** No wallet issues a leaf for one
+  (PACT §14.2 rule 5), and a chain is validated against the address dialled. A node published on
+  `localhost` is therefore named (`alice.harness.example:<port>`), and the harness agent resolves
+  that name to the published port (`peer.Target.Dial`), which is DNS's job for a real caller.
+- **A scenario that touches the portal is an OWNER.** The portal requires a session on every
+  bind (SPEC §8.3), so the browser that runs the passkey ceremony hands its cookies to plain
+  HTTP (`scenario.OwnerSession`), and a setting is posted as that owner.
+- **An affordance is asserted on the page a browser DRAWS.** The portal is one page over a JSON
+  API; the document behind every path is the same empty shell. `portal.Session.Rendered` reports
+  the words, links and controls of the settled view, signed in (`OwnerSession.Browser`).
+
+**Status, 2026-09-19 — `PACT_HARNESS_LIVE=1 go test ./...` against a fresh `make harness-image`
+and `make harness-image-caldav`: 15 live scenarios pass, 2 skip** (Cloudflare tunnels need a real
+domain, `PACT_CF_DOMAIN`; the VM clock test needs `PACT_HARNESS_KERNEL`). The same command that
+morning: **0 pass.** Every scenario still created an account and called it — the whole ceremony
+while a node's key was its identity — so every first dial ended `tls: internal error`; five more
+scraped server-rendered HTML the portal stopped producing, or posted forms as nobody. None of it
+showed, because a live scenario is skipped unless `PACT_HARNESS_LIVE` is set and the pre-push
+hook does not set it. **The hermetic tier being green says the harness COMPILES. It says nothing
+about whether a scenario can run**, and only a live run does.
+
 ## 6. Run tiers
 
 Six topologies × eleven suites is roughly sixty cells. Running all of them on
@@ -236,8 +266,8 @@ every push would be slow enough that people would stop reading the result.
 | Tier | Cells | Wall clock (est.) | When | How |
 |---|---|---|---|---|
 | **Hermetic** | fabric, topology, preflight, invariants against a recorder | ~5 s | every push | `pre-push` hook, automatic |
-| **Fast** | T1, T2 × S1, S2, S3, S6, S9 + all invariants | ~8 min | on demand | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
-| **Full** | the full matrix, including S7, S8, S10, S11 | ~45 min | on demand | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
+| **Fast** | T1, T2 × S1, S2, S3, S9 + all invariants | ~8 min | on demand | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
+| **Full** | the full matrix, including S4, S7, S8, S11 | ~45 min | on demand | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
 | **Release** | full + both store engines + `-race` throughout | ~70 min | before a tag | by hand |
 
 **None of this runs in GitHub CI, and that is deliberate.** The live tiers drive

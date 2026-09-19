@@ -3,7 +3,6 @@ package scenario
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -72,11 +71,11 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	for _, n := range []*Owned{alice, bob} {
-		oc, token, err := BootstrapOwner(ctx, f, n.Node, n.OwnerPort)
+		oc, token, session, err := BootstrapOwner(ctx, f, n.Node, n.OwnerPort)
 		if err != nil {
 			t.Fatalf("bootstrapping %s: %v", n.Node.Name, err)
 		}
-		n.Owner, n.Token = oc, token
+		n.Owner, n.Token, n.Portal = oc, token, session
 		accts, err := oc.Accounts(ctx)
 		if err != nil || len(accts) != 1 {
 			t.Fatalf("%s: list_accounts gave %v (%v)", n.Node.Name, accts, err)
@@ -188,5 +187,3 @@ func slugOf(container string) string {
 	}
 	return container
 }
-
-var _ = fmt.Sprintf

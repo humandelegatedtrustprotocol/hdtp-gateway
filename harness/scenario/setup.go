@@ -18,7 +18,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
-	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 // Paired is a standing node with one approved contact.
@@ -29,7 +29,10 @@ type Paired struct {
 	Bridge    *fabric.Container
 	Owner     *owner.Client
 	AccountID string
-	NodeFpr   string
+	// Wallet is the node owner's root: the identity, which the node never holds (PACT §2).
+	Wallet *wallet.Wallet
+	// Portal is the owner's signed-in portal session (SPEC §8.3: every bind requires one).
+	Portal    *OwnerSession
 	Contact   *peer.Agent
 	Target    peer.Target
 	OwnerPort string
@@ -53,8 +56,10 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 		Name: "node", Image: image, Network: net,
 		Ports: []string{p.Owner + ":8081", p.Public + ":8443"},
 		Env: map[string]string{
-			"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
-			"PACT_PUBLIC_URL":    "https://127.0.0.1:" + p.Public,
+			"PACT_PUBLIC_BIND": "0.0.0.0:8443",
+			// A NAME: the leaf names this address, and no wallet issues one for loopback (PACT
+			// §14.2 rule 5). The contact's agent dials it to the published port (Target.Dial).
+			"PACT_PUBLIC_URL":    "https://alice.harness.example:" + p.Public,
 			"PACT_INTERNAL_BIND": "127.0.0.1:8080",
 			"PACT_CLIENT_CERT":   "preferred",
 			// Guest onboarding needs sealing OPTIONAL: a guest cannot seal to a
@@ -72,13 +77,16 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 		return out, err
 	}
 
-	acct, err := f.Exec(ctx, node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Alice")
-	if err != nil {
+	if acct, err := f.Exec(ctx, node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Alice"); err != nil {
 		return out, fmt.Errorf("account create: %w (%s)", err, acct)
 	}
-	out.NodeFpr = field(string(acct), "sha256:")
-	if out.NodeFpr == "" {
-		return out, fmt.Errorf("no fingerprint in %q", acct)
+	// Certified by its owner's wallet, without which the account is nobody and serves nothing.
+	if out.Wallet, err = wallet.New("Alice"); err != nil {
+		return out, err
+	}
+	pin, err := out.Wallet.Certify(ctx, wallet.Docker(node.Name), "alice", "", "")
+	if err != nil {
+		return out, err
 	}
 
 	// The internal surface is loopback-bound (§8.3); a sidecar in the node's own
@@ -93,40 +101,13 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 	out.Bridge = bridge
 	time.Sleep(2 * time.Second)
 
-	tok, err := setupTok(ctx, f, node)
+	// The same ceremony every owned node goes through: a passkey in a real browser, a bearer
+	// token over the admin socket, the owner MCP, and the signed-in portal session.
+	oc, _, session, err := BootstrapOwner(ctx, f, node, p.Owner)
 	if err != nil {
 		return out, err
 	}
-	br, err := portal.Open(ctx)
-	if err != nil {
-		return out, fmt.Errorf("chrome: %w", err)
-	}
-	defer br.Close()
-	// localhost, not an IP: an IP is not a valid WebAuthn RP ID and the node
-	// refuses to bind credentials to one.
-	if _, err := br.RegisterFirstPasskey(ctx,
-		fmt.Sprintf("http://localhost:%s/setup?token=%s", p.Owner, tok), "harness"); err != nil {
-		return out, fmt.Errorf("wizard: %w", err)
-	}
-
-	// No restart: P14-05a made a live-created account servable immediately, and
-	// keeping the workaround would hide a regression of exactly that.
-
-	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
-	token := ""
-	for _, l := range strings.Split(execS(ctx, f, node, "/pact-gateway", "token", "create", "-owner", ownerID, "-label", "harness"), "\n") {
-		if strings.Contains(l, "shown once") {
-			token = strings.TrimSpace(l[strings.LastIndex(l, ":")+1:])
-		}
-	}
-	if token == "" {
-		return out, fmt.Errorf("no owner token")
-	}
-	oc, err := owner.Connect(ctx, "http://127.0.0.1:"+p.Owner+"/owner/mcp", token)
-	if err != nil {
-		return out, fmt.Errorf("owner mcp: %w", err)
-	}
-	out.Owner = oc
+	out.Owner, out.Portal = oc, session
 
 	accts, err := oc.Accounts(ctx)
 	if err != nil || len(accts) != 1 {
@@ -156,10 +137,7 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 		return out, err
 	}
 	out.Contact = bob
-	out.Target = peer.Target{
-		Endpoint: "https://127.0.0.1:" + p.Public + "/a/alice/mcp",
-		Root:     out.NodeFpr,
-	}
+	out.Target = peer.Target{Endpoint: pin.Endpoint, Dial: "127.0.0.1:" + p.Public, Root: pin.Root, Leaf: pin.Leaf}
 	// The card IS the leaf certificate (PACT §3). It used to be a 1.x card naming a
 	// key and an address; the address is inside the certificate now, and it has to be
 	// one §14.2 rule 5 allows — which `https://bob.invalid/mcp` never was.

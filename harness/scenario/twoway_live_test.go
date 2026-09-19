@@ -98,17 +98,24 @@ func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
 		}
 	}
 
-	// And in the CONVERSATION VIEW, which is where an owner actually reads it —
-	// and where the fragmentation showed, because it rendered one thread and
-	// every message had started its own.
+	// And in the CONVERSATION VIEW, which is where an owner actually reads it — and where the
+	// fragmentation showed, because it rendered one thread and every message had started its own.
+	//
+	// The view is a page over `GET /api/conversations?contact=…`, read as the signed-in owner.
+	// This used to fetch `/messages?contact=…` as nobody and look for the text in the HTML; the
+	// portal is a single page now and requires a session on every bind, so that fetch returned
+	// an application shell with no message in it, for every message, on both sides.
 	for _, side := range []struct {
 		node *Owned
 		peer string
 	}{{alice, bob.Fpr}, {bob, alice.Fpr}} {
-		_, page := httpGet(ctx, t, "http://localhost:"+side.node.OwnerPort+
-			"/messages?contact="+url.QueryEscape(side.peer))
+		code, view, err := side.node.Portal.Get(ctx, "/api/conversations?account="+
+			url.QueryEscape(side.node.AccountID)+"&contact="+url.QueryEscape(side.peer))
+		if err != nil || code != 200 {
+			t.Fatalf("%s's conversation view answered %d (%v): %s", side.node.Node.Name, code, err, shorten(view, 200))
+		}
 		for _, turn := range turns {
-			if !strings.Contains(page, turn.body) {
+			if !strings.Contains(view, turn.body) {
 				t.Errorf("%s's conversation view is missing %q — history is not shown",
 					side.node.Node.Name, turn.body)
 			}
