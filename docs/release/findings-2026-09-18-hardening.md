@@ -146,7 +146,17 @@ chain at every tier. A contact that talks to an identity learns its current leaf
 to it; one that never talks to it has nothing to learn.
 
 So the node does none, the constants and their test are gone, and the sweep is back to the
-one job it always had: healing a card change whose announcement missed us. What survives from
+one job it always had: healing a card change whose announcement missed us.
+
+> **Correction, 2026-09-19 (audit plan, B13).** That sentence kept the sweep, and it should not
+> have. The owner's words were "It will confirm when required, no need to proactively do
+> anything", and a ticker that re-fetches every contact's card every six hours is doing something
+> proactively whatever it is called. I had removed the NAME I gave the interval and left the
+> interval — original code in `serve` — running, while §14.3, `musts.json` and a test comment all
+> said the node polls nobody. The ticker is gone. `SyncContacts` remains for the owner MCP's
+> `sync_contacts`, which is a person asking, is scoped to the account that asked, and is guarded
+> by `TestNothingSyncsContactsOnATimer`. "Healing a card change whose announcement missed us" is
+> done by the protocol, on use, as the paragraph above this one already said. What survives from
 this line of work is the part that was always sound — §14.3's MUST NOT, held by
 `TestAnUnansweredConfirmationChangesNoPin`, that an unanswered confirmation may never refuse
 or un-pin a contact.
