@@ -14,6 +14,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -25,6 +26,10 @@ type Campaign struct {
 	AccountID string
 	NewKid    string
 }
+
+// ErrFanoutIncomplete says some contacts were not reached. It is the ordinary outcome of a walk
+// over people who are not all online, not a fault: the counts say how many, and a re-run resumes.
+var ErrFanoutIncomplete = errors.New("identity: move fan-out incomplete; re-run to resume")
 
 // Announcer runs campaigns for a node's accounts.
 type Announcer struct {
@@ -58,6 +63,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 	if err != nil {
 		return 0, 0, err
 	}
+	unrecorded := 0
 	progress := map[string]store.RotationFanout{}
 	if rows, err := st.ListRotationFanout(ctx, c.AccountID); err == nil {
 		for _, row := range rows {
@@ -81,14 +87,26 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		} else {
 			done++
 		}
-		_ = st.UpsertRotationFanout(ctx, store.RotationFanout{
+		// This write IS the campaign's durability: "re-run to resume" means read these rows. Its
+		// error was discarded, so a store that could not record progress looked exactly like one
+		// that had, and the next run re-announced to everybody or — worse — believed a row that
+		// was never written. A contact that was told is still told; what is lost is the record,
+		// and that is said, once per contact and in the result.
+		if uerr := st.UpsertRotationFanout(ctx, store.RotationFanout{
 			AccountID: c.AccountID, ContactFpr: ct.Fingerprint, NewFpr: c.NewKid,
 			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: a.now().Unix(),
-		})
+		}); uerr != nil {
+			unrecorded++
+			a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:progress not recorded", "error")
+			continue
+		}
 		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint, status)
 	}
-	if failed > 0 {
-		return done, failed, errors.New("identity: move fan-out incomplete; re-run to resume")
+	switch {
+	case unrecorded > 0:
+		return done, failed, fmt.Errorf("identity: move fan-out could not record progress for %d contact(s); the store is refusing writes, and a re-run will announce to them again", unrecorded)
+	case failed > 0:
+		return done, failed, ErrFanoutIncomplete
 	}
 	return done, failed, nil
 }

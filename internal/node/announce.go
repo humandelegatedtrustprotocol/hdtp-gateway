@@ -21,6 +21,7 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,7 +44,7 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 	}
 	camp := identity.Campaign{AccountID: accountID, NewKid: newKid}
 	announcer := &identity.Announcer{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
-	done, failed, _ = announcer.Fanout(ctx, camp, card, func(ctx context.Context, c store.Contact, card string) error {
+	done, failed, err = announcer.Fanout(ctx, camp, card, func(ctx context.Context, c store.Contact, card string) error {
 		peer, err := n.peerOf(accountID, c)
 		if err != nil {
 			return err
@@ -67,7 +68,12 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 		}
 		return nil
 	})
-	return done, failed, nil
+	// Contacts that were not reached are what the counts are for. Anything else — progress that
+	// could not be recorded — is a fault, and it used to be dropped here along with the first.
+	if errors.Is(err, identity.ErrFanoutIncomplete) {
+		err = nil
+	}
+	return done, failed, err
 }
 
 // refusalCodeOf reads the plaintext code of a wrapper-level refusal.

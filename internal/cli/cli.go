@@ -328,19 +328,24 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// pending". The install is the durable part and it answers now; the walks
 		// are durable too (`rotation_fanout`), so `account announce` reports and
 		// resumes them.
-		moved := !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint && nd != nil
-		if moved {
+		//
+		// Whether it moved is the install's to say (identity.InstallResult.Moved). This worked it
+		// out here from the superseded leaf's endpoint, and so never campaigned after an import.
+		if res.Moved && nd != nil {
 			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
 			accountID, kid := acct.ID, res.Kid
 			go func() {
 				// The admin call's context ends with the call; these outlive it.
 				bg := context.WithoutCancel(ctx)
-				if moved {
-					if d, f, merr := nd.AnnounceMove(bg, accountID, kid); merr != nil {
-						auditFn("account_move_campaign", "account:"+accountID, "error")
-					} else {
-						auditFn("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), "ok")
+				if d, f, merr := nd.AnnounceMove(bg, accountID, kid); merr != nil {
+					auditFn("account_move_campaign", "account:"+accountID, "error")
+				} else {
+					// "ok" with contacts unreached was what this said whatever the counts were.
+					outcome := "ok"
+					if f > 0 {
+						outcome = "failed"
 					}
+					auditFn("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, d, f), outcome)
 				}
 			}()
 		}

@@ -226,7 +226,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 			// One account that cannot be built is one account that does not serve:
 			// refusing to start took every OTHER account down with it. Kept, so a
 			// broken account is visible and the rest of the node answers.
-			o.audit("account_unavailable", "account:"+rec.ID+" slug:"+rec.Slug, err.Error())
+			o.audit("account_unavailable", "account:"+rec.ID+" slug:"+rec.Slug+" why:"+core.Redact(err.Error()), "error")
 			unavailable = append(unavailable, fmt.Sprintf("%s: %v", rec.Slug, err))
 			n.unavailable[rec.Slug] = err.Error()
 			continue
@@ -263,6 +263,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	}
 
 	n.srv = &public.Server{
+		Now:            n.now,
 		GetCertificate: n.certificate,
 		Accounts:       n.Slugs,
 		MCP:            n.mcpHandler(),
