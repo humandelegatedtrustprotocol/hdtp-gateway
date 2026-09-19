@@ -166,6 +166,9 @@ type Node struct {
 	liveMu    sync.RWMutex
 	publicURL string
 	lanAllow  bool
+
+	// campaigns holds the identities whose move campaign is walking right now (campaign.go).
+	campaigns sync.Map // account id → struct{}
 }
 
 func (o Options) audit(action, resource, outcome string) {

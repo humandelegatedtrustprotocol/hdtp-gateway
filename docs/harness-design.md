@@ -120,7 +120,7 @@ project has already had, which is why they are cross-cutting rather than local:
 | **S7** | Resilience | `tc netem` partition/loss/latency; `kill -9` mid-send; retry schedule holds (P12-03); `msg_id` idempotency across every retry |
 | **S8** | Time | 24 h message expiry → failed; 30-day queue retention; 90-day invite expiry; 24 h setup token. **Requires §5.** |
 | **S9** | Adversarial | session-id replay under a second identity (P11-05); tier escalation attempts; envelope tampering; audit tamper → `repair` refuses (P12-14) |
-| **S10** | *(withdrawn)* | Key rotation. There is none: the identity is a root the node does not hold. Its successor would be the MOVE campaign under partition — `account announce` resuming an interrupted `update_contact` walk — which no scenario covers yet |
+| **S10** | three nodes, one behind a partition | The MOVE campaign under partition (`move_live_test.go`): one node moves while one of its two contacts is cut off with `tc netem loss 100%` — packets dropped, so a caller waits, as on a dead link. The reachable contact follows; `account announce` answers at once with who was not reached, how often and why; after the heal a resume tells only the contact that was missed. The same ground in process, with Toxiproxy, is `internal/node/move_partition_test.go` and runs in `make check`. (S10 was key rotation, which 2.x does not have: the identity is a root the node does not hold.) |
 | **S11** | Portal (CDP) | every page, both themes, screenshot diff; keyboard-only traversal; no console errors |
 
 ---
@@ -267,7 +267,7 @@ every push would be slow enough that people would stop reading the result.
 |---|---|---|---|---|
 | **Hermetic** | fabric, topology, preflight, invariants against a recorder | ~5 s | every push | `pre-push` hook, automatic |
 | **Fast** | T1, T2 × S1, S2, S3, S9 + all invariants | ~8 min | on demand | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
-| **Full** | the full matrix, including S4, S7, S8, S11 | ~45 min | on demand | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
+| **Full** | the full matrix, including S4, S7, S8, S10, S11 | ~45 min | on demand | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
 | **Release** | full + both store engines + `-race` throughout | ~70 min | before a tag | by hand |
 
 **None of this runs in GitHub CI, and that is deliberate.** The live tiers drive
