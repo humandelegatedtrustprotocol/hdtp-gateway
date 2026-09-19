@@ -321,7 +321,7 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 		mcp.AddTool(s, &mcp.Tool{Name: "audit_query",
 			Description: "Read the audit trail for the accounts you administer (SPEC §11.6)"},
 			func(ctx context.Context, req *mcp.CallToolRequest, a struct {
-				Actor string `json:"actor,omitempty" jsonschema:"optional actor kind filter: owner|token|contact|guest|cli|system"`
+				Actor string `json:"actor,omitempty" jsonschema:"optional: only rows written by this actor, by the id the trail shows for it (an owner or token id, a contact's fingerprint)"`
 				Limit int    `json:"limit,omitempty" jsonschema:"maximum rows to return; default 100"`
 			}) (*mcp.CallToolResult, any, error) {
 				limit := a.Limit

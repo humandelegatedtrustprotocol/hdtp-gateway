@@ -320,19 +320,10 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 						PublicURL: nd.PublicURL(),
 					}
 				},
+				// The newest rows, newest first, as a PAGE. This read the whole chain on every render of
+				// the dashboard and kept the last few.
 				Recent: func(ctx context.Context, limit int) ([]store.AuditRow, error) {
-					rows, err := st.ListAuditEvents(ctx, "")
-					if err != nil {
-						return nil, err
-					}
-					if len(rows) > limit {
-						rows = rows[len(rows)-limit:]
-					}
-					// newest first
-					for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
-						rows[i], rows[j] = rows[j], rows[i]
-					}
-					return rows, nil
+					return st.ListAuditEventsPage(ctx, store.AuditPage{Limit: limit})
 				},
 			})
 		},
