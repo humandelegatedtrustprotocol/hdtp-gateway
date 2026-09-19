@@ -42,35 +42,60 @@ func newIDNode(t *testing.T, name string) idNode {
 	return idNode{dir: dir, cfg: cfg}
 }
 
-// certify runs the wallet's side of a signup for an account on a node.
-func certify(t *testing.T, n idNode, slug, endpoint string) (rootFpr string) {
+// testWallet is the person's side: a root, held by the test the way a wallet holds it.
+type testWallet struct {
+	key  *pactidentity.PrivateKey
+	cert []byte
+}
+
+func newTestWallet(t *testing.T, cn string) *testWallet {
+	t.Helper()
+	key, err := pactidentity.GenerateKey("ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &testWallet{key: key, cert: cert}
+}
+
+func (w *testWallet) fingerprint() string { return pactidentity.Fingerprint(w.key.Public.SPKI) }
+
+// certifyUnder has the node ask for a leaf and the wallet issue it. `at` orders the leaves: a
+// second leaf for one identity must be newer than the first (PACT §14.3).
+func (w *testWallet) certifyUnder(t *testing.T, n idNode, slug, purpose, endpoint string, at time.Time) identity.InstallResult {
 	t.Helper()
 	st := openStoreAt(t, n.dir)
 	defer st.Close()
-	kr := openKeyringAt(t, n.dir)
-	idm := &identity.Manager{Store: st, Keyring: kr}
+	idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, n.dir)}
 	ctx := context.Background()
 	a, err := st.GetAccountBySlug(ctx, slug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootKey, _ := pactidentity.GenerateKey("ed25519")
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: a.DisplayName, Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
+	csr, err := idm.IssueCSR(ctx, a.ID, purpose, endpoint, at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	csr, err := idm.IssueCSR(ctx, a.ID, identity.PurposeSignup, endpoint, time.Now())
+	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: a.DisplayName, RootKey: w.key, RootSPKIs: [][]byte{w.key.Public.SPKI}, Now: at, ValidDays: 200})
 	if err != nil {
 		t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: a.DisplayName, RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public.SPKI}, Now: time.Now(), ValidDays: 200})
+	res, err := idm.InstallLeaf(ctx, a.ID, [][]byte{iss.DER, w.cert}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := idm.InstallLeaf(ctx, a.ID, [][]byte{iss.DER, rootCert}, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	return pactidentity.Fingerprint(rootKey.Public.SPKI)
+	return res
+}
+
+// certify runs the wallet's side of a signup for an account on a node, under a root made for it.
+func certify(t *testing.T, n idNode, slug, endpoint string) (rootFpr string) {
+	t.Helper()
+	w := newTestWallet(t, slug)
+	w.certifyUnder(t, n, slug, identity.PurposeSignup, endpoint, time.Now())
+	return w.fingerprint()
 }
 
 // `backup identity` and `backup restore-identity` are gone, and this is the test that they stay
