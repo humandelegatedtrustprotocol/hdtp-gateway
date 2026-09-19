@@ -80,7 +80,7 @@ func NewAgent(name string) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("peer: minting leaf certificate: %w", err)
 	}
-	kp.Leaf, kp.Root, kp.Protocol = leaf, rootCert, 2
+	kp.Leaf, kp.Root = leaf, rootCert
 	cert := tls.Certificate{Certificate: [][]byte{leaf, rootCert}, PrivateKey: kp.Signer}
 	return &Agent{
 		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public.SPKI),
@@ -108,27 +108,25 @@ func (a *Agent) LeafKid() string { return a.Keypair.Fingerprint }
 type Target struct {
 	// Endpoint is the node's MCP URL, e.g. https://host:8443/a/alice/mcp
 	Endpoint string
-	// Fingerprint is the node's identity, pinned. Empty means "accept WebPKI",
-	// which is only correct for a relay with a real certificate.
+	// Fingerprint is the node's identity, pinned: the fingerprint of its ROOT.
 	Fingerprint string
-	// SPKI, when known, is the node's public key for sealing (SPEC §13).
-	SPKI []byte
 	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
 	Seal string
-	// Root and Leaf are the node's 2.0 identity: the root its chain must validate
-	// to, and the leaf it presents. Without them the chain check cannot run and the
-	// handshake falls through to a key pin that a root can never satisfy.
+	// Root and Leaf are the node's identity: the root its chain must validate to, and the leaf
+	// it presents — whose key is the one a call is sealed to. Without them nothing can be
+	// validated and nothing sealed, and the client refuses rather than guessing.
 	Root string
 	Leaf []byte
 }
 
-// peer is the outbound view of a target: 2.0 whenever the node's root is known.
+// peer is the outbound view of a target.
+//
+// This set a `Protocol: 2` when the root was known and passed the node's key beside the call; the
+// node dropped both on 2026-09-19 (a pin is a root and a leaf, and the key is the leaf's). This
+// module is compiled by no gate of the node's, so it went on not compiling for the rest of that
+// day, until the pre-push hook — the only thing that builds it — refused the push.
 func (t Target) peer() outbound.Peer {
-	p := outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal}
-	if t.Root != "" {
-		p.Protocol, p.Root, p.Leaf = 2, t.Root, t.Leaf
-	}
-	return p
+	return outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal, Root: t.Root, Leaf: t.Leaf}
 }
 
 // Call invokes one tool on the target and returns the decoded result content.
@@ -137,7 +135,7 @@ func (t Target) peer() outbound.Peer {
 // be reused across retries, which is what makes a retry safe.
 func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
 	p := t.peer()
-	res, err := a.Client.Call(ctx, p, t.SPKI, tool, args, msgID)
+	res, err := a.Client.Call(ctx, p, tool, args, msgID)
 	if err != nil {
 		return "", fmt.Errorf("peer: calling %s: %w", tool, err)
 	}

@@ -147,8 +147,18 @@ vet:
 # neither was noticed until an unrelated `go vet` happened to run over it. The repository that
 # moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
 # disk. CI checks out no sibling; there it says it skipped rather than passing quietly.
+#
+# The scenario harness (./harness) is the same shape and closer to home: a separate module in THIS
+# repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two
+# removals broke it the same day, and the fix above — made for the cloud's battery — walked past it.
+# It is always on disk, so it is always vetted.
 CLOUD_BATTERY := ../pact-cloud/gateway/conformance
 dependents:
+	@echo "go vet ./harness/..."
+	@(cd harness && go vet ./...) || { \
+		echo "the scenario harness no longer compiles against this module:"; \
+		echo "  it is a separate Go module that imports internal/, and until 2026-09-19 only the"; \
+		echo "  pre-push hook built it — so it broke in B3c and was found at the first push."; exit 1; }
 	@if [ -d "$(CLOUD_BATTERY)" ]; then \
 		echo "go vet $(CLOUD_BATTERY)"; \
 		(cd "$(CLOUD_BATTERY)" && go vet ./...) || { \
