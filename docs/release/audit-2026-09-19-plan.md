@@ -453,7 +453,7 @@ empty outside release records; doclint; `make check`.
   owner turns it off". That, and seven source files that still branch on `protocol`, are B2c's.
 *Verified:* `make check` (27), `make analyze`, `make dependents`; `web` rebuilt, bundle unchanged.
 
-### B14 · Changing `public_url` still runs 1.x's endpoint announcement — `TODO`
+### B14 · Changing `public_url` still runs 1.x's endpoint announcement — `DONE`
 Found in B11's diagnosis, in live code rather than prose. `settings.go` answers a `public_url` change
 with `node.AnnounceEndpointChange`: it signs the account's OWN fingerprint with its key — "proof that
 whoever sent the new card holds the pinned key" — and calls `update_contact{card, sig}` on every
@@ -469,6 +469,21 @@ address is named — audited, and on the `serve` banner and `doctor` — with th
 move` that ends it.
 *Verify:* a test that a `public_url` change makes no outbound call and names the accounts that now
 need a move; `make check`, `make analyze`, `make dependents`.
+
+*Done, 2026-09-19.* `AnnounceEndpointChange`, the `Announcer` func type and `deliverUpdateContact`
+are gone, with the settings goroutine and both `endpoint_announce*` audit actions. A `public_url`
+save now names, as `account_move_needed … from: to:`, each account whose leaf was issued for the OLD
+derived address — not every account whose leaf differs from the new one, because an account may be
+certified for a hostname of its own, and that is not drift. `doctor` and the `serve` banner say the
+same of any account at an address the node does not advertise, worded as a condition.
+`TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove` pins a real contact at a real listener and
+counts connections; with an outbound call put back into the save it fails on the count (checked).
+`identity.SignBytes` stays: `offer_test.go` signs cards with it the way a peer would.
+*Cloud:* it declared `endpoint_announce_all` for an `owner.endpointAnnounce` handler that does not
+exist and, addresses being the platform's there, never will; both rows removed. **And one of mine:**
+F2's `account_leaf_key_retired` was emitted and not declared. The registry is compared with
+`coverage.ts`, not with call sites, so nothing failed. Declared and claimed.
+*Verified:* node `make check` (27), `make analyze`; cloud `npm run check` (1381, ceremony 103/103).
 
 ### B12 · `rotation_fanout.kind` holds one value and nothing reads it — `TODO`
 Found in B11's diagnosis. Migration 0028 added `kind` to tell a 1.x rotation and a `renewal_1x` from
