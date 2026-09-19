@@ -18,7 +18,6 @@ type Account struct {
 	Seal            string
 	Status          string
 	CreatedAt       int64
-	Protocol        int64
 	RootFingerprint sql.NullString
 	RootCert        []byte
 	AcceptNewHosts  string

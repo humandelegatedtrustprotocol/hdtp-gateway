@@ -379,7 +379,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	// leaf's key is the key above, and the chain — leaf then root — is what TLS
 	// presents. There is no other shape.
 	var cert tls.Certificate
-	if rec.Protocol == 2 {
+	if rec.HasRoot() {
 		keys, err := n.idm.ActiveLeafKeypairs(ctx, rec.ID, n.now())
 		if err != nil {
 			return nil, fmt.Errorf("node: account %s leaves: %w", rec.Slug, err)
@@ -637,10 +637,10 @@ func (n *Node) state20(ctx context.Context, accountID, slug string) (*public.Sta
 		return nil, err
 	}
 	st := &public.State20{
-		Protocol: int(rec.Protocol), Endpoint: identity.EndpointFor(n.PublicURL(), slug),
+		HasRoot: rec.HasRoot(), Endpoint: identity.EndpointFor(n.PublicURL(), slug),
 		AcceptNewHosts: rec.AcceptNewHosts,
 	}
-	if rec.Protocol != 2 {
+	if !rec.HasRoot() {
 		return st, nil
 	}
 	if st.Chain, err = n.idm.Chain(ctx, accountID); err != nil {
@@ -942,7 +942,7 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	}
 	// Adoption is a write already, so it is where an expired superseded key is
 	// destroyed — off the read path every inbound request takes.
-	if rec.Protocol == 2 {
+	if rec.HasRoot() {
 		if rerr := n.idm.RetireExpiredLeafKeys(ctx, accountID, n.now()); rerr != nil {
 			n.opts.audit("account_leaf_retire", "account:"+accountID, "error")
 		}
@@ -969,7 +969,7 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 // indexHost records the host a 2.0 account's leaf names, for SNI selection.
 // Callers hold n.mu.
 func (n *Node) indexHost(a *account) {
-	if a.rec.Protocol != 2 || len(a.kp.Leaf) == 0 {
+	if !a.rec.HasRoot() || len(a.kp.Leaf) == 0 {
 		return
 	}
 	if leaf, err := pactidentity.Parse(a.kp.Leaf); err == nil && len(leaf.URIs) == 1 {
@@ -1091,7 +1091,7 @@ func (n *Node) resolveTransport(next http.Handler) http.Handler {
 		n.mu.RLock()
 		a := n.bySlug[r.PathValue("slug")]
 		n.mu.RUnlock()
-		if a == nil || a.rec.Protocol != 2 {
+		if a == nil || !a.rec.HasRoot() {
 			next.ServeHTTP(w, r)
 			return
 		}

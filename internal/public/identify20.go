@@ -44,7 +44,9 @@ const TierPendingAddress policy.Tier = "pending_new_address"
 // State20 is everything Decide reads about this account, supplied per call so
 // a setting the owner changes takes effect without a restart.
 type State20 struct {
-	Protocol       int
+	// HasRoot is whether the wallet has issued this identity a leaf: until it has, there is no
+	// chain to speak under and nothing sealed can be opened (PACT §2).
+	HasRoot        bool
 	Endpoint       string
 	AcceptNewHosts string
 	Chain          [][]byte           // [current leaf, root]
@@ -118,8 +120,8 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
-	if st == nil || st.Protocol != 2 {
-		return nil, fmt.Errorf("%w: this identity does not speak 2.0", envelope.ErrInvalid)
+	if st == nil || !st.HasRoot {
+		return nil, fmt.Errorf("%w: this identity has no certificate yet", envelope.ErrInvalid)
 	}
 	wire := pactidentity.Envelope{Protected: b64u(e.Protected), Enc: b64u(e.Enc), Ct: b64u(e.CT), Sig: b64u(e.Sig)}
 	now := id.now()

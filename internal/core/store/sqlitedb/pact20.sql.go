@@ -418,13 +418,12 @@ func (q *Queries) SetAccountLeafKey(ctx context.Context, arg SetAccountLeafKeyPa
 	return result.RowsAffected()
 }
 
-const setAccountProtocol = `-- name: SetAccountProtocol :execrows
+const setAccountRoot = `-- name: SetAccountRoot :execrows
 
-UPDATE accounts SET protocol = ?, root_fingerprint = ?, root_cert = ? WHERE id = ?
+UPDATE accounts SET root_fingerprint = ?, root_cert = ? WHERE id = ?
 `
 
-type SetAccountProtocolParams struct {
-	Protocol        int64
+type SetAccountRootParams struct {
 	RootFingerprint sql.NullString
 	RootCert        []byte
 	ID              string
@@ -433,13 +432,9 @@ type SetAccountProtocolParams struct {
 // PACT 2.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
 // ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 // addresses awaiting the owner under `accept_new_hosts = ask`.
-func (q *Queries) SetAccountProtocol(ctx context.Context, arg SetAccountProtocolParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setAccountProtocol,
-		arg.Protocol,
-		arg.RootFingerprint,
-		arg.RootCert,
-		arg.ID,
-	)
+// The first leaf installed names the account's root; the root never changes after (PACT sec. 2).
+func (q *Queries) SetAccountRoot(ctx context.Context, arg SetAccountRootParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountRoot, arg.RootFingerprint, arg.RootCert, arg.ID)
 	if err != nil {
 		return 0, err
 	}

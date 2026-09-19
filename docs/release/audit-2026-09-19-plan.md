@@ -157,8 +157,23 @@ endpoint and is recognised by its key"; that branch is gone. `contactProtocol` d
 assertions of `c.Protocol == 2` became `len(c.Leaf) > 0` — the fact they stood for — rather than
 being dropped. A user-facing error that blamed "pinned by key" now says what is true.
 
-#### B3b · `accounts.protocol` goes — `TODO`
+#### B3b · `accounts.protocol` goes — `DONE`
 Replace with what it duplicates — the account has a root — and drop the column.
+*Result.* Migration 0034 on both engines; its Down re-creates the column and sets `2` wherever a
+root exists, so a rolled-back schema reads the way the old code expects. `SetAccountProtocol(…, 2,
+root, cert)` — only ever called with `2` and a root — is `SetAccountRoot(root, cert)`.
+`store.Account.HasRoot()` is the question every `Protocol == 2` was asking. The two structs fed
+straight from the column went with it rather than being handed a transitional 1/2:
+`public.State20.Protocol` → `HasRoot`, `identity.CertificateInfo.Protocol` → `Certified`;
+`InstallResult.Protocol`, always 2, deleted. Owner-facing output changed name with it —
+`"Certified"` in the CLI's certificate view, `"certified"` in the owner tool — after checking that
+the cloud's parity fixture pins no `"protocol"` (0 hits) and the portal never read the field, which
+made `identityRow.Protocol` dead output; removed. Two error strings that said "is not a 2.0
+identity" / "does not speak 2.0" now say what is true: the identity has no certificate yet.
+*Found on the way, for F1:* `backup identity` exports **the leaf and its private key** by design
+("the host's half of a 2.0 identity is the leaf and its key"), and its `else` branch —
+`identity.ExportIdentity`, reached by an account with no root — writes a bare key with no chain,
+which is the 1.x identity format. Left untouched here; it is F1's subject.
 
 #### B3c · The in-memory flags say what they mean — `TODO`
 `Protocol == 2` → a name for "a chain was proven". Owner-facing output (`ownermcp/parity.go`, the
@@ -236,7 +251,8 @@ keys do not. Establish first what else the master key seals (integration credent
 deciding whether it still belongs in a bundle. A restored node then awaits a leaf and says so
 (`account csr` → wallet → `install-leaf`), which is the point: a restored host earns its leaf again.
 Importer-side stripping stays, as the rule that holds for bundles made by older builds and by
-anybody else. Cloud: `archive.ts` stops including the key. Spec §9 currently binds only the
+anybody else. **`backup identity` is in scope too** (found in B3b): it exists to export the
+leaf's private key, and its no-root branch still writes the 1.x bare-key format. Cloud: `archive.ts` stops including the key. Spec §9 currently binds only the
 importer ("refuses key material"); consider binding the exporter too.
 *Verify:* a created bundle, opened in a test, has no non-null `*key_sealed` anywhere; the backup
 round-trip tests; the cloud's export tests and leave self-test.

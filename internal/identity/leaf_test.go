@@ -107,7 +107,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 		t.Fatalf("install: %+v", res)
 	}
 	acct, _ := m.Store.GetAccountByID(ctx, a.ID)
-	if acct.Protocol != 2 || acct.RootFingerprint != w.fpr || acct.Fingerprint != a.Fingerprint {
+	if !acct.HasRoot() || acct.RootFingerprint != w.fpr || acct.Fingerprint != a.Fingerprint {
 		t.Fatalf("account after upgrade: %+v", acct)
 	}
 	chain, err := m.Chain(ctx, a.ID)
@@ -122,7 +122,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 		t.Fatalf("active keys after upgrade: %v %+v", err, keys)
 	}
 	info, _ := m.Certificate(ctx, a.ID, now)
-	if info.Protocol != 2 || info.RenewalDue || info.PendingCSR != "" || info.Kid != a.Fingerprint {
+	if !info.Certified || info.RenewalDue || info.PendingCSR != "" || info.Kid != a.Fingerprint {
 		t.Fatalf("certificate: %+v", info)
 	}
 	if info, _ := m.Certificate(ctx, a.ID, now.Add(340*24*time.Hour)); !info.RenewalDue {
@@ -365,7 +365,7 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	if err := st.SetAccountKey(ctx, a.ID, elsewhere, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAccountProtocol(ctx, a.ID, 2, w.fpr, w.root); err != nil {
+	if err := st.SetAccountRoot(ctx, a.ID, w.fpr, w.root); err != nil {
 		t.Fatal(err)
 	}
 	if sealed, serr := st.GetAccountSealedKey(ctx, a.ID); serr != nil || len(sealed) != 0 {
@@ -408,7 +408,7 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Fingerprint != csr.Kid || got.Protocol != 2 {
+	if got.Fingerprint != csr.Kid || !got.HasRoot() {
 		t.Fatalf("the account still names the host it left: %+v", got)
 	}
 	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
