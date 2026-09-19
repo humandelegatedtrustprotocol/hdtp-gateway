@@ -48,7 +48,6 @@ var nodeLevelActions = map[string]string{
 	"settings_reseal":          "the node's settings being resealed under a new key",
 	"endpoint_announce_all":    "the sweep caused by the node's own address changing",
 	"account_create":           "a failed create names no account because none exists yet; the success path names the one it made, and the slug-misuse rule still guards it",
-	"contact_sync_sweep":       "the all-accounts sweep's summary line; per-contact rows are attributed",
 }
 
 // wrappedAtWiring are files whose audit calls are given the account by the code

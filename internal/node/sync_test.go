@@ -19,7 +19,7 @@ import (
 // when it still names the pinned key AND its signature verifies under it.
 // Sync must never be a way to move a pin — that is update_contact's job, with
 // its old-key signature.
-// verifySyncedCard is the whole trust decision of the periodic sync: a re-fetched
+// verifySyncedCard is the whole trust decision of a card refresh: a re-fetched
 // card must still name the pinned ROOT, and its signature must verify under the key
 // this node holds for that contact.
 //
