@@ -315,7 +315,7 @@ sealed exchange in plaintext by passing a nil key:
 **Reorder, deliberately:** the node's API moved under the cloud's Go battery twice today and broke
 it silently both times. E3 runs next rather than last, since B6, F1 and F2 move it again.
 
-### B6 · `accept_new_hosts` cannot be set by an owner — `TODO`
+### B6 · `accept_new_hosts` cannot be set by an owner — `DONE`
 Found during B2. PACT §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
 pinned contact turns up at a new address, and §12's checklist requires an implementation to run
 that flow "under `accept_new_hosts`". The node reads the setting and honours it, and defaults it to
@@ -324,6 +324,28 @@ through the shipped binary, and every test that proves the `ask` flow proves som
 turn on. Give it a production setter — the CLI's account settings and the owner surface — and a
 test through the real entry point.
 *Verify:* the reachability gate (`TestEveryMechanismIsReachableFromTheShippedBinary`), `make check`.
+*Result.* `account address -slug <s> -policy auto|ask`, beside the verb that already carries the
+owner's §5.3 *decisions*, over a new admin verb `account.host_policy`.
+`TestAnOwnerCanChooseTheNewAddressPolicyThroughTheShippedBinary` drives the shipped CLI against a
+serving node and reads the store: `auto` by default, `ask` after the command, a value that is
+neither refused by name and changing nothing. A guard earned its keep on the way —
+`TestAuditOutcomesAreLiteralVerdicts` refused the first draft's audit line, which put the policy in
+the outcome; it belongs in the resource, as `settings_seal`'s neighbours have it.
+*Found here, planned below:* **B10** (relay knobs still in the settings core) and **B5b** (the
+portal's Card page tells every owner "The X-PACT-KEY inside is the identity").
+
+### B5b · The portal's Card page names the identity as X-PACT-KEY — `TODO`
+`web/src/views/card.tsx:17`: "The X-PACT-KEY inside is the identity everything gets pinned to" —
+shown to every owner, on the page about their own card, which carries no such property. The
+settings page had the same fault ("goes on your card as X-PACT-ENDPOINT"), fixed in B6. `web/dist`
+is committed, so the text and the bundle move together (`make web`).
+*Verify:* no retired property name in `web/src` or the built bundle; `make check`.
+
+### B10 · Relay knobs survive in the settings core — `TODO`
+`internal/core/settings.go` still validates and restart-scopes `relay`, `gateway_url` and
+`gateway_fingerprint` — knobs for a role deleted on 2026-09-18. Establish what `core.Config` and
+the environment table still carry for them, and remove the set together.
+*Verify:* `make check`; the settings page tests; the doc lint over configuration keys.
 
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `TODO`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
@@ -435,5 +457,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
 next starts.
