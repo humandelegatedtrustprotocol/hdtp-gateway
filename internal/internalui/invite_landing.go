@@ -29,16 +29,9 @@ type CardSigner func(accountID string) (cardText string, sigB64 string, err erro
 type LandingDeps struct {
 	Store    store.Store
 	SignCard CardSigner
-	// SPKI returns the issuer's public key (SubjectPublicKeyInfo DER). A card
-	// carries only the key's HASH, so a redeemer that must SEAL its
-	// `redeem_invite` toward a `seal: required` issuer (edge mode forces it)
-	// cannot proceed on the card alone. The key therefore travels with the card
-	// on this page — the pre-redemption trust channel the issuer handed over —
-	// and the redeemer verifies it by hashing to `X-PACT-KEY` before use.
-	// identity.Manager.AccountSPKI implements it; nil omits the field.
-	SPKI func(accountID string) ([]byte, error)
-	// Chain returns a 2.0 issuer's [leaf, root] (PACT §2: the chain travels on
-	// the invite landing), nil for a 1.x issuer; nil omits the field.
+	// Chain returns the issuer's [leaf, root]. PACT §4: the machine view is exactly
+	// {card, card_sig, chain}, and the chain is what a redeemer validates before it seals its
+	// first call — so a landing that cannot produce one has nothing redeemable to serve.
 	Chain func(accountID string) ([][]byte, error)
 	// PublicURL is the externally reachable base invite links are built from
 	// (PublicURL + /i/ + token; "" = relative). It is a FUNC, not a string,
@@ -70,7 +63,7 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
 card below, so verify it came from the person you expect before connecting.</p>
 <div class="card"><h2>Their signed card</h2><pre>{{.Card}}</pre>
 <p class="muted">signature (by the key the card names): <code>{{.Sig}}</code></p>
-{{if .SPKI}}<p class="muted">public key (SubjectPublicKeyInfo, base64url DER — hash it to check it matches X-PACT-KEY above): <code>{{.SPKI}}</code></p>{{end}}</div>
+</div>
 <div class="card"><h2>Share</h2><img src="{{.QR}}" alt="QR of this invite link"/></div>
 <p class="muted">pact-gateway serves this page self-contained: no external assets, no telemetry.</p>
 </main></body></html>`))
@@ -104,22 +97,25 @@ func LandingHandler(d LandingDeps) http.Handler {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		var spkiB64 string
-		if d.SPKI != nil {
-			if spki, err := d.SPKI(inv.AccountID); err == nil {
-				spkiB64 = base64.RawURLEncoding.EncodeToString(spki)
-			}
-		}
-		// Machine view: a redeeming agent needs card + key + signature, not HTML.
+		// Machine view (PACT §4): exactly the signed card and the chain that proves it. The
+		// chain is not optional. It used to be added "if there is one", beside a `spki` member
+		// the spec does not define, so an issuer with no chain served an offer nobody could
+		// redeem and said nothing; now it says it is unavailable.
 		if wantsJSON(r) {
-			w.Header().Set("Content-Type", "application/pact-invite+json")
-			out := map[string]any{"card": card, "card_sig": sig, "spki": spkiB64}
-			if d.Chain != nil {
-				if chain, err := d.Chain(inv.AccountID); err == nil && len(chain) == 2 {
-					out["chain"] = []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}
-				}
+			if d.Chain == nil {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
 			}
-			_ = json.NewEncoder(w).Encode(out)
+			chain, err := d.Chain(inv.AccountID)
+			if err != nil || len(chain) != 2 {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pact-invite+json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"card": card, "card_sig": sig,
+				"chain": []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])},
+			})
 			return
 		}
 		base := ""
@@ -136,7 +132,6 @@ func LandingHandler(d LandingDeps) http.Handler {
 			"FN":   a.DisplayName,
 			"Card": card,
 			"Sig":  sig,
-			"SPKI": spkiB64,
 			// #nosec G203 -- a data: URI over base64 of a PNG this handler just
 			// rendered; no part of it is caller-supplied.
 			"QR": template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
