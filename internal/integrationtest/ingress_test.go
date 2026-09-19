@@ -260,10 +260,6 @@ func TestP5ExitOwnDomainPassthroughAndTerminate(t *testing.T) {
 	if !strings.Contains(body, `"node":"alpha"`) || !strings.Contains(body, `"peer":"`+callerKP.Fingerprint+`"`) {
 		t.Fatalf("passthrough answer: %s", body)
 	}
-	// the probe verdict through the ingress: reachable, pinned to alpha's key
-	probe := tunnel.Probe(ctx, "https://alpha."+domain, tunnel.ProbeOptions{PinnedFingerprint: alpha.kp.Fingerprint, InstanceID: "alpha", Timeout: 5 * time.Second})
-	_ = probe // DNS for alpha.example.test is not real here; the HTTP path above is the proof
-
 	// TERMINATE: dial the public port as beta.example.test → the ACME cert
 	// validates against Pebble's roots, the ingress re-originates pinned mTLS
 	// to beta, and beta answers — its onward leg saw the INGRESS (not the caller)

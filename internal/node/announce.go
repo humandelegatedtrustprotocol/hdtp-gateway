@@ -8,15 +8,9 @@ package node
 // `update_contact`, its chain in the envelope: the chain is the proof, and the contact's own
 // `accept_new_hosts` decides whether it re-pins at once or asks its owner.
 //
-// This file used to have a second way. `AnnounceEndpointChange` ran when the owner saved a new
-// `public_url`: it signed the account's OWN fingerprint with its key — "proof that whoever sent
-// the new card holds the pinned key" — and called `update_contact{card, sig}` on every contact of
-// every account. That was 1.x, where a card carried `X-PACT-ENDPOINT` and a pin was a key. Under
-// 2.0 saving a setting does not change a leaf, so the card it sent was the card the contact
-// already held, `sig` was an argument nothing read, and the calls accomplished nothing — while the
-// thing that does move an address was not started, and nobody was told it was now needed. What
-// replaced it is in `internal/cli/settings.go`: a `public_url` change names the accounts whose
-// leaf was issued for the old address, and sends nothing.
+// Saving a new `public_url` is therefore not a move and announces nothing: it does not change a
+// leaf, so there is nothing new to tell anyone. What it does is in `internal/cli/settings.go` — it
+// names the accounts whose leaf was issued for the old address, which is who needs a new leaf.
 
 import (
 	"context"

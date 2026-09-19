@@ -318,7 +318,7 @@ It is written THROUGH the `Store` interface (§11.1), not copied out of a databa
 
 Every import therefore ends in the same place, whether it is a new machine, a new host, or this node after it lost its master key: the identity is here by name with its contacts and conversations, it holds no key and no ledger, and it is **not served** until the wallet issues this host a leaf (`account csr`, `account install-leaf`). `serve` names each waiting identity. Having arrived with no ledger, its first leaf here is a **move** (§9.1), and installing it starts the campaign that tells its contacts.
 
-This is not a backup of the node and there is none. `backup create` copied the whole database beside the master key that unsealed it, and — until 2026-09-19 — every leaf's private key with it; `backup identity` moved one leaf key between nodes under a passphrase. Both are gone. What a host accumulates beyond contacts and chats is rebuilt after a loss, not restored.
+This is not a backup of the node and there is none: nothing this node writes carries a key, a master key or a setting out of it. What a host accumulates beyond contacts and chats is rebuilt after a loss, not restored.
 
 
 ---
@@ -872,7 +872,7 @@ The card builder (portal, §8) produces the account's PACT contact card: a stand
 
 **Export** is offered as a `.vcf` download, a QR, and a shareable link; `get_card` returns the current signed card to contacts (PACT §6.2), and invite responses carry it signed (§9.2).
 
-**Import** accepts a `.vcf` in the portal. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the address the imported card's certificate names (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's chain against the root that certificate names as its issuer before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §14.2). `X-PACT-ENDPOINT`, `X-PACT-KEY` and `X-PACT-GATEWAY` belong to the retired generation: the node writes none of them and honours none of them (PACT §3).
+**Import** accepts a `.vcf` in the portal. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the address the imported card's certificate names (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's chain against the root that certificate names as its issuer before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §14.2). A card is its certificate, its version and its seal policy; a property the node does not know is ignored and never honoured (PACT §3).
 
 ### 9.4 Phone-book sync
 
@@ -892,7 +892,7 @@ The deployment mode is **derived from configuration, never declared**. Tunnel ad
 - An inbound path whose adapter has `TerminatesAtEdge = false` (or no tunnel at all) puts the node in **direct mode**: the caller's TLS session terminates at the node, so client certificates are visible end to end.
 - An inbound path whose adapter has `TerminatesAtEdge = true` puts the node in **edge mode**: a third party terminates the public TLS session, client certificates never reach the node, and caller identity rests entirely on sealed envelopes (PACT §13).
 
-There is no third. PACT 2.0 removed the relay role with the rest of 1.x: a store-and-forward gateway would see every sender, recipient and timestamp for its trouble, and what 2.0 makes safe instead is **being hosted** — a host runs the identity's server all the time under a leaf the person issued, and can be replaced without the person losing anything (PACT §9). A node that cannot accept inbound connections uses a tunnel. `X-PACT-GATEWAY` is never written and never honoured.
+There is no third. PACT 2.0 removed the relay role with the rest of 1.x: a store-and-forward gateway would see every sender, recipient and timestamp for its trouble, and what 2.0 makes safe instead is **being hosted** — a host runs the identity's server all the time under a leaf the person issued, and can be replaced without the person losing anything (PACT §9). A node that cannot accept inbound connections uses a tunnel. No card names a gateway, and none would be honoured.
 
 `TerminatesAtEdge` drives the three knobs:
 
@@ -937,7 +937,7 @@ When the node calls a peer, its `tls.Config` MUST supply the identity keypair vi
 
 ### 10.4 Reachability probe and doctor
 
-The node MUST be able to verify that its advertised `X-PACT-ENDPOINT` actually reaches this instance. The reachability probe dials the advertised `X-PACT-ENDPOINT` hostname, validates the served certificate as a peer would (identity-fingerprint pin on a self-signed listener, WebPKI on a domain, the edge's certificate in edge mode), and confirms the connection lands on this instance by round-tripping a fresh nonce through a probe handler; the portal's tunnel settings page surfaces the result (§8). Hairpin NAT can make a self-originated probe pass or fail unrepresentatively; the probe reports that possibility as a caveat, never as a clean pass. The `doctor` CLI command (§12) runs the probe together with configuration, store, and tunnel-state checks and reports a single diagnosis. Probe failures are the expected first stop when a peer reports `unavailable`.
+The node MUST be able to verify that the address its leaves name actually reaches this instance. The reachability probe dials the public URL and validates what is served there as a peer does: the chain, leaf then root, to the root of an identity this node serves AT that identity's address (PACT §14.2 — so a leaf that names some other address fails here, by rule 5, before any peer meets it), or the edge's WebPKI certificate in edge mode; and confirms the connection lands on this instance by round-tripping a fresh nonce through a probe handler; the portal's tunnel settings page surfaces the result (§8). Hairpin NAT can make a self-originated probe pass or fail unrepresentatively; the probe reports that possibility as a caveat, never as a clean pass. The `doctor` CLI command (§12) runs the probe together with configuration, store, and tunnel-state checks and reports a single diagnosis. Probe failures are the expected first stop when a peer reports `unavailable`.
 
 ### 10.6 Ingress role
 
@@ -1001,7 +1001,7 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `exposures` | Versioned exposure sets (exposure set vM) (§6) |
 | `pending_requests` | Agent-answered requests awaiting the owner's agent (§6) |
 | `settings` | Owner-set configuration the portal writes (§8.2, §12.2), including `tunnel.<adapter>.*` adapter state and sealed values |
-| `move_fanout` | Per-contact completion of the move campaign's `update_contact` walk (§9.1, PACT §5.3): which contact, the kid of the leaf being announced, whether it was reached, how many attempts, the last error. A re-run resumes by matching on the leaf, so a second move is a second campaign. It was `rotation_fanout` until migration 0036 — 1.x key rotation's ledger, which a move inherited |
+| `move_fanout` | Per-contact completion of the move campaign's `update_contact` walk (§9.1, PACT §5.3): which contact, the kid of the leaf being announced, whether it was reached, how many attempts, the last error. A re-run resumes by matching on the leaf, so a second move is a second campaign. |
 | `leaves` | PACT 2.0 (PACT §2, §14): every leaf certificate this host holds for an account — `pending` while a CSR awaits the wallet, `current`, `superseded` with its key kept until `not_after`, `former` with the key destroyed and the key id kept so an envelope sealed to it is answered `certificate_renewed` |
 | `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
 | `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
@@ -1139,7 +1139,7 @@ flowchart TB
 
 **A stolen leaf key is bounded; a stolen root is not.** A leaf key taken from a host speaks as that identity until the leaf expires or the person renews — at which point the newer leaf outranks it with every contact it reaches (PACT §14.3), and the thief cannot issue itself another. A stolen ROOT is the identity, fought over by two holders, and PACT §14.5 records that as residual rather than solved: the defence is a root that is never at rest — in a hardware key, or derived from a passkey on each use — which is the wallet's business and not this node's.
 
-**Lost root = new identity; a lost leaf key is a renewal.** The root is the identity and it is in the person's wallet (PACT §2, §9): there is deliberately no recovery ceremony for it and no third party holds a copy, so a destroyed root means a new identity — re-share a card and re-pair with every contact. What this node holds is a leaf's key, and losing that costs a renewal and nothing else (§3.9): the wallet signs a new leaf under the same root, and every contact's pin — which is to the root — still holds. This paragraph said "lost key = new identity" and pointed at `account rotate-key` until 2026-09-19, two pages after §3.9 had said the opposite.
+**Lost root = new identity; a lost leaf key is a renewal.** The root is the identity and it is in the person's wallet (PACT §2, §9): there is deliberately no recovery ceremony for it and no third party holds a copy, so a destroyed root means a new identity — re-share a card and re-pair with every contact. What this node holds is a leaf's key, and losing that costs a renewal and nothing else (§3.9): the wallet signs a new leaf under the same root, and every contact's pin — which is to the root — still holds.
 
 **What leaves a host is contacts and chats, never a credential.** An export carries no key of any kind and nothing of the host's own (§3.10), so a file that leaks costs the owner the confidentiality of their address book and their conversations and not their voice: nobody can speak as this host, or reach into it, from one. The price is paid on arrival, where every identity waits for a fresh leaf and the host's own configuration is made again; the first is one wallet ceremony per identity, and it is the same ceremony a renewal is.
 

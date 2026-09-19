@@ -118,8 +118,8 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 					t.Errorf("%s:%d formats a slug into the account: prefix; the column holds ids.", rel, span.line)
 					continue
 				}
-				// "contains account" was too loose: an action named
-				// account_rotate or a slug formatted after the prefix satisfied
+				// "contains account" was too loose: an action with "account" in
+				// its name or a slug formatted after the prefix satisfied
 				// it while attributing nothing. The prefix (with its colon) or
 				// an explicit id expression is what counts as attribution.
 				if strings.Contains(span.text, "account:") ||

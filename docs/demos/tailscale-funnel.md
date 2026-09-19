@@ -58,19 +58,20 @@ pact-gateway doctor
 ```
 
 `doctor` prints `ok tunnel tailscale (mode direct, seal required, client_cert preferred)`
-and runs the reachability probe against `https://pact.<tailnet>.ts.net`, pinned to the
-account's identity fingerprint (the node's self-signed listener is what Funnel forwards
-to, so a WebPKI check would be wrong). Expect `ok probe … reachable` with the hairpin
-caveat.
+and runs the reachability probe against `https://pact.<tailnet>.ts.net`, validating the
+chain served there to an identity's root at its own address (the node's own listener is
+what Funnel forwards to, so a WebPKI check would be wrong). Expect `ok probe … reachable`
+with the hairpin caveat.
 
 From another machine on the open internet:
 
 ```
-openssl s_client -connect pact.<tailnet>.ts.net:443 -servername pact.<tailnet>.ts.net </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256
+openssl s_client -connect pact.<tailnet>.ts.net:443 -servername pact.<tailnet>.ts.net -showcerts </dev/null 2>/dev/null | grep -c 'BEGIN CERTIFICATE'
 ```
 
-The served certificate is the node's own (SPKI fingerprint = `X-PACT-KEY` on the card),
-proving end-to-end TLS through the Funnel.
+Two certificates come back — the node's own chain, a leaf and the root that signed it, not
+Tailscale's — proving end-to-end TLS through the Funnel. `pact-gateway doctor` validates
+that chain the way a peer would (PACT §14.2).
 
-Then pair from a second node with the invite link — the card's `X-PACT-ENDPOINT` is
+Then pair from a second node with the invite link — the endpoint the card's leaf names is
 `https://pact.<tailnet>.ts.net/a/<slug>/mcp`.

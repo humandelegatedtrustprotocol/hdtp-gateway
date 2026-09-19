@@ -163,8 +163,8 @@ func (p Proof) pin(c store.Contact) store.Contact {
 
 // RedeemAs performs the guest-tier redemption (SPEC §9.2): token by hash; expiry,
 // revocation, and use-count enforced atomically; the caller's proven identity MUST
-// equal the submitted card's X-PACT-KEY (guest binding, SPEC §5.3); the proven key
-// is pinned in full — and in 2.0 the root, the endpoint and the leaf with it.
+// be the root the submitted card's leaf names (guest binding, SPEC §5.3); what is
+// pinned is that root, the endpoint, the leaf and the leaf's key.
 func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p Proof) (RedeemResult, error) {
 	if _, err := p.vet(card); err != nil {
 		return RedeemResult{}, err
@@ -364,8 +364,7 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 // does not parse. (The name is older than the fact: a card once spelled its identity out as a key.)
 func CardKey(card string) string {
 	// ValidateInbound, not ParseCard: the identity is the ROOT the card's leaf
-	// names as its issuer, and only decoding the certificate produces it. A card
-	// used to spell it out as X-PACT-KEY; none does now.
+	// names as its issuer, and only decoding the certificate produces it.
 	c, err := ValidateInbound(card)
 	if err != nil {
 		return ""

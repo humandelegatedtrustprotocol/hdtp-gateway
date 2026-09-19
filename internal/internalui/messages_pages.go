@@ -402,8 +402,6 @@ func deliveryState(m store.Message) string {
 	switch m.Status {
 	case "", "delivered":
 		return "delivered"
-	case "queued_at_relay":
-		return "queued"
 	case "pending":
 		if m.Attempts == 0 {
 			return "sending"
@@ -423,8 +421,6 @@ func deliveryNote(m store.Message) string {
 	switch m.Status {
 	case "", "delivered":
 		return ""
-	case "queued_at_relay":
-		return "queued at their relay"
 	case "pending":
 		if m.Attempts == 0 {
 			// In flight. The tick shows it; words would only alarm.
