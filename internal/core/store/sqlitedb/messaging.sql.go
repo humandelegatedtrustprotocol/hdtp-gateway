@@ -39,16 +39,13 @@ func (q *Queries) DeleteBlob(ctx context.Context, arg DeleteBlobParams) (int64, 
 
 const deleteEmptyThreads = `-- name: DeleteEmptyThreads :execrows
 DELETE FROM threads WHERE threads.account_id = ?
-  AND threads.id NOT IN (SELECT thread_id FROM messages WHERE messages.account_id = ?)
+  AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.account_id = threads.account_id AND m.thread_id = threads.id)
 `
 
-type DeleteEmptyThreadsParams struct {
-	AccountID   string
-	AccountID_2 string
-}
-
-func (q *Queries) DeleteEmptyThreads(ctx context.Context, arg DeleteEmptyThreadsParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteEmptyThreads, arg.AccountID, arg.AccountID_2)
+// One index probe per thread. As a NOT IN over the account's messages it listed the thread of
+// every message the account has before it looked at a single thread.
+func (q *Queries) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEmptyThreads, accountID)
 	if err != nil {
 		return 0, err
 	}
@@ -273,6 +270,35 @@ func (q *Queries) ListBlobs(ctx context.Context, accountID string) ([]Blob, erro
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMediaBodies = `-- name: ListMediaBodies :many
+SELECT body FROM messages WHERE account_id = ? AND kind = 'media' ORDER BY seq
+`
+
+// What retention reads to learn which media is still referenced: the media messages, and only
+// those, from `messages_media`. It used to be learned by reading every message of every thread.
+func (q *Queries) ListMediaBodies(ctx context.Context, accountID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listMediaBodies, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		items = append(items, body)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
