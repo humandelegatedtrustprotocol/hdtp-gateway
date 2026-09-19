@@ -366,7 +366,7 @@ list promised "a store-and-forward relay when you have no inbound path at all". 
 following them would have configured a mode that does not exist. `docs/harness-design.md` is a
 design record and is left as one.
 
-### B2c · The cloud still carries the node's 1.x columns and relay tables — `TODO`
+### B2c · The cloud still carries the node's 1.x columns and relay tables — `BLOCKED — owner's decision`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
 through goose 29, applied verbatim inside each Identity Durable Object. The node is now at 32:
 0030 dropped the relay tables, 0031 the rotation columns, 0032 `accept_1x`. `store.ts` says so in
@@ -379,6 +379,28 @@ files are byte-locked by `migration-locks.json`; the leave converter asserts "29
 through 29"; and the change runs forward-only against production objects on the owner's next
 deploy. Each of those is checkable. None of them is a side effect.
 *Verify:* `check:fast` (migration locks, `gen-schema --check`, the leave self-test), the full suite.
+*What was established, and what was deliberately not done.*
+- **The contract this audit could have broken is intact, and is now tested.** The cloud's leave
+  converter hands a departing person a node-format store with goose bookkeeping "through 29"; the
+  node moved five migrations past that in a day. `TestALeaveArchiveAtGoose29StillRestoresOnTodaysNode`
+  drives goose to exactly 29, writes a 2.0 identity and a 2.0 pin the way the converter does, and
+  restores it data-only on today's binary: the identity keeps its root and its §5.3 choice, the pin
+  its endpoint, leaf and root certificate. So the cloud can lag the node safely.
+- **A suspected regression, checked and cleared.** `import20.ts` keeps a contact only when
+  `Number(row.protocol ?? 1) === 2`, and B3a dropped `contacts.protocol` — which would import zero
+  contacts, silently. It does not: the node never writes that archive format (`$blob` appears
+  nowhere in it). The importer only reads archives the cloud itself made, whose rows still carry
+  the column.
+- **The real scope is the cloud's own B1–B3.** Its Identity objects apply `IDENTITY_MIGRATIONS`
+  1–26 (which include 0014's rotation columns and 0015's relay tables) plus `CLOUD_MIGRATIONS`
+  1001–1003 (which add `protocol` and `accept_1x`); `store.ts` types them, and the code branches
+  on `protocol` the way the node did. Removing them is a new forward-only cloud migration that
+  **drops columns and tables inside production Durable Objects on the next deploy**, a re-lock of
+  `migration-locks.json`, and the node's compile-driven refactor repeated in TypeScript.
+- **Why it stops here.** That is a destructive change to deployed tenant data, behind a deploy
+  door only the owner opens (`ship-staging`, `tf-apply`, `ship-production`). It is scoped, and it
+  is safe to defer because of the first bullet. It is not something to land as a side effect of an
+  audit sweep.
 
 ## Part F — a leaf key never leaves the host it was issued to
 
