@@ -20,7 +20,7 @@ func TestRunWritesUsageToTheWritersItIsGiven(t *testing.T) {
 	for _, cmd := range [][]string{
 		{"serve"}, {"doctor"}, {"healthcheck"}, {"migrate"},
 		{"account", "create"}, {"passkey", "list"}, {"token", "create"},
-		{"audit", "verify"}, {"backup", "create"},
+		{"audit", "verify"}, {"export"}, {"import"},
 	} {
 		t.Run(strings.Join(cmd, " "), func(t *testing.T) {
 			var out, errb bytes.Buffer

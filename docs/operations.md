@@ -86,51 +86,48 @@ node has already won. Memory is bounded: keys whose window has emptied are
 swept once per window, so a caller cycling addresses or fingerprints cannot
 grow the table indefinitely.
 
-## Backups
+## Export and import
 
 ```
-pact-gateway backup create  --config config.json --out pact-backup.tar.gz
-pact-gateway backup restore --config config.json --from pact-backup.tar.gz --yes
+pact-gateway export --config config.json --out alina.pact-export
+pact-gateway import --config config.json --from alina.pact-export
 ```
 
-Both are **offline** commands: stop the node first (they refuse while `pact.lock` is
-held). `create` takes a consistent SQLite snapshot (`VACUUM INTO`), the `blobs/` tree,
-and — by default — `keyring.key`, into one tarball.
+Both are **offline** commands: stop the node first (they refuse while `pact.lock` is held).
 
-**The tarball is the node's data, not a credential.** The snapshot is stripped of every
-leaf's private key and then rebuilt, so the keys are in neither its rows nor its free
-pages; the ledger of leaves travels as `former` rows. A leaf is the owner's root trusting
-*this host* for one address until one date, and a copy of its key would let whoever held
-the archive speak as this host. What `keyring.key` still unseals is saved settings and
-integration credentials — store the tarball as you would those, or pass
-`--without-master-key` and keep the key elsewhere.
+**An export is a person's contacts and chats, and nothing else.** For each identity that has a
+root: its name (slug, display name, the root's fingerprint and certificate — all public), its
+contacts as pinned, and its conversations with their media. It is written through the node's
+`Store` interface, so it is an allow-list by construction, and it works on Postgres exactly as on
+SQLite. It is a gzipped tar of a manifest, `data.jsonl` (one JSON object per line, five kinds) and
+`media/<sha256>`; the manifest carries the digest of the data, and the file is created `0600` and
+never replaces an existing one.
 
-`restore` refuses to overwrite an existing store unless `--yes`, unpacks, and prints the
-next step (`pact-gateway migrate`, then `serve`). It takes an archive three ways:
+What is **not** in it, because it is the host's and not the person's: every key (leaf keys, and
+`keyring.key`, which used to ride along), saved settings, integration credentials, owners, passkeys,
+sessions, tokens, invites, the audit chain, and the ledger of leaves. There is no flag that adds
+any of them.
 
-| Archive | Flag | Master key | Leaf keys |
-|---|---|---|---|
-| this node's, restored beside its own `keyring.key` | none | already here | none in the archive |
-| this node's, on a fresh machine | `--same-node` | restored | none in the archive |
-| another host's | `--data-only` | refused | none in the archive |
+`import` creates each identity — it never merges into one that is already here, by slug or by
+root — under ONE transaction, so a refused or interrupted import leaves nothing behind. It is
+strict: a member, a kind of line, or a single field it does not know is a refusal. An undelivered
+outbound message arrives as `failed`: delivering it was the old host's job, under the old host's
+leaf.
 
-In every case the accounts come back **named and not yet served**: contacts, invites,
-audit rows and integrations are kept — the audit chain still verifies
-(`pact-gateway audit verify`) — and each account waits for a leaf. `serve` names each one
-and prints the `account csr` to run; the wallet signs it; `account install-leaf` ends the
-wait. Contacts do nothing, because what they pinned is the root.
+Every import ends the same way. The identities are **named and not served**; `serve` prints the
+`account csr` to run for each, the wallet signs it, and `account install-leaf` ends the wait — and,
+the identity having arrived from elsewhere, starts the move campaign that tells its contacts.
 
-**Postgres:** the store is external, and `backup create` captures only `blobs/` and
-`keyring.key`. A `pg_dump` is a copy of the live database and *does* hold the sealed leaf
-keys — it is the operator's, outside this tool. Keep it apart from `keyring.key`, which is
-what unseals them.
+This is not a backup of the node, and the node has none: what a host accumulates beyond contacts
+and chats is rebuilt, not restored. After a lost machine: `import`, the setup wizard for a passkey,
+reconnect integrations, one certificate per identity.
 
 ## Recovery
 
 | Lost | Consequence | Do |
 |---|---|---|
-| the node, with a backup | accounts are not served until re-certified | restore, `migrate`, `serve`; then one `account csr` / `install-leaf` per account. Contacts keep their pins |
-| `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good, the node's own data is another host's: offline, `backup create --without-master-key --out data.tar.gz`, then `backup restore --from data.tar.gz --data-only --yes`. The accounts come back awaiting a leaf; `serve` names the `account csr` for each, the wallet signs, `account install-leaf` ends the wait. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so. Re-enter integration credentials |
+| the node, with an export | identities are not served until re-certified; settings, integrations, passkeys and the audit history are not in an export | `import`, `serve`, the setup wizard; then one `account csr` / `install-leaf` per identity. Contacts keep their pins |
+| `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good: `export`, then `import` into a fresh data directory — an export never needed the master key, because it never held anything sealed under it. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so |
 | a leaf simply ran out (nobody renewed it) | the account stops being served within the hour and its key is destroyed; contacts keep their pins, and `doctor` warns before it happens | `account csr --slug me -purpose renew`, the wallet signs, `account install-leaf` |
 | one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `pact-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (PACT §14.3) |
 | the wallet's root | the identity itself; this node cannot help | the wallet's own recovery, if it has one (PACT §9, §14.5) |

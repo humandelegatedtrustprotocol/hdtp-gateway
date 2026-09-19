@@ -32,9 +32,11 @@ import (
 //     call runs a statement directly (`Exec`, `Query`, `QueryRow`, `Prepare` and their `Context`
 //     forms). Check 2 cannot see the line the rule was made about: `"UPDATE "+table+" SET "+…`
 //     has no single literal that reads as a statement. This sees the call instead.
-//  4. The single exception is named, located, and COUNTED: `SQLite.Snapshot`'s `VACUUM INTO ?`,
-//     which sqlc's SQLite grammar rejects and which is storage maintenance, not a query. If it
-//     moves or multiplies the test fails, so the list cannot quietly grow a second entry.
+//
+// There is no exception. There was one, named and counted: `SQLite.Snapshot`'s `VACUUM INTO ?`,
+// which sqlc's SQLite grammar rejects. It went with `backup`, which copied the database file; an
+// export is written through the Store interface and copies nothing (SPEC §3.10). An allow-list
+// with nothing on it is the easiest kind to keep honest.
 func TestNoHandWrittenSQLOutsideTheStore(t *testing.T) {
 	root := repoRoot(t)
 	const storeDir = "internal/core/store/"
@@ -46,9 +48,6 @@ func TestNoHandWrittenSQLOutsideTheStore(t *testing.T) {
 		"Exec": true, "ExecContext": true, "Query": true, "QueryContext": true,
 		"QueryRow": true, "QueryRowContext": true, "Prepare": true, "PrepareContext": true,
 	}
-	type exception struct{ file, fn, literal string }
-	allowed := exception{file: storeDir + "sqlite.go", fn: "Snapshot", literal: "VACUUM INTO ?"}
-	allowedSeen := 0
 	var files, literals int
 
 	for _, dir := range []string{"internal", "cmd", "migrations"} {
@@ -94,9 +93,6 @@ func TestNoHandWrittenSQLOutsideTheStore(t *testing.T) {
 					if !ok || !strings.HasPrefix(rel, storeDir) || !runsAStatement[sel.Sel.Name] || len(x.Args) == 0 {
 						return true
 					}
-					if rel == allowed.file && fn == allowed.fn {
-						return true // counted below, by its literal
-					}
 					t.Errorf("%s:%d (in %s) runs a statement by hand: .%s(…). In the store a statement is a generated "+
 						"method on `s.q`; write it in queries/*.sql and run `make sqlc`.", rel, fset.Position(x.Pos()).Line, fn, sel.Sel.Name)
 				case *ast.BasicLit:
@@ -108,14 +104,9 @@ func TestNoHandWrittenSQLOutsideTheStore(t *testing.T) {
 					if uerr != nil || !statement.MatchString(val) {
 						return true
 					}
-					if rel == allowed.file && fn == allowed.fn && val == allowed.literal {
-						allowedSeen++
-						return true
-					}
 					t.Errorf("%s:%d (in %s) holds a SQL statement in a string: %q. Write it in queries/{sqlite,postgres}/*.sql, "+
-						"run `make sqlc`, and call the generated method through the Store interface. The one "+
-						"exception is %s's %q, and it is not a precedent.",
-						rel, fset.Position(x.Pos()).Line, fn, val, allowed.fn, allowed.literal)
+						"run `make sqlc`, and call the generated method through the Store interface. There are no exceptions.",
+						rel, fset.Position(x.Pos()).Line, fn, val)
 				}
 				return true
 			})
@@ -124,11 +115,6 @@ func TestNoHandWrittenSQLOutsideTheStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	if allowedSeen != 1 {
-		t.Errorf("the one permitted hand-written statement — %q in %s (%s) — was found %d time(s). "+
-			"Exactly one: if it moved, move this entry with it and say why; if there are two, one of them is not the exception.",
-			allowed.literal, allowed.file, allowed.fn, allowedSeen)
 	}
 	if files < 100 || literals < 1000 {
 		t.Fatalf("read %d files and %d string literals: this guard is looking at nothing", files, literals)

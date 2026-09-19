@@ -9,6 +9,20 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
 
+func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
+	if c.ID == "" {
+		c.ID = newID()
+	}
+	return s.q.ImportContact(ctx, pgdb.ImportContactParams{
+		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
+		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
+		TheirPermissions: permsToJSON(c.TheirPermissions), TrustFlag: c.TrustFlag,
+		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
+		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
+		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
+	})
+}
+
 func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error) {
 	if c.ID == "" {
 		c.ID = newID()

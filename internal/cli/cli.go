@@ -63,8 +63,10 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return token(rest, stdout, stderr)
 	case "audit":
 		return auditCmd(rest, stdout, stderr)
-	case "backup":
-		return backupCmd(rest, stdout, stderr)
+	case "export":
+		return exportCmd(rest, version, stdout, stderr)
+	case "import":
+		return importCmd(rest, stdout, stderr)
 	case "__child":
 		// hidden: the resource-cap shim for supervised stdio children (SPEC §6.2)
 		if err := integrations.RunChildShim(rest); err != nil {
@@ -92,7 +94,8 @@ commands:
   passkey   list|remove|reset-wizard (node must be running)
   token     create|list|revoke owner-MCP bearer tokens (node must be running)
   audit     verify|export|archive|repair the hash chain (offline; node must be stopped)
-  backup    create|restore a consistent snapshot (offline; node must be stopped)
+  export    write contacts and chats, and nothing else, to a file (offline; node must be stopped)
+  import    take an export in; each identity then needs a new certificate from its wallet (offline)
   version   print the version
 `)
 }
