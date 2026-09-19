@@ -108,9 +108,9 @@ of it, and are listed so a reader can tell the two apart.
 | a non-loopback portal refuses to start without a host passkeys can bind to | `TestNonLoopbackInternalNeedsAHost` |
 | the portal requires a session on every bind, loopback included (§8.3); a spoofed Host cannot become the relying party | `TestLoopbackStillDemandsALoginAndHostIsNotTrusted` |
 | an owner locked out of every passkey recovers with a minted token, and only with one (§3.1, §8.6) | `TestALockedOutOwnerCanRecoverWithAMintedToken` |
-| an identity backup moves ONE account to a node with a different master key (§3.10) | `TestIdentityBackupMovesAnAccountToAnotherNode` |
-| the backup is passphrase-sealed, refuses a wrong passphrase, and fails to open if its cleartext metadata is edited (§3.10) | `TestIdentityBackupRefusesAWrongPassphrase`, `TestEditingTheMetadataBreaksTheBackup` |
-| restoring an identity refuses a collision rather than overwriting (§3.10) | `TestIdentityRestoreRefusesACollision` |
+| a bundle carries no leaf key — not in a column and not in the file's free pages — and the live node keeps its own (§3.10) | `TestABackupBundleCarriesNoLeafKey` |
+| a restore brings back the name and never the key, on the same node or another — including an older bundle that carries one, restored as the operator's own (§3.10) | `TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign`, `TestRestoreRefusesAnotherHostsKeysUnlessDataOnly`, `TestASameNodeRestoreOfAnOlderBundleStillBringsNoLeafKey` |
+| there is no per-account key export, and asking for one touches nothing (§3.10) | `TestThereIsNoIdentityExport` |
 | the owner MCP exposes every tool SPEC §8.4 names, and still cannot register a passkey (§8.6) | `TestOwnerMCPHasTheSpecTools` |
 | the dashboard reports the resolved posture, and the setup gate still owns the page until a passkey exists | `TestDashboardShowsStateAndKeepsTheWizardGate` |
 | owner-MCP tokens are scoped and never leak | `TestTokenScopingAndUnknowns`, `TestTokenListNeverLeaksSecrets`, `TestServeOwnerMCPBearerGate`, `TestOwnersPageTokensAndPasskeys` |
@@ -181,7 +181,7 @@ against Appendix B by its own tests; these are the node's.
 | the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/identify20.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion` |
 | a caller at an address the owner has not approved is told once however often it calls, and every such answer spends the guest budget (§5.3, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2AnUnapprovedAddressIsToldOnce` |
 | the chain is the client certificate; a contact's chain as its server certificate validates to the pinned root at the dialed address; a 1.x pin of the leaf's key still connects (§2, Appendix C) | `internal/outbound/client.go` | `TestClientPresentsItsChain`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
-| a 2.0 backup carries the leaf and never the root; a root key in the file is refused; another host's archive brings data only (§9) | `internal/identity/backup.go`, `internal/cli/backup.go` | `TestIdentityBackup20CarriesTheLeafAndNeverTheRoot`, `TestIdentityBackupRefusesARootKey`, `TestIdentityBackupMovesA20LeafToAnotherNode`, `TestRestoreRefusesAnotherHostsKeysUnlessDataOnly` |
+| a bundle carries neither the root nor any leaf's key, and another host's archive brings data and not its master key (§9) | `internal/cli/backup.go`, `internal/core/store/sqlite.go` (`Snapshot`) | `TestABackupBundleCarriesNoLeafKey`, `TestRestoreRefusesAnotherHostsKeysUnlessDataOnly`, `TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign`, `TestThereIsNoIdentityExport` |
 | the exit demonstration: two nodes pair as 2.0 identities, message in both forms, one renews and the other learns the leaf from the answer and follows `certificate_renewed`, one moves and the other follows under `auto`; a 1.x node pairs with one and still talks after the renewal | `internal/node/pact20_demo_test.go` | `TestPact20ExitDemo` |
 
 The live battery in `pact-cloud/gateway/conformance` gains a `certificate` group

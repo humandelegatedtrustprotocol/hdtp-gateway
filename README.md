@@ -191,38 +191,29 @@ nobody to ask. Register a second passkey on another device before you need one.
 > not a valid WebAuthn relying-party ID, so that is the name your passkey is
 > bound to.
 
-### Back up an identity
+### Back up the node
 
-Your keypair *is* your identity: lose it and every contact must re-pin a new one.
-`backup create` covers the whole node, but the archive only restores beside the
-node's own master key. To move **one** identity — to a new machine, or into cold
-storage — export it under a passphrase instead:
+Your identity is the **root** in your wallet. It is never on this node, so nothing here *is* you
+and no backup could lose your name. What the node holds is its data — accounts, contacts, threads,
+media, settings — and that is what a backup carries:
 
 ```
-pact-gateway backup identity -slug alice -out alice.identity.json -passphrase-file pass
-pact-gateway backup restore-identity -from alice.identity.json -passphrase-file pass
+pact-gateway backup create  -out pact-backup.tar.gz
+pact-gateway backup restore -from pact-backup.tar.gz -same-node
 ```
 
-Both are offline (stop the node first) and both need host shell access. The
-passphrase comes from `PACT_IDENTITY_PASSPHRASE` or a `0600` file — a loosely
-permissioned one is refused, exactly as the keyring's master key file is.
+Both are offline (stop the node first) and both need host shell access.
 
-The file holds the slug, display name, algorithm and fingerprint in the clear,
-and the private key sealed with AES-256-GCM under an Argon2id key. The cleartext
-is bound in as authenticated data, so editing the fingerprint or the slug makes
-the file fail to open rather than restoring an identity under a name it does not
-own. Restore refuses a collision rather than overwriting.
+**No archive carries a leaf key.** A leaf is your root trusting *this host*, for one address, until
+one date. A copy of its key in a file would let whoever held the file speak as this host, so
+`backup create` writes every row and no private key, and rebuilds the database file so the key is
+not left behind in its free pages either. A restored node — the same machine or a new one — comes
+back with its accounts named and not yet served; `serve` lists each one with the command that asks
+the wallet for a fresh leaf. Your contacts do nothing: they pinned your root, and the new leaf
+reaches them the first time you call.
 
-> **This file is that identity.** Anyone who opens it can be you to every contact
-> who pinned the key, and there is no revocation. It deserves the passphrase and
-> the storage you would give a private key, because it is one. It is deliberately
-> unreachable from the portal and the owner MCP: neither a session nor a leaked
-> token can export an identity.
-
-What comes back is the keypair and nothing else — contacts, threads and media do
-not travel with it, because they were the other node's record of its
-relationships. Peers who pinned the key still reach you; your own view of them
-starts empty. Use `backup create` / `backup restore` for the whole node.
+There is no `backup identity`. It exported one account's key to carry to another node, which is
+the one thing a leaf key must never do. A node that moves asks the wallet for a leaf of its own.
 
 ### Be reachable
 

@@ -1,12 +1,14 @@
 package cli
 
-// PACT 2.0 backups (PACT §9): `backup identity` of a 2.0 account moves the
-// LEAF and its key to another node, never the root; `backup restore` of an
-// archive made by another host refuses its key material unless asked for the
-// data alone, and then strips every key.
+// Backups (PACT §9). A bundle is the node's DATA: accounts, contacts, the ledger of leaves it has
+// held. It is never a credential — no leaf key is in one, from this node or to it — so a restore
+// anywhere ends at the same place: the identity's name is here, and the wallet certifies this
+// host afresh. What differs between a same-node restore and another host's archive is the master
+// key, which unseals saved settings and integration credentials and is refused from a stranger.
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +20,30 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// upgradeTo20 runs the wallet's side of a signup for an account on a node.
-func upgradeTo20(t *testing.T, n idNode, slug, endpoint string) (rootFpr string) {
+// idNode is a data directory with its own config and its own master key.
+type idNode struct {
+	dir, cfg string
+}
+
+func newIDNode(t *testing.T, name string) idNode {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.json")
+	body := `{"data_dir":"` + dir + `","internal_bind":"127.0.0.1:0","public_bind":"127.0.0.1:0"}`
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"migrate", "--config", cfg}, "test", io.Discard, io.Discard); code != 0 {
+		t.Fatalf("migrate %s: %d", name, code)
+	}
+	return idNode{dir: dir, cfg: cfg}
+}
+
+// certify runs the wallet's side of a signup for an account on a node.
+func certify(t *testing.T, n idNode, slug, endpoint string) (rootFpr string) {
 	t.Helper()
 	st := openStoreAt(t, n.dir)
 	defer st.Close()
@@ -49,54 +73,27 @@ func upgradeTo20(t *testing.T, n idNode, slug, endpoint string) (rootFpr string)
 	return pactidentity.Fingerprint(rootKey.Public.SPKI)
 }
 
-func TestIdentityBackupMovesA20LeafToAnotherNode(t *testing.T) {
-	src := newIDNode(t, "src")
-	dst := newIDNode(t, "dst")
-	pass := passphraseFile(t, src.dir, "a passphrase worth using")
-	st := openStoreAt(t, src.dir)
-	kr := openKeyringAt(t, src.dir)
-	if _, err := (&identity.Manager{Store: st, Keyring: kr}).CreateAccount(t.Context(), "alice", "Alice", identity.AlgoEd25519); err != nil {
-		t.Fatal(err)
-	}
-	st.Close()
-	rootFpr := upgradeTo20(t, src, "alice", "https://agent.alice.example/mcp")
-
-	out := filepath.Join(src.dir, "alice.identity.json")
-	var stdout, stderr strings.Builder
-	if code := Run([]string{"backup", "identity", "--config", src.cfg, "-slug", "alice", "-out", out, "-passphrase-file", pass}, "test", &stdout, &stderr); code != 0 {
-		t.Fatalf("export: %d %s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "PACT 2.0 leaf under root "+rootFpr) {
-		t.Fatalf("the export must say what it is: %s", stdout.String())
-	}
-	raw, _ := os.ReadFile(out)
-	if !strings.Contains(string(raw), `"pact_identity_backup": 2`) || !strings.Contains(string(raw), `"root_fingerprint": "`+rootFpr) {
-		t.Fatalf("not a version-2 document: %s", raw)
-	}
-
-	dstPass := passphraseFile(t, dst.dir, "a passphrase worth using")
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"backup", "restore-identity", "--config", dst.cfg, "-from", out, "-passphrase-file", dstPass}, "test", &stdout, &stderr); code != 0 {
-		t.Fatalf("restore: %d %s", code, stderr.String())
-	}
-	dstStore := openStoreAt(t, dst.dir)
-	defer dstStore.Close()
-	got, err := dstStore.GetAccountBySlug(t.Context(), "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.HasRoot() || got.RootFingerprint != rootFpr || len(got.RootCert) == 0 {
-		t.Fatalf("the restored account must be the same 2.0 identity: %+v", got)
-	}
-	leaves, _ := dstStore.ListLeaves(t.Context(), got.ID)
-	if len(leaves) != 1 || leaves[0].State != identity.LeafCurrent || leaves[0].Kid != got.Fingerprint || leaves[0].Endpoint != "https://agent.alice.example/mcp" {
-		t.Fatalf("the leaf must be current on the new node: %+v", leaves)
-	}
-	dstKR := openKeyringAt(t, dst.dir)
-	keys, err := (&identity.Manager{Store: dstStore, Keyring: dstKR}).ActiveLeafKeypairs(t.Context(), got.ID, time.Now())
-	if err != nil || len(keys) != 1 || !keys[0].Current || keys[0].KP.Fingerprint != got.Fingerprint {
-		t.Fatalf("the leaf key must open under the destination's keyring: %v %+v", err, keys)
+// `backup identity` and `backup restore-identity` are gone, and this is the test that they stay
+// gone. They sealed one account's leaf key under a passphrase, "portable to a different node" —
+// the one thing a leaf key must never be: it is the root's trust in THIS host, for one address,
+// until one date, and a second host holding it speaks as the first. A node that moves asks the
+// wallet for a leaf of its own.
+//
+// The refusal has to land before anything is touched: no data directory made, no lock taken.
+func TestThereIsNoIdentityExport(t *testing.T) {
+	for _, sub := range []string{"identity", "restore-identity"} {
+		dir := filepath.Join(t.TempDir(), "never-made")
+		cfg := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(cfg, []byte(`{"data_dir":"`+dir+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, out, errb := run(t, "backup", sub, "-config", cfg)
+		if code != 2 || !strings.Contains(errb, "backup <create|restore>") {
+			t.Fatalf("backup %s: code=%d out=%q err=%q", sub, code, out, errb)
+		}
+		if _, err := os.Stat(dir); err == nil {
+			t.Fatalf("backup %s made the data directory before refusing", sub)
+		}
 	}
 }
 
@@ -109,7 +106,7 @@ func TestRestoreRefusesAnotherHostsKeysUnlessDataOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Close()
-	upgradeTo20(t, src, "alice", "https://agent.alice.example/mcp")
+	certify(t, src, "alice", "https://agent.alice.example/mcp")
 	archive := filepath.Join(src.dir, "node.tar.gz")
 	if code, _, errb := run(t, "backup", "create", "-config", src.cfg, "-out", archive); code != 0 {
 		t.Fatalf("create: %s", errb)
@@ -155,7 +152,7 @@ func TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Close()
-	upgradeTo20(t, src, "alice", "https://agent.alice.example/mcp")
+	certify(t, src, "alice", "https://agent.alice.example/mcp")
 	archive := filepath.Join(src.dir, "node.tar.gz")
 	if code, _, errb := run(t, "backup", "create", "-config", src.cfg, "-out", archive); code != 0 {
 		t.Fatalf("create: %s", errb)
@@ -192,8 +189,15 @@ func TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sealed, _ := ownStore.GetAccountSealedKey(t.Context(), a.ID); len(sealed) == 0 {
-		t.Fatal("same-node must bring the account's sealed key")
+	// The master key comes back; the leaf's key does not, and could not — no bundle carries one.
+	// This asserted the opposite ("same-node must bring the account's sealed key") when a backup
+	// was a copy of everything. A leaf is this host's credential for one address until one date,
+	// so a restored node keeps the identity's NAME and asks the wallet to certify it again.
+	if sealed, _ := ownStore.GetAccountSealedKey(t.Context(), a.ID); len(sealed) != 0 {
+		t.Fatalf("a restore brought back %d bytes of leaf key: a leaf's key never travels", len(sealed))
+	}
+	if !a.HasRoot() {
+		t.Fatal("the identity lost its root in the restore: the name must survive even though the key does not")
 	}
 }
 
