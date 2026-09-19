@@ -100,7 +100,7 @@ project has already had, which is why they are cross-cutting rather than local:
 |---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path |
 | **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel |
-| **T3** `double-nat` | both behind separate NATs | *(not built)* a tunnel on each side is the only path. The builder that existed stood a RELAY between them and started both nodes `relay-assisted`, a mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
+| **T3** `double-nat` | both behind separate NATs | *(not built)* a tunnel on each side is the only path. The builder that existed stood a relay between them and started both nodes in the relay mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing |

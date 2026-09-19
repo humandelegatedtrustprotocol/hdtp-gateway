@@ -32,14 +32,19 @@ func TestThreatModelCitesRealTests(t *testing.T) {
 		doc = append(doc, b...)
 	}
 
+	// This node's tests, and the identity library's Go port beside it: the envelope and the
+	// certificate rules live there (`go.mod` replaces onto it, so it is always checked out), and
+	// the review brief cites the tests that hold them.
 	have := map[string]bool{}
-	err := filepath.WalkDir(filepath.Join(root, "internal"), walkGoTests(func(_ string, src []byte) {
-		for _, m := range regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w+)\(`).FindAllStringSubmatch(string(src), -1) {
-			have[m[1]] = true
+	for _, dir := range []string{filepath.Join(root, "internal"), filepath.Join(filepath.Dir(root), "pact-identity", "go")} {
+		err := filepath.WalkDir(dir, walkGoTests(func(_ string, src []byte) {
+			for _, m := range regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w+)\(`).FindAllStringSubmatch(string(src), -1) {
+				have[m[1]] = true
+			}
+		}))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}))
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	cited := map[string]bool{}

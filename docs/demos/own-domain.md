@@ -72,13 +72,14 @@ derives **direct** mode: `client_cert preferred`, seal as you chose.
 Verify from anywhere:
 
 ```
-openssl s_client -connect alice.example.com:443 -servername alice.example.com </dev/null 2>/dev/null \
-  | openssl x509 -noout -fingerprint -sha256
+openssl s_client -connect alice.example.com:443 -servername alice.example.com -showcerts </dev/null 2>/dev/null \
+  | grep -c 'BEGIN CERTIFICATE'
 ```
 
-The served certificate is **Alice's own** (SPKI fingerprint = her card's
-`X-PACT-KEY`) — the ingress never touched the TLS session. `pact-gateway doctor` on
-Alice's node reports `ok probe https://alice.example.com reachable`.
+Two certificates come back: **Alice's own chain**, her leaf and the root that signed it —
+the ingress never touched the TLS session. `pact-gateway doctor` on Alice's node validates
+that chain the way a peer would, to her root at this address (PACT §14.2), and reports
+`ok probe https://alice.example.com reachable`.
 
 ## 3. Pair a terminate node (`bob.example.com`)
 
@@ -111,7 +112,11 @@ the ingress is a trusted edge **you** run (SPEC §13).
 
 ## 5. Recovery notes
 
-- Ingress lost: re-provision, re-mint tokens, re-pair. Contacts' pins are on the
-  nodes' keys, not the ingress's, so nothing needs re-sharing.
-- Node key rotated: `pact-gateway account rotate-key` fans out `update_contact`; the
-  ingress pin is re-established by pairing again with a fresh token.
+- Ingress lost: re-provision, re-mint tokens, re-pair. Contacts pin each person's
+  root, not the ingress, so nothing needs re-sharing.
+- Leaf renewed: `pact-gateway account csr -purpose renew`, the wallet signs it,
+  `account install-leaf`. Contacts learn the new leaf on their next call
+  (`certificate_renewed`, PACT §14.4). The ingress does not: a renewal makes a fresh
+  key, the ingress pinned the old one at pairing, and in terminate mode it refuses the
+  node (`node key … is not the one pinned at pairing`) until you pair again with a
+  fresh token.

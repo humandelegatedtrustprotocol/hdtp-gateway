@@ -87,9 +87,9 @@ func TestInitiatedHonoursAnAutoAcceptedInvite(t *testing.T) {
 	}
 }
 
-// The pin is the whole of identity (PACT §2), so it must not be possible to
-// record a contact whose pinned key is not the key its card claims — that would
-// let a tampered invite bind us to an attacker's key under the peer's name.
+// The key a peer proved on the exchange must be the one its card's leaf carries
+// (PACT §2) — otherwise a tampered invite could bind us to an attacker's key under
+// the peer's name.
 func TestInitiatedRefusesAKeyThatDoesNotMatchTheCard(t *testing.T) {
 	m, _, ctx, acct := newInitEnv(t)
 	card, fpr, _ := peerCard(t, "Bob")
@@ -97,7 +97,7 @@ func TestInitiatedRefusesAKeyThatDoesNotMatchTheCard(t *testing.T) {
 
 	err := m.Initiated(ctx, acct, fpr, card, otherSPKI, false, nil)
 	if err == nil {
-		t.Fatal("a contact was pinned to a key that is not the card's X-PACT-KEY")
+		t.Fatal("a contact was pinned with a key that is not the one its card's leaf carries")
 	}
 	if !errors.Is(err, ErrIdentityRequired) {
 		t.Errorf("wrong error class: %v", err)

@@ -34,7 +34,7 @@ type Card struct {
 	// Cert is the leaf certificate the card carries (PACT §3), DER. Key is the
 	// ROOT fingerprint the leaf names as its issuer and Endpoint the leaf's
 	// subject alternative name — both read from the certificate, never from a
-	// property, which is why the retired X-PACT-KEY/X-PACT-ENDPOINT are gone.
+	// property of the card.
 	Cert []byte
 }
 

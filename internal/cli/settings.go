@@ -424,12 +424,14 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 			if publicURL == "" {
 				return "skipped", "no public URL is configured yet"
 			}
-			pin := ""
-			if accts, err := s.store.ListAccounts(ctx); err == nil && len(accts) > 0 && mode != core.ModeEdge {
-				pin = accts[0].Fingerprint
+			// What a peer validates: the chain, to a root this node serves, at that account's
+			// address. Behind a terminating edge a peer sees the edge's WebPKI certificate instead.
+			var served []tunnel.Served
+			if accts, err := s.store.ListAccounts(ctx); err == nil && mode != core.ModeEdge {
+				served = servedIdentities(publicURL, accts)
 			}
 			res := tunnel.Probe(ctx, publicURL, tunnel.ProbeOptions{
-				PinnedFingerprint: pin, Timeout: 5 * time.Second, SelfOriginated: true,
+				Identities: served, Timeout: 5 * time.Second, SelfOriginated: true,
 			})
 			return string(res.Verdict), strings.TrimSpace(res.Detail + " " + res.Caveat)
 		},
@@ -515,4 +517,17 @@ func leafAddress(ctx context.Context, st store.Store, accountID string) string {
 		}
 	}
 	return ""
+}
+
+// servedIdentities is what the reachability probe validates against: each CERTIFIED account as a
+// peer holds it — its owner's root, and the address a leaf under that root has to name here. An
+// account no wallet has certified is nobody, and serves nothing to validate.
+func servedIdentities(publicURL string, accts []store.Account) []tunnel.Served {
+	out := make([]tunnel.Served, 0, len(accts))
+	for _, a := range accts {
+		if a.HasRoot() {
+			out = append(out, tunnel.Served{Root: a.RootFingerprint, Endpoint: identity.EndpointFor(publicURL, a.Slug)})
+		}
+	}
+	return out
 }

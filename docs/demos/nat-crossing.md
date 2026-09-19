@@ -1,32 +1,31 @@
-# Demo: crossing NAT — three ways a node behind a router stays reachable
+# Demo: crossing NAT — two ways a node behind a router stays reachable
 
-The P4 exit demo. A home machine has no public IP and no port you can forward.
-PACT does not care where a node lives, only that a caller can open a TLS session
-to it — so there are three shapes of answer, and this walks all three on real
-infrastructure.
+A home machine has no public IP and no port you can forward. PACT does not care where a
+node lives, only that a caller can open a TLS session to it — so there are two shapes of
+answer, and this walks both on real infrastructure. (There was a third, a store-and-forward
+relay for a node that is often off. The relay role went with PACT 1.x: it would see every
+sender, recipient and timestamp for its trouble, and what 2.x makes safe instead is being
+hosted — PACT §9.)
 
-The automated half already passes in CI:
-`TestP4ExitNATCrossingViaEdgeAndRelay` drives a sealed call through a
-terminating edge and an offline recipient through a relay, and
-`TestRelayRoleAndGatewayOnTheCard` does the relay half against two real
-`pact-gateway serve` processes. What CI cannot do is talk to Tailscale's or
-Cloudflare's actual network. That is what this page is for.
+The automated half runs in `make check`:
+`TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored` drives a sealed call through a
+terminating edge, and `TestTerminatingIngressIsPinnedOnTheOnwardLeg` the onward leg. Two
+live harness scenarios do it with real containers — an `frps` tunnel and an own-domain
+ingress (`docs/harness-design.md` §5a). What none of them can do is talk to Tailscale's
+or Cloudflare's actual network. That is what this page is for.
 
 **Verification status:** the live run below has **not yet been executed** —
 record it here when done: `Last manual run: —`.
 
-## The three shapes, and what each costs you
+## The two shapes, and what each costs you
 
 | Path | Who terminates TLS | Client certificates | Seal | When to pick it |
 |---|---|---|---|---|
 | `tailscale` (Funnel) | your node | visible end to end | your choice | you want end-to-end mTLS and a `*.ts.net` name is fine |
 | `cloudflare` (edge) | Cloudflare | **stripped** — never arrive | forced `required` | you want your own domain and a CDN in front |
-| relay | the relay, for queued traffic | n/a for the queue | forced `required` | your node is often off, or has no inbound path at all |
 
-The middle row is the honest cost of an edge: identity arrives only as an
-envelope signature, so sealing stops being optional (SPEC §2.5, §10.1). The
-third row's cost is metadata — a relay sees who queues for whom, and how much,
-though never the plaintext (SPEC §10.5, PACT §13).
+The second row is the honest cost of an edge: identity arrives only inside a sealed
+envelope, so sealing stops being optional (SPEC §2.5, §10.1).
 
 ## Path A — Tailscale Funnel (direct mode)
 
@@ -54,18 +53,17 @@ pact-gateway serving: data=./data internal=127.0.0.1:8080 public=127.0.0.1:8443 
 public:  https://pact.<tailnet>.ts.net
 ```
 
-Confirm from another machine that **your node's own key** answers, not a proxy's:
+Confirm that **your node's own chain** answers, not a proxy's. The node does it the way a
+peer would — the chain served at the public URL, validated to your root at the address your
+leaf names (PACT §14.2):
 
 ```
-openssl s_client -connect pact.<tailnet>.ts.net:443 -servername pact.<tailnet>.ts.net </dev/null 2>/dev/null \
-  | openssl x509 -noout -pubkey \
-  | openssl pkey -pubin -outform der \
-  | openssl dgst -sha256 -binary \
-  | base64 | tr '+/' '-_' | tr -d '='
+pact-gateway doctor
 ```
 
-That value, prefixed `sha256:`, is what your card carries as `X-PACT-KEY`
-(portal → Card). If they match, TLS ran end to end.
+`ok probe … reachable` means TLS ran end to end and the leaf names this address. `wrong_cert
+… rule 5` means it names another one: issue a leaf for the address you are actually reached
+at (`account csr -purpose move`).
 
 ## Path B — cloudflared (edge mode)
 
@@ -111,73 +109,19 @@ pact-gateway doctor
 
 Expect `ok tunnel cloudflare (mode edge, seal required, client_cert off)`. Then,
 from a peer, check that the edge really is a wall for anything unsealed: a
-plaintext `send_message` comes back `seal_required`, and a client certificate
-presented on that connection is simply not there when the node looks (SPEC
-§5.1). Rate limits fall back to `CF-Connecting-IP` — the only forwarded-IP
+plaintext `request_contact` comes back `identity_required` — behind an edge no
+certificate arrives, so an unsealed call establishes nobody, and identity precedes
+sealing (SPEC §5.3, §10) — and a client certificate presented on that connection is
+simply not there when the node looks (SPEC §5.1). Rate limits fall back to `CF-Connecting-IP` — the only forwarded-IP
 header this adapter honors, and never generic `X-Forwarded-For` (SPEC §5.7).
 
-Two things that are **not** possible in this mode, by construction:
-
-- `client_cert: required` — no certificate can arrive, so the knob would refuse
-  every call.
-- relay mode on the same listener — a relay verifies a sender's signature with
-  the key from that sender's certificate, which the edge strips. `serve` refuses
-  the combination by name (`relay_role_needs_client_certificates`).
-
-## Path C — a relay, for a node that is often off
-
-A relay is another `pact-gateway`, run by you or by someone you trust, that
-holds sealed envelopes until you fetch them. It never holds a key that opens
-them.
-
-On the relay machine:
-
-```json
-{
-  "relay": true,
-  "public_bind": ":8443",
-  "public_url": "https://relay.example.com"
-}
-```
-
-These knobs are also in the portal under *Settings → Relay*.
-
-On your node, publish that relay and pin it:
-
-```json
-{
-  "gateway_url": "https://relay.example.com",
-  "gateway_fingerprint": "sha256:…"
-}
-```
-
-The fingerprint is the relay's `X-PACT-KEY`. Leave it empty **only** if the
-relay has a real WebPKI certificate; a self-signed relay left unpinned would
-trust anyone who can answer at that address.
-
-Your node then does three things on its own:
-
-1. puts `X-PACT-GATEWAY: https://relay.example.com` on its card, which is how a
-   peer whose direct call failed knows where to queue instead (PACT §9);
-2. syncs its allow-list — its **active contacts, nobody else** — to the relay,
-   and re-syncs whenever that set changes;
-3. polls the relay (15 s, backing off to 10 min), and runs every fetched
-   envelope through the same open order a direct call takes, with one
-   documented relaxation: relay-delivered envelopes are exempt from the 300 s
-   freshness window and bounded by `exp` (≤30 days) instead.
-
-To watch it work, stop your node, have a contact send you a message, then start
-it again. The message arrives on the next poll. On the relay, `pact-gateway
-audit export` shows `relay_call … queued` rows carrying sender, recipient,
-`msg_id` and size — and no text. That is the trade-off, stated rather than
-hidden.
+One thing is **not** possible in this mode, by construction: `client_cert: required`.
+No certificate can arrive, so the knob would refuse every call.
 
 ## What to record here after a live run
 
 Replace the placeholder above with the date, and note for each path:
 
-- the public URL that answered and, for path A, the fingerprint comparison;
+- the public URL that answered and, for path A, `doctor`'s probe line;
 - `pact-gateway doctor`'s tunnel line verbatim;
-- for path B, the `seal_required` refusal you got for an unsealed call;
-- for path C, the wall-clock gap between "sent while the node was down" and
-  "appeared in the inbox".
+- for path B, the `identity_required` refusal you got for an unsealed call.

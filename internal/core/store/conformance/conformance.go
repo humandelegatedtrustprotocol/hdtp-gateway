@@ -59,7 +59,7 @@ func Run(t *testing.T, newStore Factory) {
 		// the older CHECK constraint does not know.
 		rows := []store.Message{
 			{ID: "r1", MsgID: "shared", Direction: "in", Status: "delivered"},
-			{ID: "r2", MsgID: "shared", Direction: "out", Status: "queued_at_relay"},
+			{ID: "r2", MsgID: "shared", Direction: "out", Status: "failed"},
 			{ID: "r3", MsgID: "solo", Direction: "out", Status: "pending"},
 		}
 		for _, m := range rows {
@@ -74,8 +74,8 @@ func Run(t *testing.T, newStore Factory) {
 		// present, then drops the tables — so what this pins is that the
 		// down-path does not FAIL on real data. 0021 must dedupe the shared
 		// msg_id before it can narrow the key (the rebuild's INSERT would hit
-		// the UNIQUE constraint otherwise), and 0024 must rewrite
-		// queued_at_relay before it can reinstate the older CHECK.
+		// the UNIQUE constraint otherwise), and 0019 must rewrite `failed` and
+		// `pending` before it can reinstate the CHECK that knew neither.
 		//
 		// It cannot assert the rows survive: DownTo(0) drops the schema by
 		// design. That is what a full rollback means, and a test claiming

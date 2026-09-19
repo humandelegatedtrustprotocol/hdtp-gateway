@@ -126,12 +126,9 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 
 // verifyOffer turns an untrusted document into an identity we are willing to pin.
 //
-// **Rewritten for PACT 2.0 on 2026-09-18, because it could not accept a single card this
-// protocol produces.** It required the card to carry `X-PACT-KEY` and an endpoint, and
-// `contacts.ParseCard` stopped filling either when 1.x was removed: a 2.0 card carries a
-// certificate, and the address and the key are inside it. So `pact-gateway contact init
-// <invite-url>` — the path a person takes when somebody sends them an invite link — refused
-// every real invite with "the invite's card carries no X-PACT-KEY".
+// A card carries a certificate, and the identity, the address and the key are all read from
+// inside it — none is a property of the card. This is the path `pact-gateway contact init
+// <invite-url>` takes when somebody sends a person an invite link.
 //
 // Four checks, each load-bearing, in the order a receiver applies them (SPEC §14.2, §9.2):
 //

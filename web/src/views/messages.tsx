@@ -528,7 +528,6 @@ function DeliveryMark({ state }: { state?: string }) {
   const mark: Record<string, { icon: Parameters<typeof Icon>[0]["name"]; title: string }> = {
     sending: { icon: "clock", title: "Sending…" },
     delivered: { icon: "tick", title: "Delivered to their node" },
-    queued: { icon: "ticks", title: "Queued at their relay" },
     retrying: { icon: "warn", title: "Not delivered yet — retrying" },
     expired: { icon: "warn", title: "Never delivered" },
     failed: { icon: "warn", title: "Not delivered" },
