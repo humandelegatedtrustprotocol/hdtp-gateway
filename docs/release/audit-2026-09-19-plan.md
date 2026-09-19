@@ -108,12 +108,24 @@ and passed there, not skipped.
 *Verify:* `make check` (the doclint and store conformance suites are the gate), `make sqlc-check`,
 postgres conformance with the compose DSN.
 
-### B2 · Drop `accept_1x` — `TODO`
+### B2 · Drop `accept_1x` (node) — `DONE`
 A 1.x posture knob: whether to accept key-pinned peers, in a build that refuses them outright.
 Same migration as B1 if the schema work is identical; the query in `queries/*/pact20.sql` and its
 generated accessors go with it, as does the cloud's `accept_1x: 0 | 1` in `src/identity/store.ts`.
 *Blocked by:* B1 landing first, so there is one migration and one regeneration.
 *Verify:* as B1, plus the cloud's `check:fast` and `gen-schema.mjs --check`.
+*Result (node).* Migration 0032 on both engines; `SetAccountHostPolicy` lost its `accept1x`
+parameter; `Account.Accept1x` is gone; removing it orphaned `boolInt`, which was deleted rather than
+left for staticcheck to find. `make check` 27 packages, `make analyze`, Postgres conformance.
+Two things this item turned up:
+- `Accept1x` was **never read** by production code — and `SetAccountHostPolicy` has **no production
+  caller at all**. `accept_new_hosts` is read (`identify20.go`, `node.go`) but nothing in the CLI, the
+  internal UI or the owner tools can set it, so an owner of the shipped binary cannot choose `ask`.
+  That is an enforcement gap, not residue: see **B6**.
+- The B1 fixture broke the moment 0032 landed: it had simulated an old archive by migrating fully and
+  winding goose's version table back by hand, quietly assuming 0031 would always be newest. It now
+  drives goose to exactly version 30, which cannot go stale that way.
+*The cloud half is its own item, B2c* — see below for why it is not a side effect of this one.
 
 ### B3 · `protocol` columns still default to 1 — `TODO`
 `0027_pact20.sql` created `accounts.protocol` and `contacts.protocol` with `DEFAULT 1`, so a row
@@ -139,6 +151,30 @@ does *now*, wrongly:
 - `internal/internalui/invite_landing.go:37,73` — **live page text** telling a person to hash a
   key "to check it matches X-PACT-KEY". A user-facing instruction in a retired vocabulary.
 *Verify:* `make check`; read the rendered landing page text in its test.
+
+### B6 · `accept_new_hosts` cannot be set by an owner — `TODO`
+Found during B2. PACT §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
+pinned contact turns up at a new address, and §12's checklist requires an implementation to run
+that flow "under `accept_new_hosts`". The node reads the setting and honours it, and defaults it to
+`auto`; `SetAccountHostPolicy` is called from tests and from nowhere else. So `ask` is unreachable
+through the shipped binary, and every test that proves the `ask` flow proves something no owner can
+turn on. Give it a production setter — the CLI's account settings and the owner surface — and a
+test through the real entry point.
+*Verify:* the reachability gate (`TestEveryMechanismIsReachableFromTheShippedBinary`), `make check`.
+
+### B2c · The cloud still carries the node's 1.x columns and relay tables — `TODO`
+`pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
+through goose 29, applied verbatim inside each Identity Durable Object. The node is now at 32:
+0030 dropped the relay tables, 0031 the rotation columns, 0032 `accept_1x`. `store.ts` says so in
+as many words — `accept_1x` is "vestigial… it goes when that schema next moves". It has moved.
+Why this is not folded into B1/B2: the copy is made by `scripts/harvest.sh`, which also overwrites
+the portal; the lists in `src/identity/migrate.ts` distinguish migrations that are *applied* from
+ones only *recorded* (27 and 28 are recorded, because cloud migrations 1001–1003 already made those
+tables), so whether a column exists in a deployed object has to be established, not assumed; the
+files are byte-locked by `migration-locks.json`; the leave converter asserts "29 goose versions
+through 29"; and the change runs forward-only against production objects on the owner's next
+deploy. Each of those is checkable. None of them is a side effect.
+*Verify:* `check:fast` (migration locks, `gen-schema --check`, the leave self-test), the full suite.
 
 ## Part C — bugs introduced this session
 
@@ -182,5 +218,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B6, B2c, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
 next starts.

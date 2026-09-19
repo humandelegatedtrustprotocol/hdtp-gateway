@@ -26,7 +26,7 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 	ctx := context.Background()
 	p := newPeer(t, s.nowAt.Add(-time.Hour))
 	s.pin(t, p, "active")
-	if err := s.st.SetAccountHostPolicy(ctx, s.acct.ID, "ask", true); err != nil {
+	if err := s.st.SetAccountHostPolicy(ctx, s.acct.ID, "ask"); err != nil {
 		t.Fatal(err)
 	}
 

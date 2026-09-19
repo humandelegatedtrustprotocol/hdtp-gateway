@@ -3,10 +3,14 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"testing"
 
+	"github.com/pressly/goose/v3"
+
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/migrations"
 )
 
 // stripKeys is what makes a restore data-only (PACT §9): another host's archive arrives and every
@@ -18,44 +22,37 @@ import (
 // `prev_key_sealed`, which could hold a sealed private key from a 1.x rotation that was in flight.
 // "Keys never travel" has to be true of that file too, and here it is true because migrating
 // destroys the column rather than because anything remembered to name it.
+//
+// The fixture is a real one: goose drives a fresh database to EXACTLY version 30, which is what a
+// node from before 0031 would have archived. An earlier draft migrated fully and wound the version
+// table back by hand, and broke the day migration 0032 landed — it had quietly assumed 0031 would
+// always be the newest. Stopping at a version cannot go stale that way.
 func TestStripKeysMigratesFirstSoAnOldArchiveLosesItsRetiringKeyToo(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "restored.db")
 
-	// A store at the current schema, holding an account key and a live leaf key.
-	st, err := store.OpenSQLite(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "old", DisplayName: "Old", Algo: "ed25519"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetAccountKey(ctx, a.ID, "sha256:k", []byte("account-key")); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:cur", Leaf: []byte("l"), KeySealed: []byte("leaf-key"),
-		NotBefore: 1, NotAfter: 9, State: "current", Endpoint: "https://a.example/mcp"}); err != nil {
-		t.Fatal(err)
-	}
-	st.Close()
-
-	// Wind it back to what a node from before 0031 would have archived: the three rotation
-	// columns present, a retiring key in one of them, and goose believing 0030 is the newest
-	// migration applied. Raw SQL is a fixture's privilege; the code under test has none.
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	sub, err := fs.Sub(migrations.SQLite, "sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := goose.NewProvider(goose.DialectSQLite3, raw, sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 30); err != nil {
+		t.Fatalf("migrating a fixture to version 30: %v", err)
+	}
+	// Raw SQL is a fixture's privilege; the code under test has none. An account with a live key
+	// and a retiring one, and a leaf the host is currently serving.
 	for _, stmt := range []string{
-		`ALTER TABLE accounts ADD COLUMN prev_fingerprint TEXT`,
-		`ALTER TABLE accounts ADD COLUMN prev_key_sealed BLOB`,
-		`ALTER TABLE accounts ADD COLUMN grace_until INTEGER NOT NULL DEFAULT 0`,
-		`UPDATE accounts SET prev_key_sealed = x'C0FFEE', prev_fingerprint = 'sha256:retiring', grace_until = 99`,
-		`DELETE FROM goose_db_version WHERE version_id >= 31`,
+		`INSERT INTO accounts (id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, prev_fingerprint, prev_key_sealed, grace_until)
+		 VALUES ('acct', 'old', 'Old', 'ed25519', 'sha256:k', x'AC', 'optional', 'active', 1, 'sha256:retiring', x'C0FFEE', 99)`,
+		`INSERT INTO leaves (account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at)
+		 VALUES ('acct', 'sha256:cur', x'1E', x'1EAF', 1, 9, 'current', 'https://a.example/mcp', 1)`,
 	} {
 		if _, err := raw.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("%s: %v", stmt, err)
@@ -80,15 +77,15 @@ func TestStripKeysMigratesFirstSoAnOldArchiveLosesItsRetiringKeyToo(t *testing.T
 		t.Fatalf("%d rotation column(s) survived the restore — and one of them held a private key", cols)
 	}
 
-	st, err = store.OpenSQLite(path)
+	st, err := store.OpenSQLite(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if k, _ := st.GetAccountSealedKey(ctx, a.ID); len(k) != 0 {
+	if k, _ := st.GetAccountSealedKey(ctx, "acct"); len(k) != 0 {
 		t.Fatalf("the account key travelled: %q", k)
 	}
-	leaves, err := st.ListLeaves(ctx, a.ID)
+	leaves, err := st.ListLeaves(ctx, "acct")
 	if err != nil || len(leaves) != 1 {
 		t.Fatalf("the ledger row should survive the strip: %d rows, %v", len(leaves), err)
 	}
