@@ -93,8 +93,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 		},
 		Card: nd.Card,
 		// SPEC §9's `none --> pending_out`. Without this the node can only ever
-		// hold the agents that called IN; it can never reach out, and
-		// relay-assisted delivery cannot be set up at all (E16).
+		// hold the agents that called IN; it can never reach out (E16).
 		AddContact: func(ctx context.Context, accountID, inviteURL, card, note, grant string) (ownermcp.AddContactResult, error) {
 			ci := newContactInitiator(st, nd, auditFn)
 			var res addContactResult

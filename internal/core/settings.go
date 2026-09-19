@@ -113,7 +113,7 @@ func (c *Config) EffectiveSettings() []Effective {
 // implying a change is live.
 func RestartScoped(key string) bool {
 	switch key {
-	case "tunnel", "relay", "gateway_url", "gateway_fingerprint", "client_cert":
+	case "tunnel", "client_cert":
 		return true
 	}
 	return false
@@ -158,15 +158,11 @@ func ValidateSetting(key, value string) error {
 		if _, ok := tunnelTerminatesAtEdge(value); !ok {
 			return fmt.Errorf("%s: %q is not a registered tunnel adapter", RuleEnum, value)
 		}
-	case "public_url", "gateway_url":
+	case "public_url":
 		if value != "" && !strings.HasPrefix(value, "https://") {
 			return fmt.Errorf("%s: %s must be an https:// URL", RuleEnum, key)
 		}
-	case "gateway_fingerprint":
-		if value != "" && !strings.HasPrefix(value, "sha256:") {
-			return fmt.Errorf("%s: a fingerprint looks like sha256:…", RuleEnum)
-		}
-	case "lan_connections", "relay":
+	case "lan_connections":
 		if value != "true" && value != "false" {
 			return fmt.Errorf("%s: %s is true or false", RuleEnum, key)
 		}
