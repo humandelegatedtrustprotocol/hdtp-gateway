@@ -709,37 +709,13 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
 	go nd.RunRetries(ctx)
 
-	// Contacts in sync (PACT §3): pull each active contact's signed card on a
-	// slow cadence, so an endpoint change whose announcement missed us — we
-	// were offline — heals without waiting for a failed call. The card must name the
-	// pinned ROOT and verify under the leaf the answered chain proves: a renewal is
-	// learned here, an address change is not (node.SyncContacts documents the rule).
-	go func() {
-		const every = 6 * time.Hour
-		t := time.NewTicker(every)
-		defer t.Stop()
-		// First sweep shortly after start, once the tunnels have settled.
-		first := time.NewTimer(2 * time.Minute)
-		defer first.Stop()
-		sweep := func() {
-			sctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			checked, changed := nd.SyncContacts(sctx)
-			cancel()
-			if checked > 0 {
-				auditFn("contact_sync_sweep", fmt.Sprintf("checked:%d updated:%d", checked, changed), "ok")
-			}
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-first.C:
-				sweep()
-			case <-t.C:
-				sweep()
-			}
-		}
-	}()
+	// There is no contact sweep here. There was: every active contact of every account had its
+	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
+	// a pin is confirmed when it is needed and the node does nothing proactively, and PACT 2.1
+	// §14.3 says the same of the protocol — a newer leaf arrives ON USE (the chain in the first
+	// envelope after a renewal, `certificate_renewed`, `get_card` when somebody asks) and needs no
+	// poll. `node.SyncContacts` remains, for the owner MCP's `sync_contacts`, which is a person
+	// asking. `TestNothingSyncsContactsOnATimer` fails if a ticker finds its way back.
 
 	// ---- the internal surface; blocks until the context ends ----
 	// SPEC §8.3: binding decides authentication, and it is fixed at startup —

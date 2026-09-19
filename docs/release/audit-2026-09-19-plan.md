@@ -366,6 +366,34 @@ list promised "a store-and-forward relay when you have no inbound path at all". 
 following them would have configured a mode that does not exist. `docs/harness-design.md` is a
 design record and is left as one.
 
+### B13 · The periodic contact sync is still running — `DONE`
+Found in B11's diagnosis, and it outranks it. The owner's instruction, verbatim: "Dont have the
+periodic reconfirmation on pins contactSyncEvery = 6 * time.Hour pinConfirmWithin = 30 * 24 *
+time.Hour . It will confirm when required, no need to proactively do anything." I reported that
+done. What I removed was my own H18 diff, which had NAMED the interval; the ticker it named is
+original code and is still in `serve` — `const every = 6 * time.Hour`, first sweep two minutes after
+start, `node.SyncContacts` over every active contact of every account. So the node polls every
+contact four times a day, the 2.1 text I wrote under that instruction says a newer leaf "needs no
+poll" (§14.3), and `musts.json` 14.3#1 says "there is no proactive interval to hold". Two documents
+describe a node this one is not.
+Goes: the ticker goroutine and its `contact_sync_sweep` audit. Stays: `SyncContacts` itself, because
+the owner MCP's `sync_contacts` tool calls it ON REQUEST, which is "when required". Then every
+sentence that says the node does this by itself: `manager.go` ("the periodic sync may move the
+name"), `node/sync.go`'s doc, the node's SPEC, README and operations docs.
+*Verify:* no ticker reaches `SyncContacts`; a guard test that fails if one comes back (the only
+callers are the owner MCP's tool and tests); `make check`, `make analyze`.
+
+*Done, 2026-09-19.* The ticker goroutine and its `contact_sync_sweep` audit are gone from `serve`.
+`SyncContacts` stays for the owner MCP's `sync_contacts` and now takes the account: with the ticker
+gone its all-accounts form had no caller, and the tool had been checking the caller's right to ONE
+identity and then sweeping, and counting, every identity on the node — a token narrowed to one set
+off calls to another's contacts and learned how many it has. The tool's description promised
+"endpoint/seal/gateway changes": a refresh cannot move an address, and there is no gateway.
+`TestNothingSyncsContactsOnATimer` guards the shape, not a name — what the first attempt removed
+was a name — and fails with a ticker put back (checked). `TestARefreshReachesOnlyTheAccountThatAsked`.
+The sentence "this node does none" sat in `pinconfirm_test.go` for a day before it was true.
+*Verified:* `make check`, `make analyze`.
+
 ### B11 · The node's SPEC and operator docs still describe key rotation — `TODO`
 Found in F1, reading around §3.10. Live, normative-sounding prose for a feature that was deleted:
 `SPEC.md` §8's portal table ("Settings · identity — Rotate an account's identity key: new keypair,
@@ -374,8 +402,27 @@ their **old** key over the **new** fingerprint"), §12's CLI row (`rotate-key`, 
 2`), the threat model's "Rotation exists (`account rotate-key`…)", and `docs/harness-design.md` S10.
 B10 fixed the deployment mode that did not exist and stopped there. Also a test helper:
 `startDemoNode(…, protocol int, …)` still takes a generation number, and branches on it.
+*Scope, after reading (2026-09-19): wider than prose.* The same residue is in live code: the wire
+descriptions of `update_contact` ("Replace my card after a key rotation", in `public/tools.go` and
+`node/contactcall.go`); comments describing a rotation flow above code that no longer has one
+(`cli.go` "new key + grace, then update_contact fan-out… PRESENTING THE OLD CERTIFICATE",
+`compose.go`, `identity_pages.go`'s whole header, `node.go`, `send.go`, `identity.go`,
+`contacts/manager.go`'s package doc, `store.go`); a dead field, `public.Identifier.Keypair`, set in
+`node.go` under a comment about "a contact re-pinned during rotation" and read by nothing; four
+conformance rows that still claim 1.x behaviour of tests that have none; the threat model's "Lost
+key = new identity", which contradicts §3.9 two pages earlier; and `speaks20`, a name for "holds a
+leaf".
 *Verify:* `grep -n "rotate-key\|Rotate an account\|-protocol 2\|old\*\* key" SPEC.md docs/*.md` is
 empty outside release records; doclint; `make check`.
+
+### B12 · `rotation_fanout.kind` holds one value and nothing reads it — `TODO`
+Found in B11's diagnosis. Migration 0028 added `kind` to tell a 1.x rotation and a `renewal_1x` from
+a 2.0 `move`. One writer is left (`announce.go`: `Kind: "move"`), no reader at all — `Fanout` keys
+progress by contact and compares `NewFpr` — and both engines still default an empty kind to
+`"rotation"`. B3's reasoning applies unchanged: a column that can hold one value holds none.
+Forward migration for both engines, `Campaign.Kind` and `RotationFanout.Kind` go, the default goes.
+The table keeps its name: the cloud harvests these migrations and names it too (B2c).
+*Verify:* `make sqlc`, `make sqlc-check`, store conformance on both engines, `make check`.
 
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `BLOCKED — owner's decision`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
@@ -651,5 +698,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B11**, C1–C4, D1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B13**, **B11**, **B12**, C1–C4, D1, E2. One item at a time, each verified and committed before the
 next starts.

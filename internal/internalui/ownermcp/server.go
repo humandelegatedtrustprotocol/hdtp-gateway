@@ -59,7 +59,7 @@ type Deps struct {
 	Send func(ctx context.Context, accountID, contactFpr string, in messaging.Input) (messaging.Result, error)
 	// SyncContacts pulls every contact's signed card now (node.SyncContacts);
 	// nil hides the tool.
-	SyncContacts func(ctx context.Context) (checked, changed int)
+	SyncContacts func(ctx context.Context, accountID string) (checked, changed int)
 	// Audit records owner-agent actions that change security posture. The trust
 	// flip is the one that matters most: it decides whether a contact's words
 	// may INSTRUCT the owner's agent, and an unaudited flip is exactly the kind
@@ -422,13 +422,13 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		})
 
 	if d.SyncContacts != nil {
-		mcp.AddTool(s, &mcp.Tool{Name: "sync_contacts", Description: "Re-fetch every contact's signed card now (endpoint/seal/gateway changes); the pinned key never moves"},
+		mcp.AddTool(s, &mcp.Tool{Name: "sync_contacts", Description: "Re-fetch the signed card of every active contact of this account, now: a renewed certificate or a changed seal policy is learned; the pinned root and the address never move"},
 			func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
 				if !allow(ctx, a.AccountID) {
 					r, err := deny()
 					return r, nil, err
 				}
-				checked, changed := d.SyncContacts(ctx)
+				checked, changed := d.SyncContacts(ctx, a.AccountID)
 				r, err := jsonResult(map[string]int{"checked": checked, "updated": changed})
 				return r, nil, err
 			})
