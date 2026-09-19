@@ -727,8 +727,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// a pin is confirmed when it is needed and the node does nothing proactively, and PACT 2.1
 	// §14.3 says the same of the protocol — a newer leaf arrives ON USE (the chain in the first
 	// envelope after a renewal, `certificate_renewed`, `get_card` when somebody asks) and needs no
-	// poll. `node.SyncContacts` remains, for the owner MCP's `sync_contacts`, which is a person
-	// asking. `TestNothingSyncsContactsOnATimer` fails if a ticker finds its way back.
+	// poll. The sweep itself is gone too: what remains is `node.RefreshContact`, ONE contact, for
+	// the button on that contact's page and the owner MCP's `refresh_contact`.
+	// `TestNothingRefreshesContactsByItself` fails if a ticker or a loop finds its way back.
 
 	// ---- the internal surface; blocks until the context ends ----
 	// SPEC §8.3: binding decides authentication, and it is fixed at startup —

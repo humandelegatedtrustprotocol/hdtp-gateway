@@ -355,8 +355,9 @@ type Store interface {
 	GetAccountBySlug(ctx context.Context, slug string) (Account, error)
 	// SetContactPetname sets the owner's local name for a contact; "" clears it.
 	SetContactPetname(ctx context.Context, accountID, fingerprint, petname string) error
-	// UpdateContactCard rewrites a contact's card and display name after a
-	// verified re-fetch (the sync sweep). The pinned key never changes here.
+	// UpdateContactCard rewrites a contact's card and display name once a card has
+	// verified: a refresh the owner asked for (node.RefreshContact) or the peer's own
+	// `update_contact`. The pinned root never changes here.
 	UpdateContactCard(ctx context.Context, accountID, fingerprint, card, displayName string) error
 	ListAccounts(ctx context.Context) ([]Account, error)
 

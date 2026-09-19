@@ -1,14 +1,14 @@
 package node
 
-// Refreshing a contact's card ON REQUEST (PACT §3, §14.3).
+// Refreshing ONE contact's card, because its owner asked (PACT §3, §14.3).
 //
 // A contact's card can change while we are not looking: a renewed leaf, a different seal policy.
 // This node does not go looking. PACT 2.1 §14.3 has a newer leaf arrive on use — the chain in the
 // first envelope after a renewal (§13.2), `certificate_renewed` (§14.4) — and the owner's rule for
 // this node is the same: a pin is confirmed when it is needed, and nothing is done proactively.
-// There used to be a sweep here that re-fetched every contact's card on a six-hour ticker. What is
-// left is the pull itself, for the one caller that is a person asking: the owner MCP's
-// `sync_contacts`, for one account.
+// So there is no sweep here, on a timer or on request: what is left is one pull, of one contact,
+// for a person who pressed the button on that contact's page or an agent that named them to the
+// owner MCP's `refresh_contact`.
 //
 // What a refresh can and cannot move. The re-fetched card MUST name the ROOT we pin, which
 // nothing can change (§14.3). The LEAF beneath it is different: a renewal is a new leaf
@@ -37,50 +37,37 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// SyncContacts re-fetches the card of every active contact of ONE account, because its owner
-// asked. Best effort by design: an unreachable peer is a fact to report, not an error to abort
-// on. Returns how many contacts were checked and how many changed.
-//
-// One account, not all of them. It took no account while a ticker was its main caller; the owner
-// MCP's tool then checked the caller's right to ONE account and swept — and counted — every
-// account on the node, so a token narrowed to one identity set off calls to another's contacts
-// and learned how many it has.
-func (n *Node) SyncContacts(ctx context.Context, accountID string) (checked, changed int) {
-	n.mu.RLock()
-	_, served := n.accounts[accountID]
-	n.mu.RUnlock()
-	if !served {
-		return 0, 0
-	}
-	list, err := n.opts.Store.ListContacts(ctx, accountID)
-	if err != nil {
-		return 0, 0
-	}
-	for _, c := range list {
-		if ctx.Err() != nil {
-			return checked, changed
-		}
-		if c.Status != "active" || len(c.SPKI) == 0 {
-			continue // a pin with no leaf key on record is re-proved when it next calls, not pulled
-		}
-		checked++
-		if n.syncOne(ctx, accountID, c.Fingerprint) {
-			changed++
-		}
-	}
-	return checked, changed
+// What a refresh of one contact found, in the words the portal and the owner MCP both show.
+const (
+	RefreshUnchanged   = "unchanged"   // they serve the card on file
+	RefreshUpdated     = "updated"     // a different card under the same leaf: a name, a seal policy
+	RefreshRenewed     = "renewed"     // a newer leaf under the pinned root (§14.3), and the card carrying it
+	RefreshUnreachable = "unreachable" // nothing usable came back; the pin stands (§14.3)
+	RefreshRefused     = "refused"     // they answered and it did not verify; the pin stands
+)
+
+// ContactRefresh is the answer to "refresh this contact".
+type ContactRefresh struct {
+	Outcome string `json:"outcome"`
+	// Why says what did not verify, when the outcome is refused.
+	Why string `json:"why,omitempty"`
 }
 
-// syncOne re-fetches one contact's card and applies it when it verifies.
-func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
+// RefreshContact re-fetches ONE contact's card and applies it when it verifies.
+//
+// The error is for a refresh that could not be attempted or could not be recorded: no such active
+// contact of this account, no endpoint on file, a store that failed. Everything the PEER can cause
+// is an outcome and not an error — an endpoint that is down or an answer that does not verify
+// leaves the pin exactly as it was (§14.3's MUST NOT), and the owner is told which.
+func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string) (ContactRefresh, error) {
 	client, peer, err := n.peerFor(ctx, accountID, contactFpr)
 	if err != nil {
-		return false // no endpoint on file: nothing to pull from
+		return ContactRefresh{}, err
 	}
 	res, err := client.Call(ctx, peer, "get_card", map[string]any{}, newCallID())
 	if err != nil || res == nil || res.IsError {
-		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "unreachable")
-		return false
+		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, "unreachable")
+		return ContactRefresh{Outcome: RefreshUnreachable}, nil
 	}
 	var out struct {
 		Card    string `json:"card"`
@@ -96,13 +83,18 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 			text += tc.Text
 		}
 	}
+	refused := func(why string) (ContactRefresh, error) {
+		// Loudly: a peer serving a card that does not verify, or a chain that does not belong to
+		// this pin, is worth the owner's attention.
+		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr+" why:"+why, "refused")
+		return ContactRefresh{Outcome: RefreshRefused, Why: why}, nil
+	}
 	if json.Unmarshal([]byte(text), &out) != nil || out.Card == "" || out.CardSig == "" {
-		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "invalid")
-		return false
+		return refused("the answer to get_card carries no signed card")
 	}
 	stored, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if err != nil {
-		return false
+		return ContactRefresh{}, err
 	}
 	// The root certificate first, and deliberately BEFORE the card is verified.
 	//
@@ -121,8 +113,7 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	for _, c := range out.Chain {
 		b, derr := base64.RawURLEncoding.DecodeString(c)
 		if derr != nil || len(b) == 0 {
-			n.auditFor(accountID, "contact_sync", "contact:"+contactFpr+" why:a chain member is not base64url", "invalid")
-			return false
+			return refused("a chain member is not base64url")
 		}
 		der = append(der, b)
 	}
@@ -130,35 +121,45 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	// These were two readings of the clock, and the second — `pinned_at` — could be later than
 	// the moment the leaf was actually found valid.
 	now := n.now()
-	renewed, err := verifySyncedCard(stored, der, out.Card, out.CardSig, now)
+	renewed, err := verifyRefreshedCard(stored, der, out.Card, out.CardSig, now)
 	if err != nil {
-		// A card that does not verify, or a chain that does not belong to this pin, is
-		// refused — loudly, because a peer serving one is worth the owner's attention.
-		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr+" why:"+err.Error(), "invalid")
-		return false
+		return refused(err.Error())
 	}
-	// A renewal the chain proved. The endpoint is the pinned one — `verifySyncedCard`
+	found := ContactRefresh{Outcome: RefreshUnchanged}
+	// A renewal the chain proved. The endpoint is the pinned one — `verifyRefreshedCard`
 	// validated against it — so this moves the leaf and never the address.
 	if renewed != nil {
 		if rerr := n.opts.Store.RepinContactAddress(ctx, accountID, contactFpr, stored.Endpoint, renewed.Leaf, renewed.SPKI, now.Unix()); rerr != nil {
 			n.auditFor(accountID, "contact_renewal", "contact:"+contactFpr, "error")
-			return false
+			return ContactRefresh{}, rerr
 		}
 		n.auditFor(accountID, "contact_renewal", "contact:"+contactFpr, "ok")
 	}
+	// "Renewed" is judged against the leaf held BEFORE the call, which is `peer.Leaf`. Over a
+	// sealed call the renewal is usually learned on the way through: her answer carries the
+	// newer chain and the client repins as it passes (§14.3, `wire20`), so by the time the card
+	// is read here `stored` already holds the new leaf, `renewed` is nil, and the owner who
+	// pressed the button during a renewal was told only that a card had changed.
+	if renewed != nil || !bytes.Equal(stored.Leaf, peer.Leaf) {
+		found.Outcome = RefreshRenewed
+	}
 	if stored.Card == out.Card {
-		return false // unchanged: the common case, and no write
+		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, found.Outcome)
+		return found, nil // the common case, and no write
 	}
 	name := contacts.CardName(out.Card)
 	if err := n.opts.Store.UpdateContactCard(ctx, accountID, contactFpr, out.Card, name); err != nil {
-		n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "error")
-		return false
+		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, "error")
+		return ContactRefresh{}, err
 	}
-	n.auditFor(accountID, "contact_sync", "contact:"+contactFpr, "updated")
-	return true
+	if found.Outcome == RefreshUnchanged {
+		found.Outcome = RefreshUpdated
+	}
+	n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, found.Outcome)
+	return found, nil
 }
 
-// verifySyncedCard is the whole trust decision of a card refresh, kept together so it
+// verifyRefreshedCard is the whole trust decision of a card refresh, kept together so it
 // can be tested without a wire: what the answer proves about the contact, and what — if
 // anything — the pin should become.
 //
@@ -176,14 +177,14 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 //   - `ExpectedRoot` is the pinned root, which cannot change (§14.3), so a peer answering
 //     with somebody else's root is refused rather than followed.
 //   - `ExpectedEndpoint` is the pinned endpoint, and it is the one that makes this safe to
-//     do unattended. A chain that validates to the pinned root at a DIFFERENT address is
+//     do on one click. A chain that validates to the pinned root at a DIFFERENT address is
 //     not a renewal, it is §5.3 — a new address, which needs the owner or
-//     `accept_new_hosts`. Advancing a pin from it would turn this sweep into an address
+//     `accept_new_hosts`. Advancing a pin from it would turn a refresh into an address
 //     follow nobody asked for, which is worse than the refusal it replaced.
 //
 // Then §14.3 decides which leaf is the identity's voice: a later `notBefore` supersedes,
 // an earlier one proves nothing, and equal dates with different bytes is a refusal.
-func verifySyncedCard(pin store.Contact, chain [][]byte, card, sigB64 string, now time.Time) (renewed *syncedLeaf, err error) {
+func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string, now time.Time) (renewed *renewedLeaf, err error) {
 	parsed, err := contacts.ValidateInbound(card)
 	if err != nil {
 		return nil, err
@@ -212,7 +213,7 @@ func verifySyncedCard(pin store.Contact, chain [][]byte, card, sigB64 string, no
 	switch {
 	case vr.Leaf.NotBefore.After(held.NotBefore):
 		// A renewal, and it takes effect the instant it is seen (§14.3).
-		renewed = &syncedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
+		renewed = &renewedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
 	case vr.Leaf.NotBefore.Before(held.NotBefore):
 		return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (§14.3)")
 	case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
@@ -240,8 +241,8 @@ func verifySyncedCard(pin store.Contact, chain [][]byte, card, sigB64 string, no
 	return renewed, nil
 }
 
-// syncedLeaf is a newer leaf a sync proved, and what the pin should become.
-type syncedLeaf struct {
+// renewedLeaf is a newer leaf a refresh proved, and what the pin should become.
+type renewedLeaf struct {
 	Leaf, SPKI []byte
 }
 

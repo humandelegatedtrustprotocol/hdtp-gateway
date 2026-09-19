@@ -15,19 +15,13 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// The sync sweep's whole trust decision: a re-fetched card is applied only
-// when it still names the pinned key AND its signature verifies under it.
-// Sync must never be a way to move a pin — that is update_contact's job, with
-// its old-key signature.
-// verifySyncedCard is the whole trust decision of a card refresh: a re-fetched
-// card must still name the pinned ROOT, and its signature must verify under the key
-// this node holds for that contact.
+// verifyRefreshedCard is the whole trust decision of a card refresh: a re-fetched card must
+// still name the pinned ROOT, arrive with a chain that validates to that root at the pinned
+// address, carry the leaf that chain proved, and be signed by that leaf's key.
 //
-// It used to be checked against 1.x cards, where the card's X-PACT-KEY and the
-// pinned key were one value. They are two now — the pin is the root, the signing
-// key is the leaf's — and a card that confuses them is exactly what a compromised
-// endpoint would send.
-func TestVerifySyncedCard(t *testing.T) {
+// The pin and the signing key are two values — the pin is the root, the signing key is the
+// leaf's — and a card that confuses them is exactly what a compromised endpoint would send.
+func TestVerifyRefreshedCard(t *testing.T) {
 	w := testid.NewWallet(t, "Peer")
 	h := w.Issue(t, "https://p.example/mcp")
 	card := h.Card("Peer", "required")
@@ -45,7 +39,7 @@ func TestVerifySyncedCard(t *testing.T) {
 	}
 
 	// The ordinary case: the same leaf, answered again.
-	renewed, err := verifySyncedCard(pin, h.Chain, card, sign(h.Key, card), now)
+	renewed, err := verifyRefreshedCard(pin, h.Chain, card, sign(h.Key, card), now)
 	if err != nil {
 		t.Fatalf("a valid card was refused: %v", err)
 	}
@@ -57,15 +51,15 @@ func TestVerifySyncedCard(t *testing.T) {
 	other := testid.NewWallet(t, "Peer")
 	oh := other.Issue(t, "https://p.example/mcp")
 	swapped := oh.Card("Peer", "required")
-	if _, err := verifySyncedCard(pin, oh.Chain, swapped, sign(oh.Key, swapped), now); err == nil {
-		t.Fatal("a root swap slid through sync")
+	if _, err := verifyRefreshedCard(pin, oh.Chain, swapped, sign(oh.Key, swapped), now); err == nil {
+		t.Fatal("a root swap slid through a refresh")
 	}
 
 	// A tampered card fails the signature; so does a signature by anyone else.
-	if _, err := verifySyncedCard(pin, h.Chain, card+"X", sign(h.Key, card), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, h.Chain, card+"X", sign(h.Key, card), now); err == nil {
 		t.Fatal("a tampered card verified")
 	}
-	if _, err := verifySyncedCard(pin, h.Chain, card, sign(other.Key, card), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, h.Chain, card, sign(other.Key, card), now); err == nil {
 		t.Fatal("a foreign signature verified")
 	}
 
@@ -74,10 +68,10 @@ func TestVerifySyncedCard(t *testing.T) {
 	// the ANSWERER could leave out — and with it the two checks that make a refresh safe to act
 	// on, the root and the address. Whoever answers at the pinned endpoint chooses what is in the
 	// answer, so a path taken when something is missing is a path they choose.
-	if _, err := verifySyncedCard(pin, nil, card, sign(h.Key, card), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, nil, card, sign(h.Key, card), now); err == nil {
 		t.Fatal("an answer with no chain was accepted on the strength of the pinned key alone")
 	}
-	if _, err := verifySyncedCard(pin, h.Chain[:1], card, sign(h.Key, card), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, h.Chain[:1], card, sign(h.Key, card), now); err == nil {
 		t.Fatal("a one-certificate chain was accepted")
 	}
 
@@ -87,18 +81,18 @@ func TestVerifySyncedCard(t *testing.T) {
 	// this contact's. `update_contact` has refused this since 2.0; the refresh never checked.
 	elsewhere := w.Issue(t, "https://elsewhere.example/mcp")
 	wrongCert := elsewhere.Card("Peer", "required")
-	if _, err := verifySyncedCard(pin, h.Chain, wrongCert, sign(h.Key, wrongCert), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, h.Chain, wrongCert, sign(h.Key, wrongCert), now); err == nil {
 		t.Fatal("a card carrying another certificate than the proven leaf was accepted")
 	}
 
 	// Intake rules still apply: a card with no certificate at all is refused.
 	bare := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Peer\r\nX-PACT-VERSION:2\r\nEND:VCARD\r\n"
-	if _, err := verifySyncedCard(pin, h.Chain, bare, sign(h.Key, bare), now); err == nil {
+	if _, err := verifyRefreshedCard(pin, h.Chain, bare, sign(h.Key, bare), now); err == nil {
 		t.Fatal("a card with no certificate was accepted")
 	}
 }
 
-// H17: the sweep could not learn a renewal.
+// H17: a refresh could not learn a renewal.
 //
 // The card was checked under the pinned LEAF key, and a peer that has renewed signs with
 // its new one — so the honest case came back "the card signature does not verify under the
@@ -109,9 +103,9 @@ func TestVerifySyncedCard(t *testing.T) {
 // accept it."
 //
 // The other half of this test is the reason the fix is not one line: a chain that validates
-// to the pinned root at a DIFFERENT address must still be refused, or the sweep becomes an
-// unattended address follow — §5.3's decision taken by a poll.
-func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
+// to the pinned root at a DIFFERENT address must still be refused, or a refresh becomes an
+// address follow — §5.3's decision taken by a pull.
+func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	w := testid.NewWallet(t, "Peer")
 	h := w.Issue(t, "https://p.example/mcp")
 	now := time.Now()
@@ -142,7 +136,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	renewCard := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Peer\r\nX-PACT-VERSION:2\r\nX-PACT-CERT:" +
 		base64.RawURLEncoding.EncodeToString(renewLeaf) + "\r\nX-PACT-SEAL:required\r\nEND:VCARD\r\n"
 
-	got, err := verifySyncedCard(pin, renewChain, renewCard, sign(fresh, renewCard), now.Add(2*time.Hour))
+	got, err := verifyRefreshedCard(pin, renewChain, renewCard, sign(fresh, renewCard), now.Add(2*time.Hour))
 	if err != nil {
 		t.Fatalf("a renewal signed by the pinned root was refused: %v", err)
 	}
@@ -169,7 +163,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	}
 
 	// The SAME chain at another address: valid, signed by the pinned root, and refused,
-	// because where a contact answers is §5.3's decision and not a sweep's.
+	// because where a contact answers is §5.3's decision and not a refresh's.
 	elsewhereLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public,
 		URIs: []string{"https://moved.example/mcp"}, NotBefore: now.Add(time.Hour), NotAfter: now.AddDate(1, 0, 0),
@@ -179,7 +173,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	}
 	movedCard := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Peer\r\nX-PACT-VERSION:2\r\nX-PACT-CERT:" +
 		base64.RawURLEncoding.EncodeToString(elsewhereLeaf) + "\r\nX-PACT-SEAL:required\r\nEND:VCARD\r\n"
-	if _, err := verifySyncedCard(pin, [][]byte{elsewhereLeaf, w.RootDER}, movedCard, sign(fresh, movedCard), now.Add(2*time.Hour)); err == nil {
+	if _, err := verifyRefreshedCard(pin, [][]byte{elsewhereLeaf, w.RootDER}, movedCard, sign(fresh, movedCard), now.Add(2*time.Hour)); err == nil {
 		t.Fatal("a poll followed a contact to a new address, which is §5.3's decision")
 	}
 
@@ -193,7 +187,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	}
 	oldCard := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Peer\r\nX-PACT-VERSION:2\r\nX-PACT-CERT:" +
 		base64.RawURLEncoding.EncodeToString(oldLeaf) + "\r\nX-PACT-SEAL:required\r\nEND:VCARD\r\n"
-	if _, err := verifySyncedCard(pin, [][]byte{oldLeaf, w.RootDER}, oldCard, sign(fresh, oldCard), now.Add(2*time.Hour)); err == nil {
+	if _, err := verifyRefreshedCard(pin, [][]byte{oldLeaf, w.RootDER}, oldCard, sign(fresh, oldCard), now.Add(2*time.Hour)); err == nil {
 		t.Fatal("a superseded leaf was accepted from a poll")
 	}
 }
@@ -209,7 +203,7 @@ func TestSyncLearnsARenewalAndNeverAnAddress(t *testing.T) {
 // with a root that did not issue the leaf beside it — is refused, not recorded.
 func TestFillRootCertTakesOnlyThePinnedRoot(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "sync.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "refresh.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

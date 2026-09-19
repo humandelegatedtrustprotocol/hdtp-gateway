@@ -291,8 +291,8 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	// carries FN — so passing the new card's FN here would let a contact accepted
 	// as "Alina" rename itself to "Bharat" afterwards, and the owner's decision to
 	// trust the name they approved would be worth nothing. A refresh the owner asked
-	// for (`sync_contacts`) may move the name, because there we fetched the card
-	// ourselves; a card the peer pushed may not.
+	// for (`refresh_contact`, the button on the contact's page) may move the name,
+	// because there we fetched the card ourselves; a card the peer pushed may not.
 	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, c.DisplayName)
 }
 

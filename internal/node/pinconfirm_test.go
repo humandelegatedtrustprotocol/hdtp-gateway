@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -23,7 +24,7 @@ import (
 // confirmation is retried, and the leaf's own `notAfter` stays the only deadline that
 // refuses without anybody's help.
 //
-// This drives the sweep at a closed port, which is a confirmation that FAILS rather
+// This drives a refresh at a closed port, which is a confirmation that FAILS rather
 // than one that is merely late, and asserts the stored pin afterwards field by field.
 // An assertion on "the pin is still there" would pass while a field moved.
 func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
@@ -52,8 +53,12 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 	}
 
 	n, _ := e.start(e.options())
-	if n.syncOne(ctx, acct.ID, peer.Fpr) {
-		t.Fatal("a confirmation that never reached the endpoint reported a change")
+	found, err := n.RefreshContact(ctx, acct.ID, peer.Fpr)
+	if err != nil {
+		t.Fatalf("an endpoint that is down is an outcome, not an error: %v", err)
+	}
+	if found.Outcome != RefreshUnreachable {
+		t.Fatalf("a confirmation that never reached the endpoint reported %q", found.Outcome)
 	}
 
 	after, err := e.st.GetContact(ctx, acct.ID, peer.Fpr)
@@ -93,85 +98,95 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 	}
 }
 
-// Who a refresh is for. `SyncContacts` runs when the owner asks (`sync_contacts`) and never on a
-// timer — 2.1 asks for no proactive confirmation and this node does none, which was a sentence in
-// this comment for a day before it was true of the node: `serve` still had its six-hour ticker.
-// What it must get right is WHICH contacts it reaches: an active one is
-// visited even when its endpoint answers nothing, and a blocked one is not visited at all,
-// because a blocked contact is not somebody we call.
-func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
-	ctx := context.Background()
-	e, accts := newEnv(t, "me")
-	acct := accts[0]
-
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dead := probe.Addr().String()
-	_ = probe.Close()
-
-	reachable := testid.NewWallet(t, "Up")
-	rh := reachable.Issue(t, "https://"+dead+"/mcp")
-	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: acct.ID, Fingerprint: reachable.Fpr, SPKI: rh.Key.Public.SPKI,
-		Status: "active", Endpoint: rh.Endpoint, Leaf: rh.LeafDER,
-		Card: rh.Card("Up", "optional"),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// A blocked contact is deliberately NOT swept: it is not someone we call.
-	blocked := testid.NewWallet(t, "Blocked")
-	bh := blocked.Issue(t, "https://"+dead+"/mcp")
-	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: acct.ID, Fingerprint: blocked.Fpr, SPKI: bh.Key.Public.SPKI,
-		Status: "blocked", Endpoint: bh.Endpoint, Leaf: bh.LeafDER,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	n, _ := e.start(e.options())
-	checked, changed := n.SyncContacts(ctx, acct.ID)
-	if checked != 1 {
-		t.Fatalf("the sweep checked %d pins, want exactly the one ACTIVE contact", checked)
-	}
-	if changed != 0 {
-		t.Fatalf("an endpoint that answered nothing reported %d changes", changed)
-	}
-}
-
-// One account's owner asked, so one account's contacts are reached. It used to take no account at
-// all: the owner MCP checked the caller's right to ONE identity and then swept, and counted, every
-// identity on the node — so a token narrowed to one set off calls to another's contacts and was
-// told how many there were.
-func TestARefreshReachesOnlyTheAccountThatAsked(t *testing.T) {
+// Who a refresh reaches: the ONE contact that was named, of the account that asked, and only
+// while that contact is somebody this identity calls.
+//
+// There was a sweep here — every active contact of an account, on a six-hour ticker and then on
+// request — and its scoping had to be got right twice: once for blocked contacts, once for a
+// token narrowed to one identity that set off calls to another's. One contact, named by the
+// caller, has neither problem to get wrong, and this holds it to that: the refresh dials nobody
+// for a blocked contact, for a contact of another account, or for an account this node does not
+// serve, and the contacts it was NOT asked about are not dialled.
+func TestARefreshReachesOnlyTheContactThatWasNamed(t *testing.T) {
 	ctx := context.Background()
 	e, accts := newEnv(t, "mine", "theirs")
 
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	// Two listeners that count who connects and answer nothing useful: one for the contact that
+	// will be named, one for everybody who must not be called.
+	listen := func() (string, *atomic.Int32) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		var dials atomic.Int32
+		go func() {
+			for {
+				c, aerr := ln.Accept()
+				if aerr != nil {
+					return
+				}
+				dials.Add(1)
+				_ = c.Close()
+			}
+		}()
+		return ln.Addr().String(), &dials
+	}
+	namedAddr, namedDials := listen()
+	otherAddr, otherDials := listen()
+
+	pin := func(accountID, name, status, addr string) string {
+		w := testid.NewWallet(t, name)
+		h := w.Issue(t, "https://"+addr+"/mcp")
+		if _, err := e.st.InsertContact(ctx, store.Contact{
+			AccountID: accountID, Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
+			Status: status, Endpoint: h.Endpoint, Leaf: h.LeafDER, Card: h.Card(name, "optional"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return w.Fpr
+	}
+	named := pin(accts[0].ID, "Named", "active", namedAddr)
+	bystander := pin(accts[0].ID, "Bystander", "active", otherAddr)
+	blocked := pin(accts[0].ID, "Blocked", "blocked", otherAddr)
+	theirs := pin(accts[1].ID, "Theirs", "active", otherAddr)
+
+	n, _ := e.start(e.options())
+
+	// Nobody is dialled for a contact this identity does not call, and it is an error — the
+	// refresh was not attempted — rather than an outcome about a peer.
+	for _, tc := range []struct{ why, account, fpr string }{
+		{"a blocked contact", accts[0].ID, blocked},
+		{"another account's contact", accts[0].ID, theirs},
+		{"an account this node does not serve", "no-such-account", named},
+	} {
+		if _, err := n.RefreshContact(ctx, tc.account, tc.fpr); err == nil {
+			t.Errorf("%s was refreshed", tc.why)
+		}
+	}
+	if got := namedDials.Load() + otherDials.Load(); got != 0 {
+		t.Fatalf("%d connection(s) were made for contacts that must not be called", got)
+	}
+
+	found, err := n.RefreshContact(ctx, accts[0].ID, named)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dead := probe.Addr().String()
-	_ = probe.Close()
-
-	for i, acct := range accts {
-		for j := 0; j <= i; j++ { // one contact for "mine", two for "theirs"
-			w := testid.NewWallet(t, "Peer")
-			h := w.Issue(t, "https://"+dead+"/mcp")
-			if _, err := e.st.InsertContact(ctx, store.Contact{
-				AccountID: acct.ID, Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
-				Status: "active", Endpoint: h.Endpoint, Leaf: h.LeafDER, Card: h.Card("Peer", "optional"),
-			}); err != nil {
-				t.Fatal(err)
-			}
+	if found.Outcome != RefreshUnreachable {
+		t.Fatalf("an endpoint that hangs up reported %q", found.Outcome)
+	}
+	if namedDials.Load() == 0 {
+		t.Fatal("the named contact was never dialled, so the zeroes here prove nothing")
+	}
+	if got := otherDials.Load(); got != 0 {
+		t.Fatalf("refreshing one contact made %d connection(s) to the others", got)
+	}
+	e.mu.Lock()
+	rows := strings.Join(e.rows, "\n")
+	e.mu.Unlock()
+	for _, fpr := range []string{bystander, blocked, theirs} {
+		if strings.Contains(rows, "contact:"+fpr) {
+			t.Errorf("a refresh of one contact left an audit row about another (%s):\n%s", fpr, rows)
 		}
-	}
-	n, _ := e.start(e.options())
-	if checked, _ := n.SyncContacts(ctx, accts[0].ID); checked != 1 {
-		t.Fatalf("a refresh for one account checked %d pins, want its own 1 (the other account holds 2)", checked)
-	}
-	if checked, _ := n.SyncContacts(ctx, "no-such-account"); checked != 0 {
-		t.Fatalf("a refresh for an account this node does not serve checked %d pins", checked)
 	}
 }

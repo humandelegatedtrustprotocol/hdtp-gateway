@@ -1,11 +1,15 @@
 package internalui
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,13 +44,13 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		// Settings · identity renders the same certificate state for a person:
 		// root, endpoint, notAfter and renewal_due, from the same reader.
 		"identity_certificate": "GET /api/identity",
-		"inbox":                "GET /api/conversations",
 		"list_accounts":        "GET /api/session",
 		"list_contacts":        "GET /api/contacts",
 		"list_integrations":    "GET /api/integrations",
 		"list_passkeys":        "GET /api/owners",
 		"read_thread":          "GET /api/conversations",
 		"remove_passkey":       "POST /owners/passkeys/{id}/remove",
+		"refresh_contact":      "POST /contacts/{fpr}/refresh",
 		"rename_contact":       "POST /contacts/{fpr}/petname",
 		"send_to_contact":      "POST /messages/send",
 		"set_exposure":         "POST /integrations/{id}/exposure",
@@ -54,12 +58,21 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"set_trust_flag":       "POST /contacts/{fpr}/trust",
 
 		// Agent-only, deliberately:
-		"agent":          "", // the agent's own presence
-		"ask_me":         "", // the agent asking its OWNER a question
-		"answer_request": "", // an AGENT answers what a peer asked of it (§6.8)
-		"list_pending":   "", // the queue that answer_request drains
-		"call_contact":   "", // invoking a contact's tool: an agent action, not a page
-		"sync_contacts":  "", // runs the 6-hour card-refresh sweep now; the node schedules it itself
+		"answer_request":   "", // an AGENT answers what a peer asked of it (§6.8)
+		"list_pending":     "", // the queue that answer_request drains
+		"call_contact":     "", // invoking a contact's tool: an agent action, not a page
+		"wait_for_updates": "", // the agent's own long poll; a person's is the portal's live view (GET /events)
+		"digest":           "", // what moved since a cursor, for an agent waking up; the dashboard is a person's
+	}
+	// And nothing here describes a tool that is gone: an entry nobody reads is a claim nobody checks.
+	registered := map[string]bool{}
+	for _, tool := range tools {
+		registered[tool] = true
+	}
+	for tool := range expected {
+		if !registered[tool] {
+			t.Errorf("this map still describes %q, which the owner MCP does not register", tool)
+		}
 	}
 
 	var missing []string
@@ -85,28 +98,49 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 }
 
 // ownerTools lists the tools registered on the owner MCP.
+//
+// Read from the syntax tree: every `mcp.Tool{Name: "…"}` literal in the package. It was a pattern
+// over the source text that wanted `Name:` on the same line as `mcp.Tool{`, and two tools are not
+// written that way — `wait_for_updates` and `digest` — so this test had never been asked whether
+// a person can do what they do.
 func ownerTools(t *testing.T, root string) []string {
 	t.Helper()
 	dir := filepath.Join(root, "internal", "internalui", "ownermcp")
-	// Tools only. Resource templates also carry a Name, and a resource is not
-	// something a person "does" — it is what a page already shows.
-	re := regexp.MustCompile(`mcp\.Tool\{Name:\s*"([a-z_]+)"`)
-	seen := map[string]bool{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
-			return err
-		}
-		b, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-			seen[m[1]] = true
-		}
-		return nil
-	})
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				// Tools only. A resource also carries a Name, and a resource is not something a
+				// person "does" — it is what a page already shows.
+				sel, ok := lit.Type.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "Tool" {
+					return true
+				}
+				for _, el := range lit.Elts {
+					kv, ok := el.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					if key, ok := kv.Key.(*ast.Ident); !ok || key.Name != "Name" {
+						continue
+					}
+					if val, ok := kv.Value.(*ast.BasicLit); ok {
+						name, _ := strconv.Unquote(val.Value)
+						seen[name] = true
+					}
+				}
+				return true
+			})
+		}
 	}
 	var out []string
 	for k := range seen {
