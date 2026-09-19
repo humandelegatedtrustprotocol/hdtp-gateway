@@ -69,7 +69,6 @@ const maxOfferBytes = 64 << 10
 type inviteOffer struct {
 	Card    string   `json:"card"`
 	CardSig string   `json:"card_sig"`
-	SPKI    string   `json:"spki"`
 	Chain   []string `json:"chain"`
 }
 
@@ -143,8 +142,8 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 //     its issuer is, and anybody can claim anything;
 //  3. the card's certificate IS the chain's leaf, byte for byte, so the card and the chain are
 //     one peer's documents rather than two assembled into a plausible pair; and
-//  4. `spki` is that leaf's key and it signed the card bytes — which is what makes the sealed
-//     redemption that follows reach the peer this document describes and nobody else.
+//  4. that leaf's key signed the card bytes — which is what makes the sealed redemption that
+//     follows reach the peer this document describes and nobody else.
 func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, err error) {
 	if len(off.Card) > maxOfferBytes {
 		return card, nil, nil, fmt.Errorf("the card is implausibly large")
@@ -167,13 +166,12 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	if v.RootFingerprint != card.Key {
 		return card, nil, nil, fmt.Errorf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint)
 	}
-	spki, err = base64.RawURLEncoding.DecodeString(off.SPKI)
-	if err != nil || len(spki) == 0 {
-		return card, nil, nil, fmt.Errorf("the invite carried no usable public key")
-	}
-	if !bytes.Equal(spki, v.LeafKey.SPKI) {
-		return card, nil, nil, fmt.Errorf("the invite's key is not the one its certificate carries")
-	}
+	// The key to seal to is the validated leaf's, read from the chain and from nowhere else.
+	// An offer used to have to carry it a second time as `spki` and was refused without it —
+	// PACT 1.2's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
+	// three members and that is not one of them, so demanding it made every invite from a
+	// spec-exact issuer unredeemable here.
+	spki = v.LeafKey.SPKI
 	pub, err := x509.ParsePKIXPublicKey(spki)
 	if err != nil {
 		return card, nil, nil, fmt.Errorf("the invite's key is unreadable")

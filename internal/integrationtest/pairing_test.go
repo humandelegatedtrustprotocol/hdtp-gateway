@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -128,9 +127,9 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		Contacts:  n.cm,
 		Messages:  n.msg,
 		Media:     &messaging.MediaService{Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}},
-		Card: func(context.Context) (string, string, []byte, error) {
+		Card: func(context.Context) (string, string, error) {
 			card, err := n.card()
-			return card, "sig", n.spki(), err
+			return card, "sig", err
 		},
 		Invalidate: func(ctx context.Context, accountID, fpr string) error {
 			return n.pool.Invalidate(ctx, accountID, fpr)
@@ -219,7 +218,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 			card, err := n.card()
 			return card, "sig", err
 		},
-		SPKI: func(string) ([]byte, error) { return x509.MarshalPKIXPublicKey(kp.Signer.Public()) },
+		Chain: func(string) ([][]byte, error) { return [][]byte{leafDER, rootCert}, nil },
 	}))
 	ls := httptest.NewServer(lmux)
 	t.Cleanup(ls.Close)
@@ -229,14 +228,6 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 
 func (n *pactNode) card() (string, error) {
 	return contacts.BuildCard20(n.acct.DisplayName, n.leafDER, string(n.seal)), nil
-}
-
-func (n *pactNode) spki() []byte {
-	b, err := x509.MarshalPKIXPublicKey(n.kp.Signer.Public())
-	if err != nil {
-		n.t.Fatal(err)
-	}
-	return b
 }
 
 // asPeer is what another node holds of this one: the root it pins, the leaf it
@@ -294,33 +285,43 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 	if resp.StatusCode != 200 {
 		t.Fatalf("landing page: %d %s", resp.StatusCode, b)
 	}
-	var doc struct{ Card, CardSig, SPKI string }
-	if err := json.Unmarshal(b, &struct {
-		Card    *string `json:"card"`
-		CardSig *string `json:"card_sig"`
-		SPKI    *string `json:"spki"`
-	}{&doc.Card, &doc.CardSig, &doc.SPKI}); err != nil {
+	// PACT §4: the machine view is exactly {card, card_sig, chain}. Anything else is an
+	// extension this redeemer must not depend on — it used to demand a fourth member, `spki`.
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(b, &members); err != nil {
 		t.Fatalf("invite doc: %s", b)
 	}
-	spki, err = base64.RawURLEncoding.DecodeString(doc.SPKI)
-	if err != nil || len(spki) == 0 {
-		t.Fatalf("landing page did not serve the issuer key: %s", b)
+	for k := range members {
+		if k != "card" && k != "card_sig" && k != "chain" {
+			t.Fatalf("the landing serves a member PACT §4 does not define: %q", k)
+		}
 	}
-	// The redeemer's own check. It used to hash the served key and compare it to the
-	// card's X-PACT-KEY, because in 1.x the identity WAS that key. The card's
-	// identity is now the ROOT, and the key it serves is the LEAF's, so what has to
-	// agree is the key and the certificate the card carries.
+	var doc struct {
+		Card    string   `json:"card"`
+		CardSig string   `json:"card_sig"`
+		Chain   []string `json:"chain"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil || doc.Card == "" || doc.CardSig == "" {
+		t.Fatalf("invite doc: %s", b)
+	}
+	if len(doc.Chain) != 2 {
+		t.Fatalf("the landing must serve the issuer's [leaf, root] (PACT §4), got %d certificates: %s", len(doc.Chain), b)
+	}
+	// The redeemer's own checks, as §4 states them: validate the chain, and require its leaf
+	// to byte-equal the card's X-PACT-CERT. The key to seal to is that leaf's.
 	issuer, err := contacts.ValidateInbound(doc.Card)
 	if err != nil {
 		t.Fatalf("the landing page served a card that does not validate: %v", err)
 	}
-	issuerLeaf, err := pactidentity.Parse(issuer.Cert)
-	if err != nil {
-		t.Fatalf("the card's certificate does not parse: %v", err)
+	chain := [][]byte{pactidentity.FromB64url(doc.Chain[0]), pactidentity.FromB64url(doc.Chain[1])}
+	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issuer.Key, ExpectedEndpoint: issuer.Endpoint})
+	if !vr.OK {
+		t.Fatalf("the landing's chain fails rule %d: %s", vr.Rule, vr.Reason)
 	}
-	if !bytes.Equal(issuerLeaf.SPKI, spki) {
-		t.Fatal("the key the landing page served is not the one its card's certificate carries")
+	if !bytes.Equal(chain[0], issuer.Cert) {
+		t.Fatal("the chain's leaf is not the certificate the card carries (PACT §4)")
 	}
+	spki = vr.LeafKey.SPKI
 	return doc.Card, spki
 }
 
@@ -361,9 +362,9 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 				t.Fatalf("redeem refused: %s", res.Content[0].(*mcp.TextContent).Text)
 			}
 			var redeemed struct {
-				Status string `json:"status"`
-				Card   string `json:"card"`
-				SPKI   string `json:"spki"`
+				Status string   `json:"status"`
+				Card   string   `json:"card"`
+				Chain  []string `json:"chain"`
 			}
 			if err := json.Unmarshal([]byte(res.Content[0].(*mcp.TextContent).Text), &redeemed); err != nil {
 				t.Fatal(err)
@@ -376,20 +377,26 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			if err != nil || bobOnA.Status != "active" || len(bobOnA.SPKI) == 0 {
 				t.Fatalf("A did not pin B: %+v %v", bobOnA, err)
 			}
-			// B pins A from the redemption answer: the ROOT its card names, the LEAF
-			// that card carries, and the key it served — which must be that leaf's.
-			gotSPKI, _ := base64.RawURLEncoding.DecodeString(redeemed.SPKI)
+			// B pins A from the redemption answer, the way PACT §6.1 lays it out: the signed card,
+			// and the CHAIN that proves it. The chain validates to the root the card names at the
+			// address it names, its leaf is the certificate on the card, and the key B pins is
+			// that leaf's. This read a `spki` member instead, which §6.1 does not define.
 			answered, err := contacts.ValidateInbound(redeemed.Card)
 			if err != nil {
 				t.Fatalf("the redemption answer's card does not validate: %v", err)
 			}
-			answeredLeaf, err := pactidentity.Parse(answered.Cert)
-			if err != nil {
-				t.Fatal(err)
+			if len(redeemed.Chain) != 2 {
+				t.Fatalf("the redemption answer must carry A's [leaf, root], got %d certificates", len(redeemed.Chain))
 			}
-			if !bytes.Equal(answeredLeaf.SPKI, gotSPKI) {
-				t.Fatal("the key the redemption answered with is not the one its card carries")
+			answeredChain := [][]byte{pactidentity.FromB64url(redeemed.Chain[0]), pactidentity.FromB64url(redeemed.Chain[1])}
+			avr := pactidentity.ValidateChain(answeredChain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: answered.Key, ExpectedEndpoint: answered.Endpoint})
+			if !avr.OK {
+				t.Fatalf("the redemption answer's chain fails rule %d: %s", avr.Rule, avr.Reason)
 			}
+			if !bytes.Equal(answeredChain[0], answered.Cert) {
+				t.Fatal("the chain the redemption answered with does not carry the certificate its card does")
+			}
+			gotSPKI := avr.LeafKey.SPKI
 			if answered.Key != alice.rootFpr {
 				t.Fatalf("the answer's card names %s, not A's root %s", answered.Key, alice.rootFpr)
 			}
