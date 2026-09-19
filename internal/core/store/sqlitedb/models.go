@@ -18,9 +18,6 @@ type Account struct {
 	Seal            string
 	Status          string
 	CreatedAt       int64
-	PrevFingerprint sql.NullString
-	PrevKeySealed   []byte
-	GraceUntil      int64
 	Protocol        int64
 	RootFingerprint sql.NullString
 	RootCert        []byte
@@ -220,23 +217,6 @@ type PendingRequest struct {
 	CreatedAt  int64
 	ExpiresAt  int64
 	AnsweredAt sql.NullInt64
-}
-
-type RelayAllowlist struct {
-	RecipientFpr string
-	SenderFpr    string
-	UpdatedAt    int64
-}
-
-type RelayQueue struct {
-	ID           string
-	RecipientFpr string
-	SenderFpr    string
-	MsgID        string
-	Envelope     string
-	SizeBytes    int64
-	QueuedAt     int64
-	ExpiresAt    int64
 }
 
 type RotationFanout struct {

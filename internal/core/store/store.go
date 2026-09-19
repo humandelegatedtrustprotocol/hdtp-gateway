@@ -412,6 +412,11 @@ type Store interface {
 	// leaves an existing one alone: the root of a pin cannot change (PACT sec. 14.3).
 	SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error
 	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
+	// StripKeys removes every sealed private key from this store and leaves the leaf ledger's
+	// rows in place as former leaves. It is what makes a restore data-only (PACT sec. 9): call
+	// it on a restored store AFTER Migrate, so it meets the current schema and nothing about
+	// the archive's own schema is ever read. Idempotent.
+	StripKeys(ctx context.Context) error
 	ClearChainSentKids(ctx context.Context, accountID string) error
 	UpgradeContactPin(ctx context.Context, accountID, oldFpr, root, endpoint string, leaf, spki []byte, now int64) error
 

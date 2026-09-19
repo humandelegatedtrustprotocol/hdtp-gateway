@@ -107,7 +107,7 @@ func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, prev_fingerprint, prev_key_sealed, grace_until, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts WHERE id = ?
+SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts WHERE id = ?
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -123,9 +123,6 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.Seal,
 		&i.Status,
 		&i.CreatedAt,
-		&i.PrevFingerprint,
-		&i.PrevKeySealed,
-		&i.GraceUntil,
 		&i.Protocol,
 		&i.RootFingerprint,
 		&i.RootCert,
@@ -136,7 +133,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 }
 
 const getAccountBySlug = `-- name: GetAccountBySlug :one
-SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, prev_fingerprint, prev_key_sealed, grace_until, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts WHERE slug = ?
+SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts WHERE slug = ?
 `
 
 func (q *Queries) GetAccountBySlug(ctx context.Context, slug string) (Account, error) {
@@ -152,9 +149,6 @@ func (q *Queries) GetAccountBySlug(ctx context.Context, slug string) (Account, e
 		&i.Seal,
 		&i.Status,
 		&i.CreatedAt,
-		&i.PrevFingerprint,
-		&i.PrevKeySealed,
-		&i.GraceUntil,
 		&i.Protocol,
 		&i.RootFingerprint,
 		&i.RootCert,
@@ -414,7 +408,7 @@ func (q *Queries) LastAuditEvent(ctx context.Context) (AuditEvent, error) {
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, prev_fingerprint, prev_key_sealed, grace_until, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts ORDER BY created_at, id
+SELECT id, slug, display_name, algo, fingerprint, key_sealed, seal, status, created_at, protocol, root_fingerprint, root_cert, accept_new_hosts, accept_1x FROM accounts ORDER BY created_at, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -436,9 +430,6 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.Seal,
 			&i.Status,
 			&i.CreatedAt,
-			&i.PrevFingerprint,
-			&i.PrevKeySealed,
-			&i.GraceUntil,
 			&i.Protocol,
 			&i.RootFingerprint,
 			&i.RootCert,

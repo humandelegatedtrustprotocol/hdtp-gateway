@@ -473,6 +473,31 @@ func (q *Queries) SetContactRootCert(ctx context.Context, arg SetContactRootCert
 	return result.RowsAffected(), nil
 }
 
+const stripAccountKeys = `-- name: StripAccountKeys :exec
+UPDATE accounts SET key_sealed = NULL
+`
+
+// A data-only restore (PACT sec. 9): another host's archive arrives and every key in it is
+// refused. Runs AFTER the restored store is migrated, so it always meets the current schema;
+// the one other column that ever held key material, accounts.prev_key_sealed, is destroyed by
+// migration 0031 rather than named here. Idempotent.
+func (q *Queries) StripAccountKeys(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, stripAccountKeys)
+	return err
+}
+
+const stripLeafKeys = `-- name: StripLeafKeys :exec
+UPDATE leaves SET key_sealed = NULL, state = 'former' WHERE state IN ('current', 'superseded', 'pending')
+`
+
+// The ledger's keys go and its rows stay, as former leaves, so an envelope sealed to one is
+// answered certificate_renewed once the wallet has issued a leaf here (PACT sec. 14.4).
+// Idempotent: a second run finds nothing in these states.
+func (q *Queries) StripLeafKeys(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, stripLeafKeys)
+	return err
+}
+
 const updateLeaf = `-- name: UpdateLeaf :execrows
 UPDATE leaves SET leaf = $1, not_before = $2, not_after = $3, state = $4, endpoint = $5 WHERE account_id = $6 AND kid = $7
 `
