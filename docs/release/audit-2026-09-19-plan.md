@@ -414,13 +414,18 @@ the one place a storage-maintenance command may live — and is named in E2's gu
 allowed exception, with the reason beside it.
 *Verify:* `make sqlc-check`, the backup round-trip tests.
 
-### E3 · The Go conformance battery is in no gate, so it rots when the node moves — `TODO`
+### E3 · The Go conformance battery is in no gate, so it rots when the node moves — `DONE`
 Found in B9. `pact-cloud/gateway/conformance/` imports the node's `internal/` packages and runs
 from `scripts/conformance.sh` against a deployed node. Nothing compiles it otherwise, so B3c broke
 it and only an unrelated `go vet` noticed. At minimum `go vet ./...` there belongs in a gate that
 has the node on disk (the umbrella's, or `check:fast` behind an existence check that says so when
 it skips — never silently).
 *Verify:* break a node symbol the battery uses and watch the gate fail.
+*Result.* `make check` in the node now runs `dependents`, which `go vet`s the battery whenever the
+sibling is on disk — the repository that moves the API is the one whose gate objects. Proven as
+specified: renaming `SealedListTools` failed the gate with "the cloud's conformance battery no
+longer compiles against this module", and it passed once restored. With no sibling (CI checks
+out none) it prints that the battery was NOT compiled, rather than passing quietly.
 
 ### E2 · A guard, so the rule survives its author — `TODO`
 A test that walks non-test Go outside `sqlitedb/` and `pgdb/` and fails on a SQL string literal or a

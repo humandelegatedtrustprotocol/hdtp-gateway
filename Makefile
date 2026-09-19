@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec fuzz web dist sbom build check fmt vet test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -95,7 +95,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet test
+check: fmt vet dependents test
 
 # SQLC pins the generator. It is pinned HERE and nowhere else: `sqlc` is not
 # installed on any machine that builds this, and the version matters more than
@@ -139,6 +139,25 @@ fmt:
 
 vet:
 	go vet ./...
+
+# The cloud's Go conformance battery imports this module's `internal/` packages, so moving an
+# API here breaks it THERE. It is a separate module in a separate repository and runs only from
+# `scripts/conformance.sh` against a deployed node, so nothing compiled it: on 2026-09-19 it
+# stopped compiling twice in one day — `Keypair.Protocol` removed, then `Call`'s signature — and
+# neither was noticed until an unrelated `go vet` happened to run over it. The repository that
+# moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
+# disk. CI checks out no sibling; there it says it skipped rather than passing quietly.
+CLOUD_BATTERY := ../pact-cloud/gateway/conformance
+dependents:
+	@if [ -d "$(CLOUD_BATTERY)" ]; then \
+		echo "go vet $(CLOUD_BATTERY)"; \
+		(cd "$(CLOUD_BATTERY)" && go vet ./...) || { \
+			echo "the cloud's conformance battery no longer compiles against this module:"; \
+			echo "  fix it in $(CLOUD_BATTERY) in the same change that moved the API"; exit 1; }; \
+	else \
+		echo "!! dependents: $(CLOUD_BATTERY) is not on disk, so the cloud's conformance battery"; \
+		echo "   was NOT compiled against this change. It imports internal/ packages of this module."; \
+	fi
 
 # ./... reaches into web/node_modules, which vendors a Go package of its own
 # (flatted). Naming the module's real trees keeps the run to this repository's
