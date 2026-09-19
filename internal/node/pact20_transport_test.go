@@ -22,8 +22,8 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	ctx := context.Background()
 	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
-	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 2, 365)
-	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 2, 365)
+	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 365)
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)
 	// Plaintext calls reach Alina only when her policy allows them.
 	if err := alina.n.SetSeal(ctx, alina.acct.ID, core.SealOptional); err != nil {
 		t.Fatal(err)

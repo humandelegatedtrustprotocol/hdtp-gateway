@@ -22,7 +22,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
@@ -123,11 +122,8 @@ type Identifier struct {
 	// AccountID is the account this identifier serves. One is built per account
 	// (SPEC §5.2), so this is fixed for its lifetime.
 	AccountID string
-	// Keypair unseals the account's identity key (identity.Manager.LoadKeypair
-	// over the stored sealed blob).
-	Keypair func(ctx context.Context, accountID string) (*identity.Keypair, error)
-	Seal    core.Seal
-	Cert    core.ClientCert
+	Seal      core.Seal
+	Cert      core.ClientCert
 	// SealFn, when set, overrides Seal per call. The settings page changes the
 	// policy while the node is serving, and a switch that only takes effect on
 	// the next restart is a footgun — so the gate reads through this rather

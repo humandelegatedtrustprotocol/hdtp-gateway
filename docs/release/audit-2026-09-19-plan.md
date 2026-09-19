@@ -394,7 +394,7 @@ was a name — and fails with a ticker put back (checked). `TestARefreshReachesO
 The sentence "this node does none" sat in `pinconfirm_test.go` for a day before it was true.
 *Verified:* `make check`, `make analyze`.
 
-### B11 · The node's SPEC and operator docs still describe key rotation — `TODO`
+### B11 · The node's SPEC and operator docs still describe key rotation — `DONE`
 Found in F1, reading around §3.10. Live, normative-sounding prose for a feature that was deleted:
 `SPEC.md` §8's portal table ("Settings · identity — Rotate an account's identity key: new keypair,
 grace period, `update_contact` fan-out"), §9's **Key rotation** paragraph (`update_contact` "signed by
@@ -414,6 +414,61 @@ key = new identity", which contradicts §3.9 two pages earlier; and `speaks20`, 
 leaf".
 *Verify:* `grep -n "rotate-key\|Rotate an account\|-protocol 2\|old\*\* key" SPEC.md docs/*.md` is
 empty outside release records; doclint; `make check`.
+
+*Done, 2026-09-19.*
+- **SPEC.** The portal row described a slug-guarded rotation button; it describes the page that
+  exists. §9.1's **Key rotation** paragraph ("a signature by their **old** key over the **new**
+  fingerprint… the node MUST verify") is what `update_contact` does now: the pin has already
+  followed the chain, the card must name the pinned root and carry the pinned leaf, the owner's name
+  for the contact is kept, `pending` from a new address under `ask`; and the outbound side is the
+  move campaign. The CLI row lost `rotate-key` and `create -protocol 2` and gained `-purpose` and
+  `-policy`. The threat model said "Lost key = new identity… Rotation exists (`account
+  rotate-key`)" two pages after §3.9 said losing a leaf key is an inconvenience; it says what §3.9
+  says.
+- **Four conformance rows claimed 1.x behaviour of tests that have none** — "a 1.x pin upgraded",
+  "a 1.x pin of the leaf's key still connects (Appendix C)", "a 1.x node pairs… and still talks",
+  "skips itself against a 1.x card". Read each cited test; none has such a case, and the battery
+  now FAILS against a non-2.0 card where it used to skip.
+- **`docs/harness-design.md`** still planned relay mode (S5, S6, T2, T3, invariant 4) and S10
+  "`account rotate-key` fan-out under partition". Withdrawn in place, numbers kept. S10's successor —
+  the MOVE campaign under partition — is named as uncovered, because it is.
+- **On the wire:** `update_contact` was described to peers as "Replace my card after a key
+  rotation", and to the owner's agent the same way.
+- **A false sentence in the portal:** creating an identity answered "It is servable now — no
+  restart." It is not servable: it has a key and no certificate. It says what to run.
+- **A dead field:** `public.Identifier.Keypair`, set by the node under a comment about "a contact
+  re-pinned during rotation" and read by no production code. Two test files used it as a way to
+  fetch the current key; they have a helper of their own now.
+- **Comments above code that no longer does what they say:** `cli.go` ("new key + grace, then
+  update_contact fan-out… PRESENTING THE OLD CERTIFICATE", above the account list handler),
+  `compose.go`, `identity_pages.go`'s whole header, `send.go`, `identity.go`, `contacts/manager.go`'s
+  package doc, `store.go`, `node.go`, `web/src/api.ts`.
+- **Test scaffolding:** `startDemoNode(…, protocol int, …)` took a generation number and branched
+  on it; seven call sites passed `2`. A subtest was named `…SurvivesARotation` over a body that
+  tests a move.
+- *Not done, on purpose:* the `20` in names (`State20`, `speaks20`, `identify20.go`). It marks
+  nothing that has an alternative any more, but it is not 1.x code, and renaming it is a
+  several-hundred-line diff that changes no behaviour.
+- *Cloud:* `test/public-surface-20.test.ts` opens with "The 1.x path stays beside it… until the
+  owner turns it off". That, and seven source files that still branch on `protocol`, are B2c's.
+*Verified:* `make check` (27), `make analyze`, `make dependents`; `web` rebuilt, bundle unchanged.
+
+### B14 · Changing `public_url` still runs 1.x's endpoint announcement — `TODO`
+Found in B11's diagnosis, in live code rather than prose. `settings.go` answers a `public_url` change
+with `node.AnnounceEndpointChange`: it signs the account's OWN fingerprint with its key — "proof that
+whoever sent the new card holds the pinned key" — and calls `update_contact{card, sig}` on every
+active contact of every account. That is 1.x, where a card carried `X-PACT-ENDPOINT` and the pin was
+a key. In 2.0 the endpoint is INSIDE the leaf; changing a setting does not change the leaf; so the
+card sent is the card the contact already has, `sig` is an argument nothing reads, and N outbound
+calls accomplish nothing. The thing that does move an address — a new leaf, then `AnnounceMove` —
+is not started by this at all, and nothing tells the owner it is now needed.
+Goes: `AnnounceEndpointChange`, the `Announcer` func type, `deliverUpdateContact`, the settings
+goroutine, the `endpoint_announce*` audit actions, `identity.SignBytes` if nothing else in the four
+repos uses it. Comes: on a `public_url` change every served account whose leaf names another
+address is named — audited, and on the `serve` banner and `doctor` — with the `account csr -purpose
+move` that ends it.
+*Verify:* a test that a `public_url` change makes no outbound call and names the accounts that now
+need a move; `make check`, `make analyze`, `make dependents`.
 
 ### B12 · `rotation_fanout.kind` holds one value and nothing reads it — `TODO`
 Found in B11's diagnosis. Migration 0028 added `kind` to tell a 1.x rotation and a `renewal_1x` from
@@ -698,5 +753,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B13**, **B11**, **B12**, C1–C4, D1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B13**, **B11**, **B14**, **B12**, C1–C4, D1, E2. One item at a time, each verified and committed before the
 next starts.

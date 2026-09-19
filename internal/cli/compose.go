@@ -231,8 +231,8 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 			})
 		},
 		func(mux *http.ServeMux) {
-			// Settings · identity (SPEC §8.2, §3.9): rotation from the portal,
-			// running the SAME procedure the CLI does.
+			// Settings · identity (SPEC §8.2, §3.9): the node's identities and their
+			// certificates, and creating one by the SAME procedure the CLI runs.
 			internalui.MountIdentityPages(mux, identityDeps)
 		},
 		func(mux *http.ServeMux) {

@@ -78,7 +78,8 @@ type PendingAddress struct {
 	RootCert []byte
 }
 
-// RotationFanout is per-contact progress of a key rotation (SPEC §3.9).
+// RotationFanout is per-contact progress of a move campaign's `update_contact` walk (PACT
+// §5.3). The name is 1.x's: it was key rotation's ledger, and the table is still called that.
 type RotationFanout struct {
 	AccountID  string
 	ContactFpr string
@@ -346,8 +347,8 @@ type Store interface {
 	DeleteOwner(ctx context.Context, id string) error
 
 	CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error)
-	// SetAccountKey binds identity material once: it refuses to overwrite an
-	// existing fingerprint (key replacement is rotation, a distinct flow — SPEC §3.9).
+	// SetAccountKey binds the account's first key once: it refuses to overwrite an
+	// existing fingerprint. A leaf install moves it, through SetAccountLeafKey.
 	SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error
 	GetAccountBySlug(ctx context.Context, slug string) (Account, error)
 	// SetContactPetname sets the owner's local name for a contact; "" clears it.

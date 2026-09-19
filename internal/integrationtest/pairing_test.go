@@ -143,7 +143,6 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	ident := &public.Identifier{
 		Store:     st,
 		AccountID: a.ID,
-		Keypair:   func(context.Context, string) (*identity.Keypair, error) { return kp, nil },
 		Seal:      seal, Cert: core.ClientCertPreferred,
 		// What a `v: 2` envelope is decided against (PACT §13.3). Without it the
 		// identifier refuses every envelope as "does not speak 2.0" — which is the

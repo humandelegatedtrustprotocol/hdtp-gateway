@@ -116,13 +116,6 @@ func newEnv20(t testing.TB) *env20 {
 	e.acct, _ = st.GetAccountByID(ctx, a.ID)
 	e.id = &Identifier{
 		Store: st, AccountID: a.ID,
-		Keypair: func(context.Context, string) (*identity.Keypair, error) {
-			keys, err := m.ActiveLeafKeypairs(context.Background(), a.ID, e.nowAt)
-			if err != nil {
-				return nil, err
-			}
-			return keys[0].KP, nil
-		},
 		Seal: core.SealRequired, Cert: core.ClientCertPreferred,
 		Now:     func() time.Time { return e.nowAt },
 		State20: func(ctx context.Context) (*State20, error) { return e.state(ctx) },
@@ -169,9 +162,23 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 	return st, nil
 }
 
+// keypair is the account's current leaf key. The tests used to fetch it through
+// `Identifier.Keypair`, a field production code set and never read — it outlived the 1.x path
+// that recorded a re-pinned contact's key on connect.
+func (e *env20) keypair(ctx context.Context) (*identity.Keypair, error) {
+	keys, err := e.m.ActiveLeafKeypairs(ctx, e.acct.ID, e.nowAt)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, errors.New("test env: the account holds no live leaf key")
+	}
+	return keys[0].KP, nil
+}
+
 func (e *env20) currentKey(t testing.TB) *identity.Keypair {
 	t.Helper()
-	kp, err := e.id.Keypair(context.Background(), e.acct.ID)
+	kp, err := e.keypair(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -572,8 +572,8 @@ func (n *Node) SetIntegrationTools(ctx context.Context, accountID, integrationID
 // the whole point: with a pinned key the handshake already decides who may
 // answer, so dialing 192.168.1.5 reaches that contact or nobody — it is not a
 // server-side request primitive, and refusing it would break the local and
-// same-LAN deployments this project is built for. With only a fingerprint (a
-// contact mid-rotation, §3.9) the pin cannot run either, and then an
+// same-LAN deployments this project is built for. With no leaf key on record for
+// the contact the pin cannot run either, and then an
 // attacker-chosen loopback or RFC 1918 address is exactly the primitive §7.5
 // denies on the inbound side, for the same reason.
 func checkEndpoint(raw string, pinned bool) error {

@@ -496,13 +496,10 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	ident := &public.Identifier{
 		Store:     n.opts.Store,
 		AccountID: rec.ID,
-		// A contact re-pinned during rotation holds only a fingerprint until
-		// its key next connects (§3.9); this is where that key is recorded.
-		Keypair: func(context.Context, string) (*identity.Keypair, error) { return kp, nil },
-		Cert:    n.cfg.ClientCert,
-		SealFn:  func() core.Seal { return a.sealValue() },
-		Now:     n.opts.Now,
-		Audit:   n.opts.audit,
+		Cert:      n.cfg.ClientCert,
+		SealFn:    func() core.Seal { return a.sealValue() },
+		Now:       n.opts.Now,
+		Audit:     n.opts.audit,
 		// PACT 2.0: what a `v: 2` envelope is decided against, read per call
 		// so the owner's settings and a renewal take effect without a restart.
 		State20: func(ctx context.Context) (*public.State20, error) { return n.state20(ctx, rec.ID, rec.Slug) },
@@ -1014,7 +1011,7 @@ func (n *Node) stopServing(rec store.Account) {
 // owner to do exactly that: `docker compose up`, then `account create`.
 //
 // Idempotent: adopting an account the node already holds rebuilds it, which is
-// also what makes it safe to call after a key rotation.
+// also what makes it safe to call after a leaf install.
 func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	recs, err := n.opts.Store.ListAccounts(ctx)
 	if err != nil {
