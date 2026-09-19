@@ -719,7 +719,7 @@ identity `cargo test`, `go test`, `musts.mjs` (23 of 23 holders on disk), `recor
 is left of a second campaign; and an install after a data-only import at a NEW address starts no
 move campaign, because `OldEndpoint` is read from a `current` row and an import has none.
 
-## Part C — bugs introduced this session
+## Part C — bugs introduced this session — `DONE` (C1–C8)
 
 Audit this session's own diffs rather than trusting them. In commit order: the listener chain
 branch, `sealed.go`'s sealed refusals, `client20.go`'s `plaintextLegal`, `node.go`'s `state20`
@@ -734,6 +734,72 @@ Specific questions to answer, not assume:
   removing the element (`$('rv-days')` → null → default), which is the safe direction.
 - C4 · `record.mjs` shells out to `parity.mjs`; confirm a parity failure fails the record rather
   than writing a stale file.
+
+- C5 · *(filed in F2)* `cli.go` has `if moved { go func() { if moved {` — the inner test is what is
+  left of a second campaign.
+- C6 · *(filed in F2)* an install after a data-only import at a NEW address starts no move
+  campaign: `OldEndpoint` is read from a `current` row, and an import has only `former` ones.
+- C7 · *(filed in F1b)* `node.go` audits `account_unavailable` with `err.Error()` as the OUTCOME.
+  The cli package's `TestAuditOutcomesAreLiteralVerdicts` would refuse that; nothing checks `node`.
+- C8 · *(found in B11)* `identity/fanout.go` discards the error of `UpsertRotationFanout`. That
+  write IS the campaign's durability — "re-run to resume" rests on it.
+
+*Answers, 2026-09-19.*
+- **C1 — yes, two readings, and one was the wrong one to date a pin with.** The chain was judged at
+  one `n.now()` and `pinned_at` written from a later one. One instant for the pass.
+- **C2 — yes, a hostile peer chooses it.** With no chain in the answer the card was checked under
+  the pinned leaf's key and accepted, skipping the root check and the address check — the two that
+  make a refresh safe to act on — and whoever answers at the endpoint decides what is in the answer.
+  §6.1 says `get_card` answers "always the chain", so no chain is now no refresh. Two more holes in
+  the same function: the card's embedded certificate was never compared with the proven leaf (as
+  `update_contact` has required since 2.0), so the right key could sign a card carrying some other
+  certificate; and the caller dropped chain members that did not decode, so `["junk", leaf, root]`
+  arrived as a well-formed chain of two. Three new cases in `TestVerifySyncedCard`; the first failed
+  before the fix.
+- **C3 — confirmed, and there is a second wall.** A removed element is `undefined` → `NaN` → the
+  365-day default; `1e9` clamps to 398; and the issuing core REFUSES anything outside 1..=398
+  (`csr::validity`, tested in all three ports), so getting round the page gets an error, not a leaf.
+- **C4 — confirmed for the case asked, and not for another.** A failing parity run throws in
+  `execFileSync`, so nothing is written (run with a forced failure: exit 1, `PROOFS.md` untouched).
+  But `parity.mjs` said "a manifest only ever describes checks that actually agreed" and wrote the
+  manifest on EVERY run, disagreements included, a few lines above the exit code. It writes only
+  when the run agreed now (checked both ways), and `record.mjs` removes a stale manifest before it
+  starts as well as after.
+- **C5** — the inner `if moved` is gone.
+- **C6 — a real gap in PACT §9's own sequence.** A new host's first leaf for an imported identity
+  started no move campaign: the caller inferred "moved" from the superseded leaf's endpoint, and an
+  import has no superseded leaf — a bundle's ledger arrives as `former` rows, and the cloud's leave
+  archive carries no ledger at all (probed: `leaves` is not among its tables — which also settles
+  that no sealed leaf key leaves the cloud that way). `InstallResult.Moved` is the install's to say:
+  a current leaf at another endpoint; else the LAST ledger row at another endpoint; else a rooted
+  identity with no ledger, which arrived from elsewhere. A restore onto the same address and a
+  renewal after expiry are not moves, and are tested as such.
+- **C7** — `account_unavailable` carried `err.Error()` as its outcome. The lint covers `node`, and
+  skipped it: it only looked at arguments with a quote in them, so `err.Error()` read as "a
+  variable". The lint now refuses an error's text outright; the reason moved to the resource,
+  redacted.
+- **C8** — the campaign's progress write was `_ =`. It is its durability. `ErrFanoutIncomplete`
+  (contacts not reached: ordinary, that is what the counts are for) is now distinct from progress
+  that could not be recorded (a fault, audited per contact and returned). `AnnounceMove` had been
+  discarding BOTH, and the install audited a campaign with contacts unreached as `ok`.
+- **And one nobody asked about:** the listener judged a presented chain at `time.Now()` while every
+  other decision in `public` went through an injectable clock, so under an injected clock the
+  handshake and the envelope could disagree about whether a leaf had run out.
+  `TestTheTransportJudgesAChainAtTheNodesClock`, which fails with the wall clock put back.
+- Re-read and left alone: `plaintextLegal` (a forged plaintext `certificate_renewed` is still
+  validated to the pinned root at the dialed address, forward only), the sealed refusals, the
+  sibling-kid query.
+*Verified:* `make check` (27), `make analyze`; identity `musts.mjs`, `record.mjs --check`, parity 270/270.
+
+### B15 · The cloud advertises 1.x arguments for `update_contact` — `TODO`
+Found answering C2. `pact-cloud/gateway/src/identity/tools.ts` lists the tool as "Replace my card
+after a key rotation" with `inputSchema` requiring `card`, `fingerprint` ("the new fingerprint") and
+`signature` ("the old key over the new fingerprint"). The handler reads `card` and nothing else, and
+nothing validates arguments against the schema, so no call fails — but the schema is what
+`tools/list` tells every client, and a client that validates before calling (many MCP clients do)
+would refuse to send the only form this host accepts. The node's copy of the same sentence went in
+B11. Not B2c: no stored data is involved.
+*Verify:* the schema is `{card}`; a test reads `tools/list` and checks it; `npm run check`.
 
 ## Part D — optimisation
 
@@ -777,5 +843,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B13**, **B11**, **B14**, **B12**, C1–C4, D1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B13**, **B11**, **B14**, **B12**, C1–C8, **B15**, D1, E2. One item at a time, each verified and committed before the
 next starts.

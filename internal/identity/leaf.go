@@ -413,12 +413,15 @@ type InstallResult struct {
 	RootFingerprint string
 	Kid             string // the new current leaf's key id
 	OldKid          string // the superseded leaf's key id, "" on a first install
-	OldEndpoint     string // the superseded leaf's endpoint; a difference is a move (PACT §5.3)
-	KeyChanged      bool
-	FirstInstall    bool
-	Endpoint        string
-	NotBefore       time.Time
-	NotAfter        time.Time
+	OldEndpoint     string // where the identity answered before this leaf, when this host's ledger knows
+	// Moved says this leaf put the identity at an address its contacts do not know yet, so they
+	// are owed `update_contact` from it (PACT §5.3, §9). See InstallLeaf for how it is decided.
+	Moved        bool
+	KeyChanged   bool
+	FirstInstall bool
+	Endpoint     string
+	NotBefore    time.Time
+	NotAfter     time.Time
 	// Retired names every superseded leaf whose key this node could not open, and which was
 	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
@@ -506,6 +509,41 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		// it. `SetAccountLeafKey` below overwrites the sealed key, which is what destroys it.
 		res.KeyChanged = true
 	}
+	// Did the identity move? The caller starts the move campaign on the answer, and it used to work
+	// the answer out for itself from `OldEndpoint` — which was read from the CURRENT leaf's row and
+	// so was empty whenever there was none. That is every install that follows an import: a
+	// bundle's ledger arrives as `former` rows (no bundle carries a leaf key), and the cloud's leave
+	// archive carries no ledger at all. So the one install that is a move by construction — a new
+	// host's first leaf for an identity that lived somewhere else, PACT §9's own sequence — started
+	// no campaign, and every contact went on calling an address the identity had left.
+	//
+	//   - a current leaf: moved if the new leaf names another endpoint;
+	//   - no current leaf, but the ledger remembers one: moved if the LAST one named another
+	//     endpoint. A restore onto the same address, or a renewal after a leaf ran out, is not;
+	//   - a root and no ledger at all: it arrived from another host with its name and nothing
+	//     else. Moved. If its contacts happen to hold this very address already, what they
+	//     receive is a card refresh, which costs nothing.
+	if current == nil && a.HasRoot() {
+		var last *store.Leaf
+		for i := range leaves {
+			l := &leaves[i]
+			if l.State == LeafPending || len(l.Leaf) == 0 || l.Endpoint == "" {
+				continue
+			}
+			if last == nil || l.NotBefore >= last.NotBefore {
+				last = l
+			}
+		}
+		if last != nil {
+			res.OldEndpoint = last.Endpoint
+		} else {
+			res.Moved = true
+		}
+	}
+	if !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint {
+		res.Moved = true
+	}
+
 	// A superseded leaf is kept for one reason: to be SERVED, as a guest, until its notAfter, so an
 	// envelope still sealed to it is answered `certificate_renewed` (PACT §14.4). A key this node
 	// cannot open cannot be served, and the only way that happens is that the master key it was

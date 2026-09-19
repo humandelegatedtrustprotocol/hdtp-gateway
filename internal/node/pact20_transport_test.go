@@ -139,3 +139,41 @@ func textOf(r *mcp.CallToolResult) string {
 	}
 	return ""
 }
+
+// The transport judges a presented chain at the node's clock, as the envelope path always has.
+// It read the wall clock directly, so under an injected clock — these tests, and the harness's
+// time travel — a leaf the envelope path called expired still proved an identity at the handshake.
+func TestTheTransportJudgesAChainAtTheNodesClock(t *testing.T) {
+	ctx := context.Background()
+	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
+	dn := &demoNet{hosts: map[string]string{}}
+	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 365)
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 30)
+	if err := alina.n.SetSeal(ctx, alina.acct.ID, core.SealOptional); err != nil {
+		t.Fatal(err)
+	}
+	alina.pin20(bharat)
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
+	bharatKP := bharat.kp()
+	listed := func() map[string]bool {
+		// Built by hand from the key captured above: once bharat's own clock passes his leaf's
+		// date his node will not hand it out (F2), and this is about what ALINA's listener makes
+		// of a chain, not about what bharat's node is willing to send.
+		tools, err := bharat.n.wire20(bharat.acct.ID, &outbound.Client{Keypair: bharatKP, Cert: tlsCertOf(bharatKP)}).ListTools(ctx, peerA)
+		if err != nil {
+			t.Fatalf("tools/list: %v", err)
+		}
+		out := map[string]bool{}
+		for _, tool := range tools {
+			out[tool.Name] = true
+		}
+		return out
+	}
+	if got := listed(); !got["send_message"] {
+		t.Fatalf("while his leaf is good his chain must make him a contact: %v", got)
+	}
+	clock.advance(31 * 24 * time.Hour) // past bharat's thirty-day leaf, by the clock alina's node runs on
+	if got := listed(); got["send_message"] {
+		t.Fatalf("an expired chain still proved a contact at the handshake: %v", got)
+	}
+}

@@ -88,6 +88,18 @@ type Server struct {
 	// a caller's, and must not become a transport identity (SPEC §10.1, §10.6).
 	// nil means ordinary direct mode, where a certificate IS the caller.
 	IgnoreClientCert func() bool
+	// Now is the clock a presented chain is judged at; nil is the wall clock. Every other
+	// decision in this package already went through one (Identifier.Now, SealedDeps.Now), and
+	// the transport read `time.Now()` directly — so under an injected clock the handshake and
+	// the envelope could disagree about whether the same leaf had run out.
+	Now func() time.Time
+}
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 // Handler builds the route mux with facts extraction (SPEC §5.1–§5.2).
@@ -161,7 +173,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 		// unproven key to compare a proven one against.
 		if r.TLS != nil && len(r.TLS.PeerCertificates) == 2 {
 			chain := [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
-			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()}); vr.OK {
+			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: s.now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
 				f.ClientLeaf, f.ClientEndpoint = chain[0], vr.Endpoint
 				f.ClientRoot = chain[1]
