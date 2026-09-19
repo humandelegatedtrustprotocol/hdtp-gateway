@@ -34,6 +34,13 @@ func OpenSQLite(path string) (*SQLite, error) {
 	return &SQLite{db: db, q: sqlitedb.New(db)}, nil
 }
 
+// ErrNotFound is what a store method returns when the row asked for is not there, on either
+// engine. It IS `sql.ErrNoRows` — the same value, so every `errors.Is(err, sql.ErrNoRows)` written
+// before this name existed still holds — and it exists so that a caller outside this package can
+// ask the question without importing `database/sql`, which `TestNoHandWrittenSQLOutsideTheStore`
+// forbids everywhere else: a package that can name the driver's types can write a statement.
+var ErrNotFound = sql.ErrNoRows
+
 // Snapshot writes a consistent, compact copy of this database to dst, which must not exist.
 //
 // It is the ONE statement in this module that is not a generated query, and it is here rather

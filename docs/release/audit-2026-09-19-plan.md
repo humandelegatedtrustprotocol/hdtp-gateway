@@ -872,11 +872,32 @@ specified: renaming `SealedListTools` failed the gate with "the cloud's conforma
 longer compiles against this module", and it passed once restored. With no sibling (CI checks
 out none) it prints that the battery was NOT compiled, rather than passing quietly.
 
-### E2 · A guard, so the rule survives its author — `TODO`
+### E2 · A guard, so the rule survives its author — `DONE`
 A test that walks non-test Go outside `sqlitedb/` and `pgdb/` and fails on a SQL string literal or a
 `database/sql` Exec/Query call, with an explicit, reasoned allowlist. Conventions rot; this session
 is a catalogue of that.
 *Verify:* the guard fails on the current `stripKeys` before B1's rework lands, and passes after.
+
+*Done, 2026-09-19.* `TestNoHandWrittenSQLOutsideTheStore` parses every production Go file (153 of
+them, 7,159 string literals; tests exempt, generated packages skipped) and holds four things:
+1. `database/sql`, a driver, or goose is imported only under `internal/core/store`. A package that
+   cannot name a connection cannot run a statement on one.
+2. No string literal ANYWHERE is a SQL statement — which catches one assembled in one place and
+   executed in another, where a look at call sites would not.
+3. Inside the store's own hand-written files no call runs a statement directly. Added after the
+   first mutant run: the very line the rule was made about, `"UPDATE "+table+" SET "+col+" = NULL"`,
+   has no single literal that reads as a statement, so check 2 cannot see it — outside the store
+   check 1 stops it, and inside the store only the call site gives it away.
+4. The one exception — `VACUUM INTO ?` in `SQLite.Snapshot` — is named, located and COUNTED. Moved
+   or doubled, the test fails.
+It was run against four mutants (the owner's example in `cli`; a bare statement constant in `node`;
+a second `VACUUM INTO` in the store; the owner's example inside the store) and failed on each, and
+it asserts it read at least 100 files and 1,000 literals, so a walk that breaks cannot pass as clean.
+Making check 1 strict took two real changes: `integrations/exposure.go` imported `database/sql`
+for `sql.ErrNoRows` alone, and has `store.ErrNotFound` (the same value, so nothing that compared
+against the old name changed); and `cli/backup.go` still blank-imported the SQLite driver from the
+days when it opened the database itself.
+*Verified:* `make check` (27), `make analyze`, `make sqlc-check`.
 
 ## Order of execution
 
