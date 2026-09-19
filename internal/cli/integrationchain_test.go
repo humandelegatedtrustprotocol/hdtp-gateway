@@ -121,7 +121,7 @@ func TestGetStatusAnswersWithoutAnyIntegration(t *testing.T) {
 	st := openStoreAt(t, dir)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
-		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
+		Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"status.view", "calendar.availability"}, Preset: "custom",
 	}); err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestPublishedExposureBecomesAPermittedTool(t *testing.T) {
 	} {
 		if _, err := st1.InsertContact(ctx, store.Contact{
 			AccountID: acct.ID, Fingerprint: c.kp.Fingerprint, SPKI: mustSPKI(t, c.kp),
-			Protocol: 2, Leaf: c.kp.Host.LeafDER, Endpoint: c.kp.Endpoint,
+			Leaf: c.kp.Host.LeafDER, Endpoint: c.kp.Endpoint,
 			Status: "active", Permissions: c.perms, Preset: "custom",
 		}); err != nil {
 			t.Fatal(err)
@@ -397,7 +397,7 @@ func TestExposureChangeThroughOwnerMCPReachesAContact(t *testing.T) {
 	kp, cert := peerIdentity(t, "bob")
 	if _, err := st0.InsertContact(ctx, store.Contact{
 		AccountID: acct.ID, Fingerprint: kp.Fingerprint, SPKI: mustSPKI(t, kp),
-		Protocol: 2, Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
+		Leaf: kp.Host.LeafDER, Endpoint: kp.Endpoint,
 		Status: "active", Permissions: []string{"message.text", "integration.cal"}, Preset: "custom",
 	}); err != nil {
 		t.Fatal(err)

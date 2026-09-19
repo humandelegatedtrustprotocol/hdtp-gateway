@@ -85,11 +85,6 @@ UPDATE contacts SET chain_sent_kid = ? WHERE account_id = ? AND fingerprint = ?;
 -- After a leaf install every contact must see the new chain once (PACT sec. 13.2).
 UPDATE contacts SET chain_sent_kid = '' WHERE account_id = ?;
 
--- name: UpgradeContactPin :execrows
--- Appendix C row 6: a 1.x pin of key K, met by a chain whose leaf key is K,
--- becomes a 2.0 pin of the root with no human step.
-UPDATE contacts SET fingerprint = ?, protocol = 2, endpoint = ?, leaf = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?;
-
 -- name: SetContactRootCert :execrows
 -- Fills in a pin's root certificate the first time a chain carries one: a pin made
 -- before this column existed, or one restored from an archive that could not carry it.

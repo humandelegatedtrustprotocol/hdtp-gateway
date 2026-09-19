@@ -157,7 +157,7 @@ func (p Proof) vet(card string) (Card, error) {
 func (p Proof) pin(c store.Contact) store.Contact {
 	c.Fingerprint, c.SPKI = p.Fingerprint, p.SPKI
 	if p.Protocol == 2 {
-		c.Protocol, c.Endpoint, c.Leaf = 2, p.Endpoint, p.Leaf
+		c.Endpoint, c.Leaf = p.Endpoint, p.Leaf
 		c.RootCert = p.RootCert
 	}
 	return c
@@ -307,7 +307,7 @@ func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string
 	// PACT §5.3 "after a removal": a 2.0 root that removed us and returns with a
 	// newer leaf inside 30 days is asked about, whatever the setting says — a
 	// host being left could otherwise erase the person's contacts on its way out.
-	if c.Protocol == 2 && len(c.Leaf) > 0 {
+	if len(c.Leaf) > 0 {
 		if err := m.Store.UpsertTombstone(ctx, store.Tombstone{AccountID: accountID, Root: callerFpr, Leaf: c.Leaf, At: m.now().Unix()}); err != nil {
 			return err
 		}
@@ -342,7 +342,7 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 		// active contact at the address it asked from, the way approving a
 		// request would, with its former permissions gone.
 		_, err = m.Store.InsertContact(ctx, store.Contact{AccountID: accountID, Fingerprint: root, SPKI: leaf.SPKI, Status: "active",
-			Protocol: 2, Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject, RootCert: p.RootCert})
+			Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject, RootCert: p.RootCert})
 		if err != nil {
 			return p, err
 		}

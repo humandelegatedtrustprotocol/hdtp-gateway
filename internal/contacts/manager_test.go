@@ -210,7 +210,7 @@ func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 	g, card, spki := guest(t, "Bharat")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
 		AccountID: e.account, Fingerprint: g.Fingerprint, SPKI: spki, Status: "active",
-		Card: card, Protocol: 2, Leaf: g.Host.LeafDER, Endpoint: g.Host.Endpoint,
+		Card: card, Leaf: g.Host.LeafDER, Endpoint: g.Host.Endpoint,
 	}); err != nil {
 		t.Fatal(err)
 	}

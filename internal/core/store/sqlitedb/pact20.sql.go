@@ -541,38 +541,6 @@ func (q *Queries) UpdateLeaf(ctx context.Context, arg UpdateLeafParams) (int64, 
 	return result.RowsAffected()
 }
 
-const upgradeContactPin = `-- name: UpgradeContactPin :execrows
-UPDATE contacts SET fingerprint = ?, protocol = 2, endpoint = ?, leaf = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?
-`
-
-type UpgradeContactPinParams struct {
-	Fingerprint   string
-	Endpoint      string
-	Leaf          []byte
-	Spki          []byte
-	PinnedAt      sql.NullInt64
-	AccountID     string
-	Fingerprint_2 string
-}
-
-// Appendix C row 6: a 1.x pin of key K, met by a chain whose leaf key is K,
-// becomes a 2.0 pin of the root with no human step.
-func (q *Queries) UpgradeContactPin(ctx context.Context, arg UpgradeContactPinParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, upgradeContactPin,
-		arg.Fingerprint,
-		arg.Endpoint,
-		arg.Leaf,
-		arg.Spki,
-		arg.PinnedAt,
-		arg.AccountID,
-		arg.Fingerprint_2,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const upsertPendingAddress = `-- name: UpsertPendingAddress :exec
 INSERT INTO pending_addresses (account_id, root, endpoint, leaf, why, at, root_cert) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (account_id, root) DO UPDATE SET endpoint = excluded.endpoint, leaf = excluded.leaf, why = excluded.why, at = excluded.at,

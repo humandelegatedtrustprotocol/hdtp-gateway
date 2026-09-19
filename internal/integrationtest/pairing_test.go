@@ -397,7 +397,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 				AccountID: bob.acct.ID, Fingerprint: alice.rootFpr, SPKI: gotSPKI,
 				Status: "active", Card: redeemed.Card, Permissions: []string{"message.text"},
 				PinnedAt: time.Now().Unix(),
-				Protocol: 2, Leaf: answered.Cert, Endpoint: answered.Endpoint,
+				Leaf:     answered.Cert, Endpoint: answered.Endpoint,
 			}); err != nil {
 				t.Fatal(err)
 			}

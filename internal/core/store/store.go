@@ -140,7 +140,6 @@ type Contact struct {
 	// PACT 2.0 pins (migration 0027): Protocol 2 means Fingerprint is the ROOT
 	// fingerprint, SPKI the pinned leaf's key, Endpoint and Leaf the pin of
 	// §14.3. ChainSentKid is our own leaf kid last carried to this contact.
-	Protocol     int64
 	Endpoint     string
 	Leaf         []byte
 	ChainSentKid string
@@ -417,7 +416,6 @@ type Store interface {
 	// the archive's own schema is ever read. Idempotent.
 	StripKeys(ctx context.Context) error
 	ClearChainSentKids(ctx context.Context, accountID string) error
-	UpgradeContactPin(ctx context.Context, accountID, oldFpr, root, endpoint string, leaf, spki []byte, now int64) error
 
 	InsertThread(ctx context.Context, t Thread) error
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)

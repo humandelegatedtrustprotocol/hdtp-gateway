@@ -9,16 +9,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
-// contactProtocol defaults an unset protocol to 2. It used to default to 1,
-// because a 1.x caller passed nothing and 1 was the generation it meant; there is
-// no other generation now, so an unset value means the current one.
-func contactProtocol(p int64) int64 {
-	if p == 0 {
-		return 2
-	}
-	return p
-}
-
 func permsToJSON(perms []string) string {
 	if perms == nil {
 		perms = []string{}
@@ -47,7 +37,7 @@ func (s *SQLite) InsertContact(ctx context.Context, c Contact) (Contact, error) 
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Protocol: contactProtocol(c.Protocol), Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
 		RootCert: c.RootCert,
 	})
 	if err != nil {
@@ -67,7 +57,6 @@ func contactFromRow(r sqlitedb.Contact) Contact {
 		TheirPermissions: permsFromJSON(r.TheirPermissions),
 		Petname:          r.Petname,
 		InviteID:         r.InviteID,
-		Protocol:         r.Protocol,
 		Endpoint:         r.Endpoint,
 		Leaf:             r.Leaf,
 		ChainSentKid:     r.ChainSentKid,

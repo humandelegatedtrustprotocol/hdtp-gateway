@@ -18,38 +18,33 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 )
 
-// peerOf is the outbound view of a pinned contact. A 2.0 pin dials the
-// endpoint the leaf names and is recognised by its root; a 1.x pin dials the
-// card's endpoint and is recognised by its key.
+// peerOf is the outbound view of a pinned contact: it dials the endpoint the pinned leaf names
+// and is recognised by its root (PACT §2). A contact with no leaf on file cannot be dialled —
+// there is no key-pinned kind of contact to fall back to, and the branch that built one from a
+// card's endpoint went with the column that selected it.
 func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) {
 	card, err := contacts.ParseCard(c.Card)
-	if c.Protocol == 2 {
-		endpoint := c.Endpoint
-		if endpoint == "" && err == nil {
-			endpoint = card.Endpoint
-		}
-		if endpoint == "" || len(c.Leaf) == 0 {
-			return outbound.Peer{}, fmt.Errorf("contact %s has no endpoint on file", c.Fingerprint)
-		}
-		seal := "required"
-		if err == nil && card.Seal != "" {
-			seal = card.Seal
-		}
-		ourKid := ""
-		n.mu.RLock()
-		if a := n.accounts[accountID]; a != nil {
-			ourKid = a.kp.Fingerprint
-		}
-		n.mu.RUnlock()
-		return outbound.Peer{
-			Endpoint: endpoint, Fingerprint: c.Fingerprint, Seal: seal,
-			Protocol: 2, Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
-		}, nil
+	endpoint := c.Endpoint
+	if endpoint == "" && err == nil {
+		endpoint = card.Endpoint
 	}
-	if err != nil || card.Endpoint == "" {
+	if endpoint == "" || len(c.Leaf) == 0 {
 		return outbound.Peer{}, fmt.Errorf("contact %s has no endpoint on file", c.Fingerprint)
 	}
-	return outbound.Peer{Endpoint: card.Endpoint, Fingerprint: c.Fingerprint, Seal: card.Seal}, nil
+	seal := "required"
+	if err == nil && card.Seal != "" {
+		seal = card.Seal
+	}
+	ourKid := ""
+	n.mu.RLock()
+	if a := n.accounts[accountID]; a != nil {
+		ourKid = a.kp.Fingerprint
+	}
+	n.mu.RUnlock()
+	return outbound.Peer{
+		Endpoint: endpoint, Fingerprint: c.Fingerprint, Seal: seal,
+		Protocol: 2, Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
+	}, nil
 }
 
 // wire20 attaches to a client what it must be able to write back about the

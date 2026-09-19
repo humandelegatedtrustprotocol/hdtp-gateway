@@ -21,7 +21,7 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Protocol: contactProtocol(c.Protocol), Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
 		RootCert: c.RootCert,
 	})
 	if err != nil {
@@ -40,7 +40,6 @@ func pgContact(r pgdb.Contact) Contact {
 		TheirPermissions: permsFromJSON(r.TheirPermissions),
 		Petname:          r.Petname,
 		InviteID:         r.InviteID,
-		Protocol:         r.Protocol,
 		Endpoint:         r.Endpoint,
 		Leaf:             r.Leaf,
 		ChainSentKid:     r.ChainSentKid,
