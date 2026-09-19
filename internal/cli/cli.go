@@ -639,10 +639,12 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// an unattended sweep to the owner would misreport who deleted the data.
 	startRetentionSweeper(ctx, settings, st, cfg, auditFn, stderr)
 
-	// ---- relay mode as a CLIENT: fetch our own mail (SPEC §10.5) ----
-	// Undelivered outbound messages retry with backoff until their deadline
-	// (SPEC §7.1). Without this a send that failed once stayed failed forever
-	// and the owner had to notice and retype it.
+	// ---- outbound retries (PACT §7.1) ----
+	// Undelivered outbound messages retry with backoff until their deadline.
+	// Without this a send that failed once stayed failed forever and the owner had to
+	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
+	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted with
+	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
 	go nd.RunRetries(ctx)
 
 	// Contacts in sync (PACT §3): pull each active contact's signed card on a

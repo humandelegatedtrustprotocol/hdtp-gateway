@@ -27,7 +27,7 @@ it is cited for. Every finding below is an instance.
 | H15 | `internal/node/node.go:403`, `internal/node/outbound20.go:109` | Two spellings of "what a key presents on the wire". `tlsCertOf` carries the §2 reasoning and the guard; `node.go` built the same chain inline and unguarded, and only a test called `tlsCertOf` — so a key with a leaf but no root would have gone out as a malformed chain, and a later change to the guard would not have reached production | low | closed |
 | H16 | `docs/conformance.md:54,68` | `pending_approval` had two rows after H5 — the original and a new sealed one — and the table's dup-detection runs over §11.2, not this table. A reader taking either row alone gets half the rule | low | closed |
 | H17 | `internal/node/sync.go:194` (`verifySyncedCard`), `internal/cli/cli.go:652` | The contact-sync sweep verifies a re-fetched card under `stored.SPKI` — the pinned **leaf** key, which a renewal replaces — so a peer that has renewed is audited `contact_sync … invalid`. `"sync can never move a pin"` and `"key changes go through update_contact"` are 1.x invariants: under 2.0 a newer leaf signed by the pinned root is self-authorizing (§2, "because the endpoint is unchanged it needs no one's approval to accept it") | medium | closed |
-| H18 | `internal/node/sync.go` (§14.3's confirmation rule) | The node keeps every pin inside no interval at all: `SyncContacts` runs when an owner or a schedule calls it, and nothing records when a pin was last confirmed. PACT 2.1's §14.3 bound is therefore unimplemented here — which is why this node's `SPEC.md` still says *implements PACT 2.0.0*, correctly | low | **open** |
+| H18 | — | **Withdrawn.** It was filed against a rule that no longer exists: §14.3's proactive confirmation interval was removed from 2.1 on the owner's instruction, in favour of a newer leaf arriving on use (§13.2, §14.4). There is no interval to implement, no `leaf_confirmed_at` to record, and nothing for the sweep to carry beyond what it already did | — | withdrawn |
 | H19 | `pact-identity/js/manifest.json`, `js/build.sh`, `js/verify.mjs`, `.github/workflows/pact-identity.yml` | The wasm byte-pin is presented as reproducible from a recorded toolchain, and is not reproducible across platforms. A **no-op** `sh js/build.sh` on darwin/arm64 with the manifest's exact `rustc 1.92.0` and `wasm-pack 0.15.0` produced 636920 bytes / `304c91d6…` against the pinned 639118 / `78a62973…`. The manifest records the compiler and wasm-pack versions and **no platform at all**, so it reads as a toolchain pin while the build host is the actual determinant | medium | **open** |
 | H20 | `pact-cloud/gateway/scripts/ceremony-smoke.mjs`, `package.json` | `test:ceremony` is in neither `check:fast` nor `check`, so the 103-check wallet suite is in no gate. Its section 4c tested `purpose: 'upgrade'` — a 1.x identity gaining a root — which `ceremony.js` itself records as removed on 2026-09-18, so the suite had been failing since that removal with nothing to notice. The dead section is deleted; being ungated is not fixed | medium | partly closed |
 
@@ -127,49 +127,36 @@ unattended address-follow, worse than the defect it fixed. `sync.go`'s own heade
 which still stated the 1.x rule ("moving a pin requires update_contact's old-key
 signature"), was rewritten with it.
 
-H18 is not a defect in 2.0 and is recorded so nobody reads the node's version line as an
-oversight. The protocol gained the confirmation bound at 2.1.0 on 2026-09-19; the node does
-not carry it; its `SPEC.md` saying *implements PACT 2.0.0* is the accurate record.
+H18 is withdrawn, and the sequence is worth recording because two of its three drafts were
+wrong in opposite directions.
 
-One honest note on `TestAnUnansweredConfirmationChangesNoPin`, which holds §14.3's MUST
-NOT: **it passed on its first run, against unchanged production code.** The node already
-left the pin untouched on a failed confirmation. So unlike the twelve findings above it
-does not demonstrate a fix — it pins behaviour that was already right, before a future
-implementation of the interval bound can quietly break it. That is worth having and is not
-the same claim.
+It was first filed as "the node keeps every pin inside no interval at all", inferred from
+there being no `leaf_confirmed_at` column and no per-call freshness check. That was going to
+be answered with a migration, a new column, a sqlc regeneration and an edit to §11.2's table.
+Then the sweep turned out to be unconditional — two minutes after start, then every six
+hours, every active contact of every account — so the bound was already met by a factor of
+120, and the fix shrank to naming the constants and asserting the arithmetic.
 
-## H19: the byte-pin that cannot be reproduced where it is documented
+Both drafts were answering a rule the owner then removed. **2.1 no longer asks for proactive
+re-confirmation at all**, and the reason is better than the rule was: the protocol already
+delivers a renewal at the only moment it matters, which is when two parties exchange — the
+chain rides in the first envelope after a renewal (§13.2), `certificate_renewed` answers an
+envelope sealed to a retired key with the current chain (§14.4), and `get_card` carries the
+chain at every tier. A contact that talks to an identity learns its current leaf by talking
+to it; one that never talks to it has nothing to learn.
 
-This one was found by trying to do something else. Fixing the ports' stale
-`spec: "2.0.0-draft"` constant means rebuilding the wasm, so the first step was to check
-that a rebuild reproduces the committed bytes. It does not:
+So the node does none, the constants and their test are gone, and the sweep is back to the
+one job it always had: healing a card change whose announcement missed us. What survives from
+this line of work is the part that was always sound — §14.3's MUST NOT, held by
+`TestAnUnansweredConfirmationChangesNoPin`, that an unanswered confirmation may never refuse
+or un-pin a contact.
 
-```
-committed   639118 bytes  sha256 78a62973a2efb8d995c0f9ad8cead611f47a39d919295f5b35593063794d23ec
-no-op build 636920 bytes  sha256 304c91d675f5ae5c4d090d5bb6ce113453c5163b413e821cbff2bb492b91ee5a
-```
-
-Same crate, same source, same `rustc 1.92.0 (ded5c06cf 2025-12-08)`, same
-`wasm-pack 0.15.0` — the two values the manifest records. The difference is the build host:
-the committed bytes come from the Linux runner, the second from darwin/arm64.
-
-Three things follow, and the third is why this is filed rather than fixed:
-
-1. `js/verify.mjs` **fails on any machine that is not the one that produced the manifest**,
-   which is every contributor following `README.md`'s own build instruction.
-2. The workflow's `git diff --exit-code js/manifest.json` turns that into a trap: a
-   contributor who rebuilds and commits the manifest their machine produced breaks the gate
-   for everyone, and the error text — "js/manifest.json does not describe this build" —
-   points at the manifest rather than at the platform.
-3. **It cannot be fixed from this machine.** Recording the host triple in the manifest is
-   the right fix, but committing a manifest that says `aarch64-apple-darwin` would fail the
-   same diff check on the Linux runner. So the fix belongs where CI builds, and the
-   `2.0.0-draft` constant is blocked behind it — not behind the ceremony re-pin, which
-   turned out to be the cheap half.
-
-Nothing was committed from the diagnostic build: `js/pkg-*` is gitignored and
-`js/manifest.json` was restored to the pinned values byte for byte. The vendored copy in
-pact-cloud was never touched, and `check-wasm.mjs` still verifies it.
+The residual is stated in §14.3 rather than engineered around: an attacker holding a stolen
+leaf can call a contact that has not heard of the renewal, and that contact's pinned leaf *is*
+the stolen one, so it is honoured until its `notAfter`. What bounds that is the leaf's
+lifetime — which, as of the same day, is the person's own choice. Someone who trusts a host
+less signs a shorter leaf. That is a better answer than a poll, because it is one decision made
+once by the person at risk, instead of traffic every node generates forever.
 
 ## What is proven where
 
