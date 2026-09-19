@@ -302,6 +302,11 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			return nil, err
 		}
 		auditFn("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok")
+		// Key material was destroyed, so the chain says so, once per key: a superseded leaf whose
+		// key this node could no longer open (its master key is not the one that sealed it).
+		for _, kid := range res.Retired {
+			auditFn("account_leaf_key_retired", "account:"+acct.ID+" slug:"+acct.Slug+" key:"+kid+" reason:unopenable", "ok")
+		}
 		// The node loaded the account's key and certificate when it started;
 		// the install changed both in the store. Rebuild it live.
 		if nd != nil {
@@ -312,6 +317,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		out := map[string]any{
 			"Slug": acct.Slug, "Root": res.RootFingerprint, "Kid": res.Kid, "Endpoint": res.Endpoint,
 			"NotAfter": res.NotAfter.UTC().Format(time.RFC3339), "First": res.FirstInstall, "KeyChanged": res.KeyChanged,
+		}
+		if len(res.Retired) > 0 {
+			out["Retired"] = res.Retired
 		}
 		// The campaign an install can start — the move's update_contact toward
 		// contacts pinned by our root (PACT §5.3, §9) — runs DETACHED.
@@ -633,6 +641,18 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// answers for nobody, so name each one and the commands that end the wait.
 	// A data-only import has no key of its own here — that is a move (PACT §5.3);
 	// an account created on this host already has one, so it signs up.
+	// And an account that is broken rather than waiting. A leaf's key that will not unseal is the
+	// usual reason, and a renewal is the usual cure: it needs no old key, and the install retires
+	// what this node can no longer open.
+	unavailable := nd.Unavailable()
+	brokenSlugs := make([]string, 0, len(unavailable))
+	for slug := range unavailable {
+		brokenSlugs = append(brokenSlugs, slug)
+	}
+	sort.Strings(brokenSlugs)
+	for _, slug := range brokenSlugs {
+		fmt.Fprintf(stdout, "NOT SERVED: %s — %s. If its key was sealed under a master key this node no longer has, run `pact-gateway account csr -slug %s -purpose renew`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, unavailable[slug], slug, slug)
+	}
 	for _, slug := range nd.AwaitingLeaf() {
 		purpose := "signup"
 		if a, aerr := st.GetAccountBySlug(ctx, slug); aerr == nil {
@@ -827,6 +847,9 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "installed leaf %v for %v under root %v, valid until %v\n", out["Kid"], out["Endpoint"], out["Root"], out["NotAfter"])
+		if r, ok := out["Retired"]; ok {
+			fmt.Fprintf(stdout, "retired %v: this node could not open the superseded key (it was sealed under another master key), so an envelope still sealed to it is answered certificate_renewed\n", r)
+		}
 		if d, ok := out["MoveDone"]; ok {
 			fmt.Fprintf(stdout, "contacts told of the new address: done=%v failed=%v (re-run `account announce` for the rest)\n", d, out["MoveFailed"])
 		}

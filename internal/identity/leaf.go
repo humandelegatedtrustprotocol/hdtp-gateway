@@ -385,8 +385,10 @@ type InstallResult struct {
 	Endpoint        string
 	NotBefore       time.Time
 	NotAfter        time.Time
-	OldKP           *Keypair // the superseded LEAF's key on a renewal; nil on a first install
-	NewKP           *Keypair
+	// Retired names every superseded leaf whose key this node could not open, and which was
+	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
+	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
+	Retired []string
 }
 
 // InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
@@ -439,16 +441,11 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 	}
 	res := InstallResult{
 		AccountID: a.ID, Slug: a.Slug, RootFingerprint: vr.RootFingerprint, Kid: pending.Kid,
-		FirstInstall: !a.HasRoot(), Endpoint: vr.Endpoint, NotBefore: vr.Leaf.NotBefore, NotAfter: vr.Leaf.NotAfter, NewKP: kp,
+		FirstInstall: !a.HasRoot(), Endpoint: vr.Endpoint, NotBefore: vr.Leaf.NotBefore, NotAfter: vr.Leaf.NotAfter,
 	}
 	if current != nil {
 		res.OldKid, res.OldEndpoint = current.Kid, current.Endpoint
 		res.KeyChanged = current.Kid != pending.Kid
-		if len(current.KeySealed) > 0 {
-			if res.OldKP, err = m.openLeafKey(current.KeySealed); err != nil {
-				return InstallResult{}, err
-			}
-		}
 		if res.KeyChanged {
 			if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: current.Kid, Leaf: current.Leaf, NotBefore: current.NotBefore, NotAfter: current.NotAfter, State: LeafSuperseded, Endpoint: current.Endpoint}); err != nil {
 				return InstallResult{}, err
@@ -474,6 +471,33 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		// contacts still reach us while they re-pin"; those were the only callers who ever held
 		// it. `SetAccountLeafKey` below overwrites the sealed key, which is what destroys it.
 		res.KeyChanged = true
+	}
+	// A superseded leaf is kept for one reason: to be SERVED, as a guest, until its notAfter, so an
+	// envelope still sealed to it is answered `certificate_renewed` (PACT §14.4). A key this node
+	// cannot open cannot be served, and the only way that happens is that the master key it was
+	// sealed under is gone. Such a row is retired — key destroyed, kid kept — rather than kept as a
+	// guest that fails every listing of this account's keys and takes the account down with it.
+	//
+	// Until 2026-09-19 this was a dead end instead. The install unsealed the outgoing leaf's key
+	// into `InstallResult.OldKP` and failed if it could not; nothing read that field — it fed the
+	// 1.x rotation fan-out, which signed with the old key — so a node that had lost its master key
+	// could not install the one thing that recovers it, for the sake of a value nobody used. Under
+	// 2.0 that recovery is real: the identity is the root, the root is in the wallet, and the
+	// wallet can certify this host again.
+	for _, l := range leaves {
+		outgoing := current != nil && res.KeyChanged && l.Kid == current.Kid
+		if l.State != LeafSuperseded && !outgoing {
+			continue
+		}
+		if len(l.KeySealed) > 0 {
+			if _, oerr := m.openLeafKey(l.KeySealed); oerr == nil {
+				continue
+			}
+		}
+		if err := m.Store.RetireLeafKey(ctx, a.ID, l.Kid); err != nil {
+			return InstallResult{}, err
+		}
+		res.Retired = append(res.Retired, l.Kid)
 	}
 	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
 		return InstallResult{}, err

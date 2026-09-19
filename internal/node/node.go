@@ -144,6 +144,11 @@ type Node struct {
 	// operator can be TOLD which ones and what to run, rather than meeting a
 	// node that reports "serving" and answers for nobody.
 	awaiting map[string]struct{}
+	// Slugs this node holds and could not build, each with why. An account awaiting a leaf is
+	// ordinary and says what to run; one of these is broken — most often a key sealed under a
+	// master key that is not this one — and until 2026-09-19 it was an audit row and nothing
+	// else, so `serve` printed "serving" over an account that answered nobody.
+	unavailable map[string]string
 
 	limiter *public.Limiter
 	// binder pins an MCP session id to the identity that created it (SPEC §5.6).
@@ -188,11 +193,12 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	}
 	n := &Node{
 		opts: o, cfg: o.Config,
-		idm:      &identity.Manager{Store: o.Store, Keyring: o.Keyring},
-		accounts: map[string]*account{},
-		bySlug:   map[string]*account{},
-		byHost:   map[string]*account{},
-		awaiting: map[string]struct{}{},
+		idm:         &identity.Manager{Store: o.Store, Keyring: o.Keyring},
+		accounts:    map[string]*account{},
+		bySlug:      map[string]*account{},
+		byHost:      map[string]*account{},
+		awaiting:    map[string]struct{}{},
+		unavailable: map[string]string{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
 	recs, err := o.Store.ListAccounts(ctx)
@@ -200,9 +206,15 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		return nil, fmt.Errorf("node: list accounts: %w", err)
 	}
 	var unavailable []string
+	// Whether any account's key opened under this master key — a served account's, or one that
+	// has a key and is only waiting for its leaf. See the refusal below.
+	keyProven := false
 	for _, rec := range recs {
 		a, err := n.buildAccount(ctx, rec)
 		if errors.Is(err, ErrAwaitingLeaf) {
+			if !errors.Is(err, errAwaitingKeyless) {
+				keyProven = true
+			}
 			o.audit("account_awaiting_leaf", "account:"+rec.ID+" slug:"+rec.Slug, "skipped")
 			n.awaiting[rec.Slug] = struct{}{}
 			continue
@@ -213,8 +225,10 @@ func New(ctx context.Context, o Options) (*Node, error) {
 			// broken account is visible and the rest of the node answers.
 			o.audit("account_unavailable", "account:"+rec.ID+" slug:"+rec.Slug, err.Error())
 			unavailable = append(unavailable, fmt.Sprintf("%s: %v", rec.Slug, err))
+			n.unavailable[rec.Slug] = err.Error()
 			continue
 		}
+		keyProven = true
 		n.accounts[rec.ID] = a
 		n.bySlug[rec.Slug] = a
 		n.indexHost(a)
@@ -222,8 +236,27 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// Every account failing is not one broken account: it is the node misconfigured
 	// — the wrong keyring, an unreadable store — and it fails at New rather than at
 	// call time, where the operator would meet it one request at a time.
-	if len(n.accounts) == 0 && len(unavailable) > 0 {
-		return nil, fmt.Errorf("node: no account could be served: %s", strings.Join(unavailable, "; "))
+	//
+	// It stays a refusal, and it says the two things it can mean. The likelier one is the wrong
+	// master key, and a node that started anyway would seal new settings and credentials under it
+	// and leave the store sealed under two. The other is a master key that is gone for good, and
+	// under 2.0 that is recoverable — the identities are roots in wallets, not keys in this store —
+	// by treating this node's own data as another host's (docs/operations.md, Recovery).
+	//
+	// "Every account failing" is judged by the master key, not by how many accounts are served.
+	// The test used to be `len(n.accounts) == 0`, which counted an account that is merely awaiting
+	// its leaf as a failure: a node holding one such account and one broken one refused to start,
+	// and so took away the admin socket the waiting account needed to ask for its certificate. An
+	// awaiting account whose key OPENED is the opposite of a failure — it is proof the master key
+	// is the right one, and whatever else is broken is broken for a reason of its own, and named
+	// on the banner. One with no key at all proves nothing either way.
+	if !keyProven && len(unavailable) > 0 {
+		return nil, fmt.Errorf("node: no account could be served: %s\n"+
+			"if this is the wrong master key, supply the right one (PACT_MASTER_KEY or keyring.key) and nothing is lost.\n"+
+			"if the master key is gone for good, the identities are not — they are roots in wallets. Offline: "+
+			"`backup create -without-master-key -out <file>`, then `backup restore -from <file> -data-only -yes`; "+
+			"the accounts come back awaiting a leaf, and `serve` names the command for each",
+			strings.Join(unavailable, "; "))
 	}
 
 	n.srv = &public.Server{
@@ -356,6 +389,11 @@ func probeHandler(publicURL func() string) http.Handler {
 // create` has to tell "cannot serve yet" apart from "could not be created".
 var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 
+// errAwaitingKeyless is ErrAwaitingLeaf for an account that holds no key at all. Every caller
+// treats the two alike except New, which needs to know whether an awaiting account's key OPENED:
+// one that did is proof this master key is the store's, and one with no key proves nothing.
+var errAwaitingKeyless = fmt.Errorf("%w (it holds no key here)", ErrAwaitingLeaf)
+
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
 	if err != nil {
@@ -364,7 +402,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	if len(sealed) == 0 {
 		// A data-only import (PACT §9): the account is here, its key is not,
 		// and it serves nothing until the wallet issues a leaf to this host.
-		return nil, ErrAwaitingLeaf
+		return nil, errAwaitingKeyless
 	}
 	kp, err := n.idm.LoadKeypair(sealed)
 	if err != nil {
@@ -589,6 +627,17 @@ func (n *Node) AwaitingLeaf() []string {
 		out = append(out, slug)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// Unavailable lists, by slug, the accounts this node holds and could not build, with the reason.
+func (n *Node) Unavailable() map[string]string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	out := make(map[string]string, len(n.unavailable))
+	for slug, why := range n.unavailable {
+		out[slug] = why
+	}
 	return out
 }
 
@@ -942,8 +991,9 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	n.accounts[rec.ID] = a
 	n.bySlug[rec.Slug] = a
 	n.indexHost(a)
-	// It has a certificate now, so it is no longer waiting for one.
+	// It has a certificate now, so it is no longer waiting for one — nor broken, if it was.
 	delete(n.awaiting, rec.Slug)
+	delete(n.unavailable, rec.Slug)
 	n.mu.Unlock()
 	return nil
 }

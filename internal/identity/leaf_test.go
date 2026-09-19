@@ -143,7 +143,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res2.FirstInstall || !res2.KeyChanged || res2.OldKid != a.Fingerprint || res2.OldKP == nil || res2.Kid != csr2.Kid {
+	if res2.FirstInstall || !res2.KeyChanged || res2.OldKid != a.Fingerprint || len(res2.Retired) != 0 || res2.Kid != csr2.Kid {
 		t.Fatalf("renewal install: %+v", res2)
 	}
 	keys, _ = m.ActiveLeafKeypairs(ctx, a.ID, later)
@@ -274,7 +274,7 @@ func TestAFirstLeafOverAFreshKeyRetiresNothing(t *testing.T) {
 	if !res.FirstInstall || !res.KeyChanged {
 		t.Fatalf("install: %+v", res)
 	}
-	if res.OldKid != "" || res.OldKP != nil {
+	if res.OldKid != "" || len(res.Retired) != 0 {
 		t.Fatalf("a first install supersedes no leaf, so it has no old key to report: %q", res.OldKid)
 	}
 
@@ -367,7 +367,7 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	// Nothing to retire: the account named a key it never held, so that kid must not
 	// become a superseded leaf — the host would be promising `certificate_renewed`
 	// answers it cannot seal (PACT §14.4).
-	if res.OldKid != "" || res.OldKP != nil {
+	if res.OldKid != "" || len(res.Retired) != 0 {
 		t.Fatalf("a key this host never had was retired: %+v", res)
 	}
 	leaves, err := st.ListLeaves(ctx, a.ID)
