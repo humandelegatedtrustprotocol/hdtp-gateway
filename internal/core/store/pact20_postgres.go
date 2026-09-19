@@ -109,6 +109,17 @@ func (s *Postgres) RetireLeafKey(ctx context.Context, accountID, kid string) err
 	return nil
 }
 
+func (s *Postgres) ClearAccountKey(ctx context.Context, accountID string) error {
+	n, err := s.q.ClearAccountKey(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: account %s not found", accountID)
+	}
+	return nil
+}
+
 func (s *Postgres) DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error) {
 	n, err := s.q.DeleteLeavesByState(ctx, pgdb.DeleteLeavesByStateParams{AccountID: accountID, State: state})
 	if err != nil {

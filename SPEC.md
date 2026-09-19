@@ -287,6 +287,19 @@ nothing keeps the old pin until the old leaf expires, because the newest leaf at
 pinned endpoint wins whenever it arrives (PACT §14.3). There is no rotation ceremony and
 no grace period to configure: nothing contacts hold is pinned to anything the node keeps.
 
+**A leaf's key does not outlive its leaf.** A leaf is the root's trust in this host *until one
+date*. Past that date every verifier refuses the leaf (PACT §14.2 rule 4), so the key can do
+nothing legitimate, and the node MUST stop using it at once and MUST destroy it: from `notAfter`
+the key is no longer offered for opening an envelope or presented at a handshake, and the next
+retirement pass — at start, on the hourly sweep, and when an account is adopted — sets the ledger
+row to `former` with no key, clears the account's copy of the same key, stops serving the account
+if the leaf was its current one, and records `account_leaf_key_retired` with `reason:expired`.
+The ledger row and its key id stay, so an envelope still sealed to it is answered
+`certificate_renewed` (PACT §14.4); the account keeps its name, its root and its contacts, and
+waits for a renewal, which has never needed the old key. This holds for the current leaf as much
+as a superseded one. It did not: a leaf nobody renewed was served, and its key held, for as long
+as the process ran.
+
 Losing the **root** is losing the identity, and the root is not here. It lives in the
 person's wallet (PACT §9): no third party holds a copy, this node cannot mint one, and
 there is no recovery ceremony. That trade-off is the wallet's to state; it is repeated

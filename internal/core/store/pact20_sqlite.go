@@ -109,6 +109,17 @@ func (s *SQLite) RetireLeafKey(ctx context.Context, accountID, kid string) error
 	return nil
 }
 
+func (s *SQLite) ClearAccountKey(ctx context.Context, accountID string) error {
+	n, err := s.q.ClearAccountKey(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: account %s not found", accountID)
+	}
+	return nil
+}
+
 func (s *SQLite) DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error) {
 	n, err := s.q.DeleteLeavesByState(ctx, sqlitedb.DeleteLeavesByStateParams{AccountID: accountID, State: state})
 	if err != nil {

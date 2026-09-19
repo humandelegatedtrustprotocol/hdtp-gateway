@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net"
@@ -63,6 +62,23 @@ func (r *running) stop() int {
 		}
 	})
 	return r.code
+}
+
+// publicURLOf reads the public URL out of the config runServe has already written into dir, for a
+// seed that needs to name the address this node will answer at.
+func publicURLOf(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		PublicURL string `json:"public_url"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg.PublicURL == "" {
+		t.Fatalf("no public_url in the test's config: %v", err)
+	}
+	return cfg.PublicURL
 }
 
 // runServe starts the real `serve` command against a fresh data dir.
@@ -573,18 +589,39 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		st.Close()
-		// bob is what `npm run leave` writes: the account row without any key,
-		// because a leaf key belongs to the host that issued it and does not
-		// travel. Arriving from elsewhere makes his next certificate a move.
-		db, err := sql.Open("sqlite", filepath.Join(dir, "pact.db"))
+		// bob is what `npm run leave` writes: an account with its root and its ledger and no key,
+		// because a leaf key belongs to the host that issued it and does not travel. The last leaf
+		// he held named another host's address, which is what makes his next certificate a move.
+		//
+		// He used to be an account with no key and NO ROOT, which no import produces, and the
+		// banner called that a move because "no key" was all it looked at.
+		if err := st.SetAccountRoot(ctx, bob.ID, "sha256:bobs-root", []byte("root-der")); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.InsertLeaf(ctx, store.Leaf{AccountID: bob.ID, Kid: "sha256:bob-there", Leaf: []byte("leaf-der"), NotBefore: 5, NotAfter: 50,
+			State: identity.LeafFormer, Endpoint: "https://bob.pact.contact/mcp"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.ClearAccountKey(ctx, bob.ID); err != nil {
+			t.Fatal(err)
+		}
+		// erin held a leaf for THIS node's address and no longer does — it ran out, or the node was
+		// restored from a bundle, which carries no leaf key. Same host, same address: a renewal.
+		erin, err := idm.CreateAccount(ctx, "erin", "Erin", identity.AlgoP256)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.ExecContext(ctx, "UPDATE accounts SET key_sealed = NULL WHERE id = ?", bob.ID); err != nil {
+		if err := st.SetAccountRoot(ctx, erin.ID, "sha256:erins-root", []byte("root-der")); err != nil {
 			t.Fatal(err)
 		}
-		db.Close()
+		if err := st.InsertLeaf(ctx, store.Leaf{AccountID: erin.ID, Kid: "sha256:erin-here", Leaf: []byte("leaf-der"), NotBefore: 5, NotAfter: 50,
+			State: identity.LeafFormer, Endpoint: identity.EndpointFor(publicURLOf(t, dir), "erin")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.ClearAccountKey(ctx, erin.ID); err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
 	})
 	// Read the banner after serve has returned, so nothing is still writing to it.
 	r.stop()
@@ -595,6 +632,8 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 		"awaiting a certificate, not served: bob",
 		"account csr -slug bob -purpose move",
 		"account install-leaf -slug bob",
+		"awaiting a certificate, not served: erin",
+		"account csr -slug erin -purpose renew",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the banner never said %q:\n%s", want, out)

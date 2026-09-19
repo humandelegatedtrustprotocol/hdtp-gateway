@@ -144,13 +144,15 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 	var out []LeafKey
 	for _, l := range leaves {
 		switch l.State {
-		case LeafCurrent:
-		case LeafSuperseded:
+		case LeafCurrent, LeafSuperseded:
 			if !now.Before(time.Unix(l.NotAfter, 0)) {
-				// Past its notAfter: not served. The destruction of the key is
-				// `RetireExpiredLeafKeys`, not this — a read that writes turns
-				// every inbound request into a write, and swallowed the error of
-				// the one thing here that must not fail quietly.
+				// Past its notAfter: not served, and that holds for the CURRENT leaf as much as a
+				// superseded one. It used to be checked for superseded leaves only, so a leaf
+				// nobody renewed went on being presented and its key went on opening envelopes
+				// for as long as the process ran. The destruction of the key is
+				// `RetireExpiredLeafKeys`, not this — a read that writes turns every inbound
+				// request into a write, and swallowed the error of the one thing here that must
+				// not fail quietly.
 				continue
 			}
 		default:
@@ -197,25 +199,57 @@ func (m *Manager) AdoptCurrentLeafKey(ctx context.Context, accountID string, lk 
 	return m.Store.SetAccountLeafKey(ctx, accountID, lk.Kid, sealed, string(lk.KP.Algo))
 }
 
-// RetireExpiredLeafKeys destroys the key of every superseded leaf past its
-// notAfter, keeping the kid so an envelope sealed to it is still answered
-// `certificate_renewed` (§14.4). Called where the node already writes — adopting
-// an account, installing a leaf — rather than on the read path every inbound
-// request takes.
-func (m *Manager) RetireExpiredLeafKeys(ctx context.Context, accountID string, now time.Time) error {
+// RetiredLeaf is one leaf whose key RetireExpiredLeafKeys destroyed.
+type RetiredLeaf struct {
+	Kid string
+	// Current says it was the leaf the account served under. The account's own copy of the key
+	// went with it, so the account now awaits a leaf and must stop being served.
+	Current bool
+}
+
+// RetireExpiredLeafKeys destroys the key of every leaf past its notAfter, keeping the kid so an
+// envelope sealed to it is still answered `certificate_renewed` (§14.4).
+//
+// EVERY leaf, the current one included. An expired leaf is refused by every verifier (PACT §14.2
+// rule 4), so its key can do nothing legitimate, and a leaf is the root's trust in this host UNTIL
+// A DATE: past the date, the key is something this host was never meant to still hold. It used to
+// retire only `superseded` leaves, so the key of a leaf that simply ran out — nobody renewed it —
+// stayed in the store for good, in the ledger row and again in the account's.
+//
+// A renewal after expiry loses nothing by this: `renew` always mints a fresh key.
+//
+// Order matters for a current leaf, because these are two writes and no transaction. The account's
+// copy goes FIRST: if the second write fails, the account is keyless — which the node reads as
+// awaiting a leaf — and the ledger row is still `current` and still expired, so the next pass
+// finishes the job. The other order leaves a key in the account row that nothing would ever find.
+//
+// Called where the node already writes — at boot, on the hourly sweep, when an account is adopted —
+// and never on the read path every inbound request takes.
+func (m *Manager) RetireExpiredLeafKeys(ctx context.Context, accountID string, now time.Time) ([]RetiredLeaf, error) {
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var out []RetiredLeaf
 	for _, l := range leaves {
-		if l.State != LeafSuperseded || now.Before(time.Unix(l.NotAfter, 0)) {
+		if l.State != LeafCurrent && l.State != LeafSuperseded {
 			continue
 		}
-		if err := m.Store.RetireLeafKey(ctx, accountID, l.Kid); err != nil {
-			return fmt.Errorf("identity: retire %s: %w", l.Kid, err)
+		if now.Before(time.Unix(l.NotAfter, 0)) {
+			continue
 		}
+		current := l.State == LeafCurrent
+		if current {
+			if err := m.Store.ClearAccountKey(ctx, accountID); err != nil {
+				return out, fmt.Errorf("identity: retire %s: %w", l.Kid, err)
+			}
+		}
+		if err := m.Store.RetireLeafKey(ctx, accountID, l.Kid); err != nil {
+			return out, fmt.Errorf("identity: retire %s: %w", l.Kid, err)
+		}
+		out = append(out, RetiredLeaf{Kid: l.Kid, Current: current})
 	}
-	return nil
+	return out, nil
 }
 
 // FormerKids are the key identifiers of leaves once held and held no longer —
