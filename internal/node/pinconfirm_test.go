@@ -92,3 +92,49 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 		t.Fatalf("a failed confirmation was not audited:\n%s", rows)
 	}
 }
+
+// Who the sync sweep is for. `SyncContacts` exists to heal a card change whose announcement
+// missed us, not to re-confirm pins on a timer — 2.1 asks for no proactive confirmation and
+// this node does none. What it must get right is WHICH contacts it reaches: an active one is
+// visited even when its endpoint answers nothing, and a blocked one is not visited at all,
+// because a blocked contact is not somebody we call.
+func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
+	ctx := context.Background()
+	e, accts := newEnv(t, "me")
+	acct := accts[0]
+
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := probe.Addr().String()
+	_ = probe.Close()
+
+	reachable := testid.NewWallet(t, "Up")
+	rh := reachable.Issue(t, "https://"+dead+"/mcp")
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: acct.ID, Fingerprint: reachable.Fpr, SPKI: rh.Key.Public.SPKI,
+		Status: "active", Protocol: 2, Endpoint: rh.Endpoint, Leaf: rh.LeafDER,
+		Card: rh.Card("Up", "optional"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A blocked contact is deliberately NOT swept: it is not someone we call.
+	blocked := testid.NewWallet(t, "Blocked")
+	bh := blocked.Issue(t, "https://"+dead+"/mcp")
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: acct.ID, Fingerprint: blocked.Fpr, SPKI: bh.Key.Public.SPKI,
+		Status: "blocked", Protocol: 2, Endpoint: bh.Endpoint, Leaf: bh.LeafDER,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, _ := e.start(e.options())
+	checked, changed := n.SyncContacts(ctx)
+	if checked != 1 {
+		t.Fatalf("the sweep checked %d pins, want exactly the one ACTIVE contact", checked)
+	}
+	if changed != 0 {
+		t.Fatalf("an endpoint that answered nothing reported %d changes", changed)
+	}
+}
