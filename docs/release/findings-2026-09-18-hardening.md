@@ -28,8 +28,8 @@ it is cited for. Every finding below is an instance.
 | H16 | `docs/conformance.md:54,68` | `pending_approval` had two rows after H5 — the original and a new sealed one — and the table's dup-detection runs over §11.2, not this table. A reader taking either row alone gets half the rule | low | closed |
 | H17 | `internal/node/sync.go:194` (`verifySyncedCard`), `internal/cli/cli.go:652` | The contact-sync sweep verifies a re-fetched card under `stored.SPKI` — the pinned **leaf** key, which a renewal replaces — so a peer that has renewed is audited `contact_sync … invalid`. `"sync can never move a pin"` and `"key changes go through update_contact"` are 1.x invariants: under 2.0 a newer leaf signed by the pinned root is self-authorizing (§2, "because the endpoint is unchanged it needs no one's approval to accept it") | medium | closed |
 | H18 | — | **Withdrawn.** It was filed against a rule that no longer exists: §14.3's proactive confirmation interval was removed from 2.1 on the owner's instruction, in favour of a newer leaf arriving on use (§13.2, §14.4). There is no interval to implement, no `leaf_confirmed_at` to record, and nothing for the sweep to carry beyond what it already did | — | withdrawn |
-| H19 | `pact-identity/js/manifest.json`, `js/build.sh`, `js/verify.mjs`, `.github/workflows/pact-identity.yml` | The wasm byte-pin is presented as reproducible from a recorded toolchain, and is not reproducible across platforms. A **no-op** `sh js/build.sh` on darwin/arm64 with the manifest's exact `rustc 1.92.0` and `wasm-pack 0.15.0` produced 636920 bytes / `304c91d6…` against the pinned 639118 / `78a62973…`. The manifest records the compiler and wasm-pack versions and **no platform at all**, so it reads as a toolchain pin while the build host is the actual determinant | medium | **open** |
-| H20 | `pact-cloud/gateway/scripts/ceremony-smoke.mjs`, `package.json` | `test:ceremony` is in neither `check:fast` nor `check`, so the 103-check wallet suite is in no gate. Its section 4c tested `purpose: 'upgrade'` — a 1.x identity gaining a root — which `ceremony.js` itself records as removed on 2026-09-18, so the suite had been failing since that removal with nothing to notice. The dead section is deleted; being ungated is not fixed | medium | partly closed |
+| H19 | `pact-identity/js/manifest.json`, `pact-cloud/gateway/vendor/pact-identity/`, `js/build.sh` | **The shipped wasm core was stale and still contained 1.x code.** Pinned 2026-09-16; the 1.x removal deleted the compat-card encoder from the Rust source on 2026-09-18 and declared no rebuild necessary — true of the generic dispatch, false of the bytes. So the binary the ceremony embeds and the Worker runs carried the encoder, with the string `X-PACT-KEY` in it, for a generation nothing else spoke; and `check-wasm.mjs` compares the vendored bytes with a manifest exactly as old, so it could never notice. The same binary embedded its builder's home directory 76 times. *First filed, wrongly, as a cross-platform reproducibility problem* | medium | closed |
+| H20 | `pact-cloud/gateway/scripts/ceremony-smoke.mjs`, `package.json` | `test:ceremony` is in neither `check:fast` nor `check`, so the 103-check wallet suite is in no gate. Its section 4c tested `purpose: 'upgrade'` — a 1.x identity gaining a root — which `ceremony.js` itself records as removed on 2026-09-18, so the suite had been failing since that removal with nothing to notice. The dead section is deleted, and the suite is in a gate: `npm run check` ends on `test:ceremony:gated`, which skips only when no browser exists and says so unmissably rather than passing quietly | medium | closed |
 
 ## What the benchmarks say
 
@@ -157,6 +157,54 @@ the stolen one, so it is honoured until its `notAfter`. What bounds that is the 
 lifetime — which, as of the same day, is the person's own choice. Someone who trusts a host
 less signs a shorter leaf. That is a better answer than a poll, because it is one decision made
 once by the person at risk, instead of traffic every node generates forever.
+
+## H19: what was actually wrong, and the diagnosis that was not
+
+H19 was first filed as "the wasm byte-pin is not reproducible across platforms". That was
+**false**, and it is kept here because the way it went wrong is the defect this whole register
+is about. The evidence was one observation — a no-op rebuild gave 636920 bytes against the
+pinned 639118 — and the platform explanation was an inference nobody tested, written with
+complete confidence into this file, a commit message, and (briefly, never committed)
+`verify.mjs`, the workflow and `VENDORED.md`. Testing it took two commands:
+
+```
+strings pinned.wasm | grep -c sumitagrawal      →  76     built on this machine, not the runner
+strings pinned.wasm | grep -c X-PACT-KEY        →   1     a fresh build has 0
+```
+
+The pin dated from 2026-09-16 and `crates/` last changed on 2026-09-18. The byte difference
+was the deleted 1.x encoder, not the operating system.
+
+What was fixed, all of it from this machine, which the false diagnosis had said was
+impossible:
+
+- **The core was rebuilt from current source**, so the shipped binary no longer contains the
+  compat-card encoder or any 1.x string. 635480 bytes, `8694b166…`.
+- **`js/build.sh` remaps paths**, which removes the home directory from the artifact and makes
+  the bytes independent of the build directory. This one is proven rather than asserted: the
+  same commit was built a second time from an unrelated directory and produced the identical
+  hash.
+- **The ports report `spec: "2.1.0"`**, not `2.0.0-draft`, and cannot drift again: both ports'
+  vector suites already read `SPEC.md`, and each now compares its constant with that document's
+  own version line (`the_core_reports_the_version_of_the_document_it_is_proven_against`,
+  `TestSpecVersionIsTheDocumentsOwn`).
+- A cloud test, `pact-core.test.ts`, **asserted the stale literal `'2.0.0-draft'`** and so held
+  the wrong value in place. It now requires a released version and never a draft.
+- The ceremony, which embeds the core, was re-pinned (`2e8beef9…`).
+
+What is still **unknown and said to be unknown**: whether a Linux host produces these same
+bytes. Path remapping removes the one cause that was found; it is not a proof of cross-host
+reproducibility, and the workflow's `git diff --exit-code js/manifest.json` is where that will
+be learned. If it fails there, the manifest should take the runner's values.
+
+And the structural gap that let the core go stale is only half closed. `check-wasm.mjs`
+compares vendored bytes with a vendored manifest; both age together. What would have caught
+this is comparing the pin's date with the source's — which `verify.mjs` now tells a person to
+do when it fails, but nothing does automatically.
+
+One more thing this section is evidence of. The original H19 narrative was **deleted by
+accident** when H18 was rewritten — a slice that ran to the next heading took it along — and
+nothing noticed until this rewrite looked for it. Prose has no test.
 
 ## What is proven where
 
