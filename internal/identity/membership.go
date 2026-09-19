@@ -29,8 +29,8 @@ import (
 // MembershipRoleAdmin is v1's only role (SPEC §3.3).
 const MembershipRoleAdmin = "admin"
 
-// grantToAllOwners gives every existing owner admin membership of one account.
-func grantToAllOwners(ctx context.Context, st store.Store, accountID string) error {
+// GrantToAllOwners gives every existing owner admin membership of one account.
+func GrantToAllOwners(ctx context.Context, st store.Store, accountID string) error {
 	owners, err := st.ListOwners(ctx)
 	if err != nil {
 		return fmt.Errorf("identity: listing owners: %w", err)

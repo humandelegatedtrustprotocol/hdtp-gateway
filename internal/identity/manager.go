@@ -71,7 +71,7 @@ func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, a
 	}
 	// SPEC §3.3: account-scoped actions require membership. Without this the
 	// account is invisible to every owner surface — see membership.go.
-	if err := grantToAllOwners(ctx, m.Store, a.ID); err != nil {
+	if err := GrantToAllOwners(ctx, m.Store, a.ID); err != nil {
 		return store.Account{}, err
 	}
 	a.Fingerprint = kp.Fingerprint

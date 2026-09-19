@@ -303,22 +303,22 @@ as the process ran.
 Losing the **root** is losing the identity, and the root is not here. It lives in the
 person's wallet (PACT §9): no third party holds a copy, this node cannot mint one, and
 there is no recovery ceremony. That trade-off is the wallet's to state; it is repeated
-once here so that nobody reads a backup of this node (§3.10) as a backup of the identity.
-It is not, and it is not a backup of the leaf's key either.
+once here so that nobody reads an export from this node (§3.10) as a copy of the identity.
+It is not, and it holds no key of any kind.
 
-### 3.10 What a backup carries
+### 3.10 What leaves a host, and what arrives
 
-`backup create` and `backup restore` (§12) are **offline** and reachable **only over host shell access** — never the portal, never the owner MCP, and never a bearer token.
+`export` and `import` (§12) are **offline** and reachable **only over host shell access** — never the portal, never the owner MCP, and never a bearer token.
 
-**A bundle MUST NOT carry a leaf's private key.** A leaf is the person's root entrusting *this host*, for one address, until one date (PACT §9, §14.1). Its key is the host's credential and not the person's data: a copy in a file would let whoever held the file speak as this host, from this address, until the leaf ran out — and nothing a contact holds could tell the difference. So `create` writes a snapshot of the database with every `key_sealed` set to NULL and every live ledger row demoted to `former`, and then **rebuilds the file**, because a value set to NULL stays in a database file's free pages until the file is rebuilt, and the bundle may carry the master key right beside it. `restore` strips the same columns again whatever the archive says, so a bundle made by an older node, or by hand, cannot bring one in.
+**An export carries a person's contacts and chats, and nothing else.** For each identity that has a root: its name — slug, display name, the root's fingerprint and certificate, all of it public — so the data has somebody to belong to; its contacts, as pinned and as the owner marked them (status, preset, permissions, trust flag, petname); and its conversations — threads, messages, and the media they refer to. An export MUST NOT carry a key of any kind: not a leaf's (a leaf is the root entrusting *this host*, for one address, until one date — PACT §9, §14.1 — and a copy of its key lets whoever holds the file speak as this host), and not the node's master key. It MUST NOT carry what belongs to the host rather than the person: saved settings, integration credentials, owners, passkeys, sessions, tokens, invites, the audit chain, or the ledger of leaves. There is no option that adds any of these.
 
-What follows is that every restore ends in the same place: the accounts are here by name, with their root, their contacts and their ledger, and **none is served** until the wallet issues this host a leaf (`account csr`, `account install-leaf`). `serve` names each waiting account. Contacts need do nothing — they pinned the root, and the new leaf reaches them with the first envelope (PACT §13.2, §14.3).
+It is written THROUGH the `Store` interface (§11.1), not copied out of a database. That makes it an allow-list by construction — the file holds what `internal/portable` asks the store for, so there is no column to forget to blank and no table to forget to drop — and it makes it work on Postgres exactly as on SQLite. The format is a gzipped tar: `MANIFEST.json` first, with the format version, the count of each kind of line and the SHA-256 of the data; `data.jsonl`, one JSON object per line, of kind `identity`, `contact`, `thread`, `message` or `media`; and `media/<sha256>` for each file a `media` line names. The file is created `0600` and an export never replaces an existing one.
 
-The master key (`keyring.key`) is a different matter and is handled by who the archive belongs to: it unseals saved settings and integration credentials (§11.3). An archive proven to be this node's own restores beside the key already here; `-same-node` brings it onto a fresh machine; `-data-only` takes another host's data and refuses its master key (PACT §9).
+**An import is strict, atomic, and ends with a new leaf.** A member, a kind of line, or a FIELD the importer does not know is a refusal, not something skipped: PACT §9 has an importing host refuse key material, and a reader that ignores what it does not recognise cannot promise that. The data must match the manifest's digest and counts, each media file must be the file its name says, and a root certificate — the identity's, or a contact's — must be the root whose fingerprint it travels under. An identity already on the node, by slug or by root, is refused: an import creates an identity and never merges into one. The rows go in under one transaction (`Store.Atomically`), so a refused or interrupted import leaves nothing; media is written after it commits. An undelivered outbound message arrives as `failed` with no retry schedule — delivering it was the old host's job, under the old host's leaf.
 
-There is no per-account export. `backup identity` and `backup restore-identity` moved one account's leaf key between nodes under a passphrase, which is the one thing this section forbids; a node that moves asks the wallet for a leaf of its own (`account csr -purpose move`).
+Every import therefore ends in the same place, whether it is a new machine, a new host, or this node after it lost its master key: the identity is here by name with its contacts and conversations, it holds no key and no ledger, and it is **not served** until the wallet issues this host a leaf (`account csr`, `account install-leaf`). `serve` names each waiting identity. Having arrived with no ledger, its first leaf here is a **move** (§9.1), and installing it starts the campaign that tells its contacts.
 
-On Postgres the store is external and no database is in the bundle. A `pg_dump` is a copy of the live database and holds the sealed keys; it is the operator's to keep apart from `keyring.key`.
+This is not a backup of the node and there is none. `backup create` copied the whole database beside the master key that unsealed it, and — until 2026-09-19 — every leaf's private key with it; `backup identity` moved one leaf key between nodes under a passphrase. Both are gone. What a host accumulates beyond contacts and chats is rebuilt after a loss, not restored.
 
 
 ---
@@ -973,7 +973,7 @@ This path is documented here as an **optional later feature** for the `cloudflar
 
 ### 11.1 Store interface and engines
 
-All persistence goes through a single Go `Store` interface. No SQL exists outside the store package, and none is written by hand inside it: every statement is a method **sqlc** generates from `queries/{sqlite,postgres}/*.sql`, and nothing outside the store may import `database/sql`, a driver, or goose — a caller that needs to know a row was absent asks `store.ErrNotFound`. There is one exception, named and counted: `SQLite.Snapshot`'s `VACUUM INTO`, which sqlc's SQLite grammar rejects and which is storage maintenance rather than a query. Tests may write SQL; a fixture has that privilege and the code under test does not. The first sentence of this paragraph was here, and untrue, until 2026-09-19 — `backup` opened the database and wrote its own statements — and `TestNoHandWrittenSQLOutsideTheStore` is what keeps it true. Migrations run with **goose**, with the schema maintained per engine. Two engines are supported:
+All persistence goes through a single Go `Store` interface. No SQL exists outside the store package, and none is written by hand inside it: every statement is a method **sqlc** generates from `queries/{sqlite,postgres}/*.sql`, and nothing outside the store may import `database/sql`, a driver, or goose — a caller that needs to know a row was absent asks `store.ErrNotFound`. There is no exception: the one there was — `SQLite.Snapshot`'s `VACUUM INTO`, which sqlc's grammar rejects — went when `backup` did, because an export is written through the store and copies no file. Tests may write SQL; a fixture has that privilege and the code under test does not. The first sentence of this paragraph was here, and untrue, until 2026-09-19 — `backup` opened the database and wrote its own statements — and `TestNoHandWrittenSQLOutsideTheStore` is what keeps it true. Migrations run with **goose**, with the schema maintained per engine. Two engines are supported:
 
 - **SQLite** via modernc.org/sqlite — the default; pure Go, which preserves the static `CGO_ENABLED=0` build (§12).
 - **PostgreSQL** via pgx — enabled by the `postgres` compose profile (§12).
@@ -1059,7 +1059,8 @@ One binary, subcommand-per-concern:
 | `passkey` | `list` \| `remove` \| `reset-wizard` — owner passkeys; `reset-wizard` mints a one-time setup URL (§3.1, §8.6) |
 | `token` | `create` \| `list` \| `revoke` — named owner-MCP bearer tokens (§3, §8.4) |
 | `audit` | `verify` \| `export` \| `archive` \| `repair` — the hash chain, offline; the node must be stopped (§11.4, §11.6) |
-| `backup` | `create` \| `restore` a consistent snapshot of the node's data, offline (§11). No leaf key is in one, so a restored account waits for a leaf from its wallet (§3.10) |
+| `export` | Write every identity's contacts and chats — and nothing else — to a file, offline (§3.10). No key, no settings, no credentials |
+| `import` | Take an export in, offline: strict, atomic, never merging into an identity already here. Each identity then waits for a new leaf from its wallet (§3.10) |
 | `version` | Print the version |
 
 Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate` — MUST run only with the node stopped: they check the store lock and refuse to proceed while the node holds it.
@@ -1140,7 +1141,7 @@ flowchart TB
 
 **Lost root = new identity; a lost leaf key is a renewal.** The root is the identity and it is in the person's wallet (PACT §2, §9): there is deliberately no recovery ceremony for it and no third party holds a copy, so a destroyed root means a new identity — re-share a card and re-pair with every contact. What this node holds is a leaf's key, and losing that costs a renewal and nothing else (§3.9): the wallet signs a new leaf under the same root, and every contact's pin — which is to the root — still holds. This paragraph said "lost key = new identity" and pointed at `account rotate-key` until 2026-09-19, two pages after §3.9 had said the opposite.
 
-**A backup is data, never a credential.** No bundle carries a leaf's key (§3.10), so an archive that leaks costs the owner their records' confidentiality and not their voice: nobody can speak as this host from it. The price is paid at restore, where every account waits for a fresh leaf; that is one wallet ceremony per account, and it is the same ceremony a renewal is.
+**What leaves a host is contacts and chats, never a credential.** An export carries no key of any kind and nothing of the host's own (§3.10), so a file that leaks costs the owner the confidentiality of their address book and their conversations and not their voice: nobody can speak as this host, or reach into it, from one. The price is paid on arrival, where every identity waits for a fresh leaf and the host's own configuration is made again; the first is one wallet ceremony per identity, and it is the same ceremony a renewal is.
 
 **Loopback internal surface = physical trust.** On a loopback bind, the portal and owner MCP run without authentication (CSRF protection stays on); any other bind refuses to start without passkey auth + TLS (§8). The accepted meaning: whoever can originate a loopback connection on the host is the owner, as far as the node is concerned. Isolation between local users and processes on a shared host is host administration, outside this spec.
 
@@ -1178,5 +1179,5 @@ flowchart TB
 | P2 | messaging, passkeys, tokens, Cedar, switchboard, owner MCP | browser pairing demo; agent reads inbox |
 | P3 | upstream transports + OAuth, catalogs, exposures, three serving modes, providers, recipes, warnings | contact books a real Google Calendar slot |
 | P4 | outbound hardening, tunnel adapters, LAN flag, doctor | NAT-crossing via tailscale; sealed cloudflared edge |
-| P5 | ingress role, backups, docs | own-domain VPS passthrough + terminate front |
+| P5 | ingress role, export and import, docs | own-domain VPS passthrough + terminate front |
 | P6 | PACT 2.0: root and leaf, chains on the wire, the move campaign, 1.x removed | two nodes pair through Cloudflare under chains they never share a key for |
