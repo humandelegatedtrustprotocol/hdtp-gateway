@@ -38,10 +38,10 @@ func testServer(t *testing.T, slugs []string) (addr string, certs map[string]*tl
 	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f := FactsFrom(r.Context())
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"account":  r.PathValue("slug"),
-			"caller":   f.ClientCertFingerprint,
-			"protocol": f.ClientProtocol,
-			"path":     r.URL.Path,
+			"account":      r.PathValue("slug"),
+			"caller":       f.ClientCertFingerprint,
+			"chain_proven": f.ChainProven(),
+			"path":         r.URL.Path,
 		})
 	})
 	srv := &Server{
@@ -107,12 +107,12 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 	addr, certs, stop := testServer(t, []string{"work"})
 	defer stop()
 
-	read := func(body string) (string, float64) {
+	read := func(body string) (string, bool) {
 		var f map[string]any
 		_ = json.Unmarshal([]byte(body), &f)
 		caller, _ := f["caller"].(string)
-		proto, _ := f["protocol"].(float64)
-		return caller, proto
+		proven, _ := f["chain_proven"].(bool)
+		return caller, proven
 	}
 
 	// no client cert
@@ -133,9 +133,9 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("unknown-cert: %d", code)
 	}
-	caller, proto := read(body)
-	if caller != "" || proto != 0 {
-		t.Fatalf("a lone certificate must establish no identity, got caller=%q protocol=%v (its own key is %s)", caller, proto, kp.Fingerprint)
+	caller, proven := read(body)
+	if caller != "" || proven {
+		t.Fatalf("a lone certificate must establish no identity, got caller=%q chain_proven=%v (its own key is %s)", caller, proven, kp.Fingerprint)
 	}
 
 	// A chain that validates: the caller is the ROOT it proves, not the leaf.
@@ -145,9 +145,9 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("chain: %d", code)
 	}
-	caller, proto = read(body)
-	if caller != p.fpr() || proto != 2 {
-		t.Fatalf("a validated chain names its root: caller=%q protocol=%v, want %s / 2", caller, proto, p.fpr())
+	caller, proven = read(body)
+	if caller != p.fpr() || !proven {
+		t.Fatalf("a validated chain names its root: caller=%q chain_proven=%v, want %s / true", caller, proven, p.fpr())
 	}
 	leafFpr := pactidentity.Fingerprint(mustParse(t, p.leaf).SPKI)
 	if caller == leafFpr {

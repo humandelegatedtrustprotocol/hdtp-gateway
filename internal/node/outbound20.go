@@ -43,7 +43,7 @@ func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 	n.mu.RUnlock()
 	return outbound.Peer{
 		Endpoint: endpoint, Fingerprint: c.Fingerprint, Seal: seal,
-		Protocol: 2, Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
+		Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
 	}, nil
 }
 
@@ -56,13 +56,13 @@ func (n *Node) wire20(accountID string, client *outbound.Client) *outbound.Clien
 		n.mu.RLock()
 		a := n.accounts[accountID]
 		n.mu.RUnlock()
-		if a == nil || peer.Protocol != 2 {
+		if a == nil || !peer.Known() {
 			return
 		}
 		_ = n.opts.Store.SetContactChainSentKid(context.Background(), accountID, peer.Root, a.kp.Fingerprint)
 	}
 	client.OnRepin = func(peer outbound.Peer, leaf, spki []byte) {
-		if peer.Protocol != 2 {
+		if !peer.Known() {
 			return
 		}
 		if err := n.opts.Store.RepinContactAddress(context.Background(), accountID, peer.Root, peer.Endpoint, leaf, spki, n.now().Unix()); err != nil {

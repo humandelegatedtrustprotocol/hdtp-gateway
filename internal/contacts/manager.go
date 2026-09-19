@@ -111,14 +111,13 @@ type RedeemResult struct {
 	Permissions []string
 }
 
-// Proof is what a guest proved this call: in 1.x a key, in 2.0 a chain — the
-// root that is the identity, the leaf's key, and the endpoint and leaf the pin
-// records (PACT §14.2 rule 6, §14.3). SelfEndpoint is this account's own
-// address, for the guard a guest's card must pass (PACT §3).
+// Proof is what a guest proved this call: a chain — the root that is the identity, the
+// leaf's key, and the endpoint and leaf the pin records (PACT §14.2 rule 6, §14.3).
+// SelfEndpoint is this account's own address, for the guard a guest's card must pass
+// (PACT §3). A caller that proved no chain has the zero Proof, which is refused.
 type Proof struct {
-	Fingerprint  string // 1.x: the key's; 2.0: the root's
-	SPKI         []byte // the key to seal to and verify under
-	Protocol     int
+	Fingerprint  string // the root's: the identity
+	SPKI         []byte // the leaf's key — what to seal to and verify under
 	Endpoint     string
 	Leaf         []byte
 	SelfEndpoint string
@@ -143,23 +142,22 @@ func (p Proof) vet(card string) (Card, error) {
 	if pc.Key != p.Fingerprint {
 		return Card{}, fmt.Errorf("%w: the card names another root than the chain proved", ErrIdentityRequired)
 	}
-	if p.Protocol == 2 {
-		if !bytes.Equal(pc.Cert, p.Leaf) {
-			return Card{}, fmt.Errorf("%w: the card's certificate is not the proven leaf", ErrIdentityRequired)
-		}
-		if ok, why := pactidentity.AddressGuard(pc.Endpoint, p.SelfEndpoint, true); !ok {
-			return Card{}, fmt.Errorf("%w: endpoint refused: %s", ErrBadRequest, why)
-		}
+	// Unconditional. These two sat inside `if p.Protocol == 2`, so a Proof without the flag —
+	// a key and a fingerprint and nothing else — skipped both the binding of the card to the
+	// proven leaf and the address guard. Nothing in production built one; nothing stopped it.
+	if !bytes.Equal(pc.Cert, p.Leaf) {
+		return Card{}, fmt.Errorf("%w: the card's certificate is not the proven leaf", ErrIdentityRequired)
+	}
+	if ok, why := pactidentity.AddressGuard(pc.Endpoint, p.SelfEndpoint, true); !ok {
+		return Card{}, fmt.Errorf("%w: endpoint refused: %s", ErrBadRequest, why)
 	}
 	return pc, nil
 }
 
 func (p Proof) pin(c store.Contact) store.Contact {
 	c.Fingerprint, c.SPKI = p.Fingerprint, p.SPKI
-	if p.Protocol == 2 {
-		c.Endpoint, c.Leaf = p.Endpoint, p.Leaf
-		c.RootCert = p.RootCert
-	}
+	c.Endpoint, c.Leaf = p.Endpoint, p.Leaf
+	c.RootCert = p.RootCert
 	return c
 }
 

@@ -240,7 +240,7 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 		t.Fatalf("a stranger's request_contact: %v", err)
 	}
 	leaf, _ := pactidentity.Parse(p.leaf)
-	if !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || string(f.SPKI) != string(leaf.SPKI) || f.Endpoint != endpointA || f.Protocol != 2 || f.Card == "" || f.Demote {
+	if !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || string(f.SPKI) != string(leaf.SPKI) || f.Endpoint != endpointA || len(f.Leaf) == 0 || f.Card == "" || f.Demote {
 		t.Fatalf("guest facts: %+v", f)
 	}
 	// The card must carry the chain's own leaf.
@@ -495,7 +495,7 @@ func TestV2TransportPinChecks(t *testing.T) {
 	leaf, _ := pactidentity.Parse(p.leaf)
 	facts := func(l []byte) TransportFacts {
 		c, _ := pactidentity.Parse(l)
-		return TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: c.SPKI, ClientProtocol: 2, ClientLeaf: l, ClientEndpoint: c.URIs[0]}
+		return TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: c.SPKI, ClientLeaf: l, ClientEndpoint: c.URIs[0]}
 	}
 	e.id.Seal = core.SealOptional
 	// Unpinned: the root is the caller, and the store makes it a guest.

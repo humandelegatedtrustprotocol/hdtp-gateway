@@ -99,7 +99,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		t.Fatal(err)
 	}
 	cert := tls.Certificate{Certificate: [][]byte{leafDER, rootCert}, PrivateKey: kp.Signer}
-	kp.Leaf, kp.Root, kp.Protocol = leafDER, rootCert, 2
+	kp.Leaf, kp.Root = leafDER, rootCert
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: slug, DisplayName: strings.ToUpper(slug), Algo: "p256"})
 	if err := st.SetAccountKey(ctx, a.ID, kp.Fingerprint, []byte{1}); err != nil {
 		t.Fatal(err)
@@ -244,7 +244,7 @@ func (n *pactNode) spki() []byte {
 func (n *pactNode) asPeer(seal string) outbound.Peer {
 	return outbound.Peer{
 		Endpoint: n.endpoint, Fingerprint: n.rootFpr, Root: n.rootFpr,
-		Leaf: n.leafDER, Protocol: 2, Seal: seal,
+		Leaf: n.leafDER, Seal: seal,
 	}
 }
 

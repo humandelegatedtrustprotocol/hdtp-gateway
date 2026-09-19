@@ -177,7 +177,7 @@ func (e *toolEnv) callAs(guest *testid.Host, fpr, tool string, args map[string]a
 	}
 	if guest != nil {
 		ctx = WithEnvelopeFacts(ctx, &EnvelopeFacts{
-			Protocol: 2, From: guest.RootFpr, SPKI: guest.Key.Public.SPKI,
+			From: guest.RootFpr, SPKI: guest.Key.Public.SPKI,
 			Endpoint: guest.Endpoint, Leaf: guest.LeafDER, Guest: fpr == "",
 		})
 	}

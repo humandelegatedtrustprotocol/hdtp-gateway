@@ -110,7 +110,7 @@ func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(cont
 		var d net.Dialer
 		return d.DialContext(ctx, network, addr)
 	}
-	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Protocol: 2, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
+	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }
 
 // callerChain plays another person's wallet: an independent root and a leaf over

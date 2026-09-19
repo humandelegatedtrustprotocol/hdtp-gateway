@@ -53,7 +53,7 @@ func TestIdentityBackup20CarriesTheLeafAndNeverTheRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Fingerprint != kp.Fingerprint || got.Protocol != 2 || string(got.Leaf) != string(leaf) || string(got.Root) != string(root) {
+	if got.Fingerprint != kp.Fingerprint || !got.HasChain() || string(got.Leaf) != string(leaf) || string(got.Root) != string(root) {
 		t.Fatalf("the key must come back with its chain: %+v", got)
 	}
 	// A leaf swapped into the file is additional data that no longer matches.
