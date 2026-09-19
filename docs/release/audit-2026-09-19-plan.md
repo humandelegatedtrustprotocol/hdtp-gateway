@@ -539,17 +539,59 @@ one before it was fixed.*
 *Left for C:* `node.go` audits `account_unavailable` with `err.Error()` as the outcome; the cli's
 `TestAuditOutcomesAreLiteralVerdicts` would refuse that, and nothing checks the node package.
 
-### F2 · A leaf's key is destroyed when the leaf expires — `TODO`
+### F2 · A leaf's key is destroyed when the leaf expires — `DONE`
 Every state, not only `superseded`, and on the node's existing retention sweep rather than as a
 side effect of some other write. An expired leaf is refused everywhere (§2), so its key can do
 nothing legitimate; keeping it is pure exposure. The kid stays, so an envelope sealed to it is still
 answered `certificate_renewed` (§14.4).
-*Found on the way (F1):* `ActiveLeafKeypairsFor` says of an expired leaf "the destruction of the key
-is `RetireExpiredLeafKeys`, not this". No such function exists, and `Store.RetireLeafKey` has no
-production caller at all. So today nothing destroys an expired leaf's key: the comment cites a
-mechanism that was never built.
+*Diagnosis (corrected).* I wrote here, and in the F1 and F1b commit messages, that
+`RetireExpiredLeafKeys` "does not exist". It does (`internal/identity/leaf.go`); a `grep … | head`
+cut its line off and I recorded the absence as a finding. What is actually wrong is narrower:
+- it retires only `superseded` leaves, so an expired **current** leaf's key is never destroyed — not
+  in `leaves.key_sealed` and not in `accounts.key_sealed`, which holds the same key;
+- it runs only inside `AdoptAccount` (an `account create` or `install-leaf` on a running node). A
+  node that simply runs, or simply boots, never calls it;
+- an expired current leaf is still SERVED. I first wrote here that such an account boots as
+  broken; the mutant run showed otherwise. `ActiveLeafKeypairsFor` checked the date for superseded
+  leaves only, so a leaf nobody renewed went on being presented at handshakes and its key went on
+  opening envelopes, and the node had no way to stop serving an account at all.
 *Verify:* a test with an injected clock: a current leaf past `notAfter` loses its key on the sweep,
 the ledger row survives as former, and the account reports awaiting a leaf rather than serving.
+
+*Done, 2026-09-19 — node, cloud and protocol.*
+- **Node.** `RetireExpiredLeafKeys` covers every live state and returns what it destroyed. For a
+  current leaf both copies go — `accounts.key_sealed` first (new sqlc query `ClearAccountKey`, both
+  engines, in the shared conformance suite), then the ledger row — so an interruption leaves
+  something the next pass still finds. The read path stops offering an expired key from the date
+  itself, without writing. `Node.RetireExpiredLeaves` runs at start, on the hourly sweep and on
+  adoption; `stopServing` takes the account out of every index and marks it awaiting; each key is
+  audited `account_leaf_key_retired … reason:expired`. Both tests were mutation-checked: with the
+  old superseded-only filter both fail, and without the boot pass the boot half fails.
+- **The banner's advice followed.** "No key, so `-purpose move`" was right while a data-only
+  import was the only way to be keyless. A restore (F1) and an expiry (F2) are keyless and are not
+  moves. It is `signup` with no root, `renew` when the last leaf named this node's address, `move`
+  otherwise. The banner test's "imported" account had no root, which no import produces; it has
+  one now, and a third account covers the renewal. That edit also clobbered F1b's `NOT SERVED`
+  block — a span replace that reached too far — and `TestServeNamesAnAccountWhoseKeyWillNotOpen`
+  caught it before the gate ran.
+- **Cloud: the same filter, a different constraint, and a 500.** Its `retireExpiredLeaves` was
+  `state = 'superseded'` too. Its row cannot be demoted the way the node's is: `issueCsr` renews
+  the CURRENT leaf, and a rooted identity may not sign up, so a demoted row is an identity that can
+  never be certified again. The key goes from both places and the row stays `current`.
+  `leafKeypairs` used to fall through to a surviving superseded key, which every caller takes `[0]`
+  of as "the key this identity signs with"; it refuses as `unavailable`. The MCP surface answers
+  503 `unavailable` with the reason. The invite landing **threw out of `fetch`** — an unhandled 500
+  on an unauthenticated GET — and answers 409. `test/leaf-expiry.test.ts`, whose first draft
+  asserted `>= 400` against a URL that 404s for a healthy identity too; measured, then pinned.
+- **Protocol §9**, vetoable with the rest of 2.1.0: "a host MUST stop using the key of a leaf that
+  has expired and MUST destroy it, keeping the key id". 46 normative sentences; section 9 of
+  `musts.json` re-keyed around it; `PROOFS.md` regenerated.
+*Verified:* node `make check` (27), `make analyze`, `make sqlc-check`, store conformance on Postgres;
+cloud `npm run check` (1381, ceremony 103/103); protocol `vectors:check` 101/101, `build`;
+identity `cargo test`, `go test`, `musts.mjs` (23 of 23 holders on disk), `record.mjs --check`.
+*Left for C, found here:* `cli.go` has `if moved { go func() { if moved {` — the inner test is what
+is left of a second campaign; and an install after a data-only import at a NEW address starts no
+move campaign, because `OldEndpoint` is read from a `current` row and an import has none.
 
 ## Part C — bugs introduced this session
 

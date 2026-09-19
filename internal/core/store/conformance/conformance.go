@@ -506,6 +506,23 @@ func Run(t *testing.T, newStore Factory) {
 		if l := byKid["sha256:leaf3"]; l.State != "current" || string(l.Leaf) != "l3" || l.NotAfter != 30 || string(l.KeySealed) != "k3" {
 			t.Fatalf("update lost: %+v", l)
 		}
+		// The account's own copy of its current leaf's key goes the same way, and the fingerprint
+		// stays: it is how pins, routes and audit rows name the account.
+		if err := s.SetAccountLeafKey(ctx, a.ID, "sha256:leaf3", []byte("k3"), "p256"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ClearAccountKey(ctx, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if k, err := s.GetAccountSealedKey(ctx, a.ID); err != nil || len(k) != 0 {
+			t.Fatalf("the account's key survived being cleared: %d bytes, %v", len(k), err)
+		}
+		if got, _ := s.GetAccountByID(ctx, a.ID); got.Fingerprint != "sha256:leaf3" {
+			t.Fatalf("clearing the key must keep the fingerprint: %q", got.Fingerprint)
+		}
+		if err := s.ClearAccountKey(ctx, "no-such-account"); err == nil {
+			t.Fatal("clearing an unknown account's key reported success")
+		}
 		// The sibling kids: what another identity on this node holds. One inbound
 		// envelope asks for this to tell a kid held elsewhere on the node from one
 		// this endpoint never held (PACT §13.3, §14.4), so it must never answer

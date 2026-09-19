@@ -399,6 +399,9 @@ type Store interface {
 	// of every message grow with the number of identities the node hosts.
 	ListKidsExcept(ctx context.Context, accountID string) ([]string, error)
 	RetireLeafKey(ctx context.Context, accountID, kid string) error
+	// ClearAccountKey destroys the account's copy of its current leaf's key and keeps the
+	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
+	ClearAccountKey(ctx context.Context, accountID string) error
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
 	UpsertTombstone(ctx context.Context, t Tombstone) error
 	ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error)

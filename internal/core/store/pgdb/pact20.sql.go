@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearAccountKey = `-- name: ClearAccountKey :execrows
+UPDATE accounts SET key_sealed = NULL WHERE id = $1
+`
+
+// The account's copy of its CURRENT leaf's key, destroyed when that leaf expires. The leaf ledger
+// row is retired by RetireLeafKey; this is the other place the same key is held. The fingerprint
+// stays: it is how every pin, route and audit row names this account, and it names a key the
+// account no longer has - which is exactly what "awaiting a leaf" means.
+func (q *Queries) ClearAccountKey(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, clearAccountKey, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const clearChainSentKids = `-- name: ClearChainSentKids :execrows
 UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1
 `

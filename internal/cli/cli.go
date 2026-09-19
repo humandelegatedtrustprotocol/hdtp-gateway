@@ -636,12 +636,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if tst := adapter.Status(); tst.Detail != "" {
 		fmt.Fprintf(stdout, "tunnel:  %s\n", tst.Detail)
 	}
-	// An account with no certificate is not served. Saying only "serving" leaves
-	// the operator of a restored identity with a host that looks healthy and
-	// answers for nobody, so name each one and the commands that end the wait.
-	// A data-only import has no key of its own here — that is a move (PACT §5.3);
-	// an account created on this host already has one, so it signs up.
-	// And an account that is broken rather than waiting. A leaf's key that will not unseal is the
+	// An account that is broken rather than waiting, first. A leaf's key that will not unseal is the
 	// usual reason, and a renewal is the usual cure: it needs no old key, and the install retires
 	// what this node can no longer open.
 	unavailable := nd.Unavailable()
@@ -653,11 +648,32 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	for _, slug := range brokenSlugs {
 		fmt.Fprintf(stdout, "NOT SERVED: %s — %s. If its key was sealed under a master key this node no longer has, run `pact-gateway account csr -slug %s -purpose renew`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, unavailable[slug], slug, slug)
 	}
+	// An account with no certificate is not served. Saying only "serving" leaves
+	// the operator of a restored identity with a host that looks healthy and
+	// answers for nobody, so name each one and the commands that end the wait.
+	//
+	// Which request to ask for follows from what the account already is, not from whether it
+	// holds a key. "No key, so a move" was the rule, and it was right only while a data-only
+	// import was the one way to be keyless. Every restore leaves an account keyless now (no
+	// bundle carries a leaf key), and so does a leaf that simply ran out — and neither is a move.
+	//   - no root: it has never been to a wallet, so it signs up;
+	//   - a root, and the last leaf it held named the address this node answers at: a renewal;
+	//   - a root, and the last leaf named somewhere else, or there is none on record: a move
+	//     (PACT §5.3).
 	for _, slug := range nd.AwaitingLeaf() {
-		purpose := "signup"
-		if a, aerr := st.GetAccountBySlug(ctx, slug); aerr == nil {
-			if sealed, serr := st.GetAccountSealedKey(ctx, a.ID); serr == nil && len(sealed) == 0 {
-				purpose = "move"
+		purpose := identity.PurposeSignup
+		if a, aerr := st.GetAccountBySlug(ctx, slug); aerr == nil && a.HasRoot() {
+			purpose = identity.PurposeMove
+			if leaves, lerr := st.ListLeaves(ctx, a.ID); lerr == nil {
+				var last store.Leaf
+				for _, l := range leaves {
+					if len(l.Leaf) > 0 && l.NotBefore >= last.NotBefore {
+						last = l
+					}
+				}
+				if last.Endpoint != "" && last.Endpoint == identity.EndpointFor(nd.PublicURL(), slug) {
+					purpose = identity.PurposeRenew
+				}
 			}
 		}
 		fmt.Fprintf(stdout, "awaiting a certificate, not served: %s — run `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, slug, purpose, slug)
@@ -683,7 +699,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----
 	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
 	// an unattended sweep to the owner would misreport who deleted the data.
-	startRetentionSweeper(ctx, settings, st, cfg, auditFn, stderr)
+	startRetentionSweeper(ctx, settings, st, cfg, auditFn, stderr, nd.RetireExpiredLeaves)
 
 	// ---- outbound retries (PACT §7.1) ----
 	// Undelivered outbound messages retry with backoff until their deadline.
