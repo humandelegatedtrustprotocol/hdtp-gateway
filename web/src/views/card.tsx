@@ -14,7 +14,7 @@ export function CardView() {
   const header = (
     <PageHeader
       title="Your card"
-      sub="This vCard is your address: hand it to people the way you would a phone number. The X-PACT-KEY inside is the identity everything gets pinned to."
+      sub="This vCard is your address: hand it to people the way you would a phone number. The certificate inside names your identity — the root you hold in your wallet — and that is what everyone pins."
       actions={d && <Button href={"/card.vcf" + (currentAccount() ? "?account=" + encodeURIComponent(currentAccount()) : "")} download={`${d.slug}.vcf`}>Download {d.slug}.vcf</Button>}
     />
   );

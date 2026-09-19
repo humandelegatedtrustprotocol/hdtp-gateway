@@ -38,7 +38,6 @@ export function Dashboard() {
           <Cell k="tunnel" v={d.posture.tunnel || "direct"} />
           <Cell k="sealed envelopes" v={d.posture.seal} />
           <Cell k="client certificates" v={d.posture.client_cert} />
-          {d.posture.gateway && <Cell k="my gateway" v={d.posture.gateway} />}
         </div>
       </Section>
 
