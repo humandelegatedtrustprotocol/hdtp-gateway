@@ -485,7 +485,7 @@ F2's `account_leaf_key_retired` was emitted and not declared. The registry is co
 `coverage.ts`, not with call sites, so nothing failed. Declared and claimed.
 *Verified:* node `make check` (27), `make analyze`; cloud `npm run check` (1381, ceremony 103/103).
 
-### B12 · `rotation_fanout.kind` holds one value and nothing reads it — `TODO`
+### B12 · `rotation_fanout.kind` holds one value and nothing reads it — `DONE`
 Found in B11's diagnosis. Migration 0028 added `kind` to tell a 1.x rotation and a `renewal_1x` from
 a 2.0 `move`. One writer is left (`announce.go`: `Kind: "move"`), no reader at all — `Fanout` keys
 progress by contact and compares `NewFpr` — and both engines still default an empty kind to
@@ -493,6 +493,15 @@ progress by contact and compares `NewFpr` — and both engines still default an 
 Forward migration for both engines, `Campaign.Kind` and `RotationFanout.Kind` go, the default goes.
 The table keeps its name: the cloud harvests these migrations and names it too (B2c).
 *Verify:* `make sqlc`, `make sqlc-check`, store conformance on both engines, `make check`.
+*Done, 2026-09-19.* Migration 0035, both engines: rows of the retired kinds are deleted FIRST —
+they are progress toward announcements nobody will make again, and once the column is gone nothing
+could tell them from a move's — then the column is dropped; the Down re-adds it defaulting to
+`'move'`, so 0028's own Down still finds what it drops. `Campaign.Kind`, `RotationFanout.Kind` and
+both engines' `"rotation"` default are gone. `TestDroppingTheFanoutKindKeepsOnlyAMovesProgress`
+stops a fixture at version 34, writes one row of each kind, migrates, and finds the move's alone.
+*Verified:* `make check` (27), `make analyze`, `make sqlc-check`, store conformance on Postgres, and
+`TestALeaveArchiveAtGoose29StillRestoresOnTodaysNode` — the cloud's leave archive, written at goose
+29, still restores on a node now at 35.
 
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `BLOCKED — owner's decision`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
