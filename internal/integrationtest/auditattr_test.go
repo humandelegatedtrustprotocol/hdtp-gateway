@@ -239,6 +239,16 @@ func TestAuditOutcomesAreLiteralVerdicts(t *testing.T) {
 					continue // a two-argument shim or a partial application
 				}
 				last := strings.TrimSpace(args[len(args)-1])
+				// An error's TEXT is never a verdict, and it got past this lint for as long as the
+				// lint only looked at arguments with a quote in them: `err.Error()` has none, so it
+				// read as "a variable" and was skipped. `account_unavailable` was written that way,
+				// its outcome a sentence the portal can neither colour, count nor filter by.
+				if strings.HasSuffix(last, ".Error()") {
+					t.Errorf("%s:%d writes an error's text as the outcome (%s). The verdict goes in the "+
+						"outcome — \"error\" — and what went wrong goes in the resource, redacted.",
+						rel, span.line, last)
+					continue
+				}
 				if !strings.Contains(last, `"`) || strings.Contains(last, "func(") {
 					continue // a variable, or a callback (audit_query's permit function)
 				}

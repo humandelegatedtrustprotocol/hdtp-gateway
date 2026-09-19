@@ -143,7 +143,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res2.FirstInstall || !res2.KeyChanged || res2.OldKid != a.Fingerprint || len(res2.Retired) != 0 || res2.Kid != csr2.Kid {
+	if res2.FirstInstall || !res2.KeyChanged || res2.OldKid != a.Fingerprint || len(res2.Retired) != 0 || res2.Kid != csr2.Kid || res2.Moved {
 		t.Fatalf("renewal install: %+v", res2)
 	}
 	keys, _ = m.ActiveLeafKeypairs(ctx, a.ID, later)
@@ -173,7 +173,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res3.Endpoint != elsewhere || !res3.KeyChanged {
+	if res3.Endpoint != elsewhere || !res3.KeyChanged || !res3.Moved {
 		t.Fatalf("move install: %+v", res3)
 	}
 	// Two keys are superseded by now — the first leaf's and the renewal's — and both are
@@ -363,6 +363,12 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	if res.Endpoint != here || res.RootFingerprint != w.fpr {
 		t.Fatalf("installed under the wrong name or address: %+v", res)
 	}
+	// And it MOVED, which is what starts the campaign that tells its contacts (PACT §9). This was
+	// worked out by the caller from the superseded leaf's endpoint, and an import has no
+	// superseded leaf — so the one install that is a move by construction campaigned to nobody.
+	if !res.Moved {
+		t.Fatalf("an identity that arrived from another host with no ledger was not reported as moved: %+v", res)
+	}
 	// Nothing to retire: the account named a key it never held, so that kid must not
 	// become a superseded leaf — the host would be promising `certificate_renewed`
 	// answers it cannot seal (PACT §14.4).
@@ -420,5 +426,49 @@ func TestSignupMintsAKeyWhenTheHostHasNone(t *testing.T) {
 	}
 	if csr.Kid == "" || csr.Kid == "sha256:the-old-host-leaf" {
 		t.Fatalf("signup did not mint a key of this host's own: %+v", csr)
+	}
+}
+
+// Whether an install MOVED the identity, in the cases where no current leaf says where it was. A
+// bundle's ledger arrives as `former` rows, and so does a leaf that ran out; the last of them is
+// what this host knows about where the identity answered.
+func TestAnInstallOverAFormerLedgerKnowsWhetherItMoved(t *testing.T) {
+	const there = "https://agent.alina.example/a/alina/mcp"
+	for _, c := range []struct {
+		name, purpose, endpoint string
+		moved                   bool
+	}{
+		{"the same address again — a restore, or a renewal after the leaf ran out", PurposeRenew, there, false},
+		{"another address — a bundle imported on a new host", PurposeMove, "https://agent.newhost.example/a/alina/mcp", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m, a := leafEnv(t)
+			ctx := context.Background()
+			w := newWallet(t, "Alina Rao")
+			now := time.Now()
+			csr, err := m.IssueCSR(ctx, a.ID, PurposeSignup, there, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now); err != nil || first.Moved {
+				t.Fatalf("a signup is not a move: %+v %v", first, err)
+			}
+			// What a bundle does to the ledger, and what expiry does: every live row becomes former.
+			if err := m.Store.StripKeys(ctx); err != nil {
+				t.Fatal(err)
+			}
+			later := now.Add(time.Hour)
+			csr2, err := m.IssueCSR(ctx, a.ID, c.purpose, c.endpoint, later)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr2, later, 365), later)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Moved != c.moved || res.OldEndpoint != there {
+				t.Fatalf("moved=%v (want %v), and the address it answered at before was %q (want %q)", res.Moved, c.moved, res.OldEndpoint, there)
+			}
+		})
 	}
 }

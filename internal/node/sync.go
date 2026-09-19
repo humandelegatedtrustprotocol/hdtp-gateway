@@ -115,13 +115,22 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	// check would skip the pins most likely to be missing one, and doing it before costs
 	// nothing: `fillRootCert` writes only what validates to the pinned root.
 	n.fillRootCert(ctx, accountID, contactFpr, stored, out.Chain)
-	der := make([][]byte, 0, 2)
+	// Every element or none: a member that does not decode used to be dropped in silence, so
+	// `["junk", leaf, root]` arrived here as a well-formed chain of two.
+	der := make([][]byte, 0, len(out.Chain))
 	for _, c := range out.Chain {
-		if b, derr := base64.RawURLEncoding.DecodeString(c); derr == nil && len(b) > 0 {
-			der = append(der, b)
+		b, derr := base64.RawURLEncoding.DecodeString(c)
+		if derr != nil || len(b) == 0 {
+			n.auditFor(accountID, "contact_sync", "contact:"+contactFpr+" why:a chain member is not base64url", "invalid")
+			return false
 		}
+		der = append(der, b)
 	}
-	renewed, err := verifySyncedCard(stored, der, out.Card, out.CardSig, n.now())
+	// One instant for the whole pass: the chain is judged at it and the pin is dated with it.
+	// These were two readings of the clock, and the second — `pinned_at` — could be later than
+	// the moment the leaf was actually found valid.
+	now := n.now()
+	renewed, err := verifySyncedCard(stored, der, out.Card, out.CardSig, now)
 	if err != nil {
 		// A card that does not verify, or a chain that does not belong to this pin, is
 		// refused — loudly, because a peer serving one is worth the owner's attention.
@@ -131,7 +140,7 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	// A renewal the chain proved. The endpoint is the pinned one — `verifySyncedCard`
 	// validated against it — so this moves the leaf and never the address.
 	if renewed != nil {
-		if rerr := n.opts.Store.RepinContactAddress(ctx, accountID, contactFpr, stored.Endpoint, renewed.Leaf, renewed.SPKI, n.now().Unix()); rerr != nil {
+		if rerr := n.opts.Store.RepinContactAddress(ctx, accountID, contactFpr, stored.Endpoint, renewed.Leaf, renewed.SPKI, now.Unix()); rerr != nil {
 			n.auditFor(accountID, "contact_renewal", "contact:"+contactFpr, "error")
 			return false
 		}
@@ -182,31 +191,41 @@ func verifySyncedCard(pin store.Contact, chain [][]byte, card, sigB64 string, no
 	if parsed.Key != pin.Fingerprint {
 		return nil, fmt.Errorf("the card names %s, not the pinned root", parsed.Key)
 	}
-	// The key the card's signature must verify under: the pinned leaf's, unless the answer
-	// carried a chain that proves a newer one.
-	signer := pin.SPKI
-	if len(chain) == 2 {
-		vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{
-			Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
-		})
-		if !vr.OK {
-			return nil, fmt.Errorf("the chain it answered with fails rule %d: %s", vr.Rule, vr.Reason)
-		}
-		held, perr := pactidentity.Parse(pin.Leaf)
-		if perr != nil {
-			return nil, fmt.Errorf("the pinned leaf is unreadable: %v", perr)
-		}
-		switch {
-		case vr.Leaf.NotBefore.After(held.NotBefore):
-			// A renewal, and it takes effect the instant it is seen (§14.3).
-			signer = vr.LeafKey.SPKI
-			renewed = &syncedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
-		case vr.Leaf.NotBefore.Before(held.NotBefore):
-			return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (§14.3)")
-		case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
-			return nil, fmt.Errorf("two different leaves claim the same notBefore (§14.3)")
-		}
+	// The chain is not optional. PACT §6.1 has `get_card` answer "always the chain", and this
+	// used to treat one as a bonus: with none, the card was checked under the pinned leaf's key
+	// and accepted. Whoever answers at the pinned endpoint decides what is in the answer, so a
+	// path taken when something is MISSING is a path they choose — and the one they chose skipped
+	// the root check and the address check, which are the two that make a refresh safe to act on.
+	if len(chain) != 2 {
+		return nil, fmt.Errorf("the answer carries %d certificate(s); get_card answers with the chain, leaf then root (§6.1)", len(chain))
 	}
+	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{
+		Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
+	})
+	if !vr.OK {
+		return nil, fmt.Errorf("the chain it answered with fails rule %d: %s", vr.Rule, vr.Reason)
+	}
+	held, perr := pactidentity.Parse(pin.Leaf)
+	if perr != nil {
+		return nil, fmt.Errorf("the pinned leaf is unreadable: %v", perr)
+	}
+	switch {
+	case vr.Leaf.NotBefore.After(held.NotBefore):
+		// A renewal, and it takes effect the instant it is seen (§14.3).
+		renewed = &syncedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
+	case vr.Leaf.NotBefore.Before(held.NotBefore):
+		return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (§14.3)")
+	case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
+		return nil, fmt.Errorf("two different leaves claim the same notBefore (§14.3)")
+	}
+	// The card must carry the leaf the chain proved, as `update_contact` has required since 2.0
+	// (contacts.Manager.UpdateContact). Signed by the right key is not enough: the same host key
+	// can sign a card that embeds some other certificate, and that card would be stored, shown
+	// and re-shared as this contact's.
+	if !bytes.Equal(parsed.Cert, vr.Leaf.DER) {
+		return nil, fmt.Errorf("the card's certificate is not the leaf the chain proved")
+	}
+	signer := vr.LeafKey.SPKI
 	pub, err := x509.ParsePKIXPublicKey(signer)
 	if err != nil {
 		return nil, fmt.Errorf("the key to check this card under is unreadable")

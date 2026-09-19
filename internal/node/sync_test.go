@@ -69,6 +69,28 @@ func TestVerifySyncedCard(t *testing.T) {
 		t.Fatal("a foreign signature verified")
 	}
 
+	// No chain, no refresh. PACT §6.1: `get_card` answers "always the chain". This used to fall
+	// back to the pinned leaf's key when the answer carried none, which made the chain something
+	// the ANSWERER could leave out — and with it the two checks that make a refresh safe to act
+	// on, the root and the address. Whoever answers at the pinned endpoint chooses what is in the
+	// answer, so a path taken when something is missing is a path they choose.
+	if _, err := verifySyncedCard(pin, nil, card, sign(h.Key, card), now); err == nil {
+		t.Fatal("an answer with no chain was accepted on the strength of the pinned key alone")
+	}
+	if _, err := verifySyncedCard(pin, h.Chain[:1], card, sign(h.Key, card), now); err == nil {
+		t.Fatal("a one-certificate chain was accepted")
+	}
+
+	// The card must carry the leaf the chain proved. Signed by the right key is not enough: the
+	// same host key can sign a card that embeds some OTHER certificate — here a leaf the same
+	// root issued for another address — and that card would be stored, shown and re-shared as
+	// this contact's. `update_contact` has refused this since 2.0; the refresh never checked.
+	elsewhere := w.Issue(t, "https://elsewhere.example/mcp")
+	wrongCert := elsewhere.Card("Peer", "required")
+	if _, err := verifySyncedCard(pin, h.Chain, wrongCert, sign(h.Key, wrongCert), now); err == nil {
+		t.Fatal("a card carrying another certificate than the proven leaf was accepted")
+	}
+
 	// Intake rules still apply: a card with no certificate at all is refused.
 	bare := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Peer\r\nX-PACT-VERSION:2\r\nEND:VCARD\r\n"
 	if _, err := verifySyncedCard(pin, h.Chain, bare, sign(h.Key, bare), now); err == nil {

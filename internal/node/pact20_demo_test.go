@@ -315,7 +315,7 @@ func TestPact20ExitDemo(t *testing.T) {
 	dn.set("alina-new.test", dn.hosts["alina.test"])
 	newEndpoint := identity.EndpointFor("https://alina-new.test", alina.slug)
 	mv := alina.install(identity.PurposeMove, newEndpoint, 365, clock.now())
-	if mv.OldEndpoint != alina.endpoint() || mv.Endpoint != newEndpoint {
+	if mv.OldEndpoint != alina.endpoint() || mv.Endpoint != newEndpoint || !mv.Moved {
 		t.Fatalf("move: %+v", mv)
 	}
 	alina.host = "alina-new.test"
