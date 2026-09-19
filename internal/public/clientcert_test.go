@@ -37,7 +37,7 @@ func TestClientCertRequiredTakesAChainAndNothingElse(t *testing.T) {
 	}
 
 	// A validated chain — the only proof that names a root.
-	chain := TransportFacts{ClientCertFingerprint: "sha256:root", ClientProtocol: 2, ClientLeaf: []byte("leaf")}
+	chain := TransportFacts{ClientCertFingerprint: "sha256:root", ClientLeaf: []byte("leaf")}
 	if fpr, err := id.PlaintextGateCtx(ctx, chain, "send_message", true); err != nil || fpr != "sha256:root" {
 		t.Fatalf("a validated chain must pass as its root: fpr=%q err=%v", fpr, err)
 	}
@@ -51,7 +51,7 @@ func TestFactsCarryNoIdentityWithoutAChain(t *testing.T) {
 	// TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain; this names the
 	// invariant so a reader of TransportFacts finds it.
 	var f TransportFacts
-	if f.ClientCertFingerprint != "" || f.ClientProtocol != 0 {
+	if f.ClientCertFingerprint != "" || f.ChainProven() {
 		t.Fatal("the zero value must be 'nobody'")
 	}
 }

@@ -60,7 +60,7 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	// And the peer that describes: called at that address, pinned by that root, sealed to that
 	// leaf. `Protocol: 2` is what `outbound.Client` requires before it will speak at all.
 	peer := peerOfCard(card)
-	if peer.Protocol != 2 || peer.Root != p.Root() || peer.Endpoint != p.Endpoint || len(peer.Leaf) == 0 {
+	if !peer.Known() || peer.Root != p.Root() || peer.Endpoint != p.Endpoint || len(peer.Leaf) == 0 {
 		t.Errorf("the peer built from the card is %+v", peer)
 	}
 }

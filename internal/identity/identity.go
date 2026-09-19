@@ -30,11 +30,16 @@ type Keypair struct {
 	Algo        Algo
 	Signer      crypto.Signer
 	Fingerprint string
-	// PACT 2.0 (PACT §2, §14): when the key is a leaf's, the leaf and the root
-	// that issued it, DER; Protocol is 2 then and 1 for a 1.x identity key.
+	// When the key is a leaf's: the leaf and the root that issued it, DER (PACT §2, §14).
+	// Both empty for a key the wallet has not certified, which can present nothing and
+	// speak for nobody. HasChain is the question; there used to be a `Protocol` field
+	// beside these that said 2 exactly when they were filled.
 	Leaf, Root []byte
-	Protocol   int
 }
+
+// HasChain reports whether this key is a certified leaf's: it holds the leaf and the root
+// above it, which is what lets it present a chain and sign as the identity (PACT §2).
+func (k *Keypair) HasChain() bool { return k != nil && len(k.Leaf) > 0 && len(k.Root) > 0 }
 
 // Fingerprint computes PACT §2's identity: "sha256:" + base64url(SHA-256(SPKI)),
 // unpadded, over the PKIX/SPKI DER encoding of the public key.

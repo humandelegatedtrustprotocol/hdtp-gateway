@@ -1084,7 +1084,7 @@ func (n *Node) mcpHandler() http.Handler {
 func (n *Node) resolveTransport(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f := public.FactsFrom(r.Context())
-		if f.ClientProtocol != 2 {
+		if !f.ChainProven() {
 			next.ServeHTTP(w, r)
 			return
 		}

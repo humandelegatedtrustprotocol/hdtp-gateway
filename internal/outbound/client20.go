@@ -23,9 +23,9 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// chain is [leaf, root] for a 2.0 identity, nil for a 1.x one.
+// chain is [leaf, root] for a certified key, nil for one the wallet has not issued a leaf to.
 func (c *Client) chain() [][]byte {
-	if c.Keypair == nil || c.Keypair.Protocol != 2 || len(c.Keypair.Leaf) == 0 || len(c.Keypair.Root) == 0 {
+	if !c.Keypair.HasChain() {
 		return nil
 	}
 	return [][]byte{c.Keypair.Leaf, c.Keypair.Root}
@@ -40,7 +40,7 @@ func (c *Client) now() time.Time {
 
 // speaks20 reports whether this exchange is a 2.0 one: our identity holds a
 // chain and the peer is pinned by its root.
-func (c *Client) speaks20(peer Peer) bool { return peer.Protocol == 2 && c.chain() != nil }
+func (c *Client) speaks20(peer Peer) bool { return peer.Known() && c.chain() != nil }
 
 // pinOf is the pin the answer is opened against.
 func pinOf(peer Peer) pactidentity.Pin {

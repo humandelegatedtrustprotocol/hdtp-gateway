@@ -47,7 +47,7 @@ func newIdentity20(t *testing.T, cn, endpoint string) *identity20 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kp.Leaf, kp.Root, kp.Protocol = leaf, rootCert, 2
+	kp.Leaf, kp.Root = leaf, rootCert
 	return &identity20{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public.SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
 }
 
@@ -59,7 +59,7 @@ func (i *identity20) client() *Client { return &Client{Keypair: i.kp, Cert: i.tl
 
 // peerOf is the pin a caller holds for this identity.
 func (i *identity20) peerOf() Peer {
-	return Peer{Endpoint: i.endpoint, Fingerprint: i.rootFpr, Seal: "required", Protocol: 2, Root: i.rootFpr, Leaf: i.leaf}
+	return Peer{Endpoint: i.endpoint, Fingerprint: i.rootFpr, Seal: "required", Root: i.rootFpr, Leaf: i.leaf}
 }
 
 // TestChainAsServerCertificateValidatesToThePinnedRoot: PACT §2 server side —

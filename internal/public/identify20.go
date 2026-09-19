@@ -155,7 +155,7 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 		// nothing else runs. (A new address the owner has not approved is the
 		// `pending_new_address` tier below, not this.) Answered as a plain code,
 		// before any tier is earned; the decision carried no effects to apply.
-		return &EnvelopeFacts{Protocol: 2, Refusal: "pending_approval"}, nil
+		return &EnvelopeFacts{Refusal: "pending_approval"}, nil
 	case "ok":
 	default:
 		return nil, fmt.Errorf("%w: undecided", envelope.ErrInvalid)
@@ -182,7 +182,7 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	_ = json.Unmarshal(e.Protected, &h)
 	facts := &EnvelopeFacts{
 		Header: h, From: root, SPKI: leaf.SPKI, Payload: Payload{Method: method, Params: params},
-		Protocol: 2, Tier: policy.Tier(tier), Endpoint: endpoint, Leaf: leafDER, Form: form, Why: why,
+		Tier: policy.Tier(tier), Endpoint: endpoint, Leaf: leafDER, Form: form, Why: why,
 	}
 	if claim, ok := d.Result["address_claim"].(string); ok {
 		facts.AddressClaim = claim
@@ -320,7 +320,7 @@ func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
 // and its result is what PoolGate enforces on every call.
 func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) TransportCaller {
 	root := tf.ClientCertFingerprint
-	if tf.ClientProtocol != 2 || root == "" {
+	if !tf.ChainProven() || root == "" {
 		return TransportCaller{Fingerprint: root}
 	}
 	leaf, err := pactidentity.Parse(tf.ClientLeaf)

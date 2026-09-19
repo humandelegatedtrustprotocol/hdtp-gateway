@@ -35,7 +35,6 @@ type TransportFacts struct {
 	// that fills these fields: a single certificate, or a chain that does not
 	// validate, establishes no identity at all, because in 2.0 the identity is
 	// the root and a lone certificate names none.
-	ClientProtocol int
 	ClientLeaf     []byte
 	ClientEndpoint string
 	// ClientRoot is the root's own DER from that chain (migration 0029). The pin
@@ -43,6 +42,12 @@ type TransportFacts struct {
 	// that connects here is the node's chance to keep the certificate itself.
 	ClientRoot []byte
 }
+
+// ChainProven reports whether this connection's client presented a chain that validated — the
+// only thing that establishes an identity at the transport (PACT §2, §14.2). The fields above
+// are filled together by that one event or not at all, so the leaf's presence is the fact; a
+// `ClientProtocol` field used to sit beside them saying 2 exactly when it was there.
+func (f TransportFacts) ChainProven() bool { return len(f.ClientLeaf) > 0 }
 
 type factsKey struct{}
 
@@ -158,7 +163,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			chain := [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
 			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
-				f.ClientProtocol, f.ClientLeaf, f.ClientEndpoint = 2, chain[0], vr.Endpoint
+				f.ClientLeaf, f.ClientEndpoint = chain[0], vr.Endpoint
 				f.ClientRoot = chain[1]
 			}
 		}

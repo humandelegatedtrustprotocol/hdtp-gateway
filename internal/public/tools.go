@@ -136,16 +136,16 @@ func (d ToolDeps) speaks20(ctx context.Context) bool {
 // rule 6). A caller that proved no chain proves no identity — there is no longer a
 // generation in which a bare key is one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
-	if f := EnvelopeFactsFrom(ctx); f != nil && f.Protocol == 2 {
-		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Protocol: 2, Endpoint: f.Endpoint, Leaf: f.Leaf}
+	if f := EnvelopeFactsFrom(ctx); f != nil && f.Refusal == "" {
+		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}
 		return p
 	}
 	tf := FactsFrom(ctx)
-	if tf.ClientProtocol == 2 && d.speaks20(ctx) {
-		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Protocol: 2, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf, RootCert: tf.ClientRoot}
+	if tf.ChainProven() && d.speaks20(ctx) {
+		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf, RootCert: tf.ClientRoot}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}

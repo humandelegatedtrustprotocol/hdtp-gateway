@@ -118,7 +118,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 		t.Fatalf("the installed chain does not validate: rule %d %s", vr.Rule, vr.Reason)
 	}
 	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
-	if err != nil || len(keys) != 1 || !keys[0].Current || keys[0].KP.Protocol != 2 || keys[0].KP.Fingerprint != a.Fingerprint {
+	if err != nil || len(keys) != 1 || !keys[0].Current || !keys[0].KP.HasChain() || keys[0].KP.Fingerprint != a.Fingerprint {
 		t.Fatalf("active keys after upgrade: %v %+v", err, keys)
 	}
 	info, _ := m.Certificate(ctx, a.ID, now)
@@ -282,8 +282,8 @@ func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
 	if old.Kid != oneX {
 		t.Fatalf("the retiring 1.x key is served second, got %s", old.Kid)
 	}
-	if old.KP.Protocol != 1 || len(old.KP.Leaf) != 0 {
-		t.Fatalf("it has no leaf of its own, so it stays a 1.x key: protocol %d, leaf %d bytes", old.KP.Protocol, len(old.KP.Leaf))
+	if old.KP.HasChain() {
+		t.Fatalf("it has no leaf of its own, so it has no chain to present: leaf %d bytes", len(old.KP.Leaf))
 	}
 	if old.KP.Fingerprint != oneX {
 		t.Fatalf("it is the key 1.x contacts pinned: %s", old.KP.Fingerprint)

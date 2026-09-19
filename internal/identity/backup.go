@@ -218,7 +218,7 @@ func OpenIdentity(b IdentityBackup, passphrase string) (*Keypair, error) {
 		if pactidentity.Fingerprint(root.SPKI) == kp.Fingerprint {
 			return nil, ErrRootKey
 		}
-		kp.Leaf, kp.Root, kp.Protocol = leaf.DER, root.DER, 2
+		kp.Leaf, kp.Root = leaf.DER, root.DER
 	}
 	return kp, nil
 }
