@@ -36,12 +36,39 @@ func (q *Queries) AnswerPendingRequest(ctx context.Context, arg AnswerPendingReq
 	return result.RowsAffected(), nil
 }
 
+const deleteExpiredIdempotency = `-- name: DeleteExpiredIdempotency :execrows
+DELETE FROM idempotency WHERE expires_at <= $1
+`
+
+// A record past its window protects nothing (PACT 13.3): nothing later than the window passes
+// the freshness check, so a replay of that envelope is refused before this table is asked.
+func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, expiresAt pgtype.Int8) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredIdempotency, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteIntegration = `-- name: DeleteIntegration :execrows
 DELETE FROM integrations WHERE id = $1
 `
 
 func (q *Queries) DeleteIntegration(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteIntegration, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUndatedIdempotencyBefore = `-- name: DeleteUndatedIdempotencyBefore :execrows
+DELETE FROM idempotency WHERE expires_at IS NULL AND created_at <= $1
+`
+
+// A record written without a window (a `book_slot` replay guard) is kept thirty days (SPEC 11).
+func (q *Queries) DeleteUndatedIdempotencyBefore(ctx context.Context, createdAt int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUndatedIdempotencyBefore, createdAt)
 	if err != nil {
 		return 0, err
 	}

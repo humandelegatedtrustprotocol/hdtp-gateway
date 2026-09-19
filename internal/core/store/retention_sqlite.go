@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
@@ -11,9 +12,26 @@ func (s *SQLite) DeleteMessagesBefore(ctx context.Context, accountID string, cut
 }
 
 func (s *SQLite) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
-	// The account is named twice because the statement compares it twice: the threads
-	// to consider, and the messages that keep one alive.
-	return s.q.DeleteEmptyThreads(ctx, sqlitedb.DeleteEmptyThreadsParams{AccountID: accountID, AccountID_2: accountID})
+	return s.q.DeleteEmptyThreads(ctx, accountID)
+}
+
+// DeleteExpiredIdempotency is two statements because each is answered from `idempotency_expiry`
+// and one with an OR between them is not.
+func (s *SQLite) DeleteExpiredIdempotency(ctx context.Context, now int64) (int64, error) {
+	dated, err := s.q.DeleteExpiredIdempotency(ctx, sql.NullInt64{Int64: now, Valid: true})
+	if err != nil {
+		return 0, err
+	}
+	undated, err := s.q.DeleteUndatedIdempotencyBefore(ctx, now-int64(UndatedIdempotencyWindow.Seconds()))
+	return dated + undated, err
+}
+
+func (s *SQLite) DeleteExpiredSessions(ctx context.Context, now int64) (int64, error) {
+	return s.q.DeleteExpiredSessions(ctx, now)
+}
+
+func (s *SQLite) ListMediaBodies(ctx context.Context, accountID string) ([]string, error) {
+	return s.q.ListMediaBodies(ctx, accountID)
 }
 
 func (s *SQLite) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {

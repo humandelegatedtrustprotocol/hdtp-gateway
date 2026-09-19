@@ -33,8 +33,7 @@ import (
 
 // RetentionStore is the slice of the store a sweep needs.
 type RetentionStore interface {
-	ListThreadsByAccount(ctx context.Context, accountID string) ([]store.Thread, error)
-	ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]store.Message, error)
+	ListMediaBodies(ctx context.Context, accountID string) ([]string, error)
 	DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error)
 	DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error)
 	ListBlobs(ctx context.Context, accountID string) ([]store.Blob, error)
@@ -153,27 +152,20 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 func (s *Sweeper) referencedHashes(ctx context.Context, accountID string) (map[string]bool, bool, error) {
 	out := map[string]bool{}
 	readable := true
-	threads, err := s.Store.ListThreadsByAccount(ctx, accountID)
+	// The media messages and only those. This asked for every thread and then every message of
+	// every thread, which on a large account was the whole of a sweep's cost.
+	bodies, err := s.Store.ListMediaBodies(ctx, accountID)
 	if err != nil {
 		return nil, false, err
 	}
-	for _, th := range threads {
-		msgs, err := s.Store.ListMessagesByThread(ctx, accountID, th.ID)
-		if err != nil {
-			return nil, false, err
+	for _, body := range bodies {
+		var meta MediaMeta
+		if err := json.Unmarshal([]byte(body), &meta); err != nil {
+			readable = false
+			continue
 		}
-		for _, m := range msgs {
-			if m.Kind != "media" {
-				continue
-			}
-			var meta MediaMeta
-			if err := json.Unmarshal([]byte(m.Body), &meta); err != nil {
-				readable = false
-				continue
-			}
-			if meta.Hash != "" {
-				out[meta.Hash] = true
-			}
+		if meta.Hash != "" {
+			out[meta.Hash] = true
 		}
 	}
 	return out, readable, nil

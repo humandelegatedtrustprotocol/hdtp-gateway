@@ -18,6 +18,25 @@ import (
 
 // SQLite is the default engine (SPEC §11.1): pure Go driver, one file, WAL mode,
 // foreign keys ON (SQLite leaves them off unless asked — the schema relies on them).
+//
+// The rest of how it is opened was measured against a store of a million messages
+// (scale_test.go; the numbers are in docs/release/round2-2026-09-19-plan.md, R7), one setting at a time:
+//
+//   - `_txlock=immediate`. Every transaction this store opens writes. SQLite's default starts one as
+//     a reader and upgrades it at the first write, and an upgrade that meets another writer fails at
+//     once — `busy_timeout` does not apply to it. With four writers, 87 of every 100 read-then-write
+//     transactions failed; taking the write lock at BEGIN, none did.
+//   - Four connections, kept. Parallel reads were 2.2 times faster through four than through an
+//     unbounded pool, and slower again at eight and sixteen: past four the connections contend
+//     with each other, and an unbounded pool also closes and reopens the file under every burst.
+//   - `synchronous` stays FULL, SQLite's default. NORMAL made a write 1.3 to 3 times faster and was
+//     declined: under WAL it cannot corrupt the file, but a power cut can take the last commits
+//     with it, and a commit here is a message a peer was told was DELIVERED — they will not send
+//     it again — or a row of an audit chain whose head may already be anchored elsewhere.
+//   - Left at their defaults because they bought nothing measurable: `cache_size` (16 and 64 MiB
+//     were within noise of 2 MiB), and `ANALYZE`/`PRAGMA optimize` (no plan or number changed).
+//     `mmap_size` made parallel reads a third faster and was declined as well: an I/O error on a
+//     mapped file is a signal that kills the process, not an error a statement returns.
 type SQLite struct {
 	db *sql.DB
 	q  *sqlitedb.Queries
@@ -27,12 +46,17 @@ type SQLite struct {
 
 var _ Store = (*SQLite)(nil)
 
+// sqliteConns is the size of the connection pool, and the number kept open. See the type's comment.
+const sqliteConns = 4
+
 func OpenSQLite(path string) (*SQLite, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
+	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(FULL)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	db.SetMaxOpenConns(sqliteConns)
+	db.SetMaxIdleConns(sqliteConns)
 	return &SQLite{db: db, q: sqlitedb.New(db)}, nil
 }
 
@@ -443,13 +467,21 @@ func (s *SQLite) ListAuditEventsPage(ctx context.Context, p AuditPage) ([]AuditR
 	if p.Limit <= 0 {
 		p.Limit = 200
 	}
-	// Column1 and Column2 are sqlc's names for `?1` and `?2` - the actor and the
-	// account. Named parameters would read better and cannot be used: sqlc rewrites
-	// `sqlc.arg(x)` back to a placeholder in the SQL it emits, and
-	// TestQueriesMatchTheHandWrittenCode compares that text with the source.
-	rs, err := s.q.ListAuditEventsPage(ctx, sqlitedb.ListAuditEventsPageParams{
-		Column1: p.Actor, Column2: p.Account, Limit: int64(p.Limit),
-	})
+	// Two statements, not one with two optional filters: an actor's page is answered from
+	// `audit_events_actor`, and `(? = '' OR actor_id = ?)` cannot be.
+	//
+	// Column1 and Column2 are sqlc's names for the account placeholder. Named parameters would
+	// read better and cannot be used: sqlc rewrites `sqlc.arg(x)` back to a placeholder in the
+	// SQL it emits, and TestQueriesMatchTheHandWrittenCode compares that text with the source.
+	var rs []sqlitedb.AuditEvent
+	var err error
+	if p.Actor != "" {
+		rs, err = s.q.ListAuditEventsPageByActor(ctx, sqlitedb.ListAuditEventsPageByActorParams{
+			ActorID: p.Actor, Column2: p.Account, Limit: int64(p.Limit),
+		})
+	} else {
+		rs, err = s.q.ListAuditEventsPage(ctx, sqlitedb.ListAuditEventsPageParams{Column1: p.Account, Limit: int64(p.Limit)})
+	}
 	if err != nil {
 		return nil, err
 	}

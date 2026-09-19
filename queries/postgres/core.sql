@@ -52,6 +52,11 @@ SELECT * FROM sessions WHERE id = $1;
 -- name: DeleteSession :execrows
 DELETE FROM sessions WHERE id = $1;
 
+-- name: DeleteExpiredSessions :execrows
+-- A session is deleted at sign-out, or when it is presented after its time. One that is simply
+-- abandoned is never presented again, so the hourly sweep is what removes it.
+DELETE FROM sessions WHERE expires_at <= $1;
+
 -- name: InsertToken :exec
 INSERT INTO tokens (id, owner_id, label, hash, account_id, created_at) VALUES ($1, $2, $3, $4, $5, $6);
 
@@ -79,12 +84,22 @@ SELECT * FROM audit_events ORDER BY seq;
 -- it. ListAuditEvents stays ascending because that is the order the hash chain
 -- must be VERIFIED in; this is the reading order: newest first and bounded.
 --
--- Both filters are optional and empty means "any". The account filter keeps the
--- node's own rows, which belong to no account: a listener starting or an owner
--- signing in is a fact about the node, not about anybody's identity. account_id
--- is nullable, and a row with no account arrives as NULL, not as ''.
+-- The account filter is optional and empty means "any". It keeps the node's own
+-- rows, which belong to no account: a listener starting or an owner signing in is
+-- a fact about the node, not about anybody's identity. account_id is nullable, and
+-- a row with no account arrives as NULL, not as ''. That is also why this walk is
+-- short whatever the account: the node's own rows match every filter.
 SELECT * FROM audit_events
-WHERE ($1 = '' OR actor_id = $1)
+WHERE ($1 = '' OR account_id = $1 OR account_id IS NULL OR account_id = '')
+ORDER BY seq DESC LIMIT $2;
+
+-- name: ListAuditEventsPageByActor :many
+-- One actor's page. It is its own statement so that it is answered from
+-- `audit_events_actor`, read backwards. As `(? = '' OR actor_id = ?)` inside the
+-- statement above it could not be, and an actor with thirty rows in a million cost
+-- a walk of the whole chain to find them.
+SELECT * FROM audit_events
+WHERE actor_id = $1
   AND ($2 = '' OR account_id = $2 OR account_id IS NULL OR account_id = '')
 ORDER BY seq DESC LIMIT $3;
 

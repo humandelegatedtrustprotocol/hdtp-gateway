@@ -56,6 +56,15 @@ SELECT ack FROM idempotency WHERE account_id = ? AND contact_fpr = ? AND msg_id 
 -- name: UpdateIdempotencyAck :execrows
 UPDATE idempotency SET ack = ? WHERE account_id = ? AND contact_fpr = ? AND msg_id = ?;
 
+-- name: DeleteExpiredIdempotency :execrows
+-- A record past its window protects nothing (PACT 13.3): nothing later than the window passes
+-- the freshness check, so a replay of that envelope is refused before this table is asked.
+DELETE FROM idempotency WHERE expires_at <= ?;
+
+-- name: DeleteUndatedIdempotencyBefore :execrows
+-- A record written without a window (a `book_slot` replay guard) is kept thirty days (SPEC 11).
+DELETE FROM idempotency WHERE expires_at IS NULL AND created_at <= ?;
+
 -- name: InsertPendingRequest :exec
 INSERT INTO pending_requests (id, account_id, contact_fpr, capability, args, trust_flag, created_at, expires_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
