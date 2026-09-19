@@ -69,8 +69,7 @@ type Extra struct {
 	// `none --> pending_out`): redeem somebody's invite link, or ask to be added
 	// using a card received out of band. Exactly one of inviteURL / card is
 	// given. Without it a node can only ever hold the agents that called IN, and
-	// can never reach out — which also makes relay-assisted delivery, whose
-	// premise is that neither side has an inbound path, impossible to set up.
+	// can never reach out.
 	AddContact func(ctx context.Context, accountID, inviteURL, card, note, grant string) (AddContactResult, error)
 }
 

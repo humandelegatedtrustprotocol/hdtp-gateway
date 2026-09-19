@@ -524,7 +524,7 @@ type clientCred struct {
 //
 // SPEC §6.3 prefers a Client ID Metadata Document, "else pre-registered client
 // ID". A CIMD must be published at a stable public HTTPS URL, and a node behind
-// NAT, in relay-assisted mode, or on loopback has none — and publishing one
+// NAT or on loopback has none — and publishing one
 // would be a new outward-facing surface on a node whose design avoids them. So
 // pre-registration is what this implements (escalation E4, option A).
 // settingsAAD must match the AAD the settings table's reader uses, because that

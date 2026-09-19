@@ -8,8 +8,7 @@ package contacts
 // specified and never built — `pending_out` existed as a status and as a policy
 // tier, and `ContactAccepted`/`ContactRejected` both require a row in it, but
 // nothing wrote one. The consequence was that a node could only ever hold as
-// contacts the agents that had called in; it could never reach out to a peer,
-// which in turn meant relay-assisted delivery had no way to be set up at all.
+// contacts the agents that had called in; it could never reach out to a peer.
 
 import (
 	"bytes"

@@ -51,10 +51,13 @@ own keys.
 - **Every capability is an MCP tool behind a per-contact switchboard.** A close
   friend can book time. A stranger who redeemed a one-time invite can send one
   message and discover nothing else — `tools/list` is filtered per caller.
-- **Sealed end to end.** Payloads are HPKE-sealed and signed, so tunnels, edges
-  and relays carry ciphertext. They learn who and when, never what.
-- **It works from behind CGNAT.** Direct, Tailscale, frp, ngrok, Cloudflare, your
-  own domain — or a store-and-forward relay when you have no inbound path at all.
+- **Sealed end to end.** Payloads are HPKE-sealed and signed, so tunnels and edges
+  carry ciphertext. They learn which key a message is for and when — never who sent
+  it, and never what it says.
+- **It works from behind CGNAT.** Direct, Tailscale, frp, ngrok, Cloudflare, or your
+  own domain. With no inbound path at all you need one of those tunnels — or a host:
+  there is no store-and-forward relay, because one would see every sender, recipient
+  and timestamp for its trouble (PACT §9).
 - **One binary, SQLite by default.** No cluster, no broker, no queue. Postgres
   when you want it.
 
@@ -229,7 +232,7 @@ starts empty. Use `backup create` / `backup restore` for the whole node.
 | A tailnet | `tailscale`, with Funnel for the public side |
 | A VPS you already run | `frp`, or the built-in **ingress role** on your own domain |
 | Neither, but an account | `ngrok`, `cloudflare` |
-| No inbound path at all | **relay-assisted** — a relay queues sealed envelopes and you fetch them |
+| No inbound path at all | a tunnel from the rows above, or let a provider host the identity under a leaf you issue (PACT §9) |
 
 Then check your work:
 
