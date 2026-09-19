@@ -93,9 +93,10 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 	}
 }
 
-// Who the sync sweep is for. `SyncContacts` exists to heal a card change whose announcement
-// missed us, not to re-confirm pins on a timer — 2.1 asks for no proactive confirmation and
-// this node does none. What it must get right is WHICH contacts it reaches: an active one is
+// Who a refresh is for. `SyncContacts` runs when the owner asks (`sync_contacts`) and never on a
+// timer — 2.1 asks for no proactive confirmation and this node does none, which was a sentence in
+// this comment for a day before it was true of the node: `serve` still had its six-hour ticker.
+// What it must get right is WHICH contacts it reaches: an active one is
 // visited even when its endpoint answers nothing, and a blocked one is not visited at all,
 // because a blocked contact is not somebody we call.
 func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
@@ -130,11 +131,47 @@ func TestTheSweepVisitsActiveContactsAndNotBlockedOnes(t *testing.T) {
 	}
 
 	n, _ := e.start(e.options())
-	checked, changed := n.SyncContacts(ctx)
+	checked, changed := n.SyncContacts(ctx, acct.ID)
 	if checked != 1 {
 		t.Fatalf("the sweep checked %d pins, want exactly the one ACTIVE contact", checked)
 	}
 	if changed != 0 {
 		t.Fatalf("an endpoint that answered nothing reported %d changes", changed)
+	}
+}
+
+// One account's owner asked, so one account's contacts are reached. It used to take no account at
+// all: the owner MCP checked the caller's right to ONE identity and then swept, and counted, every
+// identity on the node — so a token narrowed to one set off calls to another's contacts and was
+// told how many there were.
+func TestARefreshReachesOnlyTheAccountThatAsked(t *testing.T) {
+	ctx := context.Background()
+	e, accts := newEnv(t, "mine", "theirs")
+
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := probe.Addr().String()
+	_ = probe.Close()
+
+	for i, acct := range accts {
+		for j := 0; j <= i; j++ { // one contact for "mine", two for "theirs"
+			w := testid.NewWallet(t, "Peer")
+			h := w.Issue(t, "https://"+dead+"/mcp")
+			if _, err := e.st.InsertContact(ctx, store.Contact{
+				AccountID: acct.ID, Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
+				Status: "active", Endpoint: h.Endpoint, Leaf: h.LeafDER, Card: h.Card("Peer", "optional"),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	n, _ := e.start(e.options())
+	if checked, _ := n.SyncContacts(ctx, accts[0].ID); checked != 1 {
+		t.Fatalf("a refresh for one account checked %d pins, want its own 1 (the other account holds 2)", checked)
+	}
+	if checked, _ := n.SyncContacts(ctx, "no-such-account"); checked != 0 {
+		t.Fatalf("a refresh for an account this node does not serve checked %d pins", checked)
 	}
 }

@@ -1,22 +1,21 @@
 package node
 
-// Keeping contacts in sync (PACT §3, §7.1).
+// Refreshing a contact's card ON REQUEST (PACT §3, §14.3).
 //
-// A contact's card can change while we are not looking: a new endpoint, a new
-// gateway, a different seal policy. The announcement path (update_contact)
-// covers peers that could reach us at the moment they changed — a peer whose
-// announcement found us offline stays stale on our side until a call fails.
-// The sync sweep closes that gap by PULLING: each active contact's get_card is
-// re-fetched on a slow cadence and the stored card replaced when — and only
-// when — the signature verifies under the key we already pin.
+// A contact's card can change while we are not looking: a renewed leaf, a different seal policy.
+// This node does not go looking. PACT 2.1 §14.3 has a newer leaf arrive on use — the chain in the
+// first envelope after a renewal (§13.2), `certificate_renewed` (§14.4) — and the owner's rule for
+// this node is the same: a pin is confirmed when it is needed, and nothing is done proactively.
+// There used to be a sweep here that re-fetched every contact's card on a six-hour ticker. What is
+// left is the pull itself, for the one caller that is a person asking: the owner MCP's
+// `sync_contacts`, for one account.
 //
-// What sync can and cannot move. The re-fetched card MUST name the ROOT we pin, which
+// What a refresh can and cannot move. The re-fetched card MUST name the ROOT we pin, which
 // nothing can change (§14.3). The LEAF beneath it is different: a renewal is a new leaf
 // signed by that same root for the same address, it authorizes itself — PACT §2, "because
-// the endpoint is unchanged it needs no one's approval to accept it" — and the sweep now
-// learns one where it used to refuse it as a bad signature. What sync still cannot do is
-// move an ADDRESS: the chain is validated against the pinned endpoint as well as the
-// pinned root, so a chain valid at some other address is §5.3's business and not a poll's.
+// the endpoint is unchanged it needs no one's approval to accept it". What a refresh cannot do
+// is move an ADDRESS: the chain is validated against the pinned endpoint as well as the
+// pinned root, so a chain valid at some other address is §5.3's business and not a pull's.
 // A compromised or confused endpoint therefore cannot walk the pin anywhere the person's
 // own root did not sign it to, and cannot move it off the address at all.
 
@@ -38,32 +37,35 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// SyncContacts re-fetches every active contact's card across every account.
-// Best effort by design: an unreachable peer is a fact to report, not an error
-// to abort on. Returns how many contacts were checked and how many changed.
-func (n *Node) SyncContacts(ctx context.Context) (checked, changed int) {
+// SyncContacts re-fetches the card of every active contact of ONE account, because its owner
+// asked. Best effort by design: an unreachable peer is a fact to report, not an error to abort
+// on. Returns how many contacts were checked and how many changed.
+//
+// One account, not all of them. It took no account while a ticker was its main caller; the owner
+// MCP's tool then checked the caller's right to ONE account and swept — and counted — every
+// account on the node, so a token narrowed to one identity set off calls to another's contacts
+// and learned how many it has.
+func (n *Node) SyncContacts(ctx context.Context, accountID string) (checked, changed int) {
 	n.mu.RLock()
-	ids := make([]string, 0, len(n.accounts))
-	for id := range n.accounts {
-		ids = append(ids, id)
-	}
+	_, served := n.accounts[accountID]
 	n.mu.RUnlock()
-	for _, accountID := range ids {
-		list, err := n.opts.Store.ListContacts(ctx, accountID)
-		if err != nil {
-			continue
+	if !served {
+		return 0, 0
+	}
+	list, err := n.opts.Store.ListContacts(ctx, accountID)
+	if err != nil {
+		return 0, 0
+	}
+	for _, c := range list {
+		if ctx.Err() != nil {
+			return checked, changed
 		}
-		for _, c := range list {
-			if ctx.Err() != nil {
-				return checked, changed
-			}
-			if c.Status != "active" || len(c.SPKI) == 0 {
-				continue // fingerprint-only pins re-verify at next contact, not by poll
-			}
-			checked++
-			if n.syncOne(ctx, accountID, c.Fingerprint) {
-				changed++
-			}
+		if c.Status != "active" || len(c.SPKI) == 0 {
+			continue // a pin with no leaf key on record is re-proved when it next calls, not pulled
+		}
+		checked++
+		if n.syncOne(ctx, accountID, c.Fingerprint) {
+			changed++
 		}
 	}
 	return checked, changed
@@ -147,7 +149,7 @@ func (n *Node) syncOne(ctx context.Context, accountID, contactFpr string) bool {
 	return true
 }
 
-// verifySyncedCard is the whole trust decision of the periodic sync, kept together so it
+// verifySyncedCard is the whole trust decision of a card refresh, kept together so it
 // can be tested without a wire: what the answer proves about the contact, and what — if
 // anything — the pin should become.
 //

@@ -764,7 +764,7 @@ The owner MCP endpoint authenticates with **named, revocable bearer tokens** (§
 | Area | Tools |
 |---|---|
 | Messaging | `get_inbox`, `read_thread`, `send_to_contact`, `call_contact` |
-| Contacts & permissions | contact management, `set_permissions`, `set_trust_flag` |
+| Contacts & permissions | contact management, `set_permissions`, `set_trust_flag`, `sync_contacts` — re-fetch the cards of one account's active contacts, **when the owner asks**. The node never does this by itself: a pin is confirmed when it is needed, and a newer leaf arrives on use (PACT §14.3). A refresh can learn a renewed leaf or a changed seal policy; it cannot move the pinned root or the address |
 | Invites & card | invite management, `export_card` |
 | Requests | `list_pending`, `answer_request` |
 | Integrations | integration management |
