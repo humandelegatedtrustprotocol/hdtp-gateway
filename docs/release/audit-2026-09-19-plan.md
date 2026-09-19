@@ -351,11 +351,20 @@ answer may be in the bundle — which three of its four entries would have faile
 one. *Residual, stated:* `make check` still does not build the portal, so a broken TypeScript
 build is visible only to someone who runs `make web`.
 
-### B10 · Relay knobs survive in the settings core — `TODO`
+### B10 · Relay knobs survive in the settings core — `DONE`
 `internal/core/settings.go` still validates and restart-scopes `relay`, `gateway_url` and
 `gateway_fingerprint` — knobs for a role deleted on 2026-09-18. Establish what `core.Config` and
 the environment table still carry for them, and remove the set together.
 *Verify:* `make check`; the settings page tests; the doc lint over configuration keys.
+*Result.* `core.Config` and the environment table were already clean; what survived was dead
+`case` arms — `relay`, `gateway_url`, `gateway_fingerprint` in `RestartScoped` and
+`ValidateSetting`, unreachable because the resolver rejects those keys first — and seven comments
+describing relay-assisted mode as one of the modes. **The part that mattered was in the operator
+docs:** `README.md` and `docs/operations.md` both still *offered* relay-assisted mode in their
+deployment tables ("a relay queues sealed envelopes and you fetch them"), and the README's feature
+list promised "a store-and-forward relay when you have no inbound path at all". An operator
+following them would have configured a mode that does not exist. `docs/harness-design.md` is a
+design record and is left as one.
 
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `TODO`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations

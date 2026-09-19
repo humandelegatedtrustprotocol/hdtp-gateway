@@ -68,15 +68,15 @@ type Config struct {
 
 	// Tunnel names the inbound adapter ("" or "direct" = the node's own
 	// listener). The deployment MODE is derived from the adapter's
-	// TerminatesAtEdge flag (SPEC §10.1) — never declared — except
-	// relay-assisted, which is the absence of any inbound path.
+	// TerminatesAtEdge flag (SPEC §10.1) — never declared. There are two: direct
+	// and edge.
 	Tunnel     string     `json:"tunnel"`
 	Mode       Mode       `json:"mode"`
 	Seal       Seal       `json:"seal"`
 	ClientCert ClientCert `json:"client_cert"`
 
 	// LANConnections: SPEC §5.1/§10.1 — defaults derived from mode (direct: on,
-	// edge: off, relay-assisted: inert). Pointer in the wire forms so "unset" is
+	// edge: off). Pointer in the wire forms so "unset" is
 	// distinguishable from "explicit false"; resolved to a plain bool here.
 	LANConnections bool `json:"-"`
 

@@ -6,8 +6,8 @@ package public
 //
 // The inner request is dispatched against the caller's own composed surface
 // through the SAME policy path a direct call takes (Pool.Dispatch → guarded →
-// policy.Allow), using the identity the envelope proved — which in edge and
-// relay-assisted mode is the only identity there is. The result is sealed back
+// policy.Allow), using the identity the envelope proved — which in edge mode is
+// the only identity there is. The result is sealed back
 // to that caller: a sealed request gets a sealed result, always.
 
 import (
