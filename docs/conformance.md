@@ -171,9 +171,8 @@ of it, and are listed so a reader can tell the two apart.
 
 ## PACT 2.0: the person is the certificate authority
 
-The 2.0.0-draft (PACT §2, §3, §5.3, §9, §13.2, §14, Appendix C) on this node, on the
-branch `pact-2.0-node`. The library the rules live in is `pact-identity/go`, proven
-against Appendix B by its own tests; these are the node's.
+PACT 2.1 (§2, §3, §5.3, §9, §13.2, §14) on this node. The library the rules live in is
+`pact-identity/go`, proven against Appendix B by its own tests; these are the node's.
 
 | Clause | Where it lives | Tests |
 |---|---|---|
@@ -185,6 +184,7 @@ against Appendix B by its own tests; these are the node's.
 | the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/identify20.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion` |
 | a caller at an address the owner has not approved is told once however often it calls, and every such answer spends the guest budget (§5.3, §14.5) | `internal/public/identify20.go`, `sealed.go` | `TestV2AnUnapprovedAddressIsToldOnce` |
 | the chain is the client certificate; a contact's chain as its server certificate validates to the pinned root at the dialed address (§2, §14.2) | `internal/outbound/client.go` | `TestClientPresentsItsChain`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
+| a pin is confirmed when it is needed and the node polls nobody: ONE contact's card is re-fetched, when its owner asks from that contact's page or the owner MCP's `refresh_contact`; an unanswered or refused refresh changes no pin, and a refresh can learn a renewed leaf and never a root or an address (§14.3) | `internal/node/refresh.go` | `TestNothingRefreshesContactsByItself`, `TestARefreshReachesOnlyTheContactThatWasNamed`, `TestAnUnansweredConfirmationChangesNoPin`, `TestVerifyRefreshedCard`, `TestARefreshLearnsARenewalAndNeverAnAddress`, `TestRefreshingOneContactOverTheWire` |
 | what moves between hosts is data and never a key: the exporter holds none to write and the importer refuses one (§9) | `internal/portable/portable.go` | `TestAnExportCarriesContactsAndChatsAndNothingElse`, `TestAnImportRefusesAnythingAnExportDoesNotCarry` |
 | the exit demonstration: two nodes pair as 2.0 identities, message in both forms, one renews and the other learns the leaf from the answer and follows `certificate_renewed`, one moves and the other follows under `auto` | `internal/node/pact20_demo_test.go` | `TestPact20ExitDemo` |
 

@@ -242,6 +242,9 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				// switchboard can grant what this node can actually serve.
 				ServedPermissions: nd.ServedPermissions,
 				Store:             st, Invalidate: nd.Invalidate, Audit: auditFn,
+				// One contact's card, re-fetched because somebody pressed the button: the
+				// same function the owner MCP's refresh_contact calls.
+				RefreshContact: refreshContact(nd),
 				// A contact's tools, and calling them: the node's one outbound path.
 				ListTools: func(ctx context.Context, accountID, fpr string) ([]internalui.ContactTool, error) {
 					tools, err := nd.ListContactTools(ctx, accountID, fpr)
@@ -369,9 +372,9 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 			// the contact stays at guest tier until the node restarts (P14-05e).
 			Invalidate: nd.Invalidate,
 			Bus:        nd.Bus(), Contacts: contactsManager(st, nd), Pending: agent,
-			Send:         nd.SendMessage,
-			Audit:        auditFn,
-			SyncContacts: nd.SyncContacts,
+			Send:           nd.SendMessage,
+			Audit:          auditFn,
+			RefreshContact: refreshContact(nd),
 			// The SAME notification the portal's approve path uses: approving on
 			// one surface and not the other would strand the peer depending on
 			// which button the owner pressed (E28).
@@ -434,6 +437,15 @@ func requireOwnerToken(tokens *auth.TokenService, auditFn func(action, resource,
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// refreshContact hands the portal and the owner MCP the node's one-contact refresh in the plain
+// shape both take, so neither surface imports the node and the two cannot answer differently.
+func refreshContact(nd *node.Node) func(ctx context.Context, accountID, contactFpr string) (outcome, why string, err error) {
+	return func(ctx context.Context, accountID, contactFpr string) (string, string, error) {
+		found, err := nd.RefreshContact(ctx, accountID, contactFpr)
+		return found.Outcome, found.Why, err
+	}
 }
 
 // contactsManager builds a contacts manager whose approval-awaiting events reach

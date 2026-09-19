@@ -472,3 +472,49 @@ func TestRemoveNotifiesThePeerBestEffort(t *testing.T) {
 		}
 	})
 }
+
+// The button on a contact's page: one POST with the contact in its path, and the outcome in the
+// answer — a redirect would throw away the only thing the owner pressed it to learn.
+func TestRefreshRouteNamesOneContactAndAnswersWhatWasFound(t *testing.T) {
+	type asked struct{ account, fpr string }
+	var calls []asked
+	mux := http.NewServeMux()
+	MountContactPages(mux, ContactsDeps{
+		Audit: (&auditRec{}).fn,
+		RefreshContact: func(_ context.Context, accountID, fpr string) (string, string, error) {
+			calls = append(calls, asked{accountID, fpr})
+			if fpr == "sha256:gone" {
+				return "", "", context.DeadlineExceeded // any error: nobody was asked
+			}
+			return "renewed", "", nil
+		},
+	})
+	post := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, nil))
+		return w
+	}
+
+	w := post("/contacts/sha256:alina/refresh?account=acct-1")
+	var got struct{ Outcome, Why string }
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Outcome != "renewed" {
+		t.Fatalf("the page must be told what was found: %d %s", w.Code, w.Body.String())
+	}
+	if w := post("/contacts/sha256:gone/refresh?account=acct-1"); w.Code != http.StatusNotFound {
+		t.Fatalf("a contact that cannot be called answered %d, want 404", w.Code)
+	}
+	want := []asked{{"acct-1", "sha256:alina"}, {"acct-1", "sha256:gone"}}
+	if len(calls) != len(want) || calls[0] != want[0] || calls[1] != want[1] {
+		t.Fatalf("the node was asked for %v, want exactly %v", calls, want)
+	}
+
+	// A portal composed without a node behind it offers no refresh rather than a button that
+	// answers "unchanged" about a contact nobody asked.
+	bare := http.NewServeMux()
+	MountContactPages(bare, ContactsDeps{Audit: (&auditRec{}).fn})
+	wb := httptest.NewRecorder()
+	bare.ServeHTTP(wb, httptest.NewRequest(http.MethodPost, "/contacts/sha256:alina/refresh?account=acct-1", nil))
+	if wb.Code != http.StatusNotFound {
+		t.Fatalf("a refresh with nothing behind it answered %d, want 404", wb.Code)
+	}
+}

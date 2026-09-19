@@ -1,6 +1,7 @@
 // One contact: the name you use for them, what they may do here, how far
-// their words are trusted, and the way out. Every change posts straight to
-// the node and the page re-reads itself afterwards.
+// their words are trusted, their card re-fetched when you ask, and the way
+// out. Every change posts straight to the node and the page re-reads itself
+// afterwards.
 import { useCallback, useEffect, useState } from "react";
 import { getJSON, postForm } from "../api";
 import { navigate } from "../router";
@@ -12,6 +13,19 @@ type Data = {
   preset: string; trust: string; permissions: PermRow[]; their_permissions: string[] | null; presets: string[];
 };
 
+// What "Refresh now" found, as the node names it (node.RefreshContact). Unreachable and refused
+// both leave the pin exactly as it was; refused is the one worth a second look, so it says why.
+function refreshNote(outcome: string, why: string): Note {
+  switch (outcome) {
+    case "unchanged": return { kind: "ok", text: "Nothing has changed: they serve the card you already hold." };
+    case "updated": return { kind: "ok", text: "Their card has changed, and the new one is saved." };
+    case "renewed": return { kind: "ok", text: "They have renewed their certificate. The new one is signed by the same identity and is saved." };
+    case "unreachable": return { kind: "warn", text: "Their node did not answer. Nothing about this contact has changed." };
+    case "refused": return { kind: "err", text: `Their node answered, and what it sent did not verify${why ? ` (${why})` : ""}. Nothing about this contact has changed.` };
+    default: return { kind: "err", text: "could not refresh this contact" };
+  }
+}
+
 const PARENT = { to: "/contacts", label: "People" };
 const TRUST: [string, string][] = [["messages_only", "Messages only"], ["may_instruct", "May instruct"]];
 
@@ -19,6 +33,7 @@ export function ContactDetail({ fpr }: { fpr: string }) {
   const [d, setD] = useState<Data | null>(null);
   const [note, setNote] = useState<Note | null>(null);
   const [petname, setPetname] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   // What their node says your agent may call there, asked now. The stored
   // grants are a snapshot taken when you paired and are never refreshed, so a
   // capability granted since — an integration, say — would never appear here.
@@ -63,6 +78,15 @@ export function ContactDetail({ fpr }: { fpr: string }) {
   };
   const setTrust = async (t: string) => {
     await postForm(`${base}/trust`, { trust: t });
+    load();
+  };
+  const refresh = async () => {
+    setRefreshing(true);
+    const r = await postForm(`${base}/refresh`, {});
+    setRefreshing(false);
+    let found: { outcome?: string; why?: string } = {};
+    try { found = r.ok ? JSON.parse(r.body) : {}; } catch { /* not JSON: the default note says so */ }
+    setNote(refreshNote(found.outcome ?? "", found.why ?? ""));
     load();
   };
   const remove = async () => {
@@ -111,6 +135,10 @@ export function ContactDetail({ fpr }: { fpr: string }) {
               ? <span className="rowline">{theirs.map((p) => <Badge key={p} mono>{p}</Badge>)}</span>
               : <p className="muted">Nothing recorded when you paired.</p>}
       </Section>
+
+      <Section title="Their card"
+        description="Your node learns a renewed certificate or a changed name the next time the two of you talk, and checks nothing in the background. Ask now if you want it sooner: this reaches this one contact and nobody else. Who they are and where they answer cannot change this way."
+        footer={<Button variant="secondary" busy={refreshing} onClick={refresh}>Refresh now</Button>} />
 
       <Section tone="danger" title="Remove contact"
         description="Deletes the pin, so they can reach nothing. Local by design — they are not told (PACT §6.2)."
