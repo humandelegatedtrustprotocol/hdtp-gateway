@@ -334,12 +334,22 @@ the outcome; it belongs in the resource, as `settings_seal`'s neighbours have it
 *Found here, planned below:* **B10** (relay knobs still in the settings core) and **B5b** (the
 portal's Card page tells every owner "The X-PACT-KEY inside is the identity").
 
-### B5b · The portal's Card page names the identity as X-PACT-KEY — `TODO`
+### B5b · The portal's Card page names the identity as X-PACT-KEY — `DONE`
 `web/src/views/card.tsx:17`: "The X-PACT-KEY inside is the identity everything gets pinned to" —
 shown to every owner, on the page about their own card, which carries no such property. The
 settings page had the same fault ("goes on your card as X-PACT-ENDPOINT"), fixed in B6. `web/dist`
 is committed, so the text and the bundle move together (`make web`).
 *Verify:* no retired property name in `web/src` or the built bundle; `make check`.
+*Result.* The text was one line. Rebuilding the bundle is what found the real problem: **`make web`
+was already broken** — `dashboard.tsx` read `posture.gateway`, a relay-era field gone from the type
+— so nobody had rebuilt since the 1.x removal, and the binary went on embedding a **stale portal
+with the 1.x key-rotation view in it**, calling a route the server no longer has. The committed
+bundle contained `/identity/rotate`, `X-PACT-KEY` and `my gateway`. `TestBundleCarriesTheViews`
+kept that green: its list *required* `/identity/rotate`. The dead cell is removed, the bundle
+rebuilt, that entry dropped, and the test gained the reverse check — nothing the server cannot
+answer may be in the bundle — which three of its four entries would have failed against the old
+one. *Residual, stated:* `make check` still does not build the portal, so a broken TypeScript
+build is visible only to someone who runs `make web`.
 
 ### B10 · Relay knobs survive in the settings core — `TODO`
 `internal/core/settings.go` still validates and restart-scopes `relay`, `gateway_url` and
