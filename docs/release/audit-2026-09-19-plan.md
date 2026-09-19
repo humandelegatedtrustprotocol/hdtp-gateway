@@ -809,12 +809,43 @@ advertises a bare object schema for every tool — uninformative, and nothing fa
 
 ## Part D — optimisation
 
-### D1 · Re-measure, then decide — `TODO`
+### D1 · Re-measure, then decide — `DONE`
 The benchmarks exist (`internal/public`, `internal/node`, `internal/core/store`). Re-run them
 after Part B, since dropping columns narrows `accounts` reads. Report the delta; take nothing on
 speculation. `emit_prepared_queries` stays declined — measured at 2.2× per read with a blast
 radius across every query, and the protocol's own rate limits cap traffic three orders of
 magnitude below what the node already serves.
+
+*Measured, 2026-09-19.* Baseline `f611e75` (the commit before B1) against head, in a detached
+worktree; the three suites run interleaved — base, head, base, head — so drift in the machine hits
+both alike; 12 samples each, `benchstat`. Apple M-series, 12 threads.
+
+| benchmark | base | head | time | bytes/op | allocs/op |
+|---|---|---|---|---|---|
+| `GetAccountByID` | 15.77µs | 12.21µs | **−22.6%** | −22.1% | 66 → 56 |
+| `ListAccounts` | 17.82µs | 13.79µs | **−22.6%** | −21.3% | 64 → 54 |
+| `State20` · 1 account | 123.2µs | 110.8µs | **−10.1%** | −6.4% | 471 → 441 |
+| `State20` · 4 accounts | 133.2µs | 120.4µs | −9.6% | −7.5% | 573 → 543 |
+| `State20` · 8 accounts | 151.4µs | 137.1µs | −9.4% | −8.4% | 700 → 670 |
+| `OpenSealedSmallForm` | 366.9µs | 356.9µs | −2.7% | −1.8% | 1516 → 1484 |
+| `OpenSealedChainForm` | 527.4µs | 516.0µs | −2.2% | −1.3% | 2074 → 2042 |
+| `SealBack` | 261.8µs | 251.0µs | −4.1% | −3.6% | 769 → 737 |
+| `SealedCallEndToEnd` | 870.3µs | 840.1µs | −3.5% (p=0.03) | −2.1% | 2633 → 2565 |
+| `ListLeaves` *(control)* | 10.97µs | 11.00µs | ~ (p=0.37) | ~ | 34 → 34 |
+| `ValidateChain` *(control)* | 140.4µs | 140.2µs | ~ (p=0.84) | ~ | 341 → 341 |
+
+All p=0.000 unless shown. Geomean −8.2% time, −7.1% bytes, −5.3% allocations.
+- **It is the columns.** `accounts` lost five (`prev_fingerprint`, `prev_key_sealed`, `grace_until`,
+  `accept_1x`, `protocol`) and every account read is ten allocations lighter — two per column, the
+  scan target and the nullable wrapper. The two benchmarks Part B never touched did not move, which
+  is what says the rest is attributable and not the machine.
+- **Decision: nothing further is taken.** A sealed call costs 840µs end to end, of which opening,
+  sealing back and chain validation — signatures and HPKE — are about 750µs; the store is the small
+  part and it just got smaller. One core serves ~1,190 sealed calls a second. PACT §12 allows a
+  contact 60 an hour, so one core covers some 71,000 contacts all calling at their limit at once.
+  `emit_prepared_queries` stays declined for the reason given above. There is no measurement here
+  that argues for a cache in front of `state20`, and a cache there is a correctness risk — it is
+  what decides who a caller is — bought for a cost nobody is paying.
 
 ## Part E — the standing rule, enforced
 
