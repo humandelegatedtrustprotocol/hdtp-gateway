@@ -1,6 +1,6 @@
 # pact-gateway — Product Specification
 
-**Version 0.2.0-draft · 2026-09-18 · implements PACT 2.0.0**
+**Version 0.2.1-draft · 2026-09-19 · implements PACT 2.1.0** — whose additions are both held here: the span of a leaf is the person's to choose beneath §14.2's ceiling, and §14.3's MUST NOT is held by `TestAnUnansweredConfirmationChangesNoPin`. 2.1 asks for no proactive re-confirmation and this node does none: a newer leaf arrives on use (§13.2, §14.4)
 
 pact-gateway is a self-hosted personal node for the PACT protocol: your agent's public,
 permission-gated MCP server to the people you approve, your private control panel and
