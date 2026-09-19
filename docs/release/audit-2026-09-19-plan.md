@@ -264,7 +264,7 @@ Following the member outward found more than the landing:
   `Keypair.Protocol`/`Peer.Protocol` broke two lines. Nothing noticed: it is in no gate. See E3.
 The protocol spec itself never named `spki` in 2.0; the residue was only in the implementations.
 
-### B7 · The account's pre-leaf key is kept alive for 1.x contacts — `TODO`
+### B7 · The account's pre-leaf key is kept alive for 1.x contacts — `DONE`
 Found in B3c. `identity/leaf.go` retires the key an account was created with into a leafless
 `superseded` ledger row on first install, and serves it until its `notAfter` "so 1.x contacts still
 reach us while they re-pin" — with a comment that still says `tlsCertOf` self-signs for it, which
@@ -272,6 +272,17 @@ H11 stopped. Under 2.0 nothing can have been sealed to a bare key: every card ca
 whether that row has any 2.0 purpose (§14.4 is about superseded *leaves*); if not, the retirement,
 the row and `TestFirstInstall…`'s "the retiring 1.x key is served second" all go.
 *Verify:* `make check`; the leaf ledger tests; a first-install test that finds no leafless row.
+*Result.* Settled by reading how each CSR purpose picks its key: `signup` certifies the account's
+OWN key, so the retirement branch is reached only by a first leaf requested as `renew`/`move`, and
+the key it kept for 365 days was never on any card. No 2.0 sender can have sealed to it — before
+the first leaf there is no card and the identity is not served. It is replaced now, not retired;
+`SetAccountLeafKey`'s overwrite is what destroys it. `ActiveLeafKeypairs` skips any leafless row an
+older store may still hold. `TestFirstInstallKeepsTheRetiringOneXKeyServed` — which asserted the
+old key is "served second… it is the key 1.x contacts pinned" — is
+`TestAFirstLeafOverAFreshKeyRetiresNothing`. `OldKP` stays for the renewal path, where it is a real
+superseded leaf's key; its doc no longer says "for the 1.x rotation toward 1.x pins". And
+`ActiveLeafKeypairs`'s doc contradicted its own body — "destroyed on this path" above a comment
+explaining why destruction is deliberately *not* on this path — which is corrected.
 
 ### B8 · `outbound.Client.Call` still reasons about fingerprint-only pins — `TODO`
 Found in B3c. Its doc comment cites `spk`, SPEC §4.4/§4.5/§3.9, "the rotation fan-out" and

@@ -244,86 +244,63 @@ func TestInstallLeafRefusals(t *testing.T) {
 	}
 }
 
-// A first install that changes the key — a 1.x account asked for a renewal
-// rather than an upgrade — retires the 1.x identity key like a superseded leaf.
-// That key has no leaf of its own, and it must still be SERVED: 1.x contacts
-// pinned it and reach us with it until they re-pin. It was inserted and then
-// skipped by every reader, so nothing answered them.
-func TestFirstInstallKeepsTheRetiringOneXKeyServed(t *testing.T) {
+// A first leaf requested as a renewal mints a fresh key, so the key the account was created with
+// is replaced without ever having been certified. PACT §14.4 keeps a superseded LEAF's key until
+// its notAfter; this key was never a leaf. Before the first leaf an identity has no card and is
+// not served, so no 2.0 sender can have sealed anything to it, and there is nobody to answer
+// `certificate_renewed`.
+//
+// This test used to assert the opposite — `TestFirstInstallKeepsTheRetiringOneXKeyServed` — that
+// the old key is kept for a year in a leafless ledger row and SERVED, because "1.x contacts
+// pinned it and reach us with it until they re-pin". Those were the only callers who ever held it.
+func TestAFirstLeafOverAFreshKeyRetiresNothing(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()
 	w := newWallet(t, "Alina Rao")
 	now := time.Now()
-	oneX := a.Fingerprint
+	created := a.Fingerprint
 
 	csr, err := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if csr.Kid == oneX {
+	if csr.Kid == created {
 		t.Fatal("a renewal mints a fresh key; that is the case under test")
 	}
 	res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.FirstInstall || !res.KeyChanged || res.OldKid != oneX || res.OldKP == nil {
+	if !res.FirstInstall || !res.KeyChanged {
 		t.Fatalf("install: %+v", res)
+	}
+	if res.OldKid != "" || res.OldKP != nil {
+		t.Fatalf("a first install supersedes no leaf, so it has no old key to report: %q", res.OldKid)
 	}
 
 	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(keys) != 2 || !keys[0].Current || keys[0].Kid != csr.Kid {
-		t.Fatalf("the current leaf comes first: %d keys, first %+v", len(keys), keys[0])
+	if len(keys) != 1 || !keys[0].Current || keys[0].Kid != csr.Kid || !keys[0].KP.HasChain() {
+		t.Fatalf("exactly one key is served, the certified one: %d keys", len(keys))
 	}
-	old := keys[1]
-	if old.Kid != oneX {
-		t.Fatalf("the retiring 1.x key is served second, got %s", old.Kid)
-	}
-	if old.KP.HasChain() {
-		t.Fatalf("it has no leaf of its own, so it has no chain to present: leaf %d bytes", len(old.KP.Leaf))
-	}
-	if old.KP.Fingerprint != oneX {
-		t.Fatalf("it is the key 1.x contacts pinned: %s", old.KP.Fingerprint)
-	}
-	if !old.NotAfter.After(now) {
-		t.Fatalf("kept for a year, not already expired: %s", old.NotAfter)
-	}
-	// And it is retired once its window closes, kid kept for certificate_renewed.
-	later, err := m.ActiveLeafKeypairs(ctx, a.ID, old.NotAfter.Add(time.Second))
+	leaves, err := m.Store.ListLeaves(ctx, a.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(later) != 1 {
-		t.Fatalf("past its notAfter only the current leaf is served, got %d", len(later))
-	}
-	formers, err := m.FormerKids(ctx, a.ID, old.NotAfter.Add(time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, k := range formers {
-		if k == oneX {
-			found = true
+	for _, l := range leaves {
+		if l.Kid == created {
+			t.Fatalf("the never-certified key is still in the ledger as %q", l.State)
+		}
+		if len(l.Leaf) == 0 && l.State != LeafPending {
+			t.Fatalf("a %s row with no leaf: nothing can be sealed to a key no card ever carried", l.State)
 		}
 	}
-	if !found {
-		t.Fatalf("its kid is kept as a former one (§14.4): %v", formers)
-	}
-	// The KEY is destroyed by the write path, not by a read.
-	if err := m.RetireExpiredLeafKeys(ctx, a.ID, old.NotAfter.Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	leaves2, err := m.Store.ListLeaves(ctx, a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range leaves2 {
-		if l.Kid == oneX && (l.State != LeafFormer || len(l.KeySealed) != 0) {
-			t.Fatalf("retiring leaves the kid and destroys the key: %+v", l)
-		}
+	// And the account holds the new key, not the old one: the overwrite is what destroyed it.
+	got, err := m.Store.GetAccountByID(ctx, a.ID)
+	if err != nil || got.Fingerprint != csr.Kid {
+		t.Fatalf("the account names %s, want the certified key %s (%v)", got.Fingerprint, csr.Kid, err)
 	}
 }
 
