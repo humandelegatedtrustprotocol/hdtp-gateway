@@ -324,7 +324,7 @@ td button{margin:0}
 .bad{display:inline-flex;align-items:center;gap:.35rem;font-size:.78rem;color:var(--red);margin-top:.15rem}
 /* the tick or clock at the end of an outbound message's meta line */
 [class^="mark-"]{display:inline-flex;align-items:center;color:var(--faint)}
-.mark-delivered,.mark-queued{color:var(--accent)}
+.mark-delivered{color:var(--accent)}
 .mark-retrying,.mark-expired,.mark-failed{color:var(--amber)}
 .media{display:inline-flex;flex-wrap:wrap;gap:.5rem;align-items:center;font-size:.86rem;margin-top:.3rem;padding-top:.4rem;border-top:1px solid color-mix(in srgb,currentColor 18%,transparent)}
 .media .muted{font-size:.78rem}

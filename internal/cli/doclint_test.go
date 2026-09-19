@@ -277,10 +277,10 @@ func TestSpecTablesMatchTheCode(t *testing.T) {
 		}
 	})
 
-	// The binary's own help disagreed with itself: the top-level usage block
-	// said `account create|list` while the dispatcher accepted `rotate-key` and
-	// even printed it in its own error string. The 12.1 check below reads the
-	// dispatcher, so it saw a command the operator's help did not.
+	// The binary's own help can disagree with itself: the top-level usage block
+	// naming fewer subcommands than the dispatcher accepts and prints in its own
+	// error string. The 12.1 check below reads the dispatcher, so it would see a
+	// command the operator's help does not.
 	t.Run("usage text names every subcommand the dispatcher accepts", func(t *testing.T) {
 		b, err := os.ReadFile(filepath.Join(root, "internal", "cli", "cli.go"))
 		if err != nil {

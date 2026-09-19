@@ -187,43 +187,7 @@ try {
       }, { fpr: bOnA.fingerprint })
       log(`call get_card on B: ${r.status} → ${r.body.includes('BEGIN:VCARD') ? 'card returned' : r.body.slice(0, 120)}`)
     }
-
-    // --rotate: Alice rotates with NO grace period through the portal endpoint. Bob
-    // must be told with the old key, re-pin, and both directions must still deliver;
-    // the old key must be gone at once.
-    if (flags.includes('--rotate') && bOnB(aOnB)) {
-      const before = (await get(a, '/api/session')).accounts[0].fingerprint
-      const r = await post(a, '/identity/rotate', { account_id: (await get(a, '/api/session')).accounts[0].id, confirm: 'alice', grace: '0' })
-      const body = await a.page.evaluate(async (u) => (await fetch(u, { headers: { Accept: 'application/json' } })).text(), r.url)
-      let notice = ''; try { const j = JSON.parse(body); notice = j.notice || j.error || '' } catch { notice = body.slice(0, 160) }
-      log(`rotate(0): ok=${r.ok} → ${notice}`)
-      const after = (await get(a, '/api/session')).accounts[0].fingerprint
-      log(`fingerprint changed: ${before !== after} (${before.slice(0, 16)}… → ${after.slice(0, 16)}…)`)
-      await new Promise(r => setTimeout(r, 1500))
-      const cb2 = await get(b, '/api/conversations')
-      const aOnB2 = (cb2.contacts || [])[0]
-      log(`B now pins A as: ${aOnB2?.fingerprint?.slice(0, 16)}… (re-pinned: ${aOnB2?.fingerprint === after})`)
-      // Bob first: with no grace period this only works if the new key introduced itself.
-      await say(b, aOnB2.fingerprint, 'Still here after your rotation?')
-      await say(a, bOnA.fingerprint, 'Yes — new key, same me.')
-      // A second immediate rotation must be allowed at once: it would be refused
-      // "still in its grace period" if the first had not really retired the old key.
-      const r2 = await post(a, '/identity/rotate', { account_id: (await get(a, '/api/session')).accounts[0].id, confirm: 'alice', grace: '0' })
-      const body2 = await a.page.evaluate(async (u) => (await fetch(u, { headers: { Accept: 'application/json' } })).text(), r2.url)
-      let n2 = ''; try { const j = JSON.parse(body2); n2 = (j.notice || j.error || '').slice(0, 90) } catch { n2 = body2.slice(0, 90) }
-      log(`second rotate(0): ${n2}`)
-      await new Promise(r => setTimeout(r, 1500))
-      const aOnB3 = ((await get(b, '/api/conversations')).contacts || [])[0]
-      await say(b, aOnB3.fingerprint, 'And after the second one?')
-      await new Promise(r => setTimeout(r, 1000))
-      const conv2 = await get(a, '/api/conversations?contact=' + encodeURIComponent(bOnA.fingerprint))
-      const bad = (conv2.messages || []).filter(m => m.bad).length
-      log(`after rotation: A thread has ${(conv2.messages || []).length} messages, ${bad} undelivered`)
-      const au2 = await get(a, '/api/audit')
-      log(`A audit: ${(au2.rows || []).filter(r => /account_rotate/.test(r.Action)).map(r => r.Action + '→' + r.Outcome).join(', ')}`)
-    }
   }
-  function bOnB (x) { return Boolean(x) }
 
   const fpr = globalThis.__fprB
   // --ui: the composer's tool drawer and the collapsible panel, as a person sees them.

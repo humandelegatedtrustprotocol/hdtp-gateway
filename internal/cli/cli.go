@@ -1312,13 +1312,13 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "ok   lock         free (node not running)")
 	}
 
-	var pin string
+	var served []tunnel.Served
 	if statErr == nil {
 		s, err := openStore(cfg)
 		report("store-open", err)
 		if err == nil {
 			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
-				pin = accts[0].Fingerprint
+				served = servedIdentities(cfg.PublicURL, accts)
 				// PACT 2.0 (PACT §2): a host asks for renewal thirty days ahead;
 				// doctor is where an operator without the portal hears it.
 				idm := &identity.Manager{Store: s}
@@ -1356,10 +1356,10 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		return fail
 	}
 	if cfg.Mode == core.ModeEdge {
-		pin = "" // the edge's WebPKI certificate is what peers see
+		served = nil // the edge's WebPKI certificate is what peers see
 	}
 	res := tunnel.Probe(context.Background(), cfg.PublicURL, tunnel.ProbeOptions{
-		PinnedFingerprint: pin, Timeout: 5 * time.Second, SelfOriginated: true,
+		Identities: served, Timeout: 5 * time.Second, SelfOriginated: true,
 	})
 	switch res.Verdict {
 	case tunnel.VerdictReachable:

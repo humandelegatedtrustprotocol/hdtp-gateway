@@ -17,9 +17,9 @@ import (
 // The cloud holds itself to this node's owner MCP: every tool here is exactly one action there
 // (`pact-cloud/gateway/test/mcp-owner.test.ts`, "parity with the Go node"). What it compares
 // against is a JSON list of this node's tool names, and that list was a copy somebody typed. It
-// had no `identity_certificate`, which this node has served since 2.0, and it would have kept
-// `sync_contacts` for as long as nobody looked — the parity test was green throughout, because it
-// was true of the file it read.
+// had no `identity_certificate`, which this node has served since 2.0, and it would have kept a
+// tool this node removed for as long as nobody looked — the parity test was green throughout,
+// because it was true of the file it read.
 //
 // So the copy is checked where the truth is. The names are read from the syntax tree — every
 // `mcp.Tool{Name: "…"}` literal in the package — and not with a pattern over the source text: two

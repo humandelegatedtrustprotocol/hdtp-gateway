@@ -89,7 +89,6 @@ const PATHS: Record<string, string> = {
   unrail: "M13 7l5 5-5 5M6 7l5 5-5 5",
   clock: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
   tick: "M4 12l5 5L20 6",
-  ticks: "M2 12l5 5L17 6M12.5 16.5L22 6",
 };
 export function Icon({ name, size }: { name: keyof typeof PATHS; size?: number }) {
   const px = size ?? 16;
@@ -213,7 +212,7 @@ export type Tone = "neutral" | "ok" | "warn" | "bad";
 // than quietly grey — the audit view counts these as refusals, and a refusal
 // the portal cannot recognise is one the owner never sees.
 const OK = /^(ok|active|live|allowed|paired|set|read|delivered|delivered_on_retry|accepted|sealed|connected|rebuilt|started|stopped)$/;
-const WARN = /^(connecting|pending|pending_in|pending_out|pending_approval|write|waiting|retrying|queued|late|skipped|replayed)$/;
+const WARN = /^(connecting|pending|pending_in|pending_out|pending_approval|write|waiting|retrying|late|skipped|replayed)$/;
 const BAD = /(denied|error|failed|refused|reject|invalid|unreachable|unavailable|expired|revoked|blocked|mismatch|_required|unknown|^not_|too_large|missing|unreadable|^bad_|stale|undelivered)/;
 export function toneOf(status: string): Tone {
   if (OK.test(status)) return "ok";

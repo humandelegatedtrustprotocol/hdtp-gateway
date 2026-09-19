@@ -172,17 +172,14 @@ try {
     first.ThreadID === s2.ThreadID && second.ThreadID === s2.ThreadID && dups.length === 1,
     'copies=' + dups.length + ' first=' + JSON.stringify(first) + ' second=' + JSON.stringify(second))
 
-  // T11: sync_contacts live. `checked` counts attempts, so also require that
-  // the sync wrote no failure rows — syncOne is silent on success and loud
-  // (contact_sync unreachable/invalid) on any fetch or verify failure.
-  const preSyncSeq = (() => 0)()
-  const auditBefore = await alice.call('audit_query', { limit: 1 })
-  const topSeq = ((auditBefore.rows || auditBefore)[0] || {}).Seq || 0
-  const sync = await alice.call('sync_contacts', { account_id: aAcct })
+  // T11: refresh_contact live, for the ONE contact named. The answer is the outcome itself,
+  // and the node audits the same word under contact_refresh.
+  const refreshed = await alice.call('refresh_contact', { account_id: aAcct, contact_fpr: bobFpr })
   const auditAfter = await alice.call('audit_query', { limit: 50 })
-  const syncFailures = (auditAfter.rows || auditAfter).filter(r => r.Seq > topSeq && r.Action === 'contact_sync' && r.Outcome !== 'updated')
-  check('T11', 'sync_contacts checked the pinned contact with no fetch/verify failure',
-    sync && sync.checked === 1 && syncFailures.length === 0, JSON.stringify(sync) + ' failures=' + JSON.stringify(syncFailures).slice(0, 120))
+  const refreshRow = (auditAfter.rows || auditAfter).find(r => r.Action === 'contact_refresh')
+  check('T11', 'refresh_contact re-fetched the pinned contact\'s card and found it as pinned',
+    refreshed && ['unchanged', 'updated', 'renewed'].includes(refreshed.outcome) && refreshRow && refreshRow.Outcome === refreshed.outcome,
+    JSON.stringify(refreshed) + ' audit=' + JSON.stringify(refreshRow || null).slice(0, 120))
 
   // T15: hostile payload under may_instruct — C0 and C1 controls, bidi
   // overrides, BOM, soft hyphen, an imperative, and >200 chars. The loop must
