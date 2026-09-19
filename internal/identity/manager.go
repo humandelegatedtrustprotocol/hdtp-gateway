@@ -78,42 +78,6 @@ func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, a
 	return a, nil
 }
 
-// ImportAccount provisions an account around an EXISTING keypair — the restore
-// half of SPEC §3.10. It is CreateAccount with the generation step removed, and
-// deliberately shares everything after it: the same sealing, the same
-// bind-once SetAccountKey, the same membership grant. An import that skipped any
-// of those would produce an account subtly unlike every other one on the node.
-func (m *Manager) ImportAccount(ctx context.Context, slug, displayName string, algo Algo, kp *Keypair) (store.Account, error) {
-	if kp == nil {
-		return store.Account{}, fmt.Errorf("identity: import needs a keypair")
-	}
-	if algo == "" {
-		algo = AlgoP256
-	}
-	a, err := m.Store.CreateAccount(ctx, store.CreateAccountParams{
-		Slug: slug, DisplayName: displayName, Algo: string(algo),
-	})
-	if err != nil {
-		return store.Account{}, err
-	}
-	der, err := MarshalPKCS8(kp)
-	if err != nil {
-		return store.Account{}, err
-	}
-	sealed, err := m.Keyring.Encrypt(der, []byte(keyAAD))
-	if err != nil {
-		return store.Account{}, err
-	}
-	if err := m.Store.SetAccountKey(ctx, a.ID, kp.Fingerprint, sealed); err != nil {
-		return store.Account{}, err
-	}
-	if err := grantToAllOwners(ctx, m.Store, a.ID); err != nil {
-		return store.Account{}, err
-	}
-	a.Fingerprint = kp.Fingerprint
-	return a, nil
-}
-
 // LoadKeypair unseals an account's private key.
 func (m *Manager) LoadKeypair(sealed []byte) (*Keypair, error) {
 	der, err := m.Keyring.Decrypt(sealed, []byte(keyAAD))

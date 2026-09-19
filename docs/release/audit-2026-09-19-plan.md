@@ -366,6 +366,17 @@ list promised "a store-and-forward relay when you have no inbound path at all". 
 following them would have configured a mode that does not exist. `docs/harness-design.md` is a
 design record and is left as one.
 
+### B11 · The node's SPEC and operator docs still describe key rotation — `TODO`
+Found in F1, reading around §3.10. Live, normative-sounding prose for a feature that was deleted:
+`SPEC.md` §8's portal table ("Settings · identity — Rotate an account's identity key: new keypair,
+grace period, `update_contact` fan-out"), §9's **Key rotation** paragraph (`update_contact` "signed by
+their **old** key over the **new** fingerprint"), §12's CLI row (`rotate-key`, and `create -protocol
+2`), the threat model's "Rotation exists (`account rotate-key`…)", and `docs/harness-design.md` S10.
+B10 fixed the deployment mode that did not exist and stopped there. Also a test helper:
+`startDemoNode(…, protocol int, …)` still takes a generation number, and branches on it.
+*Verify:* `grep -n "rotate-key\|Rotate an account\|-protocol 2\|old\*\* key" SPEC.md docs/*.md` is
+empty outside release records; doclint; `make check`.
+
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `BLOCKED — owner's decision`
 `pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
 through goose 29, applied verbatim inside each Identity Durable Object. The node is now at 32:
@@ -422,7 +433,7 @@ What is true today, checked rather than assumed:
   `superseded`, so a *current* leaf that expires un-renewed keeps its key indefinitely; and it runs
   only "where the node already writes" (`node.go:946`), so on a quiet node an expired key just sits.
 
-### F1 · A bundle never carries a leaf key — `TODO`
+### F1 · A bundle never carries a leaf key — `DONE`
 Exporter-side, not only importer-side. Node: the snapshot is stripped before it enters the archive
 — `Store.StripKeys`, built in B1, on the copy — so the ledger rows travel as former leaves and the
 keys do not. Establish first what else the master key seals (integration credentials?) before
@@ -435,11 +446,75 @@ importer ("refuses key material"); consider binding the exporter too.
 *Verify:* a created bundle, opened in a test, has no non-null `*key_sealed` anywhere; the backup
 round-trip tests; the cloud's export tests and leave self-test.
 
+*Done, 2026-09-19.*
+- **The exporter, not only the importer.** `backup create` snapshots the live database, runs
+  `Store.StripKeys` on the COPY, then snapshots the copy again. The second snapshot is the point:
+  this driver runs with `secure_delete` off, so a key set to NULL stays in the file's free and
+  overflow pages, and the bundle carries the master key beside it. `TestABackupBundleCarriesNoLeafKey`
+  searches the archived database's raw bytes for a 64-byte fragment of each key. Its first draft
+  looked for the whole key, which overflow pages never hold contiguously, and passed against a
+  bundle that still had it; with the fragment it fails without the rebuild (checked by removing it).
+- **What the master key still seals** was established first, as planned: saved settings and
+  integration credentials. It stays in a same-node bundle; the warning now says what it is.
+- **Every restore strips**, same-node included, so an older build's bundle brings no key in. Every
+  restore therefore ends the same way: named accounts, none served, `serve` naming each with the
+  `account csr` that ends the wait. `TestRestoreOnAFreshNodeTreatsAnArchiveAsForeign` asserted the
+  opposite ("same-node must bring the account's sealed key") and was turned round.
+  `TestASameNodeRestoreOfAnOlderBundleStillBringsNoLeafKey` hand-builds the older kind of bundle —
+  the live database, unstripped, beside its keyring — and restores it in the mode that trusts an
+  archive most. It fails if the strip is put back behind `-data-only` (checked).
+- **`backup identity` / `restore-identity` are deleted** — five files, 889 lines, plus
+  `Manager.RestoreLeaf` and `Manager.ImportAccount`, whose only caller they were. The feature was
+  the rule's exact opposite: one account's leaf key, under a passphrase, "portable to a different
+  node". `TestThereIsNoIdentityExport` holds the door shut and found a small fault on the way: an
+  unknown `backup` verb made the data directory and took the lock before it was refused.
+- **A deletion the gate reversed.** `identity.FromLib` has no caller in this module and I deleted
+  it as dead. `make dependents` (E3) failed: the cloud's conformance battery builds its reference
+  peer through it. Restored, with its consumer named in its doc comment.
+- **Cloud.** Its production export already refused: the key port it hands the builder throws, the
+  result is asserted `withheld`, and `export.test.ts` searches the sealed bytes. What was wrong was
+  the doc comment above it ("the private key included… the chain records that the key left") and
+  the title of `docs/export-and-leave.md` ("keys included"). Both corrected. The builder's
+  keys-included branch is reachable only for a `protocol = 1` identity and goes with B2c.
+- **The protocol binds the exporter now** (§9, vetoable with the rest of 2.1.0): "a host that makes
+  one MUST NOT put a leaf's private key in it". The importer's refusal never protected anybody from
+  a thief; only the exporter's does. Same normative sentence, so the register keeps 45 entries;
+  `musts.json` 9.#1 re-read, re-hashed, and now names a holder for each half.
+- **Docs.** README "Back up an identity" opened with "Your keypair *is* your identity" — 1.x, and
+  wrong. Rewritten, as were `docs/operations.md` Backups and Recovery (which said "that tarball is
+  your identity" and "`keyring.key` lost: all identities are gone"), SPEC §3.10, and four
+  conformance rows citing tests that no longer exist (`TestConformanceDocCitesRealTests` caught
+  the one I missed).
+*Verified:* node `make check` (27 packages), `make analyze`, `make sqlc-check`; cloud `npm run check`
+(1376 tests, ceremony 103/103); protocol `vectors:check` 101/101 and `build`; identity `cargo test`,
+`go test`, `musts.mjs` (20 of 20 cross-repo holders on disk), `record.mjs --check`.
+
+### F1b · An install opens the superseded key for nobody, and that makes a lost master key a dead end — `TODO`
+Found proving a sentence I had just written into the recovery table ("`keyring.key` lost: renew each
+account"). It was false. `InstallLeaf` unseals the CURRENT leaf's key into `InstallResult.OldKP` on
+every renewal, and fails the install if it cannot. Nothing in production reads `OldKP` (or `NewKP`):
+they fed the 1.x rotation fan-out, which signed with the old key. So a node whose master key is gone
+cannot install a renewal, for the sake of a field nobody reads — the one recovery 2.0 makes possible
+(the root is in the wallet) is blocked by 1.x residue. Fix: drop both fields; a superseded key this
+node cannot open is retired (`RetireLeafKey`: `former`, no key) rather than kept as a guest it could
+never serve, so `ActiveLeafKeypairs` does not then fail the whole account on it.
+**And a test that proves nothing, found in the same place:** `TestPact20TransportChainResolves…`
+asserts "a superseded chain is a guest" with `clientFor(ren.OldKP)` — but `OldKP` carries no leaf, so
+`tlsCertOf` returns an empty certificate and the client presents NOTHING. It has been testing that
+an anonymous caller is a guest. It must present the real superseded chain, from
+`ActiveLeafKeypairs`; what it then shows is not yet known.
+*Verify:* the parked `TestALostMasterKeyCostsALeafNotTheIdentity` (scratchpad) goes in and passes;
+the transport test presents a real superseded chain; the recovery row says what the test proves.
+
 ### F2 · A leaf's key is destroyed when the leaf expires — `TODO`
 Every state, not only `superseded`, and on the node's existing retention sweep rather than as a
 side effect of some other write. An expired leaf is refused everywhere (§2), so its key can do
 nothing legitimate; keeping it is pure exposure. The kid stays, so an envelope sealed to it is still
 answered `certificate_renewed` (§14.4).
+*Found on the way (F1):* `ActiveLeafKeypairsFor` says of an expired leaf "the destruction of the key
+is `RetireExpiredLeafKeys`, not this". No such function exists, and `Store.RetireLeafKey` has no
+production caller at all. So today nothing destroys an expired leaf's key: the comment cites a
+mechanism that was never built.
 *Verify:* a test with an injected clock: a current leaf past `notAfter` loses its key on the sweep,
 the ledger row survives as former, and the account reports awaiting a leaf rather than serving.
 
@@ -470,12 +545,15 @@ magnitude below what the node already serves.
 
 ## Part E — the standing rule, enforced
 
-### E1 · `VACUUM INTO` in `internal/cli/backup.go:166` — `TODO`
+### E1 · `VACUUM INTO` in `internal/cli/backup.go:166` — `DONE`
 The backup snapshot is the other hand-written statement. Try it as a sqlc query first; if sqlc's
 SQLite parser cannot express `VACUUM INTO`, it moves into the SQLite store as an engine method —
 the one place a storage-maintenance command may live — and is named in E2's guard as the single
 allowed exception, with the reason beside it.
 *Verify:* `make sqlc-check`, the backup round-trip tests.
+*Done with F1.* sqlc's SQLite grammar rejects `VACUUM INTO ?`, so it is `SQLite.Snapshot` — an engine
+method, the one hand-written statement in the module, its doc naming E2's guard as what keeps it the
+only one. `internal/cli/backup.go` no longer imports `database/sql`.
 
 ### E3 · The Go conformance battery is in no gate, so it rots when the node moves — `DONE`
 Found in B9. `pact-cloud/gateway/conformance/` imports the node's `internal/` packages and runs
@@ -498,5 +576,5 @@ is a catalogue of that.
 
 ## Order of execution
 
-A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1, F2, C1–C4, D1, E1, E2. One item at a time, each verified and committed before the
+A1, A2, B1, B2, B3, B4, B5, B9, B7, B8, **E3**, B6, B5b, B10, B2c, F1 (+E1), **F1b**, F2, **B11**, C1–C4, D1, E2. One item at a time, each verified and committed before the
 next starts.

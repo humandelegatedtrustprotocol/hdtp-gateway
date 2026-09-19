@@ -12,7 +12,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -71,20 +70,23 @@ func hashKeyring(b []byte) string {
 
 func backupCmd(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway backup <create|restore|identity|restore-identity> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway backup <create|restore> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	var cfgPath, out, from, slug, passFile string
+	// Before the flags, the data directory and the lock: a verb this command does not have
+	// should cost nothing, and until now it made the directory and took the lock first.
+	if sub != "create" && sub != "restore" {
+		fmt.Fprintln(stderr, "usage: pact-gateway backup <create|restore> [flags]")
+		return 2
+	}
+	var cfgPath, out, from string
 	var withoutKey, yes, dataOnly, sameNode bool
 	fs := commonFlags("backup "+sub, &cfgPath, stderr)
 	fs.BoolVar(&dataOnly, "data-only", false, "restore: import another host's archive — the data comes in, every key in it is refused (PACT §9)")
-	fs.BoolVar(&sameNode, "same-node", false, "restore: this is your own node's archive restored onto a fresh machine — its master key and sealed keys are taken as yours")
-	fs.StringVar(&out, "out", "", "create|identity: path to write")
-	fs.StringVar(&from, "from", "", "restore|restore-identity: path to read")
-	fs.StringVar(&slug, "slug", "", "identity: which account to back up")
-	fs.StringVar(&passFile, "passphrase-file", "",
-		"identity|restore-identity: 0600 file holding the passphrase (or set "+passphraseEnv+")")
+	fs.BoolVar(&sameNode, "same-node", false, "restore: this is your own node's archive restored onto a fresh machine — its master key is taken as yours (it unseals saved settings and integration credentials; no leaf key is in an archive)")
+	fs.StringVar(&out, "out", "", "create: path to write")
+	fs.StringVar(&from, "from", "", "restore: path to read")
 	fs.BoolVar(&withoutKey, "without-master-key", false, "create: leave keyring.key out of the archive")
 	fs.BoolVar(&yes, "yes", false, "restore: overwrite an existing store")
 	if err := fs.Parse(rest); err != nil {
@@ -106,15 +108,12 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer lock.Release()
-	switch sub {
-	case "identity":
-		// One account's keypair, sealed under a passphrase and portable to
-		// another node (SPEC §3.10). Not `create`, which is the whole node under
-		// the node's OWN master key and therefore only restorable beside it.
-		return exportIdentity(cfg, slug, out, passFile, stdout, stderr)
-	case "restore-identity":
-		return restoreIdentity(cfg, from, passFile, stdout, stderr)
-	case "create":
+	// There is no `backup identity`. It exported one account's keypair under a passphrase,
+	// "portable to another node" — which is the one thing a leaf's key must never be. A leaf is
+	// the person's root entrusting THIS host for one address until one date; whoever else holds
+	// its key can speak as this host from that address. Moving to another node is the wallet
+	// issuing that node a leaf of its own (`account csr -purpose move`), and the key never travels.
+	if sub == "create" {
 		if out == "" {
 			fmt.Fprintln(stderr, "backup create: -out is required")
 			return 2
@@ -129,42 +128,71 @@ func backupCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "note: store_engine is postgres — dump the database separately with pg_dump; this archive holds blobs + master key only")
 		}
 		if !withoutKey {
-			fmt.Fprintln(stdout, "warning: the archive contains keyring.key — it IS every account's identity; store it as securely as the node")
+			fmt.Fprintln(stdout, "warning: the archive contains keyring.key — it unseals this node's saved settings and integration credentials; store it as securely as the node. It holds no identity: that is the root in your wallet, and no leaf key is in this archive")
 		}
 		return 0
-	case "restore":
-		if from == "" {
-			fmt.Fprintln(stderr, "backup restore: -from is required")
-			return 2
-		}
-		if _, err := os.Stat(filepath.Join(cfg.DataDir, backupDB)); err == nil && !yes {
-			fmt.Fprintln(stderr, "backup restore: data dir already holds a store; pass -yes to overwrite it")
-			return 1
-		}
-		n, err := backupRestore(cfg, from, dataOnly, sameNode)
-		if err != nil {
-			fmt.Fprintln(stderr, "backup:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "restored %d entries into %s\nnext: pact-gateway migrate, then serve\n", n, cfg.DataDir)
-		if dataOnly {
-			fmt.Fprintln(stdout, "keys were not imported: each account needs a leaf from its wallet before it serves (account csr -purpose renew, then install-leaf)")
-		}
-		return 0
-	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway backup <create|restore|identity|restore-identity> [flags]")
+	}
+	if from == "" {
+		fmt.Fprintln(stderr, "backup restore: -from is required")
 		return 2
 	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, backupDB)); err == nil && !yes {
+		fmt.Fprintln(stderr, "backup restore: data dir already holds a store; pass -yes to overwrite it")
+		return 1
+	}
+	n, err := backupRestore(cfg, from, dataOnly, sameNode)
+	if err != nil {
+		fmt.Fprintln(stderr, "backup:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "restored %d entries into %s\nnext: pact-gateway migrate, then serve\n", n, cfg.DataDir)
+	// Said on every restore now, because it is true of every restore: a leaf's key never
+	// travels, so a restored identity is one the wallet has to certify again.
+	fmt.Fprintln(stdout, "keys were not imported: no archive carries a leaf key, so each account needs a leaf from its wallet before it is served — `serve` names each one and the command that asks for it")
+	return 0
 }
 
-// snapshotSQLite copies the live database consistently with VACUUM INTO.
-func snapshotSQLite(dbPath, dst string) error {
-	db, err := sql.Open("sqlite", dbPath)
+// snapshotWithoutLeafKeys writes the copy of the database that goes into a bundle: everything
+// the node holds EXCEPT the private keys of its leaves.
+//
+// A leaf is the person's root entrusting THIS host, for ONE address, until ONE date (PACT §2).
+// Its private key is therefore not the person's data — it is the host's credential. A bundle
+// that carries it lets whoever holds the bundle speak as this host from this address until the
+// leaf runs out, and a message sent that way says "this came from the host the person chose"
+// when it did not. Nothing about restoring or moving needs it: a wallet issues a fresh leaf to
+// whoever serves next, which is what makes renewal cheap. So the keys never enter the archive,
+// and a restored node awaits a leaf and says so.
+//
+// This used to copy the whole database — `accounts.key_sealed` and `leaves.key_sealed` included
+// — beside the master key that unseals them, which made every backup a complete credential. The
+// only protection was on the importer's side (`restore -data-only`), which is no protection
+// against somebody who simply has the file.
+//
+// Three steps, and the third is not optional. The first copy is consistent; the second removes
+// the keys; but an UPDATE to NULL leaves the old bytes in the file's free pages, and in a bundle
+// the master key that unseals them sits beside it. `Snapshot` REBUILDS — live rows only, no free
+// pages — so the final copy is made from the stripped one, and the intermediate is removed.
+func snapshotWithoutLeafKeys(ctx context.Context, dbPath, dst string) error {
+	live, err := store.OpenSQLite(dbPath)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	_, err = db.ExecContext(context.Background(), "VACUUM INTO ?", dst)
+	defer live.Close()
+	withKeys := dst + ".withkeys"
+	if err := live.Snapshot(ctx, withKeys); err != nil {
+		return err
+	}
+	defer os.Remove(withKeys)
+	stripped, err := store.OpenSQLite(withKeys)
+	if err != nil {
+		return err
+	}
+	if err := stripped.StripKeys(ctx); err != nil {
+		stripped.Close()
+		return fmt.Errorf("removing leaf keys from the copy: %w", err)
+	}
+	err = stripped.Snapshot(ctx, dst)
+	stripped.Close()
 	return err
 }
 
@@ -226,7 +254,7 @@ func backupCreate(cfg *core.Config, out string, withKey bool) (int, error) {
 			return 0, fmt.Errorf("no store at %s (run migrate first?)", dbPath)
 		}
 		snap := filepath.Join(tmp, backupDB)
-		if err := snapshotSQLite(dbPath, snap); err != nil {
+		if err := snapshotWithoutLeafKeys(context.Background(), dbPath, snap); err != nil {
 			return 0, fmt.Errorf("sqlite snapshot: %w", err)
 		}
 		if err := addFile(backupDB, snap, 0o600); err != nil {
@@ -273,8 +301,9 @@ func backupRestore(cfg *core.Config, from string, dataOnly, sameNode bool) (int,
 	}
 	// Foreign unless proven otherwise: the manifest's keyring id is the former
 	// host's to omit, and a fresh node has no keyring to compare with — both
-	// used to read as "safe" and let the archive's master key and every sealed
-	// key land here, which is exactly what PACT §9 forbids a host to take.
+	// used to read as "safe" and let another host's master key land here, which
+	// PACT §9 forbids a host to take. (A leaf key is no longer in question: no
+	// archive carries one, and the restore strips the columns regardless.)
 	if !dataOnly && !sameNode {
 		local := keyringID(cfg)
 		if man.KeyringID == "" || local == "" || man.KeyringID != local {
@@ -345,7 +374,14 @@ func backupRestore(cfg *core.Config, from string, dataOnly, sameNode bool) (int,
 	if !sawManifest {
 		return 0, fmt.Errorf("not a pact backup: manifest missing")
 	}
-	if dataOnly {
+	// Every restore ends with a keyless store, whoever made the archive and whenever. A bundle
+	// made by this build carries no leaf key to begin with; one made before 2026-09-19 carries
+	// both `key_sealed` columns, and the rule that a leaf's key never leaves the host it was
+	// issued to must not depend on the age of the file. What `-data-only` and `-same-node` still
+	// decide is whether the archive's MASTER key is taken — it also seals settings and integration
+	// credentials, which a node restoring itself wants back and a node importing a stranger does
+	// not. Postgres nodes archive no database, so there is nothing here to strip.
+	if cfg.StoreEngine != "postgres" {
 		if err := stripKeys(filepath.Join(cfg.DataDir, backupDB)); err != nil {
 			return 0, fmt.Errorf("stripping key material: %w", err)
 		}

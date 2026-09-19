@@ -290,16 +290,22 @@ no grace period to configure: nothing contacts hold is pinned to anything the no
 Losing the **root** is losing the identity, and the root is not here. It lives in the
 person's wallet (PACT §9): no third party holds a copy, this node cannot mint one, and
 there is no recovery ceremony. That trade-off is the wallet's to state; it is repeated
-once here so that nobody reads the leaf backup of §3.10 as a backup of the identity. It
-is not.
+once here so that nobody reads a backup of this node (§3.10) as a backup of the identity.
+It is not, and it is not a backup of the leaf's key either.
 
-### 3.10 Identity backup and restore
+### 3.10 What a backup carries
 
-`backup identity` and `backup restore-identity` (§12) move one account's identity between nodes, or into cold storage. Both are **offline** and reachable **only over host shell access** — never the portal, never the owner MCP, and never a bearer token. The boundary matches §8.6's: a registration ceremony must not be performable by a leaked token, and neither must an export of the thing that ceremony protects. A session or a token that could exfiltrate an identity key would make every other control on that surface decorative.
+`backup create` and `backup restore` (§12) are **offline** and reachable **only over host shell access** — never the portal, never the owner MCP, and never a bearer token.
 
-The file is a self-describing JSON document holding the account's slug, display name, algorithm and fingerprint in the clear, and the PKCS#8 private key sealed with AES-256-GCM under a key derived from the owner's passphrase by Argon2id. The cleartext metadata is bound in as the AEAD's additional data, so a file whose fingerprint or slug has been edited fails to open rather than restoring an identity under a name it does not own. The passphrase is supplied the way the keyring master key is (§12.2): an environment variable, or a `0600` file — a passphrase file with broader permissions is refused, for the same reason the master key file is.
+**A bundle MUST NOT carry a leaf's private key.** A leaf is the person's root entrusting *this host*, for one address, until one date (PACT §9, §14.1). Its key is the host's credential and not the person's data: a copy in a file would let whoever held the file speak as this host, from this address, until the leaf ran out — and nothing a contact holds could tell the difference. So `create` writes a snapshot of the database with every `key_sealed` set to NULL and every live ledger row demoted to `former`, and then **rebuilds the file**, because a value set to NULL stays in a database file's free pages until the file is rebuilt, and the bundle may carry the master key right beside it. `restore` strips the same columns again whatever the archive says, so a bundle made by an older node, or by hand, cannot bring one in.
 
-Restore refuses to overwrite: an account whose slug or fingerprint already exists on the node is a collision the owner must resolve, not something to silently replace. A restored identity arrives with its keypair and nothing else — contacts, threads and media do not travel with it, because they are the *other* node's records of relationships. The contacts who pinned this key keep working; the owner's own view of them does not come back. Restoring the whole node, including those records, is `backup create` / `backup restore`.
+What follows is that every restore ends in the same place: the accounts are here by name, with their root, their contacts and their ledger, and **none is served** until the wallet issues this host a leaf (`account csr`, `account install-leaf`). `serve` names each waiting account. Contacts need do nothing — they pinned the root, and the new leaf reaches them with the first envelope (PACT §13.2, §14.3).
+
+The master key (`keyring.key`) is a different matter and is handled by who the archive belongs to: it unseals saved settings and integration credentials (§11.3). An archive proven to be this node's own restores beside the key already here; `-same-node` brings it onto a fresh machine; `-data-only` takes another host's data and refuses its master key (PACT §9).
+
+There is no per-account export. `backup identity` and `backup restore-identity` moved one account's leaf key between nodes under a passphrase, which is the one thing this section forbids; a node that moves asks the wallet for a leaf of its own (`account csr -purpose move`).
+
+On Postgres the store is external and no database is in the bundle. A `pg_dump` is a copy of the live database and holds the sealed keys; it is the operator's to keep apart from `keyring.key`.
 
 
 ---
@@ -1040,7 +1046,7 @@ One binary, subcommand-per-concern:
 | `passkey` | `list` \| `remove` \| `reset-wizard` — owner passkeys; `reset-wizard` mints a one-time setup URL (§3.1, §8.6) |
 | `token` | `create` \| `list` \| `revoke` — named owner-MCP bearer tokens (§3, §8.4) |
 | `audit` | `verify` \| `export` \| `archive` \| `repair` — the hash chain, offline; the node must be stopped (§11.4, §11.6) |
-| `backup` | `create` \| `restore` a consistent snapshot, offline (§11); `identity` \| `restore-identity` move ONE account's keypair, passphrase-encrypted and portable (§3.10) |
+| `backup` | `create` \| `restore` a consistent snapshot of the node's data, offline (§11). No leaf key is in one, so a restored account waits for a leaf from its wallet (§3.10) |
 | `version` | Print the version |
 
 Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate` — MUST run only with the node stopped: they check the store lock and refuse to proceed while the node holds it.
@@ -1121,7 +1127,7 @@ flowchart TB
 
 **Lost key = new identity.** Unchanged from PACT §2: there is deliberately no recovery ceremony, and no third party holds a copy. Rotation exists (`account rotate-key`, §12; `update_contact` signed by the old key, PACT §2) and works only while the old key can still sign. A destroyed or lost key means a new identity: re-share your card and re-pin with every contact.
 
-The one exception is an owner who prepared: `backup identity` (§3.10) exports an account's keypair under a passphrase, and `backup restore-identity` brings it back on any node. That is a backup, not a recovery — it exists only if it was made, it is only as safe as the passphrase and the place the file is kept, and it is deliberately unreachable from the portal and the owner MCP so that neither a session nor a leaked token can exfiltrate an identity.
+**A backup is data, never a credential.** No bundle carries a leaf's key (§3.10), so an archive that leaks costs the owner their records' confidentiality and not their voice: nobody can speak as this host from it. The price is paid at restore, where every account waits for a fresh leaf; that is one wallet ceremony per account, and it is the same ceremony a renewal is.
 
 **Loopback internal surface = physical trust.** On a loopback bind, the portal and owner MCP run without authentication (CSRF protection stays on); any other bind refuses to start without passkey auth + TLS (§8). The accepted meaning: whoever can originate a loopback connection on the host is the owner, as far as the node is concerned. Isolation between local users and processes on a shared host is host administration, outside this spec.
 

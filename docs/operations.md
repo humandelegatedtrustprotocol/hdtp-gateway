@@ -95,27 +95,44 @@ pact-gateway backup restore --config config.json --from pact-backup.tar.gz --yes
 
 Both are **offline** commands: stop the node first (they refuse while `pact.lock` is
 held). `create` takes a consistent SQLite snapshot (`VACUUM INTO`), the `blobs/` tree,
-and — by default — `keyring.key`, into one tarball. **That tarball is your identity:**
-whoever holds it holds every account's private key. Store it as you would the node
-itself, or pass `--without-master-key` and keep the key elsewhere (a backup without
-the key is unreadable until the key is put back).
+and — by default — `keyring.key`, into one tarball.
 
-`restore` refuses to overwrite an existing store unless `--yes`, unpacks, and prints
-the next step (`pact-gateway migrate`, then `serve`). Restoring onto a different
-machine keeps every contact, invite, key, audit row and integration — the audit chain
-still verifies (`pact-gateway audit verify`).
+**The tarball is the node's data, not a credential.** The snapshot is stripped of every
+leaf's private key and then rebuilt, so the keys are in neither its rows nor its free
+pages; the ledger of leaves travels as `former` rows. A leaf is the owner's root trusting
+*this host* for one address until one date, and a copy of its key would let whoever held
+the archive speak as this host. What `keyring.key` still unseals is saved settings and
+integration credentials — store the tarball as you would those, or pass
+`--without-master-key` and keep the key elsewhere.
 
-**Postgres:** the store is external; back it up with `pg_dump` and restore with
-`psql`. `backup create` still captures `blobs/` and `keyring.key` and tells you to
-dump the database separately.
+`restore` refuses to overwrite an existing store unless `--yes`, unpacks, and prints the
+next step (`pact-gateway migrate`, then `serve`). It takes an archive three ways:
+
+| Archive | Flag | Master key | Leaf keys |
+|---|---|---|---|
+| this node's, restored beside its own `keyring.key` | none | already here | none in the archive |
+| this node's, on a fresh machine | `--same-node` | restored | none in the archive |
+| another host's | `--data-only` | refused | none in the archive |
+
+In every case the accounts come back **named and not yet served**: contacts, invites,
+audit rows and integrations are kept — the audit chain still verifies
+(`pact-gateway audit verify`) — and each account waits for a leaf. `serve` names each one
+and prints the `account csr` to run; the wallet signs it; `account install-leaf` ends the
+wait. Contacts do nothing, because what they pinned is the root.
+
+**Postgres:** the store is external, and `backup create` captures only `blobs/` and
+`keyring.key`. A `pg_dump` is a copy of the live database and *does* hold the sealed leaf
+keys — it is the operator's, outside this tool. Keep it apart from `keyring.key`, which is
+what unseals them.
 
 ## Recovery
 
 | Lost | Consequence | Do |
 |---|---|---|
-| the node, with a backup | nothing | restore, `migrate`, `serve`; peers never notice |
-| `keyring.key` only | every account's private key is unreadable: **all identities are gone** (SPEC §3.7) | create fresh accounts and re-share cards; there is no recovery ceremony |
-| one account's key (compromised) | rotate: `pact-gateway account rotate-key --slug me` — new key, old key live for the grace period, `update_contact` fan-out to every contact; re-run to resume an interrupted fan-out | contacts that missed the rotation re-verify from a fresh card |
+| the node, with a backup | accounts are not served until re-certified | restore, `migrate`, `serve`; then one `account csr` / `install-leaf` per account. Contacts keep their pins |
+| `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet | put the key back from wherever it was kept |
+| one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `pact-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (PACT §14.3) |
+| the wallet's root | the identity itself; this node cannot help | the wallet's own recovery, if it has one (PACT §9, §14.5) |
 | the audit chain shows a break | someone altered history | `audit verify` names the first bad row; treat the store as untrusted from there |
 
 No telemetry leaves the node, ever; the audit chain is yours alone.

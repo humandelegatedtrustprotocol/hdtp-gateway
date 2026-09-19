@@ -34,6 +34,24 @@ func OpenSQLite(path string) (*SQLite, error) {
 	return &SQLite{db: db, q: sqlitedb.New(db)}, nil
 }
 
+// Snapshot writes a consistent, compact copy of this database to dst, which must not exist.
+//
+// It is the ONE statement in this module that is not a generated query, and it is here rather
+// than in whoever wants a copy for that reason. The rule is that database access goes through
+// sqlc; `VACUUM INTO ?` was tried as a named query on 2026-09-19 and sqlc's SQLite grammar
+// rejects it — it knows VACUUM and not the INTO form. A storage-engine maintenance command is
+// not data access, the engine's own file is the right owner for it, and the guard that enforces
+// the rule names this function as its single exception (TestNoHandWrittenSQLOutsideTheStore).
+//
+// VACUUM INTO rebuilds: the copy holds live rows only, with no free pages. That matters to a
+// caller that has just deleted something from the source and needs it gone from the copy too.
+func (s *SQLite) Snapshot(ctx context.Context, dst string) error {
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
+		return fmt.Errorf("store: snapshot: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLite) Migrate(ctx context.Context) error {
 	p, err := s.provider()
 	if err != nil {
