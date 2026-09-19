@@ -26,6 +26,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
 const (
@@ -384,26 +385,31 @@ func readBackupManifest(from string) (backupManifestDoc, error) {
 	}
 }
 
-// stripKeys removes every sealed key from a restored store: the accounts'
-// keys, a rotation's retiring key, and the leaf ledger's keys — the ledger
-// rows stay, as former leaves, so an envelope sealed to one is answered
-// certificate_renewed once the wallet has issued a leaf here (PACT §14.4).
+// stripKeys removes every sealed key from a restored store, leaving the leaf ledger's rows in
+// place as former leaves so an envelope sealed to one is answered certificate_renewed once the
+// wallet has issued a leaf here (PACT §14.4).
+//
+// The archive's database is whatever age its source node was, and an old one can still carry
+// `accounts.prev_key_sealed` — a sealed private key from a 1.x rotation that was in flight. So the
+// restored store is MIGRATED FIRST and stripped second. Migration 0031 destroys that column, after
+// which the only key material left is in the two columns the current schema names, and
+// `Store.StripKeys` removes it through two static sqlc queries.
+//
+// That ordering is what keeps this free of hand-written SQL. It used to name columns in a fixed
+// UPDATE, which fails on any archive newer than the column it names; a rewrite then read the
+// archive's own schema and built statements from its column names — dynamic SQL over a file
+// somebody else supplied. Neither is needed once the schema is known, and migrating makes it known.
 func stripKeys(dbPath string) error {
-	db, err := sql.Open("sqlite", dbPath)
+	st, err := store.OpenSQLite(dbPath)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer st.Close()
 	ctx := context.Background()
-	for _, stmt := range []string{
-		"UPDATE accounts SET key_sealed = NULL, prev_key_sealed = NULL, prev_fingerprint = NULL, grace_until = 0",
-		"UPDATE leaves SET key_sealed = NULL, state = 'former' WHERE state IN ('current', 'superseded', 'pending')",
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return err
-		}
+	if err := st.Migrate(ctx); err != nil {
+		return fmt.Errorf("bringing the restored store to the current schema: %w", err)
 	}
-	return nil
+	return st.StripKeys(ctx)
 }
 
 func writeEntry(path string, r io.Reader, mode os.FileMode) error {
