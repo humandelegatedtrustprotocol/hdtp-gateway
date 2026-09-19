@@ -46,7 +46,6 @@ var nodeLevelActions = map[string]string{
 	"ingress_unpair":           "unpairing the node's own inbound adapter",
 	"settings_unreadable":      "a node settings row the keyring cannot open",
 	"settings_reseal":          "the node's settings being resealed under a new key",
-	"endpoint_announce_all":    "the sweep caused by the node's own address changing",
 	"account_create":           "a failed create names no account because none exists yet; the success path names the one it made, and the slug-misuse rule still guards it",
 }
 

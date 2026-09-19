@@ -728,8 +728,10 @@ func (n *Node) PublicURL() string {
 	return n.publicURL
 }
 
-// SetPublicURL changes the advertised endpoint. Contacts hold the OLD one, so
-// the caller is expected to follow this with AnnounceEndpointChange.
+// SetPublicURL changes the base this node derives an account's address from, which is the
+// address the NEXT certificate request will name. It moves nobody: every leaf still names the
+// endpoint it was issued for, and an account changes address when its wallet issues a leaf for
+// the new one (`account csr -purpose move`). The caller names the accounts that now need that.
 func (n *Node) SetPublicURL(url string) {
 	n.liveMu.Lock()
 	n.publicURL = url

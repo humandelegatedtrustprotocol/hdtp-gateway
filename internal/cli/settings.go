@@ -24,6 +24,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/internalui"
 	"github.com/tech-sumit/pact-gateway/internal/node"
 	"github.com/tech-sumit/pact-gateway/internal/public"
@@ -305,41 +306,35 @@ func (s *settingsService) applyLive(ctx context.Context, key, value string) erro
 		s.writeCfg(func(c *core.Config) { c.LANConnections = allow })
 		s.node.SetLANConnections(allow)
 	case "public_url":
-		same := false
-		s.readCfg(func(c *core.Config) { same = value == c.PublicURL })
-		if same {
+		old := ""
+		s.readCfg(func(c *core.Config) { old = c.PublicURL })
+		if value == old {
 			return nil
 		}
 		s.writeCfg(func(c *core.Config) { c.PublicURL = value })
 		s.node.SetPublicURL(value)
-		// Contacts pinned the old endpoint; tell them (SPEC §9.4).
+		// Nobody is told, because nothing has moved. An address is inside a leaf: every account
+		// still answers at the endpoint its wallet signed, and goes on doing so until the wallet
+		// signs a leaf for the new one. What HAS changed is that the accounts certified for the
+		// old derived address are now certified for an address this node no longer advertises,
+		// and each needs a move — so they are named, here and on `doctor` and the `serve` banner.
 		//
-		// This runs in the background on purpose. The change is already true
-		// locally, some contacts will be offline, and a portal save that blocks
-		// until every peer answers would hang on the first unreachable one. The
-		// outcome goes to the audit chain, which is where a partial fan-out
-		// belongs — the owner can see who was not reached.
-		nd := s.node
-		go func() {
-			announceCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			done, failed, err := nd.AnnounceEndpointChange(announceCtx, nil)
-			// The counts and the reason describe what happened, so they belong on
-			// the resource; the outcome stays a verdict the portal can colour,
-			// count and filter by.
-			resource := fmt.Sprintf("public_url done:%d failed:%d", done, failed)
-			outcome := "ok"
-			if err != nil {
-				resource += " why:" + core.Redact(err.Error())
-				outcome = "error"
-			} else if failed > 0 {
-				outcome = "failed"
+		// This used to fan `update_contact{card, sig}` out to every contact of every account,
+		// with a signature over the account's own fingerprint as "proof". That was 1.x's endpoint
+		// announcement (node/announce.go says what became of it): under 2.0 it sent each contact
+		// the card it already held, and started nothing that moves an address.
+		accounts, err := s.store.ListAccounts(ctx)
+		if err != nil {
+			return err
+		}
+		for _, a := range accounts {
+			at := leafAddress(ctx, s.store, a.ID)
+			to := identity.EndpointFor(value, a.Slug)
+			if at == "" || at == to || at != identity.EndpointFor(old, a.Slug) {
+				continue // no leaf; already there; or certified for an address of its own, not the node's
 			}
-			// A distinct action from the per-contact rows announce.go writes: this one
-			// is the sweep across every account, caused by the node's own address
-			// changing, and belongs to no single identity.
-			s.audit("endpoint_announce_all", resource, outcome)
-		}()
+			s.audit("account_move_needed", "account:"+a.ID+" slug:"+a.Slug+" from:"+at+" to:"+to, "ok")
+		}
 	}
 	return nil
 }
@@ -505,4 +500,19 @@ func (s *settingsService) savePreset(ctx context.Context, name string, perms []s
 // documented defaults — LoadPresets resolves an empty set that way.
 func (s *settingsService) deletePreset(ctx context.Context, name string) error {
 	return s.store.DeleteSetting(ctx, contacts.PresetKeyPrefix+name)
+}
+
+// leafAddress is the endpoint an account's current leaf names, or "" when it holds none. It is the
+// address the account ANSWERS at, which is a fact about a certificate and not about a setting.
+func leafAddress(ctx context.Context, st store.Store, accountID string) string {
+	leaves, err := st.ListLeaves(ctx, accountID)
+	if err != nil {
+		return ""
+	}
+	for _, l := range leaves {
+		if l.State == identity.LeafCurrent {
+			return l.Endpoint
+		}
+	}
+	return ""
 }

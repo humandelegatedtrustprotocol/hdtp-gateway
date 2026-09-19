@@ -675,6 +675,14 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		}
 		fmt.Fprintf(stdout, "awaiting a certificate, not served: %s — run `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, slug, purpose, slug)
 	}
+	// And an account that IS served, at an address this node no longer advertises.
+	if accts, aerr := st.ListAccounts(ctx); aerr == nil {
+		for _, a := range accts {
+			if line := addressDriftLine(nd.PublicURL(), a.Slug, leafAddress(ctx, st, a.ID)); line != "" {
+				fmt.Fprintf(stdout, "address: %s\n", line)
+			}
+		}
+	}
 	if n == 0 {
 		// First run (SPEC §12.4): print the portal URL and the setup token.
 		// The token is NOT burned on first use — a WebAuthn ceremony is two
@@ -1319,6 +1327,9 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					default:
 						fmt.Fprintf(stdout, "ok   leaf         %s valid until %s (root %s)\n", a.Slug, info.NotAfter.Format("2006-01-02"), info.RootFingerprint)
 					}
+					if line := addressDriftLine(cfg.PublicURL, a.Slug, info.Endpoint); line != "" {
+						fmt.Fprintf(stdout, "warn address      %s\n", line)
+					}
 				}
 			}
 			s.Close()
@@ -1357,4 +1368,24 @@ func hostPolicyWords(policy string) string {
 		return "held until you decide (`account address -decision approve|reject`)"
 	}
 	return "followed automatically when their own root signed the new leaf"
+}
+
+// addressDriftLine says, for one account, that its leaf names another address than the one this
+// node advertises for it — or "" when they agree, or when either is unknown.
+//
+// It is worded as a condition and not as a fault, because it is not always one: an account may be
+// certified for a hostname of its own (a multi-account node wants one host per account for direct
+// TLS). It is a fault when the node's `public_url` was changed, and then the cure is a move — a
+// leaf the wallet issues for the new address. Saving the setting moves nobody.
+func addressDriftLine(publicURL, slug, leafEndpoint string) string {
+	if publicURL == "" || leafEndpoint == "" {
+		return ""
+	}
+	advertised := identity.EndpointFor(publicURL, slug)
+	if advertised == "" || advertised == leafEndpoint {
+		return ""
+	}
+	return fmt.Sprintf("%s answers at %s (the address in its certificate) and this node advertises %s. If the node's address changed, "+
+		"run `pact-gateway account csr -slug %s -purpose move`, have the wallet sign it, then `account install-leaf`: that is what moves an identity and tells its contacts",
+		slug, leafEndpoint, advertised, slug)
 }
