@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -115,24 +116,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 		Log: func(action, resource, outcome string) { auditFn(action, resource, outcome) },
 
 		Audit: func(ctx context.Context, actorFilter string, limit int, permit func(string) bool) ([]store.AuditRow, error) {
-			rows, err := st.ListAuditEvents(ctx, actorFilter)
-			if err != nil {
-				return nil, err
-			}
-			// Scope first, then cap: capping first would hand back fewer rows
-			// than asked for whenever an unreadable row occupied the window.
-			kept := rows[:0]
-			for _, r := range rows {
-				if permit == nil || permit(r.AccountID) {
-					kept = append(kept, r)
-				}
-			}
-			rows = kept
-			// newest first, capped
-			if len(rows) > limit {
-				rows = rows[len(rows)-limit:]
-			}
-			return rows, nil
+			return auditPageFor(ctx, st, actorFilter, limit, permit)
 		},
 
 		// One definition of "call a contact", on the node, shared with the portal.
@@ -151,4 +135,65 @@ func newCallID() string {
 		return "call-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
 	return "call-" + hex.EncodeToString(b)
+}
+
+// auditPageFor is the newest `limit` rows of the trail that `permit` lets this caller read, oldest
+// of them first.
+//
+// It asks the store for a PAGE per account the caller may read. It used to ask for the whole chain
+// and cut it down here, which on a node with a long history was every row of the trail, in memory,
+// on every call of `audit_query` — a read that is bounded by design everywhere else.
+//
+// A page for an account also carries the node's own rows, which belong to no account. A caller
+// scoped to some accounts may not see those (`permit("")` is false), so they are dropped here —
+// and a page made mostly of them would then come back short although older rows exist. So the
+// page grows until enough rows survive, or until the store has no more to give.
+func auditPageFor(ctx context.Context, st store.Store, actor string, limit int, permit func(string) bool) ([]store.AuditRow, error) {
+	if permit == nil {
+		permit = func(string) bool { return true }
+	}
+	accounts, err := st.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// No account yet: the node's own rows are all there is, and "-" is no account's id.
+	scope := []string{}
+	for _, a := range accounts {
+		if permit(a.ID) {
+			scope = append(scope, a.ID)
+		}
+	}
+	if len(scope) == 0 && permit("") {
+		scope = []string{"-"}
+	}
+	const mostPages = 6 // limit x 4^5: past this a caller is asking for a needle, and gets what was found
+	var rows []store.AuditRow
+	for page, tries := limit, 0; tries < mostPages; page, tries = page*4, tries+1 {
+		rows = rows[:0]
+		seen := map[int64]bool{}
+		exhausted := true
+		for _, id := range scope {
+			part, err := st.ListAuditEventsPage(ctx, store.AuditPage{Actor: actor, Account: id, Limit: page})
+			if err != nil {
+				return nil, err
+			}
+			if len(part) == page {
+				exhausted = false
+			}
+			for _, r := range part {
+				if !seen[r.Seq] && permit(r.AccountID) {
+					seen[r.Seq] = true
+					rows = append(rows, r)
+				}
+			}
+		}
+		if len(rows) >= limit || exhausted {
+			break
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Seq < rows[j].Seq })
+	if len(rows) > limit {
+		rows = rows[len(rows)-limit:]
+	}
+	return rows, nil
 }
