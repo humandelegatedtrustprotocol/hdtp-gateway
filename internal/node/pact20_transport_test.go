@@ -29,7 +29,7 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	alina.pin20(bharat)
-	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	clientFor := func(kp *identity.Keypair) *outbound.Client {
 		return bharat.n.wire20(bharat.acct.ID, &outbound.Client{Keypair: kp, Cert: tlsCertOf(kp)})
 	}
@@ -153,7 +153,7 @@ func TestTheTransportJudgesAChainAtTheNodesClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	alina.pin20(bharat)
-	peerA := outbound.Peer{Endpoint: alina.endpoint(), Fingerprint: alina.rootFpr(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	bharatKP := bharat.kp()
 	listed := func() map[string]bool {
 		// Built by hand from the key captured above: once bharat's own clock passes his leaf's

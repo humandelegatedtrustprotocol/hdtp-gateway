@@ -195,7 +195,7 @@ func (c *Client) attempt20(ctx context.Context, peer Peer, method string, params
 	// only one of them.
 	leafKey := mustSPKIOfLeaf(peer.Leaf)
 	if len(leafKey) == 0 {
-		return nil, nil, fmt.Errorf("outbound: the leaf held for %s does not parse, so there is no key to seal to", peer.Fingerprint)
+		return nil, nil, fmt.Errorf("outbound: the leaf held for %s does not parse, so there is no key to seal to", peer.name())
 	}
 	recipient, err := pactidentity.ParseSPKI(leafKey)
 	if err != nil {

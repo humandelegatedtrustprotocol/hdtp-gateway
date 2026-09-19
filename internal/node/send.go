@@ -160,7 +160,7 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
 		return err
 	}
-	client, err := n.clientForContact(ctx, accountID, c)
+	client, err := n.OutboundClient(accountID)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
 		return err
 	}
-	client, err := n.clientForContact(ctx, accountID, c)
+	client, err := n.OutboundClient(accountID)
 	if err != nil {
 		return err
 	}

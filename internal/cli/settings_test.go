@@ -536,7 +536,7 @@ func TestOwnerActionsAreAuditedAsOwner(t *testing.T) {
 }
 
 // AC (P8-01, defect #1): there are three card emitters — the served card, the
-// portal card page (and /card.vcf), and the key-rotation fan-out. All three must
+// portal card page (and /card.vcf), and the move campaign's fan-out. All three must
 // render the SAME card. Two of them used to read the raw account row, so a
 // forced mode or a live seal change could make the portal show, and the fan-out
 // ship, a policy the gate does not enforce.

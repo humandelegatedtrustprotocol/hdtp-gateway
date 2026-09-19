@@ -20,8 +20,9 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-// Campaign is what a fan-out needs: whose contacts, which leaf, and a name for the
-// durable progress rows so two campaigns cannot be mistaken for each other.
+// Campaign is what a fan-out needs: whose contacts, and which leaf is being announced. The
+// leaf's kid is what the durable progress rows are matched on (`move_fanout.leaf_kid`), so a
+// second move is a second campaign and cannot be mistaken for the tail of the first.
 type Campaign struct {
 	AccountID string
 	NewKid    string
@@ -64,8 +65,8 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		return 0, 0, err
 	}
 	unrecorded := 0
-	progress := map[string]store.RotationFanout{}
-	if rows, err := st.ListRotationFanout(ctx, c.AccountID); err == nil {
+	progress := map[string]store.MoveFanout{}
+	if rows, err := st.ListMoveFanout(ctx, c.AccountID); err == nil {
 		for _, row := range rows {
 			progress[row.ContactFpr] = row
 		}
@@ -74,7 +75,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		if ct.Status != "active" {
 			continue
 		}
-		if p, ok := progress[ct.Fingerprint]; ok && p.NewFpr == c.NewKid && p.Status == "done" {
+		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" {
 			done++
 			continue
 		}
@@ -92,8 +93,8 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		// that had, and the next run re-announced to everybody or — worse — believed a row that
 		// was never written. A contact that was told is still told; what is lost is the record,
 		// and that is said, once per contact and in the result.
-		if uerr := st.UpsertRotationFanout(ctx, store.RotationFanout{
-			AccountID: c.AccountID, ContactFpr: ct.Fingerprint, NewFpr: c.NewKid,
+		if uerr := st.UpsertMoveFanout(ctx, store.MoveFanout{
+			AccountID: c.AccountID, ContactFpr: ct.Fingerprint, LeafKid: c.NewKid,
 			Status: status, Attempts: attempts, LastError: lastErr, UpdatedAt: a.now().Unix(),
 		}); uerr != nil {
 			unrecorded++

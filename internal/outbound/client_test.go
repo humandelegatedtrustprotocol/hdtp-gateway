@@ -10,7 +10,6 @@ import (
 	"errors"
 	"math/big"
 	"net"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -103,16 +102,14 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	}
 }
 
-// A self-signed server certificate is not an identity, whatever fingerprint it
-// carries.
+// A self-signed server certificate is not an identity, whoever the caller thinks it is dialling.
 //
-// This test used to assert the opposite — "pinned self-signed server accepted" —
-// which was right while the identity WAS a key. Under 2.0 the identity is the
-// root, a lone certificate names no root, and the two ways to recognise a server
-// are the chain validated to the pinned root (PACT §2) and WebPKI for the
-// hostname. A key fingerprint is neither, so both halves of the old test now
-// refuse: the "correct" pin and the wrong one are the same thing to a 2.0 caller,
-// and that is the point.
+// This test used to assert the opposite — "pinned self-signed server accepted" — which was
+// right while the identity WAS a key. Under 2.0 the identity is the root, a lone certificate
+// names no root, and the two ways to recognise a server are the chain validated to the pinned
+// root (PACT §2) and WebPKI for the hostname. A lone certificate is neither — to a caller that
+// holds a pin for this address and to a caller that holds none, in the same words, because a
+// caller learns nothing from a difference there is no reason to have.
 func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 	srvKP, _ := identity.Generate(identity.AlgoP256)
 	srvDER, _ := identity.SelfSignedCert(srvKP, "peer")
@@ -122,22 +119,24 @@ func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 	}, got)
 	c := accountClient(t)
 
-	// The server's own key as the pin: refused. There is no chain to validate and
-	// the certificate is not publicly trusted.
-	its := Peer{Endpoint: "https://" + addr, Fingerprint: srvKP.Fingerprint}
-	if conn, err := tls.Dial("tcp", addr, c.tlsConfig(its, "127.0.0.1")); err == nil {
-		conn.Close()
-		t.Fatal("a key-pinned self-signed server was accepted: the identity is the root (PACT §2)")
+	refusal := func(peer Peer) string {
+		t.Helper()
+		conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "127.0.0.1"))
+		if err == nil {
+			conn.Close()
+			t.Fatal("a lone self-signed server certificate was accepted: the identity is the root (PACT §2)")
+		}
+		return err.Error()
 	}
-
-	// Another key as the pin: refused for the same reason, by the same words. A
-	// caller learns nothing from the difference, because there is none.
-	other, _ := identity.Generate(identity.AlgoP256)
-	if conn, err := tls.Dial("tcp", addr, c.tlsConfig(Peer{Endpoint: "https://" + addr, Fingerprint: other.Fingerprint}, "127.0.0.1")); err == nil {
-		conn.Close()
-		t.Fatal("wrong pin accepted - impersonation possible")
+	// A caller that pins a real identity at this address: the server is not it.
+	pinned := newIdentity20(t, "Bharat", "https://"+addr+"/mcp").peerOf()
+	// A caller that holds no pin at all.
+	unpinned := Peer{Endpoint: "https://" + addr}
+	if a, b := refusal(pinned), refusal(unpinned); a != b {
+		t.Fatalf("the refusal differs with what the caller holds, and need not:\n  pinned:   %s\n  unpinned: %s", a, b)
 	}
 }
+
 func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 	// CA-signed server cert for "pact.example"; client trusts the CA via Roots.
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -168,10 +167,10 @@ func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 	roots.AddCert(caCert)
 	c.Roots = roots
 
-	// contact pinned some unrelated identity key; server presents WebPKI cert for
-	// the right hostname → accepted under rule (a)-else-(b) of PACT §2
-	someKP, _ := identity.Generate(identity.AlgoP256)
-	peer := Peer{Endpoint: "https://pact.example/mcp", Fingerprint: someKP.Fingerprint}
+	// The server presents a WebPKI certificate for the right hostname — what a terminating
+	// edge presents — and is accepted on that: rule (a)-else-(b) of PACT §2. Whose agent is
+	// behind the edge is then the envelope's business, not TLS's.
+	peer := Peer{Endpoint: "https://pact.example/mcp"}
 	conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "pact.example"))
 	if err != nil {
 		t.Fatalf("WebPKI-valid server rejected: %v", err)
@@ -188,14 +187,11 @@ func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 
 func TestPlaintextRefusedToSealRequiredPeer(t *testing.T) {
 	c := accountClient(t)
-	peer := Peer{Endpoint: "https://x", Fingerprint: "sha256:x", Seal: "required"}
+	peer := Peer{Endpoint: "https://x", Seal: "required"}
 	_, err := c.CallTool(t.Context(), peer, "send_message", map[string]any{}, CallOptions{Plaintext: true})
 	if err == nil || !strings.Contains(err.Error(), "seal_required") {
 		t.Fatalf("plaintext to required peer not refused locally: %v", err)
 	}
-	var httpUsed bool
-	_ = httpUsed
-	_ = http.DefaultClient
 	if !errors.Is(err, ErrSealRequired) {
 		t.Fatalf("sentinel: %v", err)
 	}

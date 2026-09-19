@@ -28,16 +28,28 @@ var ErrSealRequired = errors.New("seal_required")
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
-	Endpoint    string // the address the pinned leaf names (PACT §2) — a card carries no separate one
-	Fingerprint string // the pinned ROOT's fingerprint: the identity (PACT §2)
-	Seal        string // X-PACT-SEAL: none | optional | required ("" = none)
-	// A contact is pinned by its root (PACT §2, §14.3). Root names the pinned root, Leaf is
-	// the latest leaf accepted — its key is what the call is sealed to and the answer
-	// verified under — and ChainSeen says this contact has already seen OUR current leaf,
-	// so the call carries our leaf's fingerprint rather than the chain (§13.2).
+	Endpoint string // the address the pinned leaf names (PACT §2) — a card carries no separate one
+	Seal     string // X-PACT-SEAL: none | optional | required ("" = none)
+	// A contact is pinned by its root (PACT §2, §14.3). Root is that root's fingerprint — the
+	// identity — Leaf is the latest leaf accepted, whose key is what the call is sealed to and
+	// the answer verified under, and ChainSeen says this contact has already seen OUR current
+	// leaf, so the call carries our leaf's fingerprint rather than the chain (§13.2).
+	//
+	// There was a `Fingerprint` beside `Root`, holding the same value. In 1.x it was the pinned
+	// KEY's, and it was what TLS and the envelope were checked against; by the time it went,
+	// two error messages were all that read it.
 	Root      string
 	Leaf      []byte
 	ChainSeen bool
+}
+
+// name is how an error says which peer it is about: the root when one is pinned, and the address
+// when the peer is somebody we hold no root for — which is what the error is then about.
+func (p Peer) name() string {
+	if p.Root != "" {
+		return p.Root
+	}
+	return p.Endpoint
 }
 
 // Known reports whether we hold what it takes to recognise this peer: the root it is pinned by
@@ -97,15 +109,6 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 			// and everything else by WebPKI for the hostname, which is what a
 			// terminating edge presents.
 			//
-			// A branch used to sit here comparing the fingerprint of the presented
-			// LEAF's key against `peer.Fingerprint`, described as "pinned identity
-			// as server certificate". For a 2.0 peer `peer.Fingerprint` is the
-			// ROOT, so the two can only be equal if the server is presenting the
-			// root certificate itself — which needs the root's private key, and
-			// that lives in the person's wallet and never on a host. It was the
-			// key-pinned generation's rule, dead since 2026-09-18, and a dead pin
-			// check that reads like a live one is worse than none.
-			//
 			// WebPKI for the hostname:
 			inter := x509.NewCertPool()
 			for _, raw := range rawCerts[1:] {
@@ -118,7 +121,7 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			})
 			if err != nil {
-				return fmt.Errorf("outbound: server is neither the pinned key nor WebPKI-valid for %s: %w", hostname, err)
+				return fmt.Errorf("outbound: server presented neither a chain under the pinned root nor a WebPKI-valid certificate for %s: %w", hostname, err)
 			}
 			return nil
 		},
@@ -253,13 +256,12 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, msgID string) (
 	return out.Tools, nil
 }
 
-// exchange seals one inner request to the peer and opens the answer. There is one
-// generation: a contact is pinned by its root and speaks `v: 2` (client20.go). A
-// contact that is not — a key pin from before 2.0 — is refused here rather than
-// downgraded, because there is nothing to downgrade to.
+// exchange seals one inner request to the peer and opens the answer. A contact is pinned by
+// its root and a call is sealed to its leaf's key (client20.go); a peer we hold neither for is
+// refused here, because there is nothing to seal to and nothing to verify the answer under.
 func (c *Client) exchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	if !c.speaks20(peer) {
-		return nil, nil, fmt.Errorf("outbound: %s is not a PACT 2.0 contact; add them again from their card to get their root", peer.Fingerprint)
+		return nil, nil, fmt.Errorf("outbound: no root and leaf are held for %s, so there is nothing to seal to or verify under; add them from their card", peer.name())
 	}
 	return c.sealedExchange20(ctx, peer, method, params, msgID)
 }
