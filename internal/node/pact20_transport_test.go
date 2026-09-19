@@ -55,9 +55,6 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	// renewal at the pinned endpoint replaces the pin as it passes (§14.3).
 	clock.advance(time.Hour)
 	ren := bharat.install(identity.PurposeRenew, bharat.endpoint(), 365, clock.now())
-	if ren.OldKP == nil {
-		t.Fatal("the renewal must hand back the superseded key")
-	}
 	renewed := clientFor(bharat.kp())
 	if got := names(renewed); !got["send_message"] {
 		t.Fatalf("the renewed chain must be a contact: %v", got)
@@ -69,7 +66,26 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	// The superseded chain — a former host's leaf, still valid — is a guest:
 	// the listing shows guest tools only and a contact tool is refused as
 	// blocked_or_unknown, exactly as the sealed path answers it.
-	old := clientFor(ren.OldKP)
+	//
+	// The chain presented here is the REAL superseded one: the old key with the old leaf and the
+	// root attached, as the node itself still holds it. Until 2026-09-19 this was
+	// `clientFor(ren.OldKP)`, a bare keypair with no leaf, for which `tlsCertOf` returns an empty
+	// certificate — so the "superseded chain" presented nothing at all, and what this asserted was
+	// that an anonymous caller is a guest. The check below is what makes that impossible again.
+	var superseded *identity.Keypair
+	keys, err := bharat.idm.ActiveLeafKeypairs(ctx, bharat.acct.ID, clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		if k.Kid == ren.OldKid && !k.Current {
+			superseded = k.KP
+		}
+	}
+	if superseded == nil || len(tlsCertOf(superseded).Certificate) != 2 {
+		t.Fatalf("the test must present the superseded chain, leaf and root, and has none to present: %+v", keys)
+	}
+	old := clientFor(superseded)
 	if got := names(old); got["send_message"] || !got["request_contact"] {
 		t.Fatalf("a superseded chain must be listed as a guest: %v", got)
 	}

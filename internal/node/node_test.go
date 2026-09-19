@@ -342,8 +342,44 @@ func TestStopReleasesThePort(t *testing.T) {
 	other, _ := core.OpenKeyring(filepath.Join(t.TempDir(), "other.key"), func(string) (string, bool) { return "", false })
 	o := e2.options()
 	o.Keyring = other
-	if _, err := New(context.Background(), o); err == nil {
+	_, err = New(context.Background(), o)
+	if err == nil {
 		t.Fatalf("a node built with the wrong keyring for account %s", accts[0].Slug)
+	}
+	// The refusal cannot tell a wrong master key from a lost one, so it has to say both: what to
+	// supply if it is the first, and that the identities survive — with the way through — if it is
+	// the second. It used to say only "no account could be served", which under 2.0 reads as a
+	// loss that has not happened: the identity is a root in a wallet.
+	for _, want := range []string{"PACT_MASTER_KEY", "-data-only", "roots in wallets"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal must name both meanings and the way through; missing %q in: %v", want, err)
+		}
+	}
+}
+
+// One broken account among working ones does not stop the node, and until 2026-09-19 it did not
+// show either: an audit row, and `serve` printing "serving". The node names it, with the reason.
+func TestAnAccountWhoseKeyWillNotOpenIsNamedNotHidden(t *testing.T) {
+	e, _ := newEnv(t, "alice")
+	ctx := context.Background()
+	other, err := core.OpenKeyring(filepath.Join(t.TempDir(), "other.key"), func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sealed under a master key this node does not have.
+	if _, err := (&identity.Manager{Store: e.st, Keyring: other}).CreateAccount(ctx, "carol", "CAROL", identity.AlgoP256); err != nil {
+		t.Fatal(err)
+	}
+	n, err := New(ctx, e.options())
+	if err != nil {
+		t.Fatalf("one broken account took the node down: %v", err)
+	}
+	got := n.Unavailable()
+	if len(got) != 1 || got["carol"] == "" {
+		t.Fatalf("the broken account must be named with its reason: %v", got)
+	}
+	if _, ok := got["alice"]; ok {
+		t.Fatal("a working account was reported as broken")
 	}
 }
 
@@ -914,4 +950,58 @@ func TestSetSealNoneRemovesSealedCallFromTheSurface(t *testing.T) {
 	if !listed() {
 		t.Fatal("sealed_call did not return with the policy")
 	}
+}
+
+// What "every account failed" means is decided by the master key, not by a head count. Two nodes,
+// each with one broken account and nobody served:
+//
+//   - beside an account that HAS a key and only awaits its leaf, the node starts. That key opened,
+//     so the master key is the store's own; and refusing would take away the admin socket the
+//     waiting account needs in order to ask for its certificate — which is what it did until
+//     2026-09-19, when the serve-level test for the banner walked into it.
+//   - beside an account with NO key, the node still refuses. Nothing opened, so nothing says this
+//     is the right master key, and starting under a wrong one seals new secrets under it.
+func TestOneBrokenAccountStopsTheNodeOnlyWhenNothingProvesTheMasterKey(t *testing.T) {
+	ctx := context.Background()
+	stranger := func(t *testing.T) *core.Keyring {
+		t.Helper()
+		kr, err := core.OpenKeyring(filepath.Join(t.TempDir(), "other.key"), func(string) (string, bool) { return "", false })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return kr
+	}
+
+	t.Run("an awaiting account whose key opened proves it", func(t *testing.T) {
+		e, _ := newEnv(t)
+		if _, err := e.idm.CreateAccount(ctx, "alice", "ALICE", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&identity.Manager{Store: e.st, Keyring: stranger(t)}).CreateAccount(ctx, "carol", "CAROL", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		n, err := New(ctx, e.options())
+		if err != nil {
+			t.Fatalf("the node refused to start, and with it went the socket alice needs to ask for her leaf: %v", err)
+		}
+		if got := n.AwaitingLeaf(); len(got) != 1 || got[0] != "alice" {
+			t.Fatalf("awaiting: %v", got)
+		}
+		if got := n.Unavailable(); len(got) != 1 || got["carol"] == "" {
+			t.Fatalf("unavailable: %v", got)
+		}
+	})
+
+	t.Run("an account with no key proves nothing", func(t *testing.T) {
+		e, _ := newEnv(t)
+		if _, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "dave", DisplayName: "DAVE", Algo: "p256"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&identity.Manager{Store: e.st, Keyring: stranger(t)}).CreateAccount(ctx, "carol", "CAROL", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(ctx, e.options()); err == nil {
+			t.Fatal("a node started with nothing to show its master key is the store's own")
+		}
+	})
 }

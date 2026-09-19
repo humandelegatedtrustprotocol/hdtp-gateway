@@ -601,3 +601,48 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 		}
 	}
 }
+
+// The other kind of account a node cannot serve: not waiting, broken. The usual reason is a key
+// sealed under a master key this node no longer has. It was an audit row and nothing else, so the
+// banner read "serving" over an identity that answered nobody; now it is named, with the reason
+// and the renewal that cures it. One working account beside it keeps the node up — when EVERY
+// account is like this the node refuses to start, and says why (node.TestNodeLifecycle).
+func TestServeNamesAnAccountWhoseKeyWillNotOpen(t *testing.T) {
+	ctx := context.Background()
+	r := runServe(t, func(t *testing.T, dir string) {
+		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// alice is ordinary: this node's master key, no leaf yet.
+		if _, err := (&identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}).CreateAccount(ctx, "alice", "Alice", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		// carol's key was sealed under a master key that is not this node's.
+		other, err := core.OpenKeyring(filepath.Join(t.TempDir(), "other.key"), func(string) (string, bool) { return "", false })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&identity.Manager{Store: st, Keyring: other}).CreateAccount(ctx, "carol", "Carol", identity.AlgoP256); err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
+	})
+	r.stop()
+	out := r.out.String()
+	for _, want := range []string{
+		"NOT SERVED: carol",
+		"account csr -slug carol -purpose renew",
+		"account install-leaf -slug carol",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the banner never said %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "NOT SERVED: alice") {
+		t.Errorf("an account that is merely awaiting its leaf was called broken:\n%s", out)
+	}
+}

@@ -489,7 +489,7 @@ round-trip tests; the cloud's export tests and leave self-test.
 (1376 tests, ceremony 103/103); protocol `vectors:check` 101/101 and `build`; identity `cargo test`,
 `go test`, `musts.mjs` (20 of 20 cross-repo holders on disk), `record.mjs --check`.
 
-### F1b · An install opens the superseded key for nobody, and that makes a lost master key a dead end — `TODO`
+### F1b · An install opens the superseded key for nobody, and that makes a lost master key a dead end — `DONE`
 Found proving a sentence I had just written into the recovery table ("`keyring.key` lost: renew each
 account"). It was false. `InstallLeaf` unseals the CURRENT leaf's key into `InstallResult.OldKP` on
 every renewal, and fails the install if it cannot. Nothing in production reads `OldKP` (or `NewKP`):
@@ -505,6 +505,39 @@ an anonymous caller is a guest. It must present the real superseded chain, from
 `ActiveLeafKeypairs`; what it then shows is not yet known.
 *Verify:* the parked `TestALostMasterKeyCostsALeafNotTheIdentity` (scratchpad) goes in and passes;
 the transport test presents a real superseded chain; the recovery row says what the test proves.
+
+*Done, 2026-09-19. Three dead ends, not one — each found by testing the sentence that claimed the
+one before it was fixed.*
+1. **The install.** `OldKP` and `NewKP` are gone; nothing read them. A superseded leaf whose key
+   will not open is retired (`RetireLeafKey`: `former`, key destroyed, kid kept so it is still
+   answered `certificate_renewed`), reported in `InstallResult.Retired`, printed by the CLI and
+   audited once per key (`account_leaf_key_retired`), because key material was destroyed.
+   `TestALostMasterKeyCostsALeafNotTheIdentity`.
+2. **The operator could still not get there.** The library recovered and the recovery row said so;
+   but with every key unopenable `node.New` refuses to start, so there is no admin socket and
+   `account csr` cannot be reached. The way through needed no new code, only to be found and
+   proven: a node that has lost its master key is, to its own data, another host —
+   `backup create -without-master-key`, `backup restore -data-only`. The refusal now says both
+   things it can mean (wrong key: supply it, nothing is lost; lost key: the identities are roots in
+   wallets, and here is the way). `TestALostMasterKeyIsRecoveredByTreatingTheNodesDataAsAnotherHosts`.
+   I had also written the variable as `PACT_KEYRING_KEY`. It is `PACT_MASTER_KEY`.
+3. **One awaiting account beside one broken one stopped the node.** Found by the serve-level test
+   for the new banner line. "Every account failing" was tested as `len(n.accounts) == 0`, which
+   counts an account that merely awaits its leaf as a failure — so the node refused to start and
+   took away the socket that account needed to ask for its certificate. It is judged by the master
+   key now: a served account or an awaiting one whose key OPENED proves it; an account with no key
+   proves nothing, and that node still refuses.
+   `TestOneBrokenAccountStopsTheNodeOnlyWhenNothingProvesTheMasterKey`.
+- **A broken account is named.** It was an audit row and nothing else, under a banner that read
+  "serving". `Node.Unavailable()`, and `serve` prints `NOT SERVED: <slug> — <why>` with the renewal
+  that cures it. `TestServeNamesAnAccountWhoseKeyWillNotOpen`, `TestAnAccountWhoseKeyWillNotOpenIsNamedNotHidden`.
+- **The hollow test.** `TestPact20TransportChainResolves…` now presents the real superseded chain
+  (from `ActiveLeafKeypairs`) and asserts it has two certificates before using it. It passes: the
+  product was right and only the test was empty. Checked the other way too — with the `superseded`
+  demotion removed from `identify20.go` it fails, which it could not have done before.
+*Verified:* `make check` (27 packages), `make analyze`, `make sqlc-check`.
+*Left for C:* `node.go` audits `account_unavailable` with `err.Error()` as the outcome; the cli's
+`TestAuditOutcomesAreLiteralVerdicts` would refuse that, and nothing checks the node package.
 
 ### F2 · A leaf's key is destroyed when the leaf expires — `TODO`
 Every state, not only `superseded`, and on the node's existing retention sweep rather than as a
