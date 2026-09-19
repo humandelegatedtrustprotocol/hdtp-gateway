@@ -96,3 +96,16 @@ UPDATE contacts SET fingerprint = ?, protocol = 2, endpoint = ?, leaf = ?, spki 
 -- Never overwrites, because the root a pin names cannot change (PACT sec. 14.3) and the
 -- cert already stored is the one that was checked when the pin was made.
 UPDATE contacts SET root_cert = ? WHERE account_id = ? AND fingerprint = ? AND (root_cert IS NULL OR length(root_cert) = 0);
+
+-- name: StripAccountKeys :exec
+-- A data-only restore (PACT sec. 9): another host's archive arrives and every key in it is
+-- refused. Runs AFTER the restored store is migrated, so it always meets the current schema;
+-- the one other column that ever held key material, accounts.prev_key_sealed, is destroyed by
+-- migration 0031 rather than named here. Idempotent.
+UPDATE accounts SET key_sealed = NULL;
+
+-- name: StripLeafKeys :exec
+-- The ledger's keys go and its rows stay, as former leaves, so an envelope sealed to one is
+-- answered certificate_renewed once the wallet has issued a leaf here (PACT sec. 14.4).
+-- Idempotent: a second run finds nothing in these states.
+UPDATE leaves SET key_sealed = NULL, state = 'former' WHERE state IN ('current', 'superseded', 'pending');
