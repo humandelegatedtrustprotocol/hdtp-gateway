@@ -9,7 +9,7 @@
 // Two properties carry the topologies of docs/harness-design.md §3:
 //
 //   - An INTERNAL Docker network has no route off it. That is what makes "node B is
-//     unreachable" true by construction in T2/T3, rather than true because the test
+//     unreachable" true by construction in T2, rather than true because the test
 //     politely declined to dial.
 //   - A NAT router container joins both segments and MASQUERADEs outbound. It
 //     installs no inbound DNAT, so the asymmetry a real NAT imposes is real here.
@@ -203,7 +203,7 @@ func (f *Fabric) NAT(ctx context.Context, name string, outside, inside *Network)
 		return nil, fmt.Errorf("fabric: attaching %s to %s: %w", c.Name, inside.Name, err)
 	}
 	// Deliberately outbound-only. No DNAT, no --publish: the inside segment stays
-	// undialable, which is the property T2 and T3 exist to exercise.
+	// undialable, which is the property T2 exists to exercise.
 	script := "apk add --no-cache iptables >/dev/null 2>&1; " +
 		"sysctl -w net.ipv4.ip_forward=1 >/dev/null; " +
 		"iptables -t nat -A POSTROUTING -j MASQUERADE"

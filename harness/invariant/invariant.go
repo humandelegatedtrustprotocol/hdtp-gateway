@@ -29,9 +29,6 @@ const (
 	// NotObservable means the harness cannot yet see this property. It is not a
 	// pass, and OK() does not treat it as one.
 	NotObservable Status = "not-observable"
-	// NotApplicable means the property is meaningless in this topology — there is
-	// no relay in T1, so "the relay holds no plaintext" says nothing.
-	NotApplicable Status = "n/a"
 )
 
 type Result struct {
@@ -80,7 +77,6 @@ func (r Report) String() string {
 func All(ctx context.Context, f *fabric.Fabric, top *topology.Topo) Report {
 	return Report{
 		auditChainVerifies(ctx, f, top),
-		relayHoldsNoPlaintext(ctx, f, top),
 		sessionBindingsBounded(),
 		withdrawnToolsAreUncallable(),
 		storeConformance(),
@@ -115,36 +111,6 @@ func auditChainVerifies(ctx context.Context, f *fabric.Fabric, top *topology.Top
 	res.Detail = fmt.Sprintf("%d node(s) verified intact", len(top.Nodes))
 	return res
 }
-
-// relayHoldsNoPlaintext checks SPEC §10.5's central promise: a relay carries sealed
-// envelopes and can enforce an allow-list without ever reading content.
-func relayHoldsNoPlaintext(ctx context.Context, f *fabric.Fabric, top *topology.Topo) Result {
-	res := Result{Name: "relay-sealed"}
-	relay := top.Node("relay")
-	if relay == nil {
-		res.Status, res.Detail = NotApplicable, "no relay in this topology"
-		return res
-	}
-	out, err := f.Raw(ctx, "docker", "run", "--rm", "--volumes-from", relay.Container.Name,
-		top.Image, "audit", "export")
-	if err != nil {
-		res.Status, res.Detail = NotObservable, "could not read the relay's audit log: "+err.Error()
-		return res
-	}
-	// The relay must never have logged message text. This is a coarse check by
-	// design: it looks for the marker scenarios plant in message bodies, so a
-	// false pass needs the marker to be absent, not merely unrecognised.
-	if strings.Contains(string(out), PlaintextMarker) {
-		res.Status, res.Detail = Fail, "the relay's own records contain scenario plaintext"
-		return res
-	}
-	res.Status, res.Detail = Pass, "no scenario plaintext in the relay's records"
-	return res
-}
-
-// PlaintextMarker is the string scenarios put inside message bodies so the relay
-// invariant has something unmistakable to look for.
-const PlaintextMarker = "PACT-PLAINTEXT-CANARY"
 
 // The remaining three need machinery that later P14 tasks build. They report
 // NotObservable rather than Pass, so no run can claim more than it proved.

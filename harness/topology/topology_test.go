@@ -2,10 +2,13 @@ package topology
 
 import (
 	"context"
+	"encoding/pem"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 type rec struct{ calls []string }
@@ -65,69 +68,56 @@ func TestNATLeavesOnlyAliceReachable(t *testing.T) {
 	}
 }
 
-// T3's whole point: neither peer can be dialled, so only the relay can carry a
-// message. The nodes must therefore be configured relay-assisted, and SPEC §10.1
-// forces seal=required with it — the config validator refuses the pair otherwise,
-// so getting this wrong means the nodes refuse to start.
-func TestDoubleNATMakesTheRelayTheOnlyPath(t *testing.T) {
+// A node's identity is its owner's ROOT, and Provision is where a node gets one: the wallet
+// answers the node's certificate request, and the chain goes back in. This runs the whole
+// ceremony against a recording runner that plays the node's CLI — a real request for a real key,
+// so the wallet really issues — and holds Provision to what a scenario then relies on.
+func TestProvisionCertifiesEachAccountUnderItsOwnersRoot(t *testing.T) {
 	r := &rec{}
-	f := fabric.New("tp", r.run)
-	top, err := DoubleNAT(context.Background(), f, "img")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, slug := range []string{"alice", "bob"} {
-		n := top.Node(slug)
-		if n == nil {
-			t.Fatalf("%s missing", slug)
+	var installed []string
+	run := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		line := strings.Join(args, " ")
+		switch {
+		case strings.Contains(line, "account csr"):
+			host, err := pactidentity.GenerateKey("p256")
+			if err != nil {
+				t.Fatal(err)
+			}
+			slug := args[len(args)-1]
+			der, err := pactidentity.CSRNew(slug, host, "https://tp-"+slug+":8443/a/"+slug+"/mcp", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return append([]byte("signup request for the wallet\n"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})...), nil
+		case strings.Contains(line, "account install-leaf"):
+			installed = append(installed, line)
 		}
-		if n.Reachable {
-			t.Errorf("%s is behind a NAT and must not be marked reachable", slug)
-		}
+		return r.run(ctx, name, args...)
 	}
-	if rl := top.Node("relay"); rl == nil || !rl.Reachable {
-		t.Fatal("the relay must be reachable by both sides")
-	}
-	if !r.saw("PACT_MODE=relay-assisted") {
-		t.Errorf("nodes are not in relay-assisted mode: %v", r.calls)
-	}
-	if !r.saw("PACT_SEAL=required") {
-		t.Error("relay-assisted mode forces seal=required (SPEC §10.1); the node will refuse to start without it")
-	}
-	if !r.saw("PACT_RELAY=true") {
-		t.Error("the relay node was not started in relay mode")
-	}
-	// A relay verifies signatures with the caller's client certificate, so it must
-	// request one. On an edge-terminated listener it never would (SPEC §10.5).
-	if !r.saw("PACT_CLIENT_CERT=preferred") {
-		t.Error("the relay does not request client certificates, so it cannot verify senders")
-	}
-	// Two separate internal segments, not one shared one — otherwise the peers
-	// could reach each other directly and the topology proves nothing.
-	if !r.saw("network create --internal tp-lan-alice") || !r.saw("network create --internal tp-lan-bob") {
-		t.Errorf("peers share a segment, so they are not actually isolated: %v", r.calls)
-	}
-}
-
-func TestProvisionRecordsFingerprints(t *testing.T) {
-	r := &rec{}
-	f := fabric.New("tp", r.run)
+	f := fabric.New("tp", run)
 	top, _ := LAN(context.Background(), f, "img")
 	if err := top.Provision(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	seen := map[string]bool{}
 	for _, n := range top.Nodes {
-		if n.Fingerprint != "sha256:AAAA" {
-			t.Errorf("%s has fingerprint %q; scenarios pin identity on this", n.Slug, n.Fingerprint)
+		if n.Wallet == nil || n.Fingerprint != n.Wallet.Fingerprint || n.Pin.Root != n.Fingerprint {
+			t.Fatalf("%s is not pinned by its owner's root: %q", n.Slug, n.Fingerprint)
+		}
+		if seen[n.Fingerprint] {
+			t.Errorf("two people share the root %s", n.Fingerprint)
+		}
+		seen[n.Fingerprint] = true
+		vr := pactidentity.ValidateChain([][]byte{n.Pin.Leaf, n.Wallet.RootDER},
+			pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: n.Fingerprint, ExpectedEndpoint: n.Pin.Endpoint})
+		if !vr.OK {
+			t.Errorf("%s's chain does not validate to its root at %s: rule %d %s", n.Slug, n.Pin.Endpoint, vr.Rule, vr.Reason)
 		}
 	}
-}
-
-func TestParseFingerprintIgnoresProseAroundIt(t *testing.T) {
-	if got := parseFingerprint("created alice  fingerprint sha256:aB6w_x\n"); got != "sha256:aB6w_x" {
-		t.Errorf("got %q", got)
+	if len(installed) != len(top.Nodes) {
+		t.Fatalf("the chain went back into %d of %d nodes: %v", len(installed), len(top.Nodes), installed)
 	}
-	if got := parseFingerprint("created alice with no fingerprint"); got != "" {
-		t.Errorf("invented a fingerprint from output that had none: %q", got)
+	if !r.saw("cp ") {
+		t.Errorf("the chain never reached a node: the image has no shell, so it arrives by `docker cp`: %v", r.calls)
 	}
 }

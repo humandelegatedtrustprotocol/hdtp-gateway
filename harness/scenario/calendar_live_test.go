@@ -71,8 +71,6 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 		t.Fatalf("radicale never accepted a calendar: %v\n%s", err, shorten(string(out), 400))
 	}
 
-	portal := "http://" + p.Node.Name + ":8081"
-
 	// --- the integration, exactly as an owner configures one ---
 	//
 	// The child's environment and the recipe's per-install parameter share the
@@ -86,12 +84,12 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 		"integration.cal.env.CALDAV_PASSWORD": "harness-pw",
 		"integration.cal.calendar_url":        collection,
 	} {
-		if err := postForm(ctx, f, net.Name, portal+"/settings/adapter",
+		if err := p.Portal.PostForm(ctx, "/settings/adapter", "",
 			map[string]string{"key": k, "value": v}); err != nil {
 			t.Fatalf("storing %s: %v", k, err)
 		}
 	}
-	if err := postForm(ctx, f, net.Name, portal+"/integrations/create?account="+p.AccountID,
+	if err := p.Portal.PostForm(ctx, "/integrations/create", p.AccountID,
 		map[string]string{
 			"slug": "cal", "transport": "stdio-supervised",
 			"command": "caldav-mcp", "auth_kind": "none",
@@ -105,7 +103,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 
 	// Connecting spawns the child. If the environment did not reach it, this is
 	// where it dies — caldav-mcp has no other input.
-	if err := postForm(ctx, f, net.Name, portal+"/integrations/"+id+"/connect?account="+p.AccountID, nil); err != nil {
+	if err := p.Portal.PostForm(ctx, "/integrations/"+id+"/connect", p.AccountID, nil); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	if err := waitIntegration(ctx, p, "cal", "ok", 3*time.Minute); err != nil {
@@ -117,7 +115,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	//
 	// `ack` is mandatory: create-event is write-capable, and SPEC §6.9 requires a
 	// recorded acknowledgment before a write tool reaches a contact.
-	if err := postForm(ctx, f, net.Name, portal+"/integrations/"+id+"/exposure?account="+p.AccountID,
+	if err := p.Portal.PostForm(ctx, "/integrations/"+id+"/exposure", p.AccountID,
 		map[string]string{
 			// A mapped entry must NAME the PACT capability it implements; the
 			// upstream tool name is not itself a capability.

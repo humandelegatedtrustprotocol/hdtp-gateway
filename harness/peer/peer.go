@@ -14,6 +14,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -21,7 +25,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
-	"time"
 )
 
 // Agent is one contact's agent: an identity plus the client that speaks for it.
@@ -41,6 +44,39 @@ type Agent struct {
 	Endpoint string
 	rootCert []byte
 	name     string
+
+	routeMu sync.Mutex
+	routes  map[string]string // "host:port" as an endpoint names it -> where it is published
+}
+
+// dial is this agent's resolver: a name a target's leaf carries goes to wherever the harness
+// published that node, and anything else is dialled as written.
+func (a *Agent) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	a.routeMu.Lock()
+	if to, ok := a.routes[addr]; ok {
+		addr = to
+	}
+	a.routeMu.Unlock()
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+// route records where a target is really listening.
+func (a *Agent) route(t Target) {
+	if t.Dial == "" {
+		return
+	}
+	u, err := url.Parse(t.Endpoint)
+	if err != nil {
+		return
+	}
+	hostport := u.Host
+	if u.Port() == "" {
+		hostport = net.JoinHostPort(u.Hostname(), "443")
+	}
+	a.routeMu.Lock()
+	a.routes[hostport] = t.Dial
+	a.routeMu.Unlock()
 }
 
 // NewAgent mints a fresh identity and the client that presents it. Each scenario
@@ -82,13 +118,15 @@ func NewAgent(name string) (*Agent, error) {
 	}
 	kp.Leaf, kp.Root = leaf, rootCert
 	cert := tls.Certificate{Certificate: [][]byte{leaf, rootCert}, PrivateKey: kp.Signer}
-	return &Agent{
+	a := &Agent{
 		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public.SPKI),
 		Leaf: leaf, Endpoint: endpoint, rootCert: rootCert, name: name,
-		// Roots is empty on purpose: a peer trusts the node by its PINNED ROOT, not
-		// by WebPKI (PACT §2). An empty pool means a mis-pinned peer fails closed.
-		Client: &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool()},
-	}, nil
+		routes: map[string]string{},
+	}
+	// Roots is empty on purpose: a peer trusts the node by its PINNED ROOT, not
+	// by WebPKI (PACT §2). An empty pool means a mis-pinned peer fails closed.
+	a.Client = &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool(), DialContext: a.dial}
+	return a, nil
 }
 
 // Card is this agent's contact card: the leaf, and the seal policy it claims.
@@ -106,8 +144,14 @@ func (a *Agent) LeafKid() string { return a.Keypair.Fingerprint }
 
 // Target names a node this agent calls.
 type Target struct {
-	// Endpoint is the node's MCP URL, e.g. https://host:8443/a/alice/mcp
+	// Endpoint is the node's MCP URL as its LEAF names it, e.g. https://alice.harness.example/a/alice/mcp.
+	// A chain is validated against the address dialled (PACT §14.2 rule 5), and a wallet does not
+	// issue a leaf for a loopback address, so this is a name even when the node is a container
+	// published on localhost.
 	Endpoint string
+	// Dial is where that name is really listening, e.g. 127.0.0.1:18443 — what DNS would say
+	// for a real caller. Empty dials the endpoint as written.
+	Dial string
 	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
 	Seal string
 	// Root and Leaf are the node's identity: the fingerprint of the root its chain must validate
@@ -132,6 +176,7 @@ func (t Target) peer() outbound.Peer {
 // msgID is the caller-supplied idempotency key of PACT §6.2 — the SAME value must
 // be reused across retries, which is what makes a retry safe.
 func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
+	a.route(t)
 	p := t.peer()
 	res, err := a.Client.Call(ctx, p, tool, args, msgID)
 	if err != nil {
@@ -147,6 +192,7 @@ func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string
 // makes this the cheapest end-to-end proof that real mTLS reached a real node and
 // tier resolution ran — no pairing required.
 func (a *Agent) ListTools(ctx context.Context, t Target) ([]string, error) {
+	a.route(t)
 	p := t.peer()
 	hc, err := a.Client.HTTPClient(p)
 	if err != nil {

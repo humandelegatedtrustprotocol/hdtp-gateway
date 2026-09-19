@@ -29,22 +29,10 @@ func TestAFailedInvariantFailsTheReport(t *testing.T) {
 	}
 }
 
-// NotApplicable is a different claim from NotObservable: there is genuinely no
-// relay in T1, so nothing is being skipped or owed.
-func TestNotApplicableIsNotCountedAsAGap(t *testing.T) {
-	r := Report{{Name: "relay-sealed", Status: NotApplicable}}
-	if r.Unobserved() != 0 {
-		t.Error("N/A was counted as an unobserved gap; it is not owed")
-	}
-	if strings.Contains(r.String(), "proves less than a full pass") {
-		t.Error("an N/A check triggered the incomplete-run warning")
-	}
-}
-
 func TestAllReportsEveryInvariantByName(t *testing.T) {
 	// Names are the contract the run report is read by; a silently dropped
 	// invariant would look like a clean run.
-	want := []string{"audit-chain", "relay-sealed", "session-bindings", "withdrawn-tools", "store-conformance"}
+	want := []string{"audit-chain", "session-bindings", "withdrawn-tools", "store-conformance"}
 	got := Report{
 		sessionBindingsBounded(), withdrawnToolsAreUncallable(), storeConformance(),
 	}
@@ -52,7 +40,7 @@ func TestAllReportsEveryInvariantByName(t *testing.T) {
 	for _, r := range got {
 		seen[r.Name] = true
 	}
-	for _, w := range want[2:] {
+	for _, w := range want[1:] {
 		if !seen[w] {
 			t.Errorf("invariant %q is missing from the report", w)
 		}

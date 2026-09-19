@@ -2,13 +2,13 @@ package scenario
 
 import (
 	"context"
-	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tech-sumit/pact-gateway/harness/portal"
 )
 
 // Everything an owner must be able to DO from the portal, checked on a real node.
@@ -22,6 +22,12 @@ import (
 //
 // So this asserts the affordances, not the endpoints. It is the check that would
 // have caught all seven.
+//
+// It asserts them on the page a browser DRAWS, as the signed-in owner. It used to fetch each
+// path and look for `action="/invites/create"` in the HTML, which was right while the server
+// rendered pages. The portal is one page over a JSON API now and requires a session on every
+// bind (SPEC §8.3): the document behind every path is the same empty shell, so that fetch found
+// none of its forms — and said nothing, because a live scenario is skipped unless asked for.
 func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
 	requireLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -32,143 +38,111 @@ func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	base := "http://localhost:" + p.OwnerPort
+	br, err := p.Portal.Browser(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer br.Close()
+	base := p.Portal.Base
+	see := func(path string) portal.Page {
+		t.Helper()
+		pg, err := br.Rendered(ctx, base+path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		return pg
+	}
+	offers := func(pg portal.Page, control string) bool {
+		for _, c := range pg.Controls {
+			if strings.Contains(strings.ToLower(c), strings.ToLower(control)) {
+				return true
+			}
+		}
+		return false
+	}
 
-	// 1. The shell is on EVERY page the dashboard offers, not just the dashboard.
-	for _, href := range dashboardLinks(ctx, t, base) {
-		code, body := httpGet(ctx, t, base+href)
-		if code == 404 || code == 400 {
-			t.Errorf("%s answers %d — the dashboard links to a page that cannot be opened", href, code)
+	// 1. The shell is on EVERY page the dashboard offers, and every one of them is a page.
+	for _, href := range portalLinks(t, see("/")) {
+		pg := see(href)
+		if strings.Contains(pg.Text, "Nothing lives at") {
+			t.Errorf("%s: the dashboard links to a page that does not exist", href)
 			continue
 		}
-		if !strings.Contains(body, `class="brand"`) || !strings.Contains(body, "<nav>") {
+		if !pg.HasNav {
 			t.Errorf("%s renders with no shell: nothing to navigate with, no way out", href)
 		}
 	}
 
-	// 2. An invite is a LINK, not a path: it must carry the node's public base.
-	code, body := httpGet(ctx, t, base+"/invites")
-	if code != 200 {
-		t.Fatalf("/invites: %d", code)
-	}
-	if !strings.Contains(body, `action="/invites/create"`) {
-		t.Error("no way to create an invite")
+	// 2. An invite can be made.
+	if pg := see("/invites"); !strings.Contains(pg.Text, "Create an invite") || !offers(pg, "Create") {
+		t.Errorf("no way to create an invite: %v", pg.Controls)
 	}
 
-	// 3. Accepting somebody else's invite — the direction that only existed on the
-	//    owner MCP.
-	code, body = httpGet(ctx, t, base+"/contacts")
-	if code != 200 {
-		t.Fatalf("/contacts: %d", code)
-	}
-	if !strings.Contains(body, `action="/contacts/add"`) || !strings.Contains(body, `name="invite_url"`) {
-		t.Errorf("no way to accept an invite from Contacts: %s", shorten(body, 300))
+	// 3. Accepting somebody else's invite — the direction that once existed only on the owner MCP.
+	if pg := see("/contacts"); !offers(pg, "Accept invite") || !offers(pg, "their.node/i/") {
+		t.Errorf("no way to accept an invite from Contacts: %v", pg.Controls)
 	}
 
 	// 4. Integrations: junk cannot be created, and what exists can be removed.
-	code, body = httpGet(ctx, t, base+"/integrations")
-	if code != 200 {
-		t.Fatalf("/integrations: %d", code)
+	if pg := see("/integrations"); !offers(pg, "Add integration") {
+		t.Errorf("no way to add an integration: %v", pg.Controls)
 	}
-	if !strings.Contains(body, `action="/integrations/create"`) {
-		t.Error("no way to add an integration")
+	// An empty submission must be refused rather than creating a row that shows as
+	// `— streamable-http — disabled` and can never be removed.
+	if err := p.Portal.PostForm(ctx, "/integrations/create", p.AccountID, map[string]string{
+		"transport": "streamable-http",
+	}); err == nil {
+		t.Error("an integration with no slug and nothing to dial was accepted")
 	}
-	// An empty submission must be refused rather than creating a row that shows
-	// as `— streamable-http — disabled` and can never be removed.
-	if code := portalPost(ctx, t, base+"/integrations/create", url.Values{
-		"transport": {"streamable-http"},
-	}); code == 303 || code == 200 {
-		t.Errorf("an integration with no slug and nothing to dial was accepted (%d)", code)
+	if err := p.Portal.PostForm(ctx, "/integrations/create", p.AccountID, map[string]string{
+		"slug": "probe", "transport": "streamable-http",
+		"endpoint": "https://example.invalid/mcp", "auth_kind": "none",
+	}); err != nil {
+		t.Fatalf("a valid integration was refused: %v", err)
 	}
-	// A real one can be added, and offers a way out.
-	if code := portalPost(ctx, t, base+"/integrations/create", url.Values{
-		"slug": {"probe"}, "transport": {"streamable-http"},
-		"endpoint": {"https://example.invalid/mcp"}, "auth_kind": {"none"},
-	}); code != 303 {
-		t.Fatalf("a valid integration was refused: %d", code)
-	}
-	_, body = httpGet(ctx, t, base+"/integrations")
-	if !strings.Contains(body, "/remove") {
-		t.Errorf("an integration cannot be removed: %s", shorten(body, 400))
-	}
-	// 5. Messaging has a way IN. It worked end to end and could only be reached
-	//    from a thread that already existed, so an owner could reply and never
-	//    start a conversation.
-	code, body = httpGet(ctx, t, base+"/messages")
-	if code != 200 {
-		t.Fatalf("/messages: %d", code)
-	}
-	// The fingerprint is URL-escaped inside the href (`sha256%3a…`), which is
-	// correct, so match the link rather than the raw value.
-	if !strings.Contains(body, `href="/messages?contact=`) {
-		t.Errorf("the conversation view lists no contact to talk to: %s", shorten(body, 300))
-	}
-	code, body = httpGet(ctx, t, base+"/messages?contact="+p.Contact.Fingerprint())
-	if code != 200 || !strings.Contains(body, `action="/messages/send"`) {
-		t.Errorf("picking a contact offers no way to send: %d %s", code, shorten(body, 300))
+	if pg := see("/integrations"); !strings.Contains(pg.Text, "probe") || !offers(pg, "Remove probe") {
+		t.Errorf("an integration cannot be removed: %v", pg.Controls)
 	}
 
-	// 6. And a conversation can be ENDED, not only started.
-	_, body = httpGet(ctx, t, base+"/contacts/"+p.Contact.Fingerprint())
-	if !strings.Contains(body, "/remove") {
-		t.Errorf("a contact cannot be removed: %s", shorten(body, 300))
+	// 5. Messaging has a way IN. It worked end to end and could only be reached from a thread
+	//    that already existed, so an owner could reply and never start a conversation.
+	contact := url.QueryEscape(p.Contact.Fingerprint())
+	if pg := see("/messages"); !offers(pg, "bob") {
+		t.Errorf("the conversation view lists no contact to talk to: %v", pg.Controls)
+	}
+	if pg := see("/messages?contact=" + contact); !offers(pg, "Message") || !offers(pg, "Send") {
+		t.Errorf("picking a contact offers nowhere to write and nothing to send with: %v", pg.Controls)
+	}
+
+	// 6. And a conversation can be ENDED, not only started — and their card re-fetched, for
+	//    this one contact (the button R3 added; there is no control that refreshes more).
+	pg := see("/contacts/" + contact)
+	if !offers(pg, "Remove contact") {
+		t.Errorf("a contact cannot be removed: %v", pg.Controls)
+	}
+	if !offers(pg, "Refresh now") {
+		t.Errorf("a contact's card cannot be refreshed: %v", pg.Controls)
 	}
 
 	t.Log("portal: every page wears the shell, invites can be created and accepted, " +
-		"integrations are validated and removable, conversations can be started")
+		"integrations are validated and removable, conversations can be started and ended")
 }
 
-// portalPost submits a form to the portal, carrying the CSRF token the page set.
-// Every mutating request needs one even on a loopback bind (SPEC §8.3).
-func portalPost(ctx context.Context, t *testing.T, target string, form url.Values) int {
+// portalLinks is the in-portal links a drawn page offers.
+func portalLinks(t *testing.T, pg portal.Page) []string {
 	t.Helper()
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &http.Client{Jar: jar, Timeout: 30 * time.Second,
-		// Report the redirect rather than following it: 303 is the success signal.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-
-	// A GET first, to be handed the CSRF cookie.
-	seed, err := http.NewRequestWithContext(ctx, http.MethodGet, originOf(target)+"/settings", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := c.Do(seed)
-	if err != nil {
-		t.Fatalf("seeding the CSRF cookie: %v", err)
-	}
-	res.Body.Close()
-	token := ""
-	for _, ck := range jar.Cookies(res.Request.URL) {
-		if ck.Name == "pact_csrf" {
-			token = ck.Value
+	var out []string
+	seen := map[string]bool{}
+	for _, href := range pg.Links {
+		// in-portal pages only: not the .vcf download, not an external link
+		if !strings.HasPrefix(href, "/") || strings.Contains(href, ".vcf") || seen[href] {
+			continue
 		}
+		seen[href] = true
+		out = append(out, href)
 	}
-	if token == "" {
-		t.Fatal("the portal set no CSRF cookie")
+	if len(out) < 5 {
+		t.Fatalf("only %d links on the dashboard; the page is not what we think it is: %v", len(out), pg.Links)
 	}
-	form.Set("csrf", token)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Pact-Csrf", token)
-	out, err := c.Do(req)
-	if err != nil {
-		t.Fatalf("POST %s: %v", target, err)
-	}
-	defer out.Body.Close()
-	return out.StatusCode
-}
-
-func originOf(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	return u.Scheme + "://" + u.Host
+	return out
 }

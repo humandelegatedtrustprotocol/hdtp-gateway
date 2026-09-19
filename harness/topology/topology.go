@@ -15,15 +15,15 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 // Kind names a topology from the design document.
 type Kind string
 
 const (
-	T1LAN       Kind = "T1-lan"
-	T2NAT       Kind = "T2-nat"
-	T3DoubleNAT Kind = "T3-double-nat"
+	T1LAN Kind = "T1-lan"
+	T2NAT Kind = "T2-nat"
 )
 
 // PublicPort is the port every node's public surface binds inside its container.
@@ -35,9 +35,13 @@ type Node struct {
 	Slug      string
 	Container *fabric.Container
 	PublicURL string
-	// Fingerprint is the account's SPKI fingerprint (PACT §2), read back from the
-	// node after its account is created. Empty until Provision runs.
+	// Fingerprint is this node's identity: the fingerprint of its owner's ROOT, which is what
+	// another node pins it by (PACT §2). Empty until Provision runs. It was the account key's,
+	// read back from `account create`, while a key was an identity.
 	Fingerprint string
+	// Wallet is that owner's root, and Pin what a caller holds of the node once it is certified.
+	Wallet *wallet.Wallet
+	Pin    wallet.Pin
 	// Reachable is false for a node behind a NAT: nothing outside its segment can
 	// open a connection to it. Scenarios assert against this rather than guessing.
 	Reachable bool
@@ -136,57 +140,6 @@ func BehindNAT(ctx context.Context, f *fabric.Fabric, image string) (*Topo, erro
 	return t, nil
 }
 
-// DoubleNAT is T3: neither node is dialable, so a relay is the only path that can
-// carry a message between them (SPEC §10.1). The relay itself sits on the WAN.
-func DoubleNAT(ctx context.Context, f *fabric.Fabric, image string) (*Topo, error) {
-	wan, err := f.Network(ctx, "wan", fabric.NetOpts{})
-	if err != nil {
-		return nil, err
-	}
-	t := &Topo{Kind: T3DoubleNAT, Fab: f, Image: image}
-
-	// The relay is reachable by both sides; that is the whole point of a relay.
-	relay, err := f.Container(ctx, nodeSpec("relay", image, wan, f.Prefix(), map[string]string{
-		"PACT_RELAY": "true",
-		// A relay verifies signatures with the caller's client certificate, so it
-		// must run on a listener that requests one (SPEC §10.5).
-		"PACT_CLIENT_CERT": "preferred",
-		"PACT_SEAL":        "optional",
-	}))
-	if err != nil {
-		return nil, err
-	}
-	t.Nodes = append(t.Nodes, &Node{
-		Name: relay.Name, Slug: "relay", Container: relay, Reachable: true,
-		PublicURL: fmt.Sprintf("https://%s:%d", relay.Name, PublicPort),
-	})
-
-	for _, slug := range []string{"alice", "bob"} {
-		lan, err := f.Network(ctx, "lan-"+slug, fabric.NetOpts{Internal: true})
-		if err != nil {
-			return nil, err
-		}
-		if _, err := f.NAT(ctx, "nat-"+slug, wan, lan); err != nil {
-			return nil, err
-		}
-		c, err := f.Container(ctx, nodeSpec(slug, image, lan, f.Prefix(), map[string]string{
-			// Relay-assisted mode forces seal=required (SPEC §10.1); the config
-			// validator refuses the pair otherwise, so both are set together.
-			"PACT_MODE":        "relay-assisted",
-			"PACT_SEAL":        "required",
-			"PACT_GATEWAY_URL": fmt.Sprintf("https://%s:%d", relay.Name, PublicPort),
-		}))
-		if err != nil {
-			return nil, err
-		}
-		t.Nodes = append(t.Nodes, &Node{
-			Name: c.Name, Slug: slug, Container: c, Reachable: false,
-			PublicURL: fmt.Sprintf("https://%s:%d", c.Name, PublicPort),
-		})
-	}
-	return t, nil
-}
-
 // WaitReady blocks until every node answers its own healthcheck, or the context ends.
 //
 // It polls rather than sleeping: a fixed sleep is either too short on a loaded
@@ -217,20 +170,24 @@ func waitOne(ctx context.Context, f *fabric.Fabric, n *Node) error {
 	}
 }
 
-// Provision creates one account per node and records its fingerprint, which is the
-// identity every later scenario pins against (PACT §2).
+// Provision creates one account per node and has its owner's wallet certify it — until which
+// the account is nobody, and the node has no certificate to present (PACT §2). What it records
+// is the identity every later scenario pins against: the ROOT, and the leaf under it.
 func (t *Topo) Provision(ctx context.Context) error {
 	for _, n := range t.Nodes {
-		out, err := t.Fab.Exec(ctx, n.Container,
-			"/pact-gateway", "account", "create", "--slug", n.Slug, "--name", strings.ToUpper(n.Slug[:1])+n.Slug[1:])
+		name := strings.ToUpper(n.Slug[:1]) + n.Slug[1:]
+		if out, err := t.Fab.Exec(ctx, n.Container, "/pact-gateway", "account", "create", "--slug", n.Slug, "--name", name); err != nil {
+			return fmt.Errorf("topology: creating account on %s: %w (%s)", n.Name, err, out)
+		}
+		w, err := wallet.New(name)
 		if err != nil {
-			return fmt.Errorf("topology: creating account on %s: %w", n.Name, err)
+			return err
 		}
-		fpr := parseFingerprint(string(out))
-		if fpr == "" {
-			return fmt.Errorf("topology: %s created an account with no fingerprint in %q", n.Name, out)
+		pin, err := w.Certify(ctx, fabricNode{t.Fab, n.Container}, n.Slug, "", "")
+		if err != nil {
+			return fmt.Errorf("topology: certifying %s: %w", n.Name, err)
 		}
-		n.Fingerprint = fpr
+		n.Wallet, n.Pin, n.Fingerprint = w, pin, pin.Root
 	}
 	// No restart here on purpose. The node used to load account certificates at
 	// startup only, so an account created on a running node was unreachable until
@@ -240,13 +197,20 @@ func (t *Topo) Provision(ctx context.Context) error {
 	return nil
 }
 
-// parseFingerprint reads the fingerprint out of `account create` output, which
-// reads: created <slug>  fingerprint sha256:<base64url>
-func parseFingerprint(out string) string {
-	for _, f := range strings.Fields(out) {
-		if strings.HasPrefix(f, "sha256:") {
-			return f
-		}
+// fabricNode reaches a node through the fabric's own runner, so a topology built on a recording
+// runner provisions without a Docker daemon.
+type fabricNode struct {
+	f *fabric.Fabric
+	c *fabric.Container
+}
+
+func (n fabricNode) Exec(ctx context.Context, args ...string) ([]byte, error) {
+	return n.f.Exec(ctx, n.c, append([]string{"/pact-gateway"}, args...)...)
+}
+
+func (n fabricNode) CopyIn(ctx context.Context, hostPath, nodePath string) error {
+	if out, err := n.f.Raw(ctx, "docker", "cp", hostPath, n.c.Name+":"+nodePath); err != nil {
+		return fmt.Errorf("docker cp into %s: %w (%s)", n.c.Name, err, out)
 	}
-	return ""
+	return nil
 }

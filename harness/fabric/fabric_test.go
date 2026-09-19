@@ -68,7 +68,7 @@ func TestNetworksAreNamespacedAndInternalWhenAsked(t *testing.T) {
 	if !r.saw("network create pacttest-lan") {
 		t.Errorf("network not namespaced by the run prefix: %v", r.calls)
 	}
-	// --internal is what makes T2/T3 honest: a node on an internal network has no
+	// --internal is what makes T2 honest: a node on an internal network has no
 	// route off it at all, so "unreachable" is enforced by Docker rather than by
 	// the test politely not dialling.
 	if !r.saw("network create --internal pacttest-behind") {

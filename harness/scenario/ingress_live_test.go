@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 // T5 — the owner's own front door (SPEC §10.6), with a real ACME CA.
@@ -18,8 +19,8 @@ import (
 // unit tests for pairing, SNI routing and the terminator, and
 // TestP5ExitOwnDomainPassthroughAndTerminate drives Pebble and a stub resolver on
 // loopback. What NOTHING ran was `ingress serve` — the 200-line function that
-// assembles the role from flags. `relaywiring_test.go` only checks the arguments
-// it REFUSES, which exits before anything is built. That is the same gap that hid
+// assembles the role from flags. `internal/cli/ingressacme_test.go` checks the arguments it
+// REFUSES and the defaults it keeps, all of which exit before anything is built. That is the same gap that hid
 // P14-05c (AddMembership had zero production callers) and P14-03a (the image
 // could not build): a library that is correct and a binary nobody executes.
 //
@@ -213,17 +214,22 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 
 	// --- two nodes, one per mode ---
 	type nodeCase struct {
-		slug, mode string
-		container  *fabric.Container
-		bridge     *fabric.Container
+		slug, mode, ownerPort string
+		container             *fabric.Container
+		bridge                *fabric.Container
+		owner                 *OwnerSession
 	}
-	cases := []*nodeCase{{slug: "alice", mode: "passthrough"}, {slug: "bob", mode: "terminate"}}
+	cases := []*nodeCase{{slug: "alice", mode: "passthrough", ownerPort: "18692"}, {slug: "bob", mode: "terminate", ownerPort: "18693"}}
 	for _, nc := range cases {
 		c, err := f.Container(ctx, fabric.Spec{
 			Name: nc.slug, Image: nodeImage, Network: net,
-			DNS: []string{dnsIP},
+			DNS:   []string{dnsIP},
+			Ports: []string{nc.ownerPort + ":8081"},
 			Env: map[string]string{
-				"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
+				"PACT_PUBLIC_BIND": "0.0.0.0:8443",
+				// The public name from the start: the account's leaf names the address it
+				// answers at (PACT §2), and the wallet signs it before the ingress is paired.
+				"PACT_PUBLIC_URL":    "https://" + nc.slug + "." + domain,
 				"PACT_INTERNAL_BIND": "127.0.0.1:8080",
 				"PACT_CLIENT_CERT":   "preferred",
 				"PACT_SEAL":          "optional",
@@ -237,9 +243,18 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		if err := waitHealthyC(ctx, f, c); err != nil {
 			t.Fatal(err)
 		}
-		if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create",
-			"--slug", nc.slug, "--name", strings.ToUpper(nc.slug[:1])+nc.slug[1:]); err != nil {
+		name := strings.ToUpper(nc.slug[:1]) + nc.slug[1:]
+		if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", nc.slug, "--name", name); err != nil {
 			t.Fatalf("account create on %s: %v (%s)", nc.slug, err, out)
+		}
+		// Certified by its owner's wallet: until then the account is nobody and the node has
+		// no chain to present, through an ingress or otherwise.
+		w, err := wallet.New(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Certify(ctx, wallet.Docker(c.Name), nc.slug, "", ""); err != nil {
+			t.Fatal(err)
 		}
 		b, err := f.Container(ctx, fabric.Spec{
 			Name: nc.slug + "-bridge", Image: socatImage, NetworkMode: "container:" + c.Name,
@@ -251,6 +266,15 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		nc.bridge = b
 	}
 	time.Sleep(2 * time.Second)
+	// Pairing and the tunnel are settings, settings are the owner's, and the portal requires a
+	// session on every bind (SPEC §8.3). These forms were posted as nobody.
+	for _, nc := range cases {
+		_, _, session, err := BootstrapOwner(ctx, f, nc.container, nc.ownerPort)
+		if err != nil {
+			t.Fatalf("%s's owner session: %v", nc.slug, err)
+		}
+		nc.owner = session
+	}
 
 	// --- pairing: a one-time token per node, redeemed through the portal ---
 	//
@@ -262,8 +286,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("minting a pairing token: %v (%s)", err, tok)
 		}
-		portal := "http://" + nc.container.Name + ":8081"
-		if err := postForm(ctx, f, net.Name, portal+"/settings/pair", map[string]string{
+		if err := nc.owner.PostForm(ctx, "/settings/pair", "", map[string]string{
 			"pair_url":  "https://" + ing.Name + ":8444/pair",
 			"token":     strings.TrimSpace(string(tok)),
 			"subdomain": nc.slug,
@@ -272,7 +295,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 			t.Fatalf("pairing %s: %v", nc.slug, err)
 		}
 		adapter := "ingress-" + nc.mode
-		if err := postForm(ctx, f, net.Name, portal+"/settings", map[string]string{
+		if err := nc.owner.PostForm(ctx, "/settings", "", map[string]string{
 			"tunnel": adapter, "public_url": "https://" + nc.slug + "." + domain,
 		}); err != nil {
 			t.Fatalf("switching %s to %s: %v", nc.slug, adapter, err)
@@ -318,7 +341,9 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	// and never holds a key for this name, so anything else means it terminated
 	// and the end-to-end mTLS identity of PACT §2 is gone.
 	got := chainSeen(ctx, f, net.Name, dnsIP, "alice."+domain)
-	if !strings.Contains(got, "subject: CN=alice") {
+	// Her leaf, that is: issued by her wallet under her root, both named for her (CN=Alice). It
+	// was `CN=alice`, the lone self-signed certificate a key-pinned node presented.
+	if !strings.Contains(got, "subject: CN=Alice") || !strings.Contains(got, "issuer: CN=Alice") {
 		il, _ := f.Raw(ctx, "docker", "logs", ing.Name)
 		nl, _ := f.Raw(ctx, "docker", "logs", cases[0].container.Name)
 		t.Errorf("passthrough did not preserve the node's own certificate — the ingress "+
@@ -375,7 +400,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 			"(E14 regression):\n%s", shorten(viaPassthrough, 600))
 	}
 
-	t.Logf("T5: passthrough kept CN=alice end to end; terminate served a verified "+
+	t.Logf("T5: passthrough kept Alice's own chain end to end; terminate served a verified "+
 		"CA-issued certificate for bob.%s; both modes completed an MCP initialize "+
 		"through the ingress at default settings", domain)
 }

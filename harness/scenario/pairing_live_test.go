@@ -14,10 +14,12 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
-// PlaintextCanary is planted in message bodies so the relay invariant has an
-// unmistakable string to look for (see harness/invariant).
+// PlaintextCanary is planted in message bodies so that whatever CARRIES a sealed message — a
+// tunnel's connector, an edge that terminates TLS — can be searched for it afterwards, and
+// something unmistakable is either there or not (cloudflare_live_test reads cloudflared's log).
 const PlaintextCanary = "PACT-PLAINTEXT-CANARY"
 
 func shorten(s string, n int) string {
@@ -76,8 +78,10 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 		Name: "alice", Image: nodeImage, Network: net,
 		Ports: []string{ownerPort + ":8081", publicPort + ":8443"},
 		Env: map[string]string{
-			"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
-			"PACT_PUBLIC_URL":    "https://127.0.0.1:" + publicPort,
+			"PACT_PUBLIC_BIND": "0.0.0.0:8443",
+			// A NAME: the leaf names this address, and no wallet issues one for loopback (PACT
+			// §14.2 rule 5). Bob's agent dials it to the published port (Target.Dial).
+			"PACT_PUBLIC_URL":    "https://alice.harness.example:" + publicPort,
 			"PACT_INTERNAL_BIND": "127.0.0.1:8080",
 			"PACT_CLIENT_CERT":   "preferred",
 			// Guest onboarding requires direct mode with sealing OPTIONAL: a guest
@@ -92,13 +96,18 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 	}
 	waitHealthy(t, ctx, f, node)
 
-	acct, err := f.Exec(ctx, node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Alice")
-	if err != nil {
+	if acct, err := f.Exec(ctx, node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Alice"); err != nil {
 		t.Fatalf("creating account: %v (%s)", err, acct)
 	}
-	nodeFpr := firstField(string(acct), "sha256:")
-	if nodeFpr == "" {
-		t.Fatalf("no fingerprint in %q", acct)
+	// Alice's wallet certifies the account: until it has a leaf under her root it is nobody,
+	// and the node has no certificate to present (PACT §2).
+	aliceWallet, err := wallet.New("Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := aliceWallet.Certify(ctx, wallet.Docker(node.Name), "alice", "", "")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// The internal surface is loopback-bound (SPEC §8.3). A sidecar in the node's
@@ -186,10 +195,7 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := peer.Target{
-		Endpoint: "https://127.0.0.1:" + publicPort + "/a/alice/mcp",
-		Root:     nodeFpr,
-	}
+	target := peer.Target{Endpoint: pin.Endpoint, Dial: "127.0.0.1:" + publicPort, Root: pin.Root, Leaf: pin.Leaf}
 	names, err := bob.ListTools(ctx, target)
 	if err != nil {
 		t.Fatalf("bob could not reach alice's public surface: %v", err)

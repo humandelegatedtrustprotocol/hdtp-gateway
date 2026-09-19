@@ -218,12 +218,12 @@ harness-kernel:
 
 # PR tier: everything hermetic, plus the two live suites that carry the most
 # signal per second. Does NOT run: resilience (S7), long-horizon time (S8),
-# rotation (S10), portal screenshots (S11), or topologies T3-T6.
+# CalDAV booking (S4), portal screenshots (S11), or topologies T3-T6.
 harness-pr: harness
 	cd harness && PACT_HARNESS_LIVE=1 go test ./... -run 'TestPairing|TestAdversarial|TestLive' -count=1
 
 # Nightly tier: every live suite, including the slow ones.
-harness-nightly: harness harness-image harness-shaper
+harness-nightly: harness harness-image harness-image-caldav harness-shaper
 	cd harness && PACT_HARNESS_LIVE=1 go test ./... -count=1 -timeout 40m
 
 # Live fabric tests: these create real Docker networks and containers. Opt-in,
