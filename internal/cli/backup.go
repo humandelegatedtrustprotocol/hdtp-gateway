@@ -22,8 +22,6 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )

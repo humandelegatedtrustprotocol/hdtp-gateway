@@ -973,7 +973,7 @@ This path is documented here as an **optional later feature** for the `cloudflar
 
 ### 11.1 Store interface and engines
 
-All persistence goes through a single Go `Store` interface; no SQL exists outside the store package. Queries are generated with **sqlc** and migrations run with **goose**, with the schema maintained per engine. Two engines are supported:
+All persistence goes through a single Go `Store` interface. No SQL exists outside the store package, and none is written by hand inside it: every statement is a method **sqlc** generates from `queries/{sqlite,postgres}/*.sql`, and nothing outside the store may import `database/sql`, a driver, or goose — a caller that needs to know a row was absent asks `store.ErrNotFound`. There is one exception, named and counted: `SQLite.Snapshot`'s `VACUUM INTO`, which sqlc's SQLite grammar rejects and which is storage maintenance rather than a query. Tests may write SQL; a fixture has that privilege and the code under test does not. The first sentence of this paragraph was here, and untrue, until 2026-09-19 — `backup` opened the database and wrote its own statements — and `TestNoHandWrittenSQLOutsideTheStore` is what keeps it true. Migrations run with **goose**, with the schema maintained per engine. Two engines are supported:
 
 - **SQLite** via modernc.org/sqlite — the default; pure Go, which preserves the static `CGO_ENABLED=0` build (§12).
 - **PostgreSQL** via pgx — enabled by the `postgres` compose profile (§12).

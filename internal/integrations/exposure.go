@@ -9,7 +9,6 @@ package integrations
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,7 +163,7 @@ func (e *Exposures) namesInUse(ctx context.Context, in store.Integration) (map[s
 		}
 		latest, err := e.Store.LatestExposure(ctx, o.ID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, store.ErrNotFound) {
 				continue
 			}
 			return nil, err
@@ -214,7 +213,7 @@ func (e *Exposures) Reconcile(ctx context.Context, integrationID string) (store.
 	}
 	latest, err := e.Store.LatestExposure(ctx, integrationID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, store.ErrNotFound) {
 			return store.Exposure{}, false, nil // nothing exposed: nothing to guard
 		}
 		// a transient store failure must NOT silently skip the guard
@@ -313,7 +312,7 @@ func (e *Exposures) Reconfirm(ctx context.Context, integrationID string, names [
 func (e *Exposures) AllEntries(ctx context.Context, integrationID string) ([]ExposureEntry, error) {
 	latest, err := e.Store.LatestExposure(ctx, integrationID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, err
