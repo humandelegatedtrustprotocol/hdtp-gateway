@@ -3,7 +3,10 @@
 // exercised by a single conformance suite so the engines cannot drift apart.
 package store
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Owner struct {
 	ID          string
@@ -281,6 +284,10 @@ type AuditAnchorRow struct {
 
 // AuditPage bounds one read of the trail. Both filters are optional and empty
 // means "any"; Account keeps the node's own rows, which belong to no account.
+// UndatedIdempotencyWindow is how long an idempotency record written without an expiry is kept
+// (SPEC §11: "retained at least until the envelope's `exp`, else 30 days").
+const UndatedIdempotencyWindow = 30 * 24 * time.Hour
+
 type AuditPage struct {
 	Actor   string
 	Account string
@@ -453,6 +460,9 @@ type Store interface {
 	// wire protocol for remote deletion, and the peer's copy is the peer's.
 	DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error)
 	DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error)
+	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what
+	// retention reads to learn which media a retained message still references.
+	ListMediaBodies(ctx context.Context, accountID string) ([]string, error)
 	ListBlobs(ctx context.Context, accountID string) ([]Blob, error)
 	DeleteBlob(ctx context.Context, accountID, hash string) (int64, error)
 	// CountBlobRefs counts rows for a hash ACROSS accounts: the blob store is
@@ -508,6 +518,13 @@ type Store interface {
 	PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (stored string, existed bool, err error)
 	// UpdateIdempotencyAck upgrades an in-flight reservation to the final ack.
 	UpdateIdempotencyAck(ctx context.Context, accountID, contactFpr, msgID, ack string) error
+	// DeleteExpiredIdempotency removes the records whose window has closed: a dated one at its
+	// expiry, an undated one after UndatedIdempotencyWindow. A sealed call writes one of these
+	// every time, so a node that never removes them holds one for every call it ever took.
+	DeleteExpiredIdempotency(ctx context.Context, now int64) (int64, error)
+	// DeleteExpiredSessions removes owner sessions past their time. Signing out deletes one and so
+	// does presenting an expired one; an abandoned session is never presented again.
+	DeleteExpiredSessions(ctx context.Context, now int64) (int64, error)
 	// Pending agent-answered requests (SPEC §6.8).
 	InsertPendingRequest(ctx context.Context, p PendingRequest) (PendingRequest, error)
 	GetPendingRequest(ctx context.Context, id string) (PendingRequest, error)

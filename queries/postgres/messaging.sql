@@ -42,8 +42,15 @@ UPDATE threads SET last_read_seq = (
 DELETE FROM messages WHERE account_id = $1 AND created_at < $2;
 
 -- name: DeleteEmptyThreads :execrows
+-- One index probe per thread. As a NOT IN over the account's messages it listed the thread of
+-- every message the account has before it looked at a single thread.
 DELETE FROM threads WHERE threads.account_id = $1
-  AND threads.id NOT IN (SELECT thread_id FROM messages WHERE messages.account_id = $2);
+  AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.account_id = threads.account_id AND m.thread_id = threads.id);
+
+-- name: ListMediaBodies :many
+-- What retention reads to learn which media is still referenced: the media messages, and only
+-- those, from `messages_media`. It used to be learned by reading every message of every thread.
+SELECT body FROM messages WHERE account_id = $1 AND kind = 'media' ORDER BY seq;
 
 -- name: ListBlobs :many
 SELECT * FROM blobs WHERE account_id = $1 ORDER BY created_at;

@@ -441,11 +441,15 @@ func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]Audi
 	if f.Limit >= 0 && f.Limit <= math.MaxInt32 {
 		lim = int32(f.Limit)
 	}
-	// Column1 and Column2 are sqlc's names for `$1` and `$2` - the actor and the
-	// account. See the sqlite side for why named parameters are not used.
-	rs, err := p.q.ListAuditEventsPage(ctx, pgdb.ListAuditEventsPageParams{
-		Column1: f.Actor, Column2: f.Account, Limit: lim,
-	})
+	// Two statements, not one with two optional filters; see the sqlite side for why, and for
+	// why the account placeholder keeps sqlc's name.
+	var rs []pgdb.AuditEvent
+	var err error
+	if f.Actor != "" {
+		rs, err = p.q.ListAuditEventsPageByActor(ctx, pgdb.ListAuditEventsPageByActorParams{ActorID: f.Actor, Column2: f.Account, Limit: lim})
+	} else {
+		rs, err = p.q.ListAuditEventsPage(ctx, pgdb.ListAuditEventsPageParams{Column1: f.Account, Limit: lim})
+	}
 	if err != nil {
 		return nil, err
 	}

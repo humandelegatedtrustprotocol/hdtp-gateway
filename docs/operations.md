@@ -86,6 +86,33 @@ node has already won. Memory is bounded: keys whose window has emptied are
 swept once per window, so a caller cycling addresses or fingerprints cannot
 grow the table indefinitely.
 
+## The store, when it is large
+
+Nothing here needs setting. It is written down so that what the node does to its database is
+not a surprise, and so that the one knob that exists is findable.
+
+- **SQLite** (the default) is opened in WAL mode with `synchronous=FULL`, write transactions that
+  take their lock at `BEGIN`, and a pool of four connections. Each was measured against a store of
+  a million messages and the reasons are beside the code (`internal/core/store/sqlite.go`).
+  `synchronous=FULL` is the one that costs speed on purpose: a commit here is a message a peer was
+  told was delivered, and it is not given up to a power cut for a faster write.
+- **Postgres** (`store_engine: postgres`) uses pgx's pool with its default size, the larger of
+  four and the number of CPUs. The DSN is where it changes: append `pool_max_conns=16` (and
+  `pool_min_conns`, `pool_max_conn_lifetime`) to `postgres_dsn`.
+- **Every hour** the node removes what has outlived its own window, whatever retention an account
+  has set: idempotency records of sealed calls, which a node would otherwise keep one of for every
+  call it ever took, and owner sessions nobody came back to. With a retention window set it also
+  removes the messages, threads and media past it.
+- **Every statement the store can run is checked at build time** to have an index on any table
+  that grows (`TestEveryQueryHasAPlan`, both engines). To see the numbers on your own hardware:
+
+```
+PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench '^BenchmarkScale' -benchtime 20x
+```
+
+  The first run seeds the file — 10,000 contacts, a million messages, a million audit rows — and
+  takes about a minute.
+
 ## Export and import
 
 ```

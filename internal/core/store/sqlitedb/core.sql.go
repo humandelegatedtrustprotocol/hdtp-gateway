@@ -56,6 +56,20 @@ func (q *Queries) DeleteCredentialIfNotLast(ctx context.Context, arg DeleteCrede
 	return result.RowsAffected()
 }
 
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :execrows
+DELETE FROM sessions WHERE expires_at <= ?
+`
+
+// A session is deleted at sign-out, or when it is presented after its time. One that is simply
+// abandoned is never presented again, so the hourly sweep is what removes it.
+func (q *Queries) DeleteExpiredSessions(ctx context.Context, expiresAt int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredSessions, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteMembership = `-- name: DeleteMembership :execrows
 DELETE FROM memberships WHERE owner_id = ? AND account_id = ?
 `
@@ -525,14 +539,12 @@ func (q *Queries) ListAuditEventsByActor(ctx context.Context, actorID string) ([
 
 const listAuditEventsPage = `-- name: ListAuditEventsPage :many
 SELECT seq, ts, account_id, actor_kind, actor_id, "action", resource, outcome, request_id, details, prev_hash, hash FROM audit_events
-WHERE (?1 = '' OR actor_id = ?1)
-  AND (?2 = '' OR account_id = ?2 OR account_id IS NULL OR account_id = '')
-ORDER BY seq DESC LIMIT ?3
+WHERE (?1 = '' OR account_id = ?1 OR account_id IS NULL OR account_id = '')
+ORDER BY seq DESC LIMIT ?2
 `
 
 type ListAuditEventsPageParams struct {
 	Column1 interface{}
-	Column2 interface{}
 	Limit   int64
 }
 
@@ -540,12 +552,66 @@ type ListAuditEventsPageParams struct {
 // it. ListAuditEvents stays ascending because that is the order the hash chain
 // must be VERIFIED in; this is the reading order: newest first and bounded.
 //
-// Both filters are optional and empty means "any". The account filter keeps the
-// node's own rows, which belong to no account: a listener starting or an owner
-// signing in is a fact about the node, not about anybody's identity. account_id
-// is nullable, and a row with no account arrives as NULL, not as ”.
+// The account filter is optional and empty means "any". It keeps the node's own
+// rows, which belong to no account: a listener starting or an owner signing in is
+// a fact about the node, not about anybody's identity. account_id is nullable, and
+// a row with no account arrives as NULL, not as ”. That is also why this walk is
+// short whatever the account: the node's own rows match every filter.
 func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPageParams) ([]AuditEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listAuditEventsPage, arg.Column1, arg.Column2, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listAuditEventsPage, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditEvent
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.Seq,
+			&i.Ts,
+			&i.AccountID,
+			&i.ActorKind,
+			&i.ActorID,
+			&i.Action,
+			&i.Resource,
+			&i.Outcome,
+			&i.RequestID,
+			&i.Details,
+			&i.PrevHash,
+			&i.Hash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditEventsPageByActor = `-- name: ListAuditEventsPageByActor :many
+SELECT seq, ts, account_id, actor_kind, actor_id, "action", resource, outcome, request_id, details, prev_hash, hash FROM audit_events
+WHERE actor_id = ?1
+  AND (?2 = '' OR account_id = ?2 OR account_id IS NULL OR account_id = '')
+ORDER BY seq DESC LIMIT ?3
+`
+
+type ListAuditEventsPageByActorParams struct {
+	ActorID string
+	Column2 interface{}
+	Limit   int64
+}
+
+// One actor's page. It is its own statement so that it is answered from
+// `audit_events_actor`, read backwards. As `(? = ” OR actor_id = ?)` inside the
+// statement above it could not be, and an actor with thirty rows in a million cost
+// a walk of the whole chain to find them.
+func (q *Queries) ListAuditEventsPageByActor(ctx context.Context, arg ListAuditEventsPageByActorParams) ([]AuditEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAuditEventsPageByActor, arg.ActorID, arg.Column2, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

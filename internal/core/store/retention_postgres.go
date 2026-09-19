@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
 
@@ -11,9 +13,25 @@ func (p *Postgres) DeleteMessagesBefore(ctx context.Context, accountID string, c
 }
 
 func (p *Postgres) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
-	// The account is named twice because the statement compares it twice: the threads
-	// to consider, and the messages that keep one alive.
-	return p.q.DeleteEmptyThreads(ctx, pgdb.DeleteEmptyThreadsParams{AccountID: accountID, AccountID_2: accountID})
+	return p.q.DeleteEmptyThreads(ctx, accountID)
+}
+
+// DeleteExpiredIdempotency is two statements; see the sqlite side for why.
+func (p *Postgres) DeleteExpiredIdempotency(ctx context.Context, now int64) (int64, error) {
+	dated, err := p.q.DeleteExpiredIdempotency(ctx, pgtype.Int8{Int64: now, Valid: true})
+	if err != nil {
+		return 0, err
+	}
+	undated, err := p.q.DeleteUndatedIdempotencyBefore(ctx, now-int64(UndatedIdempotencyWindow.Seconds()))
+	return dated + undated, err
+}
+
+func (p *Postgres) DeleteExpiredSessions(ctx context.Context, now int64) (int64, error) {
+	return p.q.DeleteExpiredSessions(ctx, now)
+}
+
+func (p *Postgres) ListMediaBodies(ctx context.Context, accountID string) ([]string, error) {
+	return p.q.ListMediaBodies(ctx, accountID)
 }
 
 func (p *Postgres) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {
