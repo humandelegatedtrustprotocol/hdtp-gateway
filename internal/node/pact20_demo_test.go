@@ -199,7 +199,7 @@ func (d *demoNode) pin20(peer *demoNode) {
 	if _, err := d.st.InsertContact(context.Background(), store.Contact{
 		AccountID: d.acct.ID, Fingerprint: peer.rootFpr(), SPKI: peer.leafSPKI(), Status: "active",
 		Permissions: []string{"message.text"}, DisplayName: peer.acct.DisplayName, Card: peer.card(),
-		Protocol: 2, Endpoint: peer.endpoint(), Leaf: peer.leaf(), PinnedAt: d.n.now().Unix(),
+		Endpoint: peer.endpoint(), Leaf: peer.leaf(), PinnedAt: d.n.now().Unix(),
 	}); err != nil {
 		d.t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestPact20ExitDemo(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("redeem: %v %+v", err, res)
 	}
-	if c := alina.contact(bharat.rootFpr()); c.Status != "active" || c.Protocol != 2 || c.Endpoint != bharat.endpoint() {
+	if c := alina.contact(bharat.rootFpr()); c.Status != "active" || len(c.Leaf) == 0 || c.Endpoint != bharat.endpoint() {
 		t.Fatalf("alina must pin bharat by his root at his address: %+v", c)
 	}
 	bharat.pin20(alina)

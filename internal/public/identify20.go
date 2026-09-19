@@ -88,7 +88,7 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 		return ns, err
 	}
 	for _, c := range contacts {
-		if c.Protocol == 2 && len(c.Leaf) > 0 {
+		if len(c.Leaf) > 0 {
 			ns.Pins = append(ns.Pins, pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: b64u(c.Leaf), State: c.Status})
 		}
 	}
@@ -331,7 +331,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 	if err != nil {
 		return TransportCaller{Fingerprint: root} // the store resolves a stranger to guest
 	}
-	if c.Protocol != 2 || len(c.Leaf) == 0 {
+	if len(c.Leaf) == 0 {
 		return TransportCaller{Fingerprint: root}
 	}
 	if c.Status == "blocked" {

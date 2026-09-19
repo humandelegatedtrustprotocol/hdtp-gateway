@@ -64,7 +64,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, SPKI: spki, Status: "pending_out",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
-		Protocol: 2, Endpoint: c.Endpoint, Leaf: c.Cert,
+		Endpoint: c.Endpoint, Leaf: c.Cert,
 	}); err != nil {
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}
@@ -96,7 +96,7 @@ func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, Status: "pending_out",
 		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
-		Protocol: 2, Endpoint: c.Endpoint, Leaf: c.Cert,
+		Endpoint: c.Endpoint, Leaf: c.Cert,
 	}); err != nil {
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}

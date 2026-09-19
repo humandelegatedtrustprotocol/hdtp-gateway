@@ -29,7 +29,7 @@ func TestACardRefreshCannotRenameAPinnedContact(t *testing.T) {
 	g, card, spki := guest(t, "Alina")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
 		AccountID: e.account, Fingerprint: g.Fingerprint, SPKI: spki, Status: "active",
-		Card: card, DisplayName: "Alina", Protocol: 2, Leaf: g.Host.LeafDER, Endpoint: g.Host.Endpoint,
+		Card: card, DisplayName: "Alina", Leaf: g.Host.LeafDER, Endpoint: g.Host.Endpoint,
 	}); err != nil {
 		t.Fatal(err)
 	}

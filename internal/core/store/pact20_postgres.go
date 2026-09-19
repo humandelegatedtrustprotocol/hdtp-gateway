@@ -231,20 +231,6 @@ func (s *Postgres) ClearChainSentKids(ctx context.Context, accountID string) err
 	return nil
 }
 
-func (s *Postgres) UpgradeContactPin(ctx context.Context, accountID, oldFpr, root, endpoint string, leaf, spki []byte, nowTS int64) error {
-	n, err := s.q.UpgradeContactPin(ctx, pgdb.UpgradeContactPinParams{
-		Fingerprint: root, Endpoint: endpoint, Leaf: leaf, Spki: spki,
-		PinnedAt: pgtype.Int8{Int64: nowTS, Valid: nowTS != 0}, AccountID: accountID, Fingerprint_2: oldFpr,
-	})
-	if err != nil {
-		return fmt.Errorf("store: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
-}
-
 // SetContactRootCert fills in the root certificate of a pin that has none. A pin
 // whose cert is already stored is left alone: the root cannot change (PACT sec. 14.3),
 // so the stored one is the cert that was checked when the pin was made.

@@ -537,15 +537,12 @@ func Run(t *testing.T, newStore Factory) {
 		// A 2.0 pin: the fingerprint column is the root and never moves; the
 		// endpoint, the leaf and its key do (PACT §14.3, §5.3).
 		c, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:peer-root", SPKI: []byte{1}, Status: "active",
-			Protocol: 2, Endpoint: "https://p.example/mcp", Leaf: []byte("pl1"), ChainSentKid: "sha256:leaf2"})
+			Endpoint: "https://p.example/mcp", Leaf: []byte("pl1"), ChainSentKid: "sha256:leaf2"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.Protocol != 2 || c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
+		if c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
 			t.Fatalf("2.0 pin fields lost: %+v", c)
-		}
-		if old, _ := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:onex", SPKI: []byte{2}, Status: "active"}); old.Protocol != 2 {
-			t.Fatalf("a contact with no protocol set must default to 2: %+v", old)
 		}
 		// The ROOT's certificate is kept beside the pin (migration 0029): the chain
 		// travels once, so a host that keeps only the fingerprint cannot prove a
@@ -567,7 +564,7 @@ func Run(t *testing.T, newStore Factory) {
 			t.Fatalf("a stored root certificate was overwritten: %q", got.RootCert)
 		}
 		if withCert, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:pinned-with-cert", SPKI: []byte{3}, Status: "active",
-			Protocol: 2, Endpoint: "https://w.example/mcp", Leaf: []byte("wl1"), RootCert: []byte("w-root-der")}); err != nil || string(withCert.RootCert) != "w-root-der" {
+			Endpoint: "https://w.example/mcp", Leaf: []byte("wl1"), RootCert: []byte("w-root-der")}); err != nil || string(withCert.RootCert) != "w-root-der" {
 			t.Fatalf("a pin made WITH a root certificate lost it: %+v %v", withCert, err)
 		}
 		if err := s.RepinContactAddress(ctx, a.ID, "sha256:peer-root", "https://q.example/mcp", []byte("pl2"), []byte{9}, 77); err != nil {
@@ -589,16 +586,6 @@ func Run(t *testing.T, newStore Factory) {
 		}
 		if err := s.RepinContactAddress(ctx, a.ID, "sha256:nobody", "x", nil, nil, 1); err == nil {
 			t.Fatal("repin of a missing contact reported success")
-		}
-		// Re-pinning a contact under a new fingerprint moves the row and its history.
-		if err := s.UpgradeContactPin(ctx, a.ID, "sha256:onex", "sha256:onex-root", "https://o.example/mcp", []byte("ol"), []byte{2}, 88); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.GetContact(ctx, a.ID, "sha256:onex"); err == nil {
-			t.Fatal("the old fingerprint still resolves after the re-pin")
-		}
-		if up, _ := s.GetContact(ctx, a.ID, "sha256:onex-root"); up.Protocol != 2 || up.Endpoint != "https://o.example/mcp" || up.Status != "active" {
-			t.Fatalf("upgrade lost: %+v", up)
 		}
 		// The §5.3 side tables.
 		if err := s.UpsertTombstone(ctx, store.Tombstone{AccountID: a.ID, Root: "sha256:gone", Leaf: []byte("gl"), At: 5}); err != nil {
