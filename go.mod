@@ -3,11 +3,10 @@ module github.com/tech-sumit/pact-gateway
 go 1.26.6
 
 require (
-	filippo.io/edwards25519 v1.2.0
+	github.com/Shopify/toxiproxy/v2 v2.12.0
 	github.com/arran4/golang-ical v0.3.6
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/cedar-policy/cedar-go v1.8.0
-	github.com/cloudflare/circl v1.6.5
 	github.com/descope/virtualwebauthn v1.0.5
 	github.com/emersion/go-vcard v0.1.0
 	github.com/fatedier/frp v0.71.0
@@ -20,10 +19,10 @@ require (
 	github.com/miekg/dns v1.1.73
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pressly/goose/v3 v3.27.3
+	github.com/rs/zerolog v1.34.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tech-sumit/pact-gateway/pact-identity v0.0.0-00010101000000-000000000000
 	golang.ngrok.com/ngrok/v2 v2.2.0
-	golang.org/x/crypto v0.56.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.41.0
@@ -32,6 +31,7 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
 	github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa // indirect
@@ -74,6 +74,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/reedsolomon v1.12.0 // indirect
 	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.23 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/socket v0.5.0 // indirect
@@ -92,6 +93,7 @@ require (
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quic-go/quic-go v0.60.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/rs/xid v1.6.0 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect
 	github.com/samber/lo v1.47.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -123,6 +125,7 @@ require (
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.ngrok.com/muxado/v2 v2.0.1 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
@@ -133,6 +136,7 @@ require (
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
+	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
 	k8s.io/apimachinery v0.34.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
