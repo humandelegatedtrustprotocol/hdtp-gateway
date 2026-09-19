@@ -337,3 +337,12 @@ func TestPact20ExitDemo(t *testing.T) {
 		t.Fatalf("former endpoints: %+v", formers)
 	}
 }
+
+func mustListLeaves(t *testing.T, d *demoNode) []store.Leaf {
+	t.Helper()
+	leaves, err := d.st.ListLeaves(context.Background(), d.acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leaves
+}

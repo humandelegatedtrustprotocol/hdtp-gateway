@@ -23,13 +23,20 @@ import (
 // realistic window and cheap: with no window set, a sweep does nothing at all.
 const SweepInterval = time.Hour
 
+// The same tick retires expired leaves (`retireLeaves`, the node's own pass): a leaf's key is
+// destroyed when the leaf runs out, and "when" has to mean within the hour on a node that is up,
+// not at its next restart. It rides this ticker rather than having one of its own because it is
+// the same kind of work — a policy about age — and it is nil-safe for callers with no node.
 func startRetentionSweeper(ctx context.Context, settings *settingsService, st store.Store,
-	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer) {
+	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context)) {
 
 	blobs := messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}
 	sweeper := &messaging.Sweeper{Store: st, Blobs: blobs, Audit: auditFn}
 
 	sweep := func() {
+		if retireLeaves != nil {
+			retireLeaves(ctx)
+		}
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
 			return

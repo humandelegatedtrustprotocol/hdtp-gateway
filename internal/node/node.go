@@ -201,6 +201,9 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		unavailable: map[string]string{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
+	// Before anything is built: a leaf that ran out while the node was down loses its key now, and
+	// its account then boots as what it is — awaiting a leaf — rather than as a broken one.
+	n.RetireExpiredLeaves(ctx)
 	recs, err := o.Store.ListAccounts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("node: list accounts: %w", err)
@@ -421,7 +424,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			return nil, fmt.Errorf("node: account %s leaves: %w", rec.Slug, err)
 		}
 		if len(keys) == 0 || !keys[0].Current {
-			return nil, fmt.Errorf("node: account %s is 2.0 but holds no current leaf", rec.Slug)
+			return nil, fmt.Errorf("node: account %s names a root and a key, and its ledger holds no current leaf over that key", rec.Slug)
 		}
 		if keys[0].Kid != rec.Fingerprint {
 			// The ledger moved and the account row did not: an install that failed
@@ -946,6 +949,61 @@ func (n *Node) TLSConfig() *tls.Config {
 // that dialed by IP and sent no SNI — gets the first account's, which is the
 // only sensible answer on a single-identity node and harmless on a multi-account
 // one, where the caller pins by fingerprint anyway (PACT §2).
+// RetireExpiredLeaves destroys the key of every leaf past its notAfter, on every account, and stops
+// serving any account whose CURRENT leaf was one of them. It is what makes "until one date" true
+// of the key and not only of the certificate: an expired leaf is refused by every verifier, so
+// past its date the key is a thing this host was never meant to still be holding.
+//
+// Three callers, all of them places the node already writes: New (so an account whose leaf ran
+// out while the node was down boots as awaiting a leaf, not as broken), the hourly retention
+// sweep (so a leaf that runs out while the node is up is noticed within the hour), and
+// AdoptAccount. Never the read path.
+func (n *Node) RetireExpiredLeaves(ctx context.Context) {
+	recs, err := n.opts.Store.ListAccounts(ctx)
+	if err != nil {
+		// The pass could not start, which is a fact about the node and about no one account.
+		n.opts.audit("leaf_retirement_pass", "store:accounts", "error")
+		return
+	}
+	for _, rec := range recs {
+		n.retireExpired(ctx, rec)
+	}
+}
+
+func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
+	if !rec.HasRoot() {
+		return
+	}
+	retired, err := n.idm.RetireExpiredLeafKeys(ctx, rec.ID, n.now())
+	for _, r := range retired {
+		// Key material was destroyed, so the chain says so, once per key.
+		n.opts.audit("account_leaf_key_retired", "account:"+rec.ID+" slug:"+rec.Slug+" key:"+r.Kid+" reason:expired", "ok")
+		if r.Current {
+			n.stopServing(rec)
+		}
+	}
+	if err != nil {
+		n.opts.audit("account_leaf_key_retired", "account:"+rec.ID+" slug:"+rec.Slug, "error")
+	}
+}
+
+// stopServing takes a live account out of every index the listener answers from and marks it as
+// awaiting a leaf. The node had no way to do this: an account, once built, was served until the
+// process ended, so a leaf that expired under a running node went on being presented — to peers
+// who refuse it — and its key went on being held.
+func (n *Node) stopServing(rec store.Account) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.accounts, rec.ID)
+	delete(n.bySlug, rec.Slug)
+	for host, a := range n.byHost {
+		if a.rec.ID == rec.ID {
+			delete(n.byHost, host)
+		}
+	}
+	n.awaiting[rec.Slug] = struct{}{}
+}
+
 // AdoptAccount brings an account created while the node is RUNNING into the live
 // node: its keypair, its certificate, and its per-caller MCP surface.
 //
@@ -971,13 +1029,9 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	if rec.ID == "" {
 		return fmt.Errorf("node: adopt: unknown account %q", accountID)
 	}
-	// Adoption is a write already, so it is where an expired superseded key is
-	// destroyed — off the read path every inbound request takes.
-	if rec.HasRoot() {
-		if rerr := n.idm.RetireExpiredLeafKeys(ctx, accountID, n.now()); rerr != nil {
-			n.opts.audit("account_leaf_retire", "account:"+accountID, "error")
-		}
-	}
+	// Adoption is a write already, so an expired leaf's key is destroyed here too — off the read
+	// path every inbound request takes. (Boot and the hourly sweep are the other two places.)
+	n.retireExpired(ctx, rec)
 	a, err := n.buildAccount(ctx, rec)
 	if err != nil {
 		if errors.Is(err, ErrAwaitingLeaf) {
