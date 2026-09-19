@@ -13,7 +13,7 @@ import (
 // refusingProgress is a store that does everything except record a campaign's progress.
 type refusingProgress struct{ store.Store }
 
-func (refusingProgress) UpsertRotationFanout(context.Context, store.RotationFanout) error {
+func (refusingProgress) UpsertMoveFanout(context.Context, store.MoveFanout) error {
 	return errors.New("disk full")
 }
 

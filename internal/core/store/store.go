@@ -78,12 +78,13 @@ type PendingAddress struct {
 	RootCert []byte
 }
 
-// RotationFanout is per-contact progress of a move campaign's `update_contact` walk (PACT
-// §5.3). The name is 1.x's: it was key rotation's ledger, and the table is still called that.
-type RotationFanout struct {
+// MoveFanout is per-contact progress of a move campaign's `update_contact` walk (PACT §5.3,
+// §9). LeafKid is the leaf being announced: a re-run resumes by matching on it, so a second
+// move is a second campaign and not the tail of the first.
+type MoveFanout struct {
 	AccountID  string
 	ContactFpr string
-	NewFpr     string
+	LeafKid    string
 	Status     string // pending | done
 	Attempts   int64
 	LastError  string
@@ -385,8 +386,8 @@ type Store interface {
 	// UpdateAccountSeal sets the account's X-PACT-SEAL policy (SPEC §4.6).
 	UpdateAccountSeal(ctx context.Context, accountID, seal string) error
 
-	UpsertRotationFanout(ctx context.Context, f RotationFanout) error
-	ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error)
+	UpsertMoveFanout(ctx context.Context, f MoveFanout) error
+	ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error)
 
 	// PACT 2.0 (migration 0027): the account's root and leaf ledger, 2.0 pins,
 	// the removal tombstone, former endpoints and pending addresses.

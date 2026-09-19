@@ -250,5 +250,5 @@ func nodePeer(t *testing.T, dir string, acct store.Account, listen string) (outb
 		var d net.Dialer
 		return d.DialContext(ctx, network, addr)
 	}
-	return outbound.Peer{Endpoint: vr.Endpoint, Fingerprint: vr.RootFingerprint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
+	return outbound.Peer{Endpoint: vr.Endpoint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }

@@ -34,9 +34,8 @@ import (
 // account's address: every contact pinned by our root is reached with
 // update_contact carrying the new card, in chain form — the chain in the
 // envelope is the proof of the new address, and the contact's setting decides
-// whether it re-pins at once or asks its owner. The walk is durable
-// (rotation_fanout), so an interrupted campaign resumes where it
-// stopped when run again for the same leaf.
+// whether it re-pins at once or asks its owner. The walk is durable (move_fanout), so an
+// interrupted campaign resumes where it stopped when run again for the same leaf.
 func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done, failed int, err error) {
 	card, err := n.Card(ctx, accountID)
 	if err != nil {

@@ -629,6 +629,38 @@ func (q *Queries) ListMembershipsByOwner(ctx context.Context, ownerID string) ([
 	return items, nil
 }
 
+const listMoveFanout = `-- name: ListMoveFanout :many
+SELECT account_id, contact_fpr, leaf_kid, status, attempts, last_error, updated_at FROM move_fanout WHERE account_id = $1 ORDER BY contact_fpr
+`
+
+func (q *Queries) ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error) {
+	rows, err := q.db.Query(ctx, listMoveFanout, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MoveFanout
+	for rows.Next() {
+		var i MoveFanout
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.ContactFpr,
+			&i.LeafKid,
+			&i.Status,
+			&i.Attempts,
+			&i.LastError,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOwners = `-- name: ListOwners :many
 SELECT id, display_name, created_at FROM owners ORDER BY created_at, id
 `
@@ -643,38 +675,6 @@ func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
 	for rows.Next() {
 		var i Owner
 		if err := rows.Scan(&i.ID, &i.DisplayName, &i.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRotationFanout = `-- name: ListRotationFanout :many
-SELECT account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at FROM rotation_fanout WHERE account_id = $1 ORDER BY contact_fpr
-`
-
-func (q *Queries) ListRotationFanout(ctx context.Context, accountID string) ([]RotationFanout, error) {
-	rows, err := q.db.Query(ctx, listRotationFanout, accountID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RotationFanout
-	for rows.Next() {
-		var i RotationFanout
-		if err := rows.Scan(
-			&i.AccountID,
-			&i.ContactFpr,
-			&i.NewFpr,
-			&i.Status,
-			&i.Attempts,
-			&i.LastError,
-			&i.UpdatedAt,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -845,29 +845,29 @@ func (q *Queries) UpdateAccountSeal(ctx context.Context, arg UpdateAccountSealPa
 	return result.RowsAffected(), nil
 }
 
-const upsertRotationFanout = `-- name: UpsertRotationFanout :exec
-INSERT INTO rotation_fanout (account_id, contact_fpr, new_fpr, status, attempts, last_error, updated_at)
+const upsertMoveFanout = `-- name: UpsertMoveFanout :exec
+INSERT INTO move_fanout (account_id, contact_fpr, leaf_kid, status, attempts, last_error, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (account_id, contact_fpr) DO UPDATE SET
-  new_fpr = excluded.new_fpr, status = excluded.status, attempts = excluded.attempts,
+  leaf_kid = excluded.leaf_kid, status = excluded.status, attempts = excluded.attempts,
   last_error = excluded.last_error, updated_at = excluded.updated_at
 `
 
-type UpsertRotationFanoutParams struct {
+type UpsertMoveFanoutParams struct {
 	AccountID  string
 	ContactFpr string
-	NewFpr     string
+	LeafKid    string
 	Status     string
 	Attempts   int64
 	LastError  string
 	UpdatedAt  int64
 }
 
-func (q *Queries) UpsertRotationFanout(ctx context.Context, arg UpsertRotationFanoutParams) error {
-	_, err := q.db.Exec(ctx, upsertRotationFanout,
+func (q *Queries) UpsertMoveFanout(ctx context.Context, arg UpsertMoveFanoutParams) error {
+	_, err := q.db.Exec(ctx, upsertMoveFanout,
 		arg.AccountID,
 		arg.ContactFpr,
-		arg.NewFpr,
+		arg.LeafKid,
 		arg.Status,
 		arg.Attempts,
 		arg.LastError,

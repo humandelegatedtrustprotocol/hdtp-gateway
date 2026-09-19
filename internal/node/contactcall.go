@@ -31,7 +31,7 @@ func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outb
 	if err != nil {
 		return nil, outbound.Peer{}, fmt.Errorf("that contact has no endpoint on file")
 	}
-	client, err := n.clientForContact(ctx, accountID, c)
+	client, err := n.OutboundClient(accountID)
 	if err != nil {
 		return nil, outbound.Peer{}, err
 	}

@@ -108,13 +108,11 @@ func (a *Agent) LeafKid() string { return a.Keypair.Fingerprint }
 type Target struct {
 	// Endpoint is the node's MCP URL, e.g. https://host:8443/a/alice/mcp
 	Endpoint string
-	// Fingerprint is the node's identity, pinned: the fingerprint of its ROOT.
-	Fingerprint string
 	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
 	Seal string
-	// Root and Leaf are the node's identity: the root its chain must validate to, and the leaf
-	// it presents — whose key is the one a call is sealed to. Without them nothing can be
-	// validated and nothing sealed, and the client refuses rather than guessing.
+	// Root and Leaf are the node's identity: the fingerprint of the root its chain must validate
+	// to, and the leaf it presents — whose key is the one a call is sealed to. Without them
+	// nothing can be validated and nothing sealed, and the client refuses rather than guessing.
 	Root string
 	Leaf []byte
 }
@@ -126,7 +124,7 @@ type Target struct {
 // module is compiled by no gate of the node's, so it went on not compiling for the rest of that
 // day, until the pre-push hook — the only thing that builds it — refused the push.
 func (t Target) peer() outbound.Peer {
-	return outbound.Peer{Endpoint: t.Endpoint, Fingerprint: t.Fingerprint, Seal: t.Seal, Root: t.Root, Leaf: t.Leaf}
+	return outbound.Peer{Endpoint: t.Endpoint, Seal: t.Seal, Root: t.Root, Leaf: t.Leaf}
 }
 
 // Call invokes one tool on the target and returns the decoded result content.

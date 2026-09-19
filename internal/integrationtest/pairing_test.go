@@ -233,7 +233,7 @@ func (n *pactNode) card() (string, error) {
 // presents, and the address its leaf names.
 func (n *pactNode) asPeer(seal string) outbound.Peer {
 	return outbound.Peer{
-		Endpoint: n.endpoint, Fingerprint: n.rootFpr, Root: n.rootFpr,
+		Endpoint: n.endpoint, Root: n.rootFpr,
 		Leaf: n.leafDER, Seal: seal,
 	}
 }

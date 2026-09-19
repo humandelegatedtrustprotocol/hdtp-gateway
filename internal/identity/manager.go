@@ -13,13 +13,13 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-// signBytes signs with the pinned encodings (PACT §13.1).
-// SignBytes signs a message with an identity key, in the encoding PACT §2 pins
-// per algorithm: ECDSA over SHA-256 as ASN.1 DER, Ed25519 per RFC 8032. It is
-// the counterpart of VerifyBytes, and what produces the old-key endorsement a
-// peer checks in `update_contact`.
-func SignBytes(kp *Keypair, msg []byte) ([]byte, error) { return signBytes(kp, msg) }
-
+// signBytes signs with the encodings PACT §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1
+// DER, Ed25519 per RFC 8032. It is the counterpart of VerifyBytes.
+//
+// It had an exported twin, `SignBytes`, "what produces the old-key endorsement a peer checks in
+// `update_contact`" — 1.x key rotation, where a successor key had to be signed by its predecessor.
+// Nothing endorses a key now; two tests were its last callers, and they sign with the library, as
+// the peer they are playing would.
 func signBytes(kp *Keypair, msg []byte) ([]byte, error) {
 	switch k := kp.Signer.(type) {
 	case *ecdsa.PrivateKey:

@@ -186,6 +186,16 @@ type Message struct {
 	NextAttemptAt int64
 }
 
+type MoveFanout struct {
+	AccountID  string
+	ContactFpr string
+	LeafKid    string
+	Status     string
+	Attempts   int64
+	LastError  string
+	UpdatedAt  int64
+}
+
 type Owner struct {
 	ID          string
 	DisplayName string
@@ -214,16 +224,6 @@ type PendingRequest struct {
 	CreatedAt  int64
 	ExpiresAt  int64
 	AnsweredAt pgtype.Int8
-}
-
-type RotationFanout struct {
-	AccountID  string
-	ContactFpr string
-	NewFpr     string
-	Status     string
-	Attempts   int64
-	LastError  string
-	UpdatedAt  int64
 }
 
 type Session struct {

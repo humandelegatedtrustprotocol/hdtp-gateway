@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -425,6 +426,57 @@ func Run(t *testing.T, newStore Factory) {
 		}
 		if got, err := s.GetAccountBySlug(ctx, "whole"); err != nil || got.ID != id {
 			t.Fatalf("a committed import is not there: %v", err)
+		}
+	})
+
+	// A move campaign's progress (PACT §5.3, §9) is what "re-run to resume" reads: one row per
+	// contact, replaced as the walk retries, matched on the leaf being announced. No case here
+	// touched the table until it was renamed (0036), so on Postgres nothing had ever run either
+	// statement — the campaign's tests use SQLite, and a migration that runs proves only that.
+	t.Run("MoveFanoutIsOneRowPerContactAndResumable", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		mine, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "mover", DisplayName: "Mover", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "bystander", DisplayName: "Bystander", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		put := func(f store.MoveFanout) {
+			t.Helper()
+			if err := s.UpsertMoveFanout(ctx, f); err != nil {
+				t.Fatalf("recording %+v: %v", f, err)
+			}
+		}
+		put(store.MoveFanout{AccountID: mine.ID, ContactFpr: "sha256:b", LeafKid: "sha256:leaf1", Status: "pending", Attempts: 1, LastError: "unreachable", UpdatedAt: 10})
+		put(store.MoveFanout{AccountID: mine.ID, ContactFpr: "sha256:a", LeafKid: "sha256:leaf1", Status: "done", Attempts: 1, UpdatedAt: 11})
+		put(store.MoveFanout{AccountID: other.ID, ContactFpr: "sha256:b", LeafKid: "sha256:leafX", Status: "pending", Attempts: 4, UpdatedAt: 12})
+		// The retry reaches them: the same contact is the same row, replaced whole.
+		put(store.MoveFanout{AccountID: mine.ID, ContactFpr: "sha256:b", LeafKid: "sha256:leaf1", Status: "done", Attempts: 2, UpdatedAt: 20})
+
+		rows, err := s.ListMoveFanout(ctx, mine.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []store.MoveFanout{
+			{AccountID: mine.ID, ContactFpr: "sha256:a", LeafKid: "sha256:leaf1", Status: "done", Attempts: 1, UpdatedAt: 11},
+			{AccountID: mine.ID, ContactFpr: "sha256:b", LeafKid: "sha256:leaf1", Status: "done", Attempts: 2, UpdatedAt: 20},
+		}
+		if !reflect.DeepEqual(rows, want) {
+			t.Fatalf("one account's progress, by contact, each contact once:\n got  %+v\n want %+v", rows, want)
+		}
+		// A second move is a second campaign: the row now names the newer leaf, which is what
+		// the walk compares before it decides a contact has already been told.
+		put(store.MoveFanout{AccountID: mine.ID, ContactFpr: "sha256:a", LeafKid: "sha256:leaf2", Status: "pending", Attempts: 1, UpdatedAt: 30})
+		rows, _ = s.ListMoveFanout(ctx, mine.ID)
+		if len(rows) != 2 || rows[0].LeafKid != "sha256:leaf2" || rows[0].Status != "pending" {
+			t.Fatalf("a newer campaign must replace the contact's row: %+v", rows)
+		}
+		// And another account's progress is its own, however alike the contact looks.
+		if theirs, _ := s.ListMoveFanout(ctx, other.ID); len(theirs) != 1 || theirs[0].Attempts != 4 {
+			t.Fatalf("another account's progress was touched: %+v", theirs)
 		}
 	})
 

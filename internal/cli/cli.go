@@ -329,7 +329,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// was already installed: so a single dead host timed out the CLI on a
 		// success, and the obvious retry answered "no certificate request is
 		// pending". The install is the durable part and it answers now; the walks
-		// are durable too (`rotation_fanout`), so `account announce` reports and
+		// are durable too (`move_fanout`), so `account announce` reports and
 		// resumes them.
 		//
 		// Whether it moved is the install's to say (identity.InstallResult.Moved). This worked it
@@ -802,7 +802,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&name, "name", "", "display name")
 	fs.StringVar(&algo, "algo", "p256", "key algorithm: p256|ed25519")
 	fs.StringVar(&purpose, "purpose", "", "csr: signup|renew|move (default: signup before the first leaf, renew after)")
-	fs.StringVar(&endpoint, "endpoint", "", "csr, create -protocol 2: the https URL the leaf names (default: the node's public URL for the slug)")
+	fs.StringVar(&endpoint, "endpoint", "", "csr: the https URL the leaf names (default: the node's public URL for the slug)")
 	fs.StringVar(&chainPath, "chain", "", "install-leaf: file holding the wallet's answer, two PEM CERTIFICATE blocks, leaf then root")
 	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
 	fs.StringVar(&decision, "decision", "", "address: approve|reject; omitted lists what is pending")

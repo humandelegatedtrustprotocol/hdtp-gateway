@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
@@ -23,8 +22,7 @@ import (
 func offerFor(t testing.TB, p *testPeer, fn string) inviteOffer {
 	t.Helper()
 	card := p.Card(fn)
-	kp := &identity.Keypair{Signer: p.KP.Signer, Fingerprint: p.Host.Kid}
-	sig, err := identity.SignBytes(kp, []byte(card))
+	sig, err := pactidentity.SignDetached(p.Host.Key, []byte(card))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +144,7 @@ func TestVerifyOfferRefusals(t *testing.T) {
 			"a signature over something else",
 			"the card and the key must be proven to belong together",
 			func(o *inviteOffer) {
-				sig, err := identity.SignBytes(&identity.Keypair{Signer: other.KP.Signer}, []byte(p.Card("Alina Rao")))
+				sig, err := pactidentity.SignDetached(other.Host.Key, []byte(p.Card("Alina Rao")))
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -20,7 +20,11 @@ import (
 // What the migration has to get right is the rows, not the column. A store that lived through 1.x
 // can hold progress for a rotation nobody will finish, and once `kind` is gone nothing could tell
 // such a row from a move's — so it goes first. The fixture stops at version 34 rather than
-// building the table by hand, so it cannot go stale when 0036 arrives.
+// building the table by hand, so it could not go stale when 0036 arrived.
+//
+// And 0036 did arrive: it renames the table to `move_fanout` and `new_fpr` to `leaf_kid`, under
+// the rows. The fixture writes them by the names version 34 had, the store reads them back by
+// the names it has now, and the move's progress has to come through both migrations whole.
 func TestDroppingTheFanoutKindKeepsOnlyAMovesProgress(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "lived-through-1x.db")
@@ -63,18 +67,18 @@ func TestDroppingTheFanoutKindKeepsOnlyAMovesProgress(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrating a store that lived through 1.x: %v", err)
 	}
-	rows, err := st.ListRotationFanout(ctx, "acct")
+	rows, err := st.ListMoveFanout(ctx, "acct")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ContactFpr != "sha256:moved-to" || rows[0].NewFpr != "sha256:leaf2" || rows[0].Status != "done" {
+	if len(rows) != 1 || rows[0].ContactFpr != "sha256:moved-to" || rows[0].LeafKid != "sha256:leaf2" || rows[0].Status != "done" {
 		t.Fatalf("only the move's progress may survive, whole: %+v", rows)
 	}
 	// And the walk still records: the upsert no longer names a column that is not there.
-	if err := st.UpsertRotationFanout(ctx, store.RotationFanout{AccountID: "acct", ContactFpr: "sha256:next", NewFpr: "sha256:leaf2", Status: "pending", Attempts: 1}); err != nil {
+	if err := st.UpsertMoveFanout(ctx, store.MoveFanout{AccountID: "acct", ContactFpr: "sha256:next", LeafKid: "sha256:leaf2", Status: "pending", Attempts: 1}); err != nil {
 		t.Fatalf("recording progress after the migration: %v", err)
 	}
-	if rows, _ := st.ListRotationFanout(ctx, "acct"); len(rows) != 2 {
+	if rows, _ := st.ListMoveFanout(ctx, "acct"); len(rows) != 2 {
 		t.Fatalf("progress was not recorded: %+v", rows)
 	}
 }

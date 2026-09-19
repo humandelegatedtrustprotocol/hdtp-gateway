@@ -187,8 +187,8 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := peer.Target{
-		Endpoint:    "https://127.0.0.1:" + publicPort + "/a/alice/mcp",
-		Fingerprint: nodeFpr,
+		Endpoint: "https://127.0.0.1:" + publicPort + "/a/alice/mcp",
+		Root:     nodeFpr,
 	}
 	names, err := bob.ListTools(ctx, target)
 	if err != nil {
