@@ -350,7 +350,7 @@ func TestStopReleasesThePort(t *testing.T) {
 	// supply if it is the first, and that the identities survive — with the way through — if it is
 	// the second. It used to say only "no account could be served", which under 2.0 reads as a
 	// loss that has not happened: the identity is a root in a wallet.
-	for _, want := range []string{"PACT_MASTER_KEY", "-data-only", "roots in wallets"} {
+	for _, want := range []string{"PACT_MASTER_KEY", "pact-gateway export", "pact-gateway import", "roots in wallets"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal must name both meanings and the way through; missing %q in: %v", want, err)
 		}

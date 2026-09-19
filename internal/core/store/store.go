@@ -342,6 +342,12 @@ type Store interface {
 	ListOwners(ctx context.Context) ([]Owner, error)
 	DeleteOwner(ctx context.Context, id string) error
 
+	// Atomically runs fn against a Store whose every write is ONE transaction: all of it lands,
+	// or — if fn returns an error — none of it does. It exists for the importer, where half an
+	// identity is worse than none: a person's contacts without their conversations, under a
+	// name the node would then refuse to import again. fn must use the Store it is given.
+	Atomically(ctx context.Context, fn func(tx Store) error) error
+
 	CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error)
 	// SetAccountKey binds the account's first key once: it refuses to overwrite an
 	// existing fingerprint. A leaf install moves it, through SetAccountLeafKey.
@@ -414,11 +420,6 @@ type Store interface {
 	// leaves an existing one alone: the root of a pin cannot change (PACT sec. 14.3).
 	SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error
 	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
-	// StripKeys removes every sealed private key from this store and leaves the leaf ledger's
-	// rows in place as former leaves. It is what makes a restore data-only (PACT sec. 9): call
-	// it on a restored store AFTER Migrate, so it meets the current schema and nothing about
-	// the archive's own schema is ever read. Idempotent.
-	StripKeys(ctx context.Context) error
 	ClearChainSentKids(ctx context.Context, accountID string) error
 
 	InsertThread(ctx context.Context, t Thread) error
@@ -460,6 +461,10 @@ type Store interface {
 	MarkThreadRead(ctx context.Context, accountID, threadID string) error
 
 	InsertContact(ctx context.Context, c Contact) (Contact, error)
+	// ImportContact writes a contact that arrived in an export (SPEC §3.10): every column an
+	// export carries, and none it does not — no invite, and no record of which of this host's
+	// leaves the contact has seen, because this host has not been issued one yet.
+	ImportContact(ctx context.Context, c Contact) error
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
 	UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error

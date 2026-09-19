@@ -63,6 +63,58 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 	return i, err
 }
 
+const importContact = `-- name: ImportContact :exec
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type ImportContactParams struct {
+	ID               string
+	AccountID        string
+	Fingerprint      string
+	Spki             []byte
+	Status           string
+	Preset           string
+	Permissions      string
+	TheirPermissions string
+	TrustFlag        string
+	DisplayName      string
+	Petname          string
+	Card             string
+	CreatedAt        int64
+	PinnedAt         sql.NullInt64
+	Endpoint         string
+	Leaf             []byte
+	RootCert         []byte
+}
+
+// A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
+// statement, and none it does not. invite_id stays empty because invites do not travel, and
+// chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
+// seen - and this host has not been issued one yet.
+func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) error {
+	_, err := q.db.ExecContext(ctx, importContact,
+		arg.ID,
+		arg.AccountID,
+		arg.Fingerprint,
+		arg.Spki,
+		arg.Status,
+		arg.Preset,
+		arg.Permissions,
+		arg.TheirPermissions,
+		arg.TrustFlag,
+		arg.DisplayName,
+		arg.Petname,
+		arg.Card,
+		arg.CreatedAt,
+		arg.PinnedAt,
+		arg.Endpoint,
+		arg.Leaf,
+		arg.RootCert,
+	)
+	return err
+}
+
 const insertContact = `-- name: InsertContact :exec
 INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

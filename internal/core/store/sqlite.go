@@ -21,6 +21,8 @@ import (
 type SQLite struct {
 	db *sql.DB
 	q  *sqlitedb.Queries
+	// inTx marks the copy Atomically hands to its callback: its `q` is a transaction already.
+	inTx bool
 }
 
 var _ Store = (*SQLite)(nil)
@@ -34,30 +36,33 @@ func OpenSQLite(path string) (*SQLite, error) {
 	return &SQLite{db: db, q: sqlitedb.New(db)}, nil
 }
 
+// Atomically runs fn on a copy of this store whose queries all go through one transaction. Every
+// method of the store reaches the database through `s.q`, so re-pointing `q` at the transaction is
+// the whole of it — no method has a second, transactional spelling to keep in step.
+func (s *SQLite) Atomically(ctx context.Context, fn func(tx Store) error) error {
+	if s.inTx {
+		return fn(s)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin: %w", err)
+	}
+	if err := fn(&SQLite{db: s.db, q: s.q.WithTx(tx), inTx: true}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit: %w", err)
+	}
+	return nil
+}
+
 // ErrNotFound is what a store method returns when the row asked for is not there, on either
 // engine. It IS `sql.ErrNoRows` — the same value, so every `errors.Is(err, sql.ErrNoRows)` written
 // before this name existed still holds — and it exists so that a caller outside this package can
 // ask the question without importing `database/sql`, which `TestNoHandWrittenSQLOutsideTheStore`
 // forbids everywhere else: a package that can name the driver's types can write a statement.
 var ErrNotFound = sql.ErrNoRows
-
-// Snapshot writes a consistent, compact copy of this database to dst, which must not exist.
-//
-// It is the ONE statement in this module that is not a generated query, and it is here rather
-// than in whoever wants a copy for that reason. The rule is that database access goes through
-// sqlc; `VACUUM INTO ?` was tried as a named query on 2026-09-19 and sqlc's SQLite grammar
-// rejects it — it knows VACUUM and not the INTO form. A storage-engine maintenance command is
-// not data access, the engine's own file is the right owner for it, and the guard that enforces
-// the rule names this function as its single exception (TestNoHandWrittenSQLOutsideTheStore).
-//
-// VACUUM INTO rebuilds: the copy holds live rows only, with no free pages. That matters to a
-// caller that has just deleted something from the source and needs it gone from the copy too.
-func (s *SQLite) Snapshot(ctx context.Context, dst string) error {
-	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
-		return fmt.Errorf("store: snapshot: %w", err)
-	}
-	return nil
-}
 
 func (s *SQLite) Migrate(ctx context.Context) error {
 	p, err := s.provider()

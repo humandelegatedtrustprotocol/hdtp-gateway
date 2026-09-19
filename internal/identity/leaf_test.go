@@ -429,17 +429,16 @@ func TestSignupMintsAKeyWhenTheHostHasNone(t *testing.T) {
 	}
 }
 
-// Whether an install MOVED the identity, in the cases where no current leaf says where it was. A
-// bundle's ledger arrives as `former` rows, and so does a leaf that ran out; the last of them is
-// what this host knows about where the identity answered.
+// Whether an install MOVED the identity when no current leaf says where it was, because the last
+// one ran out: the ledger's last row is what this host knows about where the identity answered.
 func TestAnInstallOverAFormerLedgerKnowsWhetherItMoved(t *testing.T) {
 	const there = "https://agent.alina.example/a/alina/mcp"
 	for _, c := range []struct {
 		name, purpose, endpoint string
 		moved                   bool
 	}{
-		{"the same address again — a restore, or a renewal after the leaf ran out", PurposeRenew, there, false},
-		{"another address — a bundle imported on a new host", PurposeMove, "https://agent.newhost.example/a/alina/mcp", true},
+		{"the same address again — a renewal after the leaf ran out", PurposeRenew, there, false},
+		{"another address — the node's address changed while it held no leaf", PurposeMove, "https://agent.newhost.example/a/alina/mcp", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m, a := leafEnv(t)
@@ -453,8 +452,9 @@ func TestAnInstallOverAFormerLedgerKnowsWhetherItMoved(t *testing.T) {
 			if first, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now); err != nil || first.Moved {
 				t.Fatalf("a signup is not a move: %+v %v", first, err)
 			}
-			// What a bundle does to the ledger, and what expiry does: every live row becomes former.
-			if err := m.Store.StripKeys(ctx); err != nil {
+			// What expiry does to the ledger: the live row becomes former and both copies of the
+			// key go. (An import leaves no ledger at all, and that case is the test above.)
+			if _, err := m.RetireExpiredLeafKeys(ctx, a.ID, now.Add(400*24*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 			later := now.Add(time.Hour)

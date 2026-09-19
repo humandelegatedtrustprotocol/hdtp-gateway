@@ -257,8 +257,8 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		return nil, fmt.Errorf("node: no account could be served: %s\n"+
 			"if this is the wrong master key, supply the right one (PACT_MASTER_KEY or keyring.key) and nothing is lost.\n"+
 			"if the master key is gone for good, the identities are not — they are roots in wallets. Offline: "+
-			"`backup create -without-master-key -out <file>`, then `backup restore -from <file> -data-only -yes`; "+
-			"the accounts come back awaiting a leaf, and `serve` names the command for each",
+			"`pact-gateway export -out <file>`, then `pact-gateway import -from <file>` into a fresh data directory; "+
+			"the identities arrive with their contacts and chats, awaiting a leaf, and `serve` names the command for each",
 			strings.Join(unavailable, "; "))
 	}
 

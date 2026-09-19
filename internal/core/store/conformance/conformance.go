@@ -5,6 +5,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -385,54 +386,80 @@ func Run(t *testing.T, newStore Factory) {
 
 	// PACT 2.0 (migration 0027): the root beside the account, the leaf ledger,
 	// 2.0 pins that move without the root moving, and the §5.3 side tables.
-	// A data-only restore refuses every key in another host's archive (PACT sec. 9). StripKeys
-	// is what does it, through two static queries against the CURRENT schema — it is called
-	// after Migrate, so nothing about an archive's own schema is ever read or spliced into SQL.
-	t.Run("StripKeysRemovesEveryKeyAndKeepsTheLedger", func(t *testing.T) {
+	// An import (SPEC sec. 3.10) is one transaction: an identity, its contacts and its
+	// conversations all land, or none of them does. Half an identity is worse than none - a
+	// person's contacts without their conversations, under a name the node would then refuse to
+	// import again. Both engines have to mean the same thing by it.
+	t.Run("AtomicallyLandsEverythingOrNothing", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
-		a, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "strip", DisplayName: "Strip", Algo: "ed25519"})
+		boom := errors.New("the file ended here")
+		err := s.Atomically(ctx, func(tx store.Store) error {
+			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: "half", DisplayName: "Half", Algo: "p256"})
+			if err != nil {
+				return err
+			}
+			if err := tx.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:c1", Status: "active", TrustFlag: "messages_only", CreatedAt: 5}); err != nil {
+				return err
+			}
+			// Visible INSIDE the transaction, or the importer could not check for a collision.
+			if list, _ := tx.ListContacts(ctx, a.ID); len(list) != 1 {
+				t.Fatalf("a write is not visible to the transaction that made it: %d contacts", len(list))
+			}
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("the callback's error must come back as it is: %v", err)
+		}
+		if _, err := s.GetAccountBySlug(ctx, "half"); err == nil {
+			t.Fatal("a rolled-back import left its account behind")
+		}
+
+		var id string
+		if err := s.Atomically(ctx, func(tx store.Store) error {
+			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: "whole", DisplayName: "Whole", Algo: "p256"})
+			id = a.ID
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.GetAccountBySlug(ctx, "whole"); err != nil || got.ID != id {
+			t.Fatalf("a committed import is not there: %v", err)
+		}
+	})
+
+	// A contact arriving in an export carries every column an export carries - the owner's name
+	// for them, the trust flag, what they granted us - and none it does not.
+	t.Run("ImportContactWritesWhatAnExportCarries", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAccountKey(ctx, a.ID, "sha256:k", []byte("account-key")); err != nil {
+		in := store.Contact{
+			AccountID: a.ID, Fingerprint: "sha256:root", SPKI: []byte("spki"), Status: "blocked", Preset: "close",
+			Permissions: []string{"message.send"}, TheirPermissions: []string{"calendar.read"}, TrustFlag: "may_instruct",
+			DisplayName: "Bharat", Petname: "B from the conference", Card: "BEGIN:VCARD", CreatedAt: 11, PinnedAt: 12,
+			Endpoint: "https://b.example/mcp", Leaf: []byte("leaf"), RootCert: []byte("root"),
+		}
+		if err := s.ImportContact(ctx, in); err != nil {
 			t.Fatal(err)
 		}
-		for _, l := range []store.Leaf{
-			{AccountID: a.ID, Kid: "sha256:cur", Leaf: []byte("l1"), KeySealed: []byte("k1"), NotBefore: 2, NotAfter: 20, State: "current", Endpoint: "https://a.example/mcp"},
-			{AccountID: a.ID, Kid: "sha256:sup", Leaf: []byte("l0"), KeySealed: []byte("k0"), NotBefore: 1, NotAfter: 10, State: "superseded", Endpoint: "https://a.example/mcp"},
-			{AccountID: a.ID, Kid: "sha256:pen", KeySealed: []byte("k2"), State: "pending", Endpoint: "https://a.example/mcp"},
-		} {
-			if err := s.InsertLeaf(ctx, l); err != nil {
-				t.Fatal(err)
-			}
+		got, err := s.GetContact(ctx, a.ID, "sha256:root")
+		if err != nil {
+			t.Fatal(err)
 		}
-		strip := func() {
-			t.Helper()
-			if err := s.StripKeys(ctx); err != nil {
-				t.Fatal(err)
-			}
-			if k, _ := s.GetAccountSealedKey(ctx, a.ID); len(k) != 0 {
-				t.Fatalf("the account key travelled: %q", k)
-			}
-			leaves, err := s.ListLeaves(ctx, a.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(leaves) != 3 {
-				t.Fatalf("the ledger lost rows: %d of 3 — a former leaf is what lets a stale kid be answered certificate_renewed", len(leaves))
-			}
-			for _, l := range leaves {
-				if len(l.KeySealed) != 0 {
-					t.Fatalf("leaf %s kept its key", l.Kid)
-				}
-				if l.State != "former" {
-					t.Fatalf("leaf %s is %q, want former: a host with no key for it cannot be serving it", l.Kid, l.State)
-				}
-			}
+		if got.Status != "blocked" || got.Petname != in.Petname || got.TrustFlag != "may_instruct" ||
+			len(got.TheirPermissions) != 1 || got.TheirPermissions[0] != "calendar.read" ||
+			len(got.Permissions) != 1 || got.Preset != "close" || got.PinnedAt != 12 || got.CreatedAt != 11 ||
+			got.Endpoint != in.Endpoint || string(got.Leaf) != "leaf" || string(got.SPKI) != "spki" || string(got.RootCert) != "root" {
+			t.Fatalf("an imported contact lost something on the way in: %+v", got)
 		}
-		strip()
-		strip() // and again: a restore that failed between the two statements is finished by re-running it
+		// Host state does not travel: no invite, and nothing about which of OUR leaves they saw.
+		if got.InviteID != "" || got.ChainSentKid != "" {
+			t.Fatalf("an imported contact arrived with the old host's state: invite=%q chain_sent_kid=%q", got.InviteID, got.ChainSentKid)
+		}
 	})
 
 	t.Run("Pact20StateRoundTrips", func(t *testing.T) {

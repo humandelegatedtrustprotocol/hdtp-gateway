@@ -22,9 +22,31 @@ import (
 type Postgres struct {
 	pool *pgxpool.Pool
 	q    *pgdb.Queries
+	// inTx marks the copy Atomically hands to its callback: its `q` is a transaction already.
+	inTx bool
 }
 
 var _ Store = (*Postgres)(nil)
+
+// Atomically runs fn on a copy of this store whose queries all go through one transaction (see
+// SQLite.Atomically: every method reaches the database through `s.q`).
+func (s *Postgres) Atomically(ctx context.Context, fn func(tx Store) error) error {
+	if s.inTx {
+		return fn(s)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin: %w", err)
+	}
+	if err := fn(&Postgres{pool: s.pool, q: s.q.WithTx(tx), inTx: true}); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit: %w", err)
+	}
+	return nil
+}
 
 func OpenPostgres(ctx context.Context, dsn string) (*Postgres, error) {
 	pool, err := pgxpool.New(ctx, dsn)

@@ -34,3 +34,11 @@ UPDATE contacts SET petname = $1 WHERE account_id = $2 AND fingerprint = $3;
 -- name: SetContactAccepted :execrows
 UPDATE contacts SET status = 'active', card = $1, their_permissions = $2, pinned_at = $3
 WHERE account_id = $4 AND fingerprint = $5;
+
+-- name: ImportContact :exec
+-- A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
+-- statement, and none it does not. invite_id stays empty because invites do not travel, and
+-- chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
+-- seen - and this host has not been issued one yet.
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);

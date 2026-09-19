@@ -46,6 +46,20 @@ func (s *SQLite) InsertContact(ctx context.Context, c Contact) (Contact, error) 
 	return s.GetContact(ctx, c.AccountID, c.Fingerprint)
 }
 
+func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
+	if c.ID == "" {
+		c.ID = newID()
+	}
+	return s.q.ImportContact(ctx, sqlitedb.ImportContactParams{
+		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
+		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
+		TheirPermissions: permsToJSON(c.TheirPermissions), TrustFlag: c.TrustFlag,
+		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
+		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
+		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
+	})
+}
+
 func contactFromRow(r sqlitedb.Contact) Contact {
 	return Contact{
 		ID: r.ID, AccountID: r.AccountID, Fingerprint: r.Fingerprint, SPKI: r.Spki,

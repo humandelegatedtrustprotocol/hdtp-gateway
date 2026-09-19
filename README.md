@@ -191,29 +191,29 @@ nobody to ask. Register a second passkey on another device before you need one.
 > not a valid WebAuthn relying-party ID, so that is the name your passkey is
 > bound to.
 
-### Back up the node
+### Take your data with you
 
-Your identity is the **root** in your wallet. It is never on this node, so nothing here *is* you
-and no backup could lose your name. What the node holds is its data — accounts, contacts, threads,
-media, settings — and that is what a backup carries:
+Your identity is the **root** in your wallet. It is never on this node, so nothing here *is* you.
+What you can take away is what is yours: your **contacts** and your **chats**.
 
 ```
-pact-gateway backup create  -out pact-backup.tar.gz
-pact-gateway backup restore -from pact-backup.tar.gz -same-node
+pact-gateway export -out alina.pact-export
+pact-gateway import -from alina.pact-export
 ```
 
-Both are offline (stop the node first) and both need host shell access.
+Both are offline (stop the node first) and both need host shell access. They work on SQLite and on
+Postgres alike, because the file is written through the node's own store rather than copied out of
+a database.
 
-**No archive carries a leaf key.** A leaf is your root trusting *this host*, for one address, until
-one date. A copy of its key in a file would let whoever held the file speak as this host, so
-`backup create` writes every row and no private key, and rebuilds the database file so the key is
-not left behind in its free pages either. A restored node — the same machine or a new one — comes
-back with its accounts named and not yet served; `serve` lists each one with the command that asks
-the wallet for a fresh leaf. Your contacts do nothing: they pinned your root, and the new leaf
-reaches them the first time you call.
+**An export carries contacts and chats, and nothing else.** No key of any kind — not a leaf's, not
+the node's master key — and no settings, integration credentials, tokens, passkeys, invites or
+audit history: those belong to the host that made them. An import refuses a file that holds
+anything more, down to a single unknown field.
 
-There is no `backup identity`. It exported one account's key to carry to another node, which is
-the one thing a leaf key must never do. A node that moves asks the wallet for a leaf of its own.
+So every import ends the same way, whether it is a new machine, a new host, or this node after it
+lost its master key: the identity is there by name with its contacts and conversations, it is
+**not served**, and `serve` names the certificate request to make. Your wallet issues the new host
+a leaf of its own, and that is what tells your contacts where you are now.
 
 ### Be reachable
 
@@ -298,7 +298,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 |---|---|
 | [`SPEC.md`](SPEC.md) | Normative behaviour — the source of truth |
 | [`PLAN.md`](PLAN.md) | The build record: every task, every defect, how each was proved |
-| [`docs/operations.md`](docs/operations.md) | Running a node: reachability, backups, recovery |
+| [`docs/operations.md`](docs/operations.md) | Running a node: reachability, export and import, recovery |
 | [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, assets, trust boundaries, and what is deliberately out of scope |
 | [`docs/crypto-review-brief.md`](docs/crypto-review-brief.md) | The envelope construction, exactly, and the questions we want a reviewer to answer |
 | [`docs/conformance.md`](docs/conformance.md) | The conformance checklist, each item citing its test |

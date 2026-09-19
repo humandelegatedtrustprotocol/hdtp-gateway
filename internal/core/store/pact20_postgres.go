@@ -256,14 +256,3 @@ func (s *Postgres) SetContactRootCert(ctx context.Context, accountID, root strin
 	}
 	return nil
 }
-
-// StripKeys removes every sealed private key from this store: the accounts' and the leaf
-// ledger's. The ledger rows stay, as former leaves (PACT sec. 14.4). Two statements and no
-// transaction, like the rest of this store; both are idempotent, so a restore that failed
-// between them is finished by running it again.
-func (s *Postgres) StripKeys(ctx context.Context) error {
-	if err := s.q.StripLeafKeys(ctx); err != nil {
-		return err
-	}
-	return s.q.StripAccountKeys(ctx)
-}
