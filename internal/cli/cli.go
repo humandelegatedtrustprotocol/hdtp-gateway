@@ -406,6 +406,32 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		}
 		return map[string]any{"Slug": acct.Slug, "Root": args["root"], "Endpoint": p.Endpoint, "Decision": args["decision"]}, nil
 	})
+	// account.host_policy is the owner's PACT §5.3 choice for one identity: what happens when a
+	// pinned contact turns up at a new address. `auto` follows a leaf the contact's own root
+	// signed; `ask` parks it until the owner decides (`account address`). The node has always read
+	// this setting and honoured it, and until 2026-09-19 NOTHING could set it: the store method
+	// was called from tests and from nowhere else, so `ask` was unreachable through the shipped
+	// binary and every test proving the `ask` flow proved something no owner could turn on.
+	admin.Handle("account.host_policy", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.host_policy needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		if args["policy"] == "" {
+			return map[string]any{"Slug": acct.Slug, "Policy": acct.AcceptNewHosts}, nil
+		}
+		if args["policy"] != "auto" && args["policy"] != "ask" {
+			return nil, fmt.Errorf("account.host_policy: policy is auto or ask, not %q", args["policy"])
+		}
+		if err := st.SetAccountHostPolicy(ctx, acct.ID, args["policy"]); err != nil {
+			return nil, err
+		}
+		auditFn("settings_accept_new_hosts", "account:"+acct.ID+" policy:"+args["policy"], "ok")
+		return map[string]any{"Slug": acct.Slug, "Policy": args["policy"]}, nil
+	})
 	admin.Handle("account.addresses", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
 			return nil, fmt.Errorf("account.addresses needs slug")
@@ -744,7 +770,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	var cfgPath, slug, name, algo, purpose, endpoint, chainPath, root, decision string
+	var cfgPath, slug, name, algo, purpose, endpoint, chainPath, root, decision, policy string
 	fs := commonFlags("account "+sub, &cfgPath, stderr)
 	fs.StringVar(&slug, "slug", "", "account slug (endpoint path segment)")
 	fs.StringVar(&name, "name", "", "display name")
@@ -754,6 +780,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&chainPath, "chain", "", "install-leaf: file holding the wallet's answer, two PEM CERTIFICATE blocks, leaf then root")
 	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
 	fs.StringVar(&decision, "decision", "", "address: approve|reject; omitted lists what is pending")
+	fs.StringVar(&policy, "policy", "", "address: auto|ask — what happens when a pinned contact turns up at a new address (PACT §5.3)")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
@@ -829,6 +856,15 @@ func account(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, out["Chain"])
 		return 0
 	case "address":
+		if policy != "" {
+			var out map[string]any
+			if err := core.AdminCall(sock, "account.host_policy", map[string]string{"slug": slug, "policy": policy}, &out); err != nil {
+				fmt.Fprintln(stderr, "account:", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "%v: a contact at a new address is now %v\n", out["Slug"], hostPolicyWords(fmt.Sprint(out["Policy"])))
+			return 0
+		}
 		if decision == "" {
 			var out []map[string]any
 			if err := core.AdminCall(sock, "account.addresses", map[string]string{"slug": slug}, &out); err != nil {
@@ -1301,4 +1337,12 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		fail = 1
 	}
 	return fail
+}
+
+// hostPolicyWords says what a §5.3 policy does, for the line the CLI prints back.
+func hostPolicyWords(policy string) string {
+	if policy == "ask" {
+		return "held until you decide (`account address -decision approve|reject`)"
+	}
+	return "followed automatically when their own root signed the new leaf"
 }
