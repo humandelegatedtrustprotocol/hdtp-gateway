@@ -816,7 +816,7 @@ speculation. `emit_prepared_queries` stays declined — measured at 2.2× per re
 radius across every query, and the protocol's own rate limits cap traffic three orders of
 magnitude below what the node already serves.
 
-*Measured, 2026-09-19.* Baseline `f611e75` (the commit before B1) against head, in a detached
+*Measured, 2026-09-19.* Baseline `6c58b46` (the commit before B1) against head, in a detached
 worktree; the three suites run interleaved — base, head, base, head — so drift in the machine hits
 both alike; 12 samples each, `benchstat`. Apple M-series, 12 threads.
 

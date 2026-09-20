@@ -1,0 +1,91 @@
+# The 88 commits of this repository that were renamed on 2026-09-21, when pact-gateway/public.test
+# (a 67 MB compiled test binary) was purged from history. Oldest first: old sha, new sha, date, subject.
+# The other 482 commits kept their names. See I4 in round2-2026-09-19-plan.md.
+9ce573a67911f47ee1664c3b75c0e497aa813aea 892f28670a309b81048fcb7f7903f6ded70b9e46 2026-09-18 The node had no benchmark, and the cost of a message grew with the identities it hosts
+218bc95254598e62f94ed0dd99aa848ae2e653f4 d550d20f08b8123ef4f7df7578ee0c769e132822 2026-09-18 The outbound mirror of the same hole, and three tests that were passing through it
+259b5a0e365ccc1331abbd23029eb75f6e07249c 93079f73ef52b3d0745d1790f6e2845e34a6e1d0 2026-09-18 The node's own specification described a protocol it stopped speaking
+c75819f2644cb774b2591f501ffedec002ce0390 6182d851f6963c4d1a35389c911eb32efc304a7f 2026-09-18 Every MUST in the protocol now names the thing that holds it
+fc09457d4afecad1028cdf4cd65ee15f48cc976e 1e9b0c4341b6d9971d70e291a7ec4b9d6bf293c7 2026-09-18 The hardening register, with what is proven live and what is proven by test
+48ee77ced9d7680096de0af63ea0d1cd4a5170ec 5da212c380d2813b6237024d604e0e3ef56d04b3 2026-09-18 The MUST map cited two tests that do not exist
+f6805ae645005de23b7fa75e62f05477e55d513c 38d74d3cdd1c0714f573b99ef09a24db3983b1b5 2026-09-18 Say which half of that guard is mechanical
+93feb6c1339b7310d152695977bf698c05f47301 ae5fe2ef17a73ec4bb1ccda5e89b99be4e3da00e 2026-09-19 The 45 MUSTs and the 270 parity cases become a document
+e3407fbeba3077035c352be470e1cba372ed0959 ded0bc3e4b841f28322581a9a56b5d6b9f2178a8 2026-09-19 Two open findings the confirmation work uncovered
+d44fbc1710b09b70b728bde175afc1e7f0b5016f dbed66342e7ac02f5821a0fc0e8bb39a84933950 2026-09-19 H17: the sync sweep can learn a renewal, and still cannot follow an address
+cafe2037c594169a268ba68ff3a0bfbeee43a44d 0ae023ad3b86e2eb464a4c8a3270eae09a96a2ea 2026-09-19 No proactive re-confirmation of pins
+f611e7594f5411b0a9882fc008fd1a33954082be 6c58b46ad20a80b2af679294b89c8c92f35012e3 2026-09-19 H19 was misdiagnosed: the shipped core was stale, not unreproducible
+945682c38856c60b32a0a599eab0c7581f08d385 4572eded7bdbd17aaae5f5f8c770a882b26015f8 2026-09-19 B1: the rotation columns go, and a restore strips keys through sqlc
+5f88cd442260ec8ca45a9a5ce260b36e2dfcf71c eace0fda22a06afce6a9fa6191875f22182b8041 2026-09-19 B2: accept_1x goes — a knob for a generation there is no peer of
+d062f8673f46c7ca52a7dfc6ca6cf78da857471d 23371e71a98e63d736f142a5a4f336b8907a77e9 2026-09-19 B3a: contacts.protocol goes, and the 1.x fallbacks it kept alive
+fbcb0abf6b7f2d5567939952d0e6e8b109cbf9cd d0714d9ddae22ebeb6241786d541dcb0bdcbc6e6 2026-09-19 B3b: accounts.protocol goes; the code asks whether an account has a root
+3f45c349f5a136948eb2062d8bf95c21c36c7a6f af108b710d248681233402000229e7fbac98664c 2026-09-19 B3c: the generation flag is gone, and a check it was guarding becomes unconditional
+d69928acfc3bc451ee830d33cb0424b815285e09 82993698605a2cb77a2a1653c218fa9beb444832 2026-09-19 B4 done: the cloud's v:1 header parser and its vectors are gone
+9f18a43346ac66f8cd3ba76ea36c761f7a33f504 adb2bf32efca922df71a0bb5067ecb542187db3d 2026-09-19 B9 (and B5): `spki` leaves the wire, and a redeemer stops refusing spec-exact invites
+ad35ba27766805076abcba6850cf0c77370214d0 873c672b37bde10b945e02221b60586b9295409a 2026-09-19 B7: a key that was never a leaf is replaced, not kept for a year
+ffb89d590a7acdac885e15ee12cec93c7fed0270 d59d618ab3181822f024f84ffef9fb77f3fbade7 2026-09-19 B8: a contact we requested was stored without its key, and three bugs behind that
+9fba69f539331be0e47a9f358ec77239830ad885 ffc16b8f200431f4f54d3034d81cb2715e64ba81 2026-09-19 E3: the node's gate compiles the battery that imports it
+7638ae962b27f887131ae98b54b4a1b1f399cfd6 171bb237e580bea660b5145cabe78b795617b2ff 2026-09-19 B6: an owner can choose what happens when a contact turns up at a new address
+e8a04632feb68cd5c445820f31305253424f8392 d246041f21f21decfbc462acc32e833a01887032 2026-09-19 B5b: the binary was embedding a stale portal with the 1.x rotation view in it
+c94614b677b812703329dbc2cf6e15ffaf9b3570 496685766c70cfe8a4eeab53f472fc3ad12df2c8 2026-09-19 B10: the operator docs still offered a deployment mode that does not exist
+15684077949a015217eb115e87a409fa48e42b5c d26b7f2fbb59d550fb3534791b55a764be94eea0 2026-09-19 B2c: the cloud's leave archive still restores here, and that is now a test
+b7050c7503878f2105e46a3b737e38109a7c5a6c 87847b8474772f3e88042476500192fcd4c6657d 2026-09-19 F1: a backup bundle never carries a leaf key, and there is no per-account key export
+e3fa4fee304f5de6c523ecf1c8b9cb355167a367 96a22b1d9889bb4722b8270433265f30fec8b844 2026-09-19 F1b: a lost master key was three dead ends, and a test of a "superseded chain" presented none
+0aa1657725c302c4c07b7c9c51ea46d585c2ba2c 77834afefebe3b3bb13ff99f1f52141f0f3bb00e 2026-09-19 F2: a leaf's key is destroyed when the leaf expires — the current one included
+83a3bac93d9edd0e92b4ddecfc36fac36ebdc2c2 1f193c9d630a6722e3018241bebca96630396296 2026-09-19 B13: the node still polled every contact every six hours
+40cdbca6846af5f9e920bbbb37ac71de39869cb2 9b6e9f621d289039ab9d31003c835a65c9db3809 2026-09-19 B11: the node still described key rotation — in its SPEC, on the wire, and to its owner
+a30e238f05aaf470aa23f617c4c049cb6182e450 fc16efbbefdc7303521bb3eec4e420b9ad6a300f 2026-09-19 B14: saving a new public_url no longer runs 1.x's endpoint announcement
+ccc634aaff52a31582ba11fb09f4d21daa27bd38 a19d19599a82b470844a66419624ce62fc0c9f28 2026-09-19 B12: rotation_fanout.kind held one value and nothing read it
+979a89bd02a1dde5b3c322be5624263eac0630bd 418146afd81e5d4ca06922bcefbd96eab5d5e1a5 2026-09-19 Part C: this session's own diffs, audited — eight questions and one nobody asked
+8e81bb971eb3c8ffd6147c1baf741ea71f079b71 172e5062681b25678122e83302764503a0528326 2026-09-19 B15: the cloud's update_contact schema no longer requires 1.x rotation arguments
+b52d0530b28b39cf1fd64519ae2da6578915e55c e8f124ff4783d255c5117bf91cfd460d0afdb07b 2026-09-19 D1: re-measured after Part B — account reads are 22.6% faster, a sealed call 3.5%
+4884f269a11391ce6f8cdbd80ec261ed079cdb6d f2a10796af58e3a3b1a16f4cb82666189f09bcd8 2026-09-19 E2: the sqlc-only rule is a build failure now, not something somebody was told
+79bfb00bc609554b648f48dcc9c9f3ef9e84e0ca e669dc39f661f3bfbc876380a0d12aec1477fbe9 2026-09-19 The H18 note kept the six-hour sweep, and said the node polls nobody
+214b884e1b3679eb311686431a6e1de414b5a0d1 228f7bef9db2ca4465ec2a0d462fee4aaec15ab3 2026-09-19 The scenario harness had not compiled since B3c, and only the pre-push hook builds it
+bccad45c5e82d092bfbdda62977011a9a9c81a8d d381e5e314ef1af34c3903933f1b8e706a714a4f 2026-09-19 Round 2: the plan of record
+d0267de1e229db5a1402edf5fef40de826dc169d 4cd5f1c478597b57f9025f2f401ac30f16c5922b 2026-09-19 R2a: an export is contacts and chats, and nothing else; `backup` is gone
+6f45c1f90b5392595c086ae10c5740a1c6664fd8 e3e578d3c96ab87dbc7467b4b3184f27c686dcae 2026-09-19 R2b, R2c: the cloud's export and the protocol's §9 agree with the node's
+5345e1286e914f5fa5b568f3275c50d75b6d1127 bd9da2cf12d9cbbc540b6127902ba241fee1b149 2026-09-19 R3: no contact sync of any kind; ONE contact refreshed when its owner asks
+72f7623198d11c0aad3ff1670cdebc5f8aad55da 9f27f3d5c76d81c15e32e3c55fc1b81837ea109a 2026-09-19 R4: what was left of 1.x around the move path
+e4e1c3b785197545463b3e222ab6c941236826bc 9cd113197a4621fb34fda89beb2d53cdbd7008d9 2026-09-19 R4b: the live harness runs on 2.x; it had not run at all
+fae40d4b19f77b7283dc68b9d4ffb38dc87e8ece 20719b2568aec035d517c699b4e122f733009a8e 2026-09-19 R5: the cloud's own 1.x is out; the plan carries what it found and the owner's commands
+df50134c37f53835b9ada769990d1b040a55914d a1c08893ece7096d70b8c93c198851470e6faa77 2026-09-19 R5: the cloud gitlink follows the portal test fix; the plan says which gate is the cloud's
+6b3ab99d10431b3e153cfe02732ac3fbdfb6f9ab 5ea1ea5aa4673e9cd5d9bc67084c0e89be62a9f1 2026-09-19 R6: no tracked file carries a PACT 1.x name, and a guard fails the build if one comes back
+21d681d55bfcd2540392f0fc04138de4a6948b37 24c3917d39c281a2550ce9e5a7f9ee304c599039 2026-09-19 R6: the explainer's republish is the owner's; this account cannot open the artifact
+33d63112714b6a86765a2b8e9548ff587f0753c0 bf7e41695faa699dc34dcde8055f3fc21bd45e52 2026-09-20 R7: the store indexed and measured at a million rows, and guarded on both engines
+7659409db06e3e6bb3fbb4f5ad027e915548a10a 2b330d98390dc4e24ce48c759a59c694871bd90e 2026-09-20 R7b: showing the audit trail reads a page, not the chain
+136cfef0b16e2107cbb325fe77672958c9ee002d 6963e438df78323592cb6fa9bd6cfed8d4206473 2026-09-20 R8: the move campaign survives a partition, and the wasm core can be built again by anybody
+f72905ada6c29034ca9ee9bfb6def01d881e1cc4 745ae8d42ee2132ef29692614dbb79bf53d8a031 2026-09-20 R8: the reproducer hands its files back, so it can clean up on a Linux host
+c5c6e83a2aa51f759d4c72c33846fcd8afa9d44c 24a8ce3b199846d17dad9d8dbcd1c979af8d6790 2026-09-20 R9: round 2 closes — every gate green, the owner's steps in one place, a goal for the next phase
+6c350127b2061178d3656ed77a5aabb22daccf8e 0279966e0ea6bd360c1e3e6b55d88691ab83503f 2026-09-20 The extension's dependencies go with it
+8388725671cb74e700e2d372e8747fa912e950c5 2aefdc45d89b421fb14dc6514876c7de2cb35a68 2026-09-20 The clearance guard's floor follows the repository, which just lost 2,224 files
+5011f9d843a431375d25ea304297f4998aa24b84 e9a41d18c6a5ad3dbde37e4d419c9b850beebb13 2026-09-20 The identity workflow takes a read-only deploy key, and the plan says what was done and what was refused
+a41e7e21e8a42217d466f88f4998afad8f724bc6 9435d541b3274c7905444e4846c5d4b27fe90ac9 2026-09-20 The plan records the staging deploy: what ran, in what order, and what it left to do
+e2d55aad69922d0b11e14858013a5398a760f929 bccbc4fcb5ad0aa0b5df6958dc85a120fb8a0a6b 2026-09-20 The node's gate runs the cloud battery's offline test, and the plan records staging's first day on 2.x
+346acf86152bce2553485d39ca6b9329f8ce1e01 53f0dd995936b9b2cac5a6b88976ce13f6d7dd8b 2026-09-20 The plan does not claim a fix was exercised by groups that skipped
+7d1a9a82b1ea387cc55e7417a1fad3d9602bd840 774781834a0bfb34e942674d279d29624d04e436 2026-09-20 The marker list names the relay role's settings, and the plan says where they were found
+a1567d47052341a6976d9b1c931d7f85c9223766 6e1ed0379f69dc76345ccf7ca144d77bba55961a 2026-09-20 The plan says staging runs cloud main
+ebd52849d3a7c2880fd0402c620f1e4fb69e76c5 f8c81c96e8506759636645055025d13cf8e7bec9 2026-09-20 The identity gate runs where it can: on the owner's machine, from the pre-push hook
+66b74437c689218a8e3b3498ca379938b91d266a 0c23032690f328105ae24fa63030ec881e23ed7b 2026-09-20 pact-identity: style once, style at every commit, and pin the commit
+a911a22b7bc5fd6efa91a9ef930ce6190cb3f885 55200a316295b528e9404ad1f301ad17ccf5e402 2026-09-20 pact-identity: the pin, made from the commit before this one
+0479e592f373b30b65960f778e97af872043f514 4908863c7cf0a3f4bb01c4d580da0b59e49a6d37 2026-09-20 F1 done: the plan records it, and the cloud pointer carries the new core
+bfa8deea53461b332a703732739b201bf84fe2f1 61e176c73a51b0ffd2ceb40c39d7cf7f00dcd592 2026-09-20 The live intrusion battery, audited against real defenders; and the working rules, written down
+cb29d5c28adc61b49105ab2c8785298fcc88fb99 01ddc49e10d9172e37edcbceaf86949e1ed6381a 2026-09-20 The plan says staging serves the re-pinned wallet page, because it was checked
+2a22bd1832e9ed12b2b46f1a3b16da13add659f9 27101b1dc970fc3f287a90f326a10ca804f5ef59 2026-09-20 F4: the whole conformance battery ran on staging from the CDP journey, and the plan says what that retires
+527708557b29d804579427ea4a389aba1823cfc5 9965dd3b44cb3aeded9b24d77a897bff886e27ac 2026-09-20 The Go port refuses what the Rust core refuses, and the harness can now see when it does not
+05f76007d0acc3ce327e9ac32435e9b86fbedf28 a96cef921022194ed44c817e9287272b615ae01b 2026-09-20 The tooling says what it means: the pin's own guards, the battery's verdicts, the hooks
+b97352220e9a7178dea16bba9f8999d476f34803 96c7dd8bd3a5903d5318c02d266e206d1bdc8fd6 2026-09-20 The three blockers in the pinned core, and the pin's own coverage
+23769f75c6b554253f9db44154724c2822736c35 b44715b6bda9a4dd15d2ba5f002615f3a1253d61 2026-09-20 manifest.mjs reads builder.json after the path it resolves against
+b88568b22ae9c835e6ffd6954e5572deee728423 a1cd0842dbb67f6558041879f6abefd767bc929a 2026-09-20 The pin, made from the commit before this one, and now covering every shipped file
+436dac374d6932a4088a8fbd7de79f8c4ed003b0 ed7583c1989dac8405813a5a1f6e020b0c2702ee 2026-09-20 The two ports word the vault's KDF refusals alike, and the new cases prove it
+8c000cd18e1f81bd96641a546120529e969bf471 1a5dbeedbd3db1c53f9c143dfc578b645c44f1a1 2026-09-20 The cloud gitlink carries the fixed core
+2f62695ad4b333d72e9f4cc52ea9284f914d1038 ce07e0e95aec78ae68ad3bdf77c429401b16e1ab 2026-09-20 The plan records the pact-identity review: twelve defects, what each cost, and what is left
+3f9e76603156099a9271c24c83371638751a3383 95aad289506a463b9a6aaa438fd7ba07a4e92bd3 2026-09-20 The plan records the deploy and the end-to-end proof of the re-pinned core
+9d4a3058b14fa459f8bbd487515710575b3bb73e 377775a85146e18d37abf50ae6535f6bde2f1b51 2026-09-20 PACT 2.1.1 in both ports, and four defects in yesterday's fixes
+895becdfe0974b97ba8739b1d2c55d17e326954f e7ab55fdd1ce96044f427821efd4325adeaaa1a0 2026-09-20 The pin for PACT 2.1.1, made from the commit before this one
+f8f9b184159baaf55a63b2ff8b11e6b1c6808ede 3f6c09005b41a0f0e402a9e00a77defc6f781741 2026-09-20 H done: the plan records 2.1.1 end to end, and the cloud gitlink carries it
+31b8cb74f98f2fe26498718dbdbb7d85a29cf874 af34c112bdd94516ca832fde1cd7a9b31612e48a 2026-09-20 The plan records 2.1.1 deployed to staging and proven end to end
+fdd82e2272f4355d48b0debd181dc45c5ba64490 62a127795d13ad5dfcb682df7b7ff9dda0c61bd9 2026-09-21 Certificate extensions are read strictly in both ports, and the browser extension's last mentions go
+e70df63c6d36ba27c0db933dc9b0a75d5dfb5fa3 3a19fc9df6192050b9a317622d10e0622afe1d06 2026-09-21 The pin for PACT 2.1.2, made from the commit before this one
+94767ba847bbab96537c9f4d36e00c6c24364431 d9a40f2520479745afc14848b4a17bd20ac3ff6c 2026-09-21 The cloud gitlink carries the 2.1.2 core
+5b64dcf02f37fcad2d7a4ce1c2ca60192810eb98 a978a6b5e2b945492224fc57aa90fd167b60dfd9 2026-09-21 The plan records 2.1.2 deployed to staging and proven end to end
+37643c9ab95eaa129cf4bcae167cb6a7e70e05ca 14832cc00524cd870169786b2c916eaa7e257f06 2026-09-21 A 67 MB compiled test binary leaves the tree, and the node ignores what go test -c writes
+5efaf84495d3a9549160a39991b74320831b8614 45b0b682b86a720de9c8cabdd0c080f86e251fd6 2026-09-21 The contract-in-one-place proposal is filed in the repository, with its numbers measured again
