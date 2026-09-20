@@ -1,7 +1,7 @@
 # The node's store at scale, before and after round 2's R7 (2026-09-19/20)
 #
 # 10,000 contacts, 1,000,000 messages in 50,000 threads, 1,000,000 audit rows, 1,000,000 idempotency
-# records, 100,000 media rows; SQLite; Apple M2 Max. before = the tree at 21d681d with schema 0037,
+# records, 100,000 media rows; SQLite; Apple M2 Max. before = the tree at 24c3917 with schema 0037,
 # after = migration 0038, the rewritten statements and the store's measured open settings.
 # Each side seeded its own file; six runs of twenty iterations. Reproduce: docs/operations.md.
 #

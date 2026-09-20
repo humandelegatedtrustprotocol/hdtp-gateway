@@ -2,7 +2,7 @@
 /dist/
 /data/
 # What `go test -c` writes: a compiled test binary, named after its package. One of these, 67 MB,
-# was committed by accident on 2026-09-18.
+# was committed by accident on 2026-09-18, and taking it out again meant rewriting history.
 *.test
 *.db
 *.db-journal
