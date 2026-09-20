@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Pre-commit: Rust under pact-identity/ arrives styled, and lint-clean, or it does not arrive.
+#
+# Nobody formats by hand here and nothing is "fixed for style" afterwards, for a reason particular
+# to this tree: pact-identity ships a PINNED binary, built from a commit (js/reproduce.sh). A style
+# fix made after a pin moves lines; a moved line renumbers a `#[track_caller]` site; the number is
+# in the Wasm; the pin stops matching. That happened on 2026-09-20, over one clippy style lint that
+# no machine had ever been asked to enforce. Style applied BEFORE the commit cannot do it.
+#
+#   1. staged *.rs under pact-identity/ is run through rustfmt (pact-identity/rustfmt.toml) and
+#      re-staged — automatically, so the commit carries the styled text;
+#   2. clippy must pass with warnings as errors.
+#
+# A file that is only PARTLY staged is refused rather than formatted: re-staging it would sweep the
+# unstaged half into the commit behind the author's back. And clippy reads the working tree, not
+# the index, so with other Rust files modified and unstaged it is judging slightly more than the
+# commit; the pre-push gate (pact-identity/gate.sh) and the build-from-HEAD are the exact ones.
+set -euo pipefail
+
+top="$(git rev-parse --show-toplevel)"
+cd "$top"
+
+staged=()
+while IFS= read -r f; do
+  case "$f" in pact-identity/*.rs) staged+=("$f") ;; esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+[ "${#staged[@]}" -gt 0 ] || exit 0
+
+partly=()
+for f in "${staged[@]}"; do
+  git diff --quiet -- "$f" || partly+=("$f")
+done
+if [ "${#partly[@]}" -gt 0 ]; then
+  echo "pre-commit: these Rust files are only partly staged, so they cannot be styled and re-staged" >&2
+  echo "            without committing the rest of them too. Stage them whole, or stash the rest:" >&2
+  printf '              %s\n' "${partly[@]}" >&2
+  exit 1
+fi
+
+edition="$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' pact-identity/Cargo.toml | head -1)"
+rustfmt --edition "${edition:-2021}" --config-path pact-identity/rustfmt.toml "${staged[@]}"
+restyled=()
+for f in "${staged[@]}"; do
+  git diff --quiet -- "$f" || restyled+=("$f")
+done
+if [ "${#restyled[@]}" -gt 0 ]; then
+  git add -- "${restyled[@]}"
+  echo "pre-commit: styled and re-staged ${#restyled[@]} Rust file(s):"
+  printf '              %s\n' "${restyled[@]}"
+fi
+
+echo "pre-commit: clippy (warnings are errors)"
+if ! (cd pact-identity && cargo clippy --workspace --all-targets --locked --quiet -- -D warnings); then
+  echo >&2
+  echo "pre-commit: clippy refused this. Fix it NOW, before the commit — a style fix made after a pin" >&2
+  echo "            changes the pinned bytes (see pact-identity/rustfmt.toml)." >&2
+  exit 1
+fi
