@@ -24,9 +24,21 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 # A push that only deletes refs has nothing to test.
+#
+# The same pass over the refs answers a second question: does this push touch `pact-identity/`
+# or move the `pact-protocol` pointer? If it does, pact-identity's cross-language gate runs below.
+# A new ref has no base to compare with, and a base this clone has never fetched cannot be
+# compared at all; both count as "yes", because the gate running once too often costs a minute
+# and the gate not running is how it went five days without running anywhere.
+zero=0000000000000000000000000000000000000000
 only_deletes=true
-while read -r _local_ref local_sha _remote_ref _remote_sha; do
-  [ "$local_sha" = "0000000000000000000000000000000000000000" ] || only_deletes=false
+identity_touched=false
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  only_deletes=false
+  if [ "$remote_sha" = "$zero" ] || ! git diff --quiet "$remote_sha" "$local_sha" -- ../pact-identity ../pact-protocol 2>/dev/null; then
+    identity_touched=true
+  fi
 done
 if [ "$only_deletes" = true ]; then
   exit 0
@@ -38,6 +50,17 @@ if ! make harness; then
   echo "pre-push: the harness is broken. Fix it, or push with --no-verify if you" >&2
   echo "          are deliberately pushing a known-broken harness." >&2
   exit 1
+fi
+
+# pact-identity's gate reads the private sibling `pact-protocol`, which a CI runner cannot see and
+# will not be given a credential for (the owner's decision, 2026-09-20). So it runs here or nowhere.
+if [ "$identity_touched" = true ]; then
+  echo "pre-push: pact-identity gate — CI cannot run this"
+  if ! sh ../pact-identity/gate.sh; then
+    echo >&2
+    echo "pre-push: pact-identity's gate failed (sh pact-identity/gate.sh reproduces it)." >&2
+    exit 1
+  fi
 fi
 
 case "${PACT_PREPUSH_LIVE:-}" in
