@@ -1,6 +1,9 @@
 /pact-gateway
 /dist/
 /data/
+# What `go test -c` writes: a compiled test binary, named after its package. One of these, 67 MB,
+# was committed by accident on 2026-09-18.
+*.test
 *.db
 *.db-journal
 .DS_Store
