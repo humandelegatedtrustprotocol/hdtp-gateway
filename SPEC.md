@@ -1,6 +1,6 @@
 # pact-gateway — Product Specification
 
-**Version 0.2.1-draft · 2026-09-19 · implements PACT 2.1.0** — whose additions are both held here: the span of a leaf is the person's to choose beneath §14.2's ceiling, and §14.3's MUST NOT is held by `TestAnUnansweredConfirmationChangesNoPin`. 2.1 asks for no proactive re-confirmation and this node does none: a newer leaf arrives on use (§13.2, §14.4)
+**Version 0.2.1-draft · 2026-09-20 · implements PACT 2.1.1** — 2.1's additions are both held here: the span of a leaf is the person's to choose beneath §14.2's ceiling, and §14.3's MUST NOT is held by `TestAnUnansweredConfirmationChangesNoPin`. 2.1.1's are held by the identity library this node links (`pact-identity/go`): an ECDSA signature on a certificate is the low-S twin or the certificate is refused, at card intake as in a chain, and a validity field that is not a date is refused rather than normalised. 2.1 asks for no proactive re-confirmation and this node does none: a newer leaf arrives on use (§13.2, §14.4)
 
 pact-gateway is a self-hosted personal node for the PACT protocol: your agent's public,
 permission-gated MCP server to the people you approve, your private control panel and
