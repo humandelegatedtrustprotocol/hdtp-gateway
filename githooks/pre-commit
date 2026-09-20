@@ -38,10 +38,27 @@ if [ "${#partly[@]}" -gt 0 ]; then
 fi
 
 edition="$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' pact-identity/Cargo.toml | head -1)"
-rustfmt --edition "${edition:-2021}" --config-path pact-identity/rustfmt.toml "${staged[@]}"
+
+# Through STDIN, one file at a time, and that is the whole point.
+#
+# `rustfmt <paths>` recursively formats every out-of-line module reachable from a file it is given —
+# `lib.rs` declares 13 of them, `main.rs` 5 — and `skip_children`, the option that turns that off, is
+# unstable. So staging `lib.rs` alone silently reformatted 13 siblings, including any work in progress
+# the author was holding back; the loop below inspected only the staged set, so those rewrites were
+# neither reported nor staged, and the next `reproduce.sh --pin` then refused to pin, naming files the
+# author never touched. Reading from stdin gives rustfmt no path to resolve a `mod` against, so it
+# formats exactly what it is handed and nothing else. Partly-staged files are refused above, so the
+# working tree's bytes are the staged bytes and writing back is safe.
 restyled=()
 for f in "${staged[@]}"; do
-  git diff --quiet -- "$f" || restyled+=("$f")
+  if ! out="$(rustfmt --emit stdout --edition "${edition:-2021}" --config-path pact-identity/rustfmt.toml < "$f")"; then
+    echo "pre-commit: rustfmt could not parse $f — fix the syntax, then commit" >&2
+    exit 1
+  fi
+  if [ "$out" != "$(cat -- "$f")" ]; then
+    printf '%s\n' "$out" > "$f"
+    restyled+=("$f")
+  fi
 done
 if [ "${#restyled[@]}" -gt 0 ]; then
   git add -- "${restyled[@]}"
