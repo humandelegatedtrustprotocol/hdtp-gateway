@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Post-commit: did that commit move what the pinned Wasm is built from?
+#
+# The order in this tree is style -> commit -> compile: the pre-commit hook styles the Rust, the
+# commit is made, and only then is the canonical build made FROM that commit and pinned
+# (pact-identity/js/reproduce.sh --pin builds `git archive HEAD`). This hook is the hinge: a second
+# after a commit changes a build input it says the pin is now behind, and what to run. It cannot
+# block — the commit exists — and it does not start a five-minute container build behind anybody's
+# back; the pre-push gate is what refuses to let a stale pin leave the machine.
+set -uo pipefail
+top="$(git rev-parse --show-toplevel)"
+[ -f "$top/pact-identity/js/verify.mjs" ] || exit 0
+git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | grep -q '^pact-identity/' || exit 0
+if ! out="$(cd "$top/pact-identity" && node js/verify.mjs --inputs 2>&1)"; then
+  echo
+  echo "post-commit: the pinned Wasm core is now BEHIND this commit."
+  echo "$out" | sed 's/^/             /'
+  echo "             (the push will be refused until it is pinned again)"
+fi
+exit 0
