@@ -17,7 +17,7 @@
 #     PACT_PREPUSH_LIVE=1 git push          # the fast live subset
 #     PACT_PREPUSH_LIVE=full git push       # the whole matrix
 #
-# Bypass entirely with `git push --no-verify` when you know what you are doing.
+# This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,9 +33,11 @@ cd "$root"
 zero=0000000000000000000000000000000000000000
 only_deletes=true
 identity_touched=false
+pushed=""
 while read -r _local_ref local_sha _remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
   only_deletes=false
+  pushed="$pushed $local_sha"
   if [ "$remote_sha" = "$zero" ] || ! git diff --quiet "$remote_sha" "$local_sha" -- ../pact-identity ../pact-protocol 2>/dev/null; then
     identity_touched=true
   fi
@@ -43,6 +45,15 @@ done
 if [ "$only_deletes" = true ]; then
   exit 0
 fi
+
+# What the gate below checks is the CHECKED-OUT TREE: `pact-identity/gate.sh` runs cargo, the Go port
+# and `js/verify.mjs`, and `verify.mjs`'s answer is about HEAD. Pushing a ref that is not HEAD —
+# `git push origin feature:main`, or `HEAD~3:refs/heads/staging` — therefore gates the wrong commit.
+# Saying so is honest; refusing outright would break a legitimate workflow.
+head_sha="$(git rev-parse HEAD)"
+for sha in $pushed; do
+  [ "$sha" = "$head_sha" ] || echo "pre-push: NOTE — gating the checked-out tree ($(git rev-parse --short HEAD)), not $(git rev-parse --short "$sha")" >&2
+done
 
 echo "pre-push: harness (hermetic) — CI does not run this"
 if ! make harness; then
