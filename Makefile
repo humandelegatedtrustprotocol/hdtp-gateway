@@ -164,6 +164,10 @@ dependents:
 		(cd "$(CLOUD_BATTERY)" && go vet ./...) || { \
 			echo "the cloud's conformance battery no longer compiles against this module:"; \
 			echo "  fix it in $(CLOUD_BATTERY) in the same change that moved the API"; exit 1; }; \
+		echo "go test -run TestTheBatteryCanSealEveryShapeItSends $(CLOUD_BATTERY)"; \
+		(cd "$(CLOUD_BATTERY)" && go test -count=1 -run 'TestTheBatteryCanSealEveryShapeItSends' ./...) || { \
+			echo "the cloud's conformance battery cannot seal a call it sends: compiling was never the"; \
+			echo "  same as working, and the rest of that package only runs against a deployment"; exit 1; }; \
 	else \
 		echo "!! dependents: $(CLOUD_BATTERY) is not on disk, so the cloud's conformance battery"; \
 		echo "   was NOT compiled against this change. It imports internal/ packages of this module."; \
