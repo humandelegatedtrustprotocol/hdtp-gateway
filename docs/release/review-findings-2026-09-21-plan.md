@@ -57,7 +57,7 @@ one-letter strings. The fake now seals a real result through the pinned core. `g
 from `pkcs8` only, so on the SOFTWARE path a request carrying a CARD-held sibling root's key is not
 refused either. A5 fixed the card path by reading every root's certificate; the core should too.
 
-## B — the Go port adopts what the Rust core and the seed already do: free. `TODO`
+## B — the Go port adopts what the Rust core and the seed already do: free. `DONE`
 
 Parity cases are added FIRST and seen red against the Go port as it is; `js/parity.mjs` is the guard.
 
@@ -72,6 +72,46 @@ Parity cases are added FIRST and seen red against the Go port as it is; `js/pari
 | B7 | `now` keeps its sub-second part in Go and is whole seconds in Rust: a leaf expires up to a second earlier in one port | truncate on entry |
 | B8 | 32-bit `int`: a four-octet DER length and an eight-octet pathLen are folded into `int` | fold into 64 bits, bound, then narrow |
 | B9 | `FromB64url` rebuilds its table on every call on the receive path; `randomSerial` discards `rand.Read`'s error | a package table; propagate |
+
+**What was shown.** Thirty-five parity cases were written first and run against the port as it was:
+twenty-five disagreed, each printed as the two answers side by side; ten already agreed and stay as
+guards. With the port changed, 349 of 349 agree. The five `follow_renewed` cases that were written in
+the same step as their fix were checked separately, by putting the old behaviour back: six red.
+
+- **B1, B4** are words and order, now the core's. B4 found a third wording nobody had listed ("older
+  than the pinned leaf" for the core's "older than the pin").
+- **B2 was not what the plan said.** For a member that is not base64url at all, the SEED reads
+  leniently, as Go did, so by wording the Rust core was the odd one. But the lenient reader also
+  SKIPS a stray character beside bytes that are otherwise right; the signature covers the decoded
+  bytes and still verifies; and the Go port ACCEPTED such an envelope — and `open_result` such an
+  answer — where the pinned core refuses. Two spellings of one envelope, taken by one implementation
+  and not the other. The rule is now that every member is base64url and nothing else: Go is strict
+  here, the deployed core is not loosened, and the seed follows in C12.
+- **B3** needed `Decide` to be able to say so: it returns an error for the node's own unreadable
+  state, as the core returns Err and the seed throws. The NODE had to follow, and does: it refuses
+  the call as it does whenever state cannot be loaded, and AUDITS `identity_state_unreadable` with
+  the account and the reason, because only the owner can mend a bad row. Its test first passed for
+  the wrong reason's opposite — the honest contact's pin sorted before the bad row and was matched
+  first, in the core too — and now uses a stranger's small-form envelope, which reads every pin.
+- **B5**: before the change the Go wallet answered `ok: true` — it would have SIGNED — for three
+  malformed requests. `CSRCheck`'s reading is now `csr.rs`'s `parse` line for line, including where
+  it propagates the DER reader's own words.
+- **B6**: the number table is `canonical.rs`'s own ten rows plus nine; against the old code nine rows
+  were red, THREE OF THEM FROM THE CORE'S OWN TABLE (`1e-7`, `0.000001`, `-0.0`). Go also follows
+  the seed past 2^53 now, which is what C7 does to Rust.
+- **B7**: every entry point that takes an instant truncates it; the parity case is half a second past
+  a leaf's last second.
+- **B8 was measured on a 32-bit target after all**: the test is cross-compiled for `linux/386` and run
+  under Docker. The old reader PANICS — `slice bounds out of range [:-2147483643]` — on
+  `30 84 7F FF FF FF`, six bytes of anybody's certificate, and gives the wrong refusal for three
+  other lengths; the new one passes all five. A node on a 32-bit ARM board was crashable by a
+  stranger. (The review had expected the panic from lengths that wrap NEGATIVE; those were refused,
+  wrongly, as "not minimal". It is the length that stays positive that overflowed `at+l`.) The
+  pathLen fold is by construction only: on 64 bits the two are the same number.
+- **B9**: a package table; `randomSerial`'s error is propagated through the two certificate-body
+  builders and their five callers.
+
+`gate.sh`, and the node's `make check` and `make harness`, pass. PROOFS.md: 349 parity cases.
 
 ## C — everything that touches the pinned core, ONCE. `TODO`
 
@@ -91,6 +131,7 @@ Appendix B or a normative sentence changes (C1 adds a refused certificate, so it
 | C9 | `api.rs`: `chain(a, "sender_chain").ok()` reports a present-but-malformed chain as an absent one | propagate the decode error; Go the same words |
 | C10 | `fingerprint_of_leaf` is public, dead, and on no dispatcher; CONTRACT §1 says the CLI "refuses" a use it merely does not expose | delete; reword |
 | C11 | `vault::wallet_issue` reads root keys from `pkcs8` only: a card-held sibling root is not among the keys a request may not carry (found while fixing A5) | read every root's certificate, as the CLI's card path now does |
+| C12 | the SEED reads an envelope's members leniently (`Buffer.from(s, 'base64url')` skips what it does not know), so it accepts the second spelling B2 found; and the Rust core says `does not open` where a strict seed must say the same | a strict reader in the seed for `protected`, `enc`, `ct` and `sig`, in the core's words; an intrusion scenario for the stray character |
 
 Then, in the order `CLAUDE.md` gives: commit → `sh js/reproduce.sh --pin` → `node js/record.mjs` →
 `gate.sh` → commit the manifest → vendor into `pact-cloud` (four `pkg-web` files, the manifest, the
