@@ -100,7 +100,10 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 	w := testid.NewWallet(t, fn)
 	endpoint := "https://" + slug + ".example/a/" + slug + "/mcp"
 	h := w.IssueOver(t, endpoint, spki)
-	card := contacts.BuildCard20(fn, h.LeafDER, "")
+	card, err := contacts.BuildCard20(fn, h.LeafDER, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := messaging.NewBus()
 	return &node{
 		st: st, acct: a, kp: kp, spki: spki, card: card,

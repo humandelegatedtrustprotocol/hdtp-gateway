@@ -49,7 +49,10 @@ func TestRefreshingOneContactOverTheWire(t *testing.T) {
 	}
 
 	// --- updated: the card he holds is an older one of hers, under the same leaf ---
-	stale := contacts.BuildCard20("Alina R.", alina.leaf(), "required")
+	stale, err := contacts.BuildCard20("Alina R.", alina.leaf(), "required")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := bharat.st.UpdateContactCard(ctx, bharat.acct.ID, alina.rootFpr(), stale, "Alina R."); err != nil {
 		t.Fatal(err)
 	}

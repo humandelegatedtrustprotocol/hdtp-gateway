@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"unicode"
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -45,6 +47,15 @@ type Manager struct {
 // CreateAccount makes the account row, generates its keypair, and binds the
 // fingerprint + sealed key in one flow (SPEC §3.2).
 func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, algo Algo) (store.Account, error) {
+	// The display name is written into this account's card as one line (PACT §3). A control character
+	// in it is a card the writer refuses to write — a line break used to put a property of the NAME'S
+	// choosing into the card this node serves — so the account is refused here, before a key is made
+	// for it, and not at the first request for a card it cannot have.
+	for _, r := range displayName {
+		if unicode.IsControl(r) {
+			return store.Account{}, errors.New("identity: a display name carries no control character (it is one line of the account's card)")
+		}
+	}
 	if algo == "" {
 		algo = AlgoP256
 	}

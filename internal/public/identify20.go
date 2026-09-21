@@ -91,7 +91,16 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 	}
 	for _, c := range contacts {
 		if len(c.Leaf) > 0 {
-			ns.Pins = append(ns.Pins, pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: b64u(c.Leaf), State: c.Status})
+			// The pin says which leaf it holds (PACT 2.1.3, CONTRACT §5), so a small-form envelope —
+			// from a sender who has proved nothing yet — is matched on a string and ONE pinned leaf is
+			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
+			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
+			// certificate: a row where the two disagree is unreadable state, and is said.
+			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: b64u(c.Leaf), State: c.Status}
+			if len(c.SPKI) > 0 {
+				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
+			}
+			ns.Pins = append(ns.Pins, pin)
 		}
 	}
 	tombs, err := id.Store.ListTombstones(ctx, accountID)
