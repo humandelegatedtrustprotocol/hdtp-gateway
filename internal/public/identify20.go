@@ -129,7 +129,16 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
-	d := pactidentity.Decide(now, wire, ns)
+	d, err := pactidentity.Decide(now, wire, ns)
+	if err != nil {
+		// Not the envelope: a row of THIS node's state — a held key's leaf, a pin, a tombstone —
+		// would not read. The port used to step over such a row and decide without it, which quietly
+		// answered `chain_required` to a contact and made a peer returning after removal a plain
+		// guest. The peer is told what it is told whenever state cannot be loaded; the owner is told
+		// which account and why, because only they can mend it.
+		id.audit("identity_state_unreadable", "account:"+accountID+" why:"+err.Error(), "error")
+		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
+	}
 	code, _ := d.Result["code"].(string)
 	switch code {
 	case "envelope_invalid":

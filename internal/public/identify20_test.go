@@ -258,6 +258,40 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 	}
 }
 
+// A pin this node cannot read is the node's problem, and it is said. The Go port used to step over
+// the row and answer `chain_required` as if nothing were wrong, and nothing anywhere recorded that a
+// row of the contact book had gone bad — so the contact whose row it was became a stranger for good.
+func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
+	e := newEnv20(t)
+	var rows []string
+	e.id.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) }
+	if _, err := e.st.InsertContact(context.Background(), store.Contact{
+		AccountID: e.acct.ID, Fingerprint: "sha256:a-row-gone-bad", Status: "active", Permissions: []string{"message.text"},
+		Endpoint: "https://ghost.example/mcp", Leaf: []byte{0x30, 0x03, 0x01, 0x02, 0x03},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A sender naming a leaf NO pin holds: the scan that looks for it reads every pin, in whatever
+	// order the store lists them, so it meets the bad row wherever that row sorts. (A contact whose
+	// own pin happens to come first is matched before the bad row is reached — in the core too.)
+	p := newPeer(t, fixedNow)
+
+	_, err := e.open(t, e.seal20(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	if err == nil || Code(err) != "envelope_invalid" || !strings.Contains(err.Error(), "recipient state unavailable") {
+		t.Fatalf("an unreadable pin must refuse the call as state that could not be loaded, got: %v", err)
+	}
+	if errors.Is(err, ErrChainRequired) {
+		t.Fatal("the sender was answered chain_required: the unreadable row was stepped over")
+	}
+	found := false
+	for _, r := range rows {
+		found = found || (strings.HasPrefix(r, "identity_state_unreadable account:"+e.acct.ID) && strings.HasSuffix(r, " error"))
+	}
+	if !found {
+		t.Fatalf("the owner was not told: %v", rows)
+	}
+}
+
 func TestV2PinnedContactBothForms(t *testing.T) {
 	e := newEnv20(t)
 	p := newPeer(t, fixedNow)
