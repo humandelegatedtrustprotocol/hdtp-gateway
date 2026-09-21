@@ -14,6 +14,8 @@ import (
 	"github.com/descope/virtualwebauthn"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"os"
+	"strings"
 )
 
 var testRP = RelyingParty{ID: rpID, Origin: origin}
@@ -230,5 +232,88 @@ func TestConcurrentFirstRegistrationYieldsOneOwner(t *testing.T) {
 	if len(owners) != 1 {
 		t.Fatalf("%d owners were created by concurrent first registrations; "+
 			"the first passkey decides who owns this node (errors: %v)", len(owners), results)
+	}
+}
+
+// ValidRelyingPartyID is what refuses an `internal_host` when the config is read, and it says it
+// refuses EXACTLY what a ceremony would have refused later. That is a claim about two code paths, so
+// they are asked the same question about the same names.
+func TestTheConfigCheckAndTheCeremonyAgreeAboutARelyingParty(t *testing.T) {
+	for _, host := range []string{
+		"pact.example.com", "node.tail1234.ts.net", "localhost", "a_b.example.com",
+		"nas", "raspberrypi", "192.168.1.10", "::1", "pact.example.com.", "-pact.example.com", "pact-.example.com",
+		"pact.example.123", "bücher.example", " pact.example.com",
+		// NOT the empty name: there the two DISAGREE (the library's constructor takes an empty relying
+		// party and objects only when a ceremony begins). The config check is never asked about it —
+		// an empty `internal_host` means "loopback only" — so the claim is about every name it IS asked.
+	} {
+		_, ceremony := webauthnFor(RelyingParty{ID: strings.ToLower(host), Origin: "https://" + strings.ToLower(host)})
+		config := ValidRelyingPartyID(host)
+		if (ceremony == nil) != (config == nil) {
+			t.Errorf("%q: the config check says %v and a ceremony says %v", host, config, ceremony)
+		}
+	}
+}
+
+// A passkey the PREVIOUS library stored must still sign its owner in. go-webauthn 0.18 announced
+// breaking changes and a changed `Credential`; its migration guide says a 0.17 record decodes with a
+// zero `Extensions`. That is a sentence in a guide, and an owner locked out of their own node is what
+// it costs to be wrong — so here is a record 0.17.4 really wrote (testdata, made on 2026-09-21 by
+// running this suite's own registration in a checkout from before the bump, a3b69ac, with the virtual
+// authenticator's key beside it), and today's library is asked to log in with it.
+func TestAPasskeyStoredByThePreviousLibraryStillSignsItsOwnerIn(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "passkey-webauthn-0.17.4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		OwnerID   string `json:"owner_id"`
+		OwnerName string `json:"owner_name"`
+		Row       struct {
+			ID, Kind, Tag string
+			OwnerID       string          `json:"owner_id"`
+			Data          json.RawMessage `json:"data"`
+			CreatedAt     int64           `json:"created_at"`
+		} `json:"row"`
+		Authenticator struct {
+			CredentialID []byte `json:"credential_id"`
+			KeyType      string `json:"key_type"`
+			KeyData      []byte `json:"key_data"`
+			Counter      uint32 `json:"counter"`
+			UserHandle   []byte `json:"user_handle"`
+			AAGUID       []byte `json:"aaguid"`
+		} `json:"authenticator"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(f.Row.Data, []byte(`"extensions"`)) {
+		t.Fatal("the fixture already has the member 0.18 added: it is not a 0.17 record")
+	}
+
+	e := newTestEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.CreateOwnerWithID(ctx, f.OwnerID, f.OwnerName); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertCredential(ctx, store.Credential{ID: f.Row.ID, OwnerID: f.Row.OwnerID, Kind: f.Row.Kind, Tag: f.Row.Tag, Data: f.Row.Data, CreatedAt: f.Row.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	cred := virtualwebauthn.NewCredentialWithImportedKey(virtualwebauthn.KeyType(f.Authenticator.KeyType), f.Authenticator.KeyData)
+	cred.ID, cred.Counter = f.Authenticator.CredentialID, f.Authenticator.Counter
+	e.authn.Aaguid = [16]byte(f.Authenticator.AAGUID)
+	e.authn.AddCredential(cred)
+	e.authn.Options.UserHandle = f.Authenticator.UserHandle
+
+	session, err := e.login(t)
+	if err != nil {
+		t.Fatalf("a passkey stored by go-webauthn 0.17.4 no longer signs its owner in: %v", err)
+	}
+	if owner := e.svc.SessionOwner(ctx, session); owner != f.OwnerID {
+		t.Fatalf("the session is %q's, and the passkey is %q's", owner, f.OwnerID)
+	}
+	// …and once more, so whatever this library wrote back over the old record still reads.
+	if _, err := e.login(t); err != nil {
+		t.Fatalf("the second login, after 0.18 rewrote the record: %v", err)
 	}
 }

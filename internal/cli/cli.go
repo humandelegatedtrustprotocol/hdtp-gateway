@@ -117,7 +117,22 @@ func commonFlags(name string, cfgPath *string, stderr io.Writer) *flag.FlagSet {
 }
 
 func loadConfig(cfgPath string) (*core.Config, error) {
-	return core.Load(cfgPath, os.LookupEnv)
+	cfg, err := core.Load(cfgPath, os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
+	// `internal_host` is the passkey relying party (SPEC §12.2), and the passkey library refuses some
+	// names outright — an IP address, a single label other than `localhost`, a trailing dot. The node
+	// used to learn that at the first ceremony: it started cleanly, served its portal, and no passkey
+	// could be registered or used on it. The judgement here is the library's own, so what is refused
+	// now is exactly what a ceremony would have refused later.
+	if cfg.InternalHost != "" {
+		if err := auth.ValidRelyingPartyID(cfg.InternalHost); err != nil {
+			return nil, fmt.Errorf("%s: internal_host %q cannot be a passkey relying party (%v) — use the full domain name the portal is served at, or `localhost`",
+				core.RuleInternalHostIsRPID, cfg.InternalHost, err)
+		}
+	}
+	return cfg, nil
 }
 
 func serve(args []string, stdout, stderr io.Writer) int {

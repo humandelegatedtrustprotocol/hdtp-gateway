@@ -12,7 +12,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +68,13 @@ type Service struct {
 // New builds the service. The relying party arrives per ceremony.
 func New(st store.Store) *Service {
 	return &Service{Store: st, pending: map[string]ceremony{}}
+}
+
+// ValidRelyingPartyID reports why a hostname cannot be a passkey relying party, in the LIBRARY'S own
+// judgement and as the origin policy will present it (lowercased) — so a config refused by this is
+// exactly a config whose ceremonies `webauthnFor` would have refused, and no other.
+func ValidRelyingPartyID(host string) error {
+	return protocol.ValidateRPID(strings.ToLower(host))
 }
 
 // webauthnFor builds the RP-specific verifier. RP ID must be a registrable
