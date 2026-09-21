@@ -88,3 +88,36 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 		t.Fatal("boot left an expired leaf's key in the account row")
 	}
 }
+
+// A node that is stopping has not failed. The hourly pass can be caught mid-flight by shutdown, and
+// its store calls then return the context's error — which it used to AUDIT as
+// "leaf_retirement_pass … error": a row that tells an owner reading the chain that the pass which
+// destroys expired keys could not run, on a node where nothing was wrong. The next start runs the
+// pass first thing (New), so nothing is lost by saying nothing.
+func TestAStoppingNodeIsNotAuditedAsAFailedRetirementPass(t *testing.T) {
+	clock := &demoClock{t: time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)}
+	dn := &demoNet{hosts: map[string]string{}}
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 30)
+	before := len(bharat.log)
+
+	stopping, cancel := context.WithCancel(context.Background())
+	cancel()
+	bharat.n.RetireExpiredLeaves(stopping)
+
+	for _, row := range bharat.log[before:] {
+		if strings.Contains(row, "leaf_retirement_pass") || strings.Contains(row, "account_leaf_key_retired") {
+			t.Fatalf("shutdown was recorded as a failure of the retirement pass: %q", row)
+		}
+	}
+
+	// And the row still exists for what it was written for: a store that really cannot be read.
+	bharat.st.Close()
+	bharat.n.RetireExpiredLeaves(context.Background())
+	found := false
+	for _, row := range bharat.log[before:] {
+		found = found || strings.Contains(row, "leaf_retirement_pass")
+	}
+	if !found {
+		t.Fatal("a pass that could not list accounts on a LIVE context must still be recorded")
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -695,13 +696,31 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	// ---- integrations: bring back what the owner configured (SPEC §6.10) ----
-	connectStoredIntegrations(ctx, ints, st, auditFn, stderr)
+	// The dialling is the first of the background loops below; this is its undoing.
 	defer disconnectIntegrations(ints, st)
+
+	// ---- background work: everything serve starts, it waits for ----
+	// Three loops run beside the listeners. Each used to be a bare `go`, and `serve` returned — and
+	// the deferred st.Close() above ran — while one could still be mid-pass: using a closed store,
+	// reading its cancelled context as a failure, AUDITING that failure, and writing to a stderr
+	// nobody was reading any more. CI's race detector caught the last of those on 2026-09-21.
+	//
+	// So they are blocking functions in one group, and this defer — registered after the store's and
+	// the integrations', so it runs BEFORE them — ends their context and waits. It has its own
+	// context so that it also joins on the paths that return before ctx has ended.
+	// TestNoGoroutineInThisPackageIsStartedAndAbandoned keeps a fourth from being added the old way.
+	bgCtx, stopBackground := context.WithCancel(ctx)
+	var background sync.WaitGroup
+	defer func() { stopBackground(); background.Wait() }()
+
+	background.Go(func() { connectStoredIntegrations(bgCtx, ints, st, auditFn, stderr) })
 
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----
 	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
 	// an unattended sweep to the owner would misreport who deleted the data.
-	startRetentionSweeper(ctx, settings, st, cfg, auditFn, stderr, nd.RetireExpiredLeaves)
+	background.Go(func() {
+		runRetentionSweeper(bgCtx, settings, st, cfg, auditFn, stderr, nd.RetireExpiredLeaves)
+	})
 
 	// ---- outbound retries (PACT §7.1) ----
 	// Undelivered outbound messages retry with backoff until their deadline.
@@ -709,7 +728,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
 	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted with
 	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
-	go nd.RunRetries(ctx)
+	background.Go(func() { nd.RunRetries(bgCtx) })
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
