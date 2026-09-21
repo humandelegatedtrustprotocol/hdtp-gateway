@@ -181,7 +181,7 @@ Protocol `ccc26d6`; umbrella source `0962ff6`, pin `91e65f4` (642,820 bytes, sha
 cloud `8b4d5c8` (wallet page script `1d22b020…`, 947,790 bytes). `gate.sh`, the node's `check` and
 `harness`, and the cloud's `make check wallet` (1,429 tests, 103/103 wallet checks) pass.
 
-## D — "other items from top". `TODO`
+## D — "other items from top". `DONE`
 
 Mine to do:
 
@@ -196,6 +196,92 @@ Mine to do:
 | D7 | `pact-cloud/ARCHITECTURE.md` still describes 1.x in places | a 2.x pass |
 | D8 | the contract in one place, Phases 1 and 2 (`pact-identity/docs/contract-one-place.md`) | build them: both are free |
 
+### What each one came to
+
+**D1.** `loadConfig` asks go-webauthn itself whether `internal_host` can be a relying party, under
+the rule name `internal_host_is_a_passkey_relying_party`; SPEC.md says what the host has to be. A
+second test feeds the same hosts to the config check and to the library's constructor and fails if
+they ever disagree — the only reason to believe the first test asks the right question. The empty
+string is the one disagreement and is excluded by name, because the config check never asks about a
+host that is not set.
+
+**D2.** Read. The ingress command's three accept loops close with the front door's own shutdown and
+their handlers touch no store, so an abandoned one cannot use a closed store or audit a clean
+shutdown as a failure — which is what K's guard exists to catch. The allow-list now says that
+instead of "deliberate".
+
+**D3.** `go-ntlmssp` 0.1.0 to 0.1.1. Indirect and uncalled here (`make analyze` says so).
+
+**D4.** `testdata/passkey-webauthn-0.17.4.json` is a real record made in a worktree at the commit
+before the bump; the new test signs its owner in with it under 0.18.
+
+**D5. Answered, not fixed.** The staging battery skips `TestFormerLeafAnswersCertificateRenewed`
+because it needs `PACT_LIVE_FORMER_KID` — the key id of a leaf the identity USED to hold. Nothing in
+the battery can make one: it would have to drive a renewal through the wallet ceremony against the
+deployment, and that can only be developed against a deployment. Left skipped, with the reason.
+
+**D6.** `/healthz`'s `identity` level is now the newest CONTRACTING migration, read from the
+migration's own SQL (`pact-cloud/gateway/src/identity/contract.ts`): one that takes a column or a
+table away, or renames, or whose author says so with a `-- contract: <why>` line, for the migration
+that rewrites data incompatibly and removes nothing. 1006 adds two indexes, so the level fell from
+1006 to 1005 and a build that only adds indexes may now roll out beside the one before it.
+`scripts/promote.mjs --selftest` holds the Worker's copy of that judgement and the deploy script's
+to the same verdict from the same text.
+
+**D7.** About thirty-five statements in `pact-cloud/ARCHITECTURE.md` were false, and almost none of
+them was 1.x residue: they described machinery that was designed and built differently — Workflows,
+a Secrets Store, a Cedar Wasm build, one zone, in-memory rate counters, an `/events` stream,
+customer hostnames, `fedramp`, a platform passkey. The disclaimer saying the tenancy, isolation,
+cost and lifecycle sections "describe machinery 2.x did not move" is what kept those sections from
+being read; it is gone. Three corrections touch the privacy story and were each read twice against
+the code: an EXPORT is five tables with no audit chain (so `audit verify` passes on a platform
+SNAPSHOT, not on an export — the same defect class this workspace keeps finding); D1 is not
+"routing and billing metadata only"; and §7.1's "the platform never holds a root, sealed or
+otherwise" was false of the `vaults` table, whose honest claim — cannot open it, cannot attribute
+it — is the stronger one. Two comments in the cloud's own code said "Workflows" too and were fixed
+in the same round.
+
+**D8.** Phases 1 and 2 of `pact-identity/docs/contract-one-place.md`, both built.
+`contract/contract.json` is the boundary as data: 39 methods over 34 domain types, each with the
+shape of its arguments, the shape of its answer, and the error codes it may fail with.
+`CONTRACT.md` is now GENERATED from it plus a prose template, and `contract/render.mjs --check`
+fails when it is stale — shown red both ways, on a hand edit of the document and on a change to the
+contract that was not re-rendered. `js/parity.mjs` takes its surface from the contract as well as
+from the two dispatchers (a function in the file and in neither port now fails), and validates
+every answer of BOTH ports against the declared shape: 838 answers, 0 off the contract, with a
+failure held to the codes its method declares and 62 of 77 declared codes actually produced. That
+check is the one two agreeing ports cannot pass by agreeing, and it was mutation-checked five ways
+— a dropped result member, an added one, a wrong error code, a phantom method, a loosened pattern —
+each red with exit 1.
+
+Two deviations, each deliberate and written down in the proposal: the validator is not a stock one
+(`js/` has no dependencies; `contract/schema.mjs` covers exactly the keywords used and `compile`
+REFUSES any other, so a schema cannot state a constraint nothing holds, with
+`contract/schema.test.mjs` holding each keyword to a value that must fail it), and the `params`
+direction is one-way — an accepted call is a described call, but nothing proves every call the
+schema admits is accepted.
+
+It found three things. `CONTRACT.md` still called the specification 2.0.0-draft and still cited the
+four `v: 1` vectors of Appendix B, which were deleted with 1.x — real residue, in the document that
+is supposed to BE the boundary. And both ports accept a value the contract does not describe:
+`profile_error`'s `kind`, where anything but `"root"` is read as a leaf, and `card_encode`'s
+`seal`, where a non-empty value is written into the card as given. Narrowing either is a change to
+`crates/pact-identity`, which costs a re-pin, so both are described honestly as declared-but-not-
+enforced and recorded as Phase 4's first candidates, to be bundled with the next change that pays
+for a re-pin.
+
+### Found, not fixed
+
+- `pact-cloud/PLAN.md` §3.1 still describes CI/CD as Workers Builds plus a Cloudflare Container
+  runner. ARCHITECTURE.md now says the deploy and the battery are local and that PLAN.md is stale
+  in the same way; PLAN.md itself was not rewritten here.
+- ARCHITECTURE.md §12.2 claimed a test that greps the Worker bundles for the sealing primitives.
+  It does not exist. The section now names the checks that do (`check-no-keys.mjs` over the git
+  index, `check-placement.mjs`, the audit-coverage registry) and says plainly that what keeps a DEK
+  inside an object is the object's own surface and a review rule, not a check.
+- `internalui/auth`'s `passkeysFor` silently skips a stored credential that fails to decode. Seen
+  while doing D4; not touched, because a change there is a change to sign-in.
+
 Not mine, and said so rather than worked around: the production deploy ("later") and counsel's
 answers; `pact-cloud`'s missing branch protection (a session never changes branch protection); whether
 CI runs on pull requests; deleting the stale branches and the backup bundle (deletions wait for a
@@ -204,4 +290,11 @@ yes); the ideation phase.
 ---
 
 ## Order of execution
-A, B, C (one pin), D.
+A, B, C (one pin), D. All four are done. What is left is not mine: the staging deploy of the 2.1.3
+core, the production deploy, counsel's answers, `pact-cloud`'s branch protection, whether CI runs on
+pull requests, deleting the stale branches and the backup bundle, and the ideation phase.
+
+One open item the cloud will need: a pin MAY now carry `leaf_fingerprint` (SPEC 2.1.3 §13.1), and
+the cloud's `contacts` table has no column for it. Nothing is wrong without it — a pin without the
+member is read exactly as before, and only the saving is lost — so it is a migration to schedule,
+not a defect to fix.
