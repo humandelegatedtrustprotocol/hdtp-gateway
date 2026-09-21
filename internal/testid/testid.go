@@ -94,7 +94,11 @@ func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 
 // Card renders the host's card (PACT §3): the leaf, the version, the seal.
 func (h *Host) Card(fn, seal string) string {
-	return pactidentity.EncodeCard(fn, h.LeafDER, seal, nil)
+	card, err := pactidentity.EncodeCard(fn, h.LeafDER, seal, nil)
+	if err != nil {
+		panic("testid: " + err.Error()) // a test's own name, which carries no control character
+	}
+	return card
 }
 
 // Card is the one-liner most tests want: a whole identity, and its card.

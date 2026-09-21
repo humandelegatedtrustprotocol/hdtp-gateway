@@ -227,13 +227,19 @@ func (e *env20) pin(t testing.TB, p *peer, status string) {
 	leaf, _ := pactidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: p.fpr(), SPKI: leaf.SPKI, Status: status, Permissions: []string{"message.text"},
-		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: contacts.BuildCard20("Alina Rao", p.leaf, "required"),
+		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: card20(p),
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func card20(p *peer) string { return contacts.BuildCard20("Alina Rao", p.leaf, "required") }
+func card20(p *peer) string {
+	card, err := contacts.BuildCard20("Alina Rao", p.leaf, "required")
+	if err != nil {
+		panic(err)
+	}
+	return card
+}
 
 func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 	e := newEnv20(t)

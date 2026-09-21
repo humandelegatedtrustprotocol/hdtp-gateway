@@ -226,7 +226,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 }
 
 func (n *pactNode) card() (string, error) {
-	return contacts.BuildCard20(n.acct.DisplayName, n.leafDER, string(n.seal)), nil
+	return contacts.BuildCard20(n.acct.DisplayName, n.leafDER, string(n.seal))
 }
 
 // asPeer is what another node holds of this one: the root it pins, the leaf it

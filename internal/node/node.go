@@ -663,7 +663,7 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue())), nil
+	return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue()))
 }
 
 func (n *Node) now() time.Time {
