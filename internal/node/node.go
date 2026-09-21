@@ -964,11 +964,19 @@ func (n *Node) TLSConfig() *tls.Config {
 func (n *Node) RetireExpiredLeaves(ctx context.Context) {
 	recs, err := n.opts.Store.ListAccounts(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			// The node is stopping and this pass was told to end. Nothing failed, and New runs the
+			// pass first thing at the next start — so the chain is not told that it could not run.
+			return
+		}
 		// The pass could not start, which is a fact about the node and about no one account.
 		n.opts.audit("leaf_retirement_pass", "store:accounts", "error")
 		return
 	}
 	for _, rec := range recs {
+		if ctx.Err() != nil {
+			return
+		}
 		n.retireExpired(ctx, rec)
 	}
 }
@@ -985,7 +993,9 @@ func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
 			n.stopServing(rec)
 		}
 	}
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
+		// (A pass ended by shutdown is not an error of this account's; the keys it did retire are
+		// recorded above either way.)
 		n.opts.audit("account_leaf_key_retired", "account:"+rec.ID+" slug:"+rec.Slug, "error")
 	}
 }
