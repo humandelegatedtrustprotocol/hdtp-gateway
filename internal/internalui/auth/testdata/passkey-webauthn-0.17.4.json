@@ -1,0 +1,62 @@
+{
+  "authenticator": {
+    "aaguid": [
+      43,
+      3,
+      208,
+      67,
+      92,
+      245,
+      174,
+      209,
+      254,
+      31,
+      249,
+      87,
+      201,
+      205,
+      92,
+      91
+    ],
+    "counter": 0,
+    "credential_id": "K2d6Gp4m8U7AKV/7QcpuTQdSi74hw0xgxIAgLJ1yLlA=",
+    "key_data": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgszedXqdaYfdUB34+Fa3HvJ0kARGQxu7u+TDwh25f0nihRANCAASmKpBCm1Hes5wYe7CCaFlG7Iq9NnP0iW9iW+4GOG8i1kQSzjjh8+JTwaTWf6FkNyJfD0C0oHNG0FI9SEEI21W3",
+    "key_type": "ec2",
+    "user_handle": "YjExM2I3YTNiZjUwYTEyMWJjNjcxMzhmYjNlZGViM2Q="
+  },
+  "owner_id": "b113b7a3bf50a121bc67138fb3edeb3d",
+  "owner_name": "Alina Rao",
+  "row": {
+    "created_at": 1789997589,
+    "data": {
+      "cred": {
+        "id": "K2d6Gp4m8U7AKV/7QcpuTQdSi74hw0xgxIAgLJ1yLlA=",
+        "publicKey": "pQECAyYgASFYIKYqkEKbUd6znBh7sIJoWUbsir02c/SJb2Jb7gY4byLWIlggRBLOOOHz4lPBpNZ/oWQ3Il8PQLSgc0bQUj1IQQjbVbc=",
+        "attestationType": "basic_surrogate",
+        "attestationFormat": "packed",
+        "transport": [
+          "internal"
+        ],
+        "flags": {
+          "userPresent": true,
+          "userVerified": true,
+          "backupEligible": false,
+          "backupState": false
+        },
+        "authenticator": {
+          "AAGUID": "KwPQQ1z1rtH+H/lXyc1cWw=="
+        },
+        "attestation": {
+          "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiaTJENG1MVXRQR0QtZTZUSDdDT3hiYzhQZHNkTUdPTEIxOWlYblFhNF81SSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODA4MCJ9",
+          "clientDataHash": "y321allXsXXj9Q0ZwfeB058PLawpEcU8Juh7Jvi4JBQ=",
+          "object": "o2NmbXRmcGFja2VkZ2F0dFN0bXSiY2FsZyZjc2lnWEYwRAIgOmYPZ6fv+duBqIuG8FGaJEx7xojHD88VeC1aQs3ojbwCIHi61dfZYWNKyUDEUveFiNUKrNrgFRjS+43oXAVjtcMraGF1dGhEYXRhWKRJlg3liA6MaHQ0Fw9kdmBbj+SuuaKGMseZXPO6gx2XY0UAAAAAKwPQQ1z1rtH+H/lXyc1cWwAgK2d6Gp4m8U7AKV/7QcpuTQdSi74hw0xgxIAgLJ1yLlClAQIDJiABIVggpiqQQptR3rOcGHuwgmhZRuyKvTZz9IlvYlvuBjhvItYiWCBEEs444fPiU8Gk1n+hZDciXw9AtKBzRtBSPUhBCNtVtw=="
+        }
+      }
+    },
+    "id": "0ed0f7a6e053ec2a21283fd61b0d49b1",
+    "kind": "passkey",
+    "owner_id": "b113b7a3bf50a121bc67138fb3edeb3d",
+    "tag": "laptop"
+  },
+  "written_by": "github.com/go-webauthn/webauthn v0.17.4 (pact-gateway a3b69ac), after one successful login"
+}

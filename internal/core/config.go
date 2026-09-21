@@ -35,11 +35,14 @@ const (
 const (
 	RuleInternalBindAuth = "internal_bind_requires_auth_and_tls"  // SPEC §2.2, §8.3
 	RuleInternalHost     = "internal_bind_requires_internal_host" // SPEC §8.3, §12.2
-	RulePostgresDSN      = "postgres_dsn_required"                // SPEC §11.1
-	RuleEdgeSeal         = "edge_mode_forces_seal_required"       // SPEC §2.5
-	RuleEdgeClientCert   = "edge_mode_forces_client_cert_off"     // SPEC §2.5
-	RuleEnum             = "invalid_enum_value"
-	RuleRange            = "value_out_of_range"
+	// RuleInternalHostIsRPID is applied where the config is LOADED for a command (internal/cli), not
+	// in Validate: the judgement is the passkey library's own, and this package imports no library.
+	RuleInternalHostIsRPID = "internal_host_is_a_passkey_relying_party" // SPEC §12.2
+	RulePostgresDSN        = "postgres_dsn_required"                    // SPEC §11.1
+	RuleEdgeSeal           = "edge_mode_forces_seal_required"           // SPEC §2.5
+	RuleEdgeClientCert     = "edge_mode_forces_client_cert_off"         // SPEC §2.5
+	RuleEnum               = "invalid_enum_value"
+	RuleRange              = "value_out_of_range"
 )
 
 type Config struct {
