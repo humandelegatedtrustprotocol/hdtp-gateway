@@ -215,10 +215,23 @@ instead of "deliberate".
 **D4.** `testdata/passkey-webauthn-0.17.4.json` is a real record made in a worktree at the commit
 before the bump; the new test signs its owner in with it under 0.18.
 
-**D5. Answered, not fixed.** The staging battery skips `TestFormerLeafAnswersCertificateRenewed`
-because it needs `PACT_LIVE_FORMER_KID` — the key id of a leaf the identity USED to hold. Nothing in
-the battery can make one: it would have to drive a renewal through the wallet ceremony against the
-deployment, and that can only be developed against a deployment. Left skipped, with the reason.
+**D5. Answered; the skip is permanent, and the first answer was not the reason.** The battery skips
+*a stale kid is answered `certificate_renewed`* because it needs `PACT_LIVE_FORMER_KID`, the key id
+of a leaf the identity USED to hold. The first answer here said a renewal could only be driven
+against a deployment. That was true and beside the point: a renewal does not produce a former kid at
+all. A leaf's kid goes `former` only once the leaf is superseded AND past its `not_after`
+(`pact-cloud/gateway/src/identity/store.ts`, `retireExpiredLeaves`) — while it is merely superseded
+its key is still held and still answers, which is why it is held — and the shortest validity a
+wallet may issue is one day, because the lifetime is the person's choice and zero is refused. So no
+journey, however it is written, can manufacture an expired leaf inside a run without a clock it does
+not own. `make e2e-staging` on 2026-09-21 skipped it too, on a freshly certified identity, which is
+the proof of that.
+
+The rule is therefore proven where a clock exists, and the skip message says so rather than reading
+like a missing variable: `pact-cloud/gateway/test/public-surface-20.test.ts` drives a renewal
+against a real Durable Object, retires the old leaf at a `now` it chooses, asserts `formerKids` holds
+exactly that kid, then asserts both the answer and the contact's re-seal; and `decide`'s own
+`certificate_renewed` cases are proven in both ports against Appendix B. Cloud `d63fa56`.
 
 **D6.** `/healthz`'s `identity` level is now the newest CONTRACTING migration, read from the
 migration's own SQL (`pact-cloud/gateway/src/identity/contract.ts`): one that takes a column or a
@@ -290,8 +303,18 @@ yes); the ideation phase.
 ---
 
 ## Order of execution
-A, B, C (one pin), D. All four are done. What is left is not mine: the staging deploy of the 2.1.3
-core, the production deploy, counsel's answers, `pact-cloud`'s branch protection, whether CI runs on
+A, B, C (one pin), D. All four are done, and **staging now runs the 2.1.3 core**: the owner ran
+`make ship-staging` and then `make e2e-staging` on 2026-09-21, which certified a fresh identity
+through the real wallet ceremony and ran the whole conformance battery against it — zero failures,
+one permanent skip (D5). The first of those two runs found a defect worth more than the deploy: it
+reported "done" and exited 0 with its battery never run, because `make conformance` pipes into
+`grep | tail` and macOS ships GNU make 3.81, which ignores the `.SHELLFLAGS` that would have made
+`pipefail` apply. Three ship-path recipes were unprotected the same way (`conformance`, `wallet`,
+`workers`); each now sets `pipefail` itself, and `pact-cloud/gateway/scripts/check-make-recipes.mjs`
+runs each of them against stubs on every commit, in both directions, with the file's own property
+guarded for recipes nobody has stubbed yet. Cloud `dc5bcb7`.
+
+What is left is not mine: the production deploy, counsel's answers, `pact-cloud`'s branch protection, whether CI runs on
 pull requests, deleting the stale branches and the backup bundle, and the ideation phase.
 
 One open item the cloud will need: a pin MAY now carry `leaf_fingerprint` (SPEC 2.1.3 §13.1), and
