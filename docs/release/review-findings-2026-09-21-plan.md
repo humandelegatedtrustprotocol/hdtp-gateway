@@ -113,7 +113,7 @@ the same step as their fix were checked separately, by putting the old behaviour
 
 `gate.sh`, and the node's `make check` and `make harness`, pass. PROOFS.md: 349 parity cases.
 
-## C — everything that touches the pinned core, ONCE. `TODO`
+## C — everything that touches the pinned core, ONCE. `DONE` (pinned; staging deploy is the next step)
 
 Both ports move together, and the seed where it has the function. SPEC becomes **2.1.3** only if
 Appendix B or a normative sentence changes (C1 adds a refused certificate, so it does).
@@ -137,6 +137,49 @@ Then, in the order `CLAUDE.md` gives: commit → `sh js/reproduce.sh --pin` → 
 `gate.sh` → commit the manifest → vendor into `pact-cloud` (four `pkg-web` files, the manifest, the
 vector fixture) → `check-wasm.mjs` → `build-ceremony.mjs --pin` → `make check wallet` → push the cloud,
 the protocol, then the umbrella → staging → the served page compared byte for byte → `make e2e-staging`.
+
+**What was shown.** Both ports — and the seed — were wrong the SAME way on most of C, so parity could
+not have seen it. Each port's own tests were written first and run against the code as it was: eight
+at the core's boundary (`tests/findings.rs`), all red, each for its own reason — the encoded card
+visibly carrying an injected `X-PACT-SEAL:none`, `wallet_issue` really ISSUING a leaf over a card-held
+sibling's root key, `host_of` answering `agent.alina.example:8443`. Six intrusion scenarios REPRODUCED
+against the seed as it was (four of them: the envelope was simply accepted) and are blocked now, by
+the seed and by both ports: 130 scenarios, 126 blocked, 4 residual by decision. Parity: 419 cases, all
+agreeing. SPEC is **2.1.3**: 49 MUSTs, the two new ones held by tests and scenarios seen red.
+
+- **C12 grew into the rule the spec needed.** "Strict" was still several spellings: both ports
+  forgave padding, whitespace and the standard alphabet in an envelope's members, consistently. And on
+  the way there the Go port turned out to accept one more that the core refused — a last character
+  with a spare bit set, because `encoding/base64` is lenient unless told to be `Strict()`. §13.1 now
+  says a member has ONE spelling, unpadded and canonical; a wire reader in all three holds it; and a
+  caller's arguments at the boundary stay forgiving, because that is a different question.
+- **C5 found a divergence nobody had listed.** A MISSING instant was `parse: an instant is required`
+  in every Go function that takes one, where the core and the contract say `bad_request: now is
+  required`. The harness had never left `now` out. Go also leaked `encoding/json`'s own sentence for a
+  member of the wrong type.
+- **C4 reached two hosts.** The node's `BuildCard20` returns the writer's refusal and an account
+  cannot be CREATED with a control character in its name; the cloud's `createIdentity` really did
+  create an identity named `Alina\r\nX-PACT-SEAL:none` (its new test shows it) and answers
+  `invalid_name` now. No identity may exist whose card cannot be written.
+- **C2 reached a copy.** The cloud's status Worker keeps its own private-address predicate; it knew
+  NAT64 and IPv4-mapped and not 6to4, site-local or the IPv4-compatible form.
+- **C6**: shown by a pin that CANNOT be parsed and is never asked to be; red when the finder is made
+  to ignore the claim. The node supplies `leaf_fingerprint` from the key it keeps beside each pin
+  (the one statement that writes `leaf` writes `spki`). **The cloud does not yet**: its contact row
+  keeps the key and not the fingerprint, and there is no synchronous hash on that path, so it wants
+  a column. The old scan is correct there, and O(contacts). That is an open item, not a done one.
+- **A flake of mine, caught before it was pushed.** The parity cases that respell an envelope were
+  built from an envelope sealed with a RANDOM ephemeral key, and which respellings exist depends on
+  the bytes, so the number of cases moved between runs — 420, then 421 — and PROOFS.md would have
+  gone stale at random. Sealed from a fixed seed: 419, three runs. The source commit's message says
+  420; the pin's commit corrects it.
+- **The vectors' own note was false.** It said every certificate reproduces byte for byte. What
+  Ed25519 signs does; an ECDSA signature is new each run, so `root_b`, `leaf_b`, `leaf_b_twin` and
+  the P-256 envelope change their signature bytes at every regeneration. It says so now.
+
+Protocol `ccc26d6`; umbrella source `0962ff6`, pin `91e65f4` (642,820 bytes, sha256 `5e411231…`);
+cloud `8b4d5c8` (wallet page script `1d22b020…`, 947,790 bytes). `gate.sh`, the node's `check` and
+`harness`, and the cloud's `make check wallet` (1,429 tests, 103/103 wallet checks) pass.
 
 ## D — "other items from top". `TODO`
 
