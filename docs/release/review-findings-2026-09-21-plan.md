@@ -21,7 +21,7 @@ push. Status is written here as it happens.
 
 ---
 
-## A — the CLI (`crates/pact`): free. `TODO`
+## A — the CLI (`crates/pact`): free. `DONE`
 
 | # | Finding | Fix |
 |---|---|---|
@@ -33,6 +33,29 @@ push. Status is written here as it happens.
 | A6 | the P-256 guard on a card-held root is never reached: the test that names it passes on a different error that also contains "P-256" | a fake card reporting an Ed25519 key, asserting text only the guard produces |
 | A7 | `card_proves_it_holds` borrows the certificate-SERIAL generator for its challenge: 8 random bytes where §2.2 asks 32 of the analogous proof | 32 bytes of its own |
 | A8 | the live battery's CONTROL — the one call that must get through — passes on the presence of two JSON keys and never opens the envelope it is answered with. TWO drivers: `crates/pact/src/vectors.rs` and `js/live.mjs` | both open the result with the attacker's own leaf key and require `cty: application/pact-result+json`; the stub that pinned the shallow reading goes red first |
+
+**What was shown, item by item.** A1: the loop moved into a pure `gather`, and against the unbounded
+loop a transport answering `61 FF` for ever was still being asked after 10,000 rounds; bounded at 64
+rounds and 64 KiB, with an honest 3 KiB chained answer still gathered whole. A2: durability cannot be
+shown without pulling the plug; what is shown is that the directory really is opened and synced (a
+parent that is not there is an error) and that both write paths reach it. A failure is reported and the
+file LEFT, since it may be the only copy of a root key. A3: `Zeroizing` for the passphrase (as typed,
+as read from its file, as compared), the PIN's three copies, and both texts that cross `io::core`; a
+`wipe` overwrites every string of a JSON value, which the Vault's Drop now uses instead of dropping to
+Null. Only `wipe` is observable, and is tested; the rest is types. A4: red — "the unproven vault was
+left at …" — then removed on a failed proof, and the same path restored to again. A5: red — a request
+carrying a sibling root's key was GIVEN A LEAF on the card path — then refused as the software path
+refuses it. A6: the new test goes red with the guard switched off (it then fails on the signature
+instead), which the test it replaces never did. A7: 32 bytes of its own. A8: both drivers open the
+control's answer — sealed to the attacker's leaf key, a result, for this call, in the window, from a
+leaf that chains to the target's root at the target's address, and not a sealed refusal; the verdict for
+a look-alike is `CONTROL UNOPENED` in both, held together by a test. The JS driver's OWN end-to-end
+test went red the moment it opened the answer: its fake node had been answering the control with four
+one-letter strings. The fake now seals a real result through the pinned core. `gate.sh` passes.
+
+**Found on the way, and it is the core's (so it is C11):** `vault::wallet_issue` collects root keys
+from `pkcs8` only, so on the SOFTWARE path a request carrying a CARD-held sibling root's key is not
+refused either. A5 fixed the card path by reading every root's certificate; the core should too.
 
 ## B — the Go port adopts what the Rust core and the seed already do: free. `TODO`
 
@@ -67,6 +90,7 @@ Appendix B or a normative sentence changes (C1 adds a refused certificate, so it
 | C8 | `from_pkcs8`'s Ed25519 arm accepts RFC 8410-forbidden parameters; `from_spki` refuses them | require exactly the algorithm |
 | C9 | `api.rs`: `chain(a, "sender_chain").ok()` reports a present-but-malformed chain as an absent one | propagate the decode error; Go the same words |
 | C10 | `fingerprint_of_leaf` is public, dead, and on no dispatcher; CONTRACT §1 says the CLI "refuses" a use it merely does not expose | delete; reword |
+| C11 | `vault::wallet_issue` reads root keys from `pkcs8` only: a card-held sibling root is not among the keys a request may not carry (found while fixing A5) | read every root's certificate, as the CLI's card path now does |
 
 Then, in the order `CLAUDE.md` gives: commit → `sh js/reproduce.sh --pin` → `node js/record.mjs` →
 `gate.sh` → commit the manifest → vendor into `pact-cloud` (four `pkg-web` files, the manifest, the
