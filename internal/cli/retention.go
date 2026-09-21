@@ -28,12 +28,24 @@ const SweepInterval = time.Hour
 // destroyed when the leaf runs out, and "when" has to mean within the hour on a node that is up,
 // not at its next restart. It rides this ticker rather than having one of its own because it is
 // the same kind of work — a policy about age — and it is nil-safe for callers with no node.
-func startRetentionSweeper(ctx context.Context, settings *settingsService, st store.Store,
+//
+// It BLOCKS until ctx ends, and it never returns while a pass is running. `serve` runs it in its
+// background group and waits for that group before returning, so the store is not closed under a
+// pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
+func runRetentionSweeper(ctx context.Context, settings *settingsService, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context)) {
 
 	blobs := messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}
 	sweeper := &messaging.Sweeper{Store: st, Blobs: blobs, Audit: auditFn}
 
+	// A pass cut short because the node is stopping has not failed. Its store calls return the
+	// context's error, and printing those put "retention: …: context canceled" in front of an owner
+	// whose store was fine — after `serve` had returned, until it began waiting for this function.
+	report := func(what string, err error) {
+		if err != nil && ctx.Err() == nil {
+			fmt.Fprintf(stderr, "retention: %s: %v\n", what, err)
+		}
+	}
 	sweep := func() {
 		if retireLeaves != nil {
 			retireLeaves(ctx)
@@ -42,12 +54,10 @@ func startRetentionSweeper(ctx context.Context, settings *settingsService, st st
 		// writes an idempotency record every time, and one past its window protects nothing (PACT
 		// §13.3); an abandoned owner session is never presented again, so nothing else removes it.
 		now := time.Now().Unix()
-		if _, err := st.DeleteExpiredIdempotency(ctx, now); err != nil {
-			fmt.Fprintf(stderr, "retention: idempotency records: %v\n", err)
-		}
-		if _, err := st.DeleteExpiredSessions(ctx, now); err != nil {
-			fmt.Fprintf(stderr, "retention: sessions: %v\n", err)
-		}
+		_, err := st.DeleteExpiredIdempotency(ctx, now)
+		report("idempotency records", err)
+		_, err = st.DeleteExpiredSessions(ctx, now)
+		report("sessions", err)
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
 			return
@@ -57,22 +67,19 @@ func startRetentionSweeper(ctx context.Context, settings *settingsService, st st
 			if window <= 0 {
 				continue // unlimited: the default, and it deletes nothing
 			}
-			if _, err := sweeper.Sweep(ctx, a.ID, window); err != nil {
-				fmt.Fprintf(stderr, "retention: %s: %v\n", a.Slug, err)
-			}
+			_, err := sweeper.Sweep(ctx, a.ID, window)
+			report(a.Slug, err)
 		}
 	}
-	go func() {
-		t := time.NewTicker(SweepInterval)
-		defer t.Stop()
-		sweep() // once at startup, so a window set while stopped takes effect
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				sweep()
-			}
+	t := time.NewTicker(SweepInterval)
+	defer t.Stop()
+	sweep() // once at startup, so a window set while stopped takes effect
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			sweep()
 		}
-	}()
+	}
 }
