@@ -37,8 +37,14 @@ func TestNoGoroutineInThisPackageIsStartedAndAbandoned(t *testing.T) {
 	// file → function → why this one is not abandoned.
 	allowed := map[string]map[string]string{
 		"ingresscmd.go": {
-			"ingressServe": "three accept loops (terminator, front door, control plane), each ended by " +
-				"the Close or Shutdown deferred beside it; the ingress role has its own lifecycle",
+			// READ on 2026-09-21, not assumed. The control plane's server is Shutdown, which waits for
+			// its handlers. The terminator's and the front door's Close stop ACCEPTING and do not wait
+			// for connections in flight, so such a connection can outlive the command by a moment. What
+			// made that a defect in `serve` is absent here: there is no store closed under them (a file
+			// registry, written at pairing) and their audit sink is a line on stdout, not the audit
+			// chain, so nothing false is recorded. Draining connections is a feature the ingress lacks.
+			"ingressServe": "three accept loops; the control plane is Shutdown (waits), the other two are " +
+				"closed without draining — harmless here: no store under them, and audit is a stdout line",
 		},
 	}
 	files, err := filepath.Glob("*.go")
