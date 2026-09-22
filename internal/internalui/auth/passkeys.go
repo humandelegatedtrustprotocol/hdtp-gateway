@@ -128,9 +128,22 @@ func (s *Service) passkeysFor(ctx context.Context, ownerID string) ([]webauthn.C
 			continue
 		}
 		var sc storedCred
-		if err := json.Unmarshal(c.Data, &sc); err == nil {
-			out = append(out, sc.Cred)
+		// A row that will not decode is an ERROR, not a row to step over. Skipping it made
+		// `CountCredentialsByKind` and this list disagree about the same table: the count
+		// still saw the row, so `needs_setup` stayed false and the portal would not offer
+		// the wizard, while `BeginLogin` saw an empty list and said "no passkeys
+		// registered". Somebody whose only passkey row had been corrupted was told nothing
+		// was registered, could not reach the enrolment that fixes it, and the node
+		// recorded no reason anywhere. Saying which credential will not read turns a
+		// lockout with no diagnostic into one line an operator can act on.
+		//
+		// It is not a permission bug: the §8.3 setup window is decided by the COUNT
+		// (internal/internalui/server.go), which a corrupt row satisfies, so this never
+		// opened the wizard to anybody.
+		if err := json.Unmarshal(c.Data, &sc); err != nil {
+			return nil, fmt.Errorf("auth: stored passkey %s will not decode: %w", c.ID, err)
 		}
+		out = append(out, sc.Cred)
 	}
 	return out, nil
 }

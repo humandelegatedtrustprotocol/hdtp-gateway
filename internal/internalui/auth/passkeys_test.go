@@ -317,3 +317,45 @@ func TestAPasskeyStoredByThePreviousLibraryStillSignsItsOwnerIn(t *testing.T) {
 		t.Fatalf("the second login, after 0.18 rewrote the record: %v", err)
 	}
 }
+
+// A stored credential that will not decode must be an error with the row's id in it, not a
+// row quietly stepped over. Skipping it made two readers of one table disagree: the count
+// behind `needs_setup` still saw the row, so the portal would not offer the enrolment
+// wizard, while `BeginLogin` saw an empty list and answered "no passkeys registered".
+// Somebody whose only passkey row was corrupt was locked out and told the opposite of what
+// the node knew, with nothing recorded anywhere.
+func TestAStoredCredentialThatWillNotDecodeIsAnErrorAndNotAnAbsence(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	owner, err := e.st.CreateOwnerWithID(ctx, "own-corrupt", "Corrupt Row")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertCredential(ctx, store.Credential{
+		ID: "cred-broken", OwnerID: owner.ID, Kind: "passkey", Tag: "laptop",
+		Data: []byte(`{"cred": "this is not a credential object"}`), CreatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The count — what `needs_setup` is computed from — still sees it, which is why the
+	// portal will not send this person to the wizard and why the silence was a dead end.
+	n, err := e.st.CountCredentialsByKind(ctx, "passkey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("the count behind needs_setup sees %d rows, want 1", n)
+	}
+
+	_, _, err = e.svc.BeginLogin(ctx, testRP)
+	if err == nil {
+		t.Fatal("a credential that will not decode was stepped over: BeginLogin reported no error")
+	}
+	if !strings.Contains(err.Error(), "cred-broken") {
+		t.Fatalf("the error does not name the row an operator has to fix: %v", err)
+	}
+	if strings.Contains(err.Error(), "no passkeys registered") {
+		t.Fatalf("a row that will not read was reported as nothing being registered: %v", err)
+	}
+}
