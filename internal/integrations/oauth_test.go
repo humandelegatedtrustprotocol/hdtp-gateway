@@ -20,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+	"golang.org/x/oauth2"
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -294,7 +295,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	if strings.Contains(string(sealed), "access-") {
 		t.Fatal("token stored in plaintext")
 	}
-	tok, err := OpenToken(st, kr, in.ID)
+	tok, err := storedToken(st, kr, in.ID)
 	if err != nil || tok == nil || !strings.HasPrefix(tok.AccessToken, "access-") {
 		t.Fatalf("unsealed token: %+v %v", tok, err)
 	}
@@ -316,7 +317,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	if refreshes == 0 {
 		t.Fatal("no refresh happened")
 	}
-	tok2, err := OpenToken(st, kr, in.ID)
+	tok2, err := storedToken(st, kr, in.ID)
 	if err != nil || tok2.AccessToken == tok.AccessToken || tok2.RefreshToken == tok.RefreshToken {
 		t.Fatalf("rotation not persisted: %+v vs %+v (%v)", tok2, tok, err)
 	}
@@ -356,10 +357,19 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	if after <= before {
 		t.Fatal("the resumed handler did not refresh from the stored config")
 	}
-	tok3, err := OpenToken(st, kr, in.ID)
+	tok3, err := storedToken(st, kr, in.ID)
 	if err != nil || tok3 == nil || tok3.AccessToken == tok2.AccessToken {
 		t.Fatalf("the refreshed token after restart was not persisted: %+v %v", tok3, err)
 	}
+}
+
+// storedToken reads the sealed token the way a resumed handler does (openStored).
+func storedToken(st store.Store, kr Sealer, integrationID string) (*oauth2.Token, error) {
+	blob, err := openStored(st, kr, integrationID)
+	if err != nil || blob == nil {
+		return nil, err
+	}
+	return blob.Token, nil
 }
 
 func TestOAuthIssMismatchAborts(t *testing.T) {

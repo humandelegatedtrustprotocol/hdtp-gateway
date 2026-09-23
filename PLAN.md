@@ -3891,6 +3891,9 @@ already written in the clear. `resealLegacySecrets` runs at startup, converts
 those rows in place, audits the KEY of each, and is idempotent; a row it cannot
 seal is left exactly as it was rather than half-converted. So an owner who entered
 a credential before the fix does not have to know to re-enter it.
+*(Removed 2026-09-24, review N-16: no released build ever wrote such a row — the node has no
+release — so the repair was backward-compatibility code for a state nothing shipped, and
+CLAUDE.md rule 2 removes it. The case-insensitive `isSecretKey` and its test remain.)*
 
 **Residual risks, accepted and documented rather than fixed:** a local process on
 the host can reach the public surface as a GUEST in edge mode (E13 — it carries no
