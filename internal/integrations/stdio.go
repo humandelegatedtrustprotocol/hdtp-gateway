@@ -180,7 +180,7 @@ func (s *Supervisor) NoteSuccess() {
 	s.failures = 0
 }
 
-// Reset clears give-up state (the portal/CLI Reconnect action).
+// Reset clears give-up state: the owner's Reconnect (Manager.Reconnect), and nothing else.
 func (s *Supervisor) Reset() { s.NoteSuccess() }
 
 // BuildCmd constructs the child command: tokenized argv, no shell, environment

@@ -3,11 +3,13 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -450,5 +452,69 @@ func TestCallbackFindsTheFlowByState(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/oauth/callback?code=x&state=NOPE", nil))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("unknown state accepted: %d", rr.Code)
+	}
+}
+
+// The portal's Reconnect button is the owner's decision, and the one thing that re-arms a
+// supervised child that exhausted its restarts (SPEC §6.2). It called Manager.Connect, whose
+// Gate refuses a given-up child before launching anything, so the button did nothing while the
+// error it answered said "reconnect to retry" (review N-15). This drives the real route and
+// watches for the launch: the child is /usr/bin/false, so every launch is one crash row.
+func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "rc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	in, err := st.InsertIntegration(ctx, store.Integration{
+		AccountID: a.ID, Slug: "crashy", Transport: "stdio-supervised", Command: "/usr/bin/false",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	crashes := 0
+	m := &integrations.Manager{
+		Store: st, PingEvery: -1, StdioSleep: func(time.Duration) {},
+		Audit: func(action, _, _ string) {
+			if action == "integration_child_crash" {
+				mu.Lock()
+				crashes++
+				mu.Unlock()
+			}
+		},
+		StdioConfigFor: func(row store.Integration) integrations.StdioConfig {
+			return integrations.StdioConfig{Command: row.Command, MaxRestarts: 1, TerminateDuration: time.Second, NoShim: true}
+		},
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return crashes }
+
+	// One crash, and the child has given up.
+	if err := m.Connect(ctx, in.ID); err == nil {
+		t.Fatal("/usr/bin/false connected")
+	}
+	if err := m.Connect(ctx, in.ID); !errors.Is(err, integrations.ErrUnavailable) {
+		t.Fatalf("the child did not give up after its one restart: %v", err)
+	}
+	if count() != 1 {
+		t.Fatalf("crashes before the owner acts: %d, want 1", count())
+	}
+
+	mux := http.NewServeMux()
+	MountIntegrationPages(mux, IntegrationsDeps{Store: st, Manager: m, ConnectTimeout: 2 * time.Second})
+	if rr := postForm(t, mux, "/integrations/"+in.ID+"/connect?account="+a.ID, url.Values{}); rr.Code >= 400 {
+		t.Fatalf("reconnect: %d %s", rr.Code, rr.Body.String())
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for count() < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if count() < 2 {
+		t.Fatal("the portal's Reconnect launched nothing: a child that gave up stays given up after the owner asked")
 	}
 }

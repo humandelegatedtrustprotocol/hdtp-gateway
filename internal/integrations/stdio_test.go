@@ -139,9 +139,12 @@ func TestCrashLoopHitsCeilingThenUnavailable(t *testing.T) {
 		t.Fatalf("crashes not audited: %v", aud.rows)
 	}
 
-	// owner reconnect: Reset clears give-up and a launch happens again
-	m.StdioSupervisor(in).Reset()
-	if err := m.Connect(ctx, in.ID); errors.Is(err, ErrUnavailable) {
-		t.Fatal("reset did not clear give-up")
+	// A plain Connect — startup, the health cycle — stays given up.
+	if err := m.Connect(ctx, in.ID); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a Connect that is not the owner's re-armed a child that gave up: %v", err)
+	}
+	// The owner's reconnect clears give-up and a launch happens again.
+	if err := m.Reconnect(ctx, in.ID); errors.Is(err, ErrUnavailable) {
+		t.Fatal("the owner's reconnect did not clear give-up")
 	}
 }
