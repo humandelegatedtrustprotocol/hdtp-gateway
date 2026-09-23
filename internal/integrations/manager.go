@@ -384,12 +384,12 @@ func (m *Manager) Connect(ctx context.Context, integrationID string) error {
 }
 
 // Reconnect is the OWNER's connect: the portal's Connect/Reconnect button. It is Connect after
-// clearing a supervised child's give-up (SPEC §6.2), because a child that exhausted its restarts
-// answers `unavailable` "until the owner explicitly reconnects" — and this is that. Startup and the
-// health cycle call Connect and never this, so nothing but an owner's decision re-arms a child
-// that kept dying. Until 2026-09-24 the button called Connect, whose Gate refused a given-up
-// child at once, so "reconnect to retry" retried nothing (review N-15: Supervisor.Reset had no
-// production caller).
+// clearing a supervised child's give-up (SPEC §6.2). Left alone, a child that exhausted its
+// restarts stays given up until its failure window has passed, and the health cycle's next redial
+// launches it then; the owner asking is the one thing that ends give-up at once. Startup and the
+// health cycle call Connect and never this. Until 2026-09-24 the button called Connect, whose Gate
+// refused a given-up child inside the window, so "reconnect to retry" retried nothing (review
+// N-15: Supervisor.Reset had no production caller).
 func (m *Manager) Reconnect(ctx context.Context, integrationID string) error {
 	m.mu.Lock()
 	sup := m.stdio[integrationID]
