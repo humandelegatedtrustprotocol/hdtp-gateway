@@ -262,16 +262,15 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 					return out, nil
 				},
 				Call: nd.CallContact,
-				// The SAME redeemer the owner MCP's add_contact calls, so the
+				// The SAME function the owner MCP's add_contact calls, so the
 				// portal and the agent surface cannot disagree about what
-				// accepting an invite does (SPEC §8.4).
-				AddContact: func(ctx context.Context, accountID, inviteURL, grant string) (string, error) {
-					ci := newContactInitiator(st, nd, auditFn)
-					res, err := ci.RedeemInvite(ctx, accountID, inviteURL, grant)
+				// accepting an invite, or asking from a card, does (SPEC §8.4).
+				AddContact: func(ctx context.Context, accountID, inviteURL, card, note, grant string) (string, string, error) {
+					res, err := newContactInitiator(st, nd, auditFn).Add(ctx, accountID, inviteURL, card, note, grant)
 					if err != nil {
-						return "", err
+						return "", "", err
 					}
-					return res.Fingerprint, nil
+					return res.Fingerprint, res.Status, nil
 				},
 			})
 		},

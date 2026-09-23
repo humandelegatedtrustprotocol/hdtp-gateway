@@ -734,7 +734,7 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Setup wizard | First-run flow; auto-shows while the node has zero passkeys; reachable only from loopback or with a one-time setup URL minted by `passkey reset-wizard` (§12) |
 | Dashboard | At-a-glance node state and recent activity |
 | Inbox | Threads and messages, live over SSE; composer (sends labeled `human`, §7.3); click-to-fetch for `url` media (§7.5) |
-| Contacts | Per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier; block, unblock and remove on each contact's page, approve and reject on the Requests tab (§9.1, PACT §8) |
+| Contacts | Accept an invite link, or connect from a card (§9.3); per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier; block, unblock and remove on each contact's page, approve and reject on the Requests tab (§9.1, PACT §8) |
 | Invites | Issue, label, revoke; expiry / max_uses / auto_accept / preset (§9) |
 | Card builder | vCard fields with auto-filled `X-PACT-*` properties; export as .vcf / QR / link (§9) |
 | Integrations | The current catalog snapshot vN, exposure picker over the exposure set vM with stale entries marked, per-server recipes, warnings with recorded acknowledgment; stale mappings withheld until re-confirmed (§6) |
@@ -876,7 +876,7 @@ The card builder (portal, §8) produces the account's PACT contact card: a stand
 
 **Export** is offered as a `.vcf` download, a QR, and a shareable link; `get_card` returns the current signed card to contacts (PACT §6.2), and invite responses carry it signed (§9.2).
 
-**Import** accepts a `.vcf` in the portal. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the address the imported card's certificate names (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's chain against the root that certificate names as its issuer before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §14.2). A card is its certificate, its version and its seal policy; a property the node does not know is ignored and never honoured (PACT §3).
+**Import** accepts a `.vcf` — or its text — in the portal (People → Connect from a card) and through the owner MCP's `add_contact{card, note}`, both through one function. A card carrying `X-PACT-*` properties triggers the "connect our agents?" offer; on the owner's confirmation the node runs the PACT §5.2 manual flow: it calls `request_contact(card, note)` at the address the imported card's certificate names (state `pending_out`), and when `contact_accepted` arrives it MUST verify the caller's chain against the root that certificate names as its issuer before pinning — the out-of-band card is the trust anchor, and trust in the card equals trust in the channel that carried it (PACT §5.2, §14.2). A card is its certificate, its version and its seal policy; a property the node does not know is ignored and never honoured (PACT §3).
 
 ### 9.4 Phone-book sync
 

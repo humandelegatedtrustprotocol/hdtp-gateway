@@ -246,7 +246,22 @@ type addContactResult struct {
 	Permissions []string `json:"permissions,omitempty"`
 }
 
-// redeemInviteAs performs the whole owner-initiated redemption for one account.
+// Add is the owner reaching out, by either of the two paths SPEC §9 specifies: an invite link
+// they were sent (RedeemInvite), or a card they hold out of band (RequestContact). It is the one
+// function behind the owner MCP's add_contact and the portal's People page, so the two surfaces
+// cannot disagree about which path a request takes.
+func (ci *contactInitiator) Add(ctx context.Context, accountID, inviteURL, card, note, grant string) (addContactResult, error) {
+	switch {
+	case inviteURL != "" && card != "":
+		return addContactResult{}, fmt.Errorf("an invite link or a card, not both")
+	case inviteURL != "":
+		return ci.RedeemInvite(ctx, accountID, inviteURL, grant)
+	case card != "":
+		return ci.RequestContact(ctx, accountID, card, note)
+	}
+	return addContactResult{}, fmt.Errorf("an invite link or their card is needed")
+}
+
 // RedeemInvite is the owner pasting somebody's invite link.
 //
 // `grant` is what WE give THEM on OUR node, and it is separate from what their

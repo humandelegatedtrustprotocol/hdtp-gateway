@@ -29,13 +29,15 @@ type ContactsDeps struct {
 	ListTools func(ctx context.Context, accountID, fpr string) ([]ContactTool, error)
 	Call      func(ctx context.Context, accountID, fpr, tool string, args map[string]any) (string, error)
 	Audit     func(action, resource, outcome string)
-	// AddContact redeems somebody's invite link with THIS account's identity —
-	// the owner-initiated half of contact establishment (SPEC §9). It is the same
-	// function the owner MCP's add_contact calls: the portal and the agent surface
-	// are meant to be at parity (§8.4), and a second implementation here would be
-	// a second set of bugs. Nil hides the form rather than offering a button that
-	// cannot work.
-	AddContact func(ctx context.Context, accountID, inviteURL, grant string) (fingerprint string, err error)
+	// AddContact is the owner reaching out with THIS account's identity — the
+	// owner-initiated half of contact establishment (SPEC §9): redeem the invite
+	// link they were sent, or, with no link, ask the holder of a card they have out
+	// of band (§9.3's import; the PACT §5.2 manual flow, landing pending_out). It is
+	// the same function the owner MCP's add_contact calls: the portal and the agent
+	// surface are meant to be at parity (§8.4), and a second implementation here
+	// would be a second set of bugs. Nil hides both forms rather than offering a
+	// button that cannot work. status is the row's: active or pending_out.
+	AddContact func(ctx context.Context, accountID, inviteURL, card, note, grant string) (fingerprint, status string, err error)
 	// RefreshContact re-fetches ONE contact's signed card because the owner pressed the
 	// button on that contact's page: a renewed certificate, a changed name or seal policy.
 	// The same function as the owner MCP's refresh_contact (§8.4 parity). There is no
@@ -267,11 +269,13 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 				account = r.PostForm.Get("account")
 			}
 			inviteURL := strings.TrimSpace(r.PostForm.Get("invite_url"))
-			if inviteURL == "" {
-				redirectContacts(w, r, account, "", "paste the invite link they sent you")
+			card := strings.TrimSpace(r.PostForm.Get("card"))
+			if inviteURL == "" && card == "" {
+				redirectContacts(w, r, account, "", "paste the invite link they sent you, or their card")
 				return
 			}
-			fpr, err := d.AddContact(r.Context(), account, inviteURL, r.PostForm.Get("grant"))
+			fpr, status, err := d.AddContact(r.Context(), account, inviteURL, card,
+				strings.TrimSpace(r.PostForm.Get("note")), r.PostForm.Get("grant"))
 			if err != nil {
 				if d.Audit != nil {
 					// the URL is a bearer credential; the KEY of the failure is
@@ -284,7 +288,11 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 			if d.Audit != nil {
 				d.Audit("contact_add", withAccount(r, "peer:"+fpr), "ok")
 			}
-			redirectContacts(w, r, account, "Added "+fpr, "")
+			notice := "Added " + fpr
+			if status == "pending_out" {
+				notice = "Asked " + fpr + " to connect. They are listed as waiting until their owner approves."
+			}
+			redirectContacts(w, r, account, notice, "")
 		})
 	}
 

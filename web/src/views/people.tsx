@@ -86,6 +86,8 @@ function ContactsTab({ d, onNote, reload }: {
 }) {
   const [invite, setInvite] = useState("");
   const [grant, setGrant] = useState("basic");
+  const [card, setCard] = useState("");
+  const [note, setNote] = useState("");
   const rows = d.contacts ?? [];
 
   const accept = async () => {
@@ -96,6 +98,19 @@ function ContactsTab({ d, onNote, reload }: {
     setInvite("");
     reload();
   };
+
+  // SPEC §9.3's import: a card they gave you out of band — a .vcf, or its text — and, once you
+  // confirm, the node asks at the address the card names (PACT §5.2). They are waiting until
+  // their owner approves; nothing is pinned as a contact before that.
+  const askFromCard = async () => {
+    const res = await postForm("/contacts/add", { card, note, grant });
+    const said = res.url.searchParams.get("added");
+    const err = res.url.searchParams.get("err") || (!res.ok ? res.body || "that card was not accepted" : "");
+    onNote(err ? { kind: "err", text: err } : { kind: "ok", text: said || "Asked them to connect." });
+    if (!err) { setCard(""); setNote(""); }
+    reload();
+  };
+  const readCardFile = async (f: File | undefined) => { if (f) setCard(await f.text()); };
 
   return (
     <>
@@ -112,6 +127,22 @@ function ContactsTab({ d, onNote, reload }: {
               {d.presets.map((p) => <option key={p}>{p}</option>)}
               <option value="none">none — they cannot reach me</option>
             </select>
+          </Field>
+        </Section>
+      )}
+      {d.can_add && (
+        <Section title="Connect from a card"
+          description="Somebody gave you their contact card — a .vcf file, or its text — instead of an invite link. Your node asks them at the address their card names; they are listed as waiting until they approve."
+          footer={<Button onClick={askFromCard} disabled={!card.trim()}
+            confirm="Connect our agents? Your node sends them your card and asks to be added.">Ask to connect</Button>}>
+          <Field label="Their card (.vcf)" id="cardfile">
+            <input type="file" accept=".vcf,text/vcard" onChange={(e) => readCardFile(e.target.files?.[0])} />
+          </Field>
+          <Field label="…or paste it" id="cardtext">
+            <textarea rows={5} placeholder={"BEGIN:VCARD\n…\nEND:VCARD"} value={card} onChange={(e) => setCard(e.target.value)} />
+          </Field>
+          <Field label="A note for them (optional)" id="cardnote">
+            <input type="text" maxLength={1024} value={note} onChange={(e) => setNote(e.target.value)} placeholder="we met in Pune" />
           </Field>
         </Section>
       )}
@@ -221,6 +252,7 @@ function InvitesTab({ d, reload, onNote }: {
         <Notice kind="ok" title="Share this link — it is shown once"
           action={<Button variant="secondary" onClick={() => navigator.clipboard?.writeText(link(fresh))}>Copy</Button>}>
           <pre>{link(fresh)}</pre>
+          <p className="muted">Your node keeps only a hash of the link, so it cannot show it again. Lost it? Revoke this invite below and create another.</p>
         </Notice>
       )}
       {fresh && !link(fresh) && (

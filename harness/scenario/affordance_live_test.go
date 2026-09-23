@@ -82,6 +82,10 @@ func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
 	if pg := see("/contacts"); !offers(pg, "Accept invite") || !offers(pg, "their.node/i/") {
 		t.Errorf("no way to accept an invite from Contacts: %v", pg.Controls)
 	}
+	// ...and asking from a card held out of band, SPEC §9.3's import (review N-17).
+	if pg := see("/contacts"); !offers(pg, "Ask to connect") {
+		t.Errorf("no way to connect from a card on Contacts: %v", pg.Controls)
+	}
 
 	// 4. Integrations: junk cannot be created, and what exists can be removed.
 	if pg := see("/integrations"); !offers(pg, "Add integration") {
