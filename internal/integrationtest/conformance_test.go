@@ -68,8 +68,9 @@ func repoRoot(t *testing.T) string {
 // `internal/node/node.go` (`DeliverSealed` — the relay path) for a function deleted with the relay
 // (review N-13). This resolves every backticked token of that column in every table that has one:
 // a path must exist (`{a,b}` and `*` expanded); a bare file name must exist beside a path the same
-// cell names; and an identifier must be declared — a func, method, type, var or const — in the Go
-// files the same cell names.
+// cell names; and an identifier must be declared in the Go files the same cell names — as a func,
+// method, type, var or const, or as a tab-indented name followed by a type or `=`, which a const or
+// var block member matches and so does a struct field.
 func TestConformanceDocLocationsExist(t *testing.T) {
 	root := repoRoot(t)
 	doc, err := os.ReadFile(filepath.Join(root, "docs", "conformance.md"))
