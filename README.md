@@ -287,7 +287,7 @@ in containers and drive it as a person would:
 | Cloudflare | Two people over two real Cloudflare tunnels on a real domain (an owner run: it needs an account) | `TestTwoUsersOverRealCloudflareTunnels` |
 | Calendar | A real CalDAV server behind a third-party MCP server nobody here wrote | `TestContactBooksIntoRealCalDAV` |
 
-Under them, the fabric proves its own topologies live: isolated segments that are
+Under them, the harness's own live tests prove the ground they stand on: isolated segments that are
 genuinely unreachable (`TestLiveInternalNetworkIsGenuinelyUnreachable`), NAT that
 gives outbound and no inbound (`TestLiveNATGivesOutboundButNoInbound`), and a guest
 whose clock is set elsewhere (`TestGuestClockTravelsAndTheNodeBelievesIt`).
