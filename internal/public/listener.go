@@ -56,9 +56,9 @@ func FactsFrom(ctx context.Context) TransportFacts {
 	return f
 }
 
-// WithFacts attaches transport facts to a context. The listener does this per
-// request; it is exported so an in-process caller (tests) can present the same
-// facts the wire would have carried.
+// WithFacts attaches transport facts to a context: the listener's facts
+// middleware calls it per request, and an in-process caller (a test) presents
+// the facts the wire would have carried through the same function.
 func WithFacts(ctx context.Context, f TransportFacts) context.Context {
 	return context.WithValue(ctx, factsKey{}, f)
 }
@@ -159,7 +159,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 		// bucket every caller's rate budget under the edge. The pin on that
 		// certificate is a transport check and stops at the handshake.
 		if s.IgnoreClientCert != nil && s.IgnoreClientCert() {
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), factsKey{}, f)))
+			next.ServeHTTP(w, r.WithContext(WithFacts(r.Context(), f)))
 			return
 		}
 		// Only a validated chain is an identity. The retired generation took the
@@ -179,7 +179,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 				f.ClientRoot = chain[1]
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), factsKey{}, f)))
+		next.ServeHTTP(w, r.WithContext(WithFacts(r.Context(), f)))
 	})
 }
 

@@ -226,13 +226,25 @@ constructor may have callers only in tests, which is precisely how the rate
 limiter and the session binder shipped — built, proven, named in the plan as
 load-bearing, never installed. A third check covers exported **methods** with no
 production caller, which is the shape most of this project's unwired machinery
-actually takes.
+actually takes, and a fourth exported **functions** that are not constructors —
+eight of them were found at once in the review of 2026-09-23 (`CardKey`,
+`PresetHolds`, `SealToken`, `catalog.Diff` among them), which no check here could
+see.
 
 It is a floor, not a proof. A function called only from another unreachable
 function still reads as reached, a hook left `nil` in a composite literal is
-invisible to all three checks, and the method check counts by bare name, so two
-types sharing a method name share a counter. The floor sits where this project
+invisible to all four checks, and the counters count by bare name, so two
+declarations sharing a name share a counter. The floor sits where this project
 has already fallen through.
+
+`make analyze` adds the whole-program check the floor is not:
+golang.org/x/tools/cmd/deadcode, rooted at `cmd/pact-gateway`, which follows
+calls rather than names and sees unexported functions too. Its report is held to
+this same table by `TestDeadcodeFindsOnlyWhatTheTableExcuses` — a function it
+finds must be excused here by its `Type.Method` or `pkg.Func`, or sit in an
+excused package. The table's staleness stays with the hermetic gate, which is
+why a row the deadcode report alone needs (`identity.FromLib`) must also be one
+the fourth check needs.
 
 Call sites inside **test-only packages** do not count as production references
 either (P14-05d). `internal/core/store/conformance` is ordinary `.go` source — Go
@@ -273,10 +285,8 @@ them, no source names them — and the rest are debt with a task against it.
 | `ownerUser.WebAuthnName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnDisplayName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnCredentials` | Interface dispatch, as above. | — |
-| `Cloudflare.Point` | **Unwired, and not by the 1.x removal.** Nothing in this tree has ever called it: the ingress role's DNS pointer was built and never installed. Found by this gate on 2026-09-17 while the 1.x removal made the suite compile again. It needs wiring or deleting — it is excused here only so one pre-existing gap does not mask new ones. | unwired, needs a decision |
-| `Manager.Ticking` | Test observability accessor on the integration health cycle. Deliberately not used in production. | — |
 | `Server.WithFactsForTest` | Test seam onto the facts middleware, so a test can assert what a request is SEEN as rather than asserting on the flag that decides it — which is the difference between pinning behaviour and pinning a variable. | — |
-| `ACME.Renew` | certmagic renews managed names on its own once `Manage` has been called; this forces one immediately and is exercised only by the renewal test. | — |
+| `identity.FromLib` | Called from another module: the cloud's conformance battery (`pact-cloud/gateway/conformance`) builds its reference peer's keypair through it, and `make dependents` is the gate that compiles that. A scan of this module alone reads it as unused; one such scan deleted it on 2026-09-19. | — |
 | `SQLite.MigrateDown` | A rollback seam on the `Store` interface, used by the conformance suite's `MigrateUpDownUp` and by the populated-rollback case (P14-03). SPEC §12.1 documents `migrate` as forward-only — there is deliberately no rollback command — so this has no production caller by design. | — |
 | `SQLite.RemoveMembership` | v1 has no surface for editing account membership: it is granted automatically (P14-05c) and never revoked, because v1 defines one role and no multi-owner UX. Pre-shaped for post-v1 the same way the `role` column is. | post-v1 |
 

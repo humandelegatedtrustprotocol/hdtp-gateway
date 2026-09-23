@@ -76,19 +76,6 @@ func (a *ACME) Manage(ctx context.Context, names ...string) error {
 	return a.cfg.ManageSync(ctx, names)
 }
 
-// Renew forces a renewal now (the renewal path, exercised in tests) and
-// reloads the renewed certificate into the serving cache.
-func (a *ACME) Renew(ctx context.Context, name string) error {
-	if err := a.cfg.RenewCertSync(ctx, name, true); err != nil {
-		return err
-	}
-	// swap, don't accumulate: evict the name's cached entries, then load the
-	// renewed certificate from storage so serving switches over immediately
-	a.cache.RemoveManaged([]certmagic.SubjectIssuer{{Subject: name}})
-	_, err := a.cfg.CacheManagedCertificate(ctx, name)
-	return err
-}
-
 // TLSConfig serves the managed certificates per SNI.
 func (a *ACME) TLSConfig() *tls.Config {
 	c := a.cfg.TLSConfig()

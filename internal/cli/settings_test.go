@@ -27,7 +27,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/ingress"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
-	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
 // portal drives the settings page the way a browser would, carrying the CSRF
@@ -833,8 +832,12 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 	if stored["tunnel.ingress-terminate.subdomain"].Value != "bob" {
 		t.Fatalf("terminate pairing stored nothing: %+v", stored)
 	}
-	if edge, err := tunnel.TerminatesAtEdge("ingress-terminate"); err != nil || !edge {
-		t.Fatalf("ingress-terminate must derive edge mode: %v %v", edge, err)
+	derived, err := core.Load("", func(k string) (string, bool) {
+		v, ok := map[string]string{"PACT_DATA_DIR": t.TempDir(), "PACT_TUNNEL": "ingress-terminate"}[k]
+		return v, ok
+	})
+	if err != nil || derived.Mode != core.ModeEdge {
+		t.Fatalf("ingress-terminate must derive edge mode: %+v %v", derived, err)
 	}
 }
 

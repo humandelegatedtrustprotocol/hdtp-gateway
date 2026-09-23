@@ -2,6 +2,7 @@ package public
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -191,7 +192,7 @@ type seal20Opt func(*pactidentity.SealOpts)
 func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *envelope.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
-	spki, _ := identity.SPKI(kp)
+	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	recipient, err := pactidentity.ParseSPKI(spki)
 	if err != nil {
 		t.Fatal(err)

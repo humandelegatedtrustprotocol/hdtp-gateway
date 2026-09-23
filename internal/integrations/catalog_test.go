@@ -89,31 +89,19 @@ func TestSnapshotMintsOnlyOnChange(t *testing.T) {
 	if err != nil || minted || cat2.Version != 1 || cat2.Tools != cat1.Tools {
 		t.Fatalf("unchanged refresh minted: v%d minted=%v err=%v", cat2.Version, minted, err)
 	}
-	// changed description => new version, that tool flagged in the diff
+	// changed description => new version
 	srv.RemoveTools("find_slots")
 	addEcho(srv, "find_slots", "Find free calendar slots (rev 2)")
 	cat3, minted, err := c.Refresh(ctx, in.ID)
 	if err != nil || !minted || cat3.Version != 2 {
 		t.Fatalf("changed refresh: v%d minted=%v err=%v", cat3.Version, minted, err)
 	}
-	diff, err := Diff(cat1.Tools, cat3.Tools)
-	if err != nil || len(diff) != 1 || diff[0].Name != "find_slots" || diff[0].Kind != "changed" {
-		t.Fatalf("diff: %v %v", diff, err)
-	}
-	// added + removed both flagged
+	// added + removed => another version
 	srv.RemoveTools("create_event")
 	addEcho(srv, "delete_event", "Delete an event")
 	cat4, minted, _ := c.Refresh(ctx, in.ID)
 	if !minted || cat4.Version != 3 {
 		t.Fatalf("v%d minted=%v", cat4.Version, minted)
-	}
-	diff, _ = Diff(cat3.Tools, cat4.Tools)
-	kinds := map[string]string{}
-	for _, d := range diff {
-		kinds[d.Name] = d.Kind
-	}
-	if kinds["delete_event"] != "added" || kinds["create_event"] != "removed" {
-		t.Fatalf("diff kinds: %v", kinds)
 	}
 	// store round-trip: latest is v3, v1 still immutable
 	latest, _ := st.LatestCatalog(ctx, in.ID)

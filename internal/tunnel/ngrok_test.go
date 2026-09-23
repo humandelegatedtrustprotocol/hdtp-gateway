@@ -34,7 +34,7 @@ func TestNgrokIsConfigGated(t *testing.T) {
 	if u, _ := publicURLFromTLS("tls://pact.ngrok.app:8443"); u != "https://pact.ngrok.app:8443" {
 		t.Fatalf("url: %s", u)
 	}
-	if edge, err := TerminatesAtEdge("ngrok"); err != nil || edge {
+	if edge, err := derivesEdge(t, "ngrok"); err != nil || edge {
 		t.Fatal("ngrok tls endpoint must be direct mode")
 	}
 }

@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -21,7 +21,7 @@ all: web check analyze build dist sbom
 # analyze runs exactly what CI runs, so what fails there fails here first.
 # The versions are pinned HERE and the workflow calls these targets — one list,
 # not two to drift apart.
-analyze: vulncheck staticcheck gosec
+analyze: vulncheck staticcheck gosec deadcode
 
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
@@ -36,6 +36,19 @@ staticcheck:
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
 		-quiet -exclude-dir=harness -exclude=G101,G104,G304 ./...
+
+# Whole-program reachability from the shipped binary (review N-15). The report goes to a file, not
+# a pipe: make runs /bin/sh, where a pipeline's status is its last command's, so a deadcode that
+# failed to build would hand the checker nothing and pass. The checker holds the report to the
+# Reachability table in docs/conformance.md.
+deadcode:
+	@report=$$(mktemp) && \
+	go run golang.org/x/tools/cmd/deadcode@v0.49.0 \
+		-f '{{range .Funcs}}{{$$.Path}} {{.Name}}{{"\n"}}{{end}}' \
+		-filter '^github.com/tech-sumit/pact-gateway/(cmd|internal)/' ./... > "$$report" && \
+	PACT_DEADCODE_REPORT="$$report" go test ./internal/integrationtest \
+		-run '^TestDeadcodeFindsOnlyWhatTheTableExcuses$$' -count=1 -v; \
+	status=$$?; rm -f "$$report"; exit $$status
 
 # Every parser that meets untrusted input, 30s each. Deliberately not part of
 # `all`: two minutes of wall clock that finds nothing on most runs. CI runs it

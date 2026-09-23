@@ -229,16 +229,11 @@ type InviteArgs struct {
 	Perms      []string `json:"permissions,omitempty"`
 }
 
-// NewServer composes the owner surface for one validated identity. The token was
+// NewServerWithExtra composes the owner surface for one validated identity: the
+// core tools, plus the SPEC §8.4/§8.6 tools whose dependencies live outside this
+// package (the node's card, the outbound client, the passkey service, the audit
+// chain) — each registered only when its dependency is supplied. The token was
 // verified by the transport before this is called; Cedar decides everything else.
-// NewServer builds the owner surface for one bearer identity.
-func NewServer(d Deps, ident auth.Identity) *mcp.Server {
-	return NewServerWithExtra(d, Extra{}, ident)
-}
-
-// NewServerWithExtra is NewServer plus the SPEC §8.4/§8.6 tools whose
-// dependencies live outside this package (the node's card, the outbound client,
-// the passkey service, the audit chain).
 func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway-owner", Version: "1"}, &mcp.ServerOptions{
 		SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },

@@ -45,7 +45,7 @@ func TestTailscaleOptionsPlumbing(t *testing.T) {
 }
 
 func TestTailscaleIsRegisteredAsDirectMode(t *testing.T) {
-	edge, err := TerminatesAtEdge("tailscale")
+	edge, err := derivesEdge(t, "tailscale")
 	if err != nil || edge {
 		t.Fatalf("tailscale must be a direct-mode adapter: edge=%v err=%v", edge, err)
 	}

@@ -129,7 +129,7 @@ func TestDashboardLinksAreReachable(t *testing.T) {
 		Slug: "me", DisplayName: "Me", Algo: "p256"}); err != nil {
 		t.Fatal(err)
 	}
-	h := Handler(e.st, NewSetupTokens(),
+	h := HandlerWithAuth(e.st, NewSetupTokens(), nil,
 		func(mux *http.ServeMux) { MountDashboard(mux, DashboardDeps{Store: e.st, Setup: NewSetupTokens()}) },
 		func(mux *http.ServeMux) { MountManagePages(mux, ManageDeps{Store: e.st}) },
 	)
