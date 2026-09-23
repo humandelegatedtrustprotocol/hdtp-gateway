@@ -29,8 +29,10 @@ const (
 )
 
 // ErrUnavailable marks a child past its give-up threshold: tools fail
-// `unavailable` (SPEC §6.10) until the owner explicitly reconnects.
-var ErrUnavailable = fmt.Errorf("integrations: child unavailable: gave up restarting; reconnect to retry")
+// `unavailable` (SPEC §6.10) until the failure window has passed — the health
+// cycle's next redial then launches it again — or the owner reconnects, which
+// clears give-up at once (Manager.Reconnect).
+var ErrUnavailable = fmt.Errorf("integrations: child unavailable: gave up restarting; it retries once the failure window passes, or reconnect to retry now")
 
 const (
 	// DefaultMaxMemoryBytes is SPEC §6.2's per-child cap: 512 MiB.
@@ -180,7 +182,8 @@ func (s *Supervisor) NoteSuccess() {
 	s.failures = 0
 }
 
-// Reset clears give-up state: the owner's Reconnect (Manager.Reconnect), and nothing else.
+// Reset clears give-up state at once: the owner's Reconnect (Manager.Reconnect).
+// Otherwise give-up ends when the failure window has passed (Gate).
 func (s *Supervisor) Reset() { s.NoteSuccess() }
 
 // BuildCmd constructs the child command: tokenized argv, no shell, environment

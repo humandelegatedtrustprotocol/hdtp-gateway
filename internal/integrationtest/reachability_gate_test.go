@@ -21,9 +21,9 @@ package integrationtest
 //     name, `Exposures.Reconcile` never runs the §6.5 stale guard,
 //     `Client.SealedCall` never makes a sealed outbound call;
 //   - an exported FUNCTION (not a constructor) with no production caller. The
-//     review of 2026-09-23 found eight at once (N-15): `CardKey`, `PresetHolds`,
-//     `SealToken`, `catalog.Diff` — the last one half of a portal feature SPEC
-//     described and nothing rendered.
+//     review of 2026-09-23 found several at once (N-15) — `CardKey`, `PresetHolds`,
+//     `SealToken`, `catalog.Diff` among them, the last one half of a portal feature
+//     SPEC described and nothing rendered.
 //
 // `make analyze` runs golang.org/x/tools/cmd/deadcode against the same table
 // (TestDeadcodeFindsOnlyWhatTheTableExcuses): whole-program, unexported names

@@ -227,9 +227,8 @@ limiter and the session binder shipped — built, proven, named in the plan as
 load-bearing, never installed. A third check covers exported **methods** with no
 production caller, which is the shape most of this project's unwired machinery
 actually takes, and a fourth exported **functions** that are not constructors —
-eight of them were found at once in the review of 2026-09-23 (`CardKey`,
-`PresetHolds`, `SealToken`, `catalog.Diff` among them), which no check here could
-see.
+the review of 2026-09-23 found several at once (`CardKey`, `PresetHolds`,
+`SealToken`, `catalog.Diff` among them), which no check here could see.
 
 It is a floor, not a proof. A function called only from another unreachable
 function still reads as reached, a hook left `nil` in a composite literal is
