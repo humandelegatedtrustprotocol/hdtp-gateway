@@ -6,7 +6,9 @@ import (
 	"go/ast"
 	"go/parser"
 	gotoken "go/token"
+	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -103,7 +105,7 @@ func TestTheSweeperReturnsOnlyWhenItsPassHasAndAStoppingNodeIsNotAFailure(t *tes
 	go func() {
 		defer close(returned)
 		runRetentionSweeper(ctx, nil, st, &core.Config{DataDir: dir}, func(string, string, string) {}, &stderr,
-			func(context.Context) { close(entered); <-release })
+			func(context.Context) { close(entered); <-release }, nil)
 	}()
 
 	<-entered // the startup pass is running, inside the leaf-retirement step
@@ -188,4 +190,95 @@ func (l *lockedTestBuf) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+// SPEC §9.1: an unanswered request expires, 30 days by default and per account when the owner
+// says otherwise, and the relationship returns to none (review N-03). Nothing did this: a request
+// nobody answered waited for ever, and so did one of ours that nobody answered.
+func TestTheSweepExpiresRequestsNobodyAnswered(t *testing.T) {
+	dir := t.TempDir()
+	st := migrated(t, dir)
+	defer st.Close()
+	bg := context.Background()
+	a, err := st.CreateAccount(bg, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateAccount(bg, store.CreateAccountParams{Slug: "b", DisplayName: "B", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// b's owner waits a week.
+	if err := st.PutSetting(bg, store.Setting{Key: ContactsKeyRequestExpiry(b.ID), Value: "7"}); err != nil {
+		t.Fatal(err)
+	}
+	day := int64(24 * 60 * 60)
+	now := time.Now().Unix()
+	rows := []struct {
+		acct, fpr, status string
+		age               int64
+	}{
+		{a.ID, "sha256:a-old-in", "pending_in", 31 * day},
+		{a.ID, "sha256:a-old-out", "pending_out", 31 * day},
+		{a.ID, "sha256:a-young-in", "pending_in", 8 * day},
+		{a.ID, "sha256:a-old-active", "active", 90 * day},
+		{b.ID, "sha256:b-week-in", "pending_in", 8 * day},
+	}
+	for _, r := range rows {
+		if _, err := st.InsertContact(bg, store.Contact{AccountID: r.acct, Fingerprint: r.fpr, Status: r.status, CreatedAt: now - r.age}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	var audited, dropped []string
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runRetentionSweeper(ctx, &settingsService{store: st}, st, &core.Config{DataDir: dir},
+			func(action, resource, outcome string) {
+				if action == "contact_expire" {
+					mu.Lock()
+					audited = append(audited, resource)
+					mu.Unlock()
+				}
+			}, io.Discard, nil,
+			func(_ context.Context, _, fpr string) error {
+				mu.Lock()
+				dropped = append(dropped, fpr)
+				mu.Unlock()
+				return nil
+			})
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		mu.Lock()
+		n := len(audited)
+		mu.Unlock()
+		if n >= 3 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	gone := func(acct, fpr string) bool {
+		_, err := st.GetContact(bg, acct, fpr)
+		return err != nil
+	}
+	for _, r := range rows {
+		want := r.fpr == "sha256:a-old-in" || r.fpr == "sha256:a-old-out" || r.fpr == "sha256:b-week-in"
+		if gone(r.acct, r.fpr) != want {
+			t.Errorf("%s (%s, %d days old): gone=%v, want %v", r.fpr, r.status, r.age/day, !want, want)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(audited) != 3 || !slices.ContainsFunc(audited, func(s string) bool { return strings.Contains(s, "sha256:a-old-out status:pending_out") }) {
+		t.Errorf("audit rows: %v", audited)
+	}
+	if !slices.Contains(dropped, "sha256:a-old-out") {
+		t.Errorf("an expired approach of ours kept its composed surface: %v", dropped)
+	}
 }

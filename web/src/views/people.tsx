@@ -37,7 +37,11 @@ export function People() {
   const [c, setC] = useState<ContactsData | null>(null);
   const [r, setR] = useState<RequestsData | null>(null);
   const [i, setI] = useState<InvitesData | null>(null);
-  const [note, setNote] = useState<Note | null>(null);
+  // A contact page that removed or forgot its contact lands here with what happened.
+  const [note, setNote] = useState<Note | null>(() => {
+    const said = new URLSearchParams(location.search).get("notice");
+    return said ? { kind: "ok", text: said } : null;
+  });
 
   // All three load together: the Requests tab carries a count, and a count you
   // only learn by visiting the tab is not a count worth having.
@@ -69,7 +73,7 @@ export function People() {
       ]} />
 
       {tab === "contacts" && <ContactsTab d={c} onNote={setNote} reload={load} />}
-      {tab === "requests" && <RequestsTab d={r} reload={load} />}
+      {tab === "requests" && <RequestsTab d={r} reload={load} onNote={setNote} />}
       {tab === "invites" && <InvitesTab d={i} reload={load} onNote={setNote} />}
     </main>
   );
@@ -125,7 +129,7 @@ function ContactsTab({ d, onNote, reload }: {
   );
 }
 
-function RequestsTab({ d, reload }: { d: RequestsData; reload: () => void }) {
+function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => void; onNote: (n: Note | null) => void }) {
   const [preset, setPreset] = useState<Record<string, string>>({});
   const rows = d.pending ?? [];
   return (
@@ -140,23 +144,27 @@ function RequestsTab({ d, reload }: { d: RequestsData; reload: () => void }) {
             </td>
             <td><Readout value={p.fingerprint} /></td>
             <td>
-              <select aria-label="Grant preset" value={preset[p.fingerprint] ?? d.presets[0]}
+              <select aria-label="Grant preset" value={preset[p.fingerprint] ?? (p.via_invite ? "" : d.presets[0])}
                 onChange={(e) => setPreset({ ...preset, [p.fingerprint]: e.target.value })}>
-                <option value="">no preset (grant nothing yet)</option>
+                {/* A request through an invite already holds the invite's grant; approving
+                    without a preset keeps it, and that is what they are told. */}
+                <option value="">{p.via_invite ? "what the invite granted" : "no preset (grant nothing yet)"}</option>
                 {d.presets.map((x) => <option key={x}>{x}</option>)}
               </select>
             </td>
             <td>
               <Toolbar>
                 <Button onClick={async () => {
-                  await postForm(`/requests/${encodeURIComponent(p.fingerprint)}/approve`,
-                    { preset: preset[p.fingerprint] ?? d.presets[0] });
+                  const res = await postForm(`/requests/${encodeURIComponent(p.fingerprint)}/approve`,
+                    { preset: preset[p.fingerprint] ?? (p.via_invite ? "" : d.presets[0]) });
+                  onNote(answered(res));
                   reload();
                 }}>
                   Approve
                 </Button>
                 <Button variant="quiet" onClick={async () => {
-                  await postForm(`/requests/${encodeURIComponent(p.fingerprint)}/reject`, {});
+                  const res = await postForm(`/requests/${encodeURIComponent(p.fingerprint)}/reject`, {});
+                  onNote(answered(res));
                   reload();
                 }}>
                   Reject
@@ -168,6 +176,14 @@ function RequestsTab({ d, reload }: { d: RequestsData; reload: () => void }) {
       </Table>
     </Section>
   );
+}
+
+// What an approve or reject answered: a refusal, or a decision that stands but that the peer
+// could not be told (the redirect's `notice`), or nothing worth a note.
+function answered(res: { ok: boolean; url: URL; body: string }): Note | null {
+  if (!res.ok) return { kind: "err", text: res.body || "that did not go through" };
+  const said = res.url.searchParams.get("notice");
+  return said ? { kind: "warn", text: said } : null;
 }
 
 function InvitesTab({ d, reload, onNote }: {

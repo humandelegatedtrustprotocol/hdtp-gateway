@@ -734,7 +734,7 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Setup wizard | First-run flow; auto-shows while the node has zero passkeys; reachable only from loopback or with a one-time setup URL minted by `passkey reset-wizard` (§12) |
 | Dashboard | At-a-glance node state and recent activity |
 | Inbox | Threads and messages, live over SSE; composer (sends labeled `human`, §7.3); click-to-fetch for `url` media (§7.5) |
-| Contacts | Per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier and block state (§9, PACT §8) |
+| Contacts | Per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier; block, unblock and remove on each contact's page, approve and reject on the Requests tab (§9.1, PACT §8) |
 | Invites | Issue, label, revoke; expiry / max_uses / auto_accept / preset (§9) |
 | Card builder | vCard fields with auto-filled `X-PACT-*` properties; export as .vcf / QR / link (§9) |
 | Integrations | Catalog diff against the current catalog snapshot vN, exposure picker over the exposure set vM, per-server recipes, warnings with recorded acknowledgment; stale mappings withheld until re-confirmed (§6) |
@@ -764,8 +764,8 @@ The owner MCP endpoint authenticates with **named, revocable bearer tokens** (§
 | Area | Tools |
 |---|---|
 | Messaging | `get_inbox`, `read_thread`, `send_to_contact`, `call_contact` |
-| Contacts & permissions | contact management, `set_permissions`, `set_trust_flag`, `refresh_contact` — re-fetch the card of ONE contact, named by the caller, **when the owner asks**: the same function as the *Refresh now* button on that contact's portal page. Nothing refreshes more than one contact, and the node never does it by itself: a pin is confirmed when it is needed, and a newer leaf arrives on use (PACT §14.3). A refresh can learn a renewed leaf, a changed name or a changed seal policy; it cannot move the pinned root or the address. It answers `unchanged`, `updated`, `renewed`, `unreachable` or `refused` (with why), and the last two leave the pin exactly as it was |
-| Invites & card | invite management, `export_card` |
+| Contacts & permissions | contact management — `list_contacts`, `add_contact`, `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact`, `rename_contact` (§9.1) — `set_permissions` (the portal's switchboard: a name it does not offer is refused), `set_trust_flag`, `set_trust_flag`, `refresh_contact` — re-fetch the card of ONE contact, named by the caller, **when the owner asks**: the same function as the *Refresh now* button on that contact's portal page. Nothing refreshes more than one contact, and the node never does it by itself: a pin is confirmed when it is needed, and a newer leaf arrives on use (PACT §14.3). A refresh can learn a renewed leaf, a changed name or a changed seal policy; it cannot move the pinned root or the address. It answers `unchanged`, `updated`, `renewed`, `unreachable` or `refused` (with why), and the last two leave the pin exactly as it was |
+| Invites & card | `create_invite`, `list_invites`, `revoke_invite`, `export_card` |
 | Requests | `list_pending`, `answer_request` |
 | Integrations | integration management |
 | Audit | `audit_query` |
@@ -812,13 +812,15 @@ stateDiagram-v2
     none --> pending_out : owner redeems a non-auto_accept invite /<br/>sends request_contact
     none --> pending_in : peer redeems our invite /<br/>calls request_contact
     none --> active : either side redeems an<br/>auto_accept invite
-    pending_in --> active : owner approves
-    pending_in --> none : owner rejects / request expires
+    pending_in --> active : owner approves<br/>(peer told: contact_accepted)
+    pending_in --> blocked : owner rejects<br/>(peer told: contact_rejected)
+    pending_in --> none : request expires / owner removes
     pending_out --> active : peer approves<br/>(contact_accepted)
-    pending_out --> none : rejected / expired
+    pending_out --> blocked : peer rejects<br/>(contact_rejected)
+    pending_out --> none : expires / owner withdraws
     active --> blocked : owner blocks (silent)
-    blocked --> active : owner unblocks
-    blocked --> none : owner removes (silent)
+    blocked --> active : owner unblocks a row<br/>that was once active
+    blocked --> none : owner unblocks a row that never was /<br/>owner removes (silent)
     active --> none : remove_contact (either side)
 ```
 
@@ -832,9 +834,11 @@ Relationship state selects the serving tier — which of the per-caller MCP serv
 | `active` | contact | tools filtered by this contact's switchboard (§5); `update_contact`, `remove_contact`, `get_card` always |
 | `blocked` | blocked | served exactly as guest — indistinguishable on the wire (`blocked_or_unknown`, PACT §12) |
 
-An unanswered `pending_in` request expires after **30 days** by default (configurable per account), returning the relationship to `none`.
+An unanswered request expires after **30 days** by default, configurable per account from 1 to 365 days (Settings · Storage & retention), returning the relationship to `none` — a `pending_in` request nobody decided, and equally a `pending_out` request of ours nobody answered (PACT §5 `pending_out --> none : expired`). The hourly sweep removes them and audits each (`contact_expire`); whoever asked may ask again.
 
-**Blocking** is local-only and silent: the relationship moves to `blocked`, the caller is demoted to the guest tier, and the node MUST NOT send any notification or otherwise let the peer distinguish "blocked" from "never met" (PACT §5.2, §12). Unblocking restores `active`. The owner MAY also remove a blocked contact outright (`blocked → none`): pin and relationship are deleted silently, with no wire notification — unlike removal of an active contact. All of these transitions are audited even though nothing crosses the wire.
+**Approving and rejecting** tell the requester, best-effort and within a few seconds: approval calls their `contact_accepted` with our card and the permissions the row now grants them — the preset the owner chose, or, with none chosen, the grant the request already holds (an invite's) — and rejection calls their `contact_rejected`, which moves their row to `blocked`. Rejection is a demotion, not a deletion (PACT §5.1): the requester's row becomes `blocked`, so a repeated request from that root is answered as a stranger's and never reaches the owner. Either decision stands if the peer cannot be reached; the owner is told that they were not.
+
+**Blocking** is local-only and silent: the relationship moves to `blocked`, the caller is demoted to the guest tier, and the node MUST NOT send any notification or otherwise let the peer distinguish "blocked" from "never met" (PACT §5.2, §12). That includes a blocked root holding a live invite link: `redeem_invite` answers it exactly what it answers a stranger holding the same link, and nothing is written and no use is spent. **Unblocking** is silent too, and undoes what the block was: a row that was ever active returns to `active` with its permissions, trust and pin as they were; a row that never was — a request the owner rejected, or an approach of ours the peer declined — is forgotten (`none`), so that root is a stranger again and may ask again, because restoring it to `active` would make a contact of somebody nobody approved. The owner MAY also remove a blocked contact outright (`blocked → none`): pin and relationship are deleted silently, with no wire notification — unlike removal of an active contact. All of these transitions are audited even though nothing crosses the wire. The portal (a contact's page, and the Requests tab) and the owner MCP (`approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact`) make each of these decisions through one implementation.
 
 **Removal** notifies and unpins both sides. When the owner removes a contact, the node calls the peer's `remove_contact` (the notification) and deletes the local pin; local deletion MUST proceed even if the peer is unreachable — enforcement is "your fingerprint is no longer in my list" (PACT §5.2). Inbound `remove_contact` from a peer unpins that caller, surfaces the removal to the owner, and is audited.
 
@@ -842,7 +846,7 @@ An unanswered `pending_in` request expires after **30 days** by default (configu
 
 ### 9.2 Invites
 
-An invite is one server-side object; because all of its state lives with the issuer, every setting is enforceable and changeable after the link has been shared, and revocation is simply deletion (PACT §4).
+An invite is one server-side object; because all of its state lives with the issuer, every setting is enforceable and changeable after the link has been shared, and revocation takes effect at once (PACT §4).
 
 | Field | Default | Semantics |
 |---|---|---|
@@ -852,13 +856,13 @@ An invite is one server-side object; because all of its state lives with the iss
 | `preset` | basic | permission preset applied on accept (§5; PACT §8) |
 | `label` | — | free text shown with incoming requests ("Pune conference 2026") |
 
-The node mints a random token and stores **only a hash of it** — never the token itself (§11). Revocation deletes the row, so a revoked token and a never-issued token are alike unresolvable and both answer `invite_invalid`. Invites are created and revoked from the portal, the owner MCP, and the `invite` CLI command (§8, §12).
+The node mints a random token and stores **only a hash of it** — never the token itself (§11). Revocation marks the row revoked rather than deleting it — a contact made through the invite keeps its label — and a revoked token answers `invite_invalid` exactly as a never-issued one does. Invites are created, listed and revoked from the portal and the owner MCP (`create_invite`, `list_invites`, `revoke_invite`; §8), each only on the account it belongs to.
 
 The shareable form is the URL `https://<host>/i/<token>` (and a QR of it). The URL carries the bearer token and nothing else — no personal data, no key (PACT §4); everything sensitive moves only during redemption, over TLS to the issuer's endpoint.
 
 **Human path — the landing page.** An HTTPS GET of the invite URL, before any redemption, serves the issuer's **signed card** — the vCard bytes plus a detached signature over them by the account identity key (PACT §4) — rendered for saving into a phone book and as a QR. Viewing the page consumes nothing: no use is decremented and no contact is created. Under the default `client_cert = preferred` (§3) the TLS handshake completes without a client certificate, so plain browsers can load the page; an owner who forces `client_cert = required` cuts plain browsers off, leaving only the machine path — that trade-off is theirs. In edge mode `client_cert` is forced off (§3, §10) and the page is always browser-reachable.
 
-**Machine path — redemption.** The redeemer's agent calls the guest-tier `redeem_invite(token, card)` (PACT §6.2). The node MUST check: the token resolves by hash, is not expired, not revoked, and has uses left (else `invite_invalid`); and the caller's proven leaf byte-equals the submitted card's `X-PACT-CERT` — for a sealed redemption the chain inside the payload is what binds (PACT §13.2). On success the use count is decremented and the response returns the issuer's signed card plus either `accepted` with the granted permissions (`auto_accept`) or `pending`, in which case the owner is notified with the redeemer's card and the invite's `label`. Guest-tier rate limits (PACT §12) apply throughout. Redemption needs a reachable endpoint, which every deployment mode now has: there is no mode without an inbound path (§10.1).
+**Machine path — redemption.** The redeemer's agent calls the guest-tier `redeem_invite(token, card)` (PACT §6.2). The node MUST check: the token resolves by hash, is not expired, not revoked, and has uses left (else `invite_invalid`); and the caller's proven leaf byte-equals the submitted card's `X-PACT-CERT` — for a sealed redemption the chain inside the payload is what binds (PACT §13.2). On success the use count is decremented and the response returns the issuer's signed card plus either `accepted` with the granted permissions (`auto_accept`) or `pending`, in which case the owner is notified with the redeemer's card and the invite's `label`. A use is spent only by a redemption that writes a row, in the same transaction as the write: a root whose own request is still waiting (`pending_in`) takes the invite's status, grant and label; a root held in any other state — blocked, or a contact served at the guest tier because it signed with a superseded leaf (PACT §14.3) — is answered what a stranger holding the same link would be, and nothing is written or spent (§9.1). Guest-tier rate limits (PACT §12) apply throughout. Redemption needs a reachable endpoint, which every deployment mode now has: there is no mode without an inbound path (§10.1).
 
 ### 9.3 The card and the card builder
 

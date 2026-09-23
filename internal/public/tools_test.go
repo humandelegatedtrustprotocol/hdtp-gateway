@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -601,13 +602,22 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 	// blocked caller has to arrive as the root it is blocked under.
 	blCard, _, blHost := testid.Card(t, "Blocked", "https://b.example/a/b/mcp", "")
 	strCard, _, strHost := testid.Card(t, "Stranger", "https://s.example/a/s/mcp", "")
+	// The root the chain proves is the one that has to be blocked. This half used to block
+	// blockedKP's fingerprint and call as blHost, a root nobody had blocked — so it compared a
+	// stranger with a stranger and passed whatever the blocked branch did.
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public.SPKI,
+		Status: "blocked", Endpoint: blHost.Endpoint, Leaf: blHost.LeafDER, PinnedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	blRes, _ = e.callAs(blHost, "", "request_contact", map[string]any{"card": blCard, "note": "hi"}, blockedSPKI)
 	strRes, _ = e.callAs(strHost, "", "request_contact", map[string]any{"card": strCard, "note": "hi"}, strangerSPKI)
 	if blRes.IsError || body(t, blRes) != body(t, strRes) {
 		t.Fatalf("request_contact blocked %s vs stranger %s", body(t, blRes), body(t, strRes))
 	}
 	// ...and the owner never sees a request from the blocked caller
-	c, err := e.st.GetContact(ctx, e.acct.ID, blockedKP.Fingerprint)
+	c, err := e.st.GetContact(ctx, e.acct.ID, blHost.RootFpr)
 	if err != nil || c.Status != "blocked" {
 		t.Fatalf("blocked caller's status changed: %+v %v", c, err)
 	}
@@ -790,5 +800,58 @@ func TestGetCardAdvertisesTheLimitsInForce(t *testing.T) {
 	}
 	if got.Limits.TextBytes != 16384 || got.Limits.ContactCallsPerHour != 60 || got.Limits.GuestCallsPerHour != 10 {
 		t.Fatalf("documented numbers drifted: %+v", got.Limits)
+	}
+}
+
+// A blocked root holding a live link of ours reads it exactly as a stranger holding the same
+// link does (PACT §12, review N-08 / P-22). It used to spend a use, fail the insert and answer
+// `invite_invalid` — which told the caller it was known here, and cost the owner the use.
+func TestRedeemByABlockedRootReadsAsAStrangersRedemption(t *testing.T) {
+	ctx := context.Background()
+	e := newToolEnv(t)
+	m := &contacts.Manager{Store: e.st}
+	token, inv, err := m.CreateInvite(ctx, e.acct.ID, contacts.InviteOptions{MaxUses: 5, Label: "badge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blCard, _, blHost := testid.Card(t, "Blocked", "https://b.example/a/b/mcp", "")
+	blSPKI := blHost.Key.Public.SPKI
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public.SPKI,
+		Status: "blocked", Endpoint: blHost.Endpoint, Leaf: blHost.LeafDER, PinnedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	strCard, _, strHost := testid.Card(t, "Stranger", "https://s.example/a/s/mcp", "")
+	strSPKI := strHost.Key.Public.SPKI
+
+	blRes, err := e.callAs(blHost, "", "redeem_invite", map[string]any{"token": token, "card": blCard}, blSPKI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strRes, err := e.callAs(strHost, "", "redeem_invite", map[string]any{"token": token, "card": strCard}, strSPKI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blRes.IsError || body(t, blRes) != body(t, strRes) {
+		t.Fatalf("redeem_invite: blocked %s vs stranger %s", body(t, blRes), body(t, strRes))
+	}
+	// Nothing the blocked root did is visible to the owner: its row is as it was, and only the
+	// stranger's redemption spent a use.
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, blHost.RootFpr); c.Status != "blocked" || c.InviteID != "" {
+		t.Fatalf("the blocked row was written: %+v", c)
+	}
+	list, _ := e.st.ListInvites(ctx, e.acct.ID)
+	if len(list) != 1 || list[0].ID != inv.ID || list[0].Uses != 1 {
+		t.Fatalf("uses after one stranger and one blocked root: %+v, want 1", list)
+	}
+	// The control: the stranger's redemption did land.
+	if c, err := e.st.GetContact(ctx, e.acct.ID, strHost.RootFpr); err != nil || c.Status != "pending_in" {
+		t.Fatalf("the stranger's redemption did not land: %+v %v", c, err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !slices.Contains(e.rows, "redeem_invite caller:"+blHost.RootFpr+" blocked_silent") {
+		t.Errorf("the audit trail does not record the blocked redemption: %v", e.rows)
 	}
 }

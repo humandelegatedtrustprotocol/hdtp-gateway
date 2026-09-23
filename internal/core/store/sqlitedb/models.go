@@ -83,6 +83,7 @@ type Contact struct {
 	Leaf             []byte
 	ChainSentKid     string
 	RootCert         []byte
+	EverActive       int64
 }
 
 type Credential struct {

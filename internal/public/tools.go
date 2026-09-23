@@ -303,8 +303,11 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			d.audit("redeem_invite", "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
-		// The caller's tier just changed: its cached guest server must go.
-		d.invalidate(ctx, fpr)
+		// The caller's tier just changed: its cached guest server must go. A silent answer
+		// changed nothing, so there is nothing to drop.
+		if !res.Silent {
+			d.invalidate(ctx, fpr)
+		}
 		card, sig, cerr := d.card(ctx)
 		if cerr != nil {
 			return toolErr("unavailable"), nil
@@ -315,7 +318,12 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		if cerr != nil {
 			return toolErr("unavailable"), nil
 		}
-		d.audit("redeem_invite", "caller:"+fpr, res.Status)
+		outcome := res.Status
+		if res.Silent {
+			// SPEC §9.1: answered as a stranger; only the audit log knows.
+			outcome = "blocked_silent"
+		}
+		d.audit("redeem_invite", "caller:"+fpr, outcome)
 		return toolOK(map[string]any{
 			"status": res.Status, "permissions": res.Permissions,
 			"card": card, "card_sig": sig, "chain": chain,

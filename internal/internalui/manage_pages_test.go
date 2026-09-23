@@ -115,7 +115,7 @@ func TestApproveAndRejectFlows(t *testing.T) {
 	if c.Status != "active" || c.Preset != "friend" || len(c.Permissions) != len(contacts.DefaultPresets["friend"]) {
 		t.Fatalf("approved contact: %+v", c)
 	}
-	// reject → silent demotion to blocked
+	// reject → a demotion to blocked, not a deletion
 	if rr := postForm(t, mux, "/requests/sha256:ask2/reject?account="+acct, url.Values{}); rr.Code != http.StatusSeeOther {
 		t.Fatalf("reject: %d", rr.Code)
 	}
@@ -123,9 +123,13 @@ func TestApproveAndRejectFlows(t *testing.T) {
 	if c2.Status != "blocked" {
 		t.Fatalf("rejected contact: %+v", c2)
 	}
-	// approving a non-pending contact fails + audits error
-	if rr := postForm(t, mux, "/requests/sha256:ask1/approve?account="+acct, url.Values{}); rr.Code != http.StatusNotFound {
+	// approving a contact that is not a waiting request fails + audits error: the row exists,
+	// so it is a conflict with its state, not a missing resource
+	if rr := postForm(t, mux, "/requests/sha256:ask1/approve?account="+acct, url.Values{}); rr.Code != http.StatusConflict {
 		t.Fatalf("re-approve: %d", rr.Code)
+	}
+	if rr := postForm(t, mux, "/requests/sha256:nobody/approve?account="+acct, url.Values{}); rr.Code != http.StatusNotFound {
+		t.Fatalf("approve of a contact that does not exist: %d", rr.Code)
 	}
 	// Attributed to the account, so the row is scoped to the owner who
 	// administers it rather than readable by every owner on the node.

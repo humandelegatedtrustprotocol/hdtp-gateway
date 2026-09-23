@@ -56,6 +56,12 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"set_exposure":         "POST /integrations/{id}/exposure",
 		"set_permissions":      "POST /contacts/{fpr}/permissions",
 		"set_trust_flag":       "POST /contacts/{fpr}/trust",
+		"reject_contact":       "POST /requests/{fpr}/reject",
+		"block_contact":        "POST /contacts/{fpr}/block",
+		"unblock_contact":      "POST /contacts/{fpr}/unblock",
+		"remove_contact":       "POST /contacts/{fpr}/remove",
+		"list_invites":         "GET /api/invites",
+		"revoke_invite":        "POST /invites/{id}/revoke",
 
 		// Agent-only, deliberately:
 		"answer_request":   "", // an AGENT answers what a peer asked of it (§6.8)
@@ -94,6 +100,58 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 	sort.Strings(missing)
 	for _, m := range missing {
 		t.Errorf("an agent can do this and a person cannot: %s", m)
+	}
+}
+
+// The other direction, over the routes that decide who may reach this account — contacts,
+// requests and invites (SPEC §8.4: the owner MCP's "contact management" and "invite management"
+// mirror the portal). It did not exist, and the gap it would have named was real: a person could
+// reject, remove and revoke, and an agent could do none of the three (review N-02).
+func TestEveryContactAndInviteDecisionAPersonMakesAnAgentCanMake(t *testing.T) {
+	root := repoRootUI(t)
+	tools := map[string]bool{}
+	for _, tool := range ownerTools(t, root) {
+		tools[tool] = true
+	}
+	// Each person's route and the agent's tool for the same decision; "" says why none.
+	expected := map[string]string{
+		"POST /contacts/add":               "add_contact",
+		"POST /contacts/{fpr}/call":        "call_contact",
+		"POST /contacts/{fpr}/remove":      "remove_contact",
+		"POST /contacts/{fpr}/block":       "block_contact",
+		"POST /contacts/{fpr}/unblock":     "unblock_contact",
+		"POST /contacts/{fpr}/permissions": "set_permissions",
+		"POST /contacts/{fpr}/petname":     "rename_contact",
+		"POST /contacts/{fpr}/refresh":     "refresh_contact",
+		"POST /contacts/{fpr}/trust":       "set_trust_flag",
+		"POST /requests/{fpr}/approve":     "approve_contact",
+		"POST /requests/{fpr}/reject":      "reject_contact",
+		"POST /invites/create":             "create_invite",
+		"POST /invites/{id}/revoke":        "revoke_invite",
+	}
+	routes := portalRoutes(t, root)
+	checked := 0
+	for route := range routes {
+		if !strings.HasPrefix(route, "POST /contacts/") && !strings.HasPrefix(route, "POST /requests/") && !strings.HasPrefix(route, "POST /invites/") {
+			continue
+		}
+		checked++
+		tool, known := expected[route]
+		if !known {
+			t.Errorf("portal route %q decides who may reach an account and this map does not say which owner-MCP tool does the same", route)
+			continue
+		}
+		if !tools[tool] {
+			t.Errorf("a person can do this and an agent cannot: %s → %s (no such tool)", route, tool)
+		}
+	}
+	for route := range expected {
+		if !routes[route] {
+			t.Errorf("this map still describes %q, which the portal does not serve", route)
+		}
+	}
+	if checked < len(expected) {
+		t.Fatalf("checked %d routes, fewer than the %d this map names: the scan is looking in the wrong place", checked, len(expected))
 	}
 }
 

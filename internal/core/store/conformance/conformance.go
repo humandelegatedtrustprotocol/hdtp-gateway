@@ -246,6 +246,172 @@ func Run(t *testing.T, newStore Factory) {
 		}
 	})
 
+	// Whether a relationship was ever active decides what an unblock does (SPEC §9.1): a contact
+	// the owner blocked is restored, a rejected request is forgotten. The store is the one place
+	// that knows every way a row becomes active, so it keeps the fact — and nothing clears it.
+	t.Run("EverActiveIsSetByEveryActivationAndClearedByNone", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ea", DisplayName: "EA", Algo: "p256"})
+		ever := func(fpr string) bool {
+			t.Helper()
+			c, err := s.GetContact(ctx, a.ID, fpr)
+			if err != nil {
+				t.Fatalf("%s: %v", fpr, err)
+			}
+			return c.EverActive
+		}
+		for _, st := range []string{"pending_in", "pending_out", "blocked"} {
+			if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:" + st, Status: st}); err != nil {
+				t.Fatal(err)
+			}
+			if ever("sha256:" + st) {
+				t.Errorf("a row inserted %s says it was active", st)
+			}
+		}
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:auto", Status: "active"}); err != nil {
+			t.Fatal(err)
+		}
+		if !ever("sha256:auto") {
+			t.Error("a row inserted active (an auto-accepted invite) does not say it was active")
+		}
+		// approve, then block: the block keeps the fact
+		if err := s.UpdateContactStatus(ctx, a.ID, "sha256:pending_in", "active"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpdateContactStatus(ctx, a.ID, "sha256:pending_in", "blocked"); err != nil {
+			t.Fatal(err)
+		}
+		if !ever("sha256:pending_in") {
+			t.Error("approve-then-block lost the fact that the row was active")
+		}
+		// a rejection is a move to blocked that was never active
+		if err := s.UpdateContactStatus(ctx, a.ID, "sha256:blocked", "blocked"); err != nil {
+			t.Fatal(err)
+		}
+		if ever("sha256:blocked") {
+			t.Error("a move to blocked set the flag")
+		}
+		// the peer accepting our approach
+		if err := s.SetContactAccepted(ctx, a.ID, "sha256:pending_out", "", nil, 1); err != nil {
+			t.Fatal(err)
+		}
+		if !ever("sha256:pending_out") {
+			t.Error("contact_accepted activated a row without recording it")
+		}
+		// an import knows only the status it carries
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-active", Status: "active", TrustFlag: "messages_only"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-blocked", Status: "blocked", TrustFlag: "messages_only"}); err != nil {
+			t.Fatal(err)
+		}
+		if !ever("sha256:imp-active") || ever("sha256:imp-blocked") {
+			t.Errorf("import: active=%v blocked=%v, want true and false", ever("sha256:imp-active"), ever("sha256:imp-blocked"))
+		}
+	})
+
+	// A request still pending redeems one of the owner's invites: it takes the invite's status,
+	// grant and linkage, and the pin the call proved. Only a pending_in row is written.
+	t.Run("RedeemOverPendingContactWritesOnlyAPendingRequest", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ro", DisplayName: "RO", Algo: "p256"})
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:req", Status: "pending_in",
+			SPKI: []byte{1}, Endpoint: "https://old.example", Leaf: []byte{2}, RootCert: []byte{3}, DisplayName: "Old"}); err != nil {
+			t.Fatal(err)
+		}
+		ok, err := s.RedeemOverPendingContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:req", Status: "active",
+			Preset: "friend", Permissions: []string{"message.text"}, InviteID: "inv-1", DisplayName: "New", Card: "CARD",
+			SPKI: []byte{9}, Endpoint: "https://new.example", Leaf: []byte{8}})
+		if err != nil || !ok {
+			t.Fatalf("redeem over a pending request: ok=%v err=%v", ok, err)
+		}
+		got, _ := s.GetContact(ctx, a.ID, "sha256:req")
+		if got.Status != "active" || !got.EverActive || got.Preset != "friend" || len(got.Permissions) != 1 ||
+			got.InviteID != "inv-1" || got.Endpoint != "https://new.example" || string(got.Leaf) != string([]byte{8}) || got.Card != "CARD" {
+			t.Fatalf("not written as redeemed: %+v", got)
+		}
+		if string(got.RootCert) != string([]byte{3}) {
+			t.Errorf("a redemption that proved no root certificate dropped the one held: %v", got.RootCert)
+		}
+		// now active: a second redemption writes nothing
+		ok, err = s.RedeemOverPendingContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:req", Status: "pending_in", Preset: "basic"})
+		if err != nil || ok {
+			t.Fatalf("an active row was overwritten by a redemption: ok=%v err=%v", ok, err)
+		}
+		if got, _ := s.GetContact(ctx, a.ID, "sha256:req"); got.Status != "active" || got.Preset != "friend" {
+			t.Fatalf("active row changed: %+v", got)
+		}
+	})
+
+	// SPEC §9.1: an unanswered request expires. Only pending rows past the cutoff, of the account
+	// named, go — and the sweep is told which, for the audit trail.
+	t.Run("DeleteExpiredPendingContactsTakesOnlyOldRequests", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ex", DisplayName: "EX", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ex2", DisplayName: "EX2", Algo: "p256"})
+		rows := []struct {
+			acct, fpr, status string
+			at                int64
+		}{
+			{a.ID, "sha256:old-in", "pending_in", 100},
+			{a.ID, "sha256:old-out", "pending_out", 100},
+			{a.ID, "sha256:old-active", "active", 100},
+			{a.ID, "sha256:old-blocked", "blocked", 100},
+			{a.ID, "sha256:young-in", "pending_in", 1000},
+			{b.ID, "sha256:other-account", "pending_in", 100},
+		}
+		for _, r := range rows {
+			if _, err := s.InsertContact(ctx, store.Contact{AccountID: r.acct, Fingerprint: r.fpr, Status: r.status, CreatedAt: r.at}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gone, err := s.DeleteExpiredPendingContacts(ctx, a.ID, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := map[string]string{}
+		for _, g := range gone {
+			names[g.Fingerprint] = g.Status
+		}
+		if len(names) != 2 || names["sha256:old-in"] != "pending_in" || names["sha256:old-out"] != "pending_out" {
+			t.Fatalf("expired %v, want exactly the two old requests", names)
+		}
+		for _, keep := range []string{"sha256:old-active", "sha256:old-blocked", "sha256:young-in"} {
+			if _, err := s.GetContact(ctx, a.ID, keep); err != nil {
+				t.Errorf("%s was removed by the expiry", keep)
+			}
+		}
+		if _, err := s.GetContact(ctx, b.ID, "sha256:other-account"); err != nil {
+			t.Error("another account's request was removed")
+		}
+	})
+
+	// An invite id is not an authority: revoking one names the account it belongs to, and an id
+	// of another account's invite is not found there.
+	t.Run("RevokeInviteIsScopedToItsAccount", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ri", DisplayName: "RI", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ri2", DisplayName: "RI2", Algo: "p256"})
+		inv, err := s.InsertInvite(ctx, store.Invite{AccountID: a.ID, TokenHash: []byte("h-ri"), ExpiresAt: 1 << 40, MaxUses: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RevokeInvite(ctx, b.ID, inv.ID, 5); err == nil {
+			t.Fatal("another account revoked this account's invite")
+		}
+		list, _ := s.ListInvites(ctx, a.ID)
+		if len(list) != 1 || list[0].RevokedAt != 0 {
+			t.Fatalf("the invite changed: %+v", list)
+		}
+		if err := s.RevokeInvite(ctx, a.ID, inv.ID, 5); err != nil {
+			t.Fatalf("its own account could not revoke it: %v", err)
+		}
+	})
+
 	// `their_permissions` is what a contact granted US (PACT §6.2) — the answer to
 	// "what may my agent call on them", and the reason ContactAccepted records it
 	// at all. The column exists, SetContactAccepted writes it, and until now every

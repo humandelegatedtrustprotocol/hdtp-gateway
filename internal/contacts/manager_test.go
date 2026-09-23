@@ -144,7 +144,7 @@ func TestRedeemFailures(t *testing.T) {
 	})
 	t.Run("revoked", func(t *testing.T) {
 		token, inv, _ := e.m.CreateInvite(ctx, e.account, InviteOptions{})
-		if err := e.st.RevokeInvite(ctx, inv.ID, e.clock.Unix()); err != nil {
+		if err := e.st.RevokeInvite(ctx, e.account, inv.ID, e.clock.Unix()); err != nil {
 			t.Fatal(err)
 		}
 		g, card, _ := guest(t, "G")

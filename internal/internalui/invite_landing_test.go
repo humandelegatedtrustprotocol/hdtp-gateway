@@ -74,7 +74,7 @@ func TestLandingNoOracle404(t *testing.T) {
 	// three invalid states + pure garbage must be byte-identical 404s
 	revoked, inv, _ := cm.CreateInvite(ctx, acct, contacts.InviteOptions{})
 	st := cm.Store
-	if err := st.RevokeInvite(ctx, inv.ID, time.Now().Unix()); err != nil {
+	if err := st.RevokeInvite(ctx, acct, inv.ID, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	expired, inv2, _ := cm.CreateInvite(ctx, acct, contacts.InviteOptions{TTL: time.Nanosecond})

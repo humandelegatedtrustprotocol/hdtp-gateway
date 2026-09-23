@@ -864,9 +864,13 @@ func TestStorageSettingsPersistAndApply(t *testing.T) {
 	if !strings.Contains(page, `"retention_days":0`) {
 		t.Fatalf("the payload does not carry the unlimited default:\n%s", firstLine(page))
 	}
+	// SPEC §9.1's default for an unanswered request, carried as data
+	if !strings.Contains(page, `"request_expiry_days":30`) {
+		t.Fatalf("the payload does not carry the 30-day request expiry:\n%s", firstLine(page))
+	}
 
 	body := p.post("/settings/storage", url.Values{
-		"account": {acct.ID}, "quota_gib": {"2"}, "retention_days": {"30"},
+		"account": {acct.ID}, "quota_gib": {"2"}, "retention_days": {"30"}, "request_expiry_days": {"14"},
 	})
 	if !strings.Contains(body, "permanently and locally") {
 		t.Fatalf("a destructive setting saved without saying so:\n%s", firstLine(body))
@@ -885,6 +889,15 @@ func TestStorageSettingsPersistAndApply(t *testing.T) {
 	}
 	if got[StorageKeyRetention(acct.ID)] != "30" {
 		t.Fatalf("retention not stored: %q", got[StorageKeyRetention(acct.ID)])
+	}
+	if got[ContactsKeyRequestExpiry(acct.ID)] != "14" {
+		t.Fatalf("request expiry not stored: %q", got[ContactsKeyRequestExpiry(acct.ID)])
+	}
+	// an expiry outside 1..365 is refused, not stored
+	if body := p.post("/settings/storage", url.Values{
+		"account": {acct.ID}, "quota_gib": {"2"}, "retention_days": {"30"}, "request_expiry_days": {"0"},
+	}); !strings.Contains(body, "from 1 to 365") {
+		t.Fatalf("a zero request expiry was accepted:\n%s", firstLine(body))
 	}
 	// nonsense is refused rather than stored
 	if body := p.post("/settings/storage", url.Values{
@@ -1028,7 +1041,10 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	for _, tool := range list.Tools {
 		have[tool.Name] = true
 	}
-	for _, want := range []string{"audit_query", "call_contact", "export_card", "list_passkeys", "remove_passkey"} {
+	for _, want := range []string{"audit_query", "call_contact", "export_card", "list_passkeys", "remove_passkey",
+		// §8.4's contact and invite management, the whole of §9.1's lifecycle (review N-01, N-02)
+		"approve_contact", "reject_contact", "block_contact", "unblock_contact", "remove_contact",
+		"create_invite", "list_invites", "revoke_invite"} {
 		if !have[want] {
 			t.Fatalf("SPEC §8.4/§8.6 names %s and the owner MCP does not expose it: %v", want, have)
 		}
