@@ -1,13 +1,12 @@
 package cli
 
-// Owner-initiated contact establishment (SPEC §9: `none --> pending_out`).
+// Owner-initiated contact establishment (SPEC §9: `none --> pending_out`), and the calls that
+// tell a peer how the owner answered its request (`contact_accepted`, `contact_rejected`).
 //
 // The inbound half — a guest calling `redeem_invite` or `request_contact` on us —
 // was built from the start. This is the outbound half, which was specified and
 // never implemented: nothing could make THIS node place that call, so a node could
-// only ever hold as contacts the agents that had called in. Relay-assisted
-// delivery, whose whole premise is that neither side has an inbound path, could
-// therefore never be set up at all (E16).
+// only ever hold as contacts the agents that had called in (E16).
 
 import (
 	"bytes"
@@ -413,19 +412,40 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 // not the peer is reachable this second; the caller reports what happened rather
 // than pretending it succeeded.
 func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerFpr string, granted []string) error {
+	ourCard, err := ci.card(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	args := map[string]any{"card": ourCard}
+	if len(granted) > 0 {
+		// What we granted THEM, so their agent knows what it may call without
+		// probing (PACT §6.2).
+		args["permissions"] = granted
+	}
+	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_accepted", args)
+}
+
+// NotifyRejected tells a peer that their contact request was declined: `contact_rejected`, the
+// other pending-tier tool, which the node served and never sent (review P-13). Without it a
+// requester this node rejects waits at `pending_out` for ever; with it their side demotes its
+// row to blocked, its record that the approach was declined (PACT §5.1). Best-effort, like the
+// approval: the rejection is local and stands whatever they answer.
+func (ci *contactInitiator) NotifyRejected(ctx context.Context, accountID, peerFpr string) error {
+	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_rejected", map[string]any{})
+}
+
+// notifyAsker makes one pending-tier call to a peer whose request this account decided, and
+// audits whether it landed under the tool's name.
+func (ci *contactInitiator) notifyAsker(ctx context.Context, accountID, peerFpr, tool string, args map[string]any) error {
 	c, err := ci.contact(ctx, accountID, peerFpr)
 	if err != nil {
 		return err
 	}
 	// The stored PIN, not the card, is the authority on where this contact answers: `update_contact`
 	// and a move both write the row, and a card kept from the first exchange can be older than
-	// either. It also means an approval reaches a contact whose card this node never parsed.
+	// either. It also means a decision reaches a contact whose card this node never parsed.
 	if c.Endpoint == "" || len(c.Leaf) == 0 {
 		return fmt.Errorf("that contact has no certificate on file, so there is no address to reach it at; add them again from their card")
-	}
-	ourCard, err := ci.card(ctx, accountID)
-	if err != nil {
-		return err
 	}
 	client, err := ci.outbound(accountID)
 	if err != nil {
@@ -435,16 +455,10 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 		Endpoint: c.Endpoint, Seal: "required",
 		Root: peerFpr, Leaf: c.Leaf,
 	}
-	args := map[string]any{"card": ourCard}
-	if len(granted) > 0 {
-		// What we granted THEM, so their agent knows what it may call without
-		// probing (PACT §6.2).
-		args["permissions"] = granted
-	}
-	if _, err := client.Call(ctx, peer, "contact_accepted", args, newCallID()); err != nil {
-		ci.audit("contact_accepted", "account:"+accountID+" peer:"+peerFpr, "unreachable")
+	if _, err := client.Call(ctx, peer, tool, args, newCallID()); err != nil {
+		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "unreachable")
 		return err
 	}
-	ci.audit("contact_accepted", "account:"+accountID+" peer:"+peerFpr, "ok")
+	ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "ok")
 	return nil
 }

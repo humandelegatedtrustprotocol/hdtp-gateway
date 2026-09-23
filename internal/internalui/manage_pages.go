@@ -5,8 +5,10 @@ package internalui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -41,6 +43,37 @@ type ManageDeps struct {
 	// Without it the approval is local only and they sit at pending_out forever.
 	// Nil skips the call; the approval still stands.
 	Approved func(ctx context.Context, accountID, contactFpr string, granted []string) error
+	// Rejected tells the peer their request was declined (`contact_rejected`), for the same
+	// reason: a requester nobody tells waits at pending_out for ever. Nil skips the call.
+	Rejected func(ctx context.Context, accountID, contactFpr string) error
+}
+
+// owner is the lifecycle both surfaces call (contacts.Owner), with this surface's hooks.
+func (d ManageDeps) owner() contacts.Owner {
+	return contacts.Owner{Manager: d.Contacts, Invalidate: d.Invalidate, TellApproved: d.Approved, TellRejected: d.Rejected}
+}
+
+// lifecycleStatus is the HTTP answer to a refused lifecycle action.
+func lifecycleStatus(err error) int {
+	switch {
+	case errors.Is(err, contacts.ErrUnknownContact):
+		return http.StatusNotFound
+	case errors.Is(err, contacts.ErrWrongState):
+		return http.StatusConflict
+	case errors.Is(err, contacts.ErrBadRequest):
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+// redirectRequests returns to the Requests tab, with a notice when there is one to show.
+func redirectRequests(w http.ResponseWriter, r *http.Request, account, notice string) {
+	q := url.Values{}
+	q.Set("account", account)
+	if notice != "" {
+		q.Set("notice", notice)
+	}
+	http.Redirect(w, r, "/requests?"+q.Encode(), http.StatusSeeOther)
 }
 
 // publicURL is the node's externally reachable base, or "" when none is set.
@@ -113,64 +146,41 @@ func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 		account := r.URL.Query().Get("account")
 		fpr := r.PathValue("fpr")
 		_ = r.ParseForm()
-		c, err := d.Store.GetContact(r.Context(), account, fpr)
-		if err != nil || c.Status != "pending_in" {
+		dec, err := d.owner().Approve(r.Context(), account, fpr, r.Form.Get("preset"))
+		if err != nil {
 			d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
-			http.NotFound(w, r)
+			http.Error(w, err.Error(), lifecycleStatus(err))
 			return
 		}
-		if err := d.Store.UpdateContactStatus(r.Context(), account, fpr, "active"); err != nil {
-			d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
-			http.Error(w, "store error", http.StatusInternalServerError)
-			return
-		}
-		bundles := contacts.LoadPresets(r.Context(), d.Store)
-		if preset := r.Form.Get("preset"); preset != "" {
-			if perms, ok := bundles[preset]; ok {
-				_ = d.Store.UpdateContactPermissions(r.Context(), account, fpr, perms, preset)
-			}
-		}
-		if d.Invalidate != nil {
-			_ = d.Invalidate(r.Context(), account, fpr)
-		}
-		// Tell them. The approval is already recorded, so a peer that cannot be
-		// reached this second does not undo it — but the owner is told, because
-		// otherwise the contact silently stays pending_out on their side.
-		notice := ""
-		if d.Approved != nil {
-			var granted []string
-			if preset := r.Form.Get("preset"); preset != "" {
-				granted = bundles[preset]
-			}
-			if err := d.Approved(r.Context(), account, fpr, granted); err != nil {
-				notice = "Approved. They could not be told yet (" + err.Error() +
-					"), so they still see this as pending until they are reachable."
-			}
-		}
-		_ = notice
 		d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "ok")
-		http.Redirect(w, r, "/requests?account="+account, http.StatusSeeOther)
+		// The approval is recorded whether or not they heard it; when they did not, the owner
+		// is told, because otherwise the contact silently stays pending_out on their side.
+		notice := ""
+		if !dec.Told {
+			notice = "Approved. They could not be told yet (" + dec.Why +
+				"), so they still see this as pending until they are reachable."
+		}
+		redirectRequests(w, r, account, notice)
 	})
 
 	mux.HandleFunc("POST /requests/{fpr}/reject", func(w http.ResponseWriter, r *http.Request) {
 		account := r.URL.Query().Get("account")
 		fpr := r.PathValue("fpr")
-		c, err := d.Store.GetContact(r.Context(), account, fpr)
-		if err != nil || c.Status != "pending_in" {
+		// A demotion to blocked, not a deletion (PACT §5.1): their next request is answered as a
+		// stranger's and never reaches the owner. They are told, so they do not wait for ever.
+		dec, err := d.owner().Reject(r.Context(), account, fpr)
+		if err != nil {
 			d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "error")
-			http.NotFound(w, r)
+			http.Error(w, err.Error(), lifecycleStatus(err))
 			return
-		}
-		// silent demotion: a rejected requester is indistinguishable from a stranger
-		if err := d.Store.UpdateContactStatus(r.Context(), account, fpr, "blocked"); err != nil {
-			http.Error(w, "store error", http.StatusInternalServerError)
-			return
-		}
-		if d.Invalidate != nil {
-			_ = d.Invalidate(r.Context(), account, fpr)
 		}
 		d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "ok")
-		http.Redirect(w, r, "/requests?account="+account, http.StatusSeeOther)
+		notice := ""
+		if !dec.Told && dec.Why != "" {
+			notice = "Rejected. They could not be told (" + dec.Why +
+				"), so their side still shows the request as waiting."
+		}
+		redirectRequests(w, r, account, notice)
 	})
 
 	mux.HandleFunc("GET /api/invites", func(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +217,7 @@ func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 	mux.HandleFunc("POST /invites/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
 		account := r.URL.Query().Get("account")
 		id := r.PathValue("id")
-		if err := d.Store.RevokeInvite(r.Context(), id, nowUnix()); err != nil {
+		if err := d.Store.RevokeInvite(r.Context(), account, id, nowUnix()); err != nil {
 			d.Audit("invite_revoke", withAccount(r, "invite:"+id), "error")
 			http.NotFound(w, r)
 			return

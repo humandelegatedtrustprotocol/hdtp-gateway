@@ -155,6 +155,16 @@ type Contact struct {
 	// archive taken here prove its contacts anywhere else. Empty for a pin made
 	// before this column existed; filled the next time a chain arrives.
 	RootCert []byte
+	// EverActive is whether this relationship was ever active (migration 0039). The store sets
+	// it whenever a row becomes active and never clears it; it is how an unblock tells a contact
+	// the owner blocked (restored) from a request that was rejected (forgotten), SPEC §9.1.
+	EverActive bool
+}
+
+// ExpiredContact is one unanswered request the expiry sweep removed.
+type ExpiredContact struct {
+	Fingerprint string
+	Status      string // pending_in | pending_out
 }
 
 type Invite struct {
@@ -379,7 +389,8 @@ type Store interface {
 	ListInvites(ctx context.Context, accountID string) ([]Invite, error)
 	// ConsumeInviteUse atomically increments uses; false when expired/revoked/exhausted.
 	ConsumeInviteUse(ctx context.Context, inviteID string, now int64) (bool, error)
-	RevokeInvite(ctx context.Context, inviteID string, now int64) error
+	// RevokeInvite revokes one of THIS account's invites; an id of another account's is not found.
+	RevokeInvite(ctx context.Context, accountID, inviteID string, now int64) error
 	// ListSettings returns every owner-set configuration row (SPEC §8.2). A row
 	// marked Secret holds a keyring-sealed value: callers that render or log
 	// settings MUST treat it as opaque.
@@ -479,7 +490,14 @@ type Store interface {
 	ImportContact(ctx context.Context, c Contact) error
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
+	// UpdateContactStatus moves a relationship; a move to active also sets EverActive.
 	UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error
+	// RedeemOverPendingContact is a pending_in row redeeming one of the account's invites: it
+	// takes c's status, grant, invite and pin. False when the row is no longer pending_in.
+	RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error)
+	// DeleteExpiredPendingContacts removes the account's pending_in and pending_out rows created
+	// before cutoff (SPEC §9.1: an unanswered request expires) and reports which went.
+	DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error)
 	// SetContactAccepted records a peer's post-approval card and the permissions
 	// THEY granted US (PACT §6.2), and activates the relationship.
 	SetContactAccepted(ctx context.Context, accountID, fingerprint, card string, theirPermissions []string, now int64) error

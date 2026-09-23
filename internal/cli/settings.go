@@ -211,6 +211,27 @@ const MaxRetentionDays = 36500
 func StorageKeyQuota(accountID string) string     { return "storage.quota." + accountID }
 func StorageKeyRetention(accountID string) string { return "storage.retention." + accountID }
 
+// ContactsKeyRequestExpiry is the per-account key for how long an unanswered request waits.
+func ContactsKeyRequestExpiry(accountID string) string { return "contacts.request_expiry." + accountID }
+
+// requestExpiryFor is how long an unanswered request of this account waits before it expires
+// (SPEC §9.1): the owner's setting when it is within bounds, else the default thirty days.
+func (s *settingsService) requestExpiryFor(ctx context.Context, accountID string) time.Duration {
+	rows, err := s.store.ListSettings(ctx)
+	if err != nil {
+		return contacts.DefaultRequestExpiry
+	}
+	for _, r := range rows {
+		if r.Key != ContactsKeyRequestExpiry(accountID) {
+			continue
+		}
+		if v, err := strconv.Atoi(r.Value); err == nil && v >= 1 && v <= internalui.MaxRequestExpiryDays {
+			return time.Duration(v) * 24 * time.Hour
+		}
+	}
+	return contacts.DefaultRequestExpiry
+}
+
 // storageFor reads one account's quota (bytes) and retention window. Zero means
 // the default quota and unlimited retention respectively (SPEC §7.4, §7.9).
 func (s *settingsService) storageFor(ctx context.Context, accountID string) (quota int64, retention time.Duration) {
@@ -390,6 +411,7 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 				out = append(out, internalui.StorageRow{
 					AccountID: a.ID, Label: a.DisplayName + " (" + a.Slug + ")",
 					QuotaGiB: quota / (1 << 30), RetentionDays: int(retention / (24 * time.Hour)),
+					RequestExpiryDays: int(s.requestExpiryFor(ctx, a.ID) / (24 * time.Hour)),
 				})
 			}
 			return out, nil
@@ -397,14 +419,17 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 		Presets:      s.presets,
 		SavePreset:   s.savePreset,
 		DeletePreset: s.deletePreset,
-		SaveStorage: func(ctx context.Context, accountID string, quotaGiB int64, retentionDays int) error {
+		SaveStorage: func(ctx context.Context, accountID string, quotaGiB int64, retentionDays, requestExpiryDays int) error {
 			if _, err := s.store.GetAccountByID(ctx, accountID); err != nil {
 				return fmt.Errorf("unknown account")
 			}
 			if err := s.saveRaw(ctx, StorageKeyQuota(accountID), strconv.FormatInt(quotaGiB<<30, 10)); err != nil {
 				return err
 			}
-			return s.saveRaw(ctx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays))
+			if err := s.saveRaw(ctx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays)); err != nil {
+				return err
+			}
+			return s.saveRaw(ctx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
 		},
 		Paired: s.pairedAdapters,
 		Pending: func(ctx context.Context) (map[string]string, error) {

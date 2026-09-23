@@ -2,6 +2,7 @@ package cli
 
 // The retention sweeper (SPEC §7.9): unlimited by default, and when an owner
 // sets a window, messages and their orphaned blobs past it are deleted locally.
+// The same pass expires contact requests nobody answered (SPEC §9.1).
 //
 // It runs on a slow ticker rather than on every write. Retention is a policy
 // about age, not a reaction to an event, and a sweep that ran constantly would
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
@@ -33,9 +35,11 @@ const SweepInterval = time.Hour
 // background group and waits for that group before returning, so the store is not closed under a
 // pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
 func runRetentionSweeper(ctx context.Context, settings *settingsService, st store.Store,
-	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context)) {
+	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
+	invalidate func(ctx context.Context, accountID, fpr string) error) {
 
 	blobs := messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}
+	requests := contacts.Owner{Manager: &contacts.Manager{Store: st}, Invalidate: invalidate}
 	sweeper := &messaging.Sweeper{Store: st, Blobs: blobs, Audit: auditFn}
 
 	// A pass cut short because the node is stopping has not failed. Its store calls return the
@@ -63,11 +67,18 @@ func runRetentionSweeper(ctx context.Context, settings *settingsService, st stor
 			return
 		}
 		for _, a := range accounts {
+			// SPEC §9.1: a request nobody answered, theirs or ours, expires, and the relationship
+			// returns to none. Audited per row, because the owner never pressed anything.
+			gone, err := requests.ExpireRequests(ctx, a.ID, settings.requestExpiryFor(ctx, a.ID))
+			report(a.Slug+" requests", err)
+			for _, g := range gone {
+				auditFn("contact_expire", "account:"+a.ID+" contact:"+g.Fingerprint+" status:"+g.Status, "ok")
+			}
 			_, window := settings.storageFor(ctx, a.ID)
 			if window <= 0 {
 				continue // unlimited: the default, and it deletes nothing
 			}
-			_, err := sweeper.Sweep(ctx, a.ID, window)
+			_, err = sweeper.Sweep(ctx, a.ID, window)
 			report(a.Slug, err)
 		}
 	}

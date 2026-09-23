@@ -82,9 +82,9 @@ func (s *SQLite) ConsumeInviteUse(ctx context.Context, inviteID string, nowTS in
 	return n == 1, nil
 }
 
-func (s *SQLite) RevokeInvite(ctx context.Context, inviteID string, nowTS int64) error {
+func (s *SQLite) RevokeInvite(ctx context.Context, accountID, inviteID string, nowTS int64) error {
 	n, err := s.q.RevokeInvite(ctx, sqlitedb.RevokeInviteParams{
-		RevokedAt: sql.NullInt64{Int64: nowTS, Valid: true}, ID: inviteID,
+		RevokedAt: sql.NullInt64{Int64: nowTS, Valid: true}, ID: inviteID, AccountID: accountID,
 	})
 	if err != nil {
 		return err

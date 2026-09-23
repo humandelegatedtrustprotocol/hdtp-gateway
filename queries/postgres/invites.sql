@@ -13,7 +13,9 @@ UPDATE invites SET uses = uses + 1
 WHERE id = $1 AND revoked_at IS NULL AND uses < max_uses AND expires_at > $2;
 
 -- name: RevokeInvite :execrows
-UPDATE invites SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL;
+-- Scoped to the account the caller acts for: an invite id alone would let an owner of one
+-- account revoke another account's invite.
+UPDATE invites SET revoked_at = $1 WHERE id = $2 AND account_id = $3 AND revoked_at IS NULL;
 
 
 -- name: GetInviteByHashGlobal :one

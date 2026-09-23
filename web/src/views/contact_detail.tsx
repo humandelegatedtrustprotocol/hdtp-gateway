@@ -10,6 +10,8 @@ import { Avatar, Badge, Button, CsrfFields, EmptyState, Field, Notice, PLUMBING_
 type PermRow = { name: string; on: boolean };
 type Data = {
   fingerprint: string; display_name: string; petname: string; status: string;
+  // whether they were ever a contact: an unblock restores them, or forgets a rejected request
+  was_contact: boolean;
   preset: string; trust: string; permissions: PermRow[]; their_permissions: string[] | null; presets: string[];
 };
 
@@ -89,9 +91,20 @@ export function ContactDetail({ fpr }: { fpr: string }) {
     setNote(refreshNote(found.outcome ?? "", found.why ?? ""));
     load();
   };
-  const remove = async () => {
-    await postForm(`${base}/remove`, {});
-    navigate("/contacts");
+  // Block, unblock and remove answer with a redirect that carries what happened (`added`) or
+  // why not (`err`). A row that is gone afterwards is shown on People, where the owner lands.
+  // `gone`: the row does not survive this, so the owner is taken back to People.
+  const act = async (path: string, gone: boolean) => {
+    const r = await postForm(path, {});
+    const err = r.url.searchParams.get("err") || (!r.ok ? r.body || "that did not go through" : "");
+    const said = r.url.searchParams.get("added") ?? "";
+    if (err) { setNote({ kind: "err", text: err }); return; }
+    if (gone) {
+      navigate(`/contacts?notice=${encodeURIComponent(said)}`);
+      return;
+    }
+    setNote({ kind: "ok", text: said });
+    load();
   };
 
   return (
@@ -140,9 +153,19 @@ export function ContactDetail({ fpr }: { fpr: string }) {
         description="Your node learns a renewed certificate or a changed name the next time the two of you talk, and checks nothing in the background. Ask now if you want it sooner: this reaches this one contact and nobody else. Who they are and where they answer cannot change this way."
         footer={<Button variant="secondary" busy={refreshing} onClick={refresh}>Refresh now</Button>} />
 
+      {d.status === "blocked"
+        ? <Section title="Unblock"
+            description={d.was_contact
+              ? "They come back as a contact, with the permissions and trust they had. They are not told, as they were not told of the block."
+              : "They were never a contact: this is a request you rejected, or an approach of yours they declined. Unblocking forgets them, so they are a stranger again and may ask again."}
+            footer={<Button variant="secondary" onClick={() => act(`${base}/unblock`, !d.was_contact)}>Unblock</Button>} />
+        : <Section tone="danger" title="Block"
+            description="Silent: they are not told, and from now on they see exactly what a stranger sees and reach nothing. You can unblock them."
+            footer={<Button variant="danger" confirm={`Block ${shownName}? They are not told.`} onClick={() => act(`${base}/block`, false)}>Block</Button>} />}
+
       <Section tone="danger" title="Remove contact"
-        description="Deletes the pin, so they can reach nothing. Local by design — they are not told (PACT §6.2)."
-        footer={<Button variant="danger" confirm={`Remove ${shownName}? Their pin is deleted and they lose access. This is local: it does not tell them.`} onClick={remove}>Remove contact</Button>} />
+        description="Deletes the pin, so they can reach nothing. An active contact is told, so their node lets you go too; the removal stands here even if they cannot be reached. A request, or a blocked contact, is removed without telling them."
+        footer={<Button variant="danger" confirm={`Remove ${shownName}? Their pin is deleted and they lose access.`} onClick={() => act(`${base}/remove`, true)}>Remove contact</Button>} />
     </main>
   );
 }

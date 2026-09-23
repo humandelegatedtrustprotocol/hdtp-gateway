@@ -6,7 +6,7 @@ type SettingRow = {
   key: string; value: string; locked: boolean; reason: string; restart: boolean;
   kind: string; options: string[] | null; label: string; help: string; pending: boolean; running: string;
 };
-type StorageRow = { account_id: string; label: string; quota_gib: number; retention_days: number };
+type StorageRow = { account_id: string; label: string; quota_gib: number; retention_days: number; request_expiry_days: number };
 type AdapterSetting = { key: string; secret: boolean; set: boolean };
 type Data = {
   show_storage: boolean; storage: StorageRow[] | null;
@@ -200,8 +200,9 @@ function PresetForm({ p, allPerms, onSaved, isNew }: { p: PresetRow; allPerms: s
 function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
   const [quota, setQuota] = useState(String(s.quota_gib));
   const [days, setDays] = useState(String(s.retention_days));
+  const [expiry, setExpiry] = useState(String(s.request_expiry_days));
   const save = async () => {
-    const body = new URLSearchParams({ csrf: csrf(), account: s.account_id, quota_gib: quota, retention_days: days });
+    const body = new URLSearchParams({ csrf: csrf(), account: s.account_id, quota_gib: quota, retention_days: days, request_expiry_days: expiry });
     await fetch("/settings/storage", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
     onSaved();
   };
@@ -211,6 +212,9 @@ function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
       <div className="fields">
         <Field label="Quota GiB"><input type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} /></Field>
         <Field label="Retention days" help="0 = keep forever"><input type="number" min={0} value={days} onChange={(e) => setDays(e.target.value)} /></Field>
+        <Field label="Requests expire after (days)" help="A contact request nobody answers, theirs or yours, is dropped after this many days (1–365; 30 by default)">
+          <input type="number" min={1} max={365} value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+        </Field>
       </div>
       <Toolbar className="foot"><Button onClick={save}>Save</Button></Toolbar>
     </>

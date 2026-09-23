@@ -20,6 +20,9 @@ func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
 		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
+		// An imported row carries no history of this host's: active is known to have been
+		// active, and a blocked one is forgotten on unblock rather than restored.
+		EverActive: everActive(c.Status),
 	})
 }
 
@@ -36,7 +39,7 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
-		RootCert: c.RootCert,
+		RootCert: c.RootCert, EverActive: everActive(c.Status),
 	})
 	if err != nil {
 		return Contact{}, err
@@ -58,6 +61,7 @@ func pgContact(r pgdb.Contact) Contact {
 		Leaf:             r.Leaf,
 		ChainSentKid:     r.ChainSentKid,
 		RootCert:         r.RootCert,
+		EverActive:       r.EverActive != 0,
 	}
 }
 
@@ -159,4 +163,29 @@ func (s *Postgres) UpdateContactCard(ctx context.Context, accountID, fingerprint
 		return fmt.Errorf("store: contact not found")
 	}
 	return nil
+}
+
+func (s *Postgres) RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error) {
+	var rootCert []byte
+	if len(c.RootCert) > 0 {
+		rootCert = c.RootCert // nil keeps the certificate the row already holds
+	}
+	n, err := s.q.RedeemOverPendingContact(ctx, pgdb.RedeemOverPendingContactParams{
+		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions), InviteID: c.InviteID,
+		DisplayName: c.DisplayName, Card: c.Card, Spki: c.SPKI, Endpoint: c.Endpoint, Leaf: c.Leaf,
+		RootCert: rootCert, AccountID: c.AccountID, Fingerprint: c.Fingerprint,
+	})
+	return n > 0, err
+}
+
+func (s *Postgres) DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error) {
+	rows, err := s.q.DeleteExpiredPendingContacts(ctx, pgdb.DeleteExpiredPendingContactsParams{AccountID: accountID, CreatedAt: cutoff})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ExpiredContact, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ExpiredContact{Fingerprint: r.Fingerprint, Status: r.Status})
+	}
+	return out, nil
 }

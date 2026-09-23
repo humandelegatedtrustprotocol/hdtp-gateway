@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
@@ -49,34 +48,32 @@ type ContactsDeps struct {
 	ServedPermissions func(accountID string) []string
 }
 
-// offered is this contact's switchboard: the core permissions, whatever this
-// account's surface currently gates a tool with (an integration's
-// integration.<slug>, SPEC section 6.4), and anything the contact already holds
-// so a save cannot drop a grant the owner never touched.
+// offered is this contact's switchboard (contacts.Offered): the core permissions, whatever this
+// account's surface currently gates a tool with, and anything the contact already holds.
 //
 // It is the allow-list on save for the same reason it is the row list on
 // render. When the two disagreed, the portal offered a switch and the save threw
 // the answer away: an exposed integration could be granted, answered 200, was
 // audited ok, and persisted nothing, so the tool never reached the contact.
 func (d ContactsDeps) offered(accountID string, held []string) []string {
-	out := append([]string{}, contacts.AllPermissions...)
-	seen := map[string]bool{}
-	for _, p := range out {
-		seen[p] = true
+	var served []string
+	if d.ServedPermissions != nil {
+		served = d.ServedPermissions(accountID)
 	}
-	add := func(ps []string) {
-		for _, p := range ps {
-			if p != "" && !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+	return contacts.Offered(served, held)
+}
+
+// owner is the lifecycle both surfaces call (contacts.Owner). Telling a removed contact is
+// the node's one outbound path — the same Call the owner MCP's remove_contact reaches.
+func (d ContactsDeps) owner() contacts.Owner {
+	o := contacts.Owner{Manager: &contacts.Manager{Store: d.Store}, Invalidate: d.Invalidate}
+	if d.Call != nil {
+		o.TellRemoved = func(ctx context.Context, accountID, fpr string) error {
+			_, err := d.Call(ctx, accountID, fpr, "remove_contact", map[string]any{})
+			return err
 		}
 	}
-	if d.ServedPermissions != nil {
-		add(d.ServedPermissions(accountID))
-	}
-	add(held)
-	return out
+	return o
 }
 
 // redirectContacts returns to the list with a message. A redirect rather than a
@@ -192,8 +189,9 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 		})
 	})
 
-	// Ending one. RemoveContact and DeleteContact both existed; the portal had no
-	// way to reach either, so a contact could be added and never dropped.
+	// Ending one, in any state: an active contact is told (PACT §5: removal notifies the peer
+	// and is effective locally regardless, bounded so an unreachable peer never blocks the
+	// owner's decision); a waiting request, our own approach or a blocked root goes silently.
 	mux.HandleFunc("POST /contacts/{fpr}/remove", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
@@ -201,38 +199,57 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 		}
 		account := formOrQuery(r, "account")
 		fpr := r.PathValue("fpr")
-		// PACT §5: removal notifies the peer and is effective locally
-		// regardless. Best effort, BEFORE the delete — the outbound path needs
-		// the contact row's card — and bounded, so an unreachable peer never
-		// blocks the owner's own decision. Only an active relationship has
-		// anything to notify; the call itself is audited by CallContact.
-		notified := true
-		if d.Call != nil {
-			if c, err := d.Store.GetContact(r.Context(), account, fpr); err == nil && c.Status == "active" {
-				nctx, cancel := context.WithTimeout(r.Context(), removeNotifyBudget)
-				_, callErr := d.Call(nctx, account, fpr, "remove_contact", map[string]any{})
-				cancel()
-				notified = callErr == nil
-			}
-		}
-		if err := d.Store.DeleteContact(r.Context(), account, fpr); err != nil {
-			if d.Audit != nil {
-				d.Audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
-			}
+		prior, _ := d.Store.GetContact(r.Context(), account, fpr)
+		dec, err := d.owner().Remove(r.Context(), account, fpr)
+		if err != nil {
+			d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
 			redirectContacts(w, r, account, "", "could not remove them: "+err.Error())
 			return
 		}
-		if d.Invalidate != nil {
-			// Drop their composed server at once, or a cached one keeps serving
-			// the tier they just lost.
-			d.Invalidate(r.Context(), account, fpr)
-		}
-		if d.Audit != nil {
-			d.Audit("contact_remove", withAccount(r, "contact:"+fpr), "ok")
-		}
+		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "ok")
 		notice := "Removed."
-		if !notified {
+		if prior.Status == "active" && !dec.Told {
 			notice = "Removed. They could not be told, so their node may still list you."
+		}
+		redirectContacts(w, r, account, notice, "")
+	})
+
+	// Blocking is silent (SPEC §9.1, PACT §5.2): they are served as a stranger and told nothing.
+	mux.HandleFunc("POST /contacts/{fpr}/block", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		account := formOrQuery(r, "account")
+		fpr := r.PathValue("fpr")
+		if _, err := d.owner().Block(r.Context(), account, fpr); err != nil {
+			d.audit("contact_block", withAccount(r, "contact:"+fpr), "error")
+			redirectContacts(w, r, account, "", "could not block them: "+err.Error())
+			return
+		}
+		d.audit("contact_block", withAccount(r, "contact:"+fpr), "ok")
+		redirectContacts(w, r, account, "Blocked. They are not told; they now see what a stranger sees.", "")
+	})
+
+	// The way out of blocked, silent as the block was. A contact that was ever active comes
+	// back as it was; a request that was rejected is forgotten, and they may ask again.
+	mux.HandleFunc("POST /contacts/{fpr}/unblock", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		account := formOrQuery(r, "account")
+		fpr := r.PathValue("fpr")
+		dec, err := d.owner().Unblock(r.Context(), account, fpr)
+		if err != nil {
+			d.audit("contact_unblock", withAccount(r, "contact:"+fpr), "error")
+			redirectContacts(w, r, account, "", "could not unblock them: "+err.Error())
+			return
+		}
+		d.audit("contact_unblock", withAccount(r, "contact:"+fpr+" status:"+dec.Status), "ok")
+		notice := "Unblocked. They are a contact again, with the permissions they had."
+		if dec.Status == "none" {
+			notice = "Unblocked. They were never a contact, so they are forgotten: they may ask again."
 		}
 		redirectContacts(w, r, account, notice, "")
 	})
@@ -292,10 +309,12 @@ func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
 			rows = append(rows, row{Name: p, On: granted[p]})
 		}
 		apiJSON(w, map[string]any{
-			"fingerprint":       c.Fingerprint,
-			"display_name":      c.DisplayName,
-			"petname":           c.Petname,
-			"status":            c.Status,
+			"fingerprint":  c.Fingerprint,
+			"display_name": c.DisplayName,
+			"petname":      c.Petname,
+			"status":       c.Status,
+			// whether an unblock restores them (true) or forgets a rejected request (false)
+			"was_contact":       c.EverActive,
 			"preset":            heldPreset(contacts.LoadPresets(r.Context(), d.Store), c),
 			"trust":             c.TrustFlag,
 			"permissions":       rows,
@@ -461,6 +480,8 @@ func heldPreset(bundles contacts.PresetSet, c store.Contact) string {
 	return ""
 }
 
-// removeNotifyBudget bounds the courtesy remove_contact call: the peer's loss
-// of access is the local delete, not this notification.
-const removeNotifyBudget = 5 * time.Second
+func (d ContactsDeps) audit(action, resource, outcome string) {
+	if d.Audit != nil {
+		d.Audit(action, resource, outcome)
+	}
+}

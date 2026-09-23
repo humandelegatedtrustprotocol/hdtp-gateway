@@ -8,7 +8,9 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,6 +42,14 @@ type Deps struct {
 	// and not the other would leave the peer stranded depending on which button
 	// the owner happened to press. Nil skips the call; the approval still stands.
 	Approved func(ctx context.Context, accountID, contactFpr string, granted []string) error
+	// Rejected tells the peer their request was declined (`contact_rejected`), and Removed tells
+	// an active contact it was removed (their `remove_contact`): the same calls the portal makes.
+	// Nil skips the call; the decision still stands and the result says they were not told.
+	Rejected func(ctx context.Context, accountID, contactFpr string) error
+	Removed  func(ctx context.Context, accountID, contactFpr string) error
+	// ServedPermissions names every contact-tier permission this account's surface gates a tool
+	// with beyond the core five — the portal's switchboard offers the same (contacts.Offered).
+	ServedPermissions func(accountID string) []string
 	// Invalidate reconciles a caller's composed MCP server after the switchboard
 	// changed. Without it an approval writes the store and the CACHED per-caller
 	// server keeps serving the old tier — so the owner's agent approves a contact
@@ -101,6 +111,30 @@ func (d Deps) scope(ctx context.Context, ident auth.Identity) (policy.OwnerCtx, 
 		accts = append(accts, m.AccountID)
 	}
 	return policy.OwnerCtx{OwnerID: ident.OwnerID, AdminAccounts: accts}, nil
+}
+
+// owner is the lifecycle both surfaces call (contacts.Owner), with this surface's hooks.
+func (d Deps) owner() contacts.Owner {
+	return contacts.Owner{Manager: d.Contacts, Invalidate: d.Invalidate,
+		TellApproved: d.Approved, TellRejected: d.Rejected, TellRemoved: d.Removed}
+}
+
+// refused answers a refusal as a tool error carrying its code, the shape deny() uses.
+func refused(err error) (*mcp.CallToolResult, error) {
+	code := "internal"
+	switch {
+	case errors.Is(err, contacts.ErrUnknownContact):
+		code = "unknown_contact"
+	case errors.Is(err, contacts.ErrWrongState):
+		code = "conflict"
+	case errors.Is(err, contacts.ErrBadRequest):
+		code = "bad_request"
+	}
+	b, jerr := json.Marshal(map[string]string{"code": code, "detail": err.Error()})
+	if jerr != nil {
+		return nil, jerr
+	}
+	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
 }
 
 func deny() (*mcp.CallToolResult, error) {
@@ -172,10 +206,18 @@ type RefreshArgs struct {
 	ContactFpr string `json:"contact_fpr" jsonschema:"the contact whose card to re-fetch"`
 }
 
-type ApproveArgs struct {
+// ContactArgs names one contact of one account, for the lifecycle tools. Preset is read by
+// approve_contact alone.
+type ContactArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
-	Preset     string `json:"preset,omitempty"`
+	Preset     string `json:"preset,omitempty" jsonschema:"approve_contact only: the preset to grant; empty keeps the grant the request holds"`
+}
+
+// InviteIDArgs names one invite of one account.
+type InviteIDArgs struct {
+	AccountID string `json:"account_id"`
+	InviteID  string `json:"invite_id" jsonschema:"the invite to revoke, as list_invites names it"`
 }
 
 type InviteArgs struct {
@@ -347,63 +389,83 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 			return r, nil, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "approve_contact", Description: "Approve a pending_in request"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a ApproveArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
+	// The contact lifecycle (SPEC §9.1), one tool per decision, each the portal's own through
+	// contacts.Owner. Each answers the Decision — the status afterwards, and for the ones that
+	// tell the peer, whether they heard — and is audited under the portal's action name.
+	// Each tool is named by a literal at its call: the parity tests read the names from the syntax.
+	lifecycle := func(tool *mcp.Tool, action string, do func(ctx context.Context, a ContactArgs) (contacts.Decision, error)) {
+		mcp.AddTool(s, tool,
+			func(ctx context.Context, req *mcp.CallToolRequest, a ContactArgs) (*mcp.CallToolResult, any, error) {
+				if !allow(ctx, a.AccountID) {
+					r, err := deny()
+					return r, nil, err
+				}
+				resource := "account:" + a.AccountID + " contact:" + a.ContactFpr
+				dec, err := do(ctx, a)
+				if err != nil {
+					d.audit(action, resource, "error")
+					r, rerr := refused(err)
+					return r, nil, rerr
+				}
+				d.audit(action, resource+" status:"+dec.Status, "ok")
+				r, err := jsonResult(dec)
 				return r, nil, err
-			}
-			c, err := d.Store.GetContact(ctx, a.AccountID, a.ContactFpr)
-			if err != nil || c.Status != "pending_in" {
-				return nil, nil, fmt.Errorf("unknown_contact: no pending request")
-			}
-			if err := d.Store.UpdateContactStatus(ctx, a.AccountID, a.ContactFpr, "active"); err != nil {
-				return nil, nil, err
-			}
-			bundles := contacts.LoadPresets(ctx, d.Store)
-			if a.Preset != "" {
-				if perms, ok := bundles[a.Preset]; ok {
-					_ = d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, perms, a.Preset)
-				}
-			}
-			d.reconcile(ctx, a.AccountID, a.ContactFpr)
-			// Tell them, or they sit at pending_out with no way to learn.
-			status := "approved"
-			if d.Approved != nil {
-				var granted []string
-				if a.Preset != "" {
-					granted = bundles[a.Preset]
-				}
-				if err := d.Approved(ctx, a.AccountID, a.ContactFpr, granted); err != nil {
-					status = "approved; they could not be told yet (" + err.Error() + ")"
-				}
-			}
-			r, err := jsonResult(status)
-			return r, nil, err
+			})
+	}
+	lifecycle(&mcp.Tool{Name: "approve_contact", Description: "Approve a waiting request (pending_in). A preset replaces the grant with that bundle; none keeps the grant the request holds (an invite's). The peer is told what they were granted; told=false says they could not be reached, and the approval stands"},
+		"contact_approve", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
+			return d.owner().Approve(ctx, a.AccountID, a.ContactFpr, a.Preset)
+		})
+	lifecycle(&mcp.Tool{Name: "reject_contact", Description: "Decline a waiting request: it becomes blocked (a demotion, not a deletion), so that identity's next request never reaches you. They are told, so they do not wait for ever"},
+		"contact_reject", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
+			return d.owner().Reject(ctx, a.AccountID, a.ContactFpr)
+		})
+	lifecycle(&mcp.Tool{Name: "block_contact", Description: "Block a contact, silently: they are not told, and see only what a stranger sees"},
+		"contact_block", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
+			return d.owner().Block(ctx, a.AccountID, a.ContactFpr)
+		})
+	lifecycle(&mcp.Tool{Name: "unblock_contact", Description: "Undo a block, silently. A contact that was ever active returns as it was (status active); a rejected request or a declined approach was never a contact and is forgotten (status none), so they may ask again"},
+		"contact_unblock", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
+			return d.owner().Unblock(ctx, a.AccountID, a.ContactFpr)
+		})
+	lifecycle(&mcp.Tool{Name: "remove_contact", Description: "Remove a contact in any state: an active one is told and its pin deleted whether or not it answers; a waiting request, your own pending request or a blocked identity goes silently"},
+		"contact_remove", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
+			return d.owner().Remove(ctx, a.AccountID, a.ContactFpr)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard"},
+	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard: any of the core permissions, an integration.<slug> this account serves, or one the contact already holds; any other name is refused"},
 		func(ctx context.Context, req *mcp.CallToolRequest, a PermissionsArgs) (*mcp.CallToolResult, any, error) {
 			if !allow(ctx, a.AccountID) {
 				r, err := deny()
 				return r, nil, err
 			}
-			var known []string
+			c, err := d.Store.GetContact(ctx, a.AccountID, a.ContactFpr)
+			if err != nil {
+				r, rerr := refused(fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact))
+				return r, nil, rerr
+			}
+			var served []string
+			if d.ServedPermissions != nil {
+				served = d.ServedPermissions(a.AccountID)
+			}
+			// The portal's switchboard, and the portal's allow-list. A name outside it is refused
+			// rather than dropped: "ok" for a grant that was thrown away is how an agent came to
+			// believe it had granted an integration nobody could call.
+			offered := contacts.Offered(served, c.Permissions)
 			for _, p := range a.Permissions {
-				for _, k := range contacts.AllPermissions {
-					if p == k {
-						known = append(known, p)
-					}
+				if !slices.Contains(offered, p) {
+					r, rerr := refused(fmt.Errorf("%w: %q is not a permission this account offers", contacts.ErrBadRequest, p))
+					return r, nil, rerr
 				}
 			}
 			// Same rule the portal follows: a preset names a bundle, so it only
 			// rides along while the grant still is that bundle. An agent setting
 			// a bespoke list does not get to label it "family".
 			preset := a.Preset
-			if !contacts.LoadPresets(ctx, d.Store).Holds(preset, known) {
+			if !contacts.LoadPresets(ctx, d.Store).Holds(preset, a.Permissions) {
 				preset = ""
 			}
-			if err := d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, known, preset); err != nil {
+			if err := d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, a.Permissions, preset); err != nil {
 				return nil, nil, err
 			}
 			d.reconcile(ctx, a.AccountID, a.ContactFpr)
@@ -480,6 +542,53 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 				return nil, nil, err
 			}
 			r, err := jsonResult(map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt})
+			return r, nil, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites: label, uses, expiry, whether revoked. The link's token is never stored, so it is not here"},
+		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+			if !allow(ctx, a.AccountID) {
+				r, err := deny()
+				return r, nil, err
+			}
+			list, err := d.Store.ListInvites(ctx, a.AccountID)
+			if err != nil {
+				return nil, nil, err
+			}
+			type row struct {
+				ID          string   `json:"invite_id"`
+				Label       string   `json:"label"`
+				Uses        int64    `json:"uses"`
+				MaxUses     int64    `json:"max_uses"`
+				AutoAccept  bool     `json:"auto_accept"`
+				Preset      string   `json:"preset,omitempty"`
+				Permissions []string `json:"permissions"`
+				ExpiresAt   int64    `json:"expires_at"`
+				RevokedAt   int64    `json:"revoked_at,omitempty"`
+			}
+			out := make([]row, 0, len(list))
+			for _, inv := range list {
+				out = append(out, row{ID: inv.ID, Label: inv.Label, Uses: inv.Uses, MaxUses: inv.MaxUses, AutoAccept: inv.AutoAccept,
+					Preset: inv.Preset, Permissions: inv.Permissions, ExpiresAt: inv.ExpiresAt, RevokedAt: inv.RevokedAt})
+			}
+			r, err := jsonResult(out)
+			return r, nil, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "revoke_invite", Description: "Revoke one of this account's invites: the link stops working at once, and contacts it already made are unaffected"},
+		func(ctx context.Context, req *mcp.CallToolRequest, a InviteIDArgs) (*mcp.CallToolResult, any, error) {
+			if !allow(ctx, a.AccountID) {
+				r, err := deny()
+				return r, nil, err
+			}
+			// Scoped by the account: an invite id alone is not an authority.
+			if err := d.Store.RevokeInvite(ctx, a.AccountID, a.InviteID, time.Now().Unix()); err != nil {
+				d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "error")
+				b, _ := json.Marshal(map[string]string{"code": "not_found", "detail": "no live invite with that id on this account"})
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+			}
+			d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "ok")
+			r, err := jsonResult(map[string]string{"status": "revoked"})
 			return r, nil, err
 		})
 

@@ -225,6 +225,10 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 					ci := newContactInitiator(st, nd, auditFn)
 					return ci.NotifyApproved(ctx, accountID, contactFpr, granted)
 				},
+				// And the other answer, for the same reason (review P-13).
+				Rejected: func(ctx context.Context, accountID, contactFpr string) error {
+					return newContactInitiator(st, nd, auditFn).NotifyRejected(ctx, accountID, contactFpr)
+				},
 				SignCard: func(accountID, cardText string) (string, error) {
 					return nd.SignCard(ctx, accountID, cardText)
 				},
@@ -373,6 +377,17 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 				ci := newContactInitiator(st, nd, auditFn)
 				return ci.NotifyApproved(ctx, accountID, contactFpr, granted)
 			},
+			Rejected: func(ctx context.Context, accountID, contactFpr string) error {
+				return newContactInitiator(st, nd, auditFn).NotifyRejected(ctx, accountID, contactFpr)
+			},
+			// Removal tells an active contact through the node's one outbound path, the same
+			// call the portal's Remove makes.
+			Removed: func(ctx context.Context, accountID, contactFpr string) error {
+				_, err := nd.CallContact(ctx, accountID, contactFpr, "remove_contact", map[string]any{})
+				return err
+			},
+			// The switchboard the portal offers, so set_permissions can grant an integration.
+			ServedPermissions: nd.ServedPermissions,
 		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
 		ownermcp.ForwardBus(ctx, srv, nd.Bus())
 		presence.add(srv)

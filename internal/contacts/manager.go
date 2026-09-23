@@ -109,6 +109,9 @@ func (m *Manager) CreateInvite(ctx context.Context, accountID string, o InviteOp
 type RedeemResult struct {
 	Status      string // accepted | pending
 	Permissions []string
+	// Silent: the caller is a root this account holds as other than a waiting request, and was
+	// answered as a stranger with nothing written. The audit trail says so; the wire never does.
+	Silent bool
 }
 
 // Proof is what a guest proved this call: a chain — the root that is the identity, the
@@ -165,6 +168,17 @@ func (p Proof) pin(c store.Contact) store.Contact {
 // revocation, and use-count enforced atomically; the caller's proven identity MUST
 // be the root the submitted card's leaf names (guest binding, SPEC §5.3); what is
 // pinned is that root, the endpoint, the leaf and the leaf's key.
+//
+// A use is spent only by a redemption that writes a row, in the same transaction as the write.
+// A root this account already holds is decided BEFORE anything is spent:
+//
+//   - a request still waiting (pending_in) is that request redeeming a link: the row takes the
+//     invite's status, grant and label, and one use is spent;
+//   - any other row — blocked, or a pinned contact the node served at the guest tier because
+//     the leaf that signed is older than the one it holds (PACT §14.3) — is answered exactly
+//     what a stranger with the same link would be, and nothing is spent or written. PACT §12:
+//     blocked MUST be indistinguishable from never-met. This used to spend the use, fail the
+//     insert, and answer `invite_invalid`, which a stranger holding the same link is not told.
 func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p Proof) (RedeemResult, error) {
 	if _, err := p.vet(card); err != nil {
 		return RedeemResult{}, err
@@ -175,11 +189,10 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	if err != nil {
 		return RedeemResult{}, fmt.Errorf("%w: unknown token", ErrInviteInvalid)
 	}
-	ok, err := m.Store.ConsumeInviteUse(ctx, inv.ID, m.now().Unix())
-	if err != nil {
-		return RedeemResult{}, err
-	}
-	if !ok {
+	now := m.now().Unix()
+	// What ConsumeInviteUse enforces, read without spending: a link a stranger would be refused
+	// is refused to everyone, before a held row is looked at.
+	if inv.RevokedAt != 0 || inv.ExpiresAt <= now || inv.Uses >= inv.MaxUses {
 		return RedeemResult{}, fmt.Errorf("%w: expired, revoked, or used up", ErrInviteInvalid)
 	}
 	status := "pending_in"
@@ -188,13 +201,44 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 		status = "active"
 		result = RedeemResult{Status: "accepted", Permissions: inv.Permissions}
 	}
-	_, err = m.Store.InsertContact(ctx, p.pin(store.Contact{
+	held, err := m.Store.GetContact(ctx, accountID, callerFpr)
+	known := err == nil
+	if known && held.Status != "pending_in" {
+		result.Silent = true
+		return result, nil
+	}
+	row := p.pin(store.Contact{
 		AccountID: accountID, Status: status,
 		Preset: inv.Preset, Permissions: inv.Permissions, DisplayName: CardName(card),
-		Card: card, PinnedAt: m.now().Unix(), InviteID: inv.ID,
-	}))
+		Card: card, PinnedAt: now, InviteID: inv.ID,
+	})
+	err = m.Store.Atomically(ctx, func(tx store.Store) error {
+		ok, err := tx.ConsumeInviteUse(ctx, inv.ID, now)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("%w: expired, revoked, or used up", ErrInviteInvalid)
+		}
+		if known {
+			wrote, err := tx.RedeemOverPendingContact(ctx, row)
+			if err != nil {
+				return err
+			}
+			if !wrote {
+				// The owner decided on the request between the read above and this write.
+				return fmt.Errorf("%w: that request was decided meanwhile", ErrInviteInvalid)
+			}
+			return nil
+		}
+		if _, err := tx.InsertContact(ctx, row); err != nil {
+			// Another call inserted this root between the read above and this write.
+			return fmt.Errorf("%w: already a contact or request pending", ErrInviteInvalid)
+		}
+		return nil
+	})
 	if err != nil {
-		return RedeemResult{}, fmt.Errorf("%w: already a contact or request pending", ErrInviteInvalid)
+		return RedeemResult{}, err
 	}
 	if status == "pending_in" {
 		// An invite without auto-accept still needs the owner to look (§9.1).
@@ -252,7 +296,9 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 	return m.Store.SetContactAccepted(ctx, accountID, callerFpr, card, theirPermissions, m.now().Unix())
 }
 
-// ContactRejected: the peer declines; the pending row is removed silently.
+// ContactRejected: the peer declines our approach. The pending_out row is demoted to blocked,
+// not deleted (PACT §5.1: declining is a demotion): it is this side's record that the approach
+// was declined, and an unblock forgets it (it was never active), after which we may ask again.
 func (m *Manager) ContactRejected(ctx context.Context, accountID, callerFpr string) error {
 	c, err := m.Store.GetContact(ctx, accountID, callerFpr)
 	if err != nil || c.Status != "pending_out" {

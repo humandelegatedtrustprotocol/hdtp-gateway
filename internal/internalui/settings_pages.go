@@ -55,7 +55,7 @@ type SettingsDeps struct {
 	// section. Retention is per account (SPEC §7.9), so this is not a node knob.
 	Storage func(ctx context.Context) ([]StorageRow, error)
 	// SaveStorage records one account's storage policy.
-	SaveStorage func(ctx context.Context, accountID string, quotaGiB int64, retentionDays int) error
+	SaveStorage func(ctx context.Context, accountID string, quotaGiB int64, retentionDays, requestExpiryDays int) error
 	// Presets/SavePreset/DeletePreset edit the owner's permission bundles
 	// (PACT §8: presets are owner-editable). nil hides the section.
 	Presets      func(ctx context.Context) (map[string][]string, error)
@@ -102,6 +102,9 @@ type PairResult struct {
 const (
 	MaxQuotaGiB          = 1 << 20 // 1 PiB
 	MaxRetentionDaysForm = 36500   // 100 years
+	// MaxRequestExpiryDays bounds how long an unanswered contact request waits (SPEC §9.1).
+	// PACT caps an invite at 90 days; a request left longer than a year is not being decided.
+	MaxRequestExpiryDays = 365
 )
 
 // StorageRow is one account's storage policy, as the page shows it.
@@ -112,6 +115,9 @@ type StorageRow struct {
 	QuotaGiB int64 `json:"quota_gib"`
 	// RetentionDays is 0 for unlimited, which is the default.
 	RetentionDays int `json:"retention_days"`
+	// RequestExpiryDays is how long an unanswered contact request, theirs or ours, waits
+	// before it expires (SPEC §9.1): 30 unless the owner set another.
+	RequestExpiryDays int `json:"request_expiry_days"`
 }
 
 // AdapterSetting is one stored adapter credential or option.
@@ -358,6 +364,7 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 			account := r.PostForm.Get("account")
 			quota, err1 := strconv.ParseInt(strings.TrimSpace(r.PostForm.Get("quota_gib")), 10, 64)
 			days, err2 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("retention_days")))
+			expiry, err3 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("request_expiry_days")))
 			if err1 != nil || err2 != nil || quota < 0 || days < 0 ||
 				quota > MaxQuotaGiB || days > MaxRetentionDaysForm {
 				render(w, r, "quota and retention are whole numbers, zero or more "+
@@ -365,13 +372,17 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 					"is not a longer window, it is an overflow)", true, "", "")
 				return
 			}
-			if err := d.SaveStorage(r.Context(), account, quota, days); err != nil {
+			if err3 != nil || expiry < 1 || expiry > MaxRequestExpiryDays {
+				render(w, r, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
+				return
+			}
+			if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
 				d.audit("settings_storage", "account:"+account, "error")
 				render(w, r, "could not save: "+err.Error(), true, "", "")
 				return
 			}
 			d.audit("settings_storage",
-				fmt.Sprintf("account:%s quota_gib:%d retention_days:%d", account, quota, days), "ok")
+				fmt.Sprintf("account:%s quota_gib:%d retention_days:%d request_expiry_days:%d", account, quota, days, expiry), "ok")
 			notice := "Saved."
 			if days > 0 {
 				notice = fmt.Sprintf("Saved. Messages older than %d days will be deleted, permanently and locally.", days)

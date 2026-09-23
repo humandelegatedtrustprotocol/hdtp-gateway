@@ -76,9 +76,9 @@ func (s *Postgres) ConsumeInviteUse(ctx context.Context, inviteID string, nowTS 
 	return n == 1, nil
 }
 
-func (s *Postgres) RevokeInvite(ctx context.Context, inviteID string, nowTS int64) error {
+func (s *Postgres) RevokeInvite(ctx context.Context, accountID, inviteID string, nowTS int64) error {
 	n, err := s.q.RevokeInvite(ctx, pgdb.RevokeInviteParams{
-		RevokedAt: pgtype.Int8{Int64: nowTS, Valid: true}, ID: inviteID,
+		RevokedAt: pgtype.Int8{Int64: nowTS, Valid: true}, ID: inviteID, AccountID: accountID,
 	})
 	if err != nil {
 		return err
