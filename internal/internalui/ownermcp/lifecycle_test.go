@@ -84,8 +84,22 @@ func TestTheAgentRunsTheWholeContactLifecycle(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	var rejected, removed []string
-	e.deps.Rejected = func(_ context.Context, _, fpr string) error { rejected = append(rejected, fpr); return nil }
-	e.deps.Removed = func(_ context.Context, _, fpr string) error { removed = append(removed, fpr); return nil }
+	var unbounded []string // a courtesy call made with no deadline
+	bounded := func(ctx context.Context, what string) {
+		if dl, ok := ctx.Deadline(); !ok || time.Until(dl) > 6*time.Second {
+			unbounded = append(unbounded, what)
+		}
+	}
+	e.deps.Rejected = func(ctx context.Context, _, fpr string) error {
+		bounded(ctx, "reject")
+		rejected = append(rejected, fpr)
+		return nil
+	}
+	e.deps.Removed = func(ctx context.Context, _, fpr string) error {
+		bounded(ctx, "remove")
+		removed = append(removed, fpr)
+		return nil
+	}
 	for _, c := range []store.Contact{
 		{AccountID: e.acctA, Fingerprint: "sha256:asker", Status: "pending_in"},
 		{AccountID: e.acctA, Fingerprint: "sha256:friend", Status: "active", Preset: "friend", Permissions: []string{"message.text", "calendar.book"}},
@@ -149,6 +163,9 @@ func TestTheAgentRunsTheWholeContactLifecycle(t *testing.T) {
 	}
 	if !slices.Equal(removed, []string{"sha256:friend"}) {
 		t.Fatalf("remove_contact was sent to %v; only the active contact is told", removed)
+	}
+	if len(unbounded) != 0 {
+		t.Fatalf("courtesy calls made without a bound: %v", unbounded)
 	}
 }
 

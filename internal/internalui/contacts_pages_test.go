@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -386,6 +387,7 @@ func TestSwitchboardOffersWhatTheNodeServes(t *testing.T) {
 // regardless. The remove route had no coverage at all until this.
 func TestRemoveNotifiesThePeerBestEffort(t *testing.T) {
 	type call struct{ fpr, tool string }
+	var allowed time.Duration
 	env := func(t *testing.T, callErr error, withCall bool) (*http.ServeMux, *store.SQLite, *[]call, string) {
 		t.Helper()
 		st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "rm.db"))
@@ -401,8 +403,11 @@ func TestRemoveNotifiesThePeerBestEffort(t *testing.T) {
 		var calls []call
 		deps := ContactsDeps{Store: st, Audit: (&auditRec{}).fn}
 		if withCall {
-			deps.Call = func(_ context.Context, _, fpr, tool string, _ map[string]any) (string, error) {
+			deps.Call = func(ctx context.Context, _, fpr, tool string, _ map[string]any) (string, error) {
 				calls = append(calls, call{fpr, tool})
+				if dl, ok := ctx.Deadline(); ok {
+					allowed = time.Until(dl)
+				}
 				return "", callErr
 			}
 		}
@@ -431,6 +436,10 @@ func TestRemoveNotifiesThePeerBestEffort(t *testing.T) {
 		}
 		if len(*calls) != 1 || (*calls)[0] != (call{"sha256:p1", "remove_contact"}) {
 			t.Fatalf("peer calls: %+v", *calls)
+		}
+		// bounded, so an unreachable peer never holds the owner's decision
+		if allowed <= 0 || allowed > 6*time.Second {
+			t.Fatalf("the courtesy call was allowed %v", allowed)
 		}
 		if _, err := st.GetContact(context.Background(), acct, "sha256:p1"); err == nil {
 			t.Fatal("row survived the remove")
