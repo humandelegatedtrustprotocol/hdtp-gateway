@@ -117,7 +117,7 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 // page mounts — on 127.0.0.1, plus a browser-like client with a cookie jar.
 func portal(t *testing.T, n *node) (*httptest.Server, *http.Client) {
 	t.Helper()
-	h := internalui.Handler(n.st, internalui.NewSetupTokens(),
+	h := internalui.HandlerWithAuth(n.st, internalui.NewSetupTokens(), nil,
 		func(mux *http.ServeMux) {
 			internalui.MountManagePages(mux, internalui.ManageDeps{
 				Store: n.st, Contacts: n.cm, Audit: func(_, _, _ string) {},
@@ -259,9 +259,9 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	agentCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	updated := make(chan string, 4)
-	srv := ownermcp.NewServer(ownermcp.Deps{
+	srv := ownermcp.NewServerWithExtra(ownermcp.Deps{
 		Store: alice.st, Msg: alice.msg, Bus: alice.bus, Contacts: alice.cm,
-	}, auth.Identity{OwnerID: alice.owner.ID})
+	}, ownermcp.Extra{}, auth.Identity{OwnerID: alice.owner.ID})
 	ownermcp.ForwardBus(agentCtx, srv, alice.bus)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(agentCtx, st, nil); err != nil {

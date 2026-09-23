@@ -15,7 +15,7 @@ import (
 
 func TestEdgeAdaptersDeriveEdgeMode(t *testing.T) {
 	for _, name := range []string{"cloudflare", "ngrok-https"} {
-		edge, err := TerminatesAtEdge(name)
+		edge, err := derivesEdge(t, name)
 		if err != nil || !edge {
 			t.Fatalf("%s must terminate at an edge: %v %v", name, edge, err)
 		}

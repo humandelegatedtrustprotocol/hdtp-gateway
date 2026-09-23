@@ -28,7 +28,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	tk := NewSetupTokens()
-	return &env{h: Handler(st, tk), st: st, tk: tk}
+	return &env{h: HandlerWithAuth(st, tk, nil), st: st, tk: tk}
 }
 
 // get performs a request with a controllable remote address.

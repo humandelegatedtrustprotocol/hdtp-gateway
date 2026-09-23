@@ -55,8 +55,7 @@ type Options struct {
 }
 
 type factory struct {
-	terminatesAtEdge bool
-	build            func(Options) (Adapter, error)
+	build func(Options) (Adapter, error)
 }
 
 var (
@@ -65,10 +64,11 @@ var (
 )
 
 // Register makes an adapter constructible by name and tells core whether it
-// terminates TLS at an edge (SPEC §10.1 derivation).
+// terminates TLS at an edge (SPEC §10.1 derivation). Core holds that flag and
+// nothing else does: the mode is derived from it in one place (core.Config.Derive).
 func Register(name string, terminatesAtEdge bool, build func(Options) (Adapter, error)) {
 	mu.Lock()
-	factories[name] = factory{terminatesAtEdge: terminatesAtEdge, build: build}
+	factories[name] = factory{build: build}
 	mu.Unlock()
 	core.RegisterTunnel(name, terminatesAtEdge)
 }
@@ -94,15 +94,4 @@ func Names() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// TerminatesAtEdge reports the registered adapter's edge flag.
-func TerminatesAtEdge(name string) (bool, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	f, ok := factories[name]
-	if !ok {
-		return false, fmt.Errorf("tunnel: unknown adapter %q", name)
-	}
-	return f.terminatesAtEdge, nil
 }

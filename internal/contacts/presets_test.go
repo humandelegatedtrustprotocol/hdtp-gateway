@@ -10,7 +10,7 @@ import (
 // A preset is a label over the core switchboard. It has to stay true on its own
 // merits, because every surface that shows it — the contact page, the chat panel
 // — is asserting to the owner that this contact holds that bundle.
-func TestPresetHolds(t *testing.T) {
+func TestPresetsHolds(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		perms []string
@@ -33,8 +33,8 @@ func TestPresetHolds(t *testing.T) {
 		// Duplicates in the stored grant must not fake a bundle's size.
 		{"work", []string{"message.text", "message.text", "calendar.book"}, false},
 	} {
-		if got := PresetHolds(tc.name, tc.perms); got != tc.want {
-			t.Errorf("PresetHolds(%q, %v) = %v, want %v", tc.name, tc.perms, got, tc.want)
+		if got := DefaultPresets.Holds(tc.name, tc.perms); got != tc.want {
+			t.Errorf("DefaultPresets.Holds(%q, %v) = %v, want %v", tc.name, tc.perms, got, tc.want)
 		}
 	}
 }

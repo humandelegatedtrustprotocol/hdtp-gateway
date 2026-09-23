@@ -96,15 +96,10 @@ func (s *SetupTokens) ValidRecovery(tok string) bool {
 	return ok && t.recovery && time.Now().Before(t.expires)
 }
 
-// Handler builds the internal-surface HTTP handler. Page packages register their
-// routes via mount functions so they land INSIDE the CSRF wrap (SPEC §8.3).
-// Handler composes the internal surface. Auth, when supplied, wraps everything
-// in the session gate of SPEC §8.3; CSRF stays on regardless of binding.
-func Handler(st store.Store, setup *SetupTokens, mounts ...func(*http.ServeMux)) http.Handler {
-	return HandlerWithAuth(st, setup, nil, mounts...)
-}
-
-// HandlerWithAuth is Handler plus portal authentication.
+// HandlerWithAuth builds the internal-surface HTTP handler. Page packages register
+// their routes via mount functions so they land INSIDE the CSRF wrap (SPEC §8.3).
+// Auth, when supplied, wraps everything in the session gate of SPEC §8.3; a nil
+// authDeps (tests) leaves it off. CSRF stays on regardless of binding.
 func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mounts ...func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 	for _, m := range mounts {

@@ -338,13 +338,6 @@ func (m *Manager) stopLoop(integrationID string) {
 	}
 }
 
-// Ticking reports whether the background health cycle runs for an integration.
-func (m *Manager) Ticking(integrationID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.loops[integrationID] != nil
-}
-
 // install registers a fresh session as THE conn for the integration, closing
 // any previous one, and returns the conn.
 func (m *Manager) install(integrationID string, session *mcp.ClientSession) *conn {

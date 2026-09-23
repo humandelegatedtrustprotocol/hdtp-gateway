@@ -79,23 +79,17 @@ func TestForeignCardTolerated(t *testing.T) {
 }
 
 func TestCardHelpersUseParser(t *testing.T) {
-	card, w, _ := testid.Card(t, "Alina Rao", "https://alina.example/mcp", "required")
-	if CardKey(card) != w.Fpr {
-		t.Fatalf("CardKey = %q, want the root %q", CardKey(card), w.Fpr)
-	}
+	card, _, _ := testid.Card(t, "Alina Rao", "https://alina.example/mcp", "required")
 	if CardName(card) != "Alina Rao" {
 		t.Fatal("CardName no longer extracts from real cards")
 	}
-	if CardKey("not a card at all") != "" {
-		t.Fatal("garbage input should yield empty key, not panic")
-	}
 	// The phone fixture is a 1.x export: a name a phone can read, and an identity
-	// this node no longer accepts. CardName still works on it; CardKey cannot.
+	// this node no longer accepts. CardName still works on it; intake refuses it.
 	raw, _ := os.ReadFile("testdata/iphone-export.vcf")
 	if CardName(string(raw)) != "Alina Rao" {
 		t.Fatal("CardName no longer reads a card exported from a phone")
 	}
-	if CardKey(string(raw)) != "" {
+	if _, err := ValidateInbound(string(raw)); err == nil {
 		t.Fatal("a 1.x card still yields an identity")
 	}
 }
@@ -120,7 +114,7 @@ func FuzzVCardParse(f *testing.F) {
 		c, err := ParseCard(input)
 		if err == nil {
 			_ = c.Key
-			_ = CardKey(input)
+			_, _ = ValidateInbound(input)
 		}
 	})
 }

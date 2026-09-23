@@ -164,24 +164,6 @@ func EnvelopeFactsFrom(ctx context.Context) *EnvelopeFacts {
 	return f
 }
 
-// CallerSPKI is the ONE way a tool handler learns the caller's public key: from
-// the envelope when the call was sealed, from the client certificate when it was
-// not. Both paths carry the full key; neither ever infers it from a fingerprint.
-func CallerSPKI(ctx context.Context) []byte {
-	if f := EnvelopeFactsFrom(ctx); f != nil {
-		return f.SPKI
-	}
-	return FactsFrom(ctx).ClientCertSPKI
-}
-
-// CallerCard is the card a guest carried inside a sealed envelope ("" otherwise).
-func CallerCard(ctx context.Context) string {
-	if f := EnvelopeFactsFrom(ctx); f != nil {
-		return f.Card
-	}
-	return ""
-}
-
 // seal is the account's live seal policy.
 func (id *Identifier) seal() core.Seal {
 	if id.SealFn != nil {

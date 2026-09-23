@@ -59,6 +59,16 @@ func (g *guestID) proof() Proof {
 	return Proof{Fingerprint: g.Fingerprint, SPKI: g.Host.Key.Public.SPKI, Endpoint: g.Host.Endpoint, Leaf: g.Host.LeafDER}
 }
 
+// cardRoot is the root a card's leaf names: the identity its contact row is keyed by.
+func cardRoot(t *testing.T, card string) string {
+	t.Helper()
+	c, err := ValidateInbound(card)
+	if err != nil {
+		t.Fatalf("card: %v", err)
+	}
+	return c.Key
+}
+
 // guest builds a whole peer: a root, a leaf naming an endpoint, and the card that
 // carries it. It used to hand back a bare keypair and a `X-PACT-VERSION:1` card
 // with the key spelled out; there is no such card now.
@@ -88,7 +98,7 @@ func TestRedeemAutoAcceptYieldsActiveContact(t *testing.T) {
 	if res.Status != "accepted" || len(res.Permissions) != 2 {
 		t.Fatalf("redeem: %+v", res)
 	}
-	c, err := e.st.GetContact(ctx, e.account, CardKey(card))
+	c, err := e.st.GetContact(ctx, e.account, cardRoot(t, card))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +116,7 @@ func TestRedeemWithoutAutoAcceptIsPending(t *testing.T) {
 	if err != nil || res.Status != "pending" {
 		t.Fatalf("%v %+v", err, res)
 	}
-	c, _ := e.st.GetContact(ctx, e.account, CardKey(card))
+	c, _ := e.st.GetContact(ctx, e.account, cardRoot(t, card))
 	if c.Status != "pending_in" {
 		t.Fatalf("status %s", c.Status)
 	}

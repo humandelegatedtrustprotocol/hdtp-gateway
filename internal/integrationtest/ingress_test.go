@@ -22,6 +22,7 @@ import (
 	"github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/miekg/dns"
 
+	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/ingress"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
@@ -190,8 +191,11 @@ func TestP5ExitOwnDomainPassthroughAndTerminate(t *testing.T) {
 	}
 	_ = adapterFor(alpha, alphaPair, ingress.ModePassthrough)
 	_ = adapterFor(beta, betaPair, ingress.ModeTerminate)
-	if edge, _ := tunnel.TerminatesAtEdge("ingress-terminate"); !edge {
-		t.Fatal("terminate pairing must derive edge mode")
+	if derived, err := core.Load("", func(k string) (string, bool) {
+		v, ok := map[string]string{"PACT_DATA_DIR": t.TempDir(), "PACT_TUNNEL": "ingress-terminate"}[k]
+		return v, ok
+	}); err != nil || derived.Mode != core.ModeEdge {
+		t.Fatalf("terminate pairing must derive edge mode: %v", err)
 	}
 
 	// --- the terminate front: ACME (Pebble) certificate for beta.example.test ---

@@ -127,12 +127,6 @@ func (ps PresetSet) Holds(name string, perms []string) bool {
 	return true
 }
 
-// PresetHolds is the default-set shortcut kept for callers with no store in
-// reach; anything that serves owner-edited bundles resolves a set first.
-func PresetHolds(name string, perms []string) bool {
-	return DefaultPresets.Holds(name, perms)
-}
-
 var presetName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // ValidatePreset is the write-side gate: a name the portal can render and

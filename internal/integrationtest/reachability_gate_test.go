@@ -19,7 +19,17 @@ package integrationtest
 //   - an exported METHOD with no production caller, which is how most of this
 //     project's unwired machinery actually looks: `ACME.Manage` never manages a
 //     name, `Exposures.Reconcile` never runs the §6.5 stale guard,
-//     `Client.SealedCall` never makes a sealed outbound call.
+//     `Client.SealedCall` never makes a sealed outbound call;
+//   - an exported FUNCTION (not a constructor) with no production caller. The
+//     review of 2026-09-23 found eight at once (N-15): `CardKey`, `PresetHolds`,
+//     `SealToken`, `catalog.Diff` — the last one half of a portal feature SPEC
+//     described and nothing rendered.
+//
+// `make analyze` runs golang.org/x/tools/cmd/deadcode against the same table
+// (TestDeadcodeFindsOnlyWhatTheTableExcuses): whole-program, unexported names
+// included, with no bare-name counter to share. This gate stays because it runs
+// in `make check` with nothing to download, and because it owns the table's
+// staleness.
 //
 // None of the three is a reachability proof: a function called only from another
 // unreachable function still reads as reached, a hook left nil in a composite
@@ -57,7 +67,7 @@ func TestEveryMechanismIsReachableFromTheShippedBinary(t *testing.T) {
 	allowed := reachabilityExceptions(t, root)
 	used := map[string]bool{}
 
-	imports, ctors, methods, prodRefs, testRefs := scanTree(t, root)
+	imports, ctors, methods, funcs, prodRefs, testRefs := scanTree(t, root)
 
 	/* ---- shape 1: packages the binary never imports ---- */
 
@@ -143,6 +153,30 @@ func TestEveryMechanismIsReachableFromTheShippedBinary(t *testing.T) {
 			"Reachability table in docs/conformance.md.", strings.Join(deadMethods, "\n  "))
 	}
 
+	/* ---- shape 4: exported functions nothing in production calls ---- */
+
+	var deadFuncs []string
+	for name, where := range funcs {
+		if prodRefs[name] > 0 {
+			continue
+		}
+		if allowed[where.key] {
+			used[where.key] = true
+			continue
+		}
+		kind := "is called only by tests"
+		if testRefs[name] == 0 {
+			kind = "is never called at all"
+		}
+		deadFuncs = append(deadFuncs, fmt.Sprintf("%s (%s) %s", where.key, where.pkg, kind))
+	}
+	if len(deadFuncs) > 0 {
+		sort.Strings(deadFuncs)
+		t.Errorf("these exported functions have no production caller:\n  %s\n\nDelete them (a test\n"+
+			"helper belongs in a _test.go file or internal/testid), or add a row to the\n"+
+			"Reachability table in docs/conformance.md saying who calls them.", strings.Join(deadFuncs, "\n  "))
+	}
+
 	/* ---- the table must not outlive the problem ---- */
 
 	var stale []string
@@ -198,12 +232,13 @@ func reachabilityExceptions(t *testing.T, root string) map[string]bool {
 // on a platform-specific file would be removed, and a removed gate protects
 // nothing.
 func scanTree(t *testing.T, root string) (imports map[string][]string, ctors map[string]string,
-	methods map[string]methodSite, prod, test map[string]int) {
+	methods, funcs map[string]methodSite, prod, test map[string]int) {
 	t.Helper()
 	fset := token.NewFileSet()
 	imports = map[string][]string{}
 	ctors = map[string]string{}
 	methods = map[string]methodSite{}
+	funcs = map[string]methodSite{}
 	prod, test = map[string]int{}, map[string]int{}
 
 	for _, top := range []string{"internal", "cmd"} {
@@ -258,6 +293,10 @@ func scanTree(t *testing.T, root string) (imports map[string][]string, ctors map
 					switch {
 					case fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "New"):
 						ctors[fn.Name.Name] = pkg
+					case fn.Recv == nil:
+						// Keyed `pkg.Func` by the package's last element, which is how
+						// a Reachability row names a function.
+						funcs[fn.Name.Name] = methodSite{key: pkg[strings.LastIndex(pkg, "/")+1:] + "." + fn.Name.Name, pkg: pkg}
 					case fn.Recv != nil:
 						if r := receiverName(fn); r != "" {
 							methods[fn.Name.Name] = methodSite{key: r + "." + fn.Name.Name, pkg: pkg}
@@ -317,7 +356,7 @@ func scanTree(t *testing.T, root string) (imports map[string][]string, ctors map
 	if len(imports[binaryEntry]) == 0 {
 		t.Fatalf("%s imports nothing from this module — the scan is broken, not the code", binaryEntry)
 	}
-	return imports, ctors, methods, prod, test
+	return imports, ctors, methods, funcs, prod, test
 }
 
 // testOnlyPackages are directories whose regular .go files exist solely to be
@@ -340,8 +379,8 @@ func isTestOnlyPackage(path string) bool {
 	return false
 }
 
-// methodSite is where an exported method is declared. The key is `Type.Method`,
-// which is what a Reachability row names.
+// methodSite is where an exported method or function is declared. The key is
+// `Type.Method` or `pkg.Func`, which is what a Reachability row names.
 type methodSite struct{ key, pkg string }
 
 // receiverName reports the bare type name a method hangs off, pointer or not.
@@ -359,4 +398,76 @@ func receiverName(fn *ast.FuncDecl) string {
 		}
 	}
 	return ""
+}
+
+// TestDeadcodeFindsOnlyWhatTheTableExcuses holds golang.org/x/tools/cmd/deadcode's report to the
+// Reachability table (review N-15). deadcode is whole-program — it follows calls from
+// cmd/pact-gateway rather than counting names, and sees unexported functions — so it finds what
+// the floor above cannot: a helper whose only caller is a test, however it is spelled.
+//
+// `make deadcode` (part of `make analyze`) runs the tool and hands its report here in
+// PACT_DEADCODE_REPORT, one `<package path> <name>` per line. Without that variable there is
+// nothing to hold and the test says so; `make check` does not download the tool.
+//
+// The control: internal/testid is test-support by construction and always unreachable, so a
+// report that names nothing in it is not a report of this tree — a wrong root, a filter that
+// matches nothing — and fails rather than passing empty.
+func TestDeadcodeFindsOnlyWhatTheTableExcuses(t *testing.T) {
+	report := os.Getenv("PACT_DEADCODE_REPORT")
+	if report == "" {
+		t.Skip("run by `make deadcode`, which supplies deadcode's report in PACT_DEADCODE_REPORT")
+	}
+	raw, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := reachabilityExceptions(t, repoRoot(t))
+	var packages []string
+	for row := range allowed {
+		if strings.HasPrefix(row, "internal/") || strings.HasPrefix(row, "cmd/") {
+			packages = append(packages, row)
+		}
+	}
+	control := false
+	var unexcused []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		pkgPath, name, ok := strings.Cut(line, " ")
+		if !ok {
+			t.Fatalf("a line of the report is not `<package> <name>`: %q", line)
+		}
+		rel, ok := strings.CutPrefix(pkgPath, modulePath+"/")
+		if !ok {
+			t.Fatalf("the report names a package outside this module: %q", line)
+		}
+		if rel == "internal/testid" {
+			control = true
+		}
+		key := name // a method arrives as Type.Method, which is how a row names it
+		if !strings.Contains(name, ".") {
+			key = rel[strings.LastIndex(rel, "/")+1:] + "." + name
+		}
+		excused := allowed[key]
+		for _, p := range packages {
+			if rel == p || strings.HasPrefix(rel, p+"/") {
+				excused = true
+			}
+		}
+		if !excused {
+			unexcused = append(unexcused, key+" ("+rel+")")
+		}
+	}
+	if !control {
+		t.Fatalf("the deadcode report names nothing in internal/testid, which is never reachable from " +
+			"the binary: it is not a report of this tree (wrong root or filter?)")
+	}
+	if len(unexcused) > 0 {
+		sort.Strings(unexcused)
+		t.Errorf("deadcode finds these unreachable from %s:\n  %s\n\nDelete them — a test helper "+
+			"belongs in a _test.go file or internal/testid — or add a row to the Reachability table "+
+			"in docs/conformance.md saying who calls them.", binaryEntry, strings.Join(unexcused, "\n  "))
+	}
 }

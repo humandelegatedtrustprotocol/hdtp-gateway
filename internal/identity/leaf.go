@@ -15,7 +15,6 @@ package identity
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,15 +71,6 @@ func FromLib(k *pactidentity.PrivateKey) (*Keypair, error) {
 		return &Keypair{Algo: AlgoP256, Signer: k.EC, Fingerprint: pactidentity.Fingerprint(k.Public.SPKI)}, nil
 	}
 	return nil, fmt.Errorf("identity: unsupported library key %q", k.Alg)
-}
-
-// SPKI is the DER SubjectPublicKeyInfo of a keypair's public half.
-func SPKI(kp *Keypair) ([]byte, error) {
-	b, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	if err != nil {
-		return nil, fmt.Errorf("identity: %w", err)
-	}
-	return b, nil
 }
 
 // EndpointFor is the one address an account answers at (SPEC §5.2, PACT §14.1).

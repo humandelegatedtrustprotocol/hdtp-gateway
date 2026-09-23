@@ -40,7 +40,8 @@ red nothing else matters yet.
 committed rather than the one your sources produce; and **`sbom` after `dist`**,
 because `dist` begins by deleting the directory `sbom` writes into.
 
-`make analyze` (govulncheck, staticcheck, gosec) is exactly what CI runs — the
+`make analyze` (govulncheck, staticcheck, gosec, and deadcode held to the Reachability
+table of docs/conformance.md) is exactly what CI runs — the
 versions and flags are pinned in the Makefile and the workflow calls the target, so
 there is one list rather than two to drift apart. Same for `make fuzz`, which is not
 part of `all`: it is two minutes that find nothing on most runs, and CI runs it on
