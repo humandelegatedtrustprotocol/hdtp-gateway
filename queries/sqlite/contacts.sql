@@ -1,6 +1,6 @@
 -- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = ? AND fingerprint = ?;
@@ -9,7 +9,10 @@ SELECT * FROM contacts WHERE account_id = ? AND fingerprint = ?;
 SELECT * FROM contacts WHERE account_id = ? ORDER BY created_at, id;
 
 -- name: UpdateContactStatus :execrows
-UPDATE contacts SET status = ? WHERE account_id = ? AND fingerprint = ?;
+-- Moving a row to active records that it was ever active (migration 0039); nothing clears it.
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END
+WHERE account_id = ?2 AND fingerprint = ?3;
 
 -- name: UpdateContactPermissions :execrows
 UPDATE contacts SET permissions = ?, preset = ? WHERE account_id = ? AND fingerprint = ?;
@@ -32,7 +35,7 @@ UPDATE contacts SET card = ?, display_name = ? WHERE account_id = ? AND fingerpr
 UPDATE contacts SET petname = ? WHERE account_id = ? AND fingerprint = ?;
 
 -- name: SetContactAccepted :execrows
-UPDATE contacts SET status = 'active', card = ?, their_permissions = ?, pinned_at = ?
+UPDATE contacts SET status = 'active', ever_active = 1, card = ?, their_permissions = ?, pinned_at = ?
 WHERE account_id = ? AND fingerprint = ?;
 
 -- name: ImportContact :exec
@@ -40,5 +43,25 @@ WHERE account_id = ? AND fingerprint = ?;
 -- statement, and none it does not. invite_id stays empty because invites do not travel, and
 -- chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
 -- seen - and this host has not been issued one yet.
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: RedeemOverPendingContact :execrows
+-- A request still awaiting the owner (pending_in) redeems one of the owner's invites: the row
+-- takes the invite's status and grant and the pin this call proved (a sealed call proves no root
+-- certificate, and then the one held is kept). Guarded by the status it expects, so a row the
+-- owner decided on meanwhile is not overwritten.
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END,
+    preset = ?2, permissions = ?3, invite_id = ?4,
+    display_name = ?5, card = ?6, spki = ?7,
+    endpoint = ?8, leaf = ?9, root_cert = COALESCE(?10, root_cert)
+WHERE account_id = ?11 AND fingerprint = ?12 AND status = 'pending_in';
+
+-- name: DeleteExpiredPendingContacts :many
+-- An unanswered request, ours or theirs, expires (SPEC sec. 9.1): the relationship returns to
+-- none. The status is in the statement, so a request approved between a read and this delete
+-- is not the one removed.
+DELETE FROM contacts
+WHERE account_id = ? AND status IN ('pending_in', 'pending_out') AND created_at < ?
+RETURNING fingerprint, status;

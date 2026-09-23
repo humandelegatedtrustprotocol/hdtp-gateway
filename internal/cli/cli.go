@@ -734,7 +734,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
 	// an unattended sweep to the owner would misreport who deleted the data.
 	background.Go(func() {
-		runRetentionSweeper(bgCtx, settings, st, cfg, auditFn, stderr, nd.RetireExpiredLeaves)
+		runRetentionSweeper(bgCtx, settings, st, cfg, auditFn, stderr, nd.RetireExpiredLeaves, nd.Invalidate)
 	})
 
 	// ---- outbound retries (PACT §7.1) ----

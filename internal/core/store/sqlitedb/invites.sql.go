@@ -156,16 +156,19 @@ func (q *Queries) ListInvites(ctx context.Context, accountID string) ([]Invite, 
 }
 
 const revokeInvite = `-- name: RevokeInvite :execrows
-UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL
+UPDATE invites SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL
 `
 
 type RevokeInviteParams struct {
 	RevokedAt sql.NullInt64
 	ID        string
+	AccountID string
 }
 
+// Scoped to the account the caller acts for: an invite id alone would let an owner of one
+// account revoke another account's invite.
 func (q *Queries) RevokeInvite(ctx context.Context, arg RevokeInviteParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeInvite, arg.RevokedAt, arg.ID)
+	result, err := q.db.ExecContext(ctx, revokeInvite, arg.RevokedAt, arg.ID, arg.AccountID)
 	if err != nil {
 		return 0, err
 	}

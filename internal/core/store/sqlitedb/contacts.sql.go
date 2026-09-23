@@ -27,8 +27,50 @@ func (q *Queries) DeleteContact(ctx context.Context, arg DeleteContactParams) (i
 	return result.RowsAffected()
 }
 
+const deleteExpiredPendingContacts = `-- name: DeleteExpiredPendingContacts :many
+DELETE FROM contacts
+WHERE account_id = ? AND status IN ('pending_in', 'pending_out') AND created_at < ?
+RETURNING fingerprint, status
+`
+
+type DeleteExpiredPendingContactsParams struct {
+	AccountID string
+	CreatedAt int64
+}
+
+type DeleteExpiredPendingContactsRow struct {
+	Fingerprint string
+	Status      string
+}
+
+// An unanswered request, ours or theirs, expires (SPEC sec. 9.1): the relationship returns to
+// none. The status is in the statement, so a request approved between a read and this delete
+// is not the one removed.
+func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteExpiredPendingContactsParams) ([]DeleteExpiredPendingContactsRow, error) {
+	rows, err := q.db.QueryContext(ctx, deleteExpiredPendingContacts, arg.AccountID, arg.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeleteExpiredPendingContactsRow
+	for rows.Next() {
+		var i DeleteExpiredPendingContactsRow
+		if err := rows.Scan(&i.Fingerprint, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getContact = `-- name: GetContact :one
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert FROM contacts WHERE account_id = ? AND fingerprint = ?
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active FROM contacts WHERE account_id = ? AND fingerprint = ?
 `
 
 type GetContactParams struct {
@@ -59,13 +101,14 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 		&i.Leaf,
 		&i.ChainSentKid,
 		&i.RootCert,
+		&i.EverActive,
 	)
 	return i, err
 }
 
 const importContact = `-- name: ImportContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type ImportContactParams struct {
@@ -86,6 +129,7 @@ type ImportContactParams struct {
 	Endpoint         string
 	Leaf             []byte
 	RootCert         []byte
+	EverActive       int64
 }
 
 // A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
@@ -111,13 +155,14 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 		arg.Endpoint,
 		arg.Leaf,
 		arg.RootCert,
+		arg.EverActive,
 	)
 	return err
 }
 
 const insertContact = `-- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertContactParams struct {
@@ -137,6 +182,7 @@ type InsertContactParams struct {
 	Leaf         []byte
 	ChainSentKid string
 	RootCert     []byte
+	EverActive   int64
 }
 
 func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) error {
@@ -157,12 +203,13 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 		arg.Leaf,
 		arg.ChainSentKid,
 		arg.RootCert,
+		arg.EverActive,
 	)
 	return err
 }
 
 const listContacts = `-- name: ListContacts :many
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert FROM contacts WHERE account_id = ? ORDER BY created_at, id
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active FROM contacts WHERE account_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -194,6 +241,7 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 			&i.Leaf,
 			&i.ChainSentKid,
 			&i.RootCert,
+			&i.EverActive,
 		); err != nil {
 			return nil, err
 		}
@@ -208,8 +256,57 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 	return items, nil
 }
 
+const redeemOverPendingContact = `-- name: RedeemOverPendingContact :execrows
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END,
+    preset = ?2, permissions = ?3, invite_id = ?4,
+    display_name = ?5, card = ?6, spki = ?7,
+    endpoint = ?8, leaf = ?9, root_cert = COALESCE(?10, root_cert)
+WHERE account_id = ?11 AND fingerprint = ?12 AND status = 'pending_in'
+`
+
+type RedeemOverPendingContactParams struct {
+	Status      string
+	Preset      string
+	Permissions string
+	InviteID    string
+	DisplayName string
+	Card        string
+	Spki        []byte
+	Endpoint    string
+	Leaf        []byte
+	RootCert    []byte
+	AccountID   string
+	Fingerprint string
+}
+
+// A request still awaiting the owner (pending_in) redeems one of the owner's invites: the row
+// takes the invite's status and grant and the pin this call proved (a sealed call proves no root
+// certificate, and then the one held is kept). Guarded by the status it expects, so a row the
+// owner decided on meanwhile is not overwritten.
+func (q *Queries) RedeemOverPendingContact(ctx context.Context, arg RedeemOverPendingContactParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, redeemOverPendingContact,
+		arg.Status,
+		arg.Preset,
+		arg.Permissions,
+		arg.InviteID,
+		arg.DisplayName,
+		arg.Card,
+		arg.Spki,
+		arg.Endpoint,
+		arg.Leaf,
+		arg.RootCert,
+		arg.AccountID,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setContactAccepted = `-- name: SetContactAccepted :execrows
-UPDATE contacts SET status = 'active', card = ?, their_permissions = ?, pinned_at = ?
+UPDATE contacts SET status = 'active', ever_active = 1, card = ?, their_permissions = ?, pinned_at = ?
 WHERE account_id = ? AND fingerprint = ?
 `
 
@@ -307,7 +404,9 @@ func (q *Queries) UpdateContactPetname(ctx context.Context, arg UpdateContactPet
 }
 
 const updateContactStatus = `-- name: UpdateContactStatus :execrows
-UPDATE contacts SET status = ? WHERE account_id = ? AND fingerprint = ?
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END
+WHERE account_id = ?2 AND fingerprint = ?3
 `
 
 type UpdateContactStatusParams struct {
@@ -316,6 +415,7 @@ type UpdateContactStatusParams struct {
 	Fingerprint string
 }
 
+// Moving a row to active records that it was ever active (migration 0039); nothing clears it.
 func (q *Queries) UpdateContactStatus(ctx context.Context, arg UpdateContactStatusParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateContactStatus, arg.Status, arg.AccountID, arg.Fingerprint)
 	if err != nil {
