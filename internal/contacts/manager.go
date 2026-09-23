@@ -413,7 +413,6 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 
 /* ----------------------------- card helpers ---------------------------- */
 
-
 // CardName extracts FN for display; "" on any parse failure.
 func CardName(card string) string {
 	c, err := ParseCard(card)

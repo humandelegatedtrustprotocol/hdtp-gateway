@@ -165,7 +165,9 @@ export function ContactDetail({ fpr }: { fpr: string }) {
 
       <Section tone="danger" title="Remove contact"
         description="Deletes the pin, so they can reach nothing. An active contact is told, so their node lets you go too; the removal stands here even if they cannot be reached. A request, or a blocked contact, is removed without telling them."
-        footer={<Button variant="danger" confirm={`Remove ${shownName}? Their pin is deleted and they lose access.`} onClick={() => act(`${base}/remove`, true)}>Remove contact</Button>} />
+        footer={<Button variant="danger" confirm={d.status === "active"
+          ? `Remove ${shownName}? Their node is told, and their pin is deleted here even if it cannot be reached.`
+          : `Remove ${shownName}? Their pin is deleted. They are not told.`} onClick={() => act(`${base}/remove`, true)}>Remove contact</Button>} />
     </main>
   );
 }

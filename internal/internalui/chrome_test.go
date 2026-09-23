@@ -249,3 +249,22 @@ func TestTheCombinedContactsPageKeepsAllThreeSubjects(t *testing.T) {
 		}
 	}
 }
+
+// Three things the portal says that were missing or untrue (review N-17, N-19, N-20), held to the
+// compiled bundle: a way in from a card (SPEC §9.3), a removal confirm that says whether they are
+// told — an active contact is (§9.1), a request or a blocked one is not — and, beside a link shown
+// once, what to do when it is lost (the node keeps only its hash, §9.2).
+func TestThePortalOffersACardAndSaysWhatRemovalAndALostLinkMean(t *testing.T) {
+	js := bundleJS(t)
+	for _, want := range []struct{ frag, why string }{
+		{"Connect from a card", "a card held out of band has no way in but the owner MCP"},
+		{"Connect our agents?", "SPEC §9.3's offer is not made before the node asks"},
+		{"Their node is told", "removing an active contact does not say it tells them"},
+		{"Their pin is deleted. They are not told.", "removing a request or a blocked contact does not say it is silent"},
+		{"Lost it?", "a link shown once gives no way forward when it is lost"},
+	} {
+		if !strings.Contains(js, want.frag) {
+			t.Errorf("the compiled portal lacks %q: %s", want.frag, want.why)
+		}
+	}
+}

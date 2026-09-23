@@ -146,3 +146,23 @@ func TestLandingLinkFollowsALivePublicURL(t *testing.T) {
 			"the link is built from a snapshot, so it would keep naming the old host")
 	}
 }
+
+// A person who runs their own node and opens an invite in a browser was told only to point their
+// agent at it (review N-20). The page now names where it goes in their own portal — and that place
+// must exist: the section it names is held to the compiled portal, so renaming it there fails here.
+func TestLandingTellsASelfHostingPersonWhereToPasteIt(t *testing.T) {
+	h, cm, acct := landingEnv(t)
+	token, _, err := cm.CreateInvite(context.Background(), acct, contacts.InviteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/i/"+token, nil))
+	const where = "Accept an invite"
+	if !strings.Contains(rr.Body.String(), "People → "+where) {
+		t.Fatalf("the landing page gives a self-hosting person no next step")
+	}
+	if !strings.Contains(bundleJS(t), where) {
+		t.Fatalf("the landing page sends people to %q, which the compiled portal does not have", where)
+	}
+}
