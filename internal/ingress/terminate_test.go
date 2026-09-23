@@ -151,7 +151,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	if err := reg.Put(Node{Fingerprint: nodeKP.Fingerprint, SPKI: nodeSPKI, Subdomain: "alpha", Mode: ModeTerminate, Secret: "s"}); err != nil {
 		t.Fatal(err)
 	}
-	nodeLn, err := tls.Listen("tcp", "127.0.0.1:0", NodePinningConfig(nodeCert, ingKP.Fingerprint))
+	nodeLn, err := tls.Listen("tcp", "127.0.0.1:0", pinnedNodeConfig(nodeCert, ingKP.Fingerprint))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,4 +322,11 @@ func TestTerminatePublicTLSAcceptsAClientThatOffersALPN(t *testing.T) {
 	if got := client.ConnectionState().NegotiatedProtocol; got != "http/1.1" {
 		t.Errorf("negotiated %q, want http/1.1", got)
 	}
+}
+
+// pinnedNodeConfig is a node listener's config with the onward-leg pin the node installs.
+func pinnedNodeConfig(cert tls.Certificate, ingressFingerprint string) *tls.Config {
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	PinOnwardLeg(cfg, ingressFingerprint, nil)
+	return cfg
 }

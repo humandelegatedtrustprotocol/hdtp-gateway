@@ -157,26 +157,28 @@ func pipe(a, b net.Conn) {
 	<-done
 }
 
-// NodePinningConfig is the NODE side of the onward leg: its own certificate,
-// and a REQUIREMENT that the client is the pinned ingress — nothing else may
-// deliver traffic to a terminate-mode node (SPEC §10.6).
-func NodePinningConfig(nodeCert tls.Certificate, ingressFingerprint string) *tls.Config {
-	return &tls.Config{
-		Certificates: []tls.Certificate{nodeCert},
-		ClientAuth:   tls.RequireAnyClientCert,
-		MinVersion:   tls.VersionTLS12,
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return errors.New("node: onward leg needs the ingress certificate")
+// PinOnwardLeg is the NODE side of the onward leg: it makes tc require a client
+// certificate and accept only the paired ingress's — nothing else may deliver
+// traffic to a terminate-mode node (SPEC §10.6). It is a transport check and
+// stops at the handshake. refused, when set, hears the fingerprint of any other
+// certificate presented. The node's listener calls this (node.TLSConfig), so the
+// tests that exercise it exercise the pin that ships.
+func PinOnwardLeg(tc *tls.Config, ingressFingerprint string, refused func(presented string)) {
+	tc.ClientAuth = tls.RequireAnyClientCert
+	tc.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return errors.New("node: this listener only accepts its paired ingress")
+		}
+		f, err := identity.Fingerprint(cs.PeerCertificates[0].PublicKey)
+		if err != nil {
+			return err
+		}
+		if f != ingressFingerprint {
+			if refused != nil {
+				refused(f)
 			}
-			f, err := identity.Fingerprint(cs.PeerCertificates[0].PublicKey)
-			if err != nil {
-				return err
-			}
-			if f != ingressFingerprint {
-				return fmt.Errorf("node: %s is not the paired ingress", f)
-			}
-			return nil
-		},
+			return fmt.Errorf("node: %s is not the paired ingress", f)
+		}
+		return nil
 	}
 }

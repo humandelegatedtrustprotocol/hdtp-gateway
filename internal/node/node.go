@@ -30,6 +30,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/ingress"
 	"github.com/tech-sumit/pact-gateway/internal/internalui"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
@@ -926,21 +927,9 @@ func (n *Node) TLSConfig() *tls.Config {
 	// envelope (§10.1), and `public.Identifier` never sees this certificate — so
 	// pinning here cannot promote the ingress into a caller (§10.6).
 	if fpr := n.opts.IngressFingerprint; fpr != "" {
-		tc.ClientAuth = tls.RequireAnyClientCert
-		tc.VerifyConnection = func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return fmt.Errorf("node: this listener only accepts its paired ingress")
-			}
-			got, err := identity.Fingerprint(cs.PeerCertificates[0].PublicKey)
-			if err != nil {
-				return err
-			}
-			if got != fpr {
-				n.opts.audit("ingress_leg", "presented:"+got, "not_the_paired_ingress")
-				return fmt.Errorf("node: %s is not the paired ingress", got)
-			}
-			return nil
-		}
+		ingress.PinOnwardLeg(tc, fpr, func(presented string) {
+			n.opts.audit("ingress_leg", "presented:"+presented, "not_the_paired_ingress")
+		})
 	}
 	return tc
 }
