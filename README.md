@@ -260,26 +260,37 @@ change needs a spec edit before code. The protocol lives in a
 [separate repository](https://github.com/tech-sumit/pact-protocol) so other
 implementations can exist.
 
-**Tests that run the product rather than a mock.** 471 test functions, on **both**
-storage engines, with every parser that touches untrusted input fuzzed in CI — the
-vCard, the envelope wire format, the sealed payload and the invite offer — plus
-`govulncheck` on every run. [SECURITY.md](../SECURITY.md) states plainly what is and
+**Tests that run the product rather than a mock.** More than 500 test functions,
+with the store's conformance suite run on **both** storage engines, and a fuzz
+target, run in CI by `make fuzz`, on everything this code parses from untrusted
+input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
+`FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
+every run. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** Nine live scenarios stand the real binary up
+**A harness that builds the world.** 13 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
-| Scenario | What is real about it |
-|---|---|
-| First run | The quickstart above, through Chrome, with a virtual authenticator |
-| Pairing and messaging | Two identities, real mTLS, sealed envelopes |
-| Adversarial probes | A stranger, an over-reaching contact, a tampered audit chain |
-| NAT and double NAT | Genuinely isolated segments — "unreachable" is enforced, not simulated |
-| Relay | Neither side reachable; delivery only by store-and-forward |
-| Own-domain ingress | A containerised ACME CA and an authoritative DNS zone |
-| Tunnel | A self-hosted `frps`; the node's own certificate has to survive the hop |
-| Calendar | A real CalDAV server behind a third-party MCP server nobody here wrote |
-| Impairment and clock travel | Latency, loss, partition, healing, and a guest whose clock disagrees |
+| Scenario | What is real about it | Test |
+|---|---|---|
+| Pairing and messaging | The setup wizard in Chrome with a virtual authenticator, the owner MCP over a bearer token, a contact's agent over real mTLS | `TestPairingAndMessagingEndToEnd` |
+| Both directions | After pairing, each side messages the other | `TestMessagingWorksBothWaysAfterPairing` |
+| Approval | The owner approves over the owner MCP, and both nodes then say active | `TestApprovingAContactReachesThePeer` |
+| Rejection | The requester's own node learns it was rejected; an unblock lets them ask again | `TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain` |
+| Adversarial probes | A stranger, an over-reaching contact, and the audit chain intact through every refusal — over a real socket | `TestAdversarialProbesAreRefused` |
+| Portal affordances | Every action an owner needs, found on the page Chrome draws for a signed-in owner | `TestPortalOffersEveryAffordanceAnOwnerNeeds` |
+| Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |
+| Impairment | Latency and loss, and a partition that severs the node and then heals | `TestResilienceUnderImpairment` |
+| A move under a partition | A contact cut off while the move campaign runs is named, and told on resume | `TestAMoveCampaignSurvivesAPartition` |
+| Own-domain ingress | A containerised ACME CA and an authoritative DNS zone | `TestOwnDomainIngressServesPassthroughAndTerminate` |
+| Tunnel | A self-hosted `frps`; the node's own certificate has to survive the hop | `TestNodeIsReachableThroughSelfHostedFrps` |
+| Cloudflare | Two people over two real Cloudflare tunnels on a real domain (an owner run: it needs an account) | `TestTwoUsersOverRealCloudflareTunnels` |
+| Calendar | A real CalDAV server behind a third-party MCP server nobody here wrote | `TestContactBooksIntoRealCalDAV` |
+
+Under them, the fabric proves its own topologies live: isolated segments that are
+genuinely unreachable (`TestLiveInternalNetworkIsGenuinelyUnreachable`), NAT that
+gives outbound and no inbound (`TestLiveNATGivesOutboundButNoInbound`), and a guest
+whose clock is set elsewhere (`TestGuestClockTravelsAndTheNodeBelievesIt`).
 
 **It finds real bugs in this code.** That is what it is for, and the findings stay
 in the open in [`PLAN.md`](PLAN.md) — including the embarrassing ones: a whole
@@ -312,7 +323,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 
 Written down because they do not disappear by going unmentioned:
 
-- **Relays and edges see metadata** — sender, recipient, size, timing. Sealed
+- **Tunnels and edges see metadata** — which node is called, size, timing. Sealed
   content stays ciphertext to them; the fact of a conversation does not.
 - **No forward secrecy at the envelope layer.** A compromised leaf key opens
   envelopes an attacker kept from while it was current — bounded by the leaf's

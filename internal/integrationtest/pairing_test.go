@@ -161,7 +161,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	// the plaintext seal/client_cert gate every call passes through (SPEC §5.1)
 	n.pool.Gate = ident.PoolGate()
 	reg.Add(public.SealedEntries(public.SealedDeps{
-		Pool: n.pool, Identifier: ident, AccountID: a.ID, AccountFpr: kp.Fingerprint,
+		Pool: n.pool, Identifier: ident, AccountID: a.ID,
 		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
 		Idem:    st,
 	})...)

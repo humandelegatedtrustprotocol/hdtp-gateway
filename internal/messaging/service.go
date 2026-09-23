@@ -50,8 +50,7 @@ const (
 	// own side (§6.2); we validate the claim but cannot verify it, and an
 	// absent label means agent.
 	OriginPeer Origin = "peer"
-	// OriginStored: re-sending a row this node already recorded — a retry, or a
-	// relay attempt at the deadline. The label was decided when the message was
+	// OriginStored: re-sending a row this node already recorded — a retry. The label was decided when the message was
 	// composed and is a fact on the row; re-deriving it from a surface would
 	// answer for whichever surface happens to be running the sweep, which is
 	// none of them. Recording under this origin is refused: a stored message

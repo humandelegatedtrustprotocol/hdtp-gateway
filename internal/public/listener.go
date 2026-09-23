@@ -21,7 +21,7 @@ type TransportFacts struct {
 	ClientCertFingerprint string // "" when no certificate was presented
 	// ClientCertSPKI is the presented key itself (SubjectPublicKeyInfo DER).
 	// Pinning stores the full key, never just its hash (§9.2), so the plaintext
-	// mTLS path must carry it exactly as the sealed path carries `spk`.
+	// mTLS path must carry it exactly as the sealed path carries its leaf.
 	ClientCertSPKI []byte
 	// RemoteIP is the source address the node trusts for this request: the
 	// adapter's own header behind a terminating edge, the socket otherwise, and
@@ -57,8 +57,8 @@ func FactsFrom(ctx context.Context) TransportFacts {
 }
 
 // WithFacts attaches transport facts to a context. The listener does this per
-// request; it is exported so an in-process caller (the relay fetch loop, tests)
-// can present the same facts the wire would have carried.
+// request; it is exported so an in-process caller (tests) can present the same
+// facts the wire would have carried.
 func WithFacts(ctx context.Context, f TransportFacts) context.Context {
 	return context.WithValue(ctx, factsKey{}, f)
 }

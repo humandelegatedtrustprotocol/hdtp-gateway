@@ -14,7 +14,7 @@ const (
 	EventRequest EventKind = "request"
 	EventPending EventKind = "pending"
 	// EventDelivery fires when an outbound message's delivery status changes —
-	// delivered, queued at a relay, or finally given up on. Without it a message
+	// delivered, or finally given up on. Without it a message
 	// that failed and then succeeded on retry kept saying "not delivered yet"
 	// until the owner reopened the conversation by hand.
 	EventDelivery EventKind = "delivery"

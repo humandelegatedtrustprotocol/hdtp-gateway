@@ -588,7 +588,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 	// list has to tell the same truth), so SetSeal replaces or deletes the
 	// group the way integration tools come and go.
 	a.sealedEntries = public.SealedEntries(public.SealedDeps{
-		Pool: a.pool, Identifier: ident, AccountID: rec.ID, AccountFpr: kp.Fingerprint,
+		Pool: a.pool, Identifier: ident, AccountID: rec.ID,
 		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
 		Idem:    n.opts.Store,
 		Now:     n.opts.Now,

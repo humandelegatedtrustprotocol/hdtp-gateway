@@ -28,7 +28,7 @@ func BenchmarkOpenSealedSmallForm(b *testing.B) {
 	env := e.seal20(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, e.acct.Fingerprint, TransportFacts{}, env, DeliveryDirect); err != nil {
+		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, env); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -43,7 +43,7 @@ func BenchmarkOpenSealedChainForm(b *testing.B) {
 	env := e.seal20(b, p, "chain", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, e.acct.Fingerprint, TransportFacts{}, env, DeliveryDirect); err != nil {
+		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, env); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -71,7 +71,7 @@ func BenchmarkSealBack(b *testing.B) {
 	p := newPeer(b, s.nowAt.Add(-time.Hour))
 	s.pin(b, p, "active")
 	env := s.seal20(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
-	facts, err := s.id.OpenSealed(context.Background(), s.acct.ID, s.acct.Fingerprint, TransportFacts{}, env, DeliveryDirect)
+	facts, err := s.id.OpenSealed(context.Background(), s.acct.ID, TransportFacts{}, env)
 	if err != nil {
 		b.Fatal(err)
 	}

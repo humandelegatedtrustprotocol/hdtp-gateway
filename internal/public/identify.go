@@ -9,7 +9,8 @@ package public
 // Order matters and is spec-pinned: decode → suite → to → kid → OPEN →
 // verify signature → freshness → idempotency → dispatch. Opening precedes
 // verification because HPKE Base needs no sender key, which is exactly what
-// lets an unpinned sender's key (`spk`) ride inside the ciphertext (§4.4 step 6).
+// lets a sender this node has never pinned carry its chain inside the
+// ciphertext (PACT §13.2).
 
 import (
 	"context"
@@ -70,9 +71,10 @@ const (
 	MaxLifetime = 30 * 24 * time.Hour
 )
 
-// Payload is the plaintext of a request envelope (PACT §13.2): a bare JSON
-// object, no JSON-RPC framing. `spk` carries the sender's SubjectPublicKeyInfo
-// (base64url DER) and is required whenever the recipient does not pin `from`.
+// Payload is the call an opened request envelope carries (PACT §13.2): the
+// method and its params, as the library's Decide read them out of the
+// plaintext. The sender's chain or leaf, which the same plaintext carries, is
+// decided there and reaches the node as EnvelopeFacts, not as a member here.
 type Payload struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
@@ -101,15 +103,6 @@ type EnvelopeFacts struct {
 	AddressClaim string
 	Refusal      string
 }
-
-// Delivery says how the envelope reached the node: relay-delivered envelopes are
-// exempt from the 300 s timestamp window (bounded by `exp` alone, §4.4 step 7).
-type Delivery int
-
-const (
-	DeliveryDirect Delivery = iota
-	DeliveryRelay
-)
 
 // IdempotencyStore records msg_id acknowledgments (SPEC §4.4 step 8).
 type IdempotencyStore interface {
@@ -284,12 +277,12 @@ func (id *Identifier) PoolGate() func(ctx context.Context, tool string) error {
 }
 
 // OpenSealed runs the numbered open order (SPEC §4.4) for one sealed_call.
-// accountID/accountFpr identify the addressed account; tf carries the transport
+// accountID is the addressed account; tf carries the transport
 // facts of the connection the envelope arrived on.
-func (id *Identifier) OpenSealed(ctx context.Context, accountID, accountFpr string, tf TransportFacts, e *envelope.Envelope, d Delivery) (*EnvelopeFacts, error) {
+func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf TransportFacts, e *envelope.Envelope) (*EnvelopeFacts, error) {
 	// 0. Policy. At `none` the recipient does not accept envelopes (PACT §13.4)
-	// — the card said not to seal, and this one check covers BOTH inbound
-	// paths: the sealed_call wrapper and the relay fetch. Read live, like
+	// — the card said not to seal. The sealed_call wrapper is the only way an
+	// envelope arrives, and it opens through here. Read live, like
 	// PlaintextGate, so flipping the knob needs no restart.
 	if id.seal() == core.SealNone {
 		return nil, fmt.Errorf("%w: this recipient does not accept sealed calls", ErrSealNotAccepted)

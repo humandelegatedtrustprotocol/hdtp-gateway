@@ -37,15 +37,12 @@ type SealedDeps struct {
 	Pool       *Pool
 	Identifier *Identifier
 	AccountID  string
-	AccountFpr string
 	// Keypair unseals the account identity key (to open and to sign results).
 	Keypair func(ctx context.Context) (*identity.Keypair, error)
 	// Idem is optional; nil disables envelope-level msg_id replay.
-	Idem IdempotencyStore
-	// Delivery marks how envelopes reach this surface (relay fetch = DeliveryRelay).
-	Delivery Delivery
-	Now      func() time.Time
-	Audit    func(action, resource, outcome string)
+	Idem  IdempotencyStore
+	Now   func() time.Time
+	Audit func(action, resource, outcome string)
 }
 
 func (d SealedDeps) now() time.Time {
@@ -128,7 +125,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
 			return errEnvelope("envelope_invalid"), nil
 		}
-		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, d.AccountFpr, FactsFrom(ctx), &env, d.Delivery)
+		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
 		if err != nil {
 			var renewed *CertificateRenewed
 			switch {
