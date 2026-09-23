@@ -31,8 +31,8 @@ func TestContactsPageOffersAWayToAcceptAnInvite(t *testing.T) {
 	mux := http.NewServeMux()
 	MountContactPages(mux, ContactsDeps{
 		Store: e.st,
-		AddContact: func(context.Context, string, string, string) (string, error) {
-			return "sha256:friend", nil
+		AddContact: func(context.Context, string, string, string, string, string) (string, string, error) {
+			return "sha256:friend", "active", nil
 		},
 	})
 
@@ -72,9 +72,9 @@ func TestAcceptingAnInviteRedeemsIt(t *testing.T) {
 	mux := http.NewServeMux()
 	MountContactPages(mux, ContactsDeps{
 		Store: e.st,
-		AddContact: func(_ context.Context, accountID, inviteURL, _ string) (string, error) {
+		AddContact: func(_ context.Context, accountID, inviteURL, _, _, _ string) (string, string, error) {
 			gotAccount, gotURL = accountID, inviteURL
-			return "sha256:friend", nil
+			return "sha256:friend", "active", nil
 		},
 	})
 
@@ -109,8 +109,8 @@ func TestARefusedInviteIsReportedToTheOwner(t *testing.T) {
 	mux := http.NewServeMux()
 	MountContactPages(mux, ContactsDeps{
 		Store: e.st,
-		AddContact: func(context.Context, string, string, string) (string, error) {
-			return "", errInviteRefused{}
+		AddContact: func(context.Context, string, string, string, string, string) (string, string, error) {
+			return "", "", errInviteRefused{}
 		},
 	})
 	form := url.Values{"invite_url": {"https://friend.example/i/gone"}}
@@ -139,3 +139,41 @@ func TestARefusedInviteIsReportedToTheOwner(t *testing.T) {
 type errInviteRefused struct{}
 
 func (errInviteRefused) Error() string { return "that invite is expired or already used" }
+
+// SPEC §9.3: the portal imports a card, and on the owner's confirmation the node runs the PACT
+// §5.2 manual flow — request_contact at the address the card names, landing pending_out. The
+// portal took only an invite link, so a card an owner held out of band could reach a contact
+// only through the owner MCP (review N-17). The same route now takes a card and a note, hands
+// them to the same function add_contact calls, and says the answer is a wait, not a contact.
+func TestAddingFromACardAsksAndSaysTheyAreWaiting(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	acct, err := e.st.CreateAccount(ctx, store.CreateAccountParams{
+		Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotURL, gotCard, gotNote string
+	mux := http.NewServeMux()
+	MountContactPages(mux, ContactsDeps{
+		Store: e.st,
+		AddContact: func(_ context.Context, _, inviteURL, card, note, _ string) (string, string, error) {
+			gotURL, gotCard, gotNote = inviteURL, card, note
+			return "sha256:friend", "pending_out", nil
+		},
+	})
+	const card = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Friend\r\nEND:VCARD"
+	form := url.Values{"card": {card}, "note": {"we met in Pune"}}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/contacts/add?account="+acct.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mux.ServeHTTP(rr, req)
+
+	if gotCard != card || gotNote != "we met in Pune" || gotURL != "" {
+		t.Fatalf("the card path did not reach the adder as a card: url=%q card=%q note=%q", gotURL, gotCard, gotNote)
+	}
+	loc, _ := url.Parse(rr.Header().Get("Location"))
+	if said := loc.Query().Get("added"); !strings.Contains(said, "waiting") {
+		t.Fatalf("a request that lands pending_out was reported as %q, not as a wait", said)
+	}
+}

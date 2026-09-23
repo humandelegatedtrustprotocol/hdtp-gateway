@@ -61,6 +61,8 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
 <h1>{{.FN}} invites your agent to connect</h1>
 <p>This is a <strong>PACT</strong> invite. Point your agent at it — redemption pins the
 card below, so verify it came from the person you expect before connecting.</p>
+<p>Running your own PACT node? Paste this page's address into your node's portal, under
+<strong>People → Accept an invite</strong>.</p>
 <div class="card"><h2>Their signed card</h2><pre>{{.Card}}</pre>
 <p class="muted">signature (by the key the card names): <code>{{.Sig}}</code></p>
 </div>

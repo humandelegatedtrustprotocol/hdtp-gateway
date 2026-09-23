@@ -96,14 +96,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 		// SPEC §9's `none --> pending_out`. Without this the node can only ever
 		// hold the agents that called IN; it can never reach out (E16).
 		AddContact: func(ctx context.Context, accountID, inviteURL, card, note, grant string) (ownermcp.AddContactResult, error) {
-			ci := newContactInitiator(st, nd, auditFn)
-			var res addContactResult
-			var err error
-			if inviteURL != "" {
-				res, err = ci.RedeemInvite(ctx, accountID, inviteURL, grant)
-			} else {
-				res, err = ci.RequestContact(ctx, accountID, card, note)
-			}
+			res, err := newContactInitiator(st, nd, auditFn).Add(ctx, accountID, inviteURL, card, note, grant)
 			if err != nil {
 				return ownermcp.AddContactResult{}, err
 			}
