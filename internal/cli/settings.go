@@ -141,49 +141,6 @@ func (s *settingsService) values(ctx context.Context) (map[string]string, error)
 	return out, nil
 }
 
-// resealLegacySecrets re-encrypts settings rows that SHOULD be sealed but are not.
-//
-// isSecretKey was case-sensitive, so credentials stored under uppercase names —
-// which is every environment variable a supervised child takes, CALDAV_PASSWORD
-// and GITHUB_TOKEN and the rest — were written in the clear. Fixing the predicate
-// only helps the next write; a credential already in the table stays exposed
-// until something rewrites it, and expecting an owner to notice and re-enter it
-// is not a security control.
-//
-// Idempotent, and quiet when there is nothing to do. A row that cannot be
-// re-sealed is left exactly as it was and reported: a half-converted settings
-// table would be worse than an unconverted one.
-func (s *settingsService) resealLegacySecrets(ctx context.Context) (int, error) {
-	if s.kr == nil {
-		return 0, nil
-	}
-	rows, err := s.store.ListSettings(ctx)
-	if err != nil {
-		return 0, err
-	}
-	sealed := 0
-	for _, r := range rows {
-		if r.Secret || !isSecretKey(r.Key) || r.Value == "" {
-			continue
-		}
-		blob, err := s.kr.Encrypt([]byte(r.Value), []byte(settingAAD))
-		if err != nil {
-			s.audit("settings_reseal", "key:"+r.Key, "error")
-			return sealed, fmt.Errorf("settings: could not seal %s: %w", r.Key, err)
-		}
-		if err := s.store.PutSetting(ctx, store.Setting{
-			Key: r.Key, Value: encodeSealed(blob), Secret: true, UpdatedAt: s.clock().Unix(),
-		}); err != nil {
-			s.audit("settings_reseal", "key:"+r.Key, "error")
-			return sealed, err
-		}
-		// The key is audited; the value never is.
-		s.audit("settings_reseal", "key:"+r.Key, "sealed")
-		sealed++
-	}
-	return sealed, nil
-}
-
 // plainValues returns the stored NON-secret settings. It is the render path:
 // it never decrypts, so a secret cannot reach a template through it.
 func (s *settingsService) plainValues(ctx context.Context) (map[string]string, error) {

@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
 // Credentials for a supervised stdio child are stored as
@@ -68,80 +66,5 @@ func TestUppercaseCredentialsAreSealedAtRest(t *testing.T) {
 	if vals["integration.cal.env.CALDAV_PASSWORD"] != secret {
 		t.Errorf("a sealed credential did not read back: %q",
 			vals["integration.cal.env.CALDAV_PASSWORD"])
-	}
-}
-
-// Fixing the predicate only protects the NEXT write. A credential already written
-// in the clear stays exposed until something rewrites it, and an owner cannot be
-// expected to notice that a value they typed once is sitting in plaintext in
-// every backup. Startup repairs it.
-func TestLegacyPlaintextCredentialsAreResealedAtStartup(t *testing.T) {
-	dir := t.TempDir()
-	st := openStoreAt(t, dir)
-	ctx := context.Background()
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	var audited []string
-	svc := &settingsService{store: st, kr: openKeyringAt(t, dir),
-		audit: func(a, r, o string) { audited = append(audited, a+" "+r+" "+o) }}
-
-	const secret = "left-in-the-clear"
-	// exactly what the old predicate wrote: Secret=false, value in plaintext
-	for _, k := range []string{"integration.cal.env.CALDAV_PASSWORD", "integration.gh.env.GITHUB_TOKEN"} {
-		if err := st.PutSetting(ctx, store.Setting{Key: k, Value: secret, Secret: false}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// and a genuinely non-secret row, which must be left alone
-	if err := st.PutSetting(ctx, store.Setting{
-		Key: "integration.cal.calendar_url", Value: "http://radicale/owner/work/",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	n, err := svc.resealLegacySecrets(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Fatalf("resealed %d rows, want 2", n)
-	}
-	rows, err := st.ListSettings(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range rows {
-		switch r.Key {
-		case "integration.cal.calendar_url":
-			if r.Secret {
-				t.Error("a non-secret row was sealed; the predicate has become too broad")
-			}
-		default:
-			if !r.Secret || strings.Contains(r.Value, secret) {
-				t.Errorf("%s is still in the clear after the repair", r.Key)
-			}
-		}
-	}
-	// the values must still read back, or the repair destroyed the configuration
-	vals, err := svc.values(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if vals["integration.cal.env.CALDAV_PASSWORD"] != secret {
-		t.Errorf("a resealed credential no longer reads back: %q", vals["integration.cal.env.CALDAV_PASSWORD"])
-	}
-	// and the KEY is audited, never the value
-	joined := strings.Join(audited, "\n")
-	if !strings.Contains(joined, "settings_reseal key:integration.cal.env.CALDAV_PASSWORD sealed") {
-		t.Errorf("the repair was not audited: %v", audited)
-	}
-	if strings.Contains(joined, secret) {
-		t.Error("the audit trail contains the credential")
-	}
-	// idempotent: a second pass finds nothing
-	again, err := svc.resealLegacySecrets(ctx)
-	if err != nil || again != 0 {
-		t.Errorf("second pass resealed %d rows (err %v); it must be idempotent", again, err)
 	}
 }
