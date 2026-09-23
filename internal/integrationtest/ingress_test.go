@@ -117,7 +117,8 @@ func startNode(t *testing.T, ctx context.Context, name string, onwardPin string)
 	var cfg *tls.Config
 	if onwardPin != "" {
 		// terminate mode: only the paired ingress may deliver traffic
-		cfg = ingress.NodePinningConfig(cert, onwardPin)
+		cfg = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		ingress.PinOnwardLeg(cfg, onwardPin, nil)
 	} else {
 		cfg = &tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequestClientCert, MinVersion: tls.VersionTLS12}
 	}
