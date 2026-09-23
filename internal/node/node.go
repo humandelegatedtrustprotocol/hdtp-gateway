@@ -342,8 +342,8 @@ func (n *Node) classifyCtx(ctx context.Context) public.LimitKey {
 	f := public.FactsFrom(ctx)
 	ip := f.RemoteIP
 
-	// WHO is calling, by the same rule CallerSPKI uses: the envelope when the
-	// call was sealed, the client certificate when it was not.
+	// WHO is calling: the envelope when the call was sealed, the client
+	// certificate when it was not.
 	//
 	// Reading only the certificate made this unusable in edge mode. Edge mode
 	// FORCES client_cert off (§10.1) because the edge terminates TLS and the node

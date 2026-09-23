@@ -178,7 +178,7 @@ func (e *toolEnv) callAs(guest *testid.Host, fpr, tool string, args map[string]a
 	e.t.Helper()
 	ctx := context.Background()
 	if spki != nil {
-		ctx = WithFacts(ctx, TransportFacts{ClientCertSPKI: spki, ClientCertFingerprint: fingerprintOfSPKI(spki)})
+		ctx = WithFacts(ctx, TransportFacts{ClientCertSPKI: spki, ClientCertFingerprint: pactidentity.Fingerprint(spki)})
 	}
 	if guest != nil {
 		ctx = WithEnvelopeFacts(ctx, &EnvelopeFacts{

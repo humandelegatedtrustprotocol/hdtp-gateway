@@ -11,7 +11,7 @@ import (
 // the ingress (edge: seal forced required, client_cert forced off).
 func TestIngressAdaptersDeriveModes(t *testing.T) {
 	for name, wantEdge := range map[string]bool{"ingress-passthrough": false, "ingress-terminate": true} {
-		edge, err := TerminatesAtEdge(name)
+		edge, err := derivesEdge(t, name)
 		if err != nil || edge != wantEdge {
 			t.Fatalf("%s: edge=%v err=%v", name, edge, err)
 		}

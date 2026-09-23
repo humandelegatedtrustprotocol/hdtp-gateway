@@ -39,7 +39,7 @@ func TestFRPOptionsPlumbing(t *testing.T) {
 	if h.publicURL() != "https://pact.example:8443" {
 		t.Fatalf("https url: %s", h.publicURL())
 	}
-	if edge, err := TerminatesAtEdge("frp"); err != nil || edge {
+	if edge, err := derivesEdge(t, "frp"); err != nil || edge {
 		t.Fatal("frp must be direct mode")
 	}
 }

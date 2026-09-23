@@ -59,7 +59,7 @@ func newEnv(t *testing.T) *env {
 func connect(t *testing.T, e *env, ident auth.Identity, opts *mcp.ClientOptions) (*mcp.ClientSession, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := NewServer(e.deps, ident)
+	srv := NewServerWithExtra(e.deps, Extra{}, ident)
 	ForwardBus(ctx, srv, e.deps.Bus)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {

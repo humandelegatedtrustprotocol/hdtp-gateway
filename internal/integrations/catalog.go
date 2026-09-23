@@ -178,45 +178,6 @@ func sameToolSet(storedJSON string, defs []ToolDef) bool {
 	return true
 }
 
-// DiffEntry labels one tool's change between two snapshots.
-type DiffEntry struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"` // added | removed | changed
-}
-
-// Diff compares two snapshots' tool lists (JSON as stored).
-func Diff(oldJSON, newJSON string) ([]DiffEntry, error) {
-	var oldT, newT []ToolDef
-	if err := json.Unmarshal([]byte(oldJSON), &oldT); err != nil {
-		return nil, fmt.Errorf("integrations: %w", err)
-	}
-	if err := json.Unmarshal([]byte(newJSON), &newT); err != nil {
-		return nil, fmt.Errorf("integrations: %w", err)
-	}
-	oldM := make(map[string]string, len(oldT))
-	for _, t := range oldT {
-		oldM[t.Name] = t.Hash
-	}
-	var out []DiffEntry
-	seen := map[string]bool{}
-	for _, t := range newT {
-		seen[t.Name] = true
-		switch h, ok := oldM[t.Name]; {
-		case !ok:
-			out = append(out, DiffEntry{Name: t.Name, Kind: "added"})
-		case h != t.Hash:
-			out = append(out, DiffEntry{Name: t.Name, Kind: "changed"})
-		}
-	}
-	for _, t := range oldT {
-		if !seen[t.Name] {
-			out = append(out, DiffEntry{Name: t.Name, Kind: "removed"})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
-}
-
 // nameOf names an integration the way its owner knows it — by slug — for any
 // message a person will read. The id is a database key, not a name.
 func nameOf(ctx context.Context, st store.Store, integrationID string) string {

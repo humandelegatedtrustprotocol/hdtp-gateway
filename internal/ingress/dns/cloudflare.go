@@ -1,18 +1,15 @@
-// Package dns holds the ingress role's DNS adapters (SPEC §10.6): create and
-// update subdomain records pointing at the ingress, and answer ACME DNS-01 for
-// wildcard certificates. Cloudflare first — via the libdns provider, which is
-// also what certmagic's DNS-01 solver consumes. Off-the-shelf on purpose.
+// Package dns holds the ingress role's DNS adapter (SPEC §10.6): it answers ACME
+// DNS-01 for the wildcard certificate. No per-pairing record is ever written — the
+// owner points the wildcard at the ingress once. Cloudflare, via the libdns
+// provider certmagic's DNS-01 solver consumes. Off-the-shelf on purpose.
 package dns
 
 import (
-	"context"
 	"fmt"
-	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/libdns/cloudflare"
-	"github.com/libdns/libdns"
 )
 
 // Cloudflare wraps the libdns Cloudflare provider.
@@ -34,16 +31,6 @@ func NewCloudflare(apiToken, zone string) (*Cloudflare, error) {
 		zone += "."
 	}
 	return &Cloudflare{Provider: &cloudflare.Provider{APIToken: apiToken}, Zone: zone, TTL: 5 * time.Minute}, nil
-}
-
-// Point sets <sub>.<zone> → ip (A or AAAA) so callers reach the ingress.
-func (c *Cloudflare) Point(ctx context.Context, sub string, ip netip.Addr) error {
-	rec := libdns.Address{Name: sub, TTL: c.TTL, IP: ip}
-	_, err := c.Provider.SetRecords(ctx, c.Zone, []libdns.Record{rec})
-	if err != nil {
-		return fmt.Errorf("dns: cloudflare set %s: %w", sub, err)
-	}
-	return nil
 }
 
 // Solver returns the libdns provider for certmagic's DNS01Solver (wildcards).

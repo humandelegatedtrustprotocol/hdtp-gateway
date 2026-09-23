@@ -507,16 +507,15 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		}
 		// handlers that need the caller (idempotency keys, trust labeling)
 		// read the RESOLVED identity — never a caller-supplied field
-		return e.Handler(context.WithValue(ctx, callerKey{}, caller), req)
+		return e.Handler(WithCaller(ctx, caller), req)
 	}
 }
 
 type callerKey struct{}
 
 // CallerFromContext returns the policy-resolved caller inside a guarded handler.
-// WithCaller attaches a resolved caller. The pool does this per call; it is
-// exported so a handler built outside this package can be exercised the way the
-// pool would invoke it.
+// WithCaller attaches a resolved caller: the pool's guard calls it per call, and
+// a test exercising a handler built outside this package calls the same function.
 func WithCaller(ctx context.Context, c policy.Caller) context.Context {
 	return context.WithValue(ctx, callerKey{}, c)
 }

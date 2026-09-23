@@ -16,7 +16,6 @@ package public
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -166,16 +165,6 @@ func (d ToolDeps) invalidate(ctx context.Context, fpr string) {
 	if d.Invalidate != nil && fpr != "" {
 		_ = d.Invalidate(ctx, d.AccountID, fpr)
 	}
-}
-
-// fingerprintOfSPKI is the PACT §2 identity of a presented key: "sha256:" +
-// base64url(SHA-256(SPKI)). An absent key has no identity, not a fake one.
-func fingerprintOfSPKI(spki []byte) string {
-	if len(spki) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256(spki)
-	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 /* ------------------------------- results -------------------------------- */

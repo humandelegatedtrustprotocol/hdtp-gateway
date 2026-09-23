@@ -361,7 +361,7 @@ func TestSwitchboardOffersWhatTheNodeServes(t *testing.T) {
 	}
 
 	// And it clears even when the switches still equal the stored bundle. The
-	// first version only cleared through PresetHolds, so choosing "custom" over
+	// first version only cleared through Presets.Holds, so choosing "custom" over
 	// a grant that happened to still match kept the old label — the explicit
 	// decision was silently ignored.
 	rr = postForm(t, mux, "/contacts/"+fpr+"/permissions?account="+acct.ID,
