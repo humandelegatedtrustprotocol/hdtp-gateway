@@ -236,10 +236,52 @@ func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 		t.Error("the card was not replaced")
 	}
 
-	// A card from another root is not a refresh of this contact.
-	other, otherCard, _ := guest(t, "Mallory")
-	_ = other
-	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, otherCard); err == nil {
-		t.Error("a card naming another root was accepted as a refresh")
+	// A card from another root is not a refresh of this contact, and neither is a card of the
+	// same root carrying a leaf the call did not prove. Each is `bad_request` — a card that
+	// disagrees with the proof — as the cloud answers it (PACT §3, §14.2; review P-24).
+	_, otherCard, _ := guest(t, "Mallory")
+	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, otherCard); !errors.Is(err, ErrBadRequest) {
+		t.Errorf("a card naming another root: want bad_request, got %v", err)
+	}
+	if c, _ := e.st.GetContact(ctx, e.account, g.Fingerprint); c.Card != refreshed {
+		t.Error("a refused card replaced the stored one")
+	}
+}
+
+// A contact's card whose root is right but whose leaf is not the one the pin holds, on both
+// tools that take a contact's card: refused `bad_request`, and nothing written (review P-24).
+func TestACardThatDisagreesWithTheProofIsABadRequest(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := testid.NewWallet(t, "Bharat")
+	pinned := w.Issue(t, "https://bharat.example/mcp")
+	stranger := w.Issue(t, "https://bharat.example/mcp") // same root, a leaf this call did not prove
+	card := pinned.Card("Bharat", "")
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: e.account, Fingerprint: w.Fpr, SPKI: pinned.Key.Public.SPKI, Status: "active",
+		Card: card, Leaf: pinned.LeafDER, Endpoint: pinned.Endpoint,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.UpdateContact(ctx, e.account, w.Fpr, stranger.Card("Bharat", "")); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("update_contact with another leaf's card: want bad_request, got %v", err)
+	}
+	if c, _ := e.st.GetContact(ctx, e.account, w.Fpr); c.Card != card {
+		t.Fatal("a refused card replaced the stored one")
+	}
+
+	// contact_accepted with a card naming somebody else.
+	g, _, spki := guest(t, "Invited")
+	if _, err := e.st.InsertContact(ctx, store.Contact{
+		AccountID: e.account, Fingerprint: g.Fingerprint, SPKI: spki, Status: "pending_out", Card: g.Host.Card("Invited", ""),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, mallory, _ := guest(t, "Mallory")
+	if err := e.m.ContactAccepted(ctx, e.account, g.Fingerprint, mallory, nil); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("contact_accepted with another root's card: want bad_request, got %v", err)
+	}
+	if c, _ := e.st.GetContact(ctx, e.account, g.Fingerprint); c.Status != "pending_out" {
+		t.Fatalf("a refused acceptance moved the row to %s", c.Status)
 	}
 }
