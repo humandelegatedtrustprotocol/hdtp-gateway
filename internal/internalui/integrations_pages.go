@@ -197,7 +197,9 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			if err := d.Manager.Connect(ctx, id); err != nil && d.Connector != nil {
+			// Reconnect, not Connect: this is the owner's decision, the one thing that re-arms a
+			// supervised child that gave up (SPEC §6.2).
+			if err := d.Manager.Reconnect(ctx, id); err != nil && d.Connector != nil {
 				// The authorize request may be waiting on this; tell it why.
 				d.Connector.Fail(id, err)
 			}
