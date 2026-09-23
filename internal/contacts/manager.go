@@ -286,8 +286,12 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrBadRequest, err)
 		}
+		// A card that is not the caller's own is a bad card, not a missing proof: the call
+		// proved who it is; the card says otherwise. `bad_request` is what PACT §3 answers a
+		// card at intake and §14.2 a card whose chain fails; `identity_required` means no
+		// usable proof at all (§12), and the cloud answers this `bad_request` too.
 		if pc.Key != callerFpr {
-			return fmt.Errorf("%w: the card does not match the accepting identity", ErrIdentityRequired)
+			return fmt.Errorf("%w: the card does not match the accepting identity", ErrBadRequest)
 		}
 	}
 	if card == "" {
@@ -326,11 +330,14 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	// Both refusals are `bad_request`, as ContactAccepted's is: the call's chain proved the
+	// caller, and the card disagrees with that proof (PACT §3, §14.2). One fault, one code on
+	// every implementation — the cloud's update_contact answers the same.
 	if nc.Key != oldFpr {
-		return fmt.Errorf("%w: the card names another root", ErrIdentityRequired)
+		return fmt.Errorf("%w: the card names another root", ErrBadRequest)
 	}
 	if len(c.Leaf) > 0 && !bytes.Equal(nc.Cert, c.Leaf) {
-		return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrIdentityRequired)
+		return fmt.Errorf("%w: the card's certificate is not the leaf this call proved", ErrBadRequest)
 	}
 	// The NAME the owner approved stays put. `update_contact` is available at
 	// contact tier regardless of permissions and replaces the stored card, which
