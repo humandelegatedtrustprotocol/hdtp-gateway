@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -1040,6 +1041,19 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	have := map[string]bool{}
 	for _, tool := range list.Tools {
 		have[tool.Name] = true
+	}
+	// README states how many tools a running node's owner MCP lists. It said 23 while the node
+	// listed 24 and nothing noticed; the number is held to the listing here.
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`owner MCP is a second surface, separate from the public one, with \*\*(\d+) tools\*\*`).FindSubmatch(readme)
+	if m == nil {
+		t.Fatal("README no longer states the owner MCP's tool count where this test reads it")
+	}
+	if n, _ := strconv.Atoi(string(m[1])); n != len(list.Tools) {
+		t.Fatalf("README says the owner MCP has %d tools; a running node lists %d", n, len(list.Tools))
 	}
 	for _, want := range []string{"audit_query", "call_contact", "export_card", "list_passkeys", "remove_passkey",
 		// §8.4's contact and invite management, the whole of §9.1's lifecycle (review N-01, N-02)
