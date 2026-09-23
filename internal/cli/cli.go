@@ -525,15 +525,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// tunnel chosen in the portal forces the same knobs an env-set one would
 	// (SPEC §10.1, §12.2).
 	settings := &settingsService{store: st, kr: kr, cfg: cfg, audit: ownerFn}
-	// A credential stored while isSecretKey was case-sensitive is sitting in the
-	// clear; fixing the predicate only protects the next write. Repairing at
-	// startup is not optional cleanup — an owner cannot be expected to notice.
-	if n, err := settings.resealLegacySecrets(ctx); err != nil {
-		fmt.Fprintln(stderr, "serve:", err)
-		return 1
-	} else if n > 0 {
-		fmt.Fprintf(stdout, "settings: sealed %d credential(s) that were stored in the clear\n", n)
-	}
 	stored, err := settings.values(ctx)
 	if err != nil {
 		fmt.Fprintln(stderr, "serve:", err)

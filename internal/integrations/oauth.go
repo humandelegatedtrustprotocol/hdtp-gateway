@@ -63,13 +63,6 @@ func (o *storedOAuth) config() *oauth2.Config {
 	}
 }
 
-// SealToken persists an OAuth token encrypted under the keyring master key.
-// Without a config the token cannot be refreshed after a restart; SealOAuth is
-// what the handler uses once it has one.
-func SealToken(st store.Store, kr Sealer, integrationID string, tok *oauth2.Token) error {
-	return SealOAuth(st, kr, integrationID, tok, nil)
-}
-
 // SealOAuth persists the token with the config that can refresh it.
 func SealOAuth(st store.Store, kr Sealer, integrationID string, tok *oauth2.Token, oc *oauth2.Config) error {
 	blob := storedOAuth{Token: tok}
@@ -88,9 +81,7 @@ func SealOAuth(st store.Store, kr Sealer, integrationID string, tok *oauth2.Toke
 	return st.SetIntegrationSecret(context.Background(), integrationID, sealed)
 }
 
-// openStored loads and unseals what is on file (nil when nothing is). A blob
-// written before the config travelled with the token is a bare oauth2.Token
-// and still opens — as a token with nothing to refresh it.
+// openStored loads and unseals what is on file (nil when nothing is).
 func openStored(st store.Store, kr Sealer, integrationID string) (*storedOAuth, error) {
 	sealed, err := st.GetIntegrationSecret(context.Background(), integrationID)
 	if err != nil || len(sealed) == 0 {
@@ -104,23 +95,7 @@ func openStored(st store.Store, kr Sealer, integrationID string) (*storedOAuth, 
 	if err := json.Unmarshal(plain, &blob); err != nil {
 		return nil, fmt.Errorf("integrations: %w", err)
 	}
-	if blob.Token == nil {
-		var legacy oauth2.Token
-		if err := json.Unmarshal(plain, &legacy); err != nil || legacy.AccessToken == "" {
-			return nil, nil
-		}
-		blob.Token = &legacy
-	}
 	return &blob, nil
-}
-
-// OpenToken loads and unseals the stored token (nil when none is stored).
-func OpenToken(st store.Store, kr Sealer, integrationID string) (*oauth2.Token, error) {
-	blob, err := openStored(st, kr, integrationID)
-	if err != nil || blob == nil {
-		return nil, err
-	}
-	return blob.Token, nil
 }
 
 // persistingSource wraps a TokenSource and seals every newly minted token —
