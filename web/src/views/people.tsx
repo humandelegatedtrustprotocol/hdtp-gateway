@@ -92,9 +92,11 @@ function ContactsTab({ d, onNote, reload }: {
 
   const accept = async () => {
     const res = await postForm("/contacts/add", { invite_url: invite, grant });
-    const added = res.url.searchParams.get("added");
+    // The server's notice is a whole sentence — "Added …", or "Asked … to connect" when their
+    // invite wants approval — so it is shown as given.
+    const said = res.url.searchParams.get("added");
     const err = res.url.searchParams.get("err") || (!res.ok ? res.body || "that invite was not accepted" : "");
-    onNote(err ? { kind: "err", text: err } : { kind: "ok", text: added ? `Added ${added}.` : "Invite accepted." });
+    onNote(err ? { kind: "err", text: err } : { kind: "ok", text: said || "Invite accepted." });
     setInvite("");
     reload();
   };

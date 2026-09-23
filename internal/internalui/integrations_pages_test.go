@@ -455,10 +455,11 @@ func TestCallbackFindsTheFlowByState(t *testing.T) {
 	}
 }
 
-// The portal's Reconnect button is the owner's decision, and the one thing that re-arms a
-// supervised child that exhausted its restarts (SPEC §6.2). It called Manager.Connect, whose
-// Gate refuses a given-up child before launching anything, so the button did nothing while the
-// error it answered said "reconnect to retry" (review N-15). This drives the real route and
+// The portal's Reconnect button is the owner's decision, and the one thing that re-arms at once a
+// supervised child that exhausted its restarts (SPEC §6.2); otherwise it waits out its failure
+// window. The button called Manager.Connect, whose Gate refuses a given-up child inside that
+// window before launching anything, so it did nothing while the error it answered said
+// "reconnect to retry" (review N-15). This drives the real route and
 // watches for the launch: the child is /usr/bin/false, so every launch is one crash row.
 func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "rc.db"))
