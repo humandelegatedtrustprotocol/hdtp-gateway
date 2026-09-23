@@ -41,28 +41,10 @@ func TestConformanceDocCitesRealTests(t *testing.T) {
 	}
 }
 
-// definedTests collects every Test/Fuzz function name in the tree.
+// definedTests collects every Test/Fuzz function name in the node's tree.
 func definedTests(t *testing.T, root string) map[string]bool {
 	t.Helper()
-	decl := regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)[A-Za-z0-9_]+)\(`)
-	out := map[string]bool{}
-	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, "_test.go") {
-			return err
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for _, m := range decl.FindAllStringSubmatch(string(b), -1) {
-			out[m[1]] = true
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return definedTestsUnder(t, filepath.Join(root, "internal"))
 }
 
 // repoRoot walks up from the test's working directory to the module root.
@@ -80,4 +62,121 @@ func repoRoot(t *testing.T) string {
 	}
 	t.Fatal("could not find the module root")
 	return ""
+}
+
+// The map's "Where it lives" column rotted where the test-name check could not see it: a row cited
+// `internal/node/node.go` (`DeliverSealed` — the relay path) for a function deleted with the relay
+// (review N-13). This resolves every backticked token of that column in every table that has one:
+// a path must exist (`{a,b}` and `*` expanded); a bare file name must exist beside a path the same
+// cell names; and an identifier must be declared — a func, method, type, var or const — in the Go
+// files the same cell names.
+func TestConformanceDocLocationsExist(t *testing.T) {
+	root := repoRoot(t)
+	doc, err := os.ReadFile(filepath.Join(root, "docs", "conformance.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tick := regexp.MustCompile("`([^`]+)`")
+	col := -1
+	cells := 0
+	for _, line := range strings.Split(string(doc), "\n") {
+		if !strings.HasPrefix(line, "|") {
+			col = -1
+			continue
+		}
+		row := strings.Split(strings.Trim(line, "|"), "|")
+		if col < 0 {
+			for i, h := range row {
+				if strings.TrimSpace(h) == "Where it lives" {
+					col = i
+				}
+			}
+			continue
+		}
+		if col >= len(row) || strings.HasPrefix(strings.TrimSpace(row[0]), "---") {
+			continue
+		}
+		cells++
+		var paths, bare, idents []string
+		for _, m := range tick.FindAllStringSubmatch(row[col], -1) {
+			switch tok := m[1]; {
+			case strings.Contains(tok, "/"):
+				paths = append(paths, tok)
+			case strings.HasSuffix(tok, ".go"):
+				bare = append(bare, tok)
+			default:
+				idents = append(idents, tok)
+			}
+		}
+		var files, dirs []string
+		for _, p := range paths {
+			matched := expandCited(t, root, p)
+			if len(matched) == 0 {
+				t.Errorf("docs/conformance.md cites %s, which does not exist: %s", p, strings.TrimSpace(row[0]))
+			}
+			for _, f := range matched {
+				if st, err := os.Stat(f); err == nil && st.IsDir() {
+					dirs = append(dirs, f)
+					gos, _ := filepath.Glob(filepath.Join(f, "*.go"))
+					files = append(files, gos...)
+				} else {
+					dirs = append(dirs, filepath.Dir(f))
+					files = append(files, f)
+				}
+			}
+		}
+		for _, b := range bare {
+			found := false
+			for _, d := range dirs {
+				if _, err := os.Stat(filepath.Join(d, b)); err == nil {
+					found = true
+					files = append(files, filepath.Join(d, b))
+				}
+			}
+			if !found {
+				t.Errorf("docs/conformance.md cites %s beside %v, and no such file is there", b, paths)
+			}
+		}
+		for _, id := range idents {
+			decl := regexp.MustCompile(`(?m)^(func (\([^)]*\) )?` + regexp.QuoteMeta(id) + `\b|type ` + regexp.QuoteMeta(id) + `\b|\t` + regexp.QuoteMeta(id) + `\s+(=|[A-Za-z*\[])|(var|const) ` + regexp.QuoteMeta(id) + `\b)`)
+			found := false
+			for _, f := range files {
+				if b, err := os.ReadFile(f); err == nil && decl.Match(b) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("docs/conformance.md cites %s in %v, and nothing there declares it", id, paths)
+			}
+		}
+	}
+	if cells < 20 {
+		t.Fatalf("read only %d \"Where it lives\" cells: the reader is broken, not the map", cells)
+	}
+}
+
+// expandCited resolves a cited path, relative to the module root, with `{a,b}` alternatives and
+// `*` globs.
+func expandCited(t *testing.T, root, p string) []string {
+	t.Helper()
+	alts := []string{p}
+	if a, b := strings.Index(p, "{"), strings.Index(p, "}"); a >= 0 && b > a {
+		alts = nil
+		for _, alt := range strings.Split(p[a+1:b], ",") {
+			alts = append(alts, p[:a]+alt+p[b+1:])
+		}
+	}
+	var out []string
+	for _, alt := range alts {
+		m, err := filepath.Glob(filepath.Join(root, alt))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(m) == 0 {
+			return nil
+		}
+		out = append(out, m...)
+	}
+	return out
 }

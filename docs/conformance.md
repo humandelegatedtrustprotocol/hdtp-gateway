@@ -3,8 +3,9 @@
 This maps every clause of the PACT conformance checklist, every error code and
 every documented limit to a test in this repository. It is checked
 mechanically: `TestConformanceDocCitesRealTests` parses this file and fails the
-build if it cites a test that does not exist, so the map cannot rot into
-decoration.
+build if it cites a test that does not exist, and
+`TestConformanceDocLocationsExist` resolves every path, file and identifier the
+"Where it lives" columns name, so the map cannot rot into decoration.
 
 Run the whole map with `make check`. Nothing here is aspirational — every row
 names a test that passes today.
@@ -32,7 +33,7 @@ PACT §12: *"an implementation is a PACT agent server if it…"*
 | `set_permissions` saves against the portal's switchboard: an integration the account serves or the contact holds is kept, any other name refused | `internal/contacts/owner.go` (`Offered`), `internal/internalui/ownermcp/server.go` | `TestSetPermissionsKeepsWhatTheSwitchboardOffersAndRefusesTheRest`, `TestSwitchboardOffersWhatTheNodeServes` |
 | emits and imports vCards with the `X-PACT-*` properties | `internal/contacts/vcard.go` | `TestForeignCardTolerated`, `TestCardPageAndVCFDownloadRoundTrip`, `FuzzVCardParse` |
 | treats inbound strings as untrusted | `internal/public/tools.go`, `internal/messaging` | `TestBoundaryCapsRejectOversizedInput`, `TestTextCap`, `TestRequestContactNoteCapAndBinding`, `TestBodyCap` |
-| honors idempotent `msg_id` | `internal/messaging/service.go`, `internal/public/sealed.go`, `internal/node/node.go` (`DeliverSealed` — the relay path, PACT §13.3) | `TestDuplicateMsgIDAcknowledgedNotReexecuted`, `TestSendMessageRecordsAndIsIdempotent`, `TestSealedReplayReturnsRecordedResult` |
+| honors idempotent `msg_id` | `internal/messaging/service.go`, `internal/public/sealed.go` | `TestDuplicateMsgIDAcknowledgedNotReexecuted`, `TestSendMessageRecordsAndIsIdempotent`, `TestSealedReplayReturnsRecordedResult` |
 | `msg_id` is scoped to the SENDER: the two directions are separate namespaces | `internal/messaging/service.go`, `migrations/*/0021_message_direction_key.sql` | `TestAnInboundMsgIDDoesNotSwallowAnOutboundMessage`, `MsgIDIsScopedToDirection` (both engines) |
 
 PACT §12, sealed addendum: *"an implementation advertising `X-PACT-SEAL:
@@ -66,7 +67,7 @@ that cited test names exist and cannot check that the list is complete.
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
 | `identity_required` | `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored`, `TestClientCertRequiredTakesAChainAndNothingElse` |
-| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `FuzzSealedPayload`, and the whole intrusion battery (`pact vectors intrude`) |
+| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `FuzzSealedEnvelope`, and the whole intrusion battery (`pact vectors intrude`) |
 | `chain_required` (2.0 — a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike) | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
 | `certificate_renewed` (2.0 — an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
 | `seal_not_accepted` (a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
@@ -210,7 +211,7 @@ used to skip, when such a node was something that could exist.
 | P3 | a contact books a calendar slot through a mapped provider | `TestP3ExitContactBooksCalendarSlot` |
 | P5 | own-domain ingress, passthrough and terminate | `TestP5ExitOwnDomainPassthroughAndTerminate` |
 | P6 | the shipped binary serves all of it | `TestServeRunsTheWholeNode` |
-| P7 | the owner can configure the node from the portal: reachability, security, relay, ingress pairing, storage, owners | `TestSettingsPersistAcrossRestartAndReDerive`, `TestIngressPairingFromThePortal`, `TestStorageSettingsPersistAndApply`, `TestOwnersPageTokensAndPasskeys`, `TestPortalRegistrationAndLoginCeremony` |
+| P7 | the owner can configure the node from the portal: reachability, security, ingress pairing, storage, owners | `TestSettingsPersistAcrossRestartAndReDerive`, `TestIngressPairingFromThePortal`, `TestStorageSettingsPersistAndApply`, `TestOwnersPageTokensAndPasskeys`, `TestPortalRegistrationAndLoginCeremony` |
 | P8 | the five fixed defects cannot silently regress | `TestSetSealPersistsTheEffectiveValueNotTheRequestedOne`, `TestEveryCardEmitterAgreesWithTheServedCard`, `TestAuditActorKindIsAlwaysWritable`, `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial`, `TestLANGuardDecidesPerRequestNotAtWiringTime` |
 
 ## Reachability

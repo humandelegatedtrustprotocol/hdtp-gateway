@@ -27,7 +27,7 @@ been done yet. Nothing here has had independent cryptographic review.
 **A1 — Unauthenticated network caller.** Can reach the public listener and send
 anything. Cannot present a pinned certificate or a valid signature. This is the
 adversary the parsers meet first, before any identity is established, which is
-why they are fuzzed (`FuzzSealedPayload`).
+why they are fuzzed (`FuzzSealedEnvelope` drives arbitrary bytes through the whole open).
 
 **A2 — A pinned contact.** Legitimately paired, and now hostile. Holds a key the
 node trusts, and can call every tool their permissions allow. The relevant

@@ -251,25 +251,6 @@ var ownerSettableEnv = []struct{ key, env string }{
 	{"limit.guest_per_hour", "PACT_LIMIT_GUEST_PER_HOUR"},
 }
 
-// splitRecipients parses a recipient list from a single string. The portal shows
-// one fingerprint per line; a comma-separated value is accepted too, because an
-// owner pasting from a note should not have to care which they used.
-func SplitRecipients(v string) []string {
-	fields := strings.FieldsFunc(v, func(r rune) bool {
-		return r == '\n' || r == '\r' || r == ',' || r == ' ' || r == '\t'
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if f != "" {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// JoinRecipients renders the list for display, one per line.
-func JoinRecipients(list []string) string { return strings.Join(list, "\n") }
-
 // OwnerSettableKeys are the knobs the portal may write (SPEC §8.2). Everything
 // else — data dir, binds, store engine, master key — is bootstrap: it decides
 // where the node's state lives, so it cannot come from that state.
