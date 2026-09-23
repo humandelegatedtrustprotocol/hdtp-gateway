@@ -43,7 +43,7 @@ gosec:
 # added and this list is not.
 fuzz:
 	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 30s
-	go test ./internal/public/   -run '^FuzzSealedPayload$$' -fuzz '^FuzzSealedPayload$$' -fuzztime 30s
+	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 30s
 	go test ./internal/cli/      -run '^FuzzInviteOffer$$'   -fuzz '^FuzzInviteOffer$$'   -fuzztime 30s
 	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 30s
 

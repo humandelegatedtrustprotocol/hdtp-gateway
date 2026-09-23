@@ -7,9 +7,9 @@ package public
 // Three rules hold for every handler here:
 //
 //   - Caller identity is the RESOLVED one — `CallerFromContext` for a pinned
-//     contact, `CallerSPKI` for the key a guest proved this call (envelope
-//     `spk` or client certificate). No handler reads an identity out of its
-//     arguments.
+//     contact, `proofOf` for what a guest proved this call (the chain an
+//     envelope or a client certificate carried). No handler reads an identity
+//     out of its arguments.
 //   - Untrusted strings are capped at the boundary and REFUSED when over, never
 //     silently truncated, and never concatenated into an instruction.
 //   - Every call answers with a PACT §12 code on failure, and audits.
@@ -293,9 +293,9 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			d.audit("redeem_invite", "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
-		// The key the caller PROVED this call: envelope `spk` when sealed, the
-		// client certificate otherwise — or, in 2.0, the chain. Never the
-		// card's self-claim.
+		// The key the caller PROVED this call: the leaf of the chain the
+		// envelope or the client certificate carried. Never the card's
+		// self-claim.
 		proof := d.proofOf(ctx)
 		fpr := proof.Fingerprint
 		res, err := d.Contacts.RedeemAs(ctx, d.AccountID, a.Token, a.Card, proof)

@@ -218,7 +218,7 @@ func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string
 
 func (e *env20) open(t testing.TB, env *envelope.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
-	return e.id.OpenSealed(context.Background(), e.acct.ID, e.acct.Fingerprint, tf, env, DeliveryDirect)
+	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
 }
 
 // pin records a 2.0 contact as a first chain would have.
