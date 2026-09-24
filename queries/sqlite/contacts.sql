@@ -14,6 +14,18 @@ UPDATE contacts SET status = ?1,
     ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END
 WHERE account_id = ?2 AND fingerprint = ?3;
 
+-- name: MoveContactStatus :execrows
+-- The owner's decisions (approve, reject, block, unblock): the move happens only from the status
+-- the decision was taken on, so a row that changed between the read and this write (a redeem over
+-- a pending request, the expiry sweep) is not overwritten. Zero rows means it changed.
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END
+WHERE account_id = ?2 AND fingerprint = ?3 AND status = ?4;
+
+-- name: DeleteContactInStatus :execrows
+-- Unblock's forget: only while the row is still the blocked row the decision read.
+DELETE FROM contacts WHERE account_id = ? AND fingerprint = ? AND status = ?;
+
 -- name: UpdateContactPermissions :execrows
 UPDATE contacts SET permissions = ?, preset = ? WHERE account_id = ? AND fingerprint = ?;
 
