@@ -135,9 +135,9 @@ card claims, verifies the card's signature, and only then redeems — pinning th
 
 ### Let your own agent run the node
 
-The owner MCP is a second surface, separate from the public one, with **30 tools**
+The owner MCP is a second surface, separate from the public one, with **33 tools**
 on a running node: read the inbox, send to a contact, approve or reject requests,
-block, unblock and remove contacts, create, list and revoke invites, set
+block, unblock and remove contacts, answer a contact waiting at a new address, create, list and revoke invites, set
 permissions, manage integrations, query the audit chain. It requires named, revocable bearer tokens on
 every bind, loopback included.
 

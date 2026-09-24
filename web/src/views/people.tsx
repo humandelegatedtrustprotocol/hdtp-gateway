@@ -14,7 +14,9 @@ type Contact = { fingerprint: string; label: string; status: string };
 type ContactsData = { contacts: Contact[] | null; presets: string[]; can_add: boolean };
 
 type Pending = { fingerprint: string; display_name: string; via_invite?: boolean; invite_label?: string };
-type RequestsData = { pending: Pending[] | null; presets: string[] };
+// A contact waiting at a new address for the owner's answer (PACT §5.3, under `ask`).
+type Address = { root: string; name?: string; pinned_endpoint?: string; endpoint: string; why: string; at: number };
+type RequestsData = { pending: Pending[] | null; addresses: Address[] | null; presets: string[] };
 
 type Invite = {
   ID: string; Label: string; MaxUses: number; Uses: number;
@@ -56,7 +58,7 @@ export function People() {
   if (!c || !r || !i) return <main>{header}<EmptyState loading /></main>;
 
   const contacts = (c.contacts ?? []).length;
-  const waiting = (r.pending ?? []).length;
+  const waiting = (r.pending ?? []).length + (r.addresses ?? []).length;
   const live = (i.invites ?? []).filter((x) => !x.RevokedAt).length;
 
   return (
@@ -165,7 +167,42 @@ function ContactsTab({ d, onNote, reload }: {
 function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => void; onNote: (n: Note | null) => void }) {
   const [preset, setPreset] = useState<Record<string, string>>({});
   const rows = d.pending ?? [];
+  const moved = d.addresses ?? [];
   return (
+    <>
+    {moved.length > 0 && (
+      <Section title="Waiting at a new address"
+        description="A contact is answering from an address you have not approved. Approving moves the pin there, or re-adds a contact you removed; rejecting leaves the pin as it was.">
+        <Table head={["Who", "Pinned at", "Now at", ""]}>
+          {moved.map((a) => (
+            <tr key={a.root}>
+              <td>
+                {a.name || <span className="muted">—</span>}
+                <Readout value={a.root} />
+              </td>
+              <td>{a.pinned_endpoint ? <Readout value={a.pinned_endpoint} /> : <span className="muted">not pinned (removed)</span>}</td>
+              <td><Readout value={a.endpoint} /></td>
+              <td>
+                <Toolbar>
+                  <Button onClick={async () => {
+                    onNote(answered(await postForm(`/requests/addresses/${encodeURIComponent(a.root)}/approve`, {})));
+                    reload();
+                  }}>
+                    Approve
+                  </Button>
+                  <Button variant="quiet" onClick={async () => {
+                    onNote(answered(await postForm(`/requests/addresses/${encodeURIComponent(a.root)}/reject`, {})));
+                    reload();
+                  }}>
+                    Reject
+                  </Button>
+                </Toolbar>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </Section>
+    )}
     <Section title="Waiting for approval"
       description="Approving pins their key and lets them use whatever the preset grants. The fingerprint is the identity — the name is only what they claim.">
       <Table head={["Who", "Fingerprint", "Grant", ""]} empty={<EmptyState title="Nobody is waiting" />}>
@@ -208,6 +245,7 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
         ))}
       </Table>
     </Section>
+    </>
   );
 }
 

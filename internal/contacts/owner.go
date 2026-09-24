@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // ErrWrongState: the contact exists and is not in a state the action applies to.
@@ -260,4 +261,51 @@ func Offered(served, held []string) []string {
 		}
 	}
 	return out
+}
+
+// AddressWaiting is a contact waiting at a new address for the owner's answer (PACT §5.3), as the
+// portal and the owner MCP both show it: who, where they are pinned, where they now answer from,
+// and why the move was held. The leaf and root certificates stay in the store: the decision is
+// taken by root, and the DER is nobody's reading.
+type AddressWaiting struct {
+	Root string `json:"root"`
+	// Name is the contact's own name for itself, or the leaf's subject for a root with no pin.
+	Name string `json:"name,omitempty"`
+	// Pinned is the address the pin holds now; "" when the root is not pinned (it was removed).
+	Pinned   string `json:"pinned_endpoint,omitempty"`
+	Endpoint string `json:"endpoint"`
+	Why      string `json:"why"`
+	At       int64  `json:"at"`
+}
+
+// PendingAddresses lists the account's contacts waiting at a new address.
+func (o Owner) PendingAddresses(ctx context.Context, accountID string) ([]AddressWaiting, error) {
+	ps, err := o.Manager.Store.ListPendingAddresses(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AddressWaiting, 0, len(ps))
+	for _, p := range ps {
+		w := AddressWaiting{Root: p.Root, Endpoint: p.Endpoint, Why: p.Why, At: p.At}
+		if c, err := o.Manager.Store.GetContact(ctx, accountID, p.Root); err == nil {
+			w.Name, w.Pinned = c.DisplayName, c.Endpoint
+		} else if leaf, err := pactidentity.Parse(p.Leaf); err == nil {
+			w.Name = leaf.Subject
+		}
+		out = append(out, w)
+	}
+	return out, nil
+}
+
+// DecideAddress is the owner's answer to a contact waiting at a new address, from any surface —
+// the CLI, the portal and the owner MCP call this one function. Approving re-pins (Manager.
+// DecideAddress); either answer changes what that root is served, so its composed surface is
+// dropped. Nobody is told: the decision is local to this node.
+func (o Owner) DecideAddress(ctx context.Context, accountID, root string, approve bool) (store.PendingAddress, error) {
+	p, err := o.Manager.DecideAddress(ctx, accountID, root, approve)
+	if err != nil {
+		return p, err
+	}
+	o.invalidate(ctx, accountID, root)
+	return p, nil
 }
