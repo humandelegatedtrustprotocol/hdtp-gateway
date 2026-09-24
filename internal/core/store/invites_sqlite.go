@@ -90,7 +90,7 @@ func (s *SQLite) RevokeInvite(ctx context.Context, accountID, inviteID string, n
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("store: invite missing or already revoked")
+		return fmt.Errorf("%w: invite missing or already revoked", ErrNotFound)
 	}
 	return nil
 }

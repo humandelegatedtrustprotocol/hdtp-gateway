@@ -389,7 +389,8 @@ type Store interface {
 	ListInvites(ctx context.Context, accountID string) ([]Invite, error)
 	// ConsumeInviteUse atomically increments uses; false when expired/revoked/exhausted.
 	ConsumeInviteUse(ctx context.Context, inviteID string, now int64) (bool, error)
-	// RevokeInvite revokes one of THIS account's invites; an id of another account's is not found.
+	// RevokeInvite revokes one of THIS account's invites; an id of another account's, or one
+	// already revoked, is ErrNotFound. Any other error is the store's own failure.
 	RevokeInvite(ctx context.Context, accountID, inviteID string, now int64) error
 	// ListSettings returns every owner-set configuration row (SPEC §8.2). A row
 	// marked Secret holds a keyring-sealed value: callers that render or log

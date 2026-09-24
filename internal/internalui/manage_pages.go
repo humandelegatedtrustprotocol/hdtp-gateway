@@ -249,7 +249,13 @@ func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 		id := r.PathValue("id")
 		if err := d.Store.RevokeInvite(r.Context(), account, id, nowUnix()); err != nil {
 			d.Audit("invite_revoke", withAccount(r, "invite:"+id), "error")
-			http.NotFound(w, r)
+			// The owner MCP's revoke_invite makes the same distinction: only a missing or spent
+			// invite is a 404; a store that failed is a 500.
+			if errors.Is(err, store.ErrNotFound) {
+				http.NotFound(w, r)
+			} else {
+				http.Error(w, "could not revoke the invite", http.StatusInternalServerError)
+			}
 			return
 		}
 		d.Audit("invite_revoke", withAccount(r, "invite:"+id), "ok")
