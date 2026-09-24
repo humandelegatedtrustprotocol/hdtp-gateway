@@ -400,8 +400,8 @@ func Run(t *testing.T, newStore Factory) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.RevokeInvite(ctx, b.ID, inv.ID, 5); err == nil {
-			t.Fatal("another account revoked this account's invite")
+		if err := s.RevokeInvite(ctx, b.ID, inv.ID, 5); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("another account's revocation answered %v, want ErrNotFound", err)
 		}
 		list, _ := s.ListInvites(ctx, a.ID)
 		if len(list) != 1 || list[0].RevokedAt != 0 {
