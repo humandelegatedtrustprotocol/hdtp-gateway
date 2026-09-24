@@ -626,6 +626,12 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 			// Scoped by the account: an invite id alone is not an authority.
 			if err := d.Store.RevokeInvite(ctx, a.AccountID, a.InviteID, time.Now().Unix()); err != nil {
 				d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "error")
+				// Only "no such live invite" is not_found. A store that failed has not said the
+				// invite is absent, and telling the agent so would be a claim nobody measured.
+				if !errors.Is(err, store.ErrNotFound) {
+					r, rerr := refused(err)
+					return r, nil, rerr
+				}
 				b, _ := json.Marshal(map[string]string{"code": "not_found", "detail": "no live invite with that id on this account"})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
 			}

@@ -84,7 +84,7 @@ func (s *Postgres) RevokeInvite(ctx context.Context, accountID, inviteID string,
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("store: invite missing or already revoked")
+		return fmt.Errorf("%w: invite missing or already revoked", ErrNotFound)
 	}
 	return nil
 }
