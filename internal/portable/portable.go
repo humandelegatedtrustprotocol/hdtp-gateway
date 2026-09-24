@@ -120,6 +120,25 @@ type Contact struct {
 	Leaf             string   `json:"leaf"`      // base64url DER
 	SPKI             string   `json:"spki"`      // base64url DER
 	RootCert         string   `json:"root_cert"` // base64url DER
+	// EverActive is whether this relationship was ever active, which is what an unblock on the
+	// importing host needs: a contact the owner blocked is restored, a rejected request forgotten
+	// (SPEC §9.1). This node always writes it. A producer that does not (the cloud's `leave`,
+	// pact-cloud gateway/src/leave/convert.ts) leaves it nil, and the importer reads its pinned_at.
+	EverActive *bool `json:"ever_active,omitempty"`
+}
+
+// everActiveOf is what an imported contact's ever_active is. Written, it is taken as written. Not
+// written, the archive came from the cloud, whose pinned_at is set by activation and by nothing
+// else (pact-cloud gateway/src/identity/identity.ts, unblockContact's comment), so a blocked row
+// with a pin was a contact the owner blocked. Active is always a contact.
+func everActiveOf(v Contact) bool {
+	if v.Status == "active" {
+		return true
+	}
+	if v.EverActive != nil {
+		return *v.EverActive
+	}
+	return v.Status == "blocked" && v.PinnedAt != 0
 }
 
 // Thread is one conversation.
@@ -218,12 +237,14 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			return res, fmt.Errorf("export: contacts of %s: %w", a.Slug, err)
 		}
 		for _, c := range contacts {
+			everActive := c.EverActive
 			if err := emit(KindContact, Contact{
 				Kind: KindContact, Identity: a.RootFingerprint, Fingerprint: c.Fingerprint, Status: c.Status,
 				Preset: c.Preset, Permissions: orEmpty(c.Permissions), TheirPermissions: orEmpty(c.TheirPermissions),
 				TrustFlag: c.TrustFlag, DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card,
 				CreatedAt: c.CreatedAt, PinnedAt: c.PinnedAt, Endpoint: c.Endpoint,
 				Leaf: b64.EncodeToString(c.Leaf), SPKI: b64.EncodeToString(c.SPKI), RootCert: b64.EncodeToString(c.RootCert),
+				EverActive: &everActive,
 			}); err != nil {
 				return res, err
 			}
@@ -507,6 +528,7 @@ func Import(ctx context.Context, st store.Store, blobs messaging.BlobDir, r io.R
 					Permissions: v.Permissions, TheirPermissions: v.TheirPermissions, TrustFlag: v.TrustFlag,
 					DisplayName: v.DisplayName, Petname: v.Petname, Card: v.Card, CreatedAt: v.CreatedAt,
 					PinnedAt: v.PinnedAt, Endpoint: v.Endpoint, Leaf: leaf, RootCert: root,
+					EverActive: everActiveOf(v),
 				}); err != nil {
 					return fmt.Errorf("import: line %d (contact): %w", n, err)
 				}
