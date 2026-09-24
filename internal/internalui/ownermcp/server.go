@@ -214,6 +214,12 @@ type ContactArgs struct {
 	Preset     string `json:"preset,omitempty" jsonschema:"approve_contact only: the preset to grant; empty keeps the grant the request holds"`
 }
 
+// AddressArgs names a contact waiting at a new address, by its root (PACT §5.3).
+type AddressArgs struct {
+	AccountID string `json:"account_id"`
+	Root      string `json:"root" jsonschema:"the waiting contact's root fingerprint, as list_pending_addresses gives it"`
+}
+
 // InviteIDArgs names one invite of one account.
 type InviteIDArgs struct {
 	AccountID string `json:"account_id"`
@@ -427,6 +433,47 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		"contact_remove", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Remove(ctx, a.AccountID, a.ContactFpr)
 		})
+
+	// A pinned contact now answering at a new address, held for the owner under `ask` (PACT §5.3,
+	// SPEC §9.1): the portal's Requests tab and the CLI's `account address` make the same decision
+	// through contacts.Owner.DecideAddress, audited under the same names.
+	mcp.AddTool(s, &mcp.Tool{Name: "list_pending_addresses", Description: "Contacts waiting at a new address for your decision: the address they are pinned at, the one they now answer from, and why it was held"},
+		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+			if !allow(ctx, a.AccountID) {
+				r, err := deny()
+				return r, nil, err
+			}
+			list, err := d.owner().PendingAddresses(ctx, a.AccountID)
+			if err != nil {
+				return nil, nil, err
+			}
+			r, err := jsonResult(list)
+			return r, nil, err
+		})
+	address := func(tool *mcp.Tool, approve bool) {
+		decision := "reject"
+		if approve {
+			decision = "approve"
+		}
+		mcp.AddTool(s, tool,
+			func(ctx context.Context, req *mcp.CallToolRequest, a AddressArgs) (*mcp.CallToolResult, any, error) {
+				if !allow(ctx, a.AccountID) {
+					r, err := deny()
+					return r, nil, err
+				}
+				p, err := d.owner().DecideAddress(ctx, a.AccountID, a.Root, approve)
+				if err != nil {
+					d.audit("contact_address_"+decision, "account:"+a.AccountID+" contact:"+a.Root, "error")
+					r, rerr := refused(err)
+					return r, nil, rerr
+				}
+				d.audit("contact_address_"+decision, "account:"+a.AccountID+" contact:"+a.Root+" endpoint:"+p.Endpoint, "ok")
+				r, err := jsonResult(map[string]string{"root": a.Root, "endpoint": p.Endpoint, "decision": decision})
+				return r, nil, err
+			})
+	}
+	address(&mcp.Tool{Name: "approve_address", Description: "Re-pin a contact at the new address it is waiting at, as `auto` would have; the address it left is remembered as a former one"}, true)
+	address(&mcp.Tool{Name: "reject_address", Description: "Keep the pin where it is and drop the waiting address"}, false)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard: any of the core permissions, an integration.<slug> this account serves, or one the contact already holds; any other name is refused"},
 		func(ctx context.Context, req *mcp.CallToolRequest, a PermissionsArgs) (*mcp.CallToolResult, any, error) {

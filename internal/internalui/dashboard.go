@@ -77,6 +77,10 @@ func MountDashboard(mux *http.ServeMux, d DashboardDeps) {
 					pending++
 				}
 			}
+			// The Requests tab this count links to also holds contacts waiting at a new address.
+			if ps, err := d.Store.ListPendingAddresses(r.Context(), a.ID); err == nil {
+				pending += len(ps)
+			}
 			rows = append(rows, dashAccount{
 				Slug: a.Slug, DisplayName: a.DisplayName, Fingerprint: a.Fingerprint,
 				Contacts: active, Pending: pending,

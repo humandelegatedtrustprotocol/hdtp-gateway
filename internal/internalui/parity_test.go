@@ -62,6 +62,10 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"remove_contact":       "POST /contacts/{fpr}/remove",
 		"list_invites":         "GET /api/invites",
 		"revoke_invite":        "POST /invites/{id}/revoke",
+		// A contact waiting at a new address (PACT §5.3): the Requests tab lists and decides it.
+		"list_pending_addresses": "GET /api/requests",
+		"approve_address":        "POST /requests/addresses/{root}/approve",
+		"reject_address":         "POST /requests/addresses/{root}/reject",
 
 		// Agent-only, deliberately:
 		"answer_request":   "", // an AGENT answers what a peer asked of it (§6.8)
@@ -115,19 +119,21 @@ func TestEveryContactAndInviteDecisionAPersonMakesAnAgentCanMake(t *testing.T) {
 	}
 	// Each person's route and the agent's tool for the same decision; "" says why none.
 	expected := map[string]string{
-		"POST /contacts/add":               "add_contact",
-		"POST /contacts/{fpr}/call":        "call_contact",
-		"POST /contacts/{fpr}/remove":      "remove_contact",
-		"POST /contacts/{fpr}/block":       "block_contact",
-		"POST /contacts/{fpr}/unblock":     "unblock_contact",
-		"POST /contacts/{fpr}/permissions": "set_permissions",
-		"POST /contacts/{fpr}/petname":     "rename_contact",
-		"POST /contacts/{fpr}/refresh":     "refresh_contact",
-		"POST /contacts/{fpr}/trust":       "set_trust_flag",
-		"POST /requests/{fpr}/approve":     "approve_contact",
-		"POST /requests/{fpr}/reject":      "reject_contact",
-		"POST /invites/create":             "create_invite",
-		"POST /invites/{id}/revoke":        "revoke_invite",
+		"POST /contacts/add":                      "add_contact",
+		"POST /contacts/{fpr}/call":               "call_contact",
+		"POST /contacts/{fpr}/remove":             "remove_contact",
+		"POST /contacts/{fpr}/block":              "block_contact",
+		"POST /contacts/{fpr}/unblock":            "unblock_contact",
+		"POST /contacts/{fpr}/permissions":        "set_permissions",
+		"POST /contacts/{fpr}/petname":            "rename_contact",
+		"POST /contacts/{fpr}/refresh":            "refresh_contact",
+		"POST /contacts/{fpr}/trust":              "set_trust_flag",
+		"POST /requests/{fpr}/approve":            "approve_contact",
+		"POST /requests/{fpr}/reject":             "reject_contact",
+		"POST /requests/addresses/{root}/approve": "approve_address",
+		"POST /requests/addresses/{root}/reject":  "reject_address",
+		"POST /invites/create":                    "create_invite",
+		"POST /invites/{id}/revoke":               "revoke_invite",
 	}
 	routes := portalRoutes(t, root)
 	checked := 0

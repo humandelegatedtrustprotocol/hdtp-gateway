@@ -413,15 +413,18 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return nil, err
 		}
-		cm := &contacts.Manager{Store: st}
-		p, err := cm.DecideAddress(ctx, acct.ID, args["root"], args["decision"] == "approve")
+		// The one decision the portal and the owner MCP also make (contacts.Owner.DecideAddress).
+		o := contacts.Owner{Manager: &contacts.Manager{Store: st}, Invalidate: func(ctx context.Context, accountID, fpr string) error {
+			if nd == nil {
+				return nil
+			}
+			return nd.Invalidate(ctx, accountID, fpr)
+		}}
+		p, err := o.DecideAddress(ctx, acct.ID, args["root"], args["decision"] == "approve")
 		if err != nil {
 			return nil, err
 		}
 		auditFn("contact_address_"+args["decision"], "account:"+acct.ID+" contact:"+args["root"]+" endpoint:"+p.Endpoint, "ok")
-		if nd != nil {
-			_ = nd.Invalidate(ctx, acct.ID, args["root"])
-		}
 		return map[string]any{"Slug": acct.Slug, "Root": args["root"], "Endpoint": p.Endpoint, "Decision": args["decision"]}, nil
 	})
 	// account.host_policy is the owner's PACT §5.3 choice for one identity: what happens when a
