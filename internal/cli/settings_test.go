@@ -1061,7 +1061,9 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	for _, want := range []string{"audit_query", "call_contact", "export_card", "list_passkeys", "remove_passkey",
 		// §8.4's contact and invite management, the whole of §9.1's lifecycle (review N-01, N-02)
 		"approve_contact", "reject_contact", "block_contact", "unblock_contact", "remove_contact",
-		"create_invite", "list_invites", "revoke_invite"} {
+		"create_invite", "list_invites", "revoke_invite",
+		// §9.1's answer to a contact at a new address (review N-18)
+		"list_pending_addresses", "approve_address", "reject_address"} {
 		if !have[want] {
 			t.Fatalf("SPEC §8.4/§8.6 names %s and the owner MCP does not expose it: %v", want, have)
 		}

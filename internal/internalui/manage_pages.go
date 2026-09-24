@@ -139,8 +139,38 @@ func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 			}
 			pending = append(pending, rw)
 		}
-		apiJSON(w, map[string]any{"pending": pending, "presets": presetNames(r.Context(), d.Store)})
+		// Contacts waiting at a new address appear beside the requests (PACT §5.3 under `ask`).
+		addresses, err := d.owner().PendingAddresses(r.Context(), account)
+		if err != nil {
+			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+			return
+		}
+		apiJSON(w, map[string]any{"pending": pending, "addresses": addresses, "presets": presetNames(r.Context(), d.Store)})
 	})
+
+	// The owner's answer to a contact waiting at a new address: the decision the owner MCP's
+	// approve_address / reject_address and the CLI's `account address` make, audited alike. Each
+	// route is a literal: the parity tests read the routes from the source.
+	decideAddress := func(approve bool) http.HandlerFunc {
+		decision := "reject"
+		if approve {
+			decision = "approve"
+		}
+		return func(w http.ResponseWriter, r *http.Request) {
+			account := r.URL.Query().Get("account")
+			root := r.PathValue("root")
+			p, err := d.owner().DecideAddress(r.Context(), account, root, approve)
+			if err != nil {
+				d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root), "error")
+				http.Error(w, err.Error(), lifecycleStatus(err))
+				return
+			}
+			d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root+" endpoint:"+p.Endpoint), "ok")
+			redirectRequests(w, r, account, "")
+		}
+	}
+	mux.HandleFunc("POST /requests/addresses/{root}/approve", decideAddress(true))
+	mux.HandleFunc("POST /requests/addresses/{root}/reject", decideAddress(false))
 
 	mux.HandleFunc("POST /requests/{fpr}/approve", func(w http.ResponseWriter, r *http.Request) {
 		account := r.URL.Query().Get("account")

@@ -92,6 +92,10 @@ type waitResult struct {
 	// only looked at messages would sit next to a blocked contact forever.
 	Waiting int64 `json:"contact_requests"`
 	Pending int64 `json:"pending_requests"`
+	// Addresses is the count of contacts waiting at a new address for the owner's answer (PACT
+	// §5.3, list_pending_addresses): a third queue only the owner clears, and parking one wakes
+	// this wait the way a contact request does.
+	Addresses int64 `json:"pending_addresses"`
 	// Calls: substantive tool calls contacts made since the cursor (bookings,
 	// media, availability), so an agent learns a peer ACTED, not only that a
 	// message arrived.
@@ -243,10 +247,10 @@ func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accoun
 				out = append(out, *p)
 			}
 		}
-		waiting, pending := d.openCounts(ctx, a.AccountID)
+		waiting, addresses, pending := d.openCounts(ctx, a.AccountID)
 		r, err := jsonResult(map[string]any{
 			"since": since, "until": time.Now().Unix(), "contacts": out,
-			"contact_requests": waiting, "pending_requests": pending,
+			"contact_requests": waiting, "pending_addresses": addresses, "pending_requests": pending,
 		})
 		return r, nil, err
 	})
@@ -281,7 +285,7 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 			res.Cursor = th.LastAt
 		}
 	}
-	res.Waiting, res.Pending = d.openCounts(ctx, accountID)
+	res.Waiting, res.Addresses, res.Pending = d.openCounts(ctx, accountID)
 	res.Calls, res.CallsTruncated = d.callsSince(ctx, accountID, since)
 	for _, c := range res.Calls {
 		if c.At > res.Cursor {
@@ -377,7 +381,7 @@ func (d Deps) needsAttention(ctx context.Context, accountID string) []attention 
 	return out
 }
 
-func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, pending int64) {
+func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, addresses, pending int64) {
 	if cs, err := d.Store.ListContacts(ctx, accountID); err == nil {
 		for _, c := range cs {
 			if c.Status == "pending_in" {
@@ -385,12 +389,15 @@ func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, pendin
 			}
 		}
 	}
+	if ps, err := d.Store.ListPendingAddresses(ctx, accountID); err == nil {
+		addresses = int64(len(ps))
+	}
 	if d.Pending != nil {
 		if rows, err := d.Store.ListOpenPendingRequests(ctx, accountID, time.Now().Unix()); err == nil {
 			pending = int64(len(rows))
 		}
 	}
-	return waiting, pending
+	return waiting, addresses, pending
 }
 
 func displayName(c store.Contact) string {
