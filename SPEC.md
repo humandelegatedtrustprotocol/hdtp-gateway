@@ -763,13 +763,18 @@ The owner MCP endpoint authenticates with **named, revocable bearer tokens** (§
 
 | Area | Tools |
 |---|---|
-| Messaging | `get_inbox`, `read_thread`, `send_to_contact`, `call_contact` |
-| Contacts & permissions | contact management — `list_contacts`, `add_contact`, `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact`, `rename_contact` (§9.1) — `set_permissions` (the portal's switchboard: a name it does not offer is refused), `set_trust_flag`, `set_trust_flag`, `refresh_contact` — re-fetch the card of ONE contact, named by the caller, **when the owner asks**: the same function as the *Refresh now* button on that contact's portal page. Nothing refreshes more than one contact, and the node never does it by itself: a pin is confirmed when it is needed, and a newer leaf arrives on use (PACT §14.3). A refresh can learn a renewed leaf, a changed name or a changed seal policy; it cannot move the pinned root or the address. It answers `unchanged`, `updated`, `renewed`, `unreachable` or `refused` (with why), and the last two leave the pin exactly as it was |
+| Messaging | `get_inbox`, `read_thread`, `send_to_contact`, `call_contact`, `wait_for_updates`, `digest` |
+| Identity | `list_accounts`, `identity_certificate` |
+| Contacts & permissions | contact management — `list_contacts`, `add_contact`, `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact`, `rename_contact` (§9.1) — `set_permissions` (the portal's switchboard: a name it does not offer is refused), `set_trust_flag`, `refresh_contact` (below) |
 | Invites & card | `create_invite`, `list_invites`, `revoke_invite`, `export_card` |
 | Requests | `list_pending`, `answer_request` |
-| Integrations | integration management |
+| Integrations | `list_integrations`, `set_exposure` |
 | Audit | `audit_query` |
 | Passkeys | `list_passkeys`, `remove_passkey` — listing and removal only; **registration is portal-only** (§8.6) |
+
+Every backticked name in this table is a tool the owner MCP registers, and every tool it registers is in the table once; a test holds the two to each other.
+
+`refresh_contact` re-fetches the card of ONE contact, named by the caller, **when the owner asks**: the same function as the *Refresh now* button on that contact's portal page. Nothing refreshes more than one contact, and the node never does it by itself: a pin is confirmed when it is needed, and a newer leaf arrives on use (PACT §14.3). A refresh can learn a renewed leaf, a changed name or a changed seal policy; it cannot move the pinned root or the address. It answers `unchanged`, `updated`, `renewed`, `unreachable` or `refused` (with why), and the last two leave the pin exactly as it was.
 
 No tool on this surface takes a `sender` argument; everything sent through it is labeled `agent` (§7.3). Payloads returned to the agent carry the per-contact trust-label wrapping of §7.7.
 

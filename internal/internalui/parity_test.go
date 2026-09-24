@@ -155,6 +155,77 @@ func TestEveryContactAndInviteDecisionAPersonMakesAnAgentCanMake(t *testing.T) {
 	}
 }
 
+// SPEC §8.4's table is the owner MCP's tool list as a reader meets it, and it had drifted both
+// ways: it named `set_trust_flag` twice, and never named six tools the node registers
+// (`list_accounts`, `identity_certificate`, `wait_for_updates`, `digest`, `list_integrations`,
+// `set_exposure`). So every backticked name in the table's cells is a registered tool, each is
+// named once, and every registered tool is named.
+func TestSpecNamesEveryOwnerToolOnce(t *testing.T) {
+	root := repoRootUI(t)
+	raw, err := os.ReadFile(filepath.Join(root, "SPEC.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := specOwnerTools(t, string(raw))
+	registered := map[string]bool{}
+	for _, tool := range ownerTools(t, root) {
+		registered[tool] = true
+	}
+	count := map[string]int{}
+	for _, n := range named {
+		count[n]++
+	}
+	names := make([]string, 0, len(count))
+	for n := range count {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if c := count[n]; c > 1 {
+			t.Errorf("SPEC §8.4 names %q %d times; the table names each tool once", n, c)
+		}
+		if !registered[n] {
+			t.Errorf("SPEC §8.4 names %q, which the owner MCP does not register", n)
+		}
+	}
+	for _, tool := range ownerTools(t, root) {
+		if count[tool] == 0 {
+			t.Errorf("the owner MCP registers %q and SPEC §8.4's table does not name it", tool)
+		}
+	}
+}
+
+// specOwnerTools reads the backticked names in the cells of SPEC §8.4's table (the second
+// column), in order and with repeats.
+func specOwnerTools(t *testing.T, spec string) []string {
+	t.Helper()
+	start := strings.Index(spec, "### 8.4 Owner MCP: tools")
+	if start < 0 {
+		t.Fatal("SPEC.md has no \"### 8.4 Owner MCP: tools\" heading")
+	}
+	section := spec[start+len("### 8.4"):]
+	if end := strings.Index(section, "\n### "); end >= 0 {
+		section = section[:end]
+	}
+	tick := regexp.MustCompile("`([^`]+)`")
+	var out []string
+	rows := 0
+	for _, line := range strings.Split(section, "\n") {
+		cells := strings.Split(line, "|")
+		if !strings.HasPrefix(line, "|") || len(cells) < 4 || strings.HasPrefix(line, "|---") || strings.TrimSpace(cells[1]) == "Area" {
+			continue
+		}
+		rows++
+		for _, m := range tick.FindAllStringSubmatch(cells[2], -1) {
+			out = append(out, m[1])
+		}
+	}
+	if rows < 5 || len(out) < 20 {
+		t.Fatalf("read %d tool names from %d rows of SPEC §8.4's table: the reader is looking in the wrong place", len(out), rows)
+	}
+	return out
+}
+
 // ownerTools lists the tools registered on the owner MCP.
 //
 // Read from the syntax tree: every `mcp.Tool{Name: "…"}` literal in the package. It was a pattern
