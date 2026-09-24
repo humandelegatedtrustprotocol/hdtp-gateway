@@ -156,8 +156,9 @@ type Contact struct {
 	// before this column existed; filled the next time a chain arrives.
 	RootCert []byte
 	// EverActive is whether this relationship was ever active (migration 0039). The store sets
-	// it whenever a row becomes active and never clears it; it is how an unblock tells a contact
-	// the owner blocked (restored) from a request that was rejected (forgotten), SPEC §9.1.
+	// it whenever a row becomes active and never clears it, and an import writes what the archive
+	// carried; it is how an unblock tells a contact the owner blocked (restored) from a request
+	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
 }
 

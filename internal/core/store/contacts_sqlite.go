@@ -57,9 +57,8 @@ func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
-		// An imported row carries no history of this host's: active is known to have been
-		// active, and a blocked one is forgotten on unblock rather than restored.
-		EverActive: everActive(c.Status),
+		// What the archive says, and active is always a contact (internal/portable everActiveOf).
+		EverActive: importedEverActive(c),
 	})
 }
 
@@ -220,6 +219,15 @@ func (s *SQLite) DeleteExpiredPendingContacts(ctx context.Context, accountID str
 		out = append(out, ExpiredContact{Fingerprint: r.Fingerprint, Status: r.Status})
 	}
 	return out, nil
+}
+
+// importedEverActive is the ever_active an imported row is written with: what the archive said,
+// and always 1 for an active row.
+func importedEverActive(c Contact) int64 {
+	if c.EverActive {
+		return 1
+	}
+	return everActive(c.Status)
 }
 
 // everActive is the ever_active value a row written with this status starts with.
