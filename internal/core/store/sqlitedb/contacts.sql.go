@@ -27,6 +27,25 @@ func (q *Queries) DeleteContact(ctx context.Context, arg DeleteContactParams) (i
 	return result.RowsAffected()
 }
 
+const deleteContactInStatus = `-- name: DeleteContactInStatus :execrows
+DELETE FROM contacts WHERE account_id = ? AND fingerprint = ? AND status = ?
+`
+
+type DeleteContactInStatusParams struct {
+	AccountID   string
+	Fingerprint string
+	Status      string
+}
+
+// Unblock's forget: only while the row is still the blocked row the decision read.
+func (q *Queries) DeleteContactInStatus(ctx context.Context, arg DeleteContactInStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteContactInStatus, arg.AccountID, arg.Fingerprint, arg.Status)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteExpiredPendingContacts = `-- name: DeleteExpiredPendingContacts :many
 DELETE FROM contacts
 WHERE account_id = ? AND status IN ('pending_in', 'pending_out') AND created_at < ?
@@ -254,6 +273,35 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 		return nil, err
 	}
 	return items, nil
+}
+
+const moveContactStatus = `-- name: MoveContactStatus :execrows
+UPDATE contacts SET status = ?1,
+    ever_active = CASE WHEN ?1 = 'active' THEN 1 ELSE ever_active END
+WHERE account_id = ?2 AND fingerprint = ?3 AND status = ?4
+`
+
+type MoveContactStatusParams struct {
+	Status      string
+	AccountID   string
+	Fingerprint string
+	Status_2    string
+}
+
+// The owner's decisions (approve, reject, block, unblock): the move happens only from the status
+// the decision was taken on, so a row that changed between the read and this write (a redeem over
+// a pending request, the expiry sweep) is not overwritten. Zero rows means it changed.
+func (q *Queries) MoveContactStatus(ctx context.Context, arg MoveContactStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, moveContactStatus,
+		arg.Status,
+		arg.AccountID,
+		arg.Fingerprint,
+		arg.Status_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const redeemOverPendingContact = `-- name: RedeemOverPendingContact :execrows

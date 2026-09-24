@@ -313,6 +313,33 @@ func Run(t *testing.T, newStore Factory) {
 
 	// A request still pending redeems one of the owner's invites: it takes the invite's status,
 	// grant and linkage, and the pin the call proved. Only a pending_in row is written.
+	t.Run("GuardedContactWritesMoveOnlyFromTheStatusRead", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "gw", DisplayName: "GW", Algo: "p256"})
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:gw", Status: "pending_in", SPKI: []byte{1}}); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := s.MoveContactStatus(ctx, a.ID, "sha256:gw", "active", "blocked"); err != nil || ok {
+			t.Fatalf("a move from a status the row is not in: ok=%v err=%v", ok, err)
+		}
+		if ok, err := s.MoveContactStatus(ctx, a.ID, "sha256:gw", "pending_in", "active"); err != nil || !ok {
+			t.Fatalf("the move from the status it is in: ok=%v err=%v", ok, err)
+		}
+		if c, _ := s.GetContact(ctx, a.ID, "sha256:gw"); c.Status != "active" || !c.EverActive {
+			t.Fatalf("after the move: %+v", c)
+		}
+		if ok, err := s.DeleteContactInStatus(ctx, a.ID, "sha256:gw", "blocked"); err != nil || ok {
+			t.Fatalf("a delete guarded by a status the row is not in: ok=%v err=%v", ok, err)
+		}
+		if ok, err := s.DeleteContactInStatus(ctx, a.ID, "sha256:gw", "active"); err != nil || !ok {
+			t.Fatalf("the delete guarded by its status: ok=%v err=%v", ok, err)
+		}
+		if ok, err := s.MoveContactStatus(ctx, a.ID, "sha256:gw", "active", "blocked"); err != nil || ok {
+			t.Fatalf("a move of a row that is gone: ok=%v err=%v", ok, err)
+		}
+	})
+
 	t.Run("RedeemOverPendingContactWritesOnlyAPendingRequest", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()

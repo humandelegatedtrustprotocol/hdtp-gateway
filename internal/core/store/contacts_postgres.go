@@ -98,6 +98,21 @@ func (s *Postgres) UpdateContactStatus(ctx context.Context, accountID, fingerpri
 	return nil
 }
 
+func (s *Postgres) MoveContactStatus(ctx context.Context, accountID, fingerprint, from, to string) (bool, error) {
+	// Status_2 is the guard: the status the move is from.
+	n, err := s.q.MoveContactStatus(ctx, pgdb.MoveContactStatusParams{
+		Status: to, AccountID: accountID, Fingerprint: fingerprint, Status_2: from,
+	})
+	return n == 1, err
+}
+
+func (s *Postgres) DeleteContactInStatus(ctx context.Context, accountID, fingerprint, status string) (bool, error) {
+	n, err := s.q.DeleteContactInStatus(ctx, pgdb.DeleteContactInStatusParams{
+		AccountID: accountID, Fingerprint: fingerprint, Status: status,
+	})
+	return n == 1, err
+}
+
 func (s *Postgres) UpdateContactPermissions(ctx context.Context, accountID, fingerprint string, permissions []string, preset string) error {
 	n, err := s.q.UpdateContactPermissions(ctx, pgdb.UpdateContactPermissionsParams{
 		Permissions: permsToJSON(permissions), Preset: preset, AccountID: accountID, Fingerprint: fingerprint,

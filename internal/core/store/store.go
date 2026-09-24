@@ -496,6 +496,12 @@ type Store interface {
 	// RedeemOverPendingContact is a pending_in row redeeming one of the account's invites: it
 	// takes c's status, grant, invite and pin. False when the row is no longer pending_in.
 	RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error)
+	// MoveContactStatus moves a relationship only if it is still `from`: an owner's decision is
+	// written against the status it was taken on. False when the row changed or is gone; a move
+	// to active also sets EverActive.
+	MoveContactStatus(ctx context.Context, accountID, fingerprint, from, to string) (bool, error)
+	// DeleteContactInStatus removes the row only while it is still `status`. False when it is not.
+	DeleteContactInStatus(ctx context.Context, accountID, fingerprint, status string) (bool, error)
 	// DeleteExpiredPendingContacts removes the account's pending_in and pending_out rows created
 	// before cutoff (SPEC §9.1: an unanswered request expires) and reports which went.
 	DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error)
