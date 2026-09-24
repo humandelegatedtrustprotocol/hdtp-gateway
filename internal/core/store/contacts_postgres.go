@@ -20,9 +20,8 @@ func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
 		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
-		// An imported row carries no history of this host's: active is known to have been
-		// active, and a blocked one is forgotten on unblock rather than restored.
-		EverActive: everActive(c.Status),
+		// What the archive says, and active is always a contact (internal/portable everActiveOf).
+		EverActive: importedEverActive(c),
 	})
 }
 
