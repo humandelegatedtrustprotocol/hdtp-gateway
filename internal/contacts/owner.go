@@ -75,6 +75,21 @@ func tell(ctx context.Context, d *Decision, call func(ctx context.Context) error
 	d.Told = true
 }
 
+// errChanged is a guarded write that moved nothing: the row is no longer the status the decision
+// was taken on. Callers turn it into what the row says now (moved).
+var errChanged = errors.New("contacts: the row changed since it was read")
+
+// moved answers a decision whose guarded write found the row changed: gone is an unknown contact,
+// and anything else is the state it is in now, as a conflict — never the store's own words, which
+// the owner MCP would report as internal.
+func (o Owner) moved(ctx context.Context, accountID, fpr, was string) error {
+	now, err := o.row(ctx, accountID, fpr)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: that contact became %s while this was decided on (it was %s)", ErrWrongState, now.Status, was)
+}
+
 func (o Owner) row(ctx context.Context, accountID, fpr string) (store.Contact, error) {
 	c, err := o.Manager.Store.GetContact(ctx, accountID, fpr)
 	if err != nil {
@@ -104,14 +119,21 @@ func (o Owner) Approve(ctx context.Context, accountID, fpr, preset string) (Deci
 		bundle = perms
 	}
 	err = o.Manager.Store.Atomically(ctx, func(tx store.Store) error {
-		if err := tx.UpdateContactStatus(ctx, accountID, fpr, "active"); err != nil {
+		ok, err := tx.MoveContactStatus(ctx, accountID, fpr, "pending_in", "active")
+		if err != nil {
 			return err
+		}
+		if !ok {
+			return errChanged
 		}
 		if preset != "" {
 			return tx.UpdateContactPermissions(ctx, accountID, fpr, bundle, preset)
 		}
 		return nil
 	})
+	if errors.Is(err, errChanged) {
+		return Decision{}, o.moved(ctx, accountID, fpr, "pending_in")
+	}
 	if err != nil {
 		return Decision{}, err
 	}
@@ -144,8 +166,14 @@ func (o Owner) Reject(ctx context.Context, accountID, fpr string) (Decision, err
 	if c.Status != "pending_in" {
 		return Decision{}, fmt.Errorf("%w: that contact is %s, not a waiting request", ErrWrongState, c.Status)
 	}
-	if err := o.Manager.Store.UpdateContactStatus(ctx, accountID, fpr, "blocked"); err != nil {
+	ok, err := o.Manager.Store.MoveContactStatus(ctx, accountID, fpr, "pending_in", "blocked")
+	if err != nil {
 		return Decision{}, err
+	}
+	if !ok {
+		// A peer who redeemed an auto-accept invite meanwhile is a contact now: rejecting would
+		// demote them and tell an active peer they were refused.
+		return Decision{}, o.moved(ctx, accountID, fpr, "pending_in")
 	}
 	o.invalidate(ctx, accountID, fpr)
 	d := Decision{Status: "blocked"}
@@ -165,8 +193,16 @@ func (o Owner) Block(ctx context.Context, accountID, fpr string) (Decision, erro
 		return Decision{}, err
 	}
 	if c.Status != "blocked" {
-		if err := o.Manager.Store.UpdateContactStatus(ctx, accountID, fpr, "blocked"); err != nil {
+		ok, err := o.Manager.Store.MoveContactStatus(ctx, accountID, fpr, c.Status, "blocked")
+		if err != nil {
 			return Decision{}, err
+		}
+		if !ok {
+			// Blocked meanwhile is the outcome asked for; anything else is said as it is.
+			if now, err := o.row(ctx, accountID, fpr); err == nil && now.Status == "blocked" {
+				return Decision{Status: "blocked"}, nil
+			}
+			return Decision{}, o.moved(ctx, accountID, fpr, c.Status)
 		}
 		o.invalidate(ctx, accountID, fpr)
 	}
@@ -187,14 +223,18 @@ func (o Owner) Unblock(ctx context.Context, accountID, fpr string) (Decision, er
 		return Decision{}, fmt.Errorf("%w: that contact is %s, not blocked", ErrWrongState, c.Status)
 	}
 	d := Decision{Status: "active"}
+	var ok bool
 	if c.EverActive {
-		err = o.Manager.Store.UpdateContactStatus(ctx, accountID, fpr, "active")
+		ok, err = o.Manager.Store.MoveContactStatus(ctx, accountID, fpr, "blocked", "active")
 	} else {
 		d.Status = "none"
-		err = o.Manager.Store.DeleteContact(ctx, accountID, fpr)
+		ok, err = o.Manager.Store.DeleteContactInStatus(ctx, accountID, fpr, "blocked")
 	}
 	if err != nil {
 		return Decision{}, err
+	}
+	if !ok {
+		return Decision{}, o.moved(ctx, accountID, fpr, "blocked")
 	}
 	o.invalidate(ctx, accountID, fpr)
 	return d, nil
