@@ -49,7 +49,7 @@ func idemStore(t *testing.T) store.Store {
 	return st
 }
 
-// Tuesday 2026-08-25 is a workday; default policy 09:00–17:00.
+// Tuesday 2026-08-25.
 var day = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 
 func TestFreebusyNeverLeaksRawAndCapsAtFive(t *testing.T) {
@@ -67,7 +67,9 @@ func TestFreebusyNeverLeaksRawAndCapsAtFive(t *testing.T) {
 		},
 	}
 	// window 00:00–24:00, 30-minute slots: plenty of free slots exist —
-	// the answer must still be ≤5, inside working hours, and never overlap busy
+	// the answer must still be ≤5 and never overlap busy. There is no
+	// working-hours filter (the owner's decision of 2026-09-25): the calendar's
+	// free time is the answer, so the earliest free slot is midnight.
 	slots, err := c.CheckAvailability(context.Background(), day, day.Add(24*time.Hour), 30*time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -75,12 +77,11 @@ func TestFreebusyNeverLeaksRawAndCapsAtFive(t *testing.T) {
 	if len(slots) == 0 || len(slots) > MaxSlots {
 		t.Fatalf("slot count: %d", len(slots))
 	}
+	if !slots[0].Start.Equal(day) {
+		t.Fatalf("the earliest free slot is %v, want midnight: a working-hours filter is back", slots[0].Start)
+	}
 	busyS, busyE := day.Add(10*time.Hour), day.Add(11*time.Hour)
 	for _, s := range slots {
-		h := s.Start.Hour()*60 + s.Start.Minute()
-		if h < 9*60 || s.End.Hour()*60+s.End.Minute() > 17*60 {
-			t.Fatalf("slot outside working hours: %+v", s)
-		}
 		if s.Start.Before(busyE) && busyS.Before(s.End) {
 			t.Fatalf("slot overlaps busy: %+v", s)
 		}
@@ -90,7 +91,7 @@ func TestFreebusyNeverLeaksRawAndCapsAtFive(t *testing.T) {
 	}
 }
 
-func TestSuggestKindFiltersPolicyAndCaps(t *testing.T) {
+func TestSuggestKindOrdersAndCaps(t *testing.T) {
 	rec := integrations.Recipe{Name: "fake-sg", Capabilities: map[string]integrations.Binding{
 		"check_availability": {
 			Tool: "suggest_time", Kind: "suggest",
@@ -106,8 +107,8 @@ func TestSuggestKindFiltersPolicyAndCaps(t *testing.T) {
 	}
 	c := &Calendar{Recipe: rec, Store: idemStore(t), Account: "a",
 		Call: func(_ context.Context, tool string, _ map[string]any) (any, error) {
-			// 8 suggestions: 06:00 and 22:00 violate working hours
-			return map[string]any{"suggestions": []any{mk(6), mk(9), mk(10), mk(11), mk(12), mk(13), mk(14), mk(22)}}, nil
+			// 8 suggestions, out of order: the cap keeps the earliest five
+			return map[string]any{"suggestions": []any{mk(22), mk(9), mk(10), mk(6), mk(11), mk(12), mk(13), mk(14)}}, nil
 		}}
 	slots, err := c.CheckAvailability(context.Background(), day, day.Add(24*time.Hour), 30*time.Minute)
 	if err != nil {
@@ -116,8 +117,11 @@ func TestSuggestKindFiltersPolicyAndCaps(t *testing.T) {
 	if len(slots) != MaxSlots {
 		t.Fatalf("want exactly %d slots, got %d", MaxSlots, len(slots))
 	}
-	if slots[0].Start.Hour() != 9 {
-		t.Fatalf("out-of-hours slot survived: %+v", slots[0])
+	// 06:00 is offered: what the upstream suggests is not filtered by hours.
+	for i, want := range []int{6, 9, 10, 11, 12} {
+		if slots[i].Start.Hour() != want {
+			t.Fatalf("slot %d starts at %v, want %02d:00", i, slots[i].Start, want)
+		}
 	}
 }
 
