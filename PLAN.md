@@ -739,7 +739,7 @@ they differ).
 ### P3-08 Mapped providers + DSL + recipes
 **Files:** `internal/integrations/providers/{calendar,status}.go`, `mapping.go`,
 `recipes/*.json` + tests.
-Calendar provider: check_availability (≤5 policy-filtered slots, windows, working hours),
+Calendar provider: check_availability (≤5 slots from the requested window, no working-hours filter since 2026-09-25),
 book_slot (returns booking_id + ics via golang-ical), cancel_booking; Status provider;
 field-to-field+constants mapping DSL (no scripting); recipes for the three verified
 Google Calendar servers with their exact tool names (official `suggest_time`/

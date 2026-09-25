@@ -1,6 +1,6 @@
 // Package providers implements PACT core capabilities over upstream tools
 // through recipes (SPEC §6.7). Contacts see PACT's vocabulary — never a
-// vendor's. All computation (slot math, policy filtering, ICS synthesis)
+// vendor's. All computation (slot math, ICS synthesis)
 // lives HERE, in code; recipes only line fields up.
 package providers
 
@@ -35,47 +35,11 @@ type Slot struct {
 	End   time.Time `json:"end"`
 }
 
-// Policy is the owner's availability policy: allowed weekdays and working
-// hours (minutes since local midnight). Zero value = Mon–Fri 09:00–17:00.
-type Policy struct {
-	Workdays  map[time.Weekday]bool
-	WorkStart int
-	WorkEnd   int
-}
-
-func (p Policy) normalized() Policy {
-	if p.Workdays == nil {
-		p.Workdays = map[time.Weekday]bool{
-			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
-			time.Thursday: true, time.Friday: true,
-		}
-	}
-	if p.WorkStart == 0 && p.WorkEnd == 0 {
-		p.WorkStart, p.WorkEnd = 9*60, 17*60
-	}
-	return p
-}
-
-// allows reports whether a slot sits fully inside working hours on a workday.
-func (p Policy) allows(s Slot) bool {
-	p = p.normalized()
-	if !p.Workdays[s.Start.Weekday()] || !s.End.After(s.Start) {
-		return false
-	}
-	startMin := s.Start.Hour()*60 + s.Start.Minute()
-	endMin := s.End.Hour()*60 + s.End.Minute()
-	if s.End.Day() != s.Start.Day() {
-		return false
-	}
-	return startMin >= p.WorkStart && endMin <= p.WorkEnd
-}
-
 // Calendar implements check_availability / book_slot / cancel_booking
 // (PACT §6.2) over one recipe.
 type Calendar struct {
 	Call    Caller
 	Recipe  integrations.Recipe
-	Policy  Policy
 	Store   IdemStore
 	Account string
 	// Params are this INSTALL's recipe parameters, referenced from a recipe as
@@ -98,8 +62,12 @@ func (c *Calendar) fields(own map[string]any) map[string]any {
 	return own
 }
 
-// CheckAvailability returns ≤5 policy-filtered candidate slots — never raw
-// free/busy (SPEC §6.7).
+// CheckAvailability returns ≤5 candidate slots, earliest first — never raw
+// free/busy (SPEC §6.7). There is no working-hours filter: the connected
+// calendar is the authority on when its owner meets (the owner's decision of
+// 2026-09-25, "we dont manage calendar ourselves and we rely on external
+// integrations"), so a raw free/busy calendar offers any free time its owner
+// has not blocked.
 func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd time.Time, duration time.Duration) ([]Slot, error) {
 	b, ok := c.Recipe.Capabilities["check_availability"]
 	if !ok {
@@ -131,7 +99,7 @@ func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd
 	}
 	out := candidates[:0]
 	for _, s := range candidates {
-		if c.Policy.allows(s) {
+		if s.End.After(s.Start) {
 			out = append(out, s)
 		}
 	}
