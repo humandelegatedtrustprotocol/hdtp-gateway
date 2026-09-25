@@ -21,7 +21,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/public"
 )
 
-// Tuesday 2026-08-25, a workday under the default 09:00–17:00 policy.
+// Tuesday 2026-08-25.
 var demoDay = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 
 // fakeGCal speaks the nspady/google-calendar-mcp tool shapes the shipped
