@@ -77,11 +77,11 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	}
 
 	for _, n := range []*Owned{alice, bob} {
-		oc, token, session, err := BootstrapOwner(ctx, f, n.Node, n.OwnerPort)
+		oc, session, err := BootstrapOwner(ctx, f, n.Node, n.OwnerPort)
 		if err != nil {
 			t.Fatalf("bootstrapping %s: %v", n.Node.Name, err)
 		}
-		n.Owner, n.Token, n.Portal = oc, token, session
+		n.Owner, n.Portal = oc, session
 		accts, err := oc.Accounts(ctx)
 		if err != nil || len(accts) != 1 {
 			t.Fatalf("%s: list_accounts gave %v (%v)", n.Node.Name, accts, err)

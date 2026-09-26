@@ -1,10 +1,14 @@
 package scenario
 
-// The one way a scenario stands a node up. It was three: SetupPaired (one node and a contact),
-// StartOwnedNode (a node a second owner could have too), and pairing_live_test.go's own copy of
-// both, each with its own environment map, its own health wait and its own hand-picked ports —
-// two of which were claimed by two scenarios each. Now a scenario begins with `begin`, which
-// registers it and gives it a World, and asks the World for nodes.
+// The one way a scenario stands up an OWNED node — one with an account certified by its owner's
+// wallet, a signed-in owner and the owner MCP. It was three: SetupPaired (one node and a
+// contact), StartOwnedNode (a node a second owner could have too), and pairing_live_test.go's own
+// copy of both, each with its own environment map, its own health wait and its own hand-picked
+// ports — four of which (18680, 18681, 18691, 18692) were claimed by two scenarios each. Now a
+// scenario begins with `begin`, which registers it and gives it a World, and asks the World for
+// nodes. What is not an owned node is built otherwise: T5's ingress role and T6's frps are
+// plain fabric containers, the fabric tests (F1-F5) build through fabric and topology, and T7
+// adopts containers the Cloudflare demo script built.
 
 import (
 	"cmp"
@@ -113,20 +117,6 @@ type Owned struct {
 	// OwnerPort is the host port the portal and owner MCP are published on; PublicPort the one
 	// the public surface is, when PublishPublic asked for it.
 	OwnerPort, PublicPort string
-	// Token is kept so the owner surface can be re-connected after a restart: the MCP session
-	// does not survive one, and re-running the passkey ceremony would mint a second owner rather
-	// than reattach to the first.
-	Token string
-}
-
-// Reconnect re-establishes the owner MCP session, which a container restart ends.
-func (o *Owned) Reconnect(ctx context.Context) error {
-	oc, err := owner.Connect(ctx, "http://127.0.0.1:"+o.OwnerPort+"/owner/mcp", o.Token)
-	if err != nil {
-		return fmt.Errorf("reconnecting to %s: %w", o.Node.Name, err)
-	}
-	o.Owner = oc
-	return nil
 }
 
 // Node brings up a node, creates its account and has the owner's wallet CERTIFY it — until which
@@ -172,7 +162,7 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	if err := waitPortal(ctx, ownerPort); err != nil {
 		return out, err
 	}
-	if out.Owner, out.Token, out.Portal, err = BootstrapOwner(ctx, w.Fab, out.Node, ownerPort); err != nil {
+	if out.Owner, out.Portal, err = BootstrapOwner(ctx, w.Fab, out.Node, ownerPort); err != nil {
 		return out, err
 	}
 	accts, err := out.Owner.Accounts(ctx)
@@ -223,37 +213,37 @@ func waitPortal(ctx context.Context, hostPort string) error {
 	}
 }
 
-// BootstrapOwner registers the first passkey and returns a connected owner client, its bearer
-// token and the signed-in portal session. ownerPort is the HOST port the portal is published on:
+// BootstrapOwner registers the first passkey and returns a connected owner client and the
+// signed-in portal session. ownerPort is the HOST port the portal is published on:
 // the browser runs on the host, so the portal has to be reachable from there, and it must be
 // `localhost` rather than an IP because an IP is not a valid WebAuthn RP ID.
-func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Container, ownerPort string) (*owner.Client, string, *OwnerSession, error) {
+func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Container, ownerPort string) (*owner.Client, *OwnerSession, error) {
 	tok, err := setupToken(ctx, f, node)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 	br, err := portal.Open(ctx)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("chrome: %w", err)
+		return nil, nil, fmt.Errorf("chrome: %w", err)
 	}
 	defer br.Close()
 	base := "http://localhost:" + ownerPort
 	if _, err := br.RegisterFirstPasskey(ctx, base+"/setup?token="+tok, "harness"); err != nil {
-		return nil, "", nil, fmt.Errorf("wizard: %w", err)
+		return nil, nil, fmt.Errorf("wizard: %w", err)
 	}
 	// The ceremony leaves the browser signed in. Its cookies are the owner's session, and they
 	// outlive the browser: everything after this is plain HTTP as that owner.
 	cookies, err := br.Cookies(ctx, base+"/")
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 	session := &OwnerSession{Base: base, cookies: cookies}
 	if session.csrf() == "" {
-		return nil, "", nil, fmt.Errorf("the browser holds no pact_csrf cookie for %s after registering a passkey: %d cookie(s)", base, len(cookies))
+		return nil, nil, fmt.Errorf("the browser holds no pact_csrf cookie for %s after registering a passkey: %d cookie(s)", base, len(cookies))
 	}
 	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
 	if ownerID == "" {
-		return nil, "", nil, fmt.Errorf("no owner id after registering a passkey")
+		return nil, nil, fmt.Errorf("no owner id after registering a passkey")
 	}
 	token := ""
 	for _, l := range strings.Split(execS(ctx, f, node,
@@ -263,13 +253,13 @@ func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Containe
 		}
 	}
 	if token == "" {
-		return nil, "", nil, fmt.Errorf("no owner token")
+		return nil, nil, fmt.Errorf("no owner token")
 	}
 	oc, err := owner.Connect(ctx, "http://127.0.0.1:"+ownerPort+"/owner/mcp", token)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("owner mcp: %w", err)
+		return nil, nil, fmt.Errorf("owner mcp: %w", err)
 	}
-	return oc, token, session, nil
+	return oc, session, nil
 }
 
 // Paired is a standing node with one approved contact: the node's owner, and a contact's agent

@@ -53,7 +53,9 @@ directory and prints where):
 ```
 
 and `harness run` writes `summary.json` beside them: `{ run, repo, tier, cases: [{ id, name,
-promised, verdict, reason, ms, ok }] }`. With `PACT_HARNESS_ARTIFACTS=<dir>` every container's
+promised, verdict, reason, ms, ok }] }` — the envelope plan item T4 names for every runner, with
+cases that stay provisional until T4 settles the shared shape (it names an `evidence` field this
+one does not have). With `PACT_HARNESS_ARTIFACTS=<dir>` every container's
 log is collected there at teardown.
 
 ### Adding a scenario
