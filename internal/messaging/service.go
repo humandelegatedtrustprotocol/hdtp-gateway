@@ -86,7 +86,7 @@ const (
 const maxTextBytes = 16 * 1024 // PACT §12
 
 type Service struct {
-	Store store.Store
+	Store store.MessageStore
 	Bus   *Bus // optional: events fan out when set (SPEC §7.6)
 	Now   func() time.Time
 }

@@ -30,7 +30,7 @@ const DefaultWithholdAfter = 5
 const DefaultPingEvery = 60 * time.Second
 
 type Manager struct {
-	Store store.Store
+	Store store.IntegrationStore
 	Audit func(action, resource, outcome string)
 	// OnAuthError fires when a dial or health check lands in auth_error: the
 	// token is dead and only the owner can fix it, so whoever is listening

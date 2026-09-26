@@ -10,7 +10,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-type auditStore struct{ st store.Store }
+type auditStore struct{ st store.AuditStore }
 
 func (a auditStore) ListAuditEvents(ctx context.Context, actorFilter string) ([]audit.Row, error) {
 	rows, err := a.st.ListAuditEvents(ctx, actorFilter)
