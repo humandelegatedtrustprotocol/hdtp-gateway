@@ -181,9 +181,10 @@ func runTier(args []string, stdout io.Writer) int {
 	cmd := exec.CommandContext(ctx, "go", p.test.Args()...)
 	cmd.Stdout, cmd.Stderr = stdout, os.Stderr
 	cmd.Env = append(os.Environ(), registry.LiveEnv+"=1", registry.ResultsEnv+"="+dir)
+	started := time.Now().UTC()
 	testErr := cmd.Run()
 
-	code, err := judge(stdout, p)
+	code, err := judge(stdout, p, started)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "harness run:", err)
 		return 1
@@ -212,14 +213,15 @@ func printPlan(w io.Writer, p plan) {
 }
 
 // judge reads the results, prints the verdicts, writes summary.json, and returns the exit code.
-func judge(w io.Writer, p plan) (int, error) {
+func judge(w io.Writer, p plan, started time.Time) (int, error) {
 	res, err := registry.ReadResults(p.results)
 	if err != nil {
 		return 1, err
 	}
 	cases := registry.Judge(p.sel, p.provided, res)
 	fmt.Fprintf(w, "\nharness: %s verdicts\n%s", p.label, registry.TableText(cases))
-	sum := registry.Summary{Run: time.Now().UTC().Format(time.RFC3339), Repo: "pact-gateway", Tier: p.label, Cases: cases}
+	commit, _ := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+	sum := registry.NewSummary(p.label, started.Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), strings.TrimSpace(string(commit)), cases)
 	b, err := json.MarshalIndent(sum, "", "  ")
 	if err != nil {
 		return 1, err

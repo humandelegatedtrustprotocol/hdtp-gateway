@@ -371,3 +371,46 @@ func TestChildSkipsForAMissingNeed(t *testing.T) {
 	Start(t, Spec{ID: "S93", Name: "needs cf", Tier: PR, Needs: []Need{CF}, Timeout: time.Minute})
 	t.Error("Start returned for a scenario whose need is missing")
 }
+
+// A result and a tier's summary are the workspace's one result schema (docs/testing.md, "Results"):
+// the envelope, and a case whose why is the first line of `evidence`.
+func TestResultsAreInTheOneSchema(t *testing.T) {
+	r := Result{ID: "S2", Name: "pairing", Test: "TestPairing", Verdict: Skipped, Reason: "needs chrome", MS: 12}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"id", "name", "verdict", "evidence", "ms"} {
+		if _, ok := wire[k]; !ok {
+			t.Errorf("a result has no %q: %s", k, b)
+		}
+	}
+	if _, ok := wire["reason"]; ok {
+		t.Errorf("a result carries reason outside evidence: %s", b)
+	}
+	var back Result
+	if err := json.Unmarshal(b, &back); err != nil || back != r {
+		t.Errorf("a result does not read back as written: %+v (%v)", back, err)
+	}
+	passed, _ := json.Marshal(Result{ID: "S9", Verdict: Pass})
+	if !strings.Contains(string(passed), `"evidence":[]`) {
+		t.Errorf("a PASS has an empty evidence list, not none: %s", passed)
+	}
+	sum, _ := json.Marshal(NewSummary("pr", "2026-09-27T00:00:00Z", "2026-09-27T00:01:00Z", "abc1234", []Case{{ID: "S2", Verdict: Pass, OK: true}, {ID: "S9", Verdict: Fail, Reason: "no"}}))
+	var env map[string]any
+	if err := json.Unmarshal(sum, &env); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"schema", "repo", "suite", "tier", "run", "cases", "counts"} {
+		if _, ok := env[k]; !ok {
+			t.Errorf("the summary has no %q: %s", k, sum)
+		}
+	}
+	if env["schema"] != "pact-results/1" || !strings.Contains(string(sum), `"counts":{"FAIL":1,"PASS":1}`) {
+		t.Errorf("the summary's schema or counts: %s", sum)
+	}
+}

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -70,16 +71,31 @@ func GoTestFor(sel []Entry) GoTest {
 	return g
 }
 
-// Case is one scenario's line in a tier's judgement.
+// Case is one scenario's line in a tier's judgement: a case of the one result schema, with whether
+// the tier promised it and whether it lets the tier pass.
 type Case struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Promised bool    `json:"promised"`
-	Verdict  Verdict `json:"verdict"`
-	Reason   string  `json:"reason,omitempty"`
-	MS       int64   `json:"ms"`
+	ID       string
+	Name     string
+	Promised bool
+	Verdict  Verdict
+	// Reason is why, where the verdict is not a plain PASS; on the wire it is `evidence[0]`.
+	Reason string
+	MS     int64
 	// OK is whether this case lets the tier pass.
-	OK bool `json:"ok"`
+	OK bool
+}
+
+// MarshalJSON writes the schema's case: `evidence` carries the reason.
+func (c Case) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID       string   `json:"id"`
+		Name     string   `json:"name"`
+		Verdict  Verdict  `json:"verdict"`
+		Evidence []string `json:"evidence"`
+		MS       int64    `json:"ms"`
+		Promised bool     `json:"promised"`
+		OK       bool     `json:"ok"`
+	}{c.ID, c.Name, c.Verdict, evidenceOf(c.Reason), c.MS, c.Promised, c.OK})
 }
 
 // Judge decides a tier from its results. A scenario the tier PROMISED (every need provided) must
@@ -120,14 +136,33 @@ func Passed(cs []Case) bool {
 // SummaryFile is the tier's own record, written beside the per-scenario results.
 const SummaryFile = "summary.json"
 
-// Summary is one tier run. It follows the envelope plan item T4 names for every runner
-// ({run, repo, tier, cases}), but its cases are provisional: they add name, promised and ok,
-// and have no evidence field. T4 settles the shared case shape.
+// Summary is one tier run, in the one result schema every runner of the workspace writes
+// (docs/testing.md, "Results"); its cases add `promised` and `ok`.
 type Summary struct {
-	Run   string `json:"run"`
-	Repo  string `json:"repo"`
-	Tier  string `json:"tier"`
-	Cases []Case `json:"cases"`
+	Schema string         `json:"schema"`
+	Repo   string         `json:"repo"`
+	Suite  string         `json:"suite"`
+	Tier   string         `json:"tier"`
+	Run    SummaryRun     `json:"run"`
+	Cases  []Case         `json:"cases"`
+	Counts map[string]int `json:"counts"`
+}
+
+// SummaryRun is when and from what the tier ran.
+type SummaryRun struct {
+	Started string `json:"started"`
+	Ended   string `json:"ended"`
+	Commit  string `json:"commit"`
+	Target  string `json:"target"`
+}
+
+// NewSummary is a tier's summary with its counts.
+func NewSummary(tier, started, ended, commit string, cases []Case) Summary {
+	counts := map[string]int{}
+	for _, c := range cases {
+		counts[string(c.Verdict)]++
+	}
+	return Summary{Schema: "pact-results/1", Repo: "pact-gateway", Suite: "harness", Tier: tier, Run: SummaryRun{Started: started, Ended: ended, Commit: commit}, Cases: cases, Counts: counts}
 }
 
 // TableText renders cases for a terminal: a verdict per line, and the ones that fail the tier
