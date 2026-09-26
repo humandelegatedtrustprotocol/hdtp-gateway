@@ -4,13 +4,11 @@ import (
 	"context"
 
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
@@ -24,24 +22,22 @@ import (
 //
 // This is the two-sided check: after the approval, BOTH sides say active.
 func TestApprovingAContactReachesThePeer(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S12", Name: "approving a contact reaches the peer: both sides active", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 15 * time.Minute,
 	})
 
-	f := fabricFor(t, "pactapp")
+	f := w.Fab
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18670",
-		"https://pactapp-alice:8443", map[string]string{"PACT_SEAL": "optional"})
+	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18671",
-		"https://pactapp-bob:8443", map[string]string{"PACT_SEAL": "optional"})
+	bob, err := w.Node(ctx, NodeOpts{Slug: "bob", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("bob: %v", err)
 	}
@@ -133,19 +129,4 @@ func contactStatus(ctx context.Context, t *testing.T, o *Owned, fpr string) stri
 		return "present-but-unparsed: " + shorten(raw, 160)
 	}
 	return "absent"
-}
-
-// fabricFor builds a fabric that cleans up after the test.
-func fabricFor(t *testing.T, prefix string) *fabric.Fabric {
-	t.Helper()
-	f := fabric.New(prefix, dockerRun)
-	t.Cleanup(func() {
-		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if dir := os.Getenv("PACT_HARNESS_ARTIFACTS"); dir != "" {
-			_ = f.Collect(c, dir)
-		}
-		_ = f.Teardown(c)
-	})
-	return f
 }

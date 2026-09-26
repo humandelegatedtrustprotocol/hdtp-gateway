@@ -69,9 +69,18 @@ func Start(t *testing.T, s Spec) context.Context {
 			t.Skip(reason)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), s.Timeout)
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), specKey{}, s), s.Timeout)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+type specKey struct{}
+
+// SpecOf is the spec a scenario's context was started with, so what it builds can be named by
+// its id (fabric.PrefixFor) without a second copy of the id.
+func SpecOf(ctx context.Context) Spec {
+	s, _ := ctx.Value(specKey{}).(Spec)
+	return s
 }
 
 func record(t *testing.T, s Spec, began time.Time, reason string) {

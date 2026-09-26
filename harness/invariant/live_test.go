@@ -21,7 +21,7 @@ func TestLiveAuditChainInvariantVerifiesRealNodes(t *testing.T) {
 		Timeout: 5 * time.Minute,
 	})
 
-	f := fabric.New("pactinv", fabric.Local)
+	f := fabric.New(fabric.PrefixFor(registry.SpecOf(ctx).ID), fabric.Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

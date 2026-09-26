@@ -25,7 +25,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -125,23 +124,4 @@ func (w *Wallet) Certify(ctx context.Context, n Node, slug, purpose, endpoint st
 		return Pin{}, fmt.Errorf("wallet: account install-leaf for %s: %w (%s)", slug, err, bytes.TrimSpace(out))
 	}
 	return Pin{Root: w.Fingerprint, Leaf: issued.DER, Endpoint: issued.Endpoint}, nil
-}
-
-// Docker reaches a node that is a Docker container, by name — which is every node this harness
-// stands up, whether the fabric made it or a test ran `docker run` itself.
-func Docker(container string) Node { return dockerNode(container) }
-
-type dockerNode string
-
-func (d dockerNode) Exec(ctx context.Context, args ...string) ([]byte, error) {
-	full := append([]string{"exec", string(d), "/pact-gateway"}, args...)
-	return exec.CommandContext(ctx, "docker", full...).CombinedOutput() //nolint:gosec // the harness drives docker by design
-}
-
-func (d dockerNode) CopyIn(ctx context.Context, hostPath, nodePath string) error {
-	out, err := exec.CommandContext(ctx, "docker", "cp", hostPath, string(d)+":"+nodePath).CombinedOutput() //nolint:gosec // as above
-	if err != nil {
-		return fmt.Errorf("docker cp into %s: %w (%s)", string(d), err, bytes.TrimSpace(out))
-	}
-	return nil
 }

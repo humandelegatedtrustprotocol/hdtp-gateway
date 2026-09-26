@@ -40,7 +40,10 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	})
 	domain := os.Getenv(registry.CFEnv)
 
-	f := fabric.New("pactcf", dockerRun)
+	// Not a World: the containers, their names and their published owner ports (18120, 18121)
+	// are the demo script's, which built them and keeps their volumes. This test adds the
+	// bridges and tears nothing down.
+	f := fabric.New("pactcf", fabric.Local)
 	alice := &Owned{Node: &fabric.Container{Name: "pactcf-alice"}, OwnerPort: "18120",
 		Fpr: mustFpr(ctx, t, f, "pactcf-alice")}
 	bob := &Owned{Node: &fabric.Container{Name: "pactcf-bob"}, OwnerPort: "18121",
@@ -68,8 +71,10 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 			t.Fatalf("portal bridge for %s: %v (%s)", n.Node.Name, err, out)
 		}
 		n.Bridge = &fabric.Container{Name: name}
+		if err := waitPortal(ctx, n.OwnerPort); err != nil {
+			t.Fatal(err)
+		}
 	}
-	time.Sleep(3 * time.Second)
 
 	for _, n := range []*Owned{alice, bob} {
 		oc, token, session, err := BootstrapOwner(ctx, f, n.Node, n.OwnerPort)

@@ -17,12 +17,17 @@ package fabric
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
 )
@@ -131,6 +136,55 @@ func (f *Fabric) Raw(ctx context.Context, name string, args ...string) ([]byte, 
 // qualify namespaces every object by the run prefix, so a crashed run can be swept
 // without touching anything else on the machine.
 func (f *Fabric) qualify(name string) string { return f.prefix + "-" + name }
+
+// Name is the full name this fabric gives an object called name: what a container is reached
+// by on its network, before or after it exists (a network alias, a public URL).
+func (f *Fabric) Name(name string) string { return f.qualify(name) }
+
+// runToken is drawn once per test binary. With it, two runs of one scenario at the same time —
+// two worktrees, two terminals — get different container and network names instead of
+// colliding on them.
+var runToken = func() string {
+	var b [2]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b[:])
+}()
+
+// PrefixFor is the fabric prefix for a registered scenario: "pact", its id in lower case, and
+// this run's token, e.g. "pacts13-7f3a". It is a valid DNS label, because container names are
+// the addresses nodes dial and leaves name.
+func PrefixFor(id string) string { return "pact" + strings.ToLower(id) + "-" + runToken }
+
+// The ports FreePort has handed out in this process.
+var (
+	portsMu sync.Mutex
+	given   = map[int]bool{}
+)
+
+// FreePort is a host TCP port for a container to publish: the kernel picks one nobody is
+// listening on, and this process never hands the same one out twice. Hand-picked ports collided
+// (18680 and 18681 were claimed by two scenarios, 18691 and 18692 by two more). Another process
+// can still take the port between this call and `docker run`; that fails loudly as "port is
+// already allocated", never as a wrong result.
+func FreePort() (string, error) {
+	portsMu.Lock()
+	defer portsMu.Unlock()
+	for range 20 {
+		l, err := net.Listen("tcp", ":0")
+		if err != nil {
+			return "", fmt.Errorf("fabric: finding a free port: %w", err)
+		}
+		p := l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+		if !given[p] {
+			given[p] = true
+			return strconv.Itoa(p), nil
+		}
+	}
+	return "", errors.New("fabric: the kernel kept offering ports this process already handed out")
+}
 
 func (f *Fabric) track(c *Container) { f.containers = append(f.containers, c) }
 

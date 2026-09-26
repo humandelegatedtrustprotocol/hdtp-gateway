@@ -1,14 +1,16 @@
 package peer
 
 import (
-	"os/exec"
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
 
 // Drives a REAL containerised node over REAL mTLS and asserts the switchboard's
@@ -19,50 +21,35 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage},
 		Timeout: 4 * time.Minute,
 	})
-	run := func(args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	f := fabric.New(fabric.PrefixFor(registry.SpecOf(ctx).ID), fabric.Local)
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		_ = f.Teardown(c)
+	})
+	port, err := fabric.FreePort()
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	const name = "pactpeer-node"
-	_, _ = run("rm", "-f", name)
-	// Published so the Go test process — the peer's agent — can dial it directly.
-	if _, err := run("run", "-d", "--name", name, "-p", "18443:8443",
-		"-e", "PACT_PUBLIC_BIND=0.0.0.0:8443",
-		// A NAME, because a wallet does not issue a leaf for a loopback address (PACT §14.2 rule
-		// 5). The agent dials it to the published port below, which is DNS's job for a real caller.
-		"-e", "PACT_PUBLIC_URL=https://alice.harness.example:18443",
-		"-e", "PACT_INTERNAL_BIND=127.0.0.1:8080",
-		"-e", "PACT_CLIENT_CERT=preferred",
-		images.Node, "serve"); err != nil {
+	// Published so the Go test process — the peer's agent — can dial it directly. The public URL
+	// is a NAME, because a wallet does not issue a leaf for a loopback address (PACT §14.2 rule
+	// 5); the agent dials it to the published port below, which is DNS's job for a real caller.
+	url := "https://alice.harness.example:" + port
+	node, err := f.Container(ctx, fabric.Spec{
+		Name: "node", Image: images.Node, Env: topology.NodeEnv(url),
+		Ports: []string{fmt.Sprintf("%s:%d", port, topology.PublicPort)}, Cmd: []string{"serve"},
+	})
+	if err != nil {
 		t.Fatalf("starting node: %v", err)
 	}
-	t.Cleanup(func() { _, _ = exec.Command("docker", "rm", "-f", name).CombinedOutput() })
-
-	// Wait for health rather than sleeping a guessed interval.
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		if _, err := run("exec", name, "/pact-gateway", "healthcheck"); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			out, _ := run("logs", name)
-			t.Fatalf("node never became healthy:\n%s", out)
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	if acct, err := run("exec", name, "/pact-gateway", "account", "create",
-		"--slug", "alice", "--name", "Alice"); err != nil {
-		t.Fatalf("creating account: %v (%s)", err, acct)
+	if err := topology.WaitHealthy(ctx, f, node); err != nil {
+		t.Fatal(err)
 	}
 	// An account is nobody until a wallet has signed it a leaf (PACT §2): this one's owner is
 	// played by the harness. Until that happens the node has no certificate to present, and
 	// every dial ends `tls: internal error` — which is what this test did from the day 1.x
 	// went until 2026-09-19, skipped, because PACT_HARNESS_LIVE is not set by any hook.
-	alice, err := wallet.New("Alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pin, err := alice.Certify(ctx, wallet.Docker(name), "alice", "", "")
+	_, pin, err := topology.Certify(ctx, f, node, "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,8 +67,8 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	//
 	// Leaving it unpinned fails, correctly: what the node presents is its own chain, which no
 	// public authority signed, so the WebPKI fallback refuses.
-	target := Target{Endpoint: pin.Endpoint, Dial: "127.0.0.1:18443", Root: pin.Root, Leaf: pin.Leaf}
-	if pin.Endpoint != "https://alice.harness.example:18443/a/alice/mcp" {
+	target := Target{Endpoint: pin.Endpoint, Dial: "127.0.0.1:" + port, Root: pin.Root, Leaf: pin.Leaf}
+	if pin.Endpoint != url+"/a/alice/mcp" {
 		t.Fatalf("the leaf names %q, not the address this node was given", pin.Endpoint)
 	}
 

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
@@ -22,24 +21,22 @@ import (
 // clears his side, asks again through a fresh invite, and alice sees a waiting request again.
 // The control is the second request: it has to land, or a node that refused everything would pass.
 func TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S13", Name: "a rejection reaches the peer, and an unblock lets them ask again", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 15 * time.Minute,
 	})
 
-	f := fabricFor(t, "pactrej")
+	f := w.Fab
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18680",
-		"https://pactrej-alice:8443", map[string]string{"PACT_SEAL": "optional"})
+	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18681",
-		"https://pactrej-bob:8443", map[string]string{"PACT_SEAL": "optional"})
+	bob, err := w.Node(ctx, NodeOpts{Slug: "bob", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("bob: %v", err)
 	}

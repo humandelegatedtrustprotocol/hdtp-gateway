@@ -2,7 +2,6 @@ package scenario
 
 import (
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -30,14 +29,13 @@ import (
 // bind (SPEC §8.3): the document behind every path is the same empty shell, so that fetch found
 // none of its forms — and said nothing, because a live scenario is skipped unless asked for.
 func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S15", Name: "the portal offers every affordance an owner needs, as drawn", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 12 * time.Minute,
 	})
 
-	p, err := SetupPaired(ctx, "pactaff", Ports{Owner: "18661", Public: "18662"}, images.Node)
-	t.Cleanup(func() { p.Teardown(os.Getenv("PACT_HARNESS_ARTIFACTS")) })
+	p, err := w.Paired(ctx, images.Node)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
