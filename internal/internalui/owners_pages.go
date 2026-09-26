@@ -55,11 +55,22 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 		})
 	}
 
-	mux.HandleFunc("GET /api/owners", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "", "")
-	})
+	mux.HandleFunc("GET /api/owners", d.getAPIOwners(render))
+	mux.HandleFunc("POST /owners/passkeys/{id}/remove", d.postOwnersPasskeysIDRemove(render))
+	mux.HandleFunc("POST /owners/tokens/create", d.postOwnersTokensCreate(render))
+	mux.HandleFunc("POST /owners/tokens/{id}/revoke", d.postOwnersTokensIDRevoke(render))
+}
 
-	mux.HandleFunc("POST /owners/passkeys/{id}/remove", func(w http.ResponseWriter, r *http.Request) {
+// getAPIOwners serves `GET /api/owners`.
+func (d OwnersDeps) getAPIOwners(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "", "")
+	}
+}
+
+// postOwnersPasskeysIDRemove serves `POST /owners/passkeys/{id}/remove`.
+func (d OwnersDeps) postOwnersPasskeysIDRemove(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if d.Remove == nil {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -82,9 +93,12 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 		}
 		d.audit("passkey_remove", "passkey:"+id, "ok")
 		render(w, r, "Passkey removed.", "")
-	})
+	}
+}
 
-	mux.HandleFunc("POST /owners/tokens/create", func(w http.ResponseWriter, r *http.Request) {
+// postOwnersTokensCreate serves `POST /owners/tokens/create`.
+func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
@@ -120,9 +134,12 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 		// The id is audited; the token itself never is.
 		d.audit("token_create", attributed("token:"+id+" owner:"+owner), "ok")
 		render(w, r, "", plain)
-	})
+	}
+}
 
-	mux.HandleFunc("POST /owners/tokens/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+// postOwnersTokensIDRevoke serves `POST /owners/tokens/{id}/revoke`.
+func (d OwnersDeps) postOwnersTokensIDRevoke(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if err := d.Tokens.Revoke(r.Context(), id); err != nil {
 			d.audit("token_revoke", "token:"+id, "error")
@@ -131,5 +148,5 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 		}
 		d.audit("token_revoke", "token:"+id, "ok")
 		render(w, r, "Token revoked. Any session using it stops now.", "")
-	})
+	}
 }

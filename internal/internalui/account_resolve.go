@@ -50,7 +50,7 @@ func accountMiddleware(st store.Store, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if named := r.URL.Query().Get("account"); named != "" {
+		if named := accountParam(r); named != "" {
 			if !ownerAdmins(r, st, named) {
 				http.NotFound(w, r) // not 403: whether that account exists is not this owner's business
 				return
@@ -153,6 +153,11 @@ func ownerAdmins(r *http.Request, st store.Store, accountID string) bool {
 	return false
 }
 
+// accountParam is the account a request names in its `account` query parameter, "" when it
+// names none (accountMiddleware fills it in when the request named none and the answer is
+// unambiguous).
+func accountParam(r *http.Request) string { return r.URL.Query().Get("account") }
+
 // withAccount attributes an audit row to the account the request is about.
 //
 // The trail's account column is what scopes a narrowed token's reads (SPEC
@@ -161,7 +166,7 @@ func ownerAdmins(r *http.Request, st store.Store, accountID string) bool {
 // accounts it concerns — so the column has to be filled wherever the account is
 // known, and on this surface it always is.
 func withAccount(r *http.Request, resource string) string {
-	account := r.URL.Query().Get("account")
+	account := accountParam(r)
 	if account == "" || strings.HasPrefix(resource, "account:") {
 		return resource
 	}

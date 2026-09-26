@@ -42,65 +42,70 @@ func (d MediaDeps) audit(action, resource, outcome string) {
 
 // MountMediaPages registers the owner's media routes.
 func MountMediaPages(mux *http.ServeMux, d MediaDeps) {
-	mux.HandleFunc("GET /media/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		hash := r.PathValue("hash")
-		if account == "" || hash == "" {
-			http.Error(w, "account and hash are required", http.StatusBadRequest)
-			return
-		}
-		// The blob row is the authorization: content is addressed by hash, so
-		// without this check any account could read any other account's media
-		// by guessing — and a hash sent BY a contact is not a guess.
-		b, err := d.Store.GetBlob(r.Context(), account, hash)
-		if err != nil {
-			d.audit("media_read", "account:"+account+" blob:"+hash, "not_found")
-			http.NotFound(w, r)
-			return
-		}
-		data, err := d.Blobs.Get(hash)
-		if err != nil {
-			d.audit("media_read", "account:"+account+" blob:"+hash, "missing_bytes")
-			http.Error(w, "the stored bytes for that media are gone", http.StatusGone)
-			return
-		}
-		// Never let a contact's file choose how the browser treats it: a stored
-		// MIME from a peer is untrusted input, and rendering it inline is how a
-		// sent file becomes script on the portal's own origin.
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Disposition", "attachment; filename="+quoteFilename(b.Filename))
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-		d.audit("media_read", "account:"+account+" blob:"+hash, "ok")
-		_, _ = w.Write(data)
-	})
+	mux.HandleFunc("GET /media/{hash}", d.getMediaHash)
+	mux.HandleFunc("POST /media/fetch", d.postMediaFetch)
+}
 
-	mux.HandleFunc("POST /media/fetch", func(w http.ResponseWriter, r *http.Request) {
-		if d.Fetch == nil {
-			http.Error(w, "media fetching is not configured", http.StatusServiceUnavailable)
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		account := r.PostForm.Get("account")
-		raw := r.PostForm.Get("url")
-		if account == "" || raw == "" {
-			http.Error(w, "account and url are required", http.StatusBadRequest)
-			return
-		}
-		// SPEC §7.5: this is the owner asking, explicitly. The SSRF range check,
-		// the size cap and the quota accounting all live in MediaService.
-		hash, err := d.Fetch(r.Context(), account, raw)
-		if err != nil {
-			d.audit("media_fetch", "account:"+account, "refused")
-			writeJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		d.audit("media_fetch", "account:"+account+" blob:"+hash, "ok")
-		writeJSON(w, map[string]string{"hash": hash})
-	})
+// getMediaHash serves `GET /media/{hash}`.
+func (d MediaDeps) getMediaHash(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	hash := r.PathValue("hash")
+	if account == "" || hash == "" {
+		http.Error(w, "account and hash are required", http.StatusBadRequest)
+		return
+	}
+	// The blob row is the authorization: content is addressed by hash, so
+	// without this check any account could read any other account's media
+	// by guessing — and a hash sent BY a contact is not a guess.
+	b, err := d.Store.GetBlob(r.Context(), account, hash)
+	if err != nil {
+		d.audit("media_read", "account:"+account+" blob:"+hash, "not_found")
+		http.NotFound(w, r)
+		return
+	}
+	data, err := d.Blobs.Get(hash)
+	if err != nil {
+		d.audit("media_read", "account:"+account+" blob:"+hash, "missing_bytes")
+		http.Error(w, "the stored bytes for that media are gone", http.StatusGone)
+		return
+	}
+	// Never let a contact's file choose how the browser treats it: a stored
+	// MIME from a peer is untrusted input, and rendering it inline is how a
+	// sent file becomes script on the portal's own origin.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", "attachment; filename="+quoteFilename(b.Filename))
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	d.audit("media_read", "account:"+account+" blob:"+hash, "ok")
+	_, _ = w.Write(data)
+}
+
+// postMediaFetch serves `POST /media/fetch`.
+func (d MediaDeps) postMediaFetch(w http.ResponseWriter, r *http.Request) {
+	if d.Fetch == nil {
+		http.Error(w, "media fetching is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := r.PostForm.Get("account")
+	raw := r.PostForm.Get("url")
+	if account == "" || raw == "" {
+		http.Error(w, "account and url are required", http.StatusBadRequest)
+		return
+	}
+	// SPEC §7.5: this is the owner asking, explicitly. The SSRF range check,
+	// the size cap and the quota accounting all live in MediaService.
+	hash, err := d.Fetch(r.Context(), account, raw)
+	if err != nil {
+		d.audit("media_fetch", "account:"+account, "refused")
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	d.audit("media_fetch", "account:"+account+" blob:"+hash, "ok")
+	writeJSON(w, map[string]string{"hash": hash})
 }
 
 // quoteFilename makes a peer-supplied name safe to put in a header: quotes and

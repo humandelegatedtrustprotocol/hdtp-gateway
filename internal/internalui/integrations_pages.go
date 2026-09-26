@@ -71,19 +71,36 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 		audit = func(_, _, _ string) {}
 	}
 
-	mux.HandleFunc("GET /api/integrations", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		rows, err := d.Store.ListIntegrations(r.Context(), account)
-		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-			return
-		}
-		apiJSON(w, map[string]any{
-			"rows": rows, "can_set_static": d.SetStatic != nil, "can_set_oauth": d.SetOAuthClient != nil,
-		})
-	})
+	mux.HandleFunc("GET /api/integrations", d.getAPIIntegrations)
+	mux.HandleFunc("POST /integrations/{id}/oauth-client", d.postIntegrationsIDOAuthClient(audit))
+	mux.HandleFunc("POST /integrations/{id}/credential", d.postIntegrationsIDCredential(audit))
+	mux.HandleFunc("POST /integrations/create", d.postIntegrationsCreate(audit))
+	mux.HandleFunc("POST /integrations/{id}/remove", d.postIntegrationsIDRemove(audit))
+	mux.HandleFunc("POST /integrations/{id}/connect", d.postIntegrationsIDConnect(timeout))
+	mux.HandleFunc("GET /integrations/{id}/authorize", d.getIntegrationsIDAuthorize(timeout))
+	mux.HandleFunc("POST /integrations/{id}/refresh", d.postIntegrationsIDRefresh)
+	mux.HandleFunc("GET /api/integrations/{id}/exposure", d.getAPIIntegrationsIDExposure)
+	mux.HandleFunc("POST /integrations/{id}/exposure", d.postIntegrationsIDExposure(audit))
+	mux.HandleFunc("POST /integrations/{id}/reconfirm", d.postIntegrationsIDReconfirm)
+	mux.HandleFunc("GET /oauth/callback", d.getOAuthCallback(audit))
+}
 
-	mux.HandleFunc("POST /integrations/{id}/oauth-client", func(w http.ResponseWriter, r *http.Request) {
+// getAPIIntegrations serves `GET /api/integrations`.
+func (d IntegrationsDeps) getAPIIntegrations(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	rows, err := d.Store.ListIntegrations(r.Context(), account)
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	apiJSON(w, map[string]any{
+		"rows": rows, "can_set_static": d.SetStatic != nil, "can_set_oauth": d.SetOAuthClient != nil,
+	})
+}
+
+// postIntegrationsIDOAuthClient serves `POST /integrations/{id}/oauth-client`.
+func (d IntegrationsDeps) postIntegrationsIDOAuthClient(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if d.SetOAuthClient == nil {
 			http.Error(w, "OAuth clients are not configurable on this node", http.StatusServiceUnavailable)
 			return
@@ -100,10 +117,13 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 			return
 		}
 		audit("oauth_client", withAccount(r, "integration:"+id), "stored")
-		http.Redirect(w, r, "/integrations?account="+r.URL.Query().Get("account"), http.StatusSeeOther)
-	})
+		http.Redirect(w, r, "/integrations?account="+accountParam(r), http.StatusSeeOther)
+	}
+}
 
-	mux.HandleFunc("POST /integrations/{id}/credential", func(w http.ResponseWriter, r *http.Request) {
+// postIntegrationsIDCredential serves `POST /integrations/{id}/credential`.
+func (d IntegrationsDeps) postIntegrationsIDCredential(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if d.SetStatic == nil {
 			http.Error(w, "static credentials are not configured on this node", http.StatusServiceUnavailable)
 			return
@@ -122,11 +142,14 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 			return
 		}
 		audit("static_credential", withAccount(r, "integration:"+id), "stored")
-		http.Redirect(w, r, "/integrations?account="+r.URL.Query().Get("account"), http.StatusSeeOther)
-	})
+		http.Redirect(w, r, "/integrations?account="+accountParam(r), http.StatusSeeOther)
+	}
+}
 
-	mux.HandleFunc("POST /integrations/create", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
+// postIntegrationsCreate serves `POST /integrations/create`.
+func (d IntegrationsDeps) postIntegrationsCreate(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		account := accountParam(r)
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
@@ -155,13 +178,17 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 		}
 		audit("integration_create", withAccount(r, "integration:"+in.Slug), "ok")
 		http.Redirect(w, r, "/integrations?account="+account, http.StatusSeeOther)
-	})
+	}
+}
 
-	// Removing one. DeleteIntegration existed in the store from the start and had
-	// no route, so an integration added by mistake was permanent.
-	mux.HandleFunc("POST /integrations/{id}/remove", func(w http.ResponseWriter, r *http.Request) {
+// postIntegrationsIDRemove serves `POST /integrations/{id}/remove`.
+//
+// Removing one. DeleteIntegration existed in the store from the start and had
+// no route, so an integration added by mistake was permanent.
+func (d IntegrationsDeps) postIntegrationsIDRemove(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		account := r.URL.Query().Get("account")
+		account := accountParam(r)
 		// The id comes from the caller. Without this check any account could
 		// delete any other account's integration by guessing one.
 		in, err := d.Store.GetIntegrationByID(r.Context(), id)
@@ -177,13 +204,17 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 		}
 		audit("integration_remove", withAccount(r, "integration:"+in.Slug), "ok")
 		http.Redirect(w, r, "/integrations?account="+account, http.StatusSeeOther)
-	})
+	}
+}
 
-	// Connect starts the dial in the background; for OAuth upstreams the dial
-	// blocks inside the code fetcher until the callback lands.
-	mux.HandleFunc("POST /integrations/{id}/connect", func(w http.ResponseWriter, r *http.Request) {
+// postIntegrationsIDConnect serves `POST /integrations/{id}/connect`.
+//
+// Connect starts the dial in the background; for OAuth upstreams the dial
+// blocks inside the code fetcher until the callback lands.
+func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		account := r.URL.Query().Get("account")
+		account := accountParam(r)
 		if d.Connector != nil {
 			d.Connector.SetOrigin(id, browserOrigin(r))
 		}
@@ -223,13 +254,17 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 			return
 		}
 		http.Redirect(w, r, "/integrations/"+id+"/authorize?account="+account, http.StatusSeeOther)
-	})
+	}
+}
 
-	// authorize waits for the AS URL and bounces the owner's browser to it.
-	// Non-OAuth integrations connect without one; show the list again.
-	mux.HandleFunc("GET /integrations/{id}/authorize", func(w http.ResponseWriter, r *http.Request) {
+// getIntegrationsIDAuthorize serves `GET /integrations/{id}/authorize`.
+//
+// authorize waits for the AS URL and bounces the owner's browser to it.
+// Non-OAuth integrations connect without one; show the list again.
+func (d IntegrationsDeps) getIntegrationsIDAuthorize(timeout time.Duration) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		account := r.URL.Query().Get("account")
+		account := accountParam(r)
 		in, err := d.Store.GetIntegrationByID(r.Context(), id)
 		if err != nil {
 			http.NotFound(w, r)
@@ -246,43 +281,49 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 			return
 		}
 		http.Redirect(w, r, u, http.StatusSeeOther)
-	})
+	}
+}
 
-	// Manual catalog refresh (SPEC §6.4 "on manual refresh from the portal").
-	mux.HandleFunc("POST /integrations/{id}/refresh", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		if d.Cataloger == nil {
-			http.Error(w, "catalog refresh is not wired", http.StatusConflict)
-			return
-		}
-		if _, _, err := d.Cataloger.Refresh(r.Context(), id); err != nil {
-			http.Error(w, "refresh failed: "+err.Error(), http.StatusConflict)
-			return
-		}
-		http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
-	})
+// postIntegrationsIDRefresh serves `POST /integrations/{id}/refresh`.
+//
+// Manual catalog refresh (SPEC §6.4 "on manual refresh from the portal").
+func (d IntegrationsDeps) postIntegrationsIDRefresh(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	in, err := d.Store.GetIntegrationByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if d.Cataloger == nil {
+		http.Error(w, "catalog refresh is not wired", http.StatusConflict)
+		return
+	}
+	if _, _, err := d.Cataloger.Refresh(r.Context(), id); err != nil {
+		http.Error(w, "refresh failed: "+err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
+}
 
-	mux.HandleFunc("GET /api/integrations/{id}/exposure", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		page, err := d.buildPicker(r, in)
-		if err != nil {
-			http.Error(w, `{"error":"no catalog snapshot yet — connect first"}`, http.StatusConflict)
-			return
-		}
-		apiJSON(w, page)
-	})
+// getAPIIntegrationsIDExposure serves `GET /api/integrations/{id}/exposure`.
+func (d IntegrationsDeps) getAPIIntegrationsIDExposure(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	in, err := d.Store.GetIntegrationByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	page, err := d.buildPicker(r, in)
+	if err != nil {
+		http.Error(w, `{"error":"no catalog snapshot yet — connect first"}`, http.StatusConflict)
+		return
+	}
+	apiJSON(w, page)
+}
 
-	mux.HandleFunc("POST /integrations/{id}/exposure", func(w http.ResponseWriter, r *http.Request) {
+// postIntegrationsIDExposure serves `POST /integrations/{id}/exposure`.
+func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		in, err := d.Store.GetIntegrationByID(r.Context(), id)
 		if err != nil {
@@ -336,34 +377,40 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 			return
 		}
 		http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
-	})
+	}
+}
 
-	// One-click reconfirm of stale entries (SPEC §6.5): named ones, or all.
-	mux.HandleFunc("POST /integrations/{id}/reconfirm", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		if _, err := d.Exposures.Reconfirm(r.Context(), id, r.PostForm["name"]); err != nil {
-			http.Error(w, "reconfirm failed: "+err.Error(), http.StatusConflict)
-			return
-		}
-		http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
-	})
+// postIntegrationsIDReconfirm serves `POST /integrations/{id}/reconfirm`.
+//
+// One-click reconfirm of stale entries (SPEC §6.5): named ones, or all.
+func (d IntegrationsDeps) postIntegrationsIDReconfirm(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	in, err := d.Store.GetIntegrationByID(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	if _, err := d.Exposures.Reconfirm(r.Context(), id, r.PostForm["name"]); err != nil {
+		http.Error(w, "reconfirm failed: "+err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
+}
 
-	// The AS redirects here. The registered redirect URI is used verbatim, so
-	// it cannot name the integration — the OAuth state is what finds the
-	// waiting flow (states outlive newer flows for stateTTL; a background
-	// reconnect can no longer orphan the owner's authorize tab). A provider
-	// that reflects extra query params may still carry ?integration=. iss
-	// rides through for the handler's RFC 9207 check — never validated here.
-	mux.HandleFunc("GET /oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+// getOAuthCallback serves `GET /oauth/callback`.
+//
+// The AS redirects here. The registered redirect URI is used verbatim, so
+// it cannot name the integration — the OAuth state is what finds the
+// waiting flow (states outlive newer flows for stateTTL; a background
+// reconnect can no longer orphan the owner's authorize tab). A provider
+// that reflects extra query params may still carry ?integration=. iss
+// rides through for the handler's RFC 9207 check — never validated here.
+func (d IntegrationsDeps) getOAuthCallback(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if d.Connector == nil {
 			http.Error(w, "no authorization is pending", http.StatusBadRequest)
@@ -385,7 +432,7 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 		audit("integration_oauth_callback", withAccount(r, "integration:"+id), "ok")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Connected · pact-gateway</title>` + portalStyle + `</head><body><main><h1>Authorization received</h1><p>The node is finishing the connection. Go back to the portal tab — it updates on its own — and close this one.</p></main></body></html>`))
-	})
+	}
 }
 
 // pickerTool is one left-column row: definition + advisory risk + suggestions.

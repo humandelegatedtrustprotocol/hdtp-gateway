@@ -100,191 +100,209 @@ func (d ManageDeps) buildCard(r *http.Request, accountID string) (string, store.
 	return "", a, fmt.Errorf("this account has no certificate yet; its card exists once a wallet has issued a leaf")
 }
 
-func MountManagePages(mux *http.ServeMux, d ManageDeps) {
-
-	mux.HandleFunc("GET /api/requests", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		list, err := d.Store.ListContacts(r.Context(), account)
+// decideAddress is the handler for one answer to a contact waiting at a new address.
+//
+// The owner's answer to a contact waiting at a new address: the decision the owner MCP's
+// approve_address / reject_address and the CLI's `account address` make, audited alike. Each
+// route is a literal: the parity tests read the routes from the source.
+func (d ManageDeps) decideAddress(approve bool) http.HandlerFunc {
+	decision := "reject"
+	if approve {
+		decision = "approve"
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		account := accountParam(r)
+		root := r.PathValue("root")
+		p, err := d.owner().DecideAddress(r.Context(), account, root, approve)
 		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+			d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root), "error")
+			http.Error(w, err.Error(), lifecycleStatus(err))
 			return
 		}
-		type row struct {
-			Fingerprint string `json:"fingerprint"`
-			DisplayName string `json:"display_name"`
-			// Which door they came through: an invite the owner shared (with
-			// its live label), or a cold request. The display name is the
-			// caller's own claim; the invite is the owner's own context, and
-			// it is the more trustworthy of the two.
-			ViaInvite   bool   `json:"via_invite"`
-			InviteLabel string `json:"invite_label,omitempty"`
+		d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root+" endpoint:"+p.Endpoint), "ok")
+		redirectRequests(w, r, account, "")
+	}
+}
+
+func MountManagePages(mux *http.ServeMux, d ManageDeps) {
+	mux.HandleFunc("GET /api/requests", d.getAPIRequests)
+	mux.HandleFunc("POST /requests/addresses/{root}/approve", d.decideAddress(true))
+	mux.HandleFunc("POST /requests/addresses/{root}/reject", d.decideAddress(false))
+	mux.HandleFunc("POST /requests/{fpr}/approve", d.postRequestsFprApprove)
+	mux.HandleFunc("POST /requests/{fpr}/reject", d.postRequestsFprReject)
+	mux.HandleFunc("GET /api/invites", d.getAPIInvites)
+	mux.HandleFunc("POST /invites/create", d.postInvitesCreate)
+	mux.HandleFunc("POST /invites/{id}/revoke", d.postInvitesIDRevoke)
+	mux.HandleFunc("GET /api/card", d.getAPICard)
+	mux.HandleFunc("GET /card.vcf", d.getCardVCF)
+}
+
+// getAPIRequests serves `GET /api/requests`.
+func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	list, err := d.Store.ListContacts(r.Context(), account)
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	type row struct {
+		Fingerprint string `json:"fingerprint"`
+		DisplayName string `json:"display_name"`
+		// Which door they came through: an invite the owner shared (with
+		// its live label), or a cold request. The display name is the
+		// caller's own claim; the invite is the owner's own context, and
+		// it is the more trustworthy of the two.
+		ViaInvite   bool   `json:"via_invite"`
+		InviteLabel string `json:"invite_label,omitempty"`
+	}
+	var labels map[string]string
+	pending := []row{}
+	for _, c := range list {
+		if c.Status != "pending_in" {
+			continue
 		}
-		var labels map[string]string
-		pending := []row{}
-		for _, c := range list {
-			if c.Status != "pending_in" {
-				continue
-			}
-			rw := row{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, ViaInvite: c.InviteID != ""}
-			if c.InviteID != "" {
-				if labels == nil {
-					labels = map[string]string{}
-					if invs, err := d.Store.ListInvites(r.Context(), account); err == nil {
-						for _, inv := range invs {
-							labels[inv.ID] = inv.Label
-						}
+		rw := row{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, ViaInvite: c.InviteID != ""}
+		if c.InviteID != "" {
+			if labels == nil {
+				labels = map[string]string{}
+				if invs, err := d.Store.ListInvites(r.Context(), account); err == nil {
+					for _, inv := range invs {
+						labels[inv.ID] = inv.Label
 					}
 				}
-				rw.InviteLabel = labels[c.InviteID]
 			}
-			pending = append(pending, rw)
+			rw.InviteLabel = labels[c.InviteID]
 		}
-		// Contacts waiting at a new address appear beside the requests (PACT §5.3 under `ask`).
-		addresses, err := d.owner().PendingAddresses(r.Context(), account)
-		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-			return
-		}
-		apiJSON(w, map[string]any{"pending": pending, "addresses": addresses, "presets": presetNames(r.Context(), d.Store)})
-	})
-
-	// The owner's answer to a contact waiting at a new address: the decision the owner MCP's
-	// approve_address / reject_address and the CLI's `account address` make, audited alike. Each
-	// route is a literal: the parity tests read the routes from the source.
-	decideAddress := func(approve bool) http.HandlerFunc {
-		decision := "reject"
-		if approve {
-			decision = "approve"
-		}
-		return func(w http.ResponseWriter, r *http.Request) {
-			account := r.URL.Query().Get("account")
-			root := r.PathValue("root")
-			p, err := d.owner().DecideAddress(r.Context(), account, root, approve)
-			if err != nil {
-				d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root), "error")
-				http.Error(w, err.Error(), lifecycleStatus(err))
-				return
-			}
-			d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root+" endpoint:"+p.Endpoint), "ok")
-			redirectRequests(w, r, account, "")
-		}
+		pending = append(pending, rw)
 	}
-	mux.HandleFunc("POST /requests/addresses/{root}/approve", decideAddress(true))
-	mux.HandleFunc("POST /requests/addresses/{root}/reject", decideAddress(false))
+	// Contacts waiting at a new address appear beside the requests (PACT §5.3 under `ask`).
+	addresses, err := d.owner().PendingAddresses(r.Context(), account)
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	apiJSON(w, map[string]any{"pending": pending, "addresses": addresses, "presets": presetNames(r.Context(), d.Store)})
+}
 
-	mux.HandleFunc("POST /requests/{fpr}/approve", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		_ = r.ParseForm()
-		dec, err := d.owner().Approve(r.Context(), account, fpr, r.Form.Get("preset"))
-		if err != nil {
-			d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
-			http.Error(w, err.Error(), lifecycleStatus(err))
-			return
-		}
-		d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "ok")
-		// The approval is recorded whether or not they heard it; when they did not, the owner
-		// is told, because otherwise the contact silently stays pending_out on their side.
-		notice := ""
-		if !dec.Told {
-			notice = "Approved. They could not be told yet (" + dec.Why +
-				"), so they still see this as pending until they are reachable."
-		}
-		redirectRequests(w, r, account, notice)
+// postRequestsFprApprove serves `POST /requests/{fpr}/approve`.
+func (d ManageDeps) postRequestsFprApprove(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	_ = r.ParseForm()
+	dec, err := d.owner().Approve(r.Context(), account, fpr, r.Form.Get("preset"))
+	if err != nil {
+		d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
+		http.Error(w, err.Error(), lifecycleStatus(err))
+		return
+	}
+	d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "ok")
+	// The approval is recorded whether or not they heard it; when they did not, the owner
+	// is told, because otherwise the contact silently stays pending_out on their side.
+	notice := ""
+	if !dec.Told {
+		notice = "Approved. They could not be told yet (" + dec.Why +
+			"), so they still see this as pending until they are reachable."
+	}
+	redirectRequests(w, r, account, notice)
+}
+
+// postRequestsFprReject serves `POST /requests/{fpr}/reject`.
+func (d ManageDeps) postRequestsFprReject(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	// A demotion to blocked, not a deletion (PACT §5.1): their next request is answered as a
+	// stranger's and never reaches the owner. They are told, so they do not wait for ever.
+	dec, err := d.owner().Reject(r.Context(), account, fpr)
+	if err != nil {
+		d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "error")
+		http.Error(w, err.Error(), lifecycleStatus(err))
+		return
+	}
+	d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "ok")
+	notice := ""
+	if !dec.Told && dec.Why != "" {
+		notice = "Rejected. They could not be told (" + dec.Why +
+			"), so their side still shows the request as waiting."
+	}
+	redirectRequests(w, r, account, notice)
+}
+
+// getAPIInvites serves `GET /api/invites`.
+func (d ManageDeps) getAPIInvites(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	list, err := d.Store.ListInvites(r.Context(), account)
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	apiJSON(w, map[string]any{
+		"invites": list, "presets": presetNames(r.Context(), d.Store), "public_url": d.publicURL(),
 	})
+}
 
-	mux.HandleFunc("POST /requests/{fpr}/reject", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		// A demotion to blocked, not a deletion (PACT §5.1): their next request is answered as a
-		// stranger's and never reaches the owner. They are told, so they do not wait for ever.
-		dec, err := d.owner().Reject(r.Context(), account, fpr)
-		if err != nil {
-			d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "error")
-			http.Error(w, err.Error(), lifecycleStatus(err))
-			return
-		}
-		d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "ok")
-		notice := ""
-		if !dec.Told && dec.Why != "" {
-			notice = "Rejected. They could not be told (" + dec.Why +
-				"), so their side still shows the request as waiting."
-		}
-		redirectRequests(w, r, account, notice)
+// postInvitesCreate serves `POST /invites/create`.
+func (d ManageDeps) postInvitesCreate(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	_ = r.ParseForm()
+	var maxUses int64 = 1
+	fmt.Sscanf(r.Form.Get("max_uses"), "%d", &maxUses)
+	token, _, err := d.Contacts.CreateInvite(r.Context(), account, contacts.InviteOptions{
+		Label: r.Form.Get("label"), MaxUses: maxUses,
+		AutoAccept: r.Form.Get("auto_accept") == "1", Preset: r.Form.Get("preset"),
 	})
+	if err != nil {
+		d.Audit("invite_create", "account:"+account, "error")
+		http.Error(w, "create failed", http.StatusBadRequest)
+		return
+	}
+	d.Audit("invite_create", "account:"+account, "ok")
+	// token appears exactly once, carried in the redirect
+	http.Redirect(w, r, "/invites?account="+account+"&new="+token, http.StatusSeeOther)
+}
 
-	mux.HandleFunc("GET /api/invites", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		list, err := d.Store.ListInvites(r.Context(), account)
-		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-			return
-		}
-		apiJSON(w, map[string]any{
-			"invites": list, "presets": presetNames(r.Context(), d.Store), "public_url": d.publicURL(),
-		})
-	})
-
-	mux.HandleFunc("POST /invites/create", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		_ = r.ParseForm()
-		var maxUses int64 = 1
-		fmt.Sscanf(r.Form.Get("max_uses"), "%d", &maxUses)
-		token, _, err := d.Contacts.CreateInvite(r.Context(), account, contacts.InviteOptions{
-			Label: r.Form.Get("label"), MaxUses: maxUses,
-			AutoAccept: r.Form.Get("auto_accept") == "1", Preset: r.Form.Get("preset"),
-		})
-		if err != nil {
-			d.Audit("invite_create", "account:"+account, "error")
-			http.Error(w, "create failed", http.StatusBadRequest)
-			return
-		}
-		d.Audit("invite_create", "account:"+account, "ok")
-		// token appears exactly once, carried in the redirect
-		http.Redirect(w, r, "/invites?account="+account+"&new="+token, http.StatusSeeOther)
-	})
-
-	mux.HandleFunc("POST /invites/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		id := r.PathValue("id")
-		if err := d.Store.RevokeInvite(r.Context(), account, id, nowUnix()); err != nil {
-			d.Audit("invite_revoke", withAccount(r, "invite:"+id), "error")
-			// The owner MCP's revoke_invite makes the same distinction: only a missing or spent
-			// invite is a 404; a store that failed is a 500.
-			if errors.Is(err, store.ErrNotFound) {
-				http.NotFound(w, r)
-			} else {
-				http.Error(w, "could not revoke the invite", http.StatusInternalServerError)
-			}
-			return
-		}
-		d.Audit("invite_revoke", withAccount(r, "invite:"+id), "ok")
-		http.Redirect(w, r, "/invites?account="+account, http.StatusSeeOther)
-	})
-
-	mux.HandleFunc("GET /api/card", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		card, a, err := d.buildCard(r, account)
-		if err != nil {
+// postInvitesIDRevoke serves `POST /invites/{id}/revoke`.
+func (d ManageDeps) postInvitesIDRevoke(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	id := r.PathValue("id")
+	if err := d.Store.RevokeInvite(r.Context(), account, id, nowUnix()); err != nil {
+		d.Audit("invite_revoke", withAccount(r, "invite:"+id), "error")
+		// The owner MCP's revoke_invite makes the same distinction: only a missing or spent
+		// invite is a 404; a store that failed is a 500.
+		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
-			return
+		} else {
+			http.Error(w, "could not revoke the invite", http.StatusInternalServerError)
 		}
-		sig := ""
-		if d.SignCard != nil {
-			sig, _ = d.SignCard(account, card)
-		}
-		apiJSON(w, map[string]any{"card": card, "sig": sig, "slug": a.Slug})
-	})
+		return
+	}
+	d.Audit("invite_revoke", withAccount(r, "invite:"+id), "ok")
+	http.Redirect(w, r, "/invites?account="+account, http.StatusSeeOther)
+}
 
-	mux.HandleFunc("GET /card.vcf", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		card, a, err := d.buildCard(r, account)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+a.Slug+`.vcf"`)
-		_, _ = w.Write([]byte(card))
-	})
+// getAPICard serves `GET /api/card`.
+func (d ManageDeps) getAPICard(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	card, a, err := d.buildCard(r, account)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	sig := ""
+	if d.SignCard != nil {
+		sig, _ = d.SignCard(account, card)
+	}
+	apiJSON(w, map[string]any{"card": card, "sig": sig, "slug": a.Slug})
+}
+
+// getCardVCF serves `GET /card.vcf`.
+func (d ManageDeps) getCardVCF(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	card, a, err := d.buildCard(r, account)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+a.Slug+`.vcf"`)
+	_, _ = w.Write([]byte(card))
 }

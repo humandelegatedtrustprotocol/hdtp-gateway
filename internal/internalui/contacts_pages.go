@@ -94,7 +94,6 @@ func redirectContacts(w http.ResponseWriter, r *http.Request, account, notice, e
 	http.Redirect(w, r, "/contacts?"+q.Encode(), http.StatusSeeOther)
 }
 
-// MountContactPages registers the contact routes on mux.
 // ContactTool is one entry of a contact's tools/list for this identity.
 type ContactTool struct {
 	Name        string          `json:"name"`
@@ -102,373 +101,408 @@ type ContactTool struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
+// MountContactPages registers the contact routes on mux.
 func MountContactPages(mux *http.ServeMux, d ContactsDeps) {
-	// What the contact lets this identity call on their server. The list is
-	// the peer's answer, already filtered by their switchboard; this node adds
-	// nothing and hides nothing.
-	mux.HandleFunc("GET /api/contacts/{fpr}/tools", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		if d.ListTools == nil {
-			apiJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "this node cannot call contacts yet"})
-			return
-		}
-		tools, err := d.ListTools(r.Context(), account, fpr)
-		if err != nil {
-			apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-			return
-		}
-		if tools == nil {
-			tools = []ContactTool{}
-		}
-		apiJSON(w, map[string]any{"tools": tools})
-	})
-
-	// One call to a contact's server on the owner's behalf. Arguments arrive as a
-	// JSON object in the `args` field — a form cannot carry nested values — and
-	// are passed through untouched: the peer's own schema and switchboard judge
-	// them. The answer is the raw tool result, so the page can show exactly what
-	// the contact said.
-	mux.HandleFunc("POST /contacts/{fpr}/call", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		account := formOrQuery(r, "account")
-		fpr := r.PathValue("fpr")
-		tool := strings.TrimSpace(r.PostForm.Get("tool"))
-		if tool == "" || d.Call == nil {
-			apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "which tool?"})
-			return
-		}
-		args := map[string]any{}
-		if raw := strings.TrimSpace(r.PostForm.Get("args")); raw != "" {
-			if len(raw) > 64<<10 {
-				apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "arguments over 64 KiB"})
-				return
-			}
-			if err := json.Unmarshal([]byte(raw), &args); err != nil {
-				apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "arguments must be a JSON object"})
-				return
-			}
-		}
-		out, err := d.Call(r.Context(), account, fpr, tool, args)
-		if err != nil {
-			if d.Audit != nil {
-				d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "failed")
-			}
-			apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-			return
-		}
-		if d.Audit != nil {
-			d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "ok")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"result":` + out + `}`))
-	})
-
-	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		list, err := d.Store.ListContacts(r.Context(), account)
-		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-			return
-		}
-		// Labels, never raw names: the name each contact carries is the name IT
-		// chose, and two of them may match (labelContacts decorates collisions).
-		labels := labelContacts(list)
-		type row struct {
-			Fingerprint string `json:"fingerprint"`
-			Label       string `json:"label"`
-			Status      string `json:"status"`
-		}
-		rows := make([]row, 0, len(list))
-		for _, c := range list {
-			rows = append(rows, row{Fingerprint: c.Fingerprint, Label: labels[c.Fingerprint], Status: c.Status})
-		}
-		apiJSON(w, map[string]any{
-			"contacts": rows, "presets": presetNames(r.Context(), d.Store), "can_add": d.AddContact != nil,
-		})
-	})
-
-	// Ending one, in any state: an active contact is told (PACT §5: removal notifies the peer
-	// and is effective locally regardless, bounded so an unreachable peer never blocks the
-	// owner's decision); a waiting request, our own approach or a blocked root goes silently.
-	mux.HandleFunc("POST /contacts/{fpr}/remove", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		account := formOrQuery(r, "account")
-		fpr := r.PathValue("fpr")
-		prior, _ := d.Store.GetContact(r.Context(), account, fpr)
-		dec, err := d.owner().Remove(r.Context(), account, fpr)
-		if err != nil {
-			d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
-			redirectContacts(w, r, account, "", "could not remove them: "+err.Error())
-			return
-		}
-		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "ok")
-		notice := "Removed."
-		if prior.Status == "active" && !dec.Told {
-			notice = "Removed. They could not be told, so their node may still list you."
-		}
-		redirectContacts(w, r, account, notice, "")
-	})
-
-	// Blocking is silent (SPEC §9.1, PACT §5.2): they are served as a stranger and told nothing.
-	mux.HandleFunc("POST /contacts/{fpr}/block", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		account := formOrQuery(r, "account")
-		fpr := r.PathValue("fpr")
-		if _, err := d.owner().Block(r.Context(), account, fpr); err != nil {
-			d.audit("contact_block", withAccount(r, "contact:"+fpr), "error")
-			redirectContacts(w, r, account, "", "could not block them: "+err.Error())
-			return
-		}
-		d.audit("contact_block", withAccount(r, "contact:"+fpr), "ok")
-		redirectContacts(w, r, account, "Blocked. They are not told; they now see what a stranger sees.", "")
-	})
-
-	// The way out of blocked, silent as the block was. A contact that was ever active comes
-	// back as it was; a request that was rejected is forgotten, and they may ask again.
-	mux.HandleFunc("POST /contacts/{fpr}/unblock", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		account := formOrQuery(r, "account")
-		fpr := r.PathValue("fpr")
-		dec, err := d.owner().Unblock(r.Context(), account, fpr)
-		if err != nil {
-			d.audit("contact_unblock", withAccount(r, "contact:"+fpr), "error")
-			redirectContacts(w, r, account, "", "could not unblock them: "+err.Error())
-			return
-		}
-		d.audit("contact_unblock", withAccount(r, "contact:"+fpr+" status:"+dec.Status), "ok")
-		notice := "Unblocked. They are a contact again, with the permissions they had."
-		if dec.Status == "none" {
-			notice = "Unblocked. They were never a contact, so they are forgotten: they may ask again."
-		}
-		redirectContacts(w, r, account, notice, "")
-	})
+	mux.HandleFunc("GET /api/contacts/{fpr}/tools", d.getAPIContactsFprTools)
+	mux.HandleFunc("POST /contacts/{fpr}/call", d.postContactsFprCall)
+	mux.HandleFunc("GET /api/contacts", d.getAPIContacts)
+	mux.HandleFunc("POST /contacts/{fpr}/remove", d.postContactsFprRemove)
+	mux.HandleFunc("POST /contacts/{fpr}/block", d.postContactsFprBlock)
+	mux.HandleFunc("POST /contacts/{fpr}/unblock", d.postContactsFprUnblock)
 
 	// Accepting an invite somebody sent you: the owner-initiated half of contact
 	// establishment (SPEC §9), which until now existed only on the owner MCP.
 	if d.AddContact != nil {
-		mux.HandleFunc("POST /contacts/add", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			account := r.URL.Query().Get("account")
-			if account == "" {
-				account = r.PostForm.Get("account")
-			}
-			inviteURL := strings.TrimSpace(r.PostForm.Get("invite_url"))
-			card := strings.TrimSpace(r.PostForm.Get("card"))
-			if inviteURL == "" && card == "" {
-				redirectContacts(w, r, account, "", "paste the invite link they sent you, or their card")
-				return
-			}
-			fpr, status, err := d.AddContact(r.Context(), account, inviteURL, card,
-				strings.TrimSpace(r.PostForm.Get("note")), r.PostForm.Get("grant"))
-			if err != nil {
-				if d.Audit != nil {
-					// the URL is a bearer credential; the KEY of the failure is
-					// audited, never the link itself
-					d.Audit("contact_add", "account:"+account, "refused")
-				}
-				redirectContacts(w, r, account, "", err.Error())
-				return
-			}
-			if d.Audit != nil {
-				d.Audit("contact_add", withAccount(r, "peer:"+fpr), "ok")
-			}
-			notice := "Added " + fpr
-			if status == "pending_out" {
-				notice = "Asked " + fpr + " to connect. They are listed as waiting until their owner approves."
-			}
-			redirectContacts(w, r, account, notice, "")
-		})
+		mux.HandleFunc("POST /contacts/add", d.postContactsAdd)
 	}
 
-	mux.HandleFunc("GET /api/contacts/{fpr}", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		c, err := d.Store.GetContact(r.Context(), account, r.PathValue("fpr"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		granted := map[string]bool{}
-		for _, p := range c.Permissions {
-			granted[p] = true
-		}
-		type row struct {
-			Name string `json:"name"`
-			On   bool   `json:"on"`
-		}
-		names := d.offered(account, c.Permissions)
-		rows := make([]row, 0, len(names))
-		for _, p := range names {
-			rows = append(rows, row{Name: p, On: granted[p]})
-		}
-		apiJSON(w, map[string]any{
-			"fingerprint":  c.Fingerprint,
-			"display_name": c.DisplayName,
-			"petname":      c.Petname,
-			"status":       c.Status,
-			// whether an unblock restores them (true) or forgets a rejected request (false)
-			"was_contact":       c.EverActive,
-			"preset":            heldPreset(contacts.LoadPresets(r.Context(), d.Store), c),
-			"trust":             c.TrustFlag,
-			"permissions":       rows,
-			"their_permissions": c.TheirPermissions,
-			"presets":           presetNames(r.Context(), d.Store),
-		})
-	})
+	mux.HandleFunc("GET /api/contacts/{fpr}", d.getAPIContactsFpr)
+	mux.HandleFunc("POST /contacts/{fpr}/permissions", d.postContactsFprPermissions)
+	mux.HandleFunc("POST /contacts/{fpr}/petname", d.postContactsFprPetname)
+	mux.HandleFunc("POST /contacts/{fpr}/refresh", d.postContactsFprRefresh)
+	mux.HandleFunc("POST /contacts/{fpr}/trust", d.postContactsFprTrust)
+}
 
-	mux.HandleFunc("POST /contacts/{fpr}/permissions", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
+// getAPIContactsFprTools serves `GET /api/contacts/{fpr}/tools`.
+//
+// What the contact lets this identity call on their server. The list is
+// the peer's answer, already filtered by their switchboard; this node adds
+// nothing and hides nothing.
+func (d ContactsDeps) getAPIContactsFprTools(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	if d.ListTools == nil {
+		apiJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "this node cannot call contacts yet"})
+		return
+	}
+	tools, err := d.ListTools(r.Context(), account, fpr)
+	if err != nil {
+		apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	if tools == nil {
+		tools = []ContactTool{}
+	}
+	apiJSON(w, map[string]any{"tools": tools})
+}
+
+// postContactsFprCall serves `POST /contacts/{fpr}/call`.
+//
+// One call to a contact's server on the owner's behalf. Arguments arrive as a
+// JSON object in the `args` field — a form cannot carry nested values — and
+// are passed through untouched: the peer's own schema and switchboard judge
+// them. The answer is the raw tool result, so the page can show exactly what
+// the contact said.
+func (d ContactsDeps) postContactsFprCall(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := formOrQuery(r, "account")
+	fpr := r.PathValue("fpr")
+	tool := strings.TrimSpace(r.PostForm.Get("tool"))
+	if tool == "" || d.Call == nil {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "which tool?"})
+		return
+	}
+	args := map[string]any{}
+	if raw := strings.TrimSpace(r.PostForm.Get("args")); raw != "" {
+		if len(raw) > 64<<10 {
+			apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "arguments over 64 KiB"})
 			return
 		}
-		submitted := r.Form.Get("preset")
-		apply := r.Form.Get("apply_preset") == "1"
-		var held []string
-		var preset string
-		if c, err := d.Store.GetContact(r.Context(), account, fpr); err == nil {
-			held, preset = c.Permissions, c.Preset
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "arguments must be a JSON object"})
+			return
 		}
-		bundles := contacts.LoadPresets(r.Context(), d.Store)
-		var perms []string
-		if applied, ok := bundles[submitted]; ok && apply {
-			// A preset sets the documented core bundle wholesale. It says nothing
-			// about an integration this contact was deliberately granted (SPEC
-			// section 6.4) — those are not in any bundle and never could be, so
-			// applying one would silently revoke a capability the owner chose,
-			// from a control that never mentions it.
-			perms = append(perms, applied...)
-			preset = submitted
-			core := map[string]bool{}
-			for _, p := range contacts.AllPermissions {
-				core[p] = true
+	}
+	out, err := d.Call(r.Context(), account, fpr, tool, args)
+	if err != nil {
+		if d.Audit != nil {
+			d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "failed")
+		}
+		apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	if d.Audit != nil {
+		d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "ok")
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"result":` + out + `}`))
+}
+
+// getAPIContacts serves `GET /api/contacts`.
+func (d ContactsDeps) getAPIContacts(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	list, err := d.Store.ListContacts(r.Context(), account)
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	// Labels, never raw names: the name each contact carries is the name IT
+	// chose, and two of them may match (labelContacts decorates collisions).
+	labels := labelContacts(list)
+	type row struct {
+		Fingerprint string `json:"fingerprint"`
+		Label       string `json:"label"`
+		Status      string `json:"status"`
+	}
+	rows := make([]row, 0, len(list))
+	for _, c := range list {
+		rows = append(rows, row{Fingerprint: c.Fingerprint, Label: labels[c.Fingerprint], Status: c.Status})
+	}
+	apiJSON(w, map[string]any{
+		"contacts": rows, "presets": presetNames(r.Context(), d.Store), "can_add": d.AddContact != nil,
+	})
+}
+
+// postContactsFprRemove serves `POST /contacts/{fpr}/remove`.
+//
+// Ending one, in any state: an active contact is told (PACT §5: removal notifies the peer
+// and is effective locally regardless, bounded so an unreachable peer never blocks the
+// owner's decision); a waiting request, our own approach or a blocked root goes silently.
+func (d ContactsDeps) postContactsFprRemove(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := formOrQuery(r, "account")
+	fpr := r.PathValue("fpr")
+	prior, _ := d.Store.GetContact(r.Context(), account, fpr)
+	dec, err := d.owner().Remove(r.Context(), account, fpr)
+	if err != nil {
+		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
+		redirectContacts(w, r, account, "", "could not remove them: "+err.Error())
+		return
+	}
+	d.audit("contact_remove", withAccount(r, "contact:"+fpr), "ok")
+	notice := "Removed."
+	if prior.Status == "active" && !dec.Told {
+		notice = "Removed. They could not be told, so their node may still list you."
+	}
+	redirectContacts(w, r, account, notice, "")
+}
+
+// postContactsFprBlock serves `POST /contacts/{fpr}/block`.
+//
+// Blocking is silent (SPEC §9.1, PACT §5.2): they are served as a stranger and told nothing.
+func (d ContactsDeps) postContactsFprBlock(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := formOrQuery(r, "account")
+	fpr := r.PathValue("fpr")
+	if _, err := d.owner().Block(r.Context(), account, fpr); err != nil {
+		d.audit("contact_block", withAccount(r, "contact:"+fpr), "error")
+		redirectContacts(w, r, account, "", "could not block them: "+err.Error())
+		return
+	}
+	d.audit("contact_block", withAccount(r, "contact:"+fpr), "ok")
+	redirectContacts(w, r, account, "Blocked. They are not told; they now see what a stranger sees.", "")
+}
+
+// postContactsFprUnblock serves `POST /contacts/{fpr}/unblock`.
+//
+// The way out of blocked, silent as the block was. A contact that was ever active comes
+// back as it was; a request that was rejected is forgotten, and they may ask again.
+func (d ContactsDeps) postContactsFprUnblock(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := formOrQuery(r, "account")
+	fpr := r.PathValue("fpr")
+	dec, err := d.owner().Unblock(r.Context(), account, fpr)
+	if err != nil {
+		d.audit("contact_unblock", withAccount(r, "contact:"+fpr), "error")
+		redirectContacts(w, r, account, "", "could not unblock them: "+err.Error())
+		return
+	}
+	d.audit("contact_unblock", withAccount(r, "contact:"+fpr+" status:"+dec.Status), "ok")
+	notice := "Unblocked. They are a contact again, with the permissions they had."
+	if dec.Status == "none" {
+		notice = "Unblocked. They were never a contact, so they are forgotten: they may ask again."
+	}
+	redirectContacts(w, r, account, notice, "")
+}
+
+// postContactsAdd serves `POST /contacts/add`.
+func (d ContactsDeps) postContactsAdd(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := accountParam(r)
+	if account == "" {
+		account = r.PostForm.Get("account")
+	}
+	inviteURL := strings.TrimSpace(r.PostForm.Get("invite_url"))
+	card := strings.TrimSpace(r.PostForm.Get("card"))
+	if inviteURL == "" && card == "" {
+		redirectContacts(w, r, account, "", "paste the invite link they sent you, or their card")
+		return
+	}
+	fpr, status, err := d.AddContact(r.Context(), account, inviteURL, card,
+		strings.TrimSpace(r.PostForm.Get("note")), r.PostForm.Get("grant"))
+	if err != nil {
+		if d.Audit != nil {
+			// the URL is a bearer credential; the KEY of the failure is
+			// audited, never the link itself
+			d.Audit("contact_add", "account:"+account, "refused")
+		}
+		redirectContacts(w, r, account, "", err.Error())
+		return
+	}
+	if d.Audit != nil {
+		d.Audit("contact_add", withAccount(r, "peer:"+fpr), "ok")
+	}
+	notice := "Added " + fpr
+	if status == "pending_out" {
+		notice = "Asked " + fpr + " to connect. They are listed as waiting until their owner approves."
+	}
+	redirectContacts(w, r, account, notice, "")
+}
+
+// getAPIContactsFpr serves `GET /api/contacts/{fpr}`.
+func (d ContactsDeps) getAPIContactsFpr(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	c, err := d.Store.GetContact(r.Context(), account, r.PathValue("fpr"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	granted := map[string]bool{}
+	for _, p := range c.Permissions {
+		granted[p] = true
+	}
+	type row struct {
+		Name string `json:"name"`
+		On   bool   `json:"on"`
+	}
+	names := d.offered(account, c.Permissions)
+	rows := make([]row, 0, len(names))
+	for _, p := range names {
+		rows = append(rows, row{Name: p, On: granted[p]})
+	}
+	apiJSON(w, map[string]any{
+		"fingerprint":  c.Fingerprint,
+		"display_name": c.DisplayName,
+		"petname":      c.Petname,
+		"status":       c.Status,
+		// whether an unblock restores them (true) or forgets a rejected request (false)
+		"was_contact":       c.EverActive,
+		"preset":            heldPreset(contacts.LoadPresets(r.Context(), d.Store), c),
+		"trust":             c.TrustFlag,
+		"permissions":       rows,
+		"their_permissions": c.TheirPermissions,
+		"presets":           presetNames(r.Context(), d.Store),
+	})
+}
+
+// postContactsFprPermissions serves `POST /contacts/{fpr}/permissions`.
+func (d ContactsDeps) postContactsFprPermissions(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	submitted := r.Form.Get("preset")
+	apply := r.Form.Get("apply_preset") == "1"
+	var held []string
+	var preset string
+	if c, err := d.Store.GetContact(r.Context(), account, fpr); err == nil {
+		held, preset = c.Permissions, c.Preset
+	}
+	bundles := contacts.LoadPresets(r.Context(), d.Store)
+	var perms []string
+	if applied, ok := bundles[submitted]; ok && apply {
+		// A preset sets the documented core bundle wholesale. It says nothing
+		// about an integration this contact was deliberately granted (SPEC
+		// section 6.4) — those are not in any bundle and never could be, so
+		// applying one would silently revoke a capability the owner chose,
+		// from a control that never mentions it.
+		perms = append(perms, applied...)
+		preset = submitted
+		core := map[string]bool{}
+		for _, p := range contacts.AllPermissions {
+			core[p] = true
+		}
+		for _, p := range held {
+			if !core[p] {
+				perms = append(perms, p)
 			}
-			for _, p := range held {
-				if !core[p] {
+		}
+	} else {
+		offered := d.offered(account, held)
+		for _, p := range r.Form["perm"] {
+			// only what the switchboard offered persists: no free-form grants,
+			// and nothing this surface cannot serve
+			for _, known := range offered {
+				if p == known {
 					perms = append(perms, p)
 				}
 			}
-		} else {
-			offered := d.offered(account, held)
-			for _, p := range r.Form["perm"] {
-				// only what the switchboard offered persists: no free-form grants,
-				// and nothing this surface cannot serve
-				for _, known := range offered {
-					if p == known {
-						perms = append(perms, p)
-					}
-				}
-			}
 		}
-		// Applying "custom" is a decision about the preset exactly as applying
-		// a bundle is: the owner said this grant wears no name, and that holds
-		// even when the switches happen to still equal the old bundle.
-		if apply && submitted == "" {
-			preset = ""
-		}
-		// The label has to survive the save on its own merits. A hand-edited
-		// switchboard is a bespoke grant, and a bespoke grant wears no preset —
-		// keeping the old name here is how a record ends up claiming "family"
-		// over permissions nobody chose as family.
-		if !bundles.Holds(preset, perms) {
-			preset = ""
-		}
-		if err := d.Store.UpdateContactPermissions(r.Context(), account, fpr, perms, preset); err != nil {
-			d.Audit("permissions_update", withAccount(r, "contact:"+fpr), "error")
-			http.NotFound(w, r)
-			return
-		}
-		// What the grant became, and whether a preset did it: an outcome of "ok"
-		// with no record of the resulting set cannot answer "who removed this",
-		// which is the question a switchboard change actually raises.
-		label := "custom"
-		if preset != "" {
-			label = preset
-		}
-		d.Audit("permissions_update",
-			withAccount(r, "contact:"+fpr+" perms:"+strings.Join(perms, ",")+" preset:"+label), "ok")
-		_ = d.Invalidate(r.Context(), account, fpr)
-		http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
-	})
+	}
+	// Applying "custom" is a decision about the preset exactly as applying
+	// a bundle is: the owner said this grant wears no name, and that holds
+	// even when the switches happen to still equal the old bundle.
+	if apply && submitted == "" {
+		preset = ""
+	}
+	// The label has to survive the save on its own merits. A hand-edited
+	// switchboard is a bespoke grant, and a bespoke grant wears no preset —
+	// keeping the old name here is how a record ends up claiming "family"
+	// over permissions nobody chose as family.
+	if !bundles.Holds(preset, perms) {
+		preset = ""
+	}
+	if err := d.Store.UpdateContactPermissions(r.Context(), account, fpr, perms, preset); err != nil {
+		d.Audit("permissions_update", withAccount(r, "contact:"+fpr), "error")
+		http.NotFound(w, r)
+		return
+	}
+	// What the grant became, and whether a preset did it: an outcome of "ok"
+	// with no record of the resulting set cannot answer "who removed this",
+	// which is the question a switchboard change actually raises.
+	label := "custom"
+	if preset != "" {
+		label = preset
+	}
+	d.Audit("permissions_update",
+		withAccount(r, "contact:"+fpr+" perms:"+strings.Join(perms, ",")+" preset:"+label), "ok")
+	_ = d.Invalidate(r.Context(), account, fpr)
+	http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
+}
 
-	// The owner's own name for a contact. Local by construction: it is never
-	// sent anywhere, and no peer surface can reach it — which is the whole point,
-	// since display_name is the contact's own claim and several people honestly
-	// share a name.
-	mux.HandleFunc("POST /contacts/{fpr}/petname", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		petname := strings.TrimSpace(r.Form.Get("petname"))
-		if len([]rune(petname)) > contacts.MaxDisplayName {
-			http.Error(w, "name too long", http.StatusBadRequest)
-			return
-		}
-		if err := d.Store.SetContactPetname(r.Context(), account, fpr, petname); err != nil {
-			d.Audit("contact_petname", withAccount(r, "contact:"+fpr), "error")
-			http.NotFound(w, r)
-			return
-		}
-		d.Audit("contact_petname", withAccount(r, "contact:"+fpr), "ok")
-		http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
-	})
+// postContactsFprPetname serves `POST /contacts/{fpr}/petname`.
+//
+// The owner's own name for a contact. Local by construction: it is never
+// sent anywhere, and no peer surface can reach it — which is the whole point,
+// since display_name is the contact's own claim and several people honestly
+// share a name.
+func (d ContactsDeps) postContactsFprPetname(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	petname := strings.TrimSpace(r.Form.Get("petname"))
+	if len([]rune(petname)) > contacts.MaxDisplayName {
+		http.Error(w, "name too long", http.StatusBadRequest)
+		return
+	}
+	if err := d.Store.SetContactPetname(r.Context(), account, fpr, petname); err != nil {
+		d.Audit("contact_petname", withAccount(r, "contact:"+fpr), "error")
+		http.NotFound(w, r)
+		return
+	}
+	d.Audit("contact_petname", withAccount(r, "contact:"+fpr), "ok")
+	http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
+}
 
-	// Refresh THIS contact. JSON rather than a redirect, because what the owner wants is
-	// the outcome — unchanged, updated, renewed, unreachable, refused and why — and a
-	// redirect would throw it away. The audit rows are the node's own (`contact_refresh`,
-	// `contact_renewal`), written where the decision is made.
-	mux.HandleFunc("POST /contacts/{fpr}/refresh", func(w http.ResponseWriter, r *http.Request) {
-		if d.RefreshContact == nil {
-			http.NotFound(w, r)
-			return
-		}
-		outcome, why, err := d.RefreshContact(r.Context(), r.URL.Query().Get("account"), r.PathValue("fpr"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		apiJSON(w, map[string]string{"outcome": outcome, "why": why})
-	})
+// postContactsFprRefresh serves `POST /contacts/{fpr}/refresh`.
+//
+// Refresh THIS contact. JSON rather than a redirect, because what the owner wants is
+// the outcome — unchanged, updated, renewed, unreachable, refused and why — and a
+// redirect would throw it away. The audit rows are the node's own (`contact_refresh`,
+// `contact_renewal`), written where the decision is made.
+func (d ContactsDeps) postContactsFprRefresh(w http.ResponseWriter, r *http.Request) {
+	if d.RefreshContact == nil {
+		http.NotFound(w, r)
+		return
+	}
+	outcome, why, err := d.RefreshContact(r.Context(), accountParam(r), r.PathValue("fpr"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	apiJSON(w, map[string]string{"outcome": outcome, "why": why})
+}
 
-	mux.HandleFunc("POST /contacts/{fpr}/trust", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		fpr := r.PathValue("fpr")
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		trust := r.Form.Get("trust")
-		if trust != "messages_only" && trust != "may_instruct" {
-			http.Error(w, "bad trust flag", http.StatusBadRequest)
-			return
-		}
-		if err := d.Store.UpdateContactTrust(r.Context(), account, fpr, trust); err != nil {
-			d.Audit("trust_update", withAccount(r, "contact:"+fpr+" trust:"+trust), "error")
-			http.NotFound(w, r)
-			return
-		}
-		d.Audit("trust_update", withAccount(r, "contact:"+fpr+" trust:"+trust), "ok")
-		http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
-	})
+// postContactsFprTrust serves `POST /contacts/{fpr}/trust`.
+func (d ContactsDeps) postContactsFprTrust(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	fpr := r.PathValue("fpr")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	trust := r.Form.Get("trust")
+	if trust != "messages_only" && trust != "may_instruct" {
+		http.Error(w, "bad trust flag", http.StatusBadRequest)
+		return
+	}
+	if err := d.Store.UpdateContactTrust(r.Context(), account, fpr, trust); err != nil {
+		d.Audit("trust_update", withAccount(r, "contact:"+fpr+" trust:"+trust), "error")
+		http.NotFound(w, r)
+		return
+	}
+	d.Audit("trust_update", withAccount(r, "contact:"+fpr+" trust:"+trust), "ok")
+	http.Redirect(w, r, "/contacts/"+fpr+"?account="+account, http.StatusSeeOther)
 }
 
 func apiJSONStatus(w http.ResponseWriter, status int, v any) {

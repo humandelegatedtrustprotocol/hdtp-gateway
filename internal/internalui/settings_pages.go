@@ -190,298 +190,324 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security []setting
 	return reach, security
 }
 
+// render answers a settings request with the page's whole state, and the notice, error and probe verdict the request produced.
+func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice string, isErr bool, verdict, detail string) {
+	var pending map[string]string
+	if d.Pending != nil {
+		pending, _ = d.Pending(r.Context())
+	}
+	reach, security := d.rows(pending)
+	var adapters []AdapterSetting
+	if d.AdapterSettings != nil {
+		adapters, _ = d.AdapterSettings(r.Context())
+		sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
+	}
+	var paired map[string]bool
+	if d.Paired != nil {
+		paired, _ = d.Paired(r.Context())
+	}
+	var choices []AccountChoice
+	if d.Accounts != nil {
+		choices, _ = d.Accounts(r.Context())
+	}
+	var storage []StorageRow
+	if d.Storage != nil {
+		storage, _ = d.Storage(r.Context())
+	}
+	type presetRow struct {
+		Name  string   `json:"name"`
+		Perms []string `json:"perms"`
+	}
+	var presetRows []presetRow
+	if d.Presets != nil {
+		if set, err := d.Presets(r.Context()); err == nil {
+			names := make([]string, 0, len(set))
+			for n := range set {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				presetRows = append(presetRows, presetRow{Name: n, Perms: set[n]})
+			}
+		}
+	}
+	apiJSON(w, map[string]any{
+		"show_storage": d.Storage != nil, "storage": storage,
+		"show_presets": d.SavePreset != nil, "presets": presetRows,
+		"preset_perms": contacts.AllPermissions,
+		"show_pair":    d.Pair != nil, "paired": paired,
+		"accounts": choices,
+		"notice":   notice, "error": isErr,
+		"reach": reach, "security": security,
+		"adapter_settings": adapters, "adapters": d.Adapters,
+		"show_probe":    d.Probe != nil,
+		"probe_verdict": verdict, "probe_detail": detail,
+	})
+}
+
 // MountSettingsPages registers the settings routes.
 func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
-	render := func(w http.ResponseWriter, r *http.Request, notice string, isErr bool, verdict, detail string) {
-		var pending map[string]string
-		if d.Pending != nil {
-			pending, _ = d.Pending(r.Context())
-		}
-		reach, security := d.rows(pending)
-		var adapters []AdapterSetting
-		if d.AdapterSettings != nil {
-			adapters, _ = d.AdapterSettings(r.Context())
-			sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
-		}
-		var paired map[string]bool
-		if d.Paired != nil {
-			paired, _ = d.Paired(r.Context())
-		}
-		var choices []AccountChoice
-		if d.Accounts != nil {
-			choices, _ = d.Accounts(r.Context())
-		}
-		var storage []StorageRow
-		if d.Storage != nil {
-			storage, _ = d.Storage(r.Context())
-		}
-		type presetRow struct {
-			Name  string   `json:"name"`
-			Perms []string `json:"perms"`
-		}
-		var presetRows []presetRow
-		if d.Presets != nil {
-			if set, err := d.Presets(r.Context()); err == nil {
-				names := make([]string, 0, len(set))
-				for n := range set {
-					names = append(names, n)
-				}
-				sort.Strings(names)
-				for _, n := range names {
-					presetRows = append(presetRows, presetRow{Name: n, Perms: set[n]})
-				}
-			}
-		}
-		apiJSON(w, map[string]any{
-			"show_storage": d.Storage != nil, "storage": storage,
-			"show_presets": d.SavePreset != nil, "presets": presetRows,
-			"preset_perms": contacts.AllPermissions,
-			"show_pair":    d.Pair != nil, "paired": paired,
-			"accounts": choices,
-			"notice":   notice, "error": isErr,
-			"reach": reach, "security": security,
-			"adapter_settings": adapters, "adapters": d.Adapters,
-			"show_probe":    d.Probe != nil,
-			"probe_verdict": verdict, "probe_detail": detail,
-		})
+	mux.HandleFunc("GET /api/settings", d.getAPISettings)
+	mux.HandleFunc("POST /settings", d.postSettings)
+	mux.HandleFunc("POST /settings/adapter", d.postSettingsAdapter)
+
+	if d.SaveStorage != nil {
+		mux.HandleFunc("POST /settings/storage", d.postSettingsStorage)
 	}
 
-	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "", false, "", "")
-	})
+	if d.SavePreset != nil {
+		mux.HandleFunc("POST /settings/presets", d.postSettingsPresets)
+		mux.HandleFunc("POST /settings/presets/{name}/delete", d.postSettingsPresetsNameDelete)
+	}
 
-	mux.HandleFunc("POST /settings", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+	if d.Pair != nil {
+		mux.HandleFunc("POST /settings/pair", d.postSettingsPair)
+		mux.HandleFunc("POST /settings/unpair", d.postSettingsUnpair)
+	}
+
+	if d.Probe != nil {
+		mux.HandleFunc("POST /settings/probe", d.postSettingsProbe)
+	}
+}
+
+// getAPISettings serves `GET /api/settings`.
+func (d SettingsDeps) getAPISettings(w http.ResponseWriter, r *http.Request) {
+	d.render(w, r, "", false, "", "")
+}
+
+// postSettings serves `POST /settings`.
+func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	// Only knobs the resolved view says are editable are accepted. A locked
+	// control is disabled in the browser, but the check that matters is
+	// this one: a hand-crafted POST must not set a value the deployment
+	// cannot honor.
+	editable := map[string]bool{}
+	for _, e := range d.Effective() {
+		if !e.Locked {
+			editable[e.Key] = true
 		}
-		// Only knobs the resolved view says are editable are accepted. A locked
-		// control is disabled in the browser, but the check that matters is
-		// this one: a hand-crafted POST must not set a value the deployment
-		// cannot honor.
-		editable := map[string]bool{}
-		for _, e := range d.Effective() {
-			if !e.Locked {
-				editable[e.Key] = true
+	}
+	var saved, restart []string
+	for _, key := range core.OwnerSettableKeys() {
+		if !editable[key] {
+			continue
+		}
+		// Only what the form actually submitted. A partial form must not
+		// make the loop validate an absent field as empty and abort the
+		// whole save half-done. Checkboxes are the exception: unchecked
+		// means absent, which is exactly how a false arrives.
+		if _, present := r.PostForm[key]; !present && settingMeta[key].kind != "bool" {
+			continue
+		}
+		value := strings.TrimSpace(r.PostForm.Get(key))
+		if settingMeta[key].kind == "bool" {
+			value = "false"
+			if r.PostForm.Get(key) == "true" {
+				value = "true"
 			}
 		}
-		var saved, restart []string
-		for _, key := range core.OwnerSettableKeys() {
-			if !editable[key] {
-				continue
+		// An ingress adapter without a completed pairing cannot start —
+		// refuse it here, where the owner can act, rather than at the next
+		// boot where it is a fatal startup error (SPEC §10.6).
+		if key == "tunnel" && requiresPairing(value) {
+			paired := map[string]bool{}
+			if d.Paired != nil {
+				paired, _ = d.Paired(r.Context())
 			}
-			// Only what the form actually submitted. A partial form must not
-			// make the loop validate an absent field as empty and abort the
-			// whole save half-done. Checkboxes are the exception: unchecked
-			// means absent, which is exactly how a false arrives.
-			if _, present := r.PostForm[key]; !present && settingMeta[key].kind != "bool" {
-				continue
-			}
-			value := strings.TrimSpace(r.PostForm.Get(key))
-			if settingMeta[key].kind == "bool" {
-				value = "false"
-				if r.PostForm.Get(key) == "true" {
-					value = "true"
-				}
-			}
-			// An ingress adapter without a completed pairing cannot start —
-			// refuse it here, where the owner can act, rather than at the next
-			// boot where it is a fatal startup error (SPEC §10.6).
-			if key == "tunnel" && requiresPairing(value) {
-				paired := map[string]bool{}
-				if d.Paired != nil {
-					paired, _ = d.Paired(r.Context())
-				}
-				if !paired[value] {
-					d.audit("settings_save", "key:tunnel value:"+value, "bad_request")
-					render(w, r, value+" needs a completed ingress pairing before it can be "+
-						"selected — pair below first, which selects it for you", true, "", "")
-					return
-				}
-			}
-			if err := core.ValidateSetting(key, value); err != nil {
-				d.audit("settings_save", "key:"+key, "bad_request")
-				render(w, r, err.Error(), true, "", "")
+			if !paired[value] {
+				d.audit("settings_save", "key:tunnel value:"+value, "bad_request")
+				d.render(w, r, value+" needs a completed ingress pairing before it can be "+
+					"selected — pair below first, which selects it for you", true, "", "")
 				return
 			}
-			if err := d.Save(r.Context(), key, value); err != nil {
-				d.audit("settings_save", "key:"+key, "error")
-				render(w, r, "could not save "+key+": "+err.Error(), true, "", "")
-				return
-			}
-			saved = append(saved, key)
-			if core.RestartScoped(key) {
-				restart = append(restart, key)
-			}
 		}
-		if len(saved) == 0 {
-			render(w, r, "Nothing to save.", false, "", "")
-			return
-		}
-		notice := "Saved " + strings.Join(saved, ", ") + "."
-		if len(restart) > 0 {
-			notice += " Restart the node for " + strings.Join(restart, ", ") + " to take effect."
-		}
-		d.audit("settings_save", "keys:"+strings.Join(saved, ","), "ok")
-		render(w, r, notice, false, "", "")
-	})
-
-	mux.HandleFunc("POST /settings/adapter", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		key := strings.TrimSpace(r.PostForm.Get("key"))
-		value := r.PostForm.Get("value")
-		// Two namespaces share this form because they are the same kind of thing:
-		// a per-install value the owner supplies and a recipe or adapter reads.
-		// `integration.<slug>.<name>` reaches a recipe as `$cfg.<name>`, which is
-		// how a server that needs a value only this install knows — a CalDAV
-		// collection URL, a calendar id — can be mapped at all.
-		okKey := (strings.HasPrefix(key, "tunnel.") || strings.HasPrefix(key, "integration.")) &&
-			strings.Count(key, ".") >= 2
-		if !okKey {
-			render(w, r, "a setting here is named tunnel.<adapter>.<setting> or "+
-				"integration.<slug>.<name>", true, "", "")
+		if err := core.ValidateSetting(key, value); err != nil {
+			d.audit("settings_save", "key:"+key, "bad_request")
+			d.render(w, r, err.Error(), true, "", "")
 			return
 		}
 		if err := d.Save(r.Context(), key, value); err != nil {
 			d.audit("settings_save", "key:"+key, "error")
-			render(w, r, "could not store "+key, true, "", "")
+			d.render(w, r, "could not save "+key+": "+err.Error(), true, "", "")
 			return
 		}
-		// The key is audited; the value never is.
-		d.audit("settings_save", "key:"+key, "ok")
-		render(w, r, "Stored "+key+". Restart the node to use it.", false, "", "")
-	})
-
-	if d.SaveStorage != nil {
-		mux.HandleFunc("POST /settings/storage", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			account := r.PostForm.Get("account")
-			quota, err1 := strconv.ParseInt(strings.TrimSpace(r.PostForm.Get("quota_gib")), 10, 64)
-			days, err2 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("retention_days")))
-			expiry, err3 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("request_expiry_days")))
-			if err1 != nil || err2 != nil || quota < 0 || days < 0 ||
-				quota > MaxQuotaGiB || days > MaxRetentionDaysForm {
-				render(w, r, "quota and retention are whole numbers, zero or more "+
-					"(and within sane bounds — a window of a few hundred thousand days "+
-					"is not a longer window, it is an overflow)", true, "", "")
-				return
-			}
-			if err3 != nil || expiry < 1 || expiry > MaxRequestExpiryDays {
-				render(w, r, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
-				return
-			}
-			if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
-				d.audit("settings_storage", "account:"+account, "error")
-				render(w, r, "could not save: "+err.Error(), true, "", "")
-				return
-			}
-			d.audit("settings_storage",
-				fmt.Sprintf("account:%s quota_gib:%d retention_days:%d request_expiry_days:%d", account, quota, days, expiry), "ok")
-			notice := "Saved."
-			if days > 0 {
-				notice = fmt.Sprintf("Saved. Messages older than %d days will be deleted, permanently and locally.", days)
-			}
-			render(w, r, notice, false, "", "")
-		})
+		saved = append(saved, key)
+		if core.RestartScoped(key) {
+			restart = append(restart, key)
+		}
 	}
-
-	if d.SavePreset != nil {
-		mux.HandleFunc("POST /settings/presets", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			name := strings.TrimSpace(r.PostForm.Get("name"))
-			perms := r.PostForm["perm"]
-			if err := contacts.ValidatePreset(name, perms); err != nil {
-				d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "bad_request")
-				render(w, r, err.Error(), true, "", "")
-				return
-			}
-			if err := d.SavePreset(r.Context(), name, perms); err != nil {
-				d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-				render(w, r, "could not save the preset: "+err.Error(), true, "", "")
-				return
-			}
-			d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" perms:"+strings.Join(perms, ","), "ok")
-			render(w, r, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
-		})
-		mux.HandleFunc("POST /settings/presets/{name}/delete", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			name := r.PathValue("name")
-			if err := d.DeletePreset(r.Context(), name); err != nil {
-				d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-				render(w, r, "could not delete the preset: "+err.Error(), true, "", "")
-				return
-			}
-			d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" deleted:1", "ok")
-			render(w, r, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
-		})
+	if len(saved) == 0 {
+		d.render(w, r, "Nothing to save.", false, "", "")
+		return
 	}
-
-	if d.Pair != nil {
-		mux.HandleFunc("POST /settings/pair", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			in := PairInput{
-				PairURL:            strings.TrimSpace(r.PostForm.Get("pair_url")),
-				Token:              strings.TrimSpace(r.PostForm.Get("token")),
-				Subdomain:          strings.TrimSpace(r.PostForm.Get("subdomain")),
-				Mode:               r.PostForm.Get("mode"),
-				IngressFingerprint: strings.TrimSpace(r.PostForm.Get("ingress_fingerprint")),
-				Account:            r.PostForm.Get("account"),
-			}
-			if in.PairURL == "" || in.Token == "" || in.Subdomain == "" {
-				render(w, r, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
-				return
-			}
-			res, err := d.Pair(r.Context(), in)
-			if err != nil {
-				msg := "pairing refused: " + err.Error()
-				if res.Fingerprint != "" && in.IngressFingerprint != "" {
-					msg += " (the ingress presented " + res.Fingerprint + ")"
-				}
-				render(w, r, msg, true, "", "")
-				return
-			}
-			notice := "Paired as " + res.PublicName + " over " + res.Adapter +
-				". Restart the node to serve there."
-			if in.IngressFingerprint == "" {
-				notice += " The ingress key is " + res.Fingerprint + " — check it against what you were given."
-			}
-			render(w, r, notice, false, "", "")
-		})
-		mux.HandleFunc("POST /settings/unpair", func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad form", http.StatusBadRequest)
-				return
-			}
-			if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
-				render(w, r, "could not unpair: "+err.Error(), true, "", "")
-				return
-			}
-			render(w, r, "Unpaired.", false, "", "")
-		})
+	notice := "Saved " + strings.Join(saved, ", ") + "."
+	if len(restart) > 0 {
+		notice += " Restart the node for " + strings.Join(restart, ", ") + " to take effect."
 	}
+	d.audit("settings_save", "keys:"+strings.Join(saved, ","), "ok")
+	d.render(w, r, notice, false, "", "")
+}
 
-	if d.Probe != nil {
-		mux.HandleFunc("POST /settings/probe", func(w http.ResponseWriter, r *http.Request) {
-			verdict, detail := d.Probe(r.Context())
-			d.audit("settings_probe", "public_url", verdict)
-			render(w, r, "", false, verdict, detail)
-		})
+// postSettingsAdapter serves `POST /settings/adapter`.
+func (d SettingsDeps) postSettingsAdapter(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
 	}
+	key := strings.TrimSpace(r.PostForm.Get("key"))
+	value := r.PostForm.Get("value")
+	// Two namespaces share this form because they are the same kind of thing:
+	// a per-install value the owner supplies and a recipe or adapter reads.
+	// `integration.<slug>.<name>` reaches a recipe as `$cfg.<name>`, which is
+	// how a server that needs a value only this install knows — a CalDAV
+	// collection URL, a calendar id — can be mapped at all.
+	okKey := (strings.HasPrefix(key, "tunnel.") || strings.HasPrefix(key, "integration.")) &&
+		strings.Count(key, ".") >= 2
+	if !okKey {
+		d.render(w, r, "a setting here is named tunnel.<adapter>.<setting> or "+
+			"integration.<slug>.<name>", true, "", "")
+		return
+	}
+	if err := d.Save(r.Context(), key, value); err != nil {
+		d.audit("settings_save", "key:"+key, "error")
+		d.render(w, r, "could not store "+key, true, "", "")
+		return
+	}
+	// The key is audited; the value never is.
+	d.audit("settings_save", "key:"+key, "ok")
+	d.render(w, r, "Stored "+key+". Restart the node to use it.", false, "", "")
+}
+
+// postSettingsStorage serves `POST /settings/storage`.
+func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := r.PostForm.Get("account")
+	quota, err1 := strconv.ParseInt(strings.TrimSpace(r.PostForm.Get("quota_gib")), 10, 64)
+	days, err2 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("retention_days")))
+	expiry, err3 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("request_expiry_days")))
+	if err1 != nil || err2 != nil || quota < 0 || days < 0 ||
+		quota > MaxQuotaGiB || days > MaxRetentionDaysForm {
+		d.render(w, r, "quota and retention are whole numbers, zero or more "+
+			"(and within sane bounds — a window of a few hundred thousand days "+
+			"is not a longer window, it is an overflow)", true, "", "")
+		return
+	}
+	if err3 != nil || expiry < 1 || expiry > MaxRequestExpiryDays {
+		d.render(w, r, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
+		return
+	}
+	if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
+		d.audit("settings_storage", "account:"+account, "error")
+		d.render(w, r, "could not save: "+err.Error(), true, "", "")
+		return
+	}
+	d.audit("settings_storage",
+		fmt.Sprintf("account:%s quota_gib:%d retention_days:%d request_expiry_days:%d", account, quota, days, expiry), "ok")
+	notice := "Saved."
+	if days > 0 {
+		notice = fmt.Sprintf("Saved. Messages older than %d days will be deleted, permanently and locally.", days)
+	}
+	d.render(w, r, notice, false, "", "")
+}
+
+// postSettingsPresets serves `POST /settings/presets`.
+func (d SettingsDeps) postSettingsPresets(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	perms := r.PostForm["perm"]
+	if err := contacts.ValidatePreset(name, perms); err != nil {
+		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "bad_request")
+		d.render(w, r, err.Error(), true, "", "")
+		return
+	}
+	if err := d.SavePreset(r.Context(), name, perms); err != nil {
+		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
+		d.render(w, r, "could not save the preset: "+err.Error(), true, "", "")
+		return
+	}
+	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" perms:"+strings.Join(perms, ","), "ok")
+	d.render(w, r, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
+}
+
+// postSettingsPresetsNameDelete serves `POST /settings/presets/{name}/delete`.
+func (d SettingsDeps) postSettingsPresetsNameDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	name := r.PathValue("name")
+	if err := d.DeletePreset(r.Context(), name); err != nil {
+		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
+		d.render(w, r, "could not delete the preset: "+err.Error(), true, "", "")
+		return
+	}
+	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" deleted:1", "ok")
+	d.render(w, r, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
+}
+
+// postSettingsPair serves `POST /settings/pair`.
+func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	in := PairInput{
+		PairURL:            strings.TrimSpace(r.PostForm.Get("pair_url")),
+		Token:              strings.TrimSpace(r.PostForm.Get("token")),
+		Subdomain:          strings.TrimSpace(r.PostForm.Get("subdomain")),
+		Mode:               r.PostForm.Get("mode"),
+		IngressFingerprint: strings.TrimSpace(r.PostForm.Get("ingress_fingerprint")),
+		Account:            r.PostForm.Get("account"),
+	}
+	if in.PairURL == "" || in.Token == "" || in.Subdomain == "" {
+		d.render(w, r, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
+		return
+	}
+	res, err := d.Pair(r.Context(), in)
+	if err != nil {
+		msg := "pairing refused: " + err.Error()
+		if res.Fingerprint != "" && in.IngressFingerprint != "" {
+			msg += " (the ingress presented " + res.Fingerprint + ")"
+		}
+		d.render(w, r, msg, true, "", "")
+		return
+	}
+	notice := "Paired as " + res.PublicName + " over " + res.Adapter +
+		". Restart the node to serve there."
+	if in.IngressFingerprint == "" {
+		notice += " The ingress key is " + res.Fingerprint + " — check it against what you were given."
+	}
+	d.render(w, r, notice, false, "", "")
+}
+
+// postSettingsUnpair serves `POST /settings/unpair`.
+func (d SettingsDeps) postSettingsUnpair(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
+		d.render(w, r, "could not unpair: "+err.Error(), true, "", "")
+		return
+	}
+	d.render(w, r, "Unpaired.", false, "", "")
+}
+
+// postSettingsProbe serves `POST /settings/probe`.
+func (d SettingsDeps) postSettingsProbe(w http.ResponseWriter, r *http.Request) {
+	verdict, detail := d.Probe(r.Context())
+	d.audit("settings_probe", "public_url", verdict)
+	d.render(w, r, "", false, verdict, detail)
 }
 
 // requiresPairing reports whether an adapter cannot start without a stored
