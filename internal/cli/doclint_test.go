@@ -289,14 +289,28 @@ func TestSpecTablesMatchTheCode(t *testing.T) {
 		src := string(b)
 		// Each subcommand group states its own set in its usage error; that
 		// string is next to the switch it describes, so it is the reliable one.
+		// Each group lives in its own file of the package, so every file is read.
+		files, err := filepath.Glob(filepath.Join(root, "internal", "cli", "*.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
 		use := regexp.MustCompile(`usage: pact-gateway ([a-z]+) <([a-z|-]+)>`)
 		seen := map[string]map[string]bool{}
-		for _, m := range use.FindAllStringSubmatch(src, -1) {
-			if seen[m[1]] == nil {
-				seen[m[1]] = map[string]bool{}
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				continue
 			}
-			for _, sub := range strings.Split(m[2], "|") {
-				seen[m[1]][sub] = true
+			fb, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range use.FindAllStringSubmatch(string(fb), -1) {
+				if seen[m[1]] == nil {
+					seen[m[1]] = map[string]bool{}
+				}
+				for _, sub := range strings.Split(m[2], "|") {
+					seen[m[1]][sub] = true
+				}
 			}
 		}
 		if len(seen) == 0 {
