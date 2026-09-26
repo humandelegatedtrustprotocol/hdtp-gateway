@@ -2,41 +2,26 @@ package topology
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // The shape tests above assert what the topology ASKS Docker for. This one stands
 // real pact-gateway nodes up and asserts what is actually true of them on the wire.
 
-func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
-}
-
-func requireLive(t *testing.T) {
-	t.Helper()
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run live topology tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
-		t.Skipf("%s not built — run `make harness-image`: %v", images.Node, err)
-	}
-}
-
 func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "F3", Name: "T2: a node behind the NAT cannot be dialled, one on the WAN can", Tier: registry.Fabric,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage},
+		Timeout: 6 * time.Minute,
+	})
 
-	f := fabric.New("pacttopo", dockerRunner)
+	f := fabric.New("pacttopo", fabric.Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -70,14 +55,14 @@ func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 	// and cannot open bob's — because bob has no route in, not because we did
 	// not try.
 	probe := "pacttopo-probe"
-	if _, err := dockerRunner(ctx, "docker", "run", "-d", "--name", probe,
+	if _, err := fabric.Local(ctx, "docker", "run", "-d", "--name", probe,
 		"--network", "pacttopo-wan", images.Alpine, "sh", "-c", "sleep 200"); err != nil {
 		t.Fatalf("starting probe: %v", err)
 	}
-	t.Cleanup(func() { _, _ = dockerRunner(context.Background(), "docker", "rm", "-f", probe) })
+	t.Cleanup(func() { _, _ = fabric.Local(context.Background(), "docker", "rm", "-f", probe) })
 
 	reach := func(host string) string {
-		out, _ := dockerRunner(ctx, "docker", "exec", probe, "sh", "-c",
+		out, _ := fabric.Local(ctx, "docker", "exec", probe, "sh", "-c",
 			"nc -z -w3 "+host+" 8443 >/dev/null 2>&1 && echo REACHED || echo BLOCKED")
 		return strings.TrimSpace(string(out))
 	}

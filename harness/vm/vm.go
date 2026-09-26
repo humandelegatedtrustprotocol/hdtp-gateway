@@ -52,19 +52,6 @@ type Console struct {
 
 const qemuBin = "qemu-system-aarch64"
 
-// Available reports whether this host can run a guest at all, and why not.
-func Available(ctx context.Context) error {
-	out, err := exec.CommandContext(ctx, qemuBin, "-accel", "help").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("vm: %s not runnable: %w", qemuBin, err)
-	}
-	if !strings.Contains(string(out), "hvf") && !strings.Contains(string(out), "kvm") {
-		return fmt.Errorf("vm: no hardware acceleration (got %q); a software-emulated "+
-			"guest is ~10x slower and not worth running in a suite", strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
 // Boot runs the guest to completion and returns its console.
 func (g Guest) Boot(ctx context.Context) (Console, error) {
 	if g.MemoryMiB == 0 {

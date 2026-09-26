@@ -107,21 +107,53 @@ project has already had, which is why they are cross-cutting rather than local:
 
 ---
 
-## 4. Scenario suites
+## 4. Scenarios
 
-| ID | Suite | Notable cases |
-|---|---|---|
-| **S1** | First run | pristine image → wizard → passkey → dashboard; the setup token is **not** burned on first use (P12-07) |
-| **S2** | Pairing | invite → QR → redeem → approve → first message, per topology |
-| **S3** | Messaging & media | text, inline media, URL media; SSRF guard against `hostile` redirecting into a private range |
-| **S4** | Calendar | availability filtering (≤5 slots, never raw free/busy) and `book_slot` against real CalDAV |
-| **S5** | Reachability matrix | T1–T6 × {direct, edge}; asserts the §10.1 mode rules refuse what they must |
-| **S6** | *(withdrawn)* | Relay semantics. The relay role went with PACT 1.x on 2026-09-18 and `relay_live_test.go` with it; the number is kept so the others do not move |
-| **S7** | Resilience | `tc netem` partition/loss/latency; `kill -9` mid-send; retry schedule holds (P12-03); `msg_id` idempotency across every retry |
-| **S8** | Time | 24 h message expiry → failed; 30-day queue retention; 90-day invite expiry; 24 h setup token. **Requires §5.** |
-| **S9** | Adversarial | session-id replay under a second identity (P11-05); tier escalation attempts; envelope tampering; audit tamper → `repair` refuses (P12-14) |
-| **S10** | three nodes, one behind a partition | The MOVE campaign under partition (`move_live_test.go`): one node moves while one of its two contacts is cut off with `tc netem loss 100%` — packets dropped, so a caller waits, as on a dead link. The reachable contact follows; `account announce` answers at once with who was not reached, how often and why; after the heal a resume tells only the contact that was missed. The same ground in process, with Toxiproxy, is `internal/node/move_partition_test.go` and runs in `make check`. (S10 was key rotation, which 2.x does not have: the identity is a root the node does not hold.) |
-| **S11** | Portal (CDP) | every page, both themes, screenshot diff; keyboard-only traversal; no console errors |
+Every live scenario is registered: a `registry.Spec` literal in its own test function (id, name,
+tier, needs, time budget), passed to `registry.Start`. The table below is generated from those
+literals by `cd harness && go run ./cmd/harness list -doc` and held equal to them by
+`harness/registry/registry_test.go`, so it cannot name a scenario that does not exist. The ids
+are F for the fabric proving itself, S for a suite, and T for a topology that needs scaffolding
+of its own (§3).
+
+<!-- registry:begin -->
+| ID | Scenario | Tier | Needs | Budget | Test |
+|---|---|---|---|---|---|
+| F1 | a container on an internal network cannot reach the outside | fabric | docker | 4 min | `fabric.TestLiveInternalNetworkIsGenuinelyUnreachable` |
+| F2 | the NAT router admits no inbound connection, and a live run collects logs | fabric | docker | 5 min | `fabric.TestLiveNATGivesOutboundButNoInbound` |
+| F3 | T2: a node behind the NAT cannot be dialled, one on the WAN can | fabric | docker, node-image | 6 min | `topology.TestLiveNATTopologyMakesBobUndialable` |
+| F4 | the audit-chain invariant verifies the chains of real nodes (T1) | fabric | docker, node-image | 5 min | `invariant.TestLiveAuditChainInvariantVerifiesRealNodes` |
+| F5 | a stranger sees exactly the guest tier, over real mTLS | fabric | docker, node-image | 4 min | `peer.TestLiveGuestTierSurfaceOverRealMTLS` |
+| S2 | pairing and a first message, end to end, through every surface | pr | docker, node-image, chrome | 8 min | `scenario.TestPairingAndMessagingEndToEnd` |
+| S4 | a contact books into a real CalDAV server through a supervised third-party MCP child | nightly | docker, caldav-image, chrome | 15 min | `scenario.TestContactBooksIntoRealCalDAV` |
+| S7 | msg_id idempotency, a real partition and heal, delivery over a lossy link | nightly | docker, node-image, chrome | 12 min | `scenario.TestResilienceUnderImpairment` |
+| S8 | a guest's wall clock travels a year and the unmodified node believes it | nightly | docker, kernel | 10 min | `vm.TestGuestClockTravelsAndTheNodeBelievesIt` |
+| S9 | a stranger and a narrowed contact are refused, and the audit chain survives | pr | docker, node-image, chrome | 10 min | `scenario.TestAdversarialProbesAreRefused` |
+| S10 | a MOVE campaign under a partition: announce answers, resume tells only the missed contact | nightly | docker, node-image, chrome | 20 min | `scenario.TestAMoveCampaignSurvivesAPartition` |
+| S11 | every portal page renders in both themes with no console error | nightly | docker, node-image, chrome | 12 min | `scenario.TestEveryPortalPageRendersInBothThemes` |
+| S12 | approving a contact reaches the peer: both sides active | nightly | docker, node-image, chrome | 15 min | `scenario.TestApprovingAContactReachesThePeer` |
+| S13 | a rejection reaches the peer, and an unblock lets them ask again | nightly | docker, node-image, chrome | 15 min | `scenario.TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain` |
+| S14 | a conversation both ways after pairing, sealed, prompt and in the view | nightly | docker, node-image, chrome | 15 min | `scenario.TestMessagingWorksBothWaysAfterPairing` |
+| S15 | the portal offers every affordance an owner needs, as drawn | nightly | docker, node-image, chrome | 12 min | `scenario.TestPortalOffersEveryAffordanceAnOwnerNeeds` |
+| T5 | own-domain ingress: passthrough keeps the node's chain, terminate serves a CA certificate | nightly | docker, node-image, chrome | 15 min | `scenario.TestOwnDomainIngressServesPassthroughAndTerminate` |
+| T6 | a node behind a self-hosted frps keeps its own chain and serves MCP | nightly | docker, node-image, chrome | 10 min | `scenario.TestNodeIsReachableThroughSelfHostedFrps` |
+| T7 | two people over two real Cloudflare tunnels, sealed end to end | nightly | docker, chrome, cf | 20 min | `scenario.TestTwoUsersOverRealCloudflareTunnels` |
+<!-- registry:end -->
+
+**Designed and never built.** This section used to list suites that no test implements. They
+were removed from the table on 2026-09-27 rather than left to read as coverage:
+
+- **S1** first run (pristine image → wizard → passkey → dashboard; the setup token not burned on
+  first use), **S3** messaging and media (inline and URL media; the SSRF guard against a
+  `hostile` redirector) and **S5** the reachability matrix (T1–T6 × {direct, edge}) have no test.
+- Within the suites that do exist, these cases were listed and are not exercised: S7's `kill -9`
+  mid-send and the retry schedule (P12-03); S8's message expiry, queue retention, invite expiry
+  and setup-token expiry (S8 proves only that the guest clock travels and the node runs at it);
+  S9's session-id replay (P11-05), envelope tampering and audit tamper → `repair` refuses
+  (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
+  each page's light and dark renders with each other).
+- **S6** was relay semantics, withdrawn with PACT 1.x on 2026-09-18; its number is not reused.
+  **S10** was key rotation, which 2.x does not have; the number now names the MOVE campaign.
 
 ---
 

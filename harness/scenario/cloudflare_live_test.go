@@ -10,6 +10,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // T7 — two people, two real Cloudflare tunnels, one real domain.
@@ -32,13 +33,12 @@ import (
 // Both would pass a local test and fail here, so this asserts the whole path
 // rather than the pieces.
 func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
-	requireLive(t)
-	domain := os.Getenv("PACT_CF_DOMAIN")
-	if domain == "" {
-		t.Skip("set PACT_CF_DOMAIN (and run docs/demos/cloudflare-two-users.md first)")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "T7", Name: "two people over two real Cloudflare tunnels, sealed end to end", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.Chrome, registry.CF},
+		Timeout: 20 * time.Minute,
+	})
+	domain := os.Getenv(registry.CFEnv)
 
 	f := fabric.New("pactcf", dockerRun)
 	alice := &Owned{Node: &fabric.Container{Name: "pactcf-alice"}, OwnerPort: "18120",

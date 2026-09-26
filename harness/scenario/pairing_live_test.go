@@ -15,6 +15,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -35,18 +36,6 @@ func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, err
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
-func requireLive(t *testing.T) {
-	t.Helper()
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run live scenarios")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", images.Node)
-	}
-}
-
 // S2 — pairing, end to end, through every surface the product actually has:
 // the setup wizard in a real browser, the owner MCP over a bearer token, and a
 // contact's agent over real mTLS. Nothing is stubbed and nothing is in-process.
@@ -55,9 +44,11 @@ func requireLive(t *testing.T) {
 // and exchange a message" was proven only by tests that drove outbound.Client
 // directly inside one process.
 func TestPairingAndMessagingEndToEnd(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S2", Name: "pairing and a first message, end to end, through every surface", Tier: registry.PR,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 8 * time.Minute,
+	})
 
 	f := fabric.New("pactpair", dockerRunner)
 	t.Cleanup(func() {

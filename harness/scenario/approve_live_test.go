@@ -11,6 +11,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // Approving a contact must reach the OTHER side.
@@ -23,9 +24,11 @@ import (
 //
 // This is the two-sided check: after the approval, BOTH sides say active.
 func TestApprovingAContactReachesThePeer(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S12", Name: "approving a contact reaches the peer: both sides active", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 15 * time.Minute,
+	})
 
 	f := fabricFor(t, "pactapp")
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
