@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 )
 
@@ -20,7 +21,7 @@ func TestAdversarialProbesAreRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	p, err := SetupPaired(ctx, "pactadv", Ports{Owner: "18611", Public: "18612"}, nodeImage)
+	p, err := SetupPaired(ctx, "pactadv", Ports{Owner: "18611", Public: "18612"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })
 	if err != nil {
 		t.Fatalf("setup: %v", err)
@@ -87,7 +88,7 @@ func TestAdversarialProbesAreRefused(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := p.Fab.Raw(ctx, "docker", "run", "--rm", "--volumes-from", p.Node.Name,
-			nodeImage, "audit", "verify")
+			images.Node, "audit", "verify")
 		text := strings.TrimSpace(string(out))
 		if err != nil || !strings.Contains(text, "intact") {
 			t.Fatalf("audit chain not intact after the probes: %v (%s)", err, text)

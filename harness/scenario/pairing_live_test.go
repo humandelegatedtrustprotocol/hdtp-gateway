@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
@@ -41,8 +42,8 @@ func requireLive(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", nodeImage); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", nodeImage)
+	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
+		t.Skipf("%s not built — run `make harness-image`", images.Node)
 	}
 }
 
@@ -75,7 +76,7 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 	}
 	const ownerPort, publicPort = "18601", "18602"
 	node, err := f.Container(ctx, fabric.Spec{
-		Name: "alice", Image: nodeImage, Network: net,
+		Name: "alice", Image: images.Node, Network: net,
 		Ports: []string{ownerPort + ":8081", publicPort + ":8443"},
 		Env: map[string]string{
 			"PACT_PUBLIC_BIND": "0.0.0.0:8443",
@@ -113,7 +114,7 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 	// The internal surface is loopback-bound (SPEC §8.3). A sidecar in the node's
 	// own network namespace reaches it without the node binding non-loopback.
 	if _, err := f.Container(ctx, fabric.Spec{
-		Name: "ownerbridge", Image: "alpine/socat",
+		Name: "ownerbridge", Image: images.Socat,
 		NetworkMode: "container:" + node.Name,
 		Cmd:         []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
 	}); err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // S7 — what happens when the network misbehaves, and what must happen anyway.
@@ -16,7 +17,7 @@ func TestResilienceUnderImpairment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
-	p, err := SetupPaired(ctx, "pactres", Ports{Owner: "18621", Public: "18622"}, nodeImage)
+	p, err := SetupPaired(ctx, "pactres", Ports{Owner: "18621", Public: "18622"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })
 	if err != nil {
 		t.Fatalf("setup: %v", err)

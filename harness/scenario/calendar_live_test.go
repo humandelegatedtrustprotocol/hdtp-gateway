@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // S4 — a contact books a real appointment in a real calendar.
@@ -36,13 +37,13 @@ import (
 // The calendar is Radicale. Neither is a stand-in written here.
 func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	requireLive(t)
-	if _, err := dockerRun(context.Background(), "docker", "image", "inspect", caldavImage); err != nil {
-		t.Skipf("%s not built — run `make harness-image-caldav`", caldavImage)
+	if _, err := dockerRun(context.Background(), "docker", "image", "inspect", images.Caldav); err != nil {
+		t.Skipf("%s not built — run `make harness-image-caldav`", images.Caldav)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	p, err := SetupPaired(ctx, "pactcal", Ports{Owner: "18092", Public: "18093"}, caldavImage)
+	p, err := SetupPaired(ctx, "pactcal", Ports{Owner: "18092", Public: "18093"}, images.Caldav)
 	if p != nil {
 		t.Cleanup(func() { p.Teardown(os.Getenv("PACT_HARNESS_ARTIFACTS")) })
 	}
@@ -59,7 +60,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 		t.Fatal(err)
 	}
 	rad, err := f.Container(ctx, fabric.Spec{
-		Name: "radicale", Image: radicaleImage, Network: net,
+		Name: "radicale", Image: images.Radicale, Network: net,
 		Volumes: []string{filepath.Join(cfgDir, "config") + ":/config/config:ro"},
 	})
 	if err != nil {
@@ -292,7 +293,7 @@ func waitCalDAV(ctx context.Context, f *fabric.Fabric, network, host, collection
 	deadline := time.Now().Add(budget)
 	var last string
 	for {
-		out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, curlImage,
+		out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, images.Curl,
 			"-sS", "-m", "10", "-u", "owner:harness-pw", "-X", "MKCALENDAR",
 			"-o", "/dev/null", "-w", "%{http_code}", "http://"+host+":5232"+collection)
 		last = strings.TrimSpace(string(out))
@@ -320,7 +321,7 @@ func caldavReport(ctx context.Context, f *fabric.Fabric, network, host, collecti
 		`<D:prop><C:calendar-data/></D:prop>` +
 		`<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter>` +
 		`</C:calendar-query>`
-	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, curlImage,
+	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, images.Curl,
 		"-sS", "-m", "20", "-u", "owner:harness-pw", "-X", "REPORT",
 		"-H", "Depth: 1", "-H", "Content-Type: application/xml",
 		"--data", report, "http://"+host+":5232"+collection)

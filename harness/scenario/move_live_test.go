@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -44,15 +45,15 @@ func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
 	}
 	env := map[string]string{"PACT_SEAL": "required"}
 	const newHost = "pactmove-mover-new"
-	mover, err := StartOwnedNode(ctx, f, nodeImage, net, "mover", "18690", "https://pactmove-mover:8443", env, newHost)
+	mover, err := StartOwnedNode(ctx, f, images.Node, net, "mover", "18690", "https://pactmove-mover:8443", env, newHost)
 	if err != nil {
 		t.Fatalf("mover: %v", err)
 	}
-	near, err := StartOwnedNode(ctx, f, nodeImage, net, "near", "18691", "https://pactmove-near:8443", env)
+	near, err := StartOwnedNode(ctx, f, images.Node, net, "near", "18691", "https://pactmove-near:8443", env)
 	if err != nil {
 		t.Fatalf("near: %v", err)
 	}
-	far, err := StartOwnedNode(ctx, f, nodeImage, net, "far", "18692", "https://pactmove-far:8443", env)
+	far, err := StartOwnedNode(ctx, f, images.Node, net, "far", "18692", "https://pactmove-far:8443", env)
 	if err != nil {
 		t.Fatalf("far: %v", err)
 	}

@@ -3,9 +3,6 @@
 // It lives in a separate module from the product on purpose: it orchestrates
 // containers and virtual machines and drives a real browser over CDP, and none of
 // those dependencies may reach the shipped artifact.
-//
-// Today it implements `preflight`, which reports whether this host can run each
-// fabric. The scenario runner itself lands in later P14 tasks.
 package main
 
 import (
@@ -16,6 +13,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/preflight"
 )
 
@@ -27,6 +25,8 @@ func main() {
 	switch os.Args[1] {
 	case "preflight":
 		os.Exit(runPreflight())
+	case "shaper":
+		os.Exit(runShaper())
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -42,6 +42,7 @@ func usage() {
 
 commands:
   preflight   report whether this host can run each fabric (container, vm)
+  shaper      build the traffic-shaper image if this machine does not have it
 `)
 }
 
@@ -69,6 +70,17 @@ func runPreflight() int {
 	if !report.Ready(preflight.FabricVM) {
 		fmt.Fprintln(os.Stderr, "\nharness: the VM fabric is unavailable — the long-horizon suite will be skipped")
 	}
+	return 0
+}
+
+func runShaper() int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := fabric.EnsureShaper(ctx, fabric.Local); err != nil {
+		fmt.Fprintln(os.Stderr, "harness:", err)
+		return 1
+	}
+	fmt.Println("harness: the shaper image is present")
 	return 0
 }
 

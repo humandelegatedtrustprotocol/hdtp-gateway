@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // Rejecting a request must reach the requester, and unblocking a rejected request must let them
@@ -30,12 +31,12 @@ func TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := StartOwnedNode(ctx, f, nodeImage, net, "alice", "18680",
+	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18680",
 		"https://pactrej-alice:8443", map[string]string{"PACT_SEAL": "optional"})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, nodeImage, net, "bob", "18681",
+	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18681",
 		"https://pactrej-bob:8443", map[string]string{"PACT_SEAL": "optional"})
 	if err != nil {
 		t.Fatalf("bob: %v", err)

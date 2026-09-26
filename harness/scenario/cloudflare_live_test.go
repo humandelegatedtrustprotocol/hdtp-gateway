@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // T7 — two people, two real Cloudflare tunnels, one real domain.
@@ -62,7 +63,7 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 		name := n.Node.Name + "-bridge"
 		_, _ = f.Raw(ctx, "docker", "rm", "-f", name)
 		if out, err := f.Raw(ctx, "docker", "run", "-d", "--name", name,
-			"--network", "container:"+n.Node.Name, socatImage,
+			"--network", "container:"+n.Node.Name, images.Socat,
 			"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"); err != nil {
 			t.Fatalf("portal bridge for %s: %v (%s)", n.Node.Name, err, out)
 		}

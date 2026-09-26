@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -83,7 +84,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	// the image guarantees the root we trust is the one the running server uses.
 	assets := t.TempDir()
 	caRoot := filepath.Join(assets, "pebble-root.pem")
-	if err := copyFromImage(ctx, f, pebbleImage, "/test/certs/pebble.minica.pem", caRoot); err != nil {
+	if err := copyFromImage(ctx, f, images.Pebble, "/test/certs/pebble.minica.pem", caRoot); err != nil {
 		t.Fatalf("taking Pebble's root out of its image: %v", err)
 	}
 
@@ -93,7 +94,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	// role could only ever talk to Let's Encrypt production, so this scenario
 	// could not exist and neither could an owner's rehearsal.
 	ing, err := f.Container(ctx, fabric.Spec{
-		Name: "ingress", Image: nodeImage, Network: net,
+		Name: "ingress", Image: images.Node, Network: net,
 		Volumes: []string{caRoot + ":/pebble-root.pem:ro"},
 		Env:     map[string]string{"PACT_INGRESS_TOKEN": "harness-dp"},
 		Cmd: []string{"ingress", "serve",
@@ -143,7 +144,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		t.Fatal(err)
 	}
 	dnsc, err := f.Container(ctx, fabric.Spec{
-		Name: "dns", Image: corednsImage, Network: net,
+		Name: "dns", Image: images.CoreDNS, Network: net,
 		Volumes: []string{
 			filepath.Join(assets, "Corefile") + ":/etc/coredns/Corefile:ro",
 			filepath.Join(assets, "zone") + ":/etc/coredns/zone:ro",
@@ -178,7 +179,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		t.Fatal(err)
 	}
 	peb, err := f.Container(ctx, fabric.Spec{
-		Name: "pebble", Image: pebbleImage, Network: net,
+		Name: "pebble", Image: images.Pebble, Network: net,
 		// The bundled certificate's SAN is the bare name `pebble`; the run prefix
 		// keeps teardown safe, and the alias makes both true at once.
 		Aliases: []string{"pebble"},
@@ -203,7 +204,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	// the management interface, and verifying against the wrong root would fail in
 	// a way that looks exactly like a broken onward leg.
 	issuanceRoot := filepath.Join(assets, "issuance-root.pem")
-	pem, err := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name, curlImage,
+	pem, err := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name, images.Curl,
 		"-sS", "-k", "-m", "20", "https://"+peb.Name+":15000/roots/0")
 	if err != nil || !strings.Contains(string(pem), "BEGIN CERTIFICATE") {
 		t.Fatalf("could not fetch the CA's issuance root: %v (%s)", err, shorten(string(pem), 200))
@@ -222,7 +223,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	cases := []*nodeCase{{slug: "alice", mode: "passthrough", ownerPort: "18692"}, {slug: "bob", mode: "terminate", ownerPort: "18693"}}
 	for _, nc := range cases {
 		c, err := f.Container(ctx, fabric.Spec{
-			Name: nc.slug, Image: nodeImage, Network: net,
+			Name: nc.slug, Image: images.Node, Network: net,
 			DNS:   []string{dnsIP},
 			Ports: []string{nc.ownerPort + ":8081"},
 			Env: map[string]string{
@@ -257,7 +258,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 			t.Fatal(err)
 		}
 		b, err := f.Container(ctx, fabric.Spec{
-			Name: nc.slug + "-bridge", Image: socatImage, NetworkMode: "container:" + c.Name,
+			Name: nc.slug + "-bridge", Image: images.Socat, NetworkMode: "container:" + c.Name,
 			Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
 		})
 		if err != nil {
@@ -415,7 +416,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 // is served is the whole question, and each caller judges it separately below.
 func chainSeen(ctx context.Context, f *fabric.Fabric, network, dnsIP, name string) string {
 	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, "--dns", dnsIP,
-		curlImage, "-sS", "-v", "-k", "-m", "20", "-o", "/dev/null", "https://"+name+"/")
+		images.Curl, "-sS", "-v", "-k", "-m", "20", "-o", "/dev/null", "https://"+name+"/")
 	return string(out)
 }
 
@@ -423,7 +424,7 @@ func chainSeen(ctx context.Context, f *fabric.Fabric, network, dnsIP, name strin
 // which is the whole point of terminate mode: a chain a browser would accept.
 func chainVerified(ctx context.Context, f *fabric.Fabric, network, dnsIP, caRoot, name string) string {
 	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, "--dns", dnsIP,
-		"-v", caRoot+":/ca.pem:ro", curlImage,
+		"-v", caRoot+":/ca.pem:ro", images.Curl,
 		"-sS", "-v", "-m", "20", "--cacert", "/ca.pem", "-o", "/dev/null", "https://"+name+"/")
 	return string(out)
 }
@@ -441,7 +442,7 @@ func mcpInitialize(ctx context.Context, f *fabric.Fabric, network, dnsIP, caRoot
 		args = append(args, "-v", caRoot+":/ca.pem:ro")
 		verify = []string{"--cacert", "/ca.pem"}
 	}
-	args = append(args, curlImage, "-sS", "-m", "30", "-w", "\nHTTP %{http_code}\n")
+	args = append(args, images.Curl, "-sS", "-m", "30", "-w", "\nHTTP %{http_code}\n")
 	args = append(args, verify...)
 	out, _ := f.Raw(ctx, "docker", append(args,
 		"-H", "Content-Type: application/json",
@@ -457,7 +458,7 @@ func waitZone(ctx context.Context, f *fabric.Fabric, network, dnsIP, name, want 
 	deadline := time.Now().Add(budget)
 	var last string
 	for {
-		out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, alpineImage,
+		out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", network, images.Alpine,
 			"nslookup", name, dnsIP)
 		last = string(out)
 		if strings.Contains(last, want) {
