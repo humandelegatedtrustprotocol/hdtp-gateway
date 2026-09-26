@@ -67,7 +67,7 @@ var wrappedAtWiring = map[string]string{
 func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 	root := repoRoot(t)
 	dirs := []string{"internal/node", "internal/public", "internal/integrations",
-		"internal/internalui", "internal/cli", "internal/messaging", "internal/identity"}
+		"internal/internalui", "internal/cli", "internal/services", "internal/messaging", "internal/identity"}
 	call := regexp.MustCompile(`\b(audit|Audit|auditFn|auditAs|AuditAs|auditFor)\(`)
 	literal := regexp.MustCompile(`^"([a-z][a-z0-9_]*)"$`)
 	slugAsAccount := regexp.MustCompile(`account:"\s*\+\s*[\w.]*\.Slug`)
@@ -217,7 +217,7 @@ func callSpans(src string, call *regexp.Regexp) []span {
 func TestAuditOutcomesAreLiteralVerdicts(t *testing.T) {
 	root := repoRoot(t)
 	dirs := []string{"internal/node", "internal/public", "internal/integrations",
-		"internal/internalui", "internal/cli", "internal/messaging", "internal/identity"}
+		"internal/internalui", "internal/cli", "internal/services", "internal/messaging", "internal/identity"}
 	call := regexp.MustCompile(`\b(audit|Audit|auditFn|auditAs|AuditAs|auditFor)\(`)
 	verdict := regexp.MustCompile(`^"[a-z][a-z0-9_]*"$`)
 
