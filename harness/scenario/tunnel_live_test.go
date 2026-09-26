@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -57,7 +58,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 		t.Fatal(err)
 	}
 	frps, err := f.Container(ctx, fabric.Spec{
-		Name: "frps", Image: "snowdreamtech/frps:latest", Network: net,
+		Name: "frps", Image: images.Frps, Network: net,
 		Volumes: []string{filepath.Join(cfgDir, "frps.toml") + ":/etc/frp/frps.toml:ro"},
 	})
 	if err != nil {
@@ -84,7 +85,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	// address it answers at (PACT §2) and the wallet signs it before the tunnel exists.
 	const ownerPort = "18691"
 	node, err := f.Container(ctx, fabric.Spec{
-		Name: "node", Image: nodeImage, Network: net,
+		Name: "node", Image: images.Node, Network: net,
 		Ports: []string{ownerPort + ":8081"},
 		Env: map[string]string{
 			"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
@@ -119,7 +120,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	// The portal is loopback-bound (SPEC §8.3); a sidecar in the node's own netns
 	// publishes it for the owner's browser without the node binding non-loopback.
 	bridge, err := f.Container(ctx, fabric.Spec{
-		Name: "bridge", Image: "alpine/socat", NetworkMode: "container:" + node.Name,
+		Name: "bridge", Image: images.Socat, NetworkMode: "container:" + node.Name,
 		Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
 	})
 	if err != nil {
@@ -182,7 +183,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	}
 	frpsIP := strings.TrimSpace(string(ip))
 	out, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name,
-		"--add-host", domain+":"+frpsIP, "alpine:3.20", "sh", "-c",
+		"--add-host", domain+":"+frpsIP, images.Alpine, "sh", "-c",
 		"apk add -q openssl; echo | openssl s_client -showcerts -connect "+domain+":8443 -servername "+domain+" 2>&1")
 	// What arrives must be the chain the node serves under — the leaf Alice's wallet issued,
 	// byte for byte, then her root (PACT §2, §14.2) — because that chain IS the identity a
@@ -214,7 +215,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 		`{"protocolVersion":"2025-06-18","capabilities":{},` +
 		`"clientInfo":{"name":"pact-harness","version":"1"}}}`
 	body, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name,
-		"--add-host", domain+":"+frpsIP, curlImage,
+		"--add-host", domain+":"+frpsIP, images.Curl,
 		"-sS", "-k", "-m", "30", "-X", "POST",
 		"-H", "Content-Type: application/json",
 		"-H", "Accept: application/json, text/event-stream",

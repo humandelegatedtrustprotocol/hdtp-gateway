@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"encoding/json"
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // Approving a contact must reach the OTHER side.
@@ -30,12 +32,12 @@ func TestApprovingAContactReachesThePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := StartOwnedNode(ctx, f, nodeImage, net, "alice", "18670",
+	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18670",
 		"https://pactapp-alice:8443", map[string]string{"PACT_SEAL": "optional"})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, nodeImage, net, "bob", "18671",
+	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18671",
 		"https://pactapp-bob:8443", map[string]string{"PACT_SEAL": "optional"})
 	if err != nil {
 		t.Fatalf("bob: %v", err)

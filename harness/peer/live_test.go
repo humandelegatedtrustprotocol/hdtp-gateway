@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
-
-const nodeImage = "pact-gateway:harness"
 
 // Drives a REAL containerised node over REAL mTLS and asserts the switchboard's
 // answer. Until this ran, the peer driver was code that had never spoken to a node.
@@ -24,8 +23,8 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	run := func(args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	}
-	if _, err := run("image", "inspect", nodeImage); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", nodeImage)
+	if _, err := run("image", "inspect", images.Node); err != nil {
+		t.Skipf("%s not built — run `make harness-image`", images.Node)
 	}
 
 	const name = "pactpeer-node"
@@ -38,7 +37,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 		"-e", "PACT_PUBLIC_URL=https://alice.harness.example:18443",
 		"-e", "PACT_INTERNAL_BIND=127.0.0.1:8080",
 		"-e", "PACT_CLIENT_CERT=preferred",
-		nodeImage, "serve"); err != nil {
+		images.Node, "serve"); err != nil {
 		t.Fatalf("starting node: %v", err)
 	}
 	t.Cleanup(func() { _, _ = exec.Command("docker", "rm", "-f", name).CombinedOutput() })

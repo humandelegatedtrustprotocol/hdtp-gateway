@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
 )
 
@@ -33,7 +34,7 @@ func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
-	p, err := SetupPaired(ctx, "pactaff", Ports{Owner: "18661", Public: "18662"}, nodeImage)
+	p, err := SetupPaired(ctx, "pactaff", Ports{Owner: "18661", Public: "18662"}, images.Node)
 	t.Cleanup(func() { p.Teardown(os.Getenv("PACT_HARNESS_ARTIFACTS")) })
 	if err != nil {
 		t.Fatalf("setup: %v", err)

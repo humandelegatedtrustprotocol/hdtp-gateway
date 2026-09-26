@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // The shape tests above assert what the topology ASKS Docker for. This one stands
@@ -18,9 +19,6 @@ func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, err
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
-// nodeImage is built by `make harness-image`.
-const nodeImage = "pact-gateway:harness"
-
 func requireLive(t *testing.T) {
 	t.Helper()
 	if os.Getenv("PACT_HARNESS_LIVE") == "" {
@@ -28,8 +26,8 @@ func requireLive(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", nodeImage); err != nil {
-		t.Skipf("%s not built — run `make harness-image`: %v", nodeImage, err)
+	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
+		t.Skipf("%s not built — run `make harness-image`: %v", images.Node, err)
 	}
 }
 
@@ -45,7 +43,7 @@ func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 		_ = f.Teardown(c)
 	})
 
-	top, err := BehindNAT(ctx, f, nodeImage)
+	top, err := BehindNAT(ctx, f, images.Node)
 	if err != nil {
 		t.Fatalf("standing up T2: %v", err)
 	}
@@ -73,7 +71,7 @@ func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 	// not try.
 	probe := "pacttopo-probe"
 	if _, err := dockerRunner(ctx, "docker", "run", "-d", "--name", probe,
-		"--network", "pacttopo-wan", "alpine:3.20", "sh", "-c", "sleep 200"); err != nil {
+		"--network", "pacttopo-wan", images.Alpine, "sh", "-c", "sleep 200"); err != nil {
 		t.Fatalf("starting probe: %v", err)
 	}
 	t.Cleanup(func() { _, _ = dockerRunner(context.Background(), "docker", "rm", "-f", probe) })

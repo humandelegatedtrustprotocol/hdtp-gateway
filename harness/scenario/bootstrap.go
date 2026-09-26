@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
@@ -148,7 +149,7 @@ func StartOwnedNode(ctx context.Context, f *fabric.Fabric, image string, net *fa
 	// The portal is loopback-bound (SPEC §8.3); a sidecar in the node's own
 	// namespace publishes it without the node binding non-loopback.
 	bridge, err := f.Container(ctx, fabric.Spec{
-		Name: slug + "-bridge", Image: socatImage, NetworkMode: "container:" + node.Name,
+		Name: slug + "-bridge", Image: images.Socat, NetworkMode: "container:" + node.Name,
 		Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
 	})
 	if err != nil {
