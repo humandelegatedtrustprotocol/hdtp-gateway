@@ -129,3 +129,24 @@ No other way remains:
 ## Out of scope
 Passkey sync across devices (a provider property, §2.1); the archive/export format; the node's
 own identity handling; the marketing site.
+
+## Status, 2026-09-26
+
+| Item | State |
+|---|---|
+| I1 · SPEC 2.1.3 corrected in place | pact-protocol PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
+| I2 · core, contract, both ports, CLI, pin | umbrella c146fce + fb11079; gate green (parity 430/430, contract 860/860, B 116/116, intrusion 132/132, 52 MUSTs named) |
+| I3 · the wallet page | cloud 6775b63; `make wallet` 112/112 on the pinned core; `make check` green |
+| I4 · the pair harness, RB1 | cloud 6775b63; pair run 41 on staging in progress |
+| I5 · ship | after run 41 is green |
+
+`MAX_VAULT_BYTES` (256 KiB), measured with the core on 2026-09-26: a re-bound root's entry is 657
+bytes against 555 plain (+102); a ledger entry 259; a contact carrying a leaf and a root
+certificate 1,172; the sealed document is base64 of the plaintext (4/3) plus a 364-byte header, so
+the cap holds about 165 such contacts. That bound predates this work (the browser wallet keeps no
+contacts; the CLI's record is a file with no cap) and is unchanged.
+
+Found on the way: puppeteer's `page.click` hangs on a page no longer in front once another page has
+added a virtual authenticator (memory: puppeteer-click-needs-front); every driver page is brought to
+the front after `goto`.
+
