@@ -1,4 +1,4 @@
-package cli
+package settings
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func TestUppercaseCredentialsAreSealedAtRest(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	svc := &settingsService{store: st, kr: openKeyringAt(t, dir)}
+	svc := &Service{store: st, kr: openKeyringAt(t, dir)}
 
 	const secret = "hunter2-not-in-the-clear"
 	for _, key := range []string{
@@ -59,7 +59,7 @@ func TestUppercaseCredentialsAreSealedAtRest(t *testing.T) {
 	}
 
 	// And it must still round-trip through the decrypting reader.
-	vals, err := svc.values(ctx)
+	vals, err := svc.Values(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

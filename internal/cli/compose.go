@@ -27,6 +27,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 	"github.com/tech-sumit/pact-gateway/internal/services/presence"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
@@ -106,7 +107,7 @@ func startTunnel(ctx context.Context, cfg *core.Config, stored map[string]string
 // (SPEC §8.3, §8.4).
 func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *internalui.SetupTokens,
 	tokens *auth.TokenService, authSvc *auth.Service,
-	chain *integrationChain, connector *integrations.Connector, agent *integrations.AgentAnswered,
+	chain *integrationchain.Chain, connector *integrations.Connector, agent *integrations.AgentAnswered,
 	presence *presence.Tracker, identityDeps internalui.IdentityDeps,
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
 	auditFn func(action, resource, outcome string), publicURL string,
@@ -256,7 +257,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 // ownerMCPHandler serves the owner's agent surface: one MCP server per bearer
 // identity, so a token scoped to one account can never reach another (SPEC §8.4).
 func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
-	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationChain,
+	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationchain.Chain,
 	agent *integrations.AgentAnswered, presence *presence.Tracker,
 	auditFn func(action, resource, outcome string)) http.Handler {
 

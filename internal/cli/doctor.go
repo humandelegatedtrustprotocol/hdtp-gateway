@@ -9,6 +9,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/tech-sumit/pact-gateway/internal/services/settings"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
@@ -52,7 +53,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		report("store-open", err)
 		if err == nil {
 			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
-				served = servedIdentities(cfg.PublicURL, accts)
+				served = settings.ServedIdentities(cfg.PublicURL, accts)
 				// PACT 2.0 (PACT §2): a host asks for renewal thirty days ahead;
 				// doctor is where an operator without the portal hears it.
 				idm := &identity.Manager{Store: s}

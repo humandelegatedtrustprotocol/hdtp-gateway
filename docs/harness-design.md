@@ -262,7 +262,7 @@ Verified by reading the code:
   stay on pinned peers or issue certs whose validity spans the jump.
 - **TRADE-OFF — schedulers are monotonic.** Retention, retry and health sweeps all
   use `time.NewTicker`, which a wall-clock jump cannot accelerate. Prefer
-  `-rtc base` **at boot** over a live `date -s`: `internal/cli/retention.go` also
+  `-rtc base` **at boot** over a live `date -s`: `internal/services/retention/retention.go` also
   calls `sweep()` once at startup, so a node booted at T+30d applies retention
   immediately, whereas a node jumped mid-run waits up to an hour. Model long
   horizons as "restart this node with a new base" — which is a realistic node

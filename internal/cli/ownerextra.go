@@ -19,9 +19,10 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
 	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 )
 
-func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *integrationChain,
+func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *integrationchain.Chain,
 	auditFn func(action, resource, outcome string)) ownermcp.Extra {
 
 	return ownermcp.Extra{

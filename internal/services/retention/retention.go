@@ -1,12 +1,11 @@
-package cli
-
-// The retention sweeper (SPEC §7.9): unlimited by default, and when an owner
+// Package retention is the retention sweeper (SPEC §7.9): unlimited by default, and when an owner
 // sets a window, messages and their orphaned blobs past it are deleted locally.
 // The same pass expires contact requests nobody answered (SPEC §9.1).
 //
 // It runs on a slow ticker rather than on every write. Retention is a policy
 // about age, not a reaction to an event, and a sweep that ran constantly would
 // spend more time asking than deleting.
+package retention
 
 import (
 	"context"
@@ -26,6 +25,15 @@ import (
 // remove — records past their own window — it finds through an index on their expiry.
 const SweepInterval = time.Hour
 
+// Windows is what a pass reads of the owner's settings, per account: how long an unanswered
+// request waits, and the retention window (zero is unlimited). *settings.Service is one.
+type Windows interface {
+	RequestExpiryFor(ctx context.Context, accountID string) time.Duration
+	StorageFor(ctx context.Context, accountID string) (quota int64, retention time.Duration)
+}
+
+// Run applies retention every SweepInterval, once at startup first.
+//
 // The same tick retires expired leaves (`retireLeaves`, the node's own pass): a leaf's key is
 // destroyed when the leaf runs out, and "when" has to mean within the hour on a node that is up,
 // not at its next restart. It rides this ticker rather than having one of its own because it is
@@ -34,7 +42,7 @@ const SweepInterval = time.Hour
 // It BLOCKS until ctx ends, and it never returns while a pass is running. `serve` runs it in its
 // background group and waits for that group before returning, so the store is not closed under a
 // pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
-func runRetentionSweeper(ctx context.Context, settings *settingsService, st store.Store,
+func Run(ctx context.Context, settings Windows, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
 	invalidate func(ctx context.Context, accountID, fpr string) error) {
 
@@ -69,12 +77,12 @@ func runRetentionSweeper(ctx context.Context, settings *settingsService, st stor
 		for _, a := range accounts {
 			// SPEC §9.1: a request nobody answered, theirs or ours, expires, and the relationship
 			// returns to none. Audited per row, because the owner never pressed anything.
-			gone, err := requests.ExpireRequests(ctx, a.ID, settings.requestExpiryFor(ctx, a.ID))
+			gone, err := requests.ExpireRequests(ctx, a.ID, settings.RequestExpiryFor(ctx, a.ID))
 			report(a.Slug+" requests", err)
 			for _, g := range gone {
 				auditFn("contact_expire", "account:"+a.ID+" contact:"+g.Fingerprint+" status:"+g.Status, "ok")
 			}
-			_, window := settings.storageFor(ctx, a.ID)
+			_, window := settings.StorageFor(ctx, a.ID)
 			if window <= 0 {
 				continue // unlimited: the default, and it deletes nothing
 			}

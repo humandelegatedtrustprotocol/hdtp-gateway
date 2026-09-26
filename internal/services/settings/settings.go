@@ -1,6 +1,4 @@
-package cli
-
-// The owner-set configuration layer (SPEC §8.2, §12.2): read from the store at
+// Package settings is the owner-set configuration layer (SPEC §8.2, §12.2): read from the store at
 // startup, layered UNDER the environment, and written back by the portal.
 //
 // Two properties are worth stating because they are easy to lose:
@@ -11,6 +9,7 @@ package cli
 //   - A secret goes in and never comes back out. Adapter credentials are sealed
 //     with the node's keyring before they touch the database, and the read path
 //     that renders settings never decrypts them.
+package settings
 
 import (
 	"context"
@@ -30,15 +29,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/public"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
-
-// settingAAD binds a sealed setting to its column, per the keyring AAD rule.
-const settingAAD = "settings.value"
-
-// settingsAAD is the same value for callers outside this package. Anything that
-// writes a secret row in the `settings` table MUST seal it with this: the one
-// decrypting reader opens every secret row there with it, and a mismatch fails
-// startup rather than the read.
-func settingsAAD() []byte { return []byte(settingAAD) }
 
 // isSecretKey decides what gets encrypted at rest. It errs toward secrecy: a
 // key that merely LOOKS like a credential is sealed, because the cost of
@@ -70,8 +60,8 @@ func isSecretKey(key string) bool {
 // encodeSealed is how a sealed value is stored: base64 of the keyring ciphertext.
 func encodeSealed(sealed []byte) string { return base64.StdEncoding.EncodeToString(sealed) }
 
-// settingsService owns the read and write paths for owner-set configuration.
-type settingsService struct {
+// Service owns the read and write paths for owner-set configuration.
+type Service struct {
 	store store.Store
 	kr    *core.Keyring
 	// cfg is SHARED with every portal handler: one goroutine saves while others
@@ -84,30 +74,40 @@ type settingsService struct {
 	now   func() time.Time
 }
 
-// withCfg runs fn under the read lock and returns what it produced.
-func (s *settingsService) readCfg(fn func(c *core.Config)) {
+// New is the settings service over the store, sealing secret rows with kr, sharing cfg with the
+// portal, and auditing what the owner saves through audit.
+func New(st store.Store, kr *core.Keyring, cfg *core.Config, audit func(action, resource, outcome string)) *Service {
+	return &Service{store: st, kr: kr, cfg: cfg, audit: audit}
+}
+
+// AttachNode gives the service the running node, so a saved knob that can take effect live does.
+// Until it is attached, a save is stored and applied at the next start.
+func (s *Service) AttachNode(nd *node.Node) { s.node = nd }
+
+// readCfg runs fn under the read lock.
+func (s *Service) readCfg(fn func(c *core.Config)) {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	fn(s.cfg)
 }
 
 // writeCfg mutates the shared config under the write lock.
-func (s *settingsService) writeCfg(fn func(c *core.Config)) {
+func (s *Service) writeCfg(fn func(c *core.Config)) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	fn(s.cfg)
 }
 
-func (s *settingsService) clock() time.Time {
+func (s *Service) clock() time.Time {
 	if s.now != nil {
 		return s.now()
 	}
 	return time.Now()
 }
 
-// values returns every stored setting with secrets decrypted — the startup
+// Values returns every stored setting with secrets decrypted — the startup
 // path, and the only place that decrypts.
-func (s *settingsService) values(ctx context.Context) (map[string]string, error) {
+func (s *Service) Values(ctx context.Context) (map[string]string, error) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (s *settingsService) values(ctx context.Context) (map[string]string, error)
 		if err != nil {
 			return nil, fmt.Errorf("settings: %s is corrupt", r.Key)
 		}
-		plain, err := s.kr.Decrypt(sealed, []byte(settingAAD))
+		plain, err := s.kr.Decrypt(sealed, core.SettingsAAD())
 		if err != nil {
 			// A dotted key is adapter or integration data: one unreadable row
 			// must not stop the node from starting, because the portal is the
@@ -143,7 +143,7 @@ func (s *settingsService) values(ctx context.Context) (map[string]string, error)
 
 // plainValues returns the stored NON-secret settings. It is the render path:
 // it never decrypts, so a secret cannot reach a template through it.
-func (s *settingsService) plainValues(ctx context.Context) (map[string]string, error) {
+func (s *Service) plainValues(ctx context.Context) (map[string]string, error) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return nil, err
@@ -171,9 +171,9 @@ func StorageKeyRetention(accountID string) string { return "storage.retention." 
 // ContactsKeyRequestExpiry is the per-account key for how long an unanswered request waits.
 func ContactsKeyRequestExpiry(accountID string) string { return "contacts.request_expiry." + accountID }
 
-// requestExpiryFor is how long an unanswered request of this account waits before it expires
+// RequestExpiryFor is how long an unanswered request of this account waits before it expires
 // (SPEC §9.1): the owner's setting when it is within bounds, else the default thirty days.
-func (s *settingsService) requestExpiryFor(ctx context.Context, accountID string) time.Duration {
+func (s *Service) RequestExpiryFor(ctx context.Context, accountID string) time.Duration {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return contacts.DefaultRequestExpiry
@@ -189,9 +189,9 @@ func (s *settingsService) requestExpiryFor(ctx context.Context, accountID string
 	return contacts.DefaultRequestExpiry
 }
 
-// storageFor reads one account's quota (bytes) and retention window. Zero means
+// StorageFor reads one account's quota (bytes) and retention window. Zero means
 // the default quota and unlimited retention respectively (SPEC §7.4, §7.9).
-func (s *settingsService) storageFor(ctx context.Context, accountID string) (quota int64, retention time.Duration) {
+func (s *Service) StorageFor(ctx context.Context, accountID string) (quota int64, retention time.Duration) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return 0, 0
@@ -216,7 +216,7 @@ func (s *settingsService) storageFor(ctx context.Context, accountID string) (quo
 }
 
 // adapterSettings lists stored adapter keys WITHOUT their values.
-func (s *settingsService) adapterSettings(ctx context.Context) ([]internalui.AdapterSetting, error) {
+func (s *Service) adapterSettings(ctx context.Context) ([]internalui.AdapterSetting, error) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return nil, err
@@ -232,13 +232,13 @@ func (s *settingsService) adapterSettings(ctx context.Context) ([]internalui.Ada
 }
 
 // save persists one knob and applies whatever part of it can take effect now.
-func (s *settingsService) save(ctx context.Context, key, value string) error {
+func (s *Service) save(ctx context.Context, key, value string) error {
 	if err := core.ValidateSetting(key, value); err != nil {
 		return err
 	}
 	stored, secret := value, isSecretKey(key)
 	if secret {
-		sealed, err := s.kr.Encrypt([]byte(value), []byte(settingAAD))
+		sealed, err := s.kr.Encrypt([]byte(value), core.SettingsAAD())
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func (s *settingsService) save(ctx context.Context, key, value string) error {
 
 // applyLive pushes a saved knob into the running node where that is possible.
 // Anything not handled here is restart-scoped, and the page says so.
-func (s *settingsService) applyLive(ctx context.Context, key, value string) error {
+func (s *Service) applyLive(ctx context.Context, key, value string) error {
 	if s.node == nil {
 		return nil
 	}
@@ -306,7 +306,7 @@ func (s *settingsService) applyLive(ctx context.Context, key, value string) erro
 			return err
 		}
 		for _, a := range accounts {
-			at := leafAddress(ctx, s.store, a.ID)
+			at := LeafAddress(ctx, s.store, a.ID)
 			to := identity.EndpointFor(value, a.Slug)
 			if at == "" || at == to || at != identity.EndpointFor(old, a.Slug) {
 				continue // no leaf; already there; or certified for an address of its own, not the node's
@@ -317,8 +317,8 @@ func (s *settingsService) applyLive(ctx context.Context, key, value string) erro
 	return nil
 }
 
-// settingsDeps builds what the page needs.
-func (s *settingsService) deps() internalui.SettingsDeps {
+// Deps builds what the settings page needs.
+func (s *Service) Deps() internalui.SettingsDeps {
 	return internalui.SettingsDeps{
 		Effective: func() []core.Effective {
 			var out []core.Effective
@@ -364,11 +364,11 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 			}
 			out := make([]internalui.StorageRow, 0, len(accts))
 			for _, a := range accts {
-				quota, retention := s.storageFor(ctx, a.ID)
+				quota, retention := s.StorageFor(ctx, a.ID)
 				out = append(out, internalui.StorageRow{
 					AccountID: a.ID, Label: a.DisplayName + " (" + a.Slug + ")",
 					QuotaGiB: quota / (1 << 30), RetentionDays: int(retention / (24 * time.Hour)),
-					RequestExpiryDays: int(s.requestExpiryFor(ctx, a.ID) / (24 * time.Hour)),
+					RequestExpiryDays: int(s.RequestExpiryFor(ctx, a.ID) / (24 * time.Hour)),
 				})
 			}
 			return out, nil
@@ -410,7 +410,7 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 			// address. Behind a terminating edge a peer sees the edge's WebPKI certificate instead.
 			var served []tunnel.Served
 			if accts, err := s.store.ListAccounts(ctx); err == nil && mode != core.ModeEdge {
-				served = servedIdentities(publicURL, accts)
+				served = ServedIdentities(publicURL, accts)
 			}
 			res := tunnel.Probe(ctx, publicURL, tunnel.ProbeOptions{
 				Identities: served, Timeout: 5 * time.Second, SelfOriginated: true,
@@ -421,11 +421,11 @@ func (s *settingsService) deps() internalui.SettingsDeps {
 	}
 }
 
-// rateBudget reads the per-hour call caps. Zero means PACT §12's documented
+// RateBudget reads the per-hour call caps. Zero means PACT §12's documented
 // numbers, which is what an unset knob leaves in force; the limiter treats any
 // answer at or below zero as "use the default", so a bad row cannot open the
 // gate.
-func (s *settingsService) rateBudget(kind public.LimitKind) int {
+func (s *Service) RateBudget(kind public.LimitKind) int {
 	var n int
 	s.readCfg(func(c *core.Config) {
 		if kind == public.KindGuest {
@@ -439,14 +439,14 @@ func (s *settingsService) rateBudget(kind public.LimitKind) int {
 
 // presets returns the owner's bundles as the editor shows them — the resolved
 // set, defaults included, so the page always has something to edit.
-func (s *settingsService) presets(ctx context.Context) (map[string][]string, error) {
+func (s *Service) presets(ctx context.Context) (map[string][]string, error) {
 	return contacts.LoadPresets(ctx, s.store), nil
 }
 
 // savePreset writes one bundle. The FIRST write seeds every currently-resolved
 // bundle as rows, so "edit work" cannot silently delete family: from then on
 // the rows are the complete set.
-func (s *settingsService) savePreset(ctx context.Context, name string, perms []string) error {
+func (s *Service) savePreset(ctx context.Context, name string, perms []string) error {
 	if err := contacts.ValidatePreset(name, perms); err != nil {
 		return err
 	}
@@ -482,13 +482,13 @@ func (s *settingsService) savePreset(ctx context.Context, name string, perms []s
 
 // deletePreset removes one bundle. Deleting the last row restores the
 // documented defaults — LoadPresets resolves an empty set that way.
-func (s *settingsService) deletePreset(ctx context.Context, name string) error {
+func (s *Service) deletePreset(ctx context.Context, name string) error {
 	return s.store.DeleteSetting(ctx, contacts.PresetKeyPrefix+name)
 }
 
-// leafAddress is the endpoint an account's current leaf names, or "" when it holds none. It is the
+// LeafAddress is the endpoint an account's current leaf names, or "" when it holds none. It is the
 // address the account ANSWERS at, which is a fact about a certificate and not about a setting.
-func leafAddress(ctx context.Context, st store.Store, accountID string) string {
+func LeafAddress(ctx context.Context, st store.Store, accountID string) string {
 	leaves, err := st.ListLeaves(ctx, accountID)
 	if err != nil {
 		return ""
@@ -501,10 +501,10 @@ func leafAddress(ctx context.Context, st store.Store, accountID string) string {
 	return ""
 }
 
-// servedIdentities is what the reachability probe validates against: each CERTIFIED account as a
+// ServedIdentities is what the reachability probe validates against: each CERTIFIED account as a
 // peer holds it — its owner's root, and the address a leaf under that root has to name here. An
 // account no wallet has certified is nobody, and serves nothing to validate.
-func servedIdentities(publicURL string, accts []store.Account) []tunnel.Served {
+func ServedIdentities(publicURL string, accts []store.Account) []tunnel.Served {
 	out := make([]tunnel.Served, 0, len(accts))
 	for _, a := range accts {
 		if a.HasRoot() {
