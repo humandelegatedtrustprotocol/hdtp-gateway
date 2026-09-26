@@ -97,12 +97,12 @@ func accountMiddleware(st store.Store, next http.Handler) http.Handler {
 
 // presetNames is the node's preset names in a stable order — the owner's
 // edited bundles when any exist, the documented defaults otherwise.
-func presetNames(ctx context.Context, st store.Store) []string {
+func presetNames(ctx context.Context, st store.SettingStore) []string {
 	return contacts.LoadPresets(ctx, st).Names()
 }
 
 // soleAccountID returns the account id when the node has exactly one, else "".
-func soleAccountID(ctx context.Context, st store.Store) string {
+func soleAccountID(ctx context.Context, st store.AccountStore) string {
 	accounts, err := st.ListAccounts(ctx)
 	if err != nil || len(accounts) != 1 {
 		return ""
@@ -131,7 +131,7 @@ func soleAccountID(ctx context.Context, st store.Store) string {
 //
 // There is no loopback carve-out: §8.3 requires a session on every bind, so a
 // request with no owner is never entitled to an account.
-func ownerAdmins(r *http.Request, st store.Store, accountID string) bool {
+func ownerAdmins(r *http.Request, st store.OwnerStore, accountID string) bool {
 	owner := OwnerFrom(r.Context())
 	if owner == "" {
 		// No session, no account. This used to return true for the §8.3

@@ -106,7 +106,7 @@ func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef
 
 // Cataloger persists snapshots and reports diffs.
 type Cataloger struct {
-	Store   store.Store
+	Store   store.IntegrationStore
 	Manager *Manager
 	Audit   func(action, resource, outcome string)
 	// OnMinted fires after a NEW snapshot version lands — the stale guard
@@ -180,7 +180,7 @@ func sameToolSet(storedJSON string, defs []ToolDef) bool {
 
 // nameOf names an integration the way its owner knows it — by slug — for any
 // message a person will read. The id is a database key, not a name.
-func nameOf(ctx context.Context, st store.Store, integrationID string) string {
+func nameOf(ctx context.Context, st store.IntegrationStore, integrationID string) string {
 	if st != nil {
 		if in, err := st.GetIntegrationByID(ctx, integrationID); err == nil && in.Slug != "" {
 			return in.Slug

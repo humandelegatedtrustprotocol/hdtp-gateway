@@ -488,7 +488,7 @@ func (s *Service) deletePreset(ctx context.Context, name string) error {
 
 // LeafAddress is the endpoint an account's current leaf names, or "" when it holds none. It is the
 // address the account ANSWERS at, which is a fact about a certificate and not about a setting.
-func LeafAddress(ctx context.Context, st store.Store, accountID string) string {
+func LeafAddress(ctx context.Context, st store.AccountStore, accountID string) string {
 	leaves, err := st.ListLeaves(ctx, accountID)
 	if err != nil {
 		return ""
