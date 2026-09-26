@@ -1,6 +1,9 @@
 # Testing
 
-## The scenario harness
+How the suites of this workspace are built and extended, one section per repository. The result
+schema every runner writes is in `docs/release/refactor-2026-09-26.md` §1.3.
+
+## pact-gateway: the scenario harness
 
 `harness/` is a separate Go module that stands real nodes up in containers (and, for S8, a
 QEMU guest), drives the portal in a real Chrome, and talks to the node over real mTLS. Its design,
@@ -114,3 +117,75 @@ And what no test can hold, so it is on you: wait for a condition with a deadline
 sleep; name what you build through the World (`w.Fab.Name`), so two runs never collide; and do
 not `t.Skip` inside a scenario for a missing tool — declare it as a need, so the tier knows
 whether it promised it.
+
+## pact-identity
+
+`sh pact-identity/gate.sh` is the whole gate (the umbrella's pre-push hook runs it when a push
+touches `pact-identity/` or the `pact-protocol` pointer). It needs `../pact-protocol` beside it
+(SPEC.md and the seed in `vectors/lib`), the pinned `js/pkg-web` and `js/pkg-node`, and it builds
+the Go adapter itself.
+
+Every JavaScript suite writes one result file into `pact-identity/target/gate-results/`, which the
+gate wipes first: `check-wasm`, `check-go`, `intrude-wasm`, `intrude-go`, `contract-tests`,
+`parity`, `js-tests`, `musts`. Each is `{ run, repo, tier, suite, cases: [{ id, verdict, reason,
+ms }] }` (`js/results.mjs`); the gate's last step prints one line per suite and fails if a suite
+wrote no file or a case is anything but PASS. The Rust and Go test runs (`cargo test`, `go test`)
+print their own output and write no result file.
+
+What every offline suite is handed comes from one cast, `js/cast.mjs`: Alina, Bharat and Mallory,
+their keys built from labelled seeds by the seed library (never by the port under test), their
+endpoints, and `CLOCK`, the instant the offline suites stand at. `stranger(now)` is a Mallory with
+fresh random keys, for the live battery.
+
+### Adding a parity case — one file
+
+A parity case feeds the same arguments to both ports (the Rust core through its Wasm bindings, and
+the Go port through `go/bin/pact-identity-go`, one process per run) and compares the answers.
+
+1. Open `js/cases/<section>.mjs`, where `<section>` is the function's `section` in
+   `contract/contract.json` (`keys`, `certificates`, `csr`, `cards`, `envelopes`, `vault`;
+   `dispatcher.mjs` holds the calls that never reach a function).
+2. `add(id, fn, args, how)`. The id is the case's name: a sentence, unique across every file.
+   `how` is `'*'` (the default: the whole answer), a function that replaces one per-run value with a
+   description of it (`f.withoutSerial('der')`, `f.shape`), or, weakest, a list of keys.
+3. If both ports could break the rule alike, say what the SPEC requires: `expect(id, want)`.
+4. Arguments come from `f` (`js/cases/fixtures.mjs`) and `js/cast.mjs`.
+5. `node js/parity.mjs --only '<part of the id>'` runs it; `node js/record.mjs` then regenerates
+   `PROOFS.md` (generated, and `record.mjs --check` in the gate fails until it is).
+
+The run fails on: two cases with one id; a case filed under another function's section; an
+`expect` whose id no case has; a function in the contract, or in either dispatcher, that the three
+do not all name; a function with no case, or none compared whole on an answer that succeeded.
+A new FUNCTION is therefore four places, not one: `contract/contract.json`, both dispatchers
+(`crates/pact-identity/src/api.rs`, `go/api.go`) and a case.
+
+### Adding an intrusion scenario — two files, in two repositories
+
+`js/intrude.mjs` aims the seed's intrusion suite at a port and compares each verdict with the
+seed's, BY NAME.
+
+1. Write the scenario in `pact-protocol/vectors/intrude.mjs` (the seed) and push `pact-protocol`
+   first — the umbrella's pointer follows it.
+2. Add the same `scenario(category, name, expect, fn)`, with the same name, to `js/intrude.mjs`.
+   Both ports run it (`node js/intrude.mjs`, `--port go`); a name the seed lacks, a verdict that
+   differs from the seed's, or a seed scenario this file does not run fails the suite.
+3. If it holds a MUST, cite it as `scenario:<name>` in `js/musts.json`.
+
+### Adding a live scenario — three files
+
+The live battery is posted to a running endpoint by two drivers, `js/live.mjs` and
+`pact vectors intrude` (`crates/pact/src/vectors.rs`); its list is data both read.
+
+1. `js/live-scenarios.json`: `{ id, name, expect }` — the code the answer must carry — and
+   `twice: true` if the envelope is posted twice. It goes BEFORE the control, which stays last.
+2. `js/live.mjs`: a builder for the id in `scenarios()`'s `build`.
+3. `crates/pact/src/vectors.rs`: an arm for the id in `Aim::wire`.
+
+`node --test js/live.test.mjs` runs the battery against the seed's receiving node and fails on an
+id either JS side lacks; `cargo test -p pact` fails on an id the Rust driver cannot build or a
+control that is not last.
+
+### Adding a test of the identity suites' own tooling — one file
+
+A `js/<name>.test.mjs` is run by the gate (`node --test js/*.test.mjs`) and reported in
+`js-tests`.
