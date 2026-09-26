@@ -9,8 +9,9 @@ package node
 // `accept_new_hosts` decides whether it re-pins at once or asks its owner.
 //
 // Saving a new `public_url` is therefore not a move and announces nothing: it does not change a
-// leaf, so there is nothing new to tell anyone. What it does is in `internal/cli/settings.go` — it
-// names the accounts whose leaf was issued for the old address, which is who needs a new leaf.
+// leaf, so there is nothing new to tell anyone. What it does is in
+// `internal/services/settings/settings.go` — it names the accounts whose leaf was issued for the
+// old address, which is who needs a new leaf.
 
 import (
 	"context"

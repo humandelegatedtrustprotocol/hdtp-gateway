@@ -29,12 +29,13 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 	"github.com/tech-sumit/pact-gateway/internal/node"
 	"github.com/tech-sumit/pact-gateway/internal/public"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 )
 
 // integrationSurface rebuilds what one integration serves.
 type integrationSurface struct {
 	store   store.Store
-	chain   *integrationChain
+	chain   *integrationchain.Chain
 	pass    *integrations.Passthrough
 	node    *node.Node
 	auditFn func(action, resource, outcome string)

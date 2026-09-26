@@ -1,4 +1,4 @@
-package cli
+package settings
 
 // Pairing this node with an ingress (SPEC §10.6), from the portal.
 //
@@ -41,7 +41,7 @@ func adapterFor(mode ingress.Mode) string {
 // pairedAdapters reports which ingress adapters have a stored pairing. The
 // marker is `subdomain`: the adapter refuses to start without it, so its
 // presence is exactly the condition that makes the adapter selectable.
-func (s *settingsService) pairedAdapters(ctx context.Context) (map[string]bool, error) {
+func (s *Service) pairedAdapters(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func (s *settingsService) pairedAdapters(ctx context.Context) (map[string]bool, 
 // can check it. And nothing is stored unless the exchange succeeded: a refused
 // pairing must not leave half a configuration behind for the next boot to trip
 // over.
-func (s *settingsService) pair(ctx context.Context, accountID string, in internalui.PairInput) (internalui.PairResult, error) {
+func (s *Service) pair(ctx context.Context, accountID string, in internalui.PairInput) (internalui.PairResult, error) {
 	if s.node == nil {
 		return internalui.PairResult{}, fmt.Errorf("the node is not serving yet")
 	}
@@ -135,7 +135,7 @@ func (s *settingsService) pair(ctx context.Context, accountID string, in interna
 
 // unpair forgets a pairing. It refuses while that adapter is the selected one,
 // because the alternative is a node that cannot start.
-func (s *settingsService) unpair(ctx context.Context, adapter string) error {
+func (s *Service) unpair(ctx context.Context, adapter string) error {
 	if _, ok := ingressAdapters[adapter]; !ok {
 		return fmt.Errorf("%q is not an ingress adapter", adapter)
 	}
@@ -170,10 +170,10 @@ func (s *settingsService) unpair(ctx context.Context, adapter string) error {
 // saveRaw persists a value without the owner-knob validation `save` applies —
 // adapter settings are not owner knobs, and their shape is the adapter's rule,
 // not `core.ValidateSetting`'s. Secrets are still sealed.
-func (s *settingsService) saveRaw(ctx context.Context, key, value string) error {
+func (s *Service) saveRaw(ctx context.Context, key, value string) error {
 	stored, secret := value, isSecretKey(key)
 	if secret {
-		sealed, err := s.kr.Encrypt([]byte(value), []byte(settingAAD))
+		sealed, err := s.kr.Encrypt([]byte(value), core.SettingsAAD())
 		if err != nil {
 			return err
 		}
@@ -184,13 +184,13 @@ func (s *settingsService) saveRaw(ctx context.Context, key, value string) error 
 	})
 }
 
-// pinnedIngress returns the paired ingress's fingerprint when this node sits
+// PinnedIngress returns the paired ingress's fingerprint when this node sits
 // behind a TERMINATING one, else "".
 //
 // Only terminate mode opens an onward leg with a certificate of its own: a
 // passthrough ingress forwards raw TLS by SNI and never terminates, so there is
 // nothing to pin and requiring a certificate would break every caller.
-func pinnedIngress(adapter string, stored map[string]string) string {
+func PinnedIngress(adapter string, stored map[string]string) string {
 	if adapter != "ingress-terminate" {
 		return ""
 	}

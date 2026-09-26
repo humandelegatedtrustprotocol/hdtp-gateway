@@ -1,6 +1,4 @@
-package cli
-
-// The integrations composition root (SPEC §6).
+// Package integrationchain is the integrations composition root (SPEC §6).
 //
 // `serve` used to build `integrations.Manager{Store: st}` — one of thirteen
 // fields — and the portal separately constructed its OWN `Cataloger` and
@@ -17,6 +15,7 @@ package cli
 //
 // This file builds ONE chain and hands the same objects to both the node and the
 // portal, so there is exactly one view of an integration's state.
+package integrationchain
 
 import (
 	"context"
@@ -27,6 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 )
@@ -36,27 +36,27 @@ import (
 // could pin a health-cycle goroutine indefinitely.
 const upstreamTimeout = 30 * time.Second
 
-// integrationChain is the wired set. The portal and the node share it.
-type integrationChain struct {
+// Chain is the wired set. The portal and the node share it.
+type Chain struct {
 	Manager   *integrations.Manager
 	Cataloger *integrations.Cataloger
 	Exposures *integrations.Exposures
 }
 
-// buildIntegrationChain wires the manager, cataloger and exposure set together.
+// Build wires the manager, cataloger and exposure set together.
 //
 // onSurfaceChange is called whenever what contacts may reach has changed — a new
 // exposure set, a stale-guard narrowing, a withhold or a restore. It is how
 // §6.5 and §6.10's "rebuild per-caller servers and emit tools/list_changed"
 // actually happens.
-func buildIntegrationChain(st store.Store, kr integrations.Sealer,
+func Build(st store.Store, kr integrations.Sealer,
 	connector *integrations.Connector, portalBase string,
 	auditFn func(action, resource, outcome string),
 	onSurfaceChange func(integrationID string),
 	settingValues func(context.Context) (map[string]string, error),
-	onAttention func(integrationID string)) *integrationChain {
+	onAttention func(integrationID string)) *Chain {
 
-	c := &integrationChain{
+	c := &Chain{
 		Manager: &integrations.Manager{
 			Store:      st,
 			Audit:      auditFn,
@@ -102,7 +102,7 @@ func buildIntegrationChain(st store.Store, kr integrations.Sealer,
 	// authorization URL nobody was waiting for and timed out at 504 every time.
 	if kr != nil && connector != nil {
 		c.Manager.OAuthFor = func(in store.Integration) (auth.OAuthHandler, error) {
-			pre, err := integrations.OpenClient(st, kr, settingsAAD(), in.ID)
+			pre, err := integrations.OpenClient(st, kr, core.SettingsAAD(), in.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -139,7 +139,7 @@ func buildIntegrationChain(st store.Store, kr integrations.Sealer,
 				// preregistered client instead of registering client after
 				// client at the provider on every full authorization.
 				setup.OnRegistered = func(clientID, clientSecret string) {
-					if err := integrations.SealClient(st, kr, settingsAAD(), in.ID, clientID, clientSecret); err != nil {
+					if err := integrations.SealClient(st, kr, core.SettingsAAD(), in.ID, clientID, clientSecret); err != nil {
 						auditFn("oauth_client", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 						return
 					}

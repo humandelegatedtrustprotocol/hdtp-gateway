@@ -55,9 +55,12 @@ var layerRank = map[string]int{
 	"internal/integrations":       3,
 	"internal/portable":           3,
 	"internal/internalui/auth":    3,
-	// the public surface, and the owner's presence the agent-answered wait consults
-	"internal/public":            4,
-	"internal/services/presence": 4,
+	// the public surface, and the services over the domain: the owner's presence the
+	// agent-answered wait consults, the integration chain, the retention sweep
+	"internal/public":                    4,
+	"internal/services/presence":         4,
+	"internal/services/integrationchain": 4,
+	"internal/services/retention":        4,
 	// the node, and the integration adapters it must not reach into
 	"internal/node":                   5,
 	"internal/integrations/providers": 5,
@@ -65,9 +68,11 @@ var layerRank = map[string]int{
 	// the owner's surfaces: the portal and the owner MCP, which the node must not import
 	"internal/internalui":          6,
 	"internal/internalui/ownermcp": 6,
+	// the owner's settings, which reach into the node and the portal's page model
+	"internal/services/settings": 7,
 	// the wiring, and the binary
-	"internal/cli":     7,
-	"cmd/pact-gateway": 8,
+	"internal/cli":     8,
+	"cmd/pact-gateway": 9,
 }
 
 // layerExceptions are inversions that exist today and are to be removed, each with why it is

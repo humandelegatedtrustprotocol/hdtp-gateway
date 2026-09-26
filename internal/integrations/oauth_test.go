@@ -490,10 +490,10 @@ func TestStaticCredentialRoundTripsSealed(t *testing.T) {
 	}
 }
 
-// testSettingsAAD mirrors internal/cli's settings AAD. The credential lives in
+// testSettingsAAD is the settings table's AAD (core.SettingsAAD). The credential lives in
 // the settings table, whose one decrypting reader opens every secret row with
 // this value — sealing it under anything else fails STARTUP, not the read.
-var testSettingsAAD = []byte("settings.value")
+var testSettingsAAD = core.SettingsAAD()
 
 // AC (P10-04h): the pre-registered OAuth client round-trips sealed, and an
 // integration with none registered is reported rather than left to time out.

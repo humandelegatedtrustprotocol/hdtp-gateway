@@ -27,6 +27,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/ingress"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	"github.com/tech-sumit/pact-gateway/internal/services/settings"
 )
 
 // portal drives the settings page the way a browser would, carrying the CSRF
@@ -223,8 +224,8 @@ func TestSettingsPersistAcrossRestartAndReDerive(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := openStoreAt(t, dir)
-	svc := &settingsService{store: st, kr: openKeyringAt(t, dir), cfg: loaded}
-	stored, err := svc.values(context.Background())
+	svc := settings.New(st, openKeyringAt(t, dir), loaded, nil)
+	stored, err := svc.Values(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -831,14 +832,14 @@ func TestStorageSettingsPersistAndApply(t *testing.T) {
 	for _, row := range rows {
 		got[row.Key] = row.Value
 	}
-	if got[StorageKeyQuota(acct.ID)] != strconv.FormatInt(2<<30, 10) {
-		t.Fatalf("quota not stored in bytes: %q", got[StorageKeyQuota(acct.ID)])
+	if got[settings.StorageKeyQuota(acct.ID)] != strconv.FormatInt(2<<30, 10) {
+		t.Fatalf("quota not stored in bytes: %q", got[settings.StorageKeyQuota(acct.ID)])
 	}
-	if got[StorageKeyRetention(acct.ID)] != "30" {
-		t.Fatalf("retention not stored: %q", got[StorageKeyRetention(acct.ID)])
+	if got[settings.StorageKeyRetention(acct.ID)] != "30" {
+		t.Fatalf("retention not stored: %q", got[settings.StorageKeyRetention(acct.ID)])
 	}
-	if got[ContactsKeyRequestExpiry(acct.ID)] != "14" {
-		t.Fatalf("request expiry not stored: %q", got[ContactsKeyRequestExpiry(acct.ID)])
+	if got[settings.ContactsKeyRequestExpiry(acct.ID)] != "14" {
+		t.Fatalf("request expiry not stored: %q", got[settings.ContactsKeyRequestExpiry(acct.ID)])
 	}
 	// an expiry outside 1..365 is refused, not stored
 	if body := p.post("/settings/storage", url.Values{

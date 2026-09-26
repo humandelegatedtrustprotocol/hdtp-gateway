@@ -27,6 +27,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/integrations/recipes"
 	"github.com/tech-sumit/pact-gateway/internal/public"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 )
 
 // capabilityBinder answers "which provider serves this account's core
@@ -35,10 +36,10 @@ import (
 // restart.
 type capabilityBinder struct {
 	store   store.Store
-	chain   *integrationChain
+	chain   *integrationchain.Chain
 	auditFn func(action, resource, outcome string)
 	// settings is the DECRYPTING reader: a per-install parameter may be sealed at
-	// rest (isSecretKey seals anything whose last segment looks like a
+	// rest (the settings service's isSecretKey seals anything whose last segment looks like a
 	// credential), and the raw row would then be base64 ciphertext.
 	settings func(context.Context) (map[string]string, error)
 
@@ -157,7 +158,7 @@ func (b *capabilityBinder) params(ctx context.Context, slug string) map[string]s
 		// `env.` under the same prefix is the CHILD's environment, not a recipe
 		// parameter. Letting it through would put a credential into an upstream
 		// tool argument, where it would be logged as one.
-		if name == k || v == "" || strings.HasPrefix(name, stdioEnvPrefix) {
+		if name == k || v == "" || strings.HasPrefix(name, integrationchain.StdioEnvPrefix) {
 			continue
 		}
 		out[name] = v
