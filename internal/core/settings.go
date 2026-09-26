@@ -17,6 +17,14 @@ import (
 	"strings"
 )
 
+// settingAAD binds a sealed setting to its column, per the keyring AAD rule.
+const settingAAD = "settings.value"
+
+// SettingsAAD is the AAD of a sealed row of the `settings` table. Anything that writes a secret
+// row there MUST seal it with this: the one decrypting reader opens every secret row there with
+// it, and a mismatch fails startup rather than the read.
+func SettingsAAD() []byte { return []byte(settingAAD) }
+
 // ApplyStoreSettings layers owner-set values under the environment and
 // re-derives. Values the environment pinned are skipped, not overwritten.
 func (c *Config) ApplyStoreSettings(values map[string]string) error {

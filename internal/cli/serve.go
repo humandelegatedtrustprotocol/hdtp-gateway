@@ -22,7 +22,10 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/node"
 	"github.com/tech-sumit/pact-gateway/internal/services/auditsink"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 	"github.com/tech-sumit/pact-gateway/internal/services/presence"
+	"github.com/tech-sumit/pact-gateway/internal/services/retention"
+	"github.com/tech-sumit/pact-gateway/internal/services/settings"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
@@ -58,13 +61,13 @@ type serveRun struct {
 	authSvc *auth.Service
 	tokSvc  *auth.TokenService
 
-	settings    *settingsService
+	settings    *settings.Service
 	stored      map[string]string
 	adapterName string
 	info        tunnel.Info
 
 	connector *integrations.Connector
-	chain     *integrationChain
+	chain     *integrationchain.Chain
 	binder    *capabilityBinder
 	agent     *integrations.AgentAnswered
 	presence  *presence.Tracker
@@ -196,8 +199,8 @@ func (s *serveRun) startTunnel() (tunnel.Adapter, error) {
 	// Owner-set configuration layers under the environment and re-derives, so a
 	// tunnel chosen in the portal forces the same knobs an env-set one would
 	// (SPEC §10.1, §12.2).
-	s.settings = &settingsService{store: s.st, kr: s.kr, cfg: s.cfg, audit: s.ownerFn}
-	stored, err := s.settings.values(s.ctx)
+	s.settings = settings.New(s.st, s.kr, s.cfg, s.ownerFn)
+	stored, err := s.settings.Values(s.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -224,18 +227,18 @@ func (s *serveRun) startNode() error {
 	// One wired chain, shared by the node and the portal (SPEC §6). `nd` does
 	// not exist yet, so the surface-change hook is filled in after node.New.
 	bus := messaging.NewBus()
-	s.chain = buildIntegrationChain(st, s.kr, s.connector, portalBase(s.cfg), s.auditFn, func(id string) {
+	s.chain = integrationchain.Build(st, s.kr, s.connector, portalBase(s.cfg), s.auditFn, func(id string) {
 		if s.surfaceChanged != nil {
 			s.surfaceChanged(id)
 		}
-	}, s.settings.values, func(integrationID string) {
+	}, s.settings.Values, func(integrationID string) {
 		// The token died; only the owner can fix it. Wake the change feed NOW —
 		// needs_attention is derived from the store, the event only says "look".
 		if in, err := st.GetIntegrationByID(ctx, integrationID); err == nil {
 			bus.Publish(messaging.Event{Kind: messaging.EventAttention, AccountID: in.AccountID})
 		}
 	})
-	s.binder = &capabilityBinder{store: st, chain: s.chain, auditFn: s.auditFn, settings: s.settings.values}
+	s.binder = &capabilityBinder{store: st, chain: s.chain, auditFn: s.auditFn, settings: s.settings.Values}
 	// Paired on purpose: the tracker must exist before nd.Start opens the public
 	// listener, not when the owner-MCP handler is built hundreds of lines later.
 	s.agent, s.presence = presence.NewAgentAnswered(st, s.auditFn)
@@ -243,11 +246,11 @@ func (s *serveRun) startNode() error {
 		Config: *s.cfg, Store: st, Keyring: s.kr, Audit: s.auditFn, Adapter: s.adapterName, Bus: bus,
 		// Only a TERMINATING ingress opens the onward leg; a passthrough one
 		// forwards raw TLS and never presents a certificate of its own.
-		IngressFingerprint: pinnedIngress(s.adapterName, s.stored),
+		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
-		RateBudget:         s.settings.rateBudget,
+		RateBudget:         s.settings.RateBudget,
 		Quota: func(accountID string) int64 {
-			q, _ := s.settings.storageFor(ctx, accountID)
+			q, _ := s.settings.StorageFor(ctx, accountID)
 			return q
 		},
 		// Mapped-mode providers, resolved per call so an integration connected
@@ -266,7 +269,7 @@ func (s *serveRun) startNode() error {
 // configured integration's served surface up.
 func (s *serveRun) wireSurface() {
 	ctx, st, nd := s.ctx, s.st, s.nd
-	s.settings.node = nd
+	s.settings.AttachNode(nd)
 	// Now the node exists, an exposure change or a withhold can actually reach
 	// the served surface (SPEC §6.5, §6.10). Until this was wired, publishing an
 	// exposure set rebuilt nothing and a withheld integration kept its tools
@@ -359,7 +362,7 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	// And an account that IS served, at an address this node no longer advertises.
 	if accts, aerr := st.ListAccounts(ctx); aerr == nil {
 		for _, a := range accts {
-			if line := addressDriftLine(nd.PublicURL(), a.Slug, leafAddress(ctx, st, a.ID)); line != "" {
+			if line := addressDriftLine(nd.PublicURL(), a.Slug, settings.LeafAddress(ctx, st, a.ID)); line != "" {
 				fmt.Fprintf(stdout, "address: %s\n", line)
 			}
 		}
@@ -388,7 +391,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
 	// an unattended sweep to the owner would misreport who deleted the data.
 	background.Go(func() {
-		runRetentionSweeper(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, nd.Invalidate)
+		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, nd.Invalidate)
 	})
 
 	// ---- outbound retries (PACT §7.1) ----
@@ -443,7 +446,7 @@ func (s *serveRun) internalSurface() http.Handler {
 		return integrations.SealStatic(st, s.kr, integrationID, header, value)
 	}
 	setOAuthClient := func(ctx context.Context, integrationID, clientID, clientSecret string) error {
-		return integrations.SealClient(st, s.kr, settingsAAD(), integrationID, clientID, clientSecret)
+		return integrations.SealClient(st, s.kr, core.SettingsAAD(), integrationID, clientID, clientSecret)
 	}
 	identityDeps := internalui.IdentityDeps{
 		Accounts: st.ListAccounts, Audit: s.auditFn,
@@ -467,5 +470,5 @@ func (s *serveRun) internalSurface() http.Handler {
 	}
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
 		setStatic, setOAuthClient, s.ownerFn,
-		cfg.PublicURL, s.settings.deps(), authDeps, cfg)
+		cfg.PublicURL, s.settings.Deps(), authDeps, cfg)
 }

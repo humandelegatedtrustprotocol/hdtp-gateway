@@ -1,6 +1,5 @@
-package cli
-
 // The environment a supervised stdio child receives (SPEC §6.2, §12.3).
+package integrationchain
 
 import (
 	"context"
@@ -8,12 +7,12 @@ import (
 	"strings"
 )
 
-// stdioEnvPrefix is where a child's environment is configured:
+// StdioEnvPrefix is where a child's environment is configured:
 // `integration.<slug>.env.<NAME>` — the same settings namespace as this
 // install's recipe parameters, and the same one adapter settings use, so there
 // is no new storage and no migration. Values whose key looks like a credential
-// are sealed at rest by isSecretKey, which covers PASSWORD, TOKEN and KEY.
-const stdioEnvPrefix = "env."
+// are sealed at rest by the settings service's isSecretKey, which covers PASSWORD, TOKEN and KEY.
+const StdioEnvPrefix = "env."
 
 // stdioEnv builds the allow-list for one integration's child.
 //
@@ -41,7 +40,7 @@ func stdioEnv(values func(context.Context) (map[string]string, error), accountID
 		}
 		return env
 	}
-	prefix := "integration." + slug + "." + stdioEnvPrefix
+	prefix := "integration." + slug + "." + StdioEnvPrefix
 	for k, v := range all {
 		if name := strings.TrimPrefix(k, prefix); name != k && name != "" {
 			env[name] = v

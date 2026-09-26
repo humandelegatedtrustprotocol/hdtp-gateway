@@ -1,4 +1,4 @@
-package cli
+package settings
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-func presetSvc(t *testing.T) (*settingsService, store.Store) {
+func presetSvc(t *testing.T) (*Service, store.Store) {
 	t.Helper()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
 	if err != nil {
@@ -20,7 +20,7 @@ func presetSvc(t *testing.T) (*settingsService, store.Store) {
 	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	return &settingsService{store: st, now: func() time.Time { return time.Unix(1756000000, 0) }}, st
+	return &Service{store: st, now: func() time.Time { return time.Unix(1756000000, 0) }}, st
 }
 
 // PACT §8: presets are owner-editable. The first write seeds every resolved

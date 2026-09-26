@@ -13,6 +13,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/services/settings"
 	"github.com/tech-sumit/pact-gateway/internal/testid"
 )
 
@@ -86,9 +87,10 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := &settingsService{store: st, kr: kr, cfg: cfg, node: nd, audit: audit}
+	svc := settings.New(st, kr, cfg, audit)
+	svc.AttachNode(nd)
 
-	if err := svc.applyLive(ctx, "public_url", newURL); err != nil {
+	if err := svc.Deps().Save(ctx, "public_url", newURL); err != nil {
 		t.Fatal(err)
 	}
 	// The old announcement ran detached, so give it the time it would have needed to dial.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
 )
 
 // AC (P10-04e): the embedded recipe corpus is readable by shipped code, and a
@@ -21,7 +22,7 @@ func TestMappedExposureBindsACoreCapability(t *testing.T) {
 	st := migrated(t, dir)
 	defer st.Close()
 
-	chain := buildIntegrationChain(st, nil, nil, "", func(string, string, string) {}, nil, nil, nil)
+	chain := integrationchain.Build(st, nil, nil, "", func(string, string, string) {}, nil, nil, nil)
 	b := &capabilityBinder{store: st, chain: chain, auditFn: func(string, string, string) {}}
 
 	// The corpus must actually decode, from the binary.
@@ -102,7 +103,7 @@ func TestCapabilityResolutionIsCachedAndInvalidated(t *testing.T) {
 	st := &countingStore{Store: migrated(t, dir)}
 	defer st.Close()
 
-	chain := buildIntegrationChain(st, nil, nil, "", func(string, string, string) {}, nil, nil, nil)
+	chain := integrationchain.Build(st, nil, nil, "", func(string, string, string) {}, nil, nil, nil)
 	clock := time.Unix(1756000000, 0)
 	b := &capabilityBinder{store: st, chain: chain, auditFn: func(string, string, string) {},
 		Now: func() time.Time { return clock }}
