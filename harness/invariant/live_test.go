@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
-
-const nodeImage = "pact-gateway:harness"
 
 func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
@@ -26,8 +25,8 @@ func TestLiveAuditChainInvariantVerifiesRealNodes(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", nodeImage); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", nodeImage)
+	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
+		t.Skipf("%s not built — run `make harness-image`", images.Node)
 	}
 
 	f := fabric.New("pactinv", dockerRunner)
@@ -37,7 +36,7 @@ func TestLiveAuditChainInvariantVerifiesRealNodes(t *testing.T) {
 		_ = f.Teardown(c)
 	})
 
-	top, err := topology.LAN(ctx, f, nodeImage)
+	top, err := topology.LAN(ctx, f, images.Node)
 	if err != nil {
 		t.Fatal(err)
 	}

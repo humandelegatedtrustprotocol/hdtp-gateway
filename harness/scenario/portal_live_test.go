@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
 )
 
@@ -23,7 +24,7 @@ func TestEveryPortalPageRendersInBothThemes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
-	p, err := SetupPaired(ctx, "pactui", Ports{Owner: "18651", Public: "18652"}, nodeImage)
+	p, err := SetupPaired(ctx, "pactui", Ports{Owner: "18651", Public: "18652"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })
 	if err != nil {
 		t.Fatalf("setup: %v", err)

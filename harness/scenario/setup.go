@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/owner"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
@@ -92,7 +93,7 @@ func SetupPaired(ctx context.Context, prefix string, p Ports, image string) (*Pa
 	// The internal surface is loopback-bound (§8.3); a sidecar in the node's own
 	// namespace reaches it without the node binding non-loopback.
 	bridge, err := f.Container(ctx, fabric.Spec{
-		Name: "bridge", Image: "alpine/socat", NetworkMode: "container:" + node.Name,
+		Name: "bridge", Image: images.Socat, NetworkMode: "container:" + node.Name,
 		Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
 	})
 	if err != nil {

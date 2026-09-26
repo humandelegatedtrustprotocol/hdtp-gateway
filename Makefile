@@ -214,19 +214,22 @@ harness-image-caldav:
 
 # The shaper image: iproute2 preinstalled. It must ship tc rather than install it,
 # because the shaper runs inside the target's network namespace and cannot reach a
-# package repo through a partition it just created.
+# package repo through a partition it just created. The recipe is
+# harness/images.ShaperDockerfile, the one the fabric also builds on demand.
 harness-shaper:
-	printf 'FROM alpine:3.20\nRUN apk add --no-cache iproute2\n' | docker build -t pact-harness-shaper:1 -
+	cd harness && go run ./cmd/harness shaper
 
-# An aarch64 Linux kernel for the VM topology (S8). Extracted from Alpine's arm64
-# image so no download or host toolchain is needed. Export PACT_HARNESS_KERNEL to
-# the printed path to enable the VM tests.
+# An aarch64 Linux kernel for the VM topology (S8): Alpine's linux-virt package,
+# installed into the pinned arm64 Alpine image (so it needs the package mirror once)
+# and copied out; no host toolchain. Export PACT_HARNESS_KERNEL to the printed path
+# to enable the VM scenario. $(CURDIR), not $(PWD): `make -C pact-gateway` leaves
+# PWD at the caller's directory, and the kernel landed outside the repository.
 KERNEL_DIR ?= .harness-kernel
 harness-kernel:
 	@mkdir -p $(KERNEL_DIR)
-	@docker run --rm --platform linux/arm64 -v "$(PWD)/$(KERNEL_DIR):/out" alpine:3.20 \
+	@docker run --rm --platform linux/arm64 -v "$(CURDIR)/$(KERNEL_DIR):/out" alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
 	  sh -c 'apk add --no-cache linux-virt >/dev/null 2>&1 && cp /boot/vmlinuz-virt /out/'
-	@echo "export PACT_HARNESS_KERNEL=$(PWD)/$(KERNEL_DIR)/vmlinuz-virt"
+	@echo "export PACT_HARNESS_KERNEL=$(CURDIR)/$(KERNEL_DIR)/vmlinuz-virt"
 
 # ---- run tiers (docs/harness-design.md §6) --------------------------------
 # The tiers exist because the full matrix is slow enough that people stop reading

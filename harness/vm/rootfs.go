@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // RootfsSpec describes the guest image to build.
@@ -100,7 +102,7 @@ cp /bin/busybox.static /payload/bin/busybox
 cd /payload && find . | cpio -o -H newc 2>/dev/null | gzip -1 > /out/` + outName
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--platform", "linux/arm64",
 		"-v", payload+":/payload", "-v", absOut+":/out",
-		"alpine:3.20", "sh", "-c", script)
+		images.Alpine, "sh", "-c", script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("vm: building initramfs: %w (%s)", err, out)
 	}

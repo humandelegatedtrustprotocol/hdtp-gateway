@@ -20,12 +20,21 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // Runner executes one command. Injected so the driver is testable without Docker.
 type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+// Local is the Runner every live test uses: the command on this machine, with what it printed to
+// stdout and stderr together, because a failed docker command explains itself on stderr.
+func Local(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
 
 // Network is one Docker network created by this run.
 type Network struct {
@@ -179,11 +188,6 @@ func (f *Fabric) Container(ctx context.Context, s Spec) (*Container, error) {
 	return c, nil
 }
 
-// natImage carries iptables and is tiny. It is pinned by tag rather than digest
-// because the harness is not a supply chain — if this image changes under us the
-// scenarios fail loudly rather than silently mis-routing.
-const natImage = "alpine:3.20"
-
 // NAT starts a router between an outside and an inside segment: MASQUERADE
 // outbound, nothing inbound.
 //
@@ -192,7 +196,7 @@ const natImage = "alpine:3.20"
 // does the forwarding once the container is attached to both networks.
 func (f *Fabric) NAT(ctx context.Context, name string, outside, inside *Network) (*Container, error) {
 	c, err := f.Container(ctx, Spec{
-		Name: name, Image: natImage, Network: outside,
+		Name: name, Image: images.Alpine, Network: outside,
 		CapAdd: []string{"NET_ADMIN"},
 		Cmd:    []string{"sh", "-c", "sleep infinity"},
 	})
@@ -249,53 +253,44 @@ func (f *Fabric) DefaultRoute(ctx context.Context, target *Container, gateway st
 	return nil
 }
 
-// shaperImage carries iproute2 (tc) ALREADY INSTALLED. That is not a convenience:
-// the shaper runs inside the target's network namespace, so a shaper that installs
-// its tools at run time cannot heal a partition it created — `apk add` needs the
-// very network that is being dropped. Observed as `sh: tc: not found` while
-// lifting a 100% loss qdisc.
-const shaperImage = "pact-harness-shaper:1"
-
-// shaperDockerfile is built once per machine, on demand.
-const shaperDockerfile = "FROM alpine:3.20\nRUN apk add --no-cache iproute2\n"
-
 // netnsExec runs a command inside another container's NETWORK namespace.
 //
 // This is what makes shaping work against a distroless node: `tc` operates on the
 // namespace, not on the filesystem, so a throwaway Alpine container sharing the
 // node's netns can install a qdisc that applies to the node's traffic. Running it
 // "inside" the node was exit status 127 — there is no `sh` in there to run.
+//
+// The image carries iproute2 (tc) ALREADY INSTALLED (images.ShaperDockerfile). That is not a
+// convenience: a shaper that installs its tools at run time cannot heal a partition it created —
+// `apk add` needs the very network that is being dropped. Observed as `sh: tc: not found` while
+// lifting a 100% loss qdisc.
 func (f *Fabric) netnsExec(ctx context.Context, target *Container, script string) ([]byte, error) {
-	if err := f.ensureShaper(ctx); err != nil {
+	if err := EnsureShaper(ctx, f.run); err != nil {
 		return nil, err
 	}
 	return f.run(ctx, "docker", "run", "--rm",
 		"--network", "container:"+target.Name,
 		"--cap-add", "NET_ADMIN",
-		shaperImage, "sh", "-c", script)
+		images.Shaper, "sh", "-c", script)
 }
 
-// ensureShaper builds the shaper image if this machine does not have it yet.
-func (f *Fabric) ensureShaper(ctx context.Context) error {
-	if _, err := f.run(ctx, "docker", "image", "inspect", shaperImage); err == nil {
+// EnsureShaper builds the shaper image if this machine does not have it yet. The Dockerfile is
+// written to a temporary context on disk because `docker build -` reads it from stdin, which a
+// Runner does not supply (measured 2026-09-27: "failed to read dockerfile: no local sources
+// enabled"). `make harness-shaper` calls this too, so there is one recipe.
+func EnsureShaper(ctx context.Context, run Runner) error {
+	if _, err := run(ctx, "docker", "image", "inspect", images.Shaper); err == nil {
 		return nil
 	}
-	out, err := f.run(ctx, "docker", "build", "-t", shaperImage, "-",
-		"--build-arg", "DOCKERFILE_INLINE="+shaperDockerfile)
-	if err == nil {
-		return nil
-	}
-	// `docker build -` reads the Dockerfile from stdin, which this Runner cannot
-	// supply, so fall back to a temp context on disk.
-	dir, terr := os.MkdirTemp("", "pact-shaper")
-	if terr != nil {
-		return fmt.Errorf("fabric: building the shaper image: %w (%s)", err, out)
+	dir, err := os.MkdirTemp("", "pact-shaper")
+	if err != nil {
+		return fmt.Errorf("fabric: building the shaper image: %w", err)
 	}
 	defer os.RemoveAll(dir)
-	if werr := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(shaperDockerfile), 0o644); werr != nil {
-		return werr
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(images.ShaperDockerfile), 0o644); err != nil {
+		return err
 	}
-	if out, err := f.run(ctx, "docker", "build", "-t", shaperImage, dir); err != nil {
+	if out, err := run(ctx, "docker", "build", "-t", images.Shaper, dir); err != nil {
 		return fmt.Errorf("fabric: building the shaper image: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil

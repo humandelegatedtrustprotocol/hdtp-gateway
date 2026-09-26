@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // The tests in fabric_test.go assert what Docker was ASKED to do. This one asserts
@@ -56,7 +58,7 @@ func TestLiveInternalNetworkIsGenuinelyUnreachable(t *testing.T) {
 	// 169.254.169.254 is deliberate: it is the link-local address the media
 	// SSRF guard refuses, so a route to it is exactly what must not exist.
 	_, err = f.Container(ctx, Spec{
-		Name: "isolated", Image: natImage, Network: inside,
+		Name: "isolated", Image: images.Alpine, Network: inside,
 		Cmd: []string{"sh", "-c", "sleep 120"},
 	})
 	if err != nil {
@@ -97,14 +99,14 @@ func TestLiveNATGivesOutboundButNoInbound(t *testing.T) {
 
 	// A peer on the WAN, serving something dialable.
 	if _, err := f.Container(ctx, Spec{
-		Name: "peer", Image: natImage, Network: wan,
+		Name: "peer", Image: images.Alpine, Network: wan,
 		Cmd: []string{"sh", "-c", "while true; do echo -e 'HTTP/1.1 200 OK\\r\\n\\r\\nPONG' | nc -l -p 8080; done"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// A node behind the NAT.
 	if _, err := f.Container(ctx, Spec{
-		Name: "node", Image: natImage, Network: lan,
+		Name: "node", Image: images.Alpine, Network: lan,
 		Cmd: []string{"sh", "-c", "sleep 240"},
 	}); err != nil {
 		t.Fatal(err)

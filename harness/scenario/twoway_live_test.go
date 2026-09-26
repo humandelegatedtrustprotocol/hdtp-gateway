@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/tech-sumit/pact-gateway/harness/images"
 )
 
 // Messaging has to work in BOTH directions after pairing.
@@ -33,12 +34,12 @@ func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
 	// what every Cloudflare/ngrok deployment runs. A message that arrives
 	// promptly unsealed and needs a retry when sealed is a different bug.
 	env := map[string]string{"PACT_SEAL": "required"}
-	alice, err := StartOwnedNode(ctx, f, nodeImage, net, "alice", "18680",
+	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18680",
 		"https://pact2way-alice:8443", env)
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, nodeImage, net, "bob", "18681",
+	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18681",
 		"https://pact2way-bob:8443", env)
 	if err != nil {
 		t.Fatalf("bob: %v", err)
