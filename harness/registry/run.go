@@ -26,14 +26,51 @@ const (
 	Skipped Verdict = "SKIPPED"
 )
 
-// Result is what Start writes for one scenario, as <ResultsDir>/<id>.json.
+// Result is what Start writes for one scenario, as <ResultsDir>/<id>.json: a case in the one
+// result schema of the workspace (docs/testing.md, "Results"), where why is the first line of
+// `evidence`, plus the test that ran it.
 type Result struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	Test    string  `json:"test"`
-	Verdict Verdict `json:"verdict"`
-	Reason  string  `json:"reason,omitempty"`
-	MS      int64   `json:"ms"`
+	ID      string
+	Name    string
+	Test    string
+	Verdict Verdict
+	// Reason is why the scenario did not simply PASS; on the wire it is `evidence[0]`.
+	Reason string
+	MS     int64
+}
+
+type resultJSON struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Test     string   `json:"test"`
+	Verdict  Verdict  `json:"verdict"`
+	Evidence []string `json:"evidence"`
+	MS       int64    `json:"ms"`
+}
+
+// MarshalJSON writes the schema's case: `evidence` carries the reason.
+func (r Result) MarshalJSON() ([]byte, error) {
+	return json.Marshal(resultJSON{ID: r.ID, Name: r.Name, Test: r.Test, Verdict: r.Verdict, Evidence: evidenceOf(r.Reason), MS: r.MS})
+}
+
+// UnmarshalJSON reads a result a scenario wrote back, for a tier's judgement.
+func (r *Result) UnmarshalJSON(b []byte) error {
+	var j resultJSON
+	if err := json.Unmarshal(b, &j); err != nil {
+		return err
+	}
+	*r = Result{ID: j.ID, Name: j.Name, Test: j.Test, Verdict: j.Verdict, MS: j.MS}
+	if len(j.Evidence) > 0 {
+		r.Reason = j.Evidence[0]
+	}
+	return nil
+}
+
+func evidenceOf(reason string) []string {
+	if reason == "" {
+		return []string{}
+	}
+	return []string{reason}
 }
 
 // ResultsDir is where results are written: ResultsEnv, or a fixed directory under the system

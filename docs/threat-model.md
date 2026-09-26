@@ -103,7 +103,7 @@ address not be reassigned until the last leaf for it has expired.
 | A refusal past the open is sealed, so a carrier cannot tell a pinned sender from a stranger | `TestARefusalPastTheOpenIsSealed` |
 | A carrier's forged plaintext answer is not the peer's answer | `TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer` |
 | A key-pinned server is not an identity; the chain to the pinned root is | `TestASelfSignedServerCertificateIsNotAnIdentity`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
-| Chain confusion, leaves and envelopes outside their time, forged headers and the retired generation are all refused — offline in both ports at the exact boundaries, and live against a running node, with one control that a receiver refusing everything fails | `pact-identity/js/intrude.mjs` (115 scenarios, offline); `pact vectors intrude --against` and `pact-identity/js/live.mjs` (the same 28, held to each other by `js/live.test.mjs`; 28 blocked by this node and by the hosted platform, 2026-09-20) |
+| Chain confusion, leaves and envelopes outside their time, forged headers and the retired generation are all refused — offline in both ports at the exact boundaries, and live against a running node, with one control that a receiver refusing everything fails | `pact-identity/js/intrude.mjs` (132 scenarios, offline, measured 2026-09-27); `pact vectors intrude --against` and `pact-identity/js/live.mjs` (the same 28, one list both drivers read, `js/live-scenarios.json`; 28 blocked by this node and by the hosted platform, 2026-09-20) |
 
 ## Explicitly out of scope
 
