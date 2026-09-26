@@ -27,10 +27,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/public"
 )
@@ -499,7 +499,7 @@ func (c calendarAt) resolve() public.Calendar {
 	return c.n.opts.Calendar[c.accountID]
 }
 
-func (c calendarAt) CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]providers.Slot, error) {
+func (c calendarAt) CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]calendar.Slot, error) {
 	cal := c.resolve()
 	if cal == nil {
 		return nil, errNoCalendar
@@ -507,10 +507,10 @@ func (c calendarAt) CheckAvailability(ctx context.Context, from, to time.Time, d
 	return cal.CheckAvailability(ctx, from, to, d)
 }
 
-func (c calendarAt) BookSlot(ctx context.Context, contactFpr, msgID string, slot providers.Slot, subject string) (providers.BookingAck, error) {
+func (c calendarAt) BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error) {
 	cal := c.resolve()
 	if cal == nil {
-		return providers.BookingAck{}, errNoCalendar
+		return calendar.BookingAck{}, errNoCalendar
 	}
 	return cal.BookSlot(ctx, contactFpr, msgID, slot, subject)
 }

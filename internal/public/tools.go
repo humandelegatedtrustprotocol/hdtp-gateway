@@ -24,10 +24,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 )
 
@@ -42,8 +42,8 @@ const (
 // Calendar is the calendar capability as the public surface needs it — the
 // three PACT tools, nothing else. `*providers.Calendar` satisfies it.
 type Calendar interface {
-	CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]providers.Slot, error)
-	BookSlot(ctx context.Context, contactFpr, msgID string, slot providers.Slot, subject string) (providers.BookingAck, error)
+	CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]calendar.Slot, error)
+	BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error)
 	CancelBooking(ctx context.Context, bookingID string) error
 }
 
@@ -69,7 +69,7 @@ func zoneOf(tz string) *time.Location {
 	return loc
 }
 
-func wireSlots(in []providers.Slot, loc *time.Location) []Slot {
+func wireSlots(in []calendar.Slot, loc *time.Location) []Slot {
 	out := make([]Slot, 0, len(in))
 	for _, s := range in {
 		out = append(out, Slot{
@@ -700,8 +700,8 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 		}
 		// PACT §12: never more than five, and never raw free/busy. The provider
 		// caps too; this is the boundary's own belt.
-		if len(slots) > providers.MaxSlots {
-			slots = slots[:providers.MaxSlots]
+		if len(slots) > calendar.MaxSlots {
+			slots = slots[:calendar.MaxSlots]
 		}
 		out := wireSlots(slots, zoneOf(a.Window.TZ))
 		d.audit("check_availability", fmt.Sprintf("caller:%s slots:%d", fpr, len(out)), "ok")
@@ -736,7 +736,7 @@ func (d ToolDeps) bookSlot() mcp.ToolHandler {
 			return toolErr("bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
-		ack, err := d.Calendar.BookSlot(ctx, fpr, a.MsgID, providers.Slot{Start: start, End: end}, a.Subject)
+		ack, err := d.Calendar.BookSlot(ctx, fpr, a.MsgID, calendar.Slot{Start: start, End: end}, a.Subject)
 		if err != nil {
 			d.audit("book_slot", "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
@@ -799,7 +799,7 @@ func DefaultLimits() Limits {
 		TextBytes:           MaxTextBytes,
 		NoteBytes:           MaxNoteBytes,
 		MediaInlineBytes:    MaxInlineData,
-		AvailabilitySlots:   providers.MaxSlots,
+		AvailabilitySlots:   calendar.MaxSlots,
 		InviteTTLDays:       int(contacts.MaxInviteTTL / (24 * time.Hour)),
 		ContactCallsPerHour: DefaultBudget(KindContact),
 		GuestCallsPerHour:   DefaultBudget(KindGuest),

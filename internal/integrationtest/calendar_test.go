@@ -13,6 +13,7 @@ import (
 	ics "github.com/arran4/golang-ical"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
@@ -160,7 +161,7 @@ func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 				if !ok {
 					return errResult("unavailable"), nil
 				}
-				ack, err := cal.BookSlot(ctx, caller.Fingerprint, a.MsgID, providers.Slot{Start: s, End: e}, a.Subject)
+				ack, err := cal.BookSlot(ctx, caller.Fingerprint, a.MsgID, calendar.Slot{Start: s, End: e}, a.Subject)
 				if err != nil {
 					return errResult("unavailable"), nil
 				}
@@ -185,8 +186,8 @@ func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 		"window_start": demoDay.Format(time.RFC3339), "window_end": demoDay.Add(24 * time.Hour).Format(time.RFC3339),
 		"duration_minutes": 30,
 	})
-	var out struct{ Slots []providers.Slot }
-	if err := json.Unmarshal([]byte(res), &out); err != nil || len(out.Slots) == 0 || len(out.Slots) > providers.MaxSlots {
+	var out struct{ Slots []calendar.Slot }
+	if err := json.Unmarshal([]byte(res), &out); err != nil || len(out.Slots) == 0 || len(out.Slots) > calendar.MaxSlots {
 		t.Fatalf("availability: %s %v", res, err)
 	}
 	for _, s := range out.Slots {
@@ -203,7 +204,7 @@ func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 	book := callTool(t, bella, "book_slot", map[string]any{
 		"msg_id": "b-1", "start": first.Start.Format(time.RFC3339), "end": first.End.Format(time.RFC3339), "subject": "Tea",
 	})
-	var ack providers.BookingAck
+	var ack calendar.BookingAck
 	if err := json.Unmarshal([]byte(book), &ack); err != nil || ack.BookingID == "" {
 		t.Fatalf("booking: %s %v", book, err)
 	}

@@ -10,6 +10,7 @@ import (
 
 	ics "github.com/arran4/golang-ical"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 )
@@ -74,7 +75,7 @@ func TestFreebusyNeverLeaksRawAndCapsAtFive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(slots) == 0 || len(slots) > MaxSlots {
+	if len(slots) == 0 || len(slots) > calendar.MaxSlots {
 		t.Fatalf("slot count: %d", len(slots))
 	}
 	if !slots[0].Start.Equal(day) {
@@ -114,8 +115,8 @@ func TestSuggestKindOrdersAndCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(slots) != MaxSlots {
-		t.Fatalf("want exactly %d slots, got %d", MaxSlots, len(slots))
+	if len(slots) != calendar.MaxSlots {
+		t.Fatalf("want exactly %d slots, got %d", calendar.MaxSlots, len(slots))
 	}
 	// 06:00 is offered: what the upstream suggests is not filtered by hours.
 	for i, want := range []int{6, 9, 10, 11, 12} {
@@ -138,7 +139,7 @@ func TestBookSlotICSAndIdempotency(t *testing.T) {
 			return map[string]any{"id": "evt-42"}, nil
 		},
 	}
-	slot := Slot{Start: day.Add(10 * time.Hour), End: day.Add(10*time.Hour + 30*time.Minute)}
+	slot := calendar.Slot{Start: day.Add(10 * time.Hour), End: day.Add(10*time.Hour + 30*time.Minute)}
 	ack, err := c.BookSlot(context.Background(), "sha256:bella", "m1", slot, "Tea with Bella")
 	if err != nil || ack.BookingID == "" {
 		t.Fatalf("%+v %v", ack, err)
@@ -247,7 +248,7 @@ func TestPerInstallParameterReachesEveryCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	ack, err := cal.BookSlot(ctx, "sha256:c", "msg-1",
-		Slot{Start: day.Add(10 * time.Hour), End: day.Add(10*time.Hour + 30*time.Minute)}, "Tea")
+		calendar.Slot{Start: day.Add(10 * time.Hour), End: day.Add(10*time.Hour + 30*time.Minute)}, "Tea")
 	if err != nil {
 		t.Fatal(err)
 	}

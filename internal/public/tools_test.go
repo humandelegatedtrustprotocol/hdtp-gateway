@@ -17,28 +17,28 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/testid"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 type fakeCalendar struct {
-	slots  []providers.Slot
-	booked providers.Slot
+	slots  []calendar.Slot
+	booked calendar.Slot
 	err    error
 }
 
-func (f *fakeCalendar) CheckAvailability(context.Context, time.Time, time.Time, time.Duration) ([]providers.Slot, error) {
+func (f *fakeCalendar) CheckAvailability(context.Context, time.Time, time.Time, time.Duration) ([]calendar.Slot, error) {
 	return f.slots, f.err
 }
 
-func (f *fakeCalendar) BookSlot(_ context.Context, _, msgID string, slot providers.Slot, subject string) (providers.BookingAck, error) {
+func (f *fakeCalendar) BookSlot(_ context.Context, _, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error) {
 	f.booked = slot
-	return providers.BookingAck{BookingID: "bk-" + msgID, ICS: "BEGIN:VCALENDAR\r\nSUMMARY:" + subject + "\r\nEND:VCALENDAR"}, f.err
+	return calendar.BookingAck{BookingID: "bk-" + msgID, ICS: "BEGIN:VCALENDAR\r\nSUMMARY:" + subject + "\r\nEND:VCALENDAR"}, f.err
 }
 
 func (f *fakeCalendar) CancelBooking(context.Context, string) error { return f.err }
@@ -432,7 +432,7 @@ func TestCalendarToolsRespectSlotCapAndBookIdempotently(t *testing.T) {
 	e := newToolEnv(t)
 	base := time.Now().UTC().Truncate(time.Hour)
 	for i := 0; i < 5; i++ {
-		e.cal.slots = append(e.cal.slots, providers.Slot{
+		e.cal.slots = append(e.cal.slots, calendar.Slot{
 			Start: base.Add(time.Duration(i) * time.Hour),
 			End:   base.Add(time.Duration(i)*time.Hour + 30*time.Minute),
 		})
@@ -462,7 +462,7 @@ func TestCalendarToolsRespectSlotCapAndBookIdempotently(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("book_slot: %v %s", err, body(t, res))
 	}
-	var ack providers.BookingAck
+	var ack calendar.BookingAck
 	if err := json.Unmarshal([]byte(body(t, res)), &ack); err != nil {
 		t.Fatalf("body: %s", body(t, res))
 	}
