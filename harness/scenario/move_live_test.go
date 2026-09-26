@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
 
 // S10: the MOVE campaign under a network partition (PACT §5.3, §9).
@@ -35,28 +34,28 @@ import (
 //
 // The in-process tier of the same ground is internal/node/move_partition_test.go (Toxiproxy).
 func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S10", Name: "a MOVE campaign under a partition: announce answers, resume tells only the missed contact", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 20 * time.Minute,
 	})
 
-	f := fabricFor(t, "pactmove")
+	f := w.Fab
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := map[string]string{"PACT_SEAL": "required"}
-	const newHost = "pactmove-mover-new"
-	mover, err := StartOwnedNode(ctx, f, images.Node, net, "mover", "18690", "https://pactmove-mover:8443", env, newHost)
+	newHost := w.Fab.Name("mover-new")
+	mover, err := w.Node(ctx, NodeOpts{Slug: "mover", Net: net, Env: env, Aliases: []string{newHost}})
 	if err != nil {
 		t.Fatalf("mover: %v", err)
 	}
-	near, err := StartOwnedNode(ctx, f, images.Node, net, "near", "18691", "https://pactmove-near:8443", env)
+	near, err := w.Node(ctx, NodeOpts{Slug: "near", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("near: %v", err)
 	}
-	far, err := StartOwnedNode(ctx, f, images.Node, net, "far", "18692", "https://pactmove-far:8443", env)
+	far, err := w.Node(ctx, NodeOpts{Slug: "far", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("far: %v", err)
 	}
@@ -102,7 +101,7 @@ func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
 		}
 	}()
 	newEndpoint := "https://" + newHost + ":8443/a/mover/mcp"
-	if _, err := mover.Wallet.Certify(ctx, wallet.Docker(mover.Node.Name), "mover", "move", newEndpoint); err != nil {
+	if _, err := mover.Wallet.Certify(ctx, topology.NodeOf(w.Fab, mover.Node), "mover", "move", newEndpoint); err != nil {
 		t.Fatalf("the move (csr, issue, install-leaf): %v", err)
 	}
 

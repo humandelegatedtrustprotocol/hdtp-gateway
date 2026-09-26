@@ -12,7 +12,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
 
 // T5 — the owner's own front door (SPEC §10.6), with a real ACME CA.
@@ -60,24 +60,15 @@ const pebbleConfig = `{
 }`
 
 func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "T5", Name: "own-domain ingress: passthrough keeps the node's chain, terminate serves a CA certificate", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 15 * time.Minute,
 	})
 
 	const domain = "harness.test"
-	f := fabric.New("pactt5", dockerRun)
-	t.Cleanup(func() {
-		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if dir := os.Getenv("PACT_HARNESS_ARTIFACTS"); dir != "" {
-			_ = f.Collect(c, dir)
-		}
-		_ = f.Teardown(c)
-	})
-
-	net, err := f.Network(ctx, "net", fabric.NetOpts{})
+	f := w.Fab
+	net, err := w.LAN(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,67 +208,30 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	}
 
 	// --- two nodes, one per mode ---
+	//
+	// Each is certified by its owner's wallet — until then the account is nobody and the node has
+	// no chain to present, through an ingress or otherwise — and its public name is set from the
+	// start, because the leaf names the address it answers at (PACT §2) and the wallet signs it
+	// before the ingress is paired. Pairing and the tunnel are settings, settings are the
+	// owner's, and the portal requires a session on every bind (SPEC §8.3): World.Node signs the
+	// owner in. These forms were posted as nobody.
 	type nodeCase struct {
-		slug, mode, ownerPort string
-		container             *fabric.Container
-		bridge                *fabric.Container
-		owner                 *OwnerSession
+		slug, mode string
+		container  *fabric.Container
+		bridge     *fabric.Container
+		owner      *OwnerSession
 	}
-	cases := []*nodeCase{{slug: "alice", mode: "passthrough", ownerPort: "18692"}, {slug: "bob", mode: "terminate", ownerPort: "18693"}}
+	cases := []*nodeCase{{slug: "alice", mode: "passthrough"}, {slug: "bob", mode: "terminate"}}
 	for _, nc := range cases {
-		c, err := f.Container(ctx, fabric.Spec{
-			Name: nc.slug, Image: images.Node, Network: net,
-			DNS:   []string{dnsIP},
-			Ports: []string{nc.ownerPort + ":8081"},
-			Env: map[string]string{
-				"PACT_PUBLIC_BIND": "0.0.0.0:8443",
-				// The public name from the start: the account's leaf names the address it
-				// answers at (PACT §2), and the wallet signs it before the ingress is paired.
-				"PACT_PUBLIC_URL":    "https://" + nc.slug + "." + domain,
-				"PACT_INTERNAL_BIND": "127.0.0.1:8080",
-				"PACT_CLIENT_CERT":   "preferred",
-				"PACT_SEAL":          "optional",
-			},
-			Cmd: []string{"serve"},
+		o, err := w.Node(ctx, NodeOpts{
+			Slug: nc.slug, Net: net, DNS: []string{dnsIP},
+			PublicURL: "https://" + nc.slug + "." + domain,
+			Env:       map[string]string{"PACT_SEAL": "optional"},
 		})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %v", nc.slug, err)
 		}
-		nc.container = c
-		if err := waitHealthyC(ctx, f, c); err != nil {
-			t.Fatal(err)
-		}
-		name := strings.ToUpper(nc.slug[:1]) + nc.slug[1:]
-		if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", nc.slug, "--name", name); err != nil {
-			t.Fatalf("account create on %s: %v (%s)", nc.slug, err, out)
-		}
-		// Certified by its owner's wallet: until then the account is nobody and the node has
-		// no chain to present, through an ingress or otherwise.
-		w, err := wallet.New(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Certify(ctx, wallet.Docker(c.Name), nc.slug, "", ""); err != nil {
-			t.Fatal(err)
-		}
-		b, err := f.Container(ctx, fabric.Spec{
-			Name: nc.slug + "-bridge", Image: images.Socat, NetworkMode: "container:" + c.Name,
-			Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		nc.bridge = b
-	}
-	time.Sleep(2 * time.Second)
-	// Pairing and the tunnel are settings, settings are the owner's, and the portal requires a
-	// session on every bind (SPEC §8.3). These forms were posted as nobody.
-	for _, nc := range cases {
-		_, _, session, err := BootstrapOwner(ctx, f, nc.container, nc.ownerPort)
-		if err != nil {
-			t.Fatalf("%s's owner session: %v", nc.slug, err)
-		}
-		nc.owner = session
+		nc.container, nc.bridge, nc.owner = o.Node, o.Bridge, o.Portal
 	}
 
 	// --- pairing: a one-time token per node, redeemed through the portal ---
@@ -321,7 +275,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		if _, err := f.Raw(ctx, "docker", "restart", nc.container.Name); err != nil {
 			t.Fatal(err)
 		}
-		if err := waitHealthyC(ctx, f, nc.container); err != nil {
+		if err := topology.WaitHealthy(ctx, f, nc.container); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := f.Raw(ctx, "docker", "restart", nc.bridge.Name); err != nil {

@@ -20,14 +20,13 @@ import (
 // black-on-white while the rest of the portal followed the system. No HTML
 // assertion could have caught it, and no unit test did.
 func TestEveryPortalPageRendersInBothThemes(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S11", Name: "every portal page renders in both themes with no console error", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 12 * time.Minute,
 	})
 
-	p, err := SetupPaired(ctx, "pactui", Ports{Owner: "18651", Public: "18652"}, images.Node)
-	t.Cleanup(func() { p.Teardown("") })
+	p, err := w.Paired(ctx, images.Node)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}

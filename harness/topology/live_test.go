@@ -21,7 +21,7 @@ func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 		Timeout: 6 * time.Minute,
 	})
 
-	f := fabric.New("pacttopo", fabric.Local)
+	f := fabric.New(fabric.PrefixFor(registry.SpecOf(ctx).ID), fabric.Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -54,9 +54,9 @@ func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 	// The asymmetry. A probe container on the WAN can open alice's public port
 	// and cannot open bob's — because bob has no route in, not because we did
 	// not try.
-	probe := "pacttopo-probe"
+	probe := f.Name("probe")
 	if _, err := fabric.Local(ctx, "docker", "run", "-d", "--name", probe,
-		"--network", "pacttopo-wan", images.Alpine, "sh", "-c", "sleep 200"); err != nil {
+		"--network", f.Name("wan"), images.Alpine, "sh", "-c", "sleep 200"); err != nil {
 		t.Fatalf("starting probe: %v", err)
 	}
 	t.Cleanup(func() { _, _ = fabric.Local(context.Background(), "docker", "rm", "-f", probe) })

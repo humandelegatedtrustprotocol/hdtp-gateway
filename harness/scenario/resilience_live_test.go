@@ -14,14 +14,13 @@ import (
 
 // S7 — what happens when the network misbehaves, and what must happen anyway.
 func TestResilienceUnderImpairment(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S7", Name: "msg_id idempotency, a real partition and heal, delivery over a lossy link", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 12 * time.Minute,
 	})
 
-	p, err := SetupPaired(ctx, "pactres", Ports{Owner: "18621", Public: "18622"}, images.Node)
-	t.Cleanup(func() { p.Teardown("") })
+	p, err := w.Paired(ctx, images.Node)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}

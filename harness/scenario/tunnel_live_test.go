@@ -13,7 +13,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
 
 // T6 — a node behind a self-hosted `frps`.
@@ -28,24 +28,15 @@ import (
 // node's own certificate must reach the caller. A tunnel that terminated TLS
 // would break mTLS identity, which is the whole basis of PACT §2.
 func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "T6", Name: "a node behind a self-hosted frps keeps its own chain and serves MCP", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 10 * time.Minute,
 	})
 
 	const domain = "alice.harness.test"
-	f := fabric.New("pactfrp", dockerRun)
-	t.Cleanup(func() {
-		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if dir := os.Getenv("PACT_HARNESS_ARTIFACTS"); dir != "" {
-			_ = f.Collect(c, dir)
-		}
-		_ = f.Teardown(c)
-	})
-
-	net, err := f.Network(ctx, "net", fabric.NetOpts{})
+	f := w.Fab
+	net, err := w.LAN(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,58 +77,19 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	//
 	// Its public URL is the tunnel's from the start, because the account's leaf names the
 	// address it answers at (PACT §2) and the wallet signs it before the tunnel exists.
-	const ownerPort = "18691"
-	node, err := f.Container(ctx, fabric.Spec{
-		Name: "node", Image: images.Node, Network: net,
-		Ports: []string{ownerPort + ":8081"},
-		Env: map[string]string{
-			"PACT_PUBLIC_BIND":   "0.0.0.0:8443",
-			"PACT_PUBLIC_URL":    "https://" + domain + ":8443",
-			"PACT_INTERNAL_BIND": "127.0.0.1:8080",
-			"PACT_CLIENT_CERT":   "preferred",
-		},
-		Cmd: []string{"serve"},
-	})
+	//
+	// Settings are the owner's, and the portal requires a session on every bind (SPEC §8.3):
+	// so the owner registers a passkey (World.Node does), and sets them as that owner. This
+	// posted forms as nobody, with a CSRF cookie read off an unauthenticated GET, while a
+	// loopback bind needed no session; every POST has been refused since, three steps before
+	// the symptom.
+	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, PublicURL: "https://" + domain + ":8443"})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("alice: %v", err)
 	}
-	if err := waitHealthyC(ctx, f, node); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := f.Exec(ctx, node, "/pact-gateway", "account", "create",
-		"--slug", "alice", "--name", "Alice"); err != nil {
-		t.Fatalf("account create: %v (%s)", err, out)
-	}
-	aliceWallet, err := wallet.New("Alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pin, err := aliceWallet.Certify(ctx, wallet.Docker(node.Name), "alice", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	node, bridge, owner, pin, aliceWallet := alice.Node, alice.Bridge, alice.Portal, alice.Pin, alice.Wallet
 	if want := "https://" + domain + ":8443/a/alice/mcp"; pin.Endpoint != want {
 		t.Fatalf("the leaf names %q, want the tunnel's address %q", pin.Endpoint, want)
-	}
-
-	// The portal is loopback-bound (SPEC §8.3); a sidecar in the node's own netns
-	// publishes it for the owner's browser without the node binding non-loopback.
-	bridge, err := f.Container(ctx, fabric.Spec{
-		Name: "bridge", Image: images.Socat, NetworkMode: "container:" + node.Name,
-		Cmd: []string{"TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(2 * time.Second)
-
-	// Settings are the owner's, and the portal requires a session on every bind (SPEC §8.3):
-	// so the owner registers a passkey, and sets them as that owner. This posted forms as
-	// nobody, with a CSRF cookie read off an unauthenticated GET, while a loopback bind needed
-	// no session; every POST has been refused since, three steps before the symptom.
-	_, _, owner, err := BootstrapOwner(ctx, f, node, ownerPort)
-	if err != nil {
-		t.Fatalf("the owner's session: %v", err)
 	}
 	for k, v := range map[string]string{
 		"tunnel.frp.server_addr":   frps.Name,
@@ -161,7 +113,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	if _, err := f.Raw(ctx, "docker", "restart", node.Name); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitHealthyC(ctx, f, node); err != nil {
+	if err := topology.WaitHealthy(ctx, f, node); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.Raw(ctx, "docker", "restart", bridge.Name); err != nil {
