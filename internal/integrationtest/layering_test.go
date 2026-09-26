@@ -4,15 +4,16 @@ package integrationtest
 // survey of 2026-09-26 found the node importing the portal package for one handler, and the node
 // and the public surface importing the calendar provider for its types, and each had arrived
 // without anyone deciding it. A layer that can be reached into from below stops being a layer.
+// The node now takes the landing page as node.Options.Landing, and the calendar types live in
+// internal/calendar, which the provider and the public surface both import.
 //
 // The table is data. Every package under internal/ and cmd/ must have a rank, and a package may
 // import only packages of a strictly lower rank. `cli` is the one package above every other (it
 // wires them) and `cmd/pact-gateway` is above it. Only non-test files are read: a test may reach
 // up to build its fixture.
 //
-// A known inversion that has not been fixed yet is named in layerExceptions with why. The list
-// only shrinks: an exception that no longer occurs fails the test, so fixing an inversion and
-// forgetting its entry cannot leave a hole for the next one.
+// There is no exception list. The three inversions landed with this test as named exceptions and
+// were removed by the refactor that followed it; an inversion is fixed, not excused.
 
 import (
 	"go/parser"
@@ -38,6 +39,7 @@ var layerRank = map[string]int{
 	"internal/core/store/sqlitedb": 0,
 	"internal/core/store/pgdb":     0,
 	"internal/envelope":            0,
+	"internal/calendar":            0,
 	"internal/ingress/dns":         0,
 	"internal/testid":              0,
 	"internal/integrationtest":     0,
@@ -73,13 +75,6 @@ var layerRank = map[string]int{
 	// the wiring, and the binary
 	"internal/cli":     8,
 	"cmd/pact-gateway": 9,
-}
-
-// layerExceptions are inversions that exist today and are to be removed, each with why it is
-// still here. Key: "importer -> imported".
-var layerExceptions = map[string]string{
-	"internal/node -> internal/integrations/providers":   "node's calendarAt names providers.Slot and BookingAck; refactor S2 moves them behind a port",
-	"internal/public -> internal/integrations/providers": "the public tools name providers.Slot, BookingAck and MaxSlots; refactor S2 moves them behind a port",
 }
 
 // nodeImports reads every non-test Go file under internal/ and cmd/ and returns, per package
@@ -151,7 +146,6 @@ func TestImportsPointDownTheLayers(t *testing.T) {
 			problems = append(problems, pkg+" is ranked but does not exist: remove it from layerRank")
 		}
 	}
-	seen := map[string]bool{}
 	for pkg, imports := range graph {
 		from, ok := layerRank[pkg]
 		if !ok {
@@ -166,17 +160,7 @@ func TestImportsPointDownTheLayers(t *testing.T) {
 			if to < from {
 				continue
 			}
-			edge := pkg + " -> " + imp
-			if _, excused := layerExceptions[edge]; excused {
-				seen[edge] = true
-				continue
-			}
-			problems = append(problems, edge+": rank "+strconv.Itoa(from)+" imports rank "+strconv.Itoa(to)+"; an import may only point down")
-		}
-	}
-	for edge := range layerExceptions {
-		if !seen[edge] {
-			problems = append(problems, edge+" is excused but no longer happens: remove it from layerExceptions")
+			problems = append(problems, pkg+" -> "+imp+": rank "+strconv.Itoa(from)+" imports rank "+strconv.Itoa(to)+"; an import may only point down")
 		}
 	}
 	sort.Strings(problems)
