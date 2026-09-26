@@ -1,7 +1,9 @@
 # Autonomous scenario harness — design
 
-Status: **design, not built.** Nothing in this document exists yet. It is written
-to be executed as PLAN phase P14, and to be argued with first.
+Status: **built in part.** This was written as the design for PLAN phase P14. What
+exists is the registry of §4 — nineteen scenarios, each a test — the fabric, the
+drivers, the VM fabric of §5 and the tiers of §6. Where a section describes more
+than was built, it says so. How to add a scenario is in `docs/testing.md`.
 
 The repo's existing tests are excellent at what they do: they assemble nodes
 in-process and drive them over real TLS. What they cannot do is put a node behind
@@ -31,7 +33,9 @@ four review passes correcting.
 | **P10-12g** Tailscale Funnel, live | **not closable** | — nothing that proves anything about Funnel | Everything. A fake adapter would test our code, not Funnel |
 | **P10-12h** ngrok TLS endpoint | **not closable** | — TLS endpoints require a paid plan | Everything, for the same reason |
 
-**Four of six move. Two stay owner runs and should stay on the board as such.**
+**Four of six move. Two stay owner runs and should stay on the board as such.** Of the four,
+P10-12j (T5) and P10-12f (S4) have scenarios; P10-12e (S1) has none, and for P10-12i the NAT
+topology is proven (F3) but no scenario pairs or messages across it.
 
 ### The six documented coverage gaps
 
@@ -55,55 +59,72 @@ Four layers, each replaceable without touching the others.
 Everything the node talks to becomes a container, so the node is exercised
 through a real socket rather than a function call.
 
+Every image is named once, in `harness/images`: the three built here by tag, the ones pulled
+from a registry by digest (`images_test.go` holds that no other file names an image).
+
 | Service | Image / source | Why it is real |
 |---|---|---|
-| `node-*` | the repo's own `Dockerfile` | the shipped artifact, not a test build |
-| `nat-*` | `alpine` + `iptables` | `MASQUERADE` out, nothing in — a node behind it genuinely cannot be dialled |
-| `shaper` | `alpine` + `iproute2` | `tc netem` for latency, loss, partition |
-| `dns` | small Go binary on `miekg/dns` (**already a dependency**) | authoritative answers for the harness zone |
-| `acme` | Pebble | **already a dependency** — today it runs *in-process* in `internal/ingress/terminate_test.go`; here it moves to a container so ACME crosses a real network |
-| `frps` | upstream `frp` server | **`internal/tunnel/frp.go` imports `frp/client` only** — it is the `frpc` half. `frps` is separately self-hostable and needs no account, which is what makes a *real* tunnel testable |
-| `caldav` | Radicale + an off-the-shelf calendar MCP server | an upstream we did not write |
-| `hostile` | small Go binary | SSRF targets: redirects into private ranges, oversized bodies, slow-loris |
-| `postgres` | `postgres:16-alpine` | the engine CI already skips without a DSN |
+| node | the repo's own `Dockerfile` (`images.Node`; the calendar scenario uses `Dockerfile.full` plus a pinned `caldav-mcp`, `images.Caldav`) | the shipped artifact, not a test build |
+| NAT router | Alpine, `iptables` installed at start | `MASQUERADE` out, nothing in — a node behind it genuinely cannot be dialled |
+| shaper | Alpine + `iproute2`, built here (`images.Shaper`) | `tc netem` for latency, loss, partition |
+| bridge | `alpine/socat` | publishes a node's loopback-bound owner surface from inside its network namespace |
+| dns | CoreDNS | authoritative answers for the harness zone (T5) |
+| acme | Pebble | in-process in `internal/ingress/terminate_test.go`; here in a container, so ACME crosses a real network (T5) |
+| frps | upstream `frp` server | **`internal/tunnel/frp.go` imports `frp/client` only** — it is the `frpc` half. `frps` is separately self-hostable and needs no account, which is what makes a *real* tunnel testable (T6) |
+| caldav | Radicale + an off-the-shelf calendar MCP server | an upstream we did not write (S4) |
+
+Designed and not built: a `hostile` server (SSRF targets, oversized bodies, slow-loris) and a
+Postgres engine — every node in the harness runs its default store.
 
 ### Orchestrator
 
-A Go program under `harness/`, **its own module** (`harness/go.mod`). This matters:
+`go test` under `harness/`, **its own module** (`harness/go.mod`), driven by
+`harness/cmd/harness` (`list`, `run`, `preflight`, `shaper`). This matters:
 CDP means `chromedp`, a substantial dependency, and neither `make check` nor the
 shipped binary should ever see it. A separate module — not merely a build tag —
 keeps the root `go.mod` and the distroless image exactly as they are.
 
+A scenario begins with `begin` (`scenario/node.go`), which registers it
+(`registry.Start`) and gives it a World: a fabric named by the scenario's id and this
+run's token, torn down when the test ends. `World.Node` is the one way a node is
+stood up — container, health, account, the owner's wallet certifying it, the bridge,
+the passkey ceremony, the owner MCP — with its host ports from `fabric.FreePort`
+(`ports_test.go` holds that no source picks one by hand). `World.Paired` adds a
+contact who has redeemed an invite and been approved.
+
 ### Drivers
 
 - **Peer driver** — reuses `internal/outbound.Client` to act as a contact's agent over mTLS.
-- **Portal driver** — CDP. Registers passkeys with `WebAuthn.addVirtualAuthenticator`, takes screenshots, traverses by keyboard.
+- **Portal driver** — CDP. Registers passkeys with `WebAuthn.addVirtualAuthenticator`, renders pages as the signed-in owner, takes screenshots. (Keyboard-only traversal was designed and is not built.)
 - **Admin driver** — the CLI over the admin socket, via `docker exec`.
 - **Fabric driver** — `docker` CLI through `os/exec`, matching the repo's preference for few dependencies over a large SDK.
 
-### Invariants — asserted after *every* scenario
+### Invariants
 
-Not a suite; a suite-wide postcondition. Each of these is a regression this
-project has already had, which is why they are cross-cutting rather than local:
+One is built: **the audit chain verifies** (`invariant.All`, run by F4 against T1:
+each node is stopped and `audit verify` must report the chain intact). S9 makes the
+same check on its own node after its probes. It is not run after every scenario.
 
-1. **The audit chain verifies**, and its anchor matches (§11.6).
-2. **No session-binding growth** — the map is proportional to live sessions (P12-10).
-3. **Nothing withdrawn is still callable** — every tool absent from `tools/list` is refused on call (P12-02, P12-05).
-4. *(withdrawn with PACT 1.x, 2026-09-18: there is no relay role, so there is no relay to hold ciphertext)*
-5. **The store passes conformance** after the scenario's writes, on both engines.
+Designed and never built, and removed from the code on 2026-09-27 rather than kept as
+checks that report nothing: no session-binding growth (P12-10, unit-pinned in the node),
+nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
+after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
+PACT 1.x.
 
 ---
 
 ## 3. Topologies
 
-| ID | Shape | Exercises |
-|---|---|---|
-| **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path |
-| **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel |
-| **T3** `double-nat` | both behind separate NATs | *(not built)* a tunnel on each side is the only path. The builder that existed stood a relay between them and started both nodes in the relay mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
-| **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) |
-| **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME |
-| **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing |
+| ID | Shape | Exercises | Built |
+|---|---|---|---|
+| **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path | `topology.LAN`, used by F4; the scenarios' own networks are this shape |
+| **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel | `topology.BehindNAT`, used by F3 only |
+| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
+| **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) | no local topology; T7 runs through Cloudflare's real edge |
+| **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME | scenario T5 |
+| **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing | scenario T6 |
+
+No scenario runs across topologies: the T × S matrix this section once implied does not exist.
 
 ---
 
@@ -111,7 +132,7 @@ project has already had, which is why they are cross-cutting rather than local:
 
 Every live scenario is registered: a `registry.Spec` literal in its own test function (id, name,
 tier, needs, time budget), passed to `registry.Start`. The table below is generated from those
-literals by `cd harness && go run ./cmd/harness list -doc` and held equal to them by
+literals by `cd harness && go run ./cmd/harness list -doc -write` and held equal to them by
 `harness/registry/registry_test.go`, so it cannot name a scenario that does not exist. The ids
 are F for the fabric proving itself, S for a suite, and T for a topology that needs scaffolding
 of its own (§3).
@@ -254,11 +275,14 @@ untouched. Boot to finished is about six seconds.
 
 ### Shape of the change
 
-S8 runs as its own **QEMU/HVF topology**, not as a variant of an existing cell.
-The other five topologies stay on Compose. This is a hybrid fabric, deliberately:
-the binary is `CGO_ENABLED=0` static, so the guest needs no Docker inside it —
-just a minimal arm64 rootfs — and S8 is nightly-tier only. What remains to build
-is that rootfs; nothing else about the harness changes.
+S8 runs as its own **QEMU/HVF fabric**, not as a variant of an existing cell; the
+container topologies are plain `docker` networks. This is a hybrid fabric,
+deliberately: the binary is `CGO_ENABLED=0` static, so the guest needs no Docker
+inside it — just a minimal arm64 rootfs, which `harness/vm/rootfs.go` builds in a
+throwaway Alpine container. S8 is nightly-tier only, and nightly promises it only
+when `PACT_HARNESS_KERNEL` names a kernel (`make harness-kernel`). On 2026-09-27 the
+whole scenario — cross-building the node, building the rootfs, booting twice — took
+13.9 s.
 
 ## 5a. The harness plays the wallet
 
@@ -290,17 +314,30 @@ showed, because a live scenario is skipped unless `PACT_HARNESS_LIVE` is set and
 hook does not set it. **The hermetic tier being green says the harness COMPILES. It says nothing
 about whether a scenario can run**, and only a live run does.
 
+**Status, 2026-09-27 — `make harness-nightly` with `PACT_HARNESS_KERNEL` set: 18 scenarios
+PASS, T7 not promised** (no `PACT_CF_DOMAIN`), and the tier says so rather than passing it
+silently (§6).
+
 ## 6. Run tiers
 
-Six topologies × eleven suites is roughly sixty cells. Running all of them on
-every push would be slow enough that people would stop reading the result.
+A tier is a set of registered scenarios (§4), chosen by the `Tier` in each spec —
+tiers nest, fabric ⊂ pr ⊂ nightly — never by a regular expression over test names.
+`go run ./cmd/harness run -tier <t>` prints what the tier PROMISES (every scenario
+whose needs it provides), runs `go test -v -count=1` on exactly those tests with a
+`-timeout` summed from their specs, and fails if a promised scenario did not PASS —
+a skip included. A scenario it does not promise is printed with what would provide
+it. `docs/testing.md` has the needs, the result files and how to add a scenario.
 
-| Tier | Cells | Wall clock (est.) | When | How |
+| Tier | Runs | Promises (needs it provides) | Measured 2026-09-27 | How |
 |---|---|---|---|---|
-| **Hermetic** | fabric, topology, preflight, invariants against a recorder | ~5 s | every push | `pre-push` hook, automatic |
-| **Fast** | T1, T2 × S1, S2, S3, S9 + all invariants | ~8 min | on demand | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
-| **Full** | the full matrix, including S4, S7, S8, S10, S11 | ~45 min | on demand | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
-| **Release** | full + both store engines + `-race` throughout | ~70 min | before a tag | by hand |
+| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet` | — (runs no scenario) | `make harness` | `pre-push` hook, automatic |
+| **Fabric** | F1–F5 | docker, node image | 5/5 PASS; the five took 10.4 s | `make harness-live` |
+| **PR** | fabric + S2, S9 | + chrome | 7/7 PASS; the seven took 21.3 s | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
+| **Nightly** | every scenario | + caldav image; kernel only with `PACT_HARNESS_KERNEL`, cf only with `PACT_CF_DOMAIN` | 18 PASS, T7 not promised; the scenario package took 104.8 s | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
+
+The measured times are the scenarios' own (the sum of the verdicts' durations, or the
+package's time), from one run on one machine with every image already built. Building the
+images is not counted.
 
 **None of this runs in GitHub CI, and that is deliberate.** The live tiers drive
 real containers and a real Chrome over CDP; a runner has neither Chrome nor a
@@ -311,30 +348,35 @@ runs — `make hooks` installs the `pre-push` hook that does it. CI keeps what i
 is genuinely good at: `make check` on both storage engines, the analyzers, and
 the fuzzers.
 
-**What the fast tier does not run, stated so it is not mistaken for full coverage:**
-T3–T6 entirely, resilience (S7), time travel (S8) and portal
-screenshots (S11). A green PR run means "the common paths and the adversarial
-probes hold", not "the system is verified".
+**What the PR tier does not run, stated so it is not mistaken for full coverage:**
+everything the nightly tier adds — S4, S7, S8, S10–S15, T5–T7. A green PR run means
+"the fabric, pairing and the adversarial probes hold", not "the system is verified".
 
 ---
 
 ## 7. On failure
 
-A failed scenario is worth nothing without the evidence. Each run collects, per
-container: logs, the store file, the audit export, `tc`/`iptables` state, and —
-for portal scenarios — the screenshot and the CDP console transcript. A `pcap`
-from the shaper is captured for S5 and S7, where the question is usually "did the
-packet leave at all".
+A tier run leaves `<id>.json` per scenario and a `summary.json` in its results
+directory (printed at the start of the run). With `PACT_HARNESS_ARTIFACTS` set, each
+scenario's World writes every container's log there at teardown, and S11 saves its
+screenshots there. Nothing else is collected: the store file, the audit export,
+`tc`/`iptables` state, the CDP console transcript and a `pcap` were designed and are
+not built — S11 asserts on console errors and prints them, but does not save them.
 
 ---
 
 ## 8. Risks
 
-- **Flakiness.** Real networking is not deterministic. Mitigation: no `sleep`
-  anywhere — poll to a deadline; every scenario states its own timeout; a retry
-  budget of one, with the retry recorded in the report rather than hidden.
-- **Image build cost.** The node image is rebuilt per run. Mitigation: layer
-  cache keyed on `go.sum`, and one image shared across all cells in a run.
+- **Flakiness.** Real networking is not deterministic. Mitigation: waits poll to a
+  deadline (a node's health, the published owner surface, a log line, a zone) rather
+  than sleeping a guessed interval; the loops that do sleep between polls are bounded
+  by a deadline. Every scenario states its own timeout in its spec. There is no retry:
+  a failed scenario fails its tier.
+- **Collisions.** Two scenarios, or two runs, fighting over a port or a name. Mitigation:
+  host ports come from `fabric.FreePort`, and every name carries the scenario's id and
+  a per-run token (`fabric.PrefixFor`).
+- **Image drift.** Mitigation: upstream images are pinned by digest (`harness/images`);
+  the node image is rebuilt by each tier's Makefile target, from Docker's layer cache.
 - **Docker-in-CI privileges.** `iptables` and `tc` need `NET_ADMIN`. Mitigation:
   confine it to the `nat-*` and `shaper` containers; the node containers stay
   unprivileged, as they ship.
