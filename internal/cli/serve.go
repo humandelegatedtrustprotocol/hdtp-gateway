@@ -244,6 +244,7 @@ func (s *serveRun) startNode() error {
 	s.agent, s.presence = presence.NewAgentAnswered(st, s.auditFn)
 	nodeOpts := node.Options{
 		Config: *s.cfg, Store: st, Keyring: s.kr, Audit: s.auditFn, Adapter: s.adapterName, Bus: bus,
+		Landing: landingPage,
 		// Only a TERMINATING ingress opens the onward leg; a passthrough one
 		// forwards raw TLS and never presents a certificate of its own.
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),

@@ -22,13 +22,12 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-// CardSigner produces the issuer's card text and its signature for an account —
-// implemented by identity.Manager (SPEC §9.3); injected to keep packages apart.
-type CardSigner func(accountID string) (cardText string, sigB64 string, err error)
-
+// LandingDeps is what the landing page reads. Its fields are node.LandingDeps' exactly, so the one
+// converts to the other: the node builds it, and `serve` hands this package's page to the node.
 type LandingDeps struct {
-	Store    store.Store
-	SignCard CardSigner
+	Store store.Store
+	// SignCard produces the issuer's card text and its signature for an account (SPEC §9.3).
+	SignCard func(accountID string) (cardText string, sigB64 string, err error)
 	// Chain returns the issuer's [leaf, root]. PACT §4: the machine view is exactly
 	// {card, card_sig, chain}, and the chain is what a redeemer validates before it seals its
 	// first call — so a landing that cannot produce one has nothing redeemable to serve.

@@ -83,7 +83,7 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 		rows = append(rows, action+" "+resource+" → "+outcome)
 	}
 	cfg := &core.Config{DataDir: n.dir, PublicURL: oldURL, Mode: core.ModeDirect, Seal: core.SealOptional, ClientCert: core.ClientCertPreferred, LANConnections: true}
-	nd, err := node.New(ctx, node.Options{Config: *cfg, Store: st, Keyring: kr, Audit: audit})
+	nd, err := node.New(ctx, node.Options{Config: *cfg, Store: st, Keyring: kr, Audit: audit, Landing: landingPage})
 	if err != nil {
 		t.Fatal(err)
 	}
