@@ -86,11 +86,14 @@ keeps the root `go.mod` and the distroless image exactly as they are.
 
 A scenario begins with `begin` (`scenario/node.go`), which registers it
 (`registry.Start`) and gives it a World: a fabric named by the scenario's id and this
-run's token, torn down when the test ends. `World.Node` is the one way a node is
-stood up — container, health, account, the owner's wallet certifying it, the bridge,
-the passkey ceremony, the owner MCP — with its host ports from `fabric.FreePort`
-(`ports_test.go` holds that no source picks one by hand). `World.Paired` adds a
-contact who has redeemed an invite and been approved.
+run's token, torn down when the test ends. `World.Node` is the one way a scenario
+stands up an owned node — container, health, account, the owner's wallet certifying
+it, the bridge, the passkey ceremony, the owner MCP — with its host ports from
+`fabric.FreePort` (`ports_test.go` holds that no source picks one by hand).
+`World.Paired` adds a contact who has redeemed an invite and been approved. What is
+not an owned node is built otherwise: T5's ingress role and T6's frps are plain
+fabric containers, F1–F5 build through `fabric` and `topology`, and T7 adopts the
+containers the Cloudflare demo script built.
 
 ### Drivers
 
