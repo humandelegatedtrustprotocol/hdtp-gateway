@@ -146,6 +146,12 @@ func TableText(cs []Case) string {
 	return b.String()
 }
 
+// The markers around the generated table in docs/harness-design.md.
+const (
+	DocBegin = "<!-- registry:begin -->\n"
+	DocEnd   = "<!-- registry:end -->"
+)
+
 // DocTable renders the registry as the Markdown table docs/harness-design.md carries between its
 // registry markers. registry_test.go holds the doc equal to this.
 func DocTable(all []Entry) string {

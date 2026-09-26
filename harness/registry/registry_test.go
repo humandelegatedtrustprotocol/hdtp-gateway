@@ -34,7 +34,7 @@ func TestTheHarnessRegistryIsReadable(t *testing.T) {
 }
 
 // docs/harness-design.md carries the registry as a table between two markers. It is generated
-// (`go run ./cmd/harness list -doc`) and held here, so the doc cannot list a scenario that does
+// (`go run ./cmd/harness list -doc -write`) and held here, so the doc cannot list a scenario that does
 // not exist — S1, S3 and S5 were listed for months with no test behind them.
 func TestTheDesignDocCarriesTheRegistry(t *testing.T) {
 	all, err := Scan("..")
@@ -46,14 +46,13 @@ func TestTheDesignDocCarriesTheRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(b)
-	const begin, end = "<!-- registry:begin -->\n", "<!-- registry:end -->"
-	i, j := strings.Index(doc, begin), strings.Index(doc, end)
+	i, j := strings.Index(doc, DocBegin), strings.Index(doc, DocEnd)
 	if i < 0 || j < i {
-		t.Fatalf("docs/harness-design.md has no %q ... %q block", strings.TrimSpace(begin), end)
+		t.Fatalf("docs/harness-design.md has no %q ... %q block", strings.TrimSpace(DocBegin), DocEnd)
 	}
-	if got, want := doc[i+len(begin):j], DocTable(all); got != want {
+	if got, want := doc[i+len(DocBegin):j], DocTable(all); got != want {
 		t.Errorf("docs/harness-design.md's scenario table is not the registry; regenerate it with "+
-			"`cd harness && go run ./cmd/harness list -doc`.\n--- doc\n%s--- registry\n%s", got, want)
+			"`cd harness && go run ./cmd/harness list -doc -write`.\n--- doc\n%s--- registry\n%s", got, want)
 	}
 }
 

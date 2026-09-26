@@ -21,6 +21,7 @@ import (
 func runList(args []string, stdout io.Writer) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	doc := fs.Bool("doc", false, "print the Markdown table docs/harness-design.md carries")
+	write := fs.Bool("write", false, "with -doc: write the table into "+designDoc+" between its registry markers")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -28,6 +29,14 @@ func runList(args []string, stdout io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	if *doc && *write {
+		if err := writeDocTable(designDoc, registry.DocTable(all)); err != nil {
+			fmt.Fprintln(os.Stderr, "harness list:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "harness: %s carries the registry (%d scenarios)\n", designDoc, len(all))
+		return 0
 	}
 	if *doc {
 		fmt.Fprint(stdout, registry.DocTable(all))
@@ -56,6 +65,24 @@ func runList(args []string, stdout io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// designDoc is the design document, relative to the harness module, that carries the registry.
+const designDoc = "../docs/harness-design.md"
+
+// writeDocTable replaces what sits between the registry markers (registry.DocBegin, DocEnd).
+func writeDocTable(path, table string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	doc := string(b)
+	i, j := strings.Index(doc, registry.DocBegin), strings.Index(doc, registry.DocEnd)
+	if i < 0 || j < i {
+		return fmt.Errorf("%s has no %q ... %q block", path, strings.TrimSpace(registry.DocBegin), registry.DocEnd)
+	}
+	doc = doc[:i+len(registry.DocBegin)] + table + doc[j:]
+	return os.WriteFile(path, []byte(doc), 0o644)
 }
 
 // plan is what `harness run` will do, decided before anything runs.
