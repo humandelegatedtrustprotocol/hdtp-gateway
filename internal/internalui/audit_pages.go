@@ -10,8 +10,14 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
+// MountAuditPages registers the audit view.
 func MountAuditPages(mux *http.ServeMux, st store.Store) {
-	mux.HandleFunc("GET /api/audit", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/audit", getAPIAudit(st))
+}
+
+// getAPIAudit serves `GET /api/audit`.
+func getAPIAudit(st store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// The session gate normally guarantees an owner before this runs; a
 		// mount that somehow lacks one must fail closed rather than serve the
 		// node-wide trail to nobody in particular.
@@ -35,7 +41,7 @@ func MountAuditPages(mux *http.ServeMux, st store.Store) {
 		// named ?account= and read the whole trail when the parameter was
 		// simply omitted, so sending less yielded more: any signed-in owner
 		// could fetch every account's contacts, bookings and message rows.
-		account := r.URL.Query().Get("account")
+		account := accountParam(r)
 		var scope []string
 		if account != "" {
 			// Named: only if this owner administers it. The account middleware
@@ -90,5 +96,5 @@ func MountAuditPages(mux *http.ServeMux, st store.Store) {
 			rows = rows[:limit]
 		}
 		apiJSON(w, map[string]any{"rows": rows, "actor": actor, "account": account, "limit": limit})
-	})
+	}
 }
