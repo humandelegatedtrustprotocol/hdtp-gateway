@@ -11,20 +11,15 @@ package cli
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tech-sumit/pact-gateway/internal/contacts"
 	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/audit"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 	"github.com/tech-sumit/pact-gateway/internal/internalui"
@@ -32,6 +27,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/services/presence"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
@@ -54,94 +50,6 @@ func tunnelExtra(lookup func(string) []string) map[string]string {
 	}
 	return out
 }
-
-// auditWriter turns the hash-chain writer into the three-argument sink every
-// surface takes. A failed audit write is reported, never swallowed silently:
-// SPEC §11 forbids responding without one, and losing the chain is the kind of
-// failure an operator must see.
-func auditWriter(ctx context.Context, st store.Store, stderr io.Writer) *auditSink {
-	// A container's log IS its operating surface, and this node printed six lines
-	// of banner and then nothing: an owner watching `docker logs` had no way to
-	// see a refusal, an approval, or a failed delivery, and the audit CLI cannot
-	// read the chain while the node holds the data directory. So every event is
-	// mirrored to stderr as it is written.
-	//
-	// It mirrors the audit row and nothing else, which is what makes it safe: the
-	// chain records the KEY of a setting and never its value, fingerprints rather
-	// than names, and content-addressed references rather than bodies. Nothing
-	// leaves the machine — `PACT_LOG=off` silences it for anyone who wants that.
-	return &auditSink{w: &audit.Writer{Sink: st}, ctx: ctx, stderr: stderr,
-		mirror: os.Getenv("PACT_LOG") != "off"}
-}
-
-// auditSink writes to the one hash chain, tagging each event with WHO caused it.
-// The actor kind is not decoration: the audit page filters on it, and a chain
-// that records "a peer changed this node's seal policy" cannot answer the
-// question an operator actually asks — what did I do, and what was done to me.
-type auditSink struct {
-	w      *audit.Writer
-	ctx    context.Context
-	stderr io.Writer
-	mirror bool
-}
-
-func (a *auditSink) as(kind string) func(action, resource, outcome string) {
-	// Recover the account the same way the kinded path does. Only that path
-	// used to do it, and almost nothing goes through it: every row the public
-	// tool surface writes — messages, media, bookings, the traffic that is
-	// actually about somebody — was landing with an empty account, which made
-	// both §11.6's token scoping and the portal's account scoping vacuous.
-	return func(action, resource, outcome string) {
-		a.forAccount(accountFromResource(resource), kind)(action, resource, outcome)
-	}
-}
-
-// forAccount is `as` with the account the event belongs to.
-//
-// Every row used to be written with an empty account, which made §11.6's
-// per-account audit scoping vacuous: `audit_query` permitted a row when it had
-// no account, and no row ever had one, so a token narrowed to a single account
-// read the whole node's chain. The column is the filter, so it has to be filled
-// wherever the account is known.
-func (a *auditSink) forAccount(accountID, kind string) func(action, resource, outcome string) {
-	return func(action, resource, outcome string) {
-		if err := a.w.Append(a.ctx, accountID, kind, "", action, resource, outcome, "", ""); err != nil {
-			fmt.Fprintf(a.stderr, "audit: %s %s %s: %v\n", action, resource, outcome, err)
-			return
-		}
-		if a.mirror {
-			if resource == "" {
-				fmt.Fprintf(a.stderr, "%s %s %s\n", kind, action, outcome)
-				return
-			}
-			fmt.Fprintf(a.stderr, "%s %s %s %s\n", kind, action, resource, outcome)
-		}
-	}
-}
-
-// System: the node's own lifecycle — listeners, adapters, refusals not tied to
-// a resolved caller. The vocabulary is the store's (`owner`, `token`, `contact`,
-// `guest`, `cli`, `system`); anything outside it is rejected by the schema, so
-// this is deliberately not free-form.
-func (a *auditSink) system() func(action, resource, outcome string) { return a.as("system") }
-
-// Kinded lets a caller name the actor per event. Unknown kinds fall back to
-// `system` rather than being written: the store rejects anything outside its
-// vocabulary, and a rejected write is a hole in the chain.
-func (a *auditSink) kinded() func(kind, action, resource, outcome string) {
-	allowed := map[string]bool{
-		"owner": true, "token": true, "contact": true, "guest": true, "cli": true, "system": true,
-	}
-	return func(kind, action, resource, outcome string) {
-		if !allowed[kind] {
-			kind = "system"
-		}
-		a.as(kind)(action, resource, outcome)
-	}
-}
-
-// Owner: everything reached through the portal or the owner MCP.
-func (a *auditSink) owner() func(action, resource, outcome string) { return a.as("owner") }
 
 // startTunnel resolves and starts the inbound adapter. The returned name is
 // what the LAN guard and the trusted-header rule key off (SPEC §5.7).
@@ -199,7 +107,7 @@ func startTunnel(ctx context.Context, cfg *core.Config, stored map[string]string
 func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *internalui.SetupTokens,
 	tokens *auth.TokenService, authSvc *auth.Service,
 	chain *integrationChain, connector *integrations.Connector, agent *integrations.AgentAnswered,
-	presence *ownerPresence, identityDeps internalui.IdentityDeps,
+	presence *presence.Tracker, identityDeps internalui.IdentityDeps,
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
 	auditFn func(action, resource, outcome string), publicURL string,
 	settings internalui.SettingsDeps, authDeps *internalui.AuthDeps,
@@ -349,7 +257,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 // identity, so a token scoped to one account can never reach another (SPEC §8.4).
 func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationChain,
-	agent *integrations.AgentAnswered, presence *ownerPresence,
+	agent *integrations.AgentAnswered, presence *presence.Tracker,
 	auditFn func(action, resource, outcome string)) http.Handler {
 
 	inner := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
@@ -389,7 +297,7 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 			ServedPermissions: nd.ServedPermissions,
 		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
 		ownermcp.ForwardBus(ctx, srv, nd.Bus())
-		presence.add(srv)
+		presence.Add(srv)
 		auditFn("owner_mcp", "owner:"+ident.OwnerID, "connected")
 		return srv
 	}, &mcp.StreamableHTTPOptions{
@@ -467,22 +375,6 @@ func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 	}
 }
 
-// accountFromResource recovers the account id the node prefixes into a resource
-// string (`account:<id> …`). It is a recovery rather than a redesign: the
-// prefix already carries the fact, and threading a second parameter through
-// every audit call site would touch far more code than the filter needs.
-func accountFromResource(resource string) string {
-	const prefix = "account:"
-	if !strings.HasPrefix(resource, prefix) {
-		return ""
-	}
-	rest := resource[len(prefix):]
-	if i := strings.IndexAny(rest, " \t"); i >= 0 {
-		return rest[:i]
-	}
-	return rest
-}
-
 // noTunnel stands in for "no inbound adapter is running": a direct-mode node
 // that has not been told its public URL yet still serves, it just advertises
 // no endpoint on its card until the owner sets one.
@@ -493,91 +385,4 @@ func (noTunnel) Stop() error                                { return nil }
 func (noTunnel) Status() tunnel.Status {
 	return tunnel.Status{Name: "direct", Running: false,
 		Detail: "no public_url configured yet — set one in the portal (Settings → Tunnel) so your card can carry an endpoint"}
-}
-
-// newAgentAnswered builds the agent-answered service together with the tracker
-// that answers its Connected question (SPEC §6.8).
-//
-// They are created together on purpose. The tracker used to be made inside
-// ownerMCPHandler, which `serve` does not build until AFTER nd.Start has opened
-// the PUBLIC listener and the stored integrations have been reconnected — and
-// reconnecting is exactly what republishes agent-answered exposures. So for the
-// whole of boot, Connected was nil again and a contact calling an agent-answered
-// capability was held for the full wait budget: the defect P12-11 fixed,
-// reachable through the startup window it left behind. Pairing them here means
-// there is no moment when one exists without the other.
-func newAgentAnswered(st store.Store, audit func(action, resource, outcome string)) (*integrations.AgentAnswered, *ownerPresence) {
-	presence := &ownerPresence{}
-	return &integrations.AgentAnswered{
-		Store: st, Audit: audit,
-		Connected: func(string) bool { return presence.any() },
-	}, presence
-}
-
-// ownerPresence answers "is the owner's agent attached right now?" (SPEC §6.8).
-//
-// The owner MCP is account-agnostic — the token identity scopes each call, not
-// the server — so this is deliberately a node-wide answer and the account id is
-// ignored. Servers are registered as they are created and pruned once they hold
-// no sessions, so a reconnecting agent does not accumulate entries.
-type ownerPresence struct {
-	// Now is injectable for tests; nil means time.Now.
-	Now func() time.Time
-
-	mu      sync.Mutex
-	entries []*presenceEntry
-}
-
-type presenceEntry struct {
-	srv *mcp.Server
-	// added is when the server was registered. A server is created by getServer
-	// BEFORE the SDK attaches its session, so pruning on "has no sessions" alone
-	// would discard a live agent in the gap between the two — and that agent
-	// would then never count. Give a new server a grace period to acquire one.
-	added time.Time
-	// saw records that this server HAS held a session. Once true, "no sessions"
-	// means the agent left rather than has not arrived, and it can go at once.
-	saw bool
-}
-
-// presenceGrace is how long a newly created server may hold no session before it
-// is treated as abandoned.
-const presenceGrace = time.Minute
-
-func (p *ownerPresence) now() time.Time {
-	if p.Now != nil {
-		return p.Now()
-	}
-	return time.Now()
-}
-
-func (p *ownerPresence) add(s *mcp.Server) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.entries = append(p.entries, &presenceEntry{srv: s, added: p.now()})
-}
-
-func (p *ownerPresence) any() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	now := p.now()
-	live := p.entries[:0]
-	found := false
-	for _, e := range p.entries {
-		has := false
-		for range e.srv.Sessions() {
-			has = true
-			break
-		}
-		switch {
-		case has:
-			e.saw = true
-			live = append(live, e)
-			found = true
-		case !e.saw && now.Sub(e.added) < presenceGrace:
-			live = append(live, e) // still arriving
-		}
-	}
-	p.entries = live
-	return found
 }
