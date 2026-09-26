@@ -4,8 +4,11 @@ Owner, 2026-09-26 (verbatim where quoted):
 
 - "storing leaf there is against the platform's compliance" — the ledger's full leaf certificate
   has no business in the file (it grants nothing — a leaf is public and speaking as the host takes
-  the leaf's private key, which never leaves the host — and nothing reads it: every wallet rule
-  reads `endpoint`, `not_before`, `not_after`).
+  the leaf's private key, which never leaves the host — and no wallet RULE reads it: every rule
+  reads `endpoint`, `not_before`, `not_after`). *Corrected 2026-09-26 (review of PR #29, C16):
+  this said "nothing reads it"; `pact id ledger` read it, to print each leaf's key fingerprint in a
+  `key` column, and that column went with the leaf. The dates remain the way to match a ledger row
+  to a leaf.*
 - "vault = root key + certificate + PRF output" — and a downloadable recovery-key file at first
   issuance, "so user have it".
 - "we need to have new way as only way. Passkey is option 1 if its lost then upload vault with
@@ -25,8 +28,12 @@ second device (DevTools cannot carry a credential's PRF secret across authentica
 ```
 create   passkey (PRF) ──derives──▶ root, store key, store id
          the record at store id, sealed under store key: roots (no key), ledger, contacts
+         the recovery key shown once and downloaded as a file (<name>.recovery-key.txt) — asking
+         for that download is what offers the vault; Copy, beside it, is for a password manager
+         and unlocks nothing (owner: "add the key download click to product not to one specific
+         environment"); the two screens after can download the key again
          ONE download: the vault file  { v: 2, roots: [{…, pkcs8}], prf, passkey }  sealed under
-         the recovery key; the recovery key shown once, with Copy and Download-as-a-file
+         the recovery key
 sign     "Use my passkey" → derive → the record → §2.2 proof → sign → the record grows.
          Nothing downloads.
 lost     "I lost my passkey" → the vault file + recovery key → the prf in it opens the old record
@@ -81,14 +88,19 @@ No other way remains:
   `vault_open` refuses `v` ≠ 2. Parity's two `ledger_entry.leaf` lines go; intrusion suite
   unchanged.
 - CLI: `id_create` writes the vault (keys) and the record; `id_issue`, `id_ledger` (no key
-  column), `id_show`, `id_backup`/`id_restore` (both files), `contacts_export`/`import`, `card_*`
-  read and write the record. A `v: 1` file is refused with the one sentence.
+  column), `id_backup`/`id_restore` (both files), `contacts_export`/`import` read and write the
+  record; `id_show` and `card_*` read the vault, and `card-attach` writes it when a card takes the
+  root (corrected 2026-09-26, review of PR #29, S5: this said all of them used the record). A
+  `v: 1` file is refused with the one sentence. The review's CLI findings (C1–C5, C7, C21, S1, S2)
+  are fixed in pact-gateway/docs/release/review-pr29-2026-09-26.md, P1.
 - `sh gate.sh`; then the pin: commit → `sh js/reproduce.sh --pin` → commit the manifest → vendor
   into `pact-cloud/gateway/vendor/pact-identity/` → `check-wasm` → `build-ceremony --pin`.
 
 ### I3 · pact-cloud: the wallet page (`gateway/src/ceremony/`)
 - Creation: the file as above, one download, no `.initial`; the recovery-key file
-  (`<name>.recovery-key.txt`: the key and one line saying what it opens) beside Copy.
+  (`<name>.recovery-key.txt`: the key and one line saying what it opens) is the product's own
+  step — "Create and download the vault" is offered once it has been asked for (the page cannot
+  see a download land, and says so), and the saved and confirm screens can download it again.
 - The record as above; `storedPlaintext` strips `pkcs8` unless re-bound.
 - Signing: no download; `dn-refresh`, `dn-again`, `dn-pass`, `vaultText` after creation, and
   every line only they used go (rule 2). The done note says the record holds the certificate.
@@ -110,10 +122,13 @@ No other way remains:
 ### I4 · pact-cloud: harness and staging
 - `staging-identity.mjs`: one download, asserted by opening it with the recovery key read off the
   screen (roots + prf + passkey, nothing else); `signInWallet` asserts nothing downloads.
-- Scenario **RB1**: alex, on the kept wallet tab (its authenticator holds passkey A and can hold
-  B), takes the lost path with the file, ends with passkey B, renews with B under the original
-  fingerprint; the certificate route's `credential_id` is B's; the old record's address is 404;
-  the control: a message from bob afterwards is received.
+- Scenario **RB1**, after R1 (bob is no longer at alex by then): alex, on the kept wallet tab
+  (its authenticator holds passkey A and can hold B), presses the renewal button in alex's OWN
+  card on the identity page (the page lists every identity, pass two's alex2 first: pair run 41),
+  takes the lost path with the file, ends with passkey B, the fresh file is judged, the renewal is
+  signed under the original fingerprint; the old record's address is 404; the control: a second
+  renewal by "Use my passkey" with B, on a request the platform now names B in; alex's contacts
+  untouched.
 - `make ship-staging && make e2e-pair` green; logs to `docs/release/review-2026-09-23/runs/`.
 
 ### I5 · ship
@@ -136,9 +151,9 @@ own identity handling; the marketing site.
 |---|---|
 | I1 · SPEC 2.1.3 corrected in place | pact-protocol PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
 | I2 · core, contract, both ports, CLI, pin | umbrella c146fce + fb11079; gate green (parity 430/430, contract 860/860, B 116/116, intrusion 132/132, 52 MUSTs named) |
-| I3 · the wallet page | cloud 6775b63; `make wallet` 112/112 on the pinned core; `make check` green |
-| I4 · the pair harness, RB1 | cloud 6775b63; pair run 41 on staging in progress |
-| I5 · ship | after run 41 is green |
+| I3 · the wallet page | cloud 6775b63, then the key download as the product's step (PR #77); `make wallet` on the pinned core; `make check` green |
+| I4 · the pair harness, RB1 | cloud PR #77; pair run 41 143/144 (RB1 pressed the first renewal button, alex2's); run 42 on ad948f7: RB1 re-bound alex and then failed at the fresh file — Chrome wrote it OVER the original of the same name and the driver waited for a new name (measured; fixed by judging name and write time) — and alex's portal frame detached at P12, taking the later alex-page scenarios with it. That the /v1 request of ad948f7 installs nothing was read from the code, not measured: run 42 never reached it. Run 43 on the review's fixes — see the runs of record |
+| I5 · ship | after run 43 is green |
 
 `MAX_VAULT_BYTES` (256 KiB), measured with the core on 2026-09-26: a re-bound root's entry is 657
 bytes against 555 plain (+102); a ledger entry 259; a contact carrying a leaf and a root
