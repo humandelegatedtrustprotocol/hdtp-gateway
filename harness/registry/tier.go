@@ -120,7 +120,9 @@ func Passed(cs []Case) bool {
 // SummaryFile is the tier's own record, written beside the per-scenario results.
 const SummaryFile = "summary.json"
 
-// Summary is one tier run. The shape is the one plan item T4 names for every runner.
+// Summary is one tier run. It follows the envelope plan item T4 names for every runner
+// ({run, repo, tier, cases}), but its cases are provisional: they add name, promised and ok,
+// and have no evidence field. T4 settles the shared case shape.
 type Summary struct {
 	Run   string `json:"run"`
 	Repo  string `json:"repo"`

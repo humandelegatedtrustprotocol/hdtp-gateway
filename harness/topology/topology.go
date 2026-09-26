@@ -168,7 +168,8 @@ func (t *Topo) WaitReady(ctx context.Context) error {
 const HealthBudget = 90 * time.Second
 
 // WaitHealthy polls a node's own healthcheck until it answers, HealthBudget passes, or the
-// context ends. Every harness node is waited for through here.
+// context ends. It is the one health wait for a node the harness starts with `serve`; the
+// ingress role (T5) is waited for by its log line, and T7 adopts nodes already running.
 func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) error {
 	ctx, cancel := context.WithTimeout(ctx, HealthBudget)
 	defer cancel()
@@ -190,7 +191,8 @@ func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) err
 
 // Certify creates the account `slug` on a running node and has a new wallet — its owner's root —
 // certify it. Until then the account is nobody and the node has no certificate to present
-// (PACT §2). Every harness account is made through here.
+// (PACT §2). Every account the harness makes on a container node is made through here; the VM
+// guest (S8) creates its own, in its boot script.
 func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string) (*wallet.Wallet, wallet.Pin, error) {
 	name := strings.ToUpper(slug[:1]) + slug[1:]
 	if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", slug, "--name", name); err != nil {
