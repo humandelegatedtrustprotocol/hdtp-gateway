@@ -213,12 +213,12 @@ seed's, BY NAME.
 ### Adding a live scenario — three files
 
 The live battery is posted to a running endpoint by two drivers, `js/live.mjs` and
-`pact vectors intrude` (`crates/pact/src/vectors.rs`); its list is data both read.
+`pact vectors intrude` (`crates/pact/src/vectors/intrude.rs`); its list is data both read.
 
 1. `js/live-scenarios.json`: `{ id, name, expect }` — the code the answer must carry — and
    `twice: true` if the envelope is posted twice. It goes BEFORE the control, which stays last.
 2. `js/live.mjs`: a builder for the id in `scenarios()`'s `build`.
-3. `crates/pact/src/vectors.rs`: an arm for the id in `Aim::wire`.
+3. `crates/pact/src/vectors/intrude.rs`: an arm for the id in `Aim::wire`.
 
 `node --test js/live.test.mjs` runs the battery against the seed's receiving node and fails on an
 id either JS side lacks; `cargo test -p pact` fails on an id the Rust driver cannot build or a
