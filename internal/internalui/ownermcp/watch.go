@@ -114,146 +114,153 @@ type waitResult struct {
 
 // AddWatchTools registers the agent's change feed and its digest.
 func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accountID string) bool) {
+	ot := ownerTools{d: d, allow: allow}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "wait_for_updates",
 		Description: "Block until something changes for this account — a message arrives, a contact asks to connect, " +
 			"a request needs answering — then return what moved since your cursor. Call it in a loop with the cursor " +
 			"it returns. Omitting since_ts starts from now with no backlog.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, a WaitArgs) (*mcp.CallToolResult, any, error) {
-		if !allow(ctx, a.AccountID) {
-			r, err := deny()
-			return r, nil, err
-		}
-		timeout := 25 * time.Second
-		if a.TimeoutSec > 0 {
-			timeout = time.Duration(min(a.TimeoutSec, 50)) * time.Second
-		}
-		// A first call has nothing to say: hand back a cursor and let the next
-		// call do the waiting. Replaying every thread on connect would make the
-		// agent's first act a re-read of its whole history.
-		if a.SinceTS == 0 {
-			r, err := jsonResult(waitResult{Cursor: time.Now().Unix()})
-			return r, nil, err
-		}
-		res, err := d.changesSince(ctx, a.AccountID, a.SinceTS)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(res.Threads) > 0 || res.Waiting > 0 || res.Pending > 0 {
-			r, err := jsonResult(res)
-			return r, nil, err
-		}
-		// Nothing yet: wait for the bus to say otherwise. The store, not the
-		// event, is what answers — an event can be dropped when a subscriber is
-		// full (§7.8), and re-reading is always correct.
-		wctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		var ch <-chan any
-		if d.Bus != nil {
-			evs, stop := d.Bus.Subscribe(a.AccountID)
-			defer stop()
-			c := make(chan any, 1)
-			go func() {
-				select {
-				case <-evs:
-					c <- struct{}{}
-				case <-wctx.Done():
-				}
-			}()
-			ch = c
-		}
-		select {
-		case <-ch:
-		case <-wctx.Done():
-			res.Cursor = time.Now().Unix()
-			res.TimedOut = true
-			r, err := jsonResult(res)
-			return r, nil, err
-		}
-		after, err := d.changesSince(ctx, a.AccountID, a.SinceTS)
-		if err != nil {
-			return nil, nil, err
-		}
-		r, err := jsonResult(after)
-		return r, nil, err
-	})
+	}, ot.waitForUpdatesTool)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "digest",
 		Description: "What happened in a window and what is still open: messages in and out per contact, who is " +
 			"waiting on a reply, contacts asking to connect, requests awaiting an answer. For an end-of-day summary.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, a DigestArgs) (*mcp.CallToolResult, any, error) {
-		if !allow(ctx, a.AccountID) {
-			r, err := deny()
-			return r, nil, err
-		}
-		since := a.SinceTS
-		if since == 0 {
-			since = time.Now().Add(-24 * time.Hour).Unix()
-		}
-		threads, err := d.Store.ListThreadsByAccount(ctx, a.AccountID)
+	}, ot.digestTool)
+}
+
+// waitForUpdatesTool is the `wait_for_updates` tool.
+func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRequest, a WaitArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	timeout := 25 * time.Second
+	if a.TimeoutSec > 0 {
+		timeout = time.Duration(min(a.TimeoutSec, 50)) * time.Second
+	}
+	// A first call has nothing to say: hand back a cursor and let the next
+	// call do the waiting. Replaying every thread on connect would make the
+	// agent's first act a re-read of its whole history.
+	if a.SinceTS == 0 {
+		r, err := jsonResult(waitResult{Cursor: time.Now().Unix()})
+		return r, nil, err
+	}
+	res, err := ot.d.changesSince(ctx, a.AccountID, a.SinceTS)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(res.Threads) > 0 || res.Waiting > 0 || res.Pending > 0 {
+		r, err := jsonResult(res)
+		return r, nil, err
+	}
+	// Nothing yet: wait for the bus to say otherwise. The store, not the
+	// event, is what answers — an event can be dropped when a subscriber is
+	// full (§7.8), and re-reading is always correct.
+	wctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var ch <-chan any
+	if ot.d.Bus != nil {
+		evs, stop := ot.d.Bus.Subscribe(a.AccountID)
+		defer stop()
+		c := make(chan any, 1)
+		go func() {
+			select {
+			case <-evs:
+				c <- struct{}{}
+			case <-wctx.Done():
+			}
+		}()
+		ch = c
+	}
+	select {
+	case <-ch:
+	case <-wctx.Done():
+		res.Cursor = time.Now().Unix()
+		res.TimedOut = true
+		r, err := jsonResult(res)
+		return r, nil, err
+	}
+	after, err := ot.d.changesSince(ctx, a.AccountID, a.SinceTS)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(after)
+	return r, nil, err
+}
+
+// digestTool is the `digest` tool.
+func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a DigestArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	since := a.SinceTS
+	if since == 0 {
+		since = time.Now().Add(-24 * time.Hour).Unix()
+	}
+	threads, err := ot.d.Store.ListThreadsByAccount(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	type perContact struct {
+		ContactFpr    string `json:"contact_fpr"`
+		Contact       string `json:"contact,omitempty"`
+		In            int    `json:"in"`
+		Out           int    `json:"out"`
+		Unread        int64  `json:"unread"`
+		LastAt        int64  `json:"last_at"`
+		LastDirection string `json:"last_direction,omitempty"`
+		// AwaitingReply: their last word came after ours. The agent decides
+		// what that is worth; the digest only says it is true.
+		AwaitingReply bool   `json:"awaiting_reply"`
+		Trust         string `json:"trust,omitempty"`
+	}
+	by := map[string]*perContact{}
+	for _, th := range threads {
+		msgs, err := ot.d.Store.ListMessagesByThread(ctx, a.AccountID, th.ID)
 		if err != nil {
-			return nil, nil, err
+			continue
 		}
-		type perContact struct {
-			ContactFpr    string `json:"contact_fpr"`
-			Contact       string `json:"contact,omitempty"`
-			In            int    `json:"in"`
-			Out           int    `json:"out"`
-			Unread        int64  `json:"unread"`
-			LastAt        int64  `json:"last_at"`
-			LastDirection string `json:"last_direction,omitempty"`
-			// AwaitingReply: their last word came after ours. The agent decides
-			// what that is worth; the digest only says it is true.
-			AwaitingReply bool   `json:"awaiting_reply"`
-			Trust         string `json:"trust,omitempty"`
+		p := by[th.ContactFpr]
+		if p == nil {
+			p = &perContact{ContactFpr: th.ContactFpr}
+			if c, err := ot.d.Store.GetContact(ctx, a.AccountID, th.ContactFpr); err == nil {
+				p.Contact = displayName(c)
+				p.Trust = c.TrustFlag
+			}
+			by[th.ContactFpr] = p
 		}
-		by := map[string]*perContact{}
-		for _, th := range threads {
-			msgs, err := d.Store.ListMessagesByThread(ctx, a.AccountID, th.ID)
-			if err != nil {
+		if n, err := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID); err == nil {
+			p.Unread += n
+		}
+		for _, m := range msgs {
+			if m.CreatedAt < since {
 				continue
 			}
-			p := by[th.ContactFpr]
-			if p == nil {
-				p = &perContact{ContactFpr: th.ContactFpr}
-				if c, err := d.Store.GetContact(ctx, a.AccountID, th.ContactFpr); err == nil {
-					p.Contact = displayName(c)
-					p.Trust = c.TrustFlag
-				}
-				by[th.ContactFpr] = p
+			if m.Direction == "in" {
+				p.In++
+			} else {
+				p.Out++
 			}
-			if n, err := d.Store.UnreadCount(ctx, a.AccountID, th.ID); err == nil {
-				p.Unread += n
-			}
-			for _, m := range msgs {
-				if m.CreatedAt < since {
-					continue
-				}
-				if m.Direction == "in" {
-					p.In++
-				} else {
-					p.Out++
-				}
-				if m.CreatedAt >= p.LastAt {
-					p.LastAt, p.LastDirection = m.CreatedAt, m.Direction
-				}
+			if m.CreatedAt >= p.LastAt {
+				p.LastAt, p.LastDirection = m.CreatedAt, m.Direction
 			}
 		}
-		out := make([]perContact, 0, len(by))
-		for _, p := range by {
-			p.AwaitingReply = p.LastDirection == "in"
-			if p.In > 0 || p.Out > 0 || p.Unread > 0 {
-				out = append(out, *p)
-			}
+	}
+	out := make([]perContact, 0, len(by))
+	for _, p := range by {
+		p.AwaitingReply = p.LastDirection == "in"
+		if p.In > 0 || p.Out > 0 || p.Unread > 0 {
+			out = append(out, *p)
 		}
-		waiting, addresses, pending := d.openCounts(ctx, a.AccountID)
-		r, err := jsonResult(map[string]any{
-			"since": since, "until": time.Now().Unix(), "contacts": out,
-			"contact_requests": waiting, "pending_addresses": addresses, "pending_requests": pending,
-		})
-		return r, nil, err
+	}
+	waiting, addresses, pending := ot.d.openCounts(ctx, a.AccountID)
+	r, err := jsonResult(map[string]any{
+		"since": since, "until": time.Now().Unix(), "contacts": out,
+		"contact_requests": waiting, "pending_addresses": addresses, "pending_requests": pending,
 	})
+	return r, nil, err
 }
 
 // changesSince is the shared read behind the wait: threads that moved, and the

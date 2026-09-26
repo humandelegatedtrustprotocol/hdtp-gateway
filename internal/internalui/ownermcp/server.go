@@ -235,6 +235,16 @@ type InviteArgs struct {
 	Perms      []string `json:"permissions,omitempty"`
 }
 
+// ownerTools is what the owner surface's tools and resources act with: the dependencies, the
+// extras, the identity the token was validated as, and the Cedar decision for one account. Each
+// tool is a method on it, registered by NewServerWithExtra, AddParityTools or AddWatchTools.
+type ownerTools struct {
+	d     Deps
+	e     Extra
+	ident auth.Identity
+	allow func(ctx context.Context, accountID string) bool
+}
+
 // NewServerWithExtra composes the owner surface for one validated identity: the
 // core tools, plus the SPEC §8.4/§8.6 tools whose dependencies live outside this
 // package (the node's card, the outbound client, the passkey service, the audit
@@ -285,110 +295,22 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		}
 		return policy.AllowOwnerManage(sc, accountID)
 	}
+	ot := ownerTools{d: d, e: e, ident: ident, allow: allow}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers"},
-		func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-			sc, err := d.scope(ctx, ident)
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(sc.AdminAccounts)
-			return r, nil, err
-		})
+		ot.listAccountsTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			threads, err := d.Store.ListThreadsByAccount(ctx, a.AccountID)
-			if err != nil {
-				return nil, nil, err
-			}
-			type row struct {
-				ThreadID   string `json:"thread_id"`
-				ContactFpr string `json:"contact_fpr"`
-				Unread     int64  `json:"unread"`
-				LastAt     int64  `json:"last_at"`
-			}
-			out := make([]row, 0, len(threads))
-			for _, th := range threads {
-				n, _ := d.Store.UnreadCount(ctx, a.AccountID, th.ID)
-				out = append(out, row{ThreadID: th.ID, ContactFpr: th.ContactFpr, Unread: n, LastAt: th.LastAt})
-			}
-			r, err := jsonResult(out)
-			return r, nil, err
-		})
+		ot.getInboxTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a ReadThreadArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			msgs, err := d.Msg.Thread(ctx, a.AccountID, a.ThreadID)
-			if err != nil {
-				return nil, nil, err
-			}
-			type row struct {
-				Direction string `json:"direction"`
-				Sender    string `json:"sender"`
-				Kind      string `json:"kind"`
-				Body      string `json:"body"`
-				Trust     string `json:"trust"`
-				CreatedAt int64  `json:"created_at"`
-			}
-			out := make([]row, 0, len(msgs))
-			for _, m := range msgs {
-				trust := "messages_only"
-				if c, err := d.Store.GetContact(ctx, a.AccountID, m.ContactFpr); err == nil {
-					trust = c.TrustFlag
-				}
-				// SPEC §7.6: every payload handed to the agent carries the trust label.
-				out = append(out, row{Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
-			}
-			r, err := jsonResult(out)
-			return r, nil, err
-		})
+		ot.readThreadTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a SendArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			// This surface IS the agent: the label is fixed here (SPEC §7.2).
-			in := messaging.Input{
-				MsgID: a.MsgID, ThreadID: a.ThreadID, Text: a.Text, Origin: messaging.OriginMCP,
-			}
-			send := d.Send
-			if send == nil {
-				send = func(ctx context.Context, acct, c string, in messaging.Input) (messaging.Result, error) {
-					return d.Msg.Record(ctx, acct, c, messaging.DirOut, in)
-				}
-			}
-			res, err := send(ctx, a.AccountID, a.ContactFpr, in)
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(res)
-			return r, nil, err
-		})
+		ot.sendToContactTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_contacts", Description: "Contacts with status and permissions"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			list, err := d.Store.ListContacts(ctx, a.AccountID)
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(list)
-			return r, nil, err
-		})
+		ot.listContactsTool)
 
 	// The contact lifecycle (SPEC §9.1), one tool per decision, each the portal's own through
 	// contacts.Owner. Each answers the Decision — the status afterwards, and for the ones that
@@ -434,22 +356,8 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 			return d.owner().Remove(ctx, a.AccountID, a.ContactFpr)
 		})
 
-	// A pinned contact now answering at a new address, held for the owner under `ask` (PACT §5.3,
-	// SPEC §9.1): the portal's Requests tab and the CLI's `account address` make the same decision
-	// through contacts.Owner.DecideAddress, audited under the same names.
 	mcp.AddTool(s, &mcp.Tool{Name: "list_pending_addresses", Description: "Contacts waiting at a new address for your decision: the address they are pinned at, the one they now answer from, and why it was held"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			list, err := d.owner().PendingAddresses(ctx, a.AccountID)
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(list)
-			return r, nil, err
-		})
+		ot.listPendingAddressesTool)
 	address := func(tool *mcp.Tool, approve bool) {
 		decision := "reject"
 		if approve {
@@ -476,302 +384,465 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	address(&mcp.Tool{Name: "reject_address", Description: "Keep the pin where it is and drop the waiting address"}, false)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard: any of the core permissions, an integration.<slug> this account serves, or one the contact already holds; any other name is refused"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a PermissionsArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			c, err := d.Store.GetContact(ctx, a.AccountID, a.ContactFpr)
-			if err != nil {
-				r, rerr := refused(fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact))
-				return r, nil, rerr
-			}
-			var served []string
-			if d.ServedPermissions != nil {
-				served = d.ServedPermissions(a.AccountID)
-			}
-			// The portal's switchboard, and the portal's allow-list. A name outside it is refused
-			// rather than dropped: "ok" for a grant that was thrown away is how an agent came to
-			// believe it had granted an integration nobody could call.
-			offered := contacts.Offered(served, c.Permissions)
-			for _, p := range a.Permissions {
-				if !slices.Contains(offered, p) {
-					r, rerr := refused(fmt.Errorf("%w: %q is not a permission this account offers", contacts.ErrBadRequest, p))
-					return r, nil, rerr
-				}
-			}
-			// Same rule the portal follows: a preset names a bundle, so it only
-			// rides along while the grant still is that bundle. An agent setting
-			// a bespoke list does not get to label it "family".
-			preset := a.Preset
-			if !contacts.LoadPresets(ctx, d.Store).Holds(preset, a.Permissions) {
-				preset = ""
-			}
-			if err := d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, a.Permissions, preset); err != nil {
-				return nil, nil, err
-			}
-			d.reconcile(ctx, a.AccountID, a.ContactFpr)
-			r, err := jsonResult("ok")
-			return r, nil, err
-		})
+		ot.setPermissionsTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "rename_contact", Description: "Set your own local name for a contact; empty clears it"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a PetnameArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			name := strings.TrimSpace(a.Petname)
-			if len([]rune(name)) > contacts.MaxDisplayName {
-				return nil, nil, fmt.Errorf("petname over %d characters", contacts.MaxDisplayName)
-			}
-			if err := d.Store.SetContactPetname(ctx, a.AccountID, a.ContactFpr, name); err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult("ok")
-			return r, nil, err
-		})
+		ot.renameContactTool)
 
 	if d.RefreshContact != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "refresh_contact", Description: "Re-fetch ONE contact's signed card, now: a renewed certificate, a changed name or seal policy is learned; the pinned root and the address never move. Answers unchanged, updated, renewed, unreachable or refused (with why); an unreachable or refused contact keeps its pin as it was"},
-			func(ctx context.Context, req *mcp.CallToolRequest, a RefreshArgs) (*mcp.CallToolResult, any, error) {
-				if !allow(ctx, a.AccountID) {
-					r, err := deny()
-					return r, nil, err
-				}
-				outcome, why, err := d.RefreshContact(ctx, a.AccountID, a.ContactFpr)
-				if err != nil {
-					return nil, nil, err
-				}
-				out := map[string]string{"outcome": outcome}
-				if why != "" {
-					out["why"] = why
-				}
-				r, err := jsonResult(out)
-				return r, nil, err
-			})
+			ot.refreshContactTool)
 	}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "set_trust_flag", Description: "messages_only or may_instruct"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a TrustArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			if a.Trust != "messages_only" && a.Trust != "may_instruct" {
-				return nil, nil, fmt.Errorf("bad_request: trust must be messages_only|may_instruct")
-			}
-			if err := d.Store.UpdateContactTrust(ctx, a.AccountID, a.ContactFpr, a.Trust); err != nil {
-				d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "error")
-				return nil, nil, err
-			}
-			d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "ok")
-			r, err := jsonResult("ok")
-			return r, nil, err
-		})
+		ot.setTrustFlagTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "create_invite", Description: "Mint an invite; token shown once"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a InviteArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			token, inv, err := d.Contacts.CreateInvite(ctx, a.AccountID, contacts.InviteOptions{
-				Label: a.Label, MaxUses: a.MaxUses, AutoAccept: a.AutoAccept,
-				Preset: a.Preset, Permissions: a.Perms,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt})
-			return r, nil, err
-		})
+		ot.createInviteTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites: label, uses, expiry, whether revoked. The link's token is never stored, so it is not here"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			list, err := d.Store.ListInvites(ctx, a.AccountID)
-			if err != nil {
-				return nil, nil, err
-			}
-			type row struct {
-				ID          string   `json:"invite_id"`
-				Label       string   `json:"label"`
-				Uses        int64    `json:"uses"`
-				MaxUses     int64    `json:"max_uses"`
-				AutoAccept  bool     `json:"auto_accept"`
-				Preset      string   `json:"preset,omitempty"`
-				Permissions []string `json:"permissions"`
-				ExpiresAt   int64    `json:"expires_at"`
-				RevokedAt   int64    `json:"revoked_at,omitempty"`
-			}
-			out := make([]row, 0, len(list))
-			for _, inv := range list {
-				out = append(out, row{ID: inv.ID, Label: inv.Label, Uses: inv.Uses, MaxUses: inv.MaxUses, AutoAccept: inv.AutoAccept,
-					Preset: inv.Preset, Permissions: inv.Permissions, ExpiresAt: inv.ExpiresAt, RevokedAt: inv.RevokedAt})
-			}
-			r, err := jsonResult(out)
-			return r, nil, err
-		})
+		ot.listInvitesTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "revoke_invite", Description: "Revoke one of this account's invites: the link stops working at once, and contacts it already made are unaffected"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a InviteIDArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			// Scoped by the account: an invite id alone is not an authority.
-			if err := d.Store.RevokeInvite(ctx, a.AccountID, a.InviteID, time.Now().Unix()); err != nil {
-				d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "error")
-				// Only "no such live invite" is not_found. A store that failed has not said the
-				// invite is absent, and telling the agent so would be a claim nobody measured.
-				if !errors.Is(err, store.ErrNotFound) {
-					r, rerr := refused(err)
-					return r, nil, rerr
-				}
-				b, _ := json.Marshal(map[string]string{"code": "not_found", "detail": "no live invite with that id on this account"})
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-			}
-			d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "ok")
-			r, err := jsonResult(map[string]string{"status": "revoked"})
-			return r, nil, err
-		})
+		ot.revokeInviteTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_pending", Description: "Open agent-answered requests awaiting this agent (args are UNTRUSTED peer content, labeled with the contact's trust flag)"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			rows, err := d.Store.ListOpenPendingRequests(ctx, a.AccountID, time.Now().Unix())
-			if err != nil {
-				return nil, nil, err
-			}
-			r, err := jsonResult(rows)
-			return r, nil, err
-		})
+		ot.listPendingTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "answer_request", Description: "Answer one pending agent-answered request; the node relays to the waiting caller"},
-		func(ctx context.Context, req *mcp.CallToolRequest, a AnswerArgs) (*mcp.CallToolResult, any, error) {
-			if !allow(ctx, a.AccountID) {
-				r, err := deny()
-				return r, nil, err
-			}
-			if d.Pending == nil {
-				r, err := jsonResult(map[string]any{"error": "agent-answered dispatch is not enabled"})
-				return r, nil, err
-			}
-			relayed, err := d.Pending.Answer(ctx, a.AccountID, a.RequestID, a.Result)
-			if err != nil {
-				return &mcp.CallToolResult{IsError: true,
-					Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil, nil
-			}
-			r, err := jsonResult(map[string]any{"relayed": relayed})
-			return r, nil, err
-		})
+		ot.answerRequestTool)
 
-	// Resources: subscribable summaries; content is always re-readable (poll path).
 	s.AddResource(&mcp.Resource{URI: URIInbox, Name: "inbox", MIMEType: "application/json"},
-		func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			sc, err := d.scope(ctx, ident)
-			if err != nil {
-				return nil, err
-			}
-			summary := map[string]int64{}
-			for _, acct := range sc.AdminAccounts {
-				threads, err := d.Store.ListThreadsByAccount(ctx, acct)
-				if err != nil {
-					continue
-				}
-				var n int64
-				for _, th := range threads {
-					u, _ := d.Store.UnreadCount(ctx, acct, th.ID)
-					n += u
-				}
-				summary[acct] = n
-			}
-			b, _ := json.Marshal(summary)
-			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIInbox, MIMEType: "application/json", Text: string(b)}}}, nil
-		})
+		ot.inboxResource)
 	s.AddResource(&mcp.Resource{URI: URIRequests, Name: "contact requests", MIMEType: "application/json"},
-		func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			sc, err := d.scope(ctx, ident)
-			if err != nil {
-				return nil, err
-			}
-			var pending []store.Contact
-			for _, acct := range sc.AdminAccounts {
-				list, err := d.Store.ListContacts(ctx, acct)
-				if err != nil {
-					continue
-				}
-				for _, c := range list {
-					if c.Status == "pending_in" {
-						pending = append(pending, c)
-					}
-				}
-			}
-			b, _ := json.Marshal(pending)
-			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIRequests, MIMEType: "application/json", Text: string(b)}}}, nil
-		})
+		ot.contactRequestsResource)
 
 	s.AddResource(&mcp.Resource{URI: URIPending, Name: "pending agent-answered requests", MIMEType: "application/json"},
-		func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			sc, err := d.scope(ctx, ident)
-			if err != nil {
-				return nil, err
-			}
-			var rows []store.PendingRequest
-			for _, acct := range sc.AdminAccounts {
-				list, err := d.Store.ListOpenPendingRequests(ctx, acct, time.Now().Unix())
-				if err != nil {
-					continue
-				}
-				rows = append(rows, list...)
-			}
-			b, _ := json.Marshal(rows)
-			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIPending, MIMEType: "application/json", Text: string(b)}}}, nil
-		})
+		ot.pendingRequestsResource)
 
-	// pact://thread/<id> (SPEC §8.5): the per-conversation signal. A template,
-	// because the id is not known until a thread exists.
 	s.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: URIThreadPrefix + "{id}",
 		Name:        "thread", MIMEType: "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		id := strings.TrimPrefix(req.Params.URI, URIThreadPrefix)
-		if id == "" || id == req.Params.URI {
-			return nil, fmt.Errorf("ownermcp: %s is not a thread URI", req.Params.URI)
-		}
-		sc, err := d.scope(ctx, ident)
-		if err != nil {
-			return nil, err
-		}
-		// A thread belongs to exactly one account, and this identity may only
-		// read the accounts it administers — the same rule every tool applies.
-		for _, acct := range sc.AdminAccounts {
-			th, err := d.Store.GetThread(ctx, acct, id)
-			if err != nil {
-				continue
-			}
-			msgs, err := d.Store.ListMessagesByThread(ctx, acct, id)
-			if err != nil {
-				return nil, err
-			}
-			b, _ := json.Marshal(map[string]any{"thread": th, "messages": msgs})
-			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
-				{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
-		}
-		return nil, fmt.Errorf("ownermcp: no such thread")
-	})
+	}, ot.threadResource)
 
 	AddParityTools(s, d, e, ident, allow)
 	AddWatchTools(s, d, allow)
 
 	return s
+}
+
+// listAccountsTool is the `list_accounts` tool.
+func (ot ownerTools) listAccountsTool(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	sc, err := ot.d.scope(ctx, ot.ident)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(sc.AdminAccounts)
+	return r, nil, err
+}
+
+// getInboxTool is the `get_inbox` tool.
+func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	threads, err := ot.d.Store.ListThreadsByAccount(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	type row struct {
+		ThreadID   string `json:"thread_id"`
+		ContactFpr string `json:"contact_fpr"`
+		Unread     int64  `json:"unread"`
+		LastAt     int64  `json:"last_at"`
+	}
+	out := make([]row, 0, len(threads))
+	for _, th := range threads {
+		n, _ := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		out = append(out, row{ThreadID: th.ID, ContactFpr: th.ContactFpr, Unread: n, LastAt: th.LastAt})
+	}
+	r, err := jsonResult(out)
+	return r, nil, err
+}
+
+// readThreadTool is the `read_thread` tool.
+func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolRequest, a ReadThreadArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	msgs, err := ot.d.Msg.Thread(ctx, a.AccountID, a.ThreadID)
+	if err != nil {
+		return nil, nil, err
+	}
+	type row struct {
+		Direction string `json:"direction"`
+		Sender    string `json:"sender"`
+		Kind      string `json:"kind"`
+		Body      string `json:"body"`
+		Trust     string `json:"trust"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	out := make([]row, 0, len(msgs))
+	for _, m := range msgs {
+		trust := "messages_only"
+		if c, err := ot.d.Store.GetContact(ctx, a.AccountID, m.ContactFpr); err == nil {
+			trust = c.TrustFlag
+		}
+		// SPEC §7.6: every payload handed to the agent carries the trust label.
+		out = append(out, row{Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
+	}
+	r, err := jsonResult(out)
+	return r, nil, err
+}
+
+// sendToContactTool is the `send_to_contact` tool.
+func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolRequest, a SendArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	// This surface IS the agent: the label is fixed here (SPEC §7.2).
+	in := messaging.Input{
+		MsgID: a.MsgID, ThreadID: a.ThreadID, Text: a.Text, Origin: messaging.OriginMCP,
+	}
+	send := ot.d.Send
+	if send == nil {
+		send = func(ctx context.Context, acct, c string, in messaging.Input) (messaging.Result, error) {
+			return ot.d.Msg.Record(ctx, acct, c, messaging.DirOut, in)
+		}
+	}
+	res, err := send(ctx, a.AccountID, a.ContactFpr, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(res)
+	return r, nil, err
+}
+
+// listContactsTool is the `list_contacts` tool.
+func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	list, err := ot.d.Store.ListContacts(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(list)
+	return r, nil, err
+}
+
+// listPendingAddressesTool is the `list_pending_addresses` tool.
+//
+// A pinned contact now answering at a new address, held for the owner under `ask` (PACT §5.3,
+// SPEC §9.1): the portal's Requests tab and the CLI's `account address` make the same decision
+// through contacts.Owner.DecideAddress, audited under the same names.
+func (ot ownerTools) listPendingAddressesTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	list, err := ot.d.owner().PendingAddresses(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(list)
+	return r, nil, err
+}
+
+// setPermissionsTool is the `set_permissions` tool.
+func (ot ownerTools) setPermissionsTool(ctx context.Context, req *mcp.CallToolRequest, a PermissionsArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	c, err := ot.d.Store.GetContact(ctx, a.AccountID, a.ContactFpr)
+	if err != nil {
+		r, rerr := refused(fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact))
+		return r, nil, rerr
+	}
+	var served []string
+	if ot.d.ServedPermissions != nil {
+		served = ot.d.ServedPermissions(a.AccountID)
+	}
+	// The portal's switchboard, and the portal's allow-list. A name outside it is refused
+	// rather than dropped: "ok" for a grant that was thrown away is how an agent came to
+	// believe it had granted an integration nobody could call.
+	offered := contacts.Offered(served, c.Permissions)
+	for _, p := range a.Permissions {
+		if !slices.Contains(offered, p) {
+			r, rerr := refused(fmt.Errorf("%w: %q is not a permission this account offers", contacts.ErrBadRequest, p))
+			return r, nil, rerr
+		}
+	}
+	// Same rule the portal follows: a preset names a bundle, so it only
+	// rides along while the grant still is that bundle. An agent setting
+	// a bespoke list does not get to label it "family".
+	preset := a.Preset
+	if !contacts.LoadPresets(ctx, ot.d.Store).Holds(preset, a.Permissions) {
+		preset = ""
+	}
+	if err := ot.d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, a.Permissions, preset); err != nil {
+		return nil, nil, err
+	}
+	ot.d.reconcile(ctx, a.AccountID, a.ContactFpr)
+	r, err := jsonResult("ok")
+	return r, nil, err
+}
+
+// renameContactTool is the `rename_contact` tool.
+func (ot ownerTools) renameContactTool(ctx context.Context, req *mcp.CallToolRequest, a PetnameArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	name := strings.TrimSpace(a.Petname)
+	if len([]rune(name)) > contacts.MaxDisplayName {
+		return nil, nil, fmt.Errorf("petname over %d characters", contacts.MaxDisplayName)
+	}
+	if err := ot.d.Store.SetContactPetname(ctx, a.AccountID, a.ContactFpr, name); err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult("ok")
+	return r, nil, err
+}
+
+// refreshContactTool is the `refresh_contact` tool.
+func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRequest, a RefreshArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	outcome, why, err := ot.d.RefreshContact(ctx, a.AccountID, a.ContactFpr)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := map[string]string{"outcome": outcome}
+	if why != "" {
+		out["why"] = why
+	}
+	r, err := jsonResult(out)
+	return r, nil, err
+}
+
+// setTrustFlagTool is the `set_trust_flag` tool.
+func (ot ownerTools) setTrustFlagTool(ctx context.Context, req *mcp.CallToolRequest, a TrustArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	if a.Trust != "messages_only" && a.Trust != "may_instruct" {
+		return nil, nil, fmt.Errorf("bad_request: trust must be messages_only|may_instruct")
+	}
+	if err := ot.d.Store.UpdateContactTrust(ctx, a.AccountID, a.ContactFpr, a.Trust); err != nil {
+		ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "error")
+		return nil, nil, err
+	}
+	ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "ok")
+	r, err := jsonResult("ok")
+	return r, nil, err
+}
+
+// createInviteTool is the `create_invite` tool.
+func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequest, a InviteArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	token, inv, err := ot.d.Contacts.CreateInvite(ctx, a.AccountID, contacts.InviteOptions{
+		Label: a.Label, MaxUses: a.MaxUses, AutoAccept: a.AutoAccept,
+		Preset: a.Preset, Permissions: a.Perms,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt})
+	return r, nil, err
+}
+
+// listInvitesTool is the `list_invites` tool.
+func (ot ownerTools) listInvitesTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	list, err := ot.d.Store.ListInvites(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	type row struct {
+		ID          string   `json:"invite_id"`
+		Label       string   `json:"label"`
+		Uses        int64    `json:"uses"`
+		MaxUses     int64    `json:"max_uses"`
+		AutoAccept  bool     `json:"auto_accept"`
+		Preset      string   `json:"preset,omitempty"`
+		Permissions []string `json:"permissions"`
+		ExpiresAt   int64    `json:"expires_at"`
+		RevokedAt   int64    `json:"revoked_at,omitempty"`
+	}
+	out := make([]row, 0, len(list))
+	for _, inv := range list {
+		out = append(out, row{ID: inv.ID, Label: inv.Label, Uses: inv.Uses, MaxUses: inv.MaxUses, AutoAccept: inv.AutoAccept,
+			Preset: inv.Preset, Permissions: inv.Permissions, ExpiresAt: inv.ExpiresAt, RevokedAt: inv.RevokedAt})
+	}
+	r, err := jsonResult(out)
+	return r, nil, err
+}
+
+// revokeInviteTool is the `revoke_invite` tool.
+func (ot ownerTools) revokeInviteTool(ctx context.Context, req *mcp.CallToolRequest, a InviteIDArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	// Scoped by the account: an invite id alone is not an authority.
+	if err := ot.d.Store.RevokeInvite(ctx, a.AccountID, a.InviteID, time.Now().Unix()); err != nil {
+		ot.d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "error")
+		// Only "no such live invite" is not_found. A store that failed has not said the
+		// invite is absent, and telling the agent so would be a claim nobody measured.
+		if !errors.Is(err, store.ErrNotFound) {
+			r, rerr := refused(err)
+			return r, nil, rerr
+		}
+		b, _ := json.Marshal(map[string]string{"code": "not_found", "detail": "no live invite with that id on this account"})
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+	}
+	ot.d.audit("invite_revoke", "account:"+a.AccountID+" invite:"+a.InviteID, "ok")
+	r, err := jsonResult(map[string]string{"status": "revoked"})
+	return r, nil, err
+}
+
+// listPendingTool is the `list_pending` tool.
+func (ot ownerTools) listPendingTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	rows, err := ot.d.Store.ListOpenPendingRequests(ctx, a.AccountID, time.Now().Unix())
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(rows)
+	return r, nil, err
+}
+
+// answerRequestTool is the `answer_request` tool.
+func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolRequest, a AnswerArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	if ot.d.Pending == nil {
+		r, err := jsonResult(map[string]any{"error": "agent-answered dispatch is not enabled"})
+		return r, nil, err
+	}
+	relayed, err := ot.d.Pending.Answer(ctx, a.AccountID, a.RequestID, a.Result)
+	if err != nil {
+		return &mcp.CallToolResult{IsError: true,
+			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil, nil
+	}
+	r, err := jsonResult(map[string]any{"relayed": relayed})
+	return r, nil, err
+}
+
+// inboxResource reads the `inbox` resource.
+//
+// Resources: subscribable summaries; content is always re-readable (poll path).
+func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	sc, err := ot.d.scope(ctx, ot.ident)
+	if err != nil {
+		return nil, err
+	}
+	summary := map[string]int64{}
+	for _, acct := range sc.AdminAccounts {
+		threads, err := ot.d.Store.ListThreadsByAccount(ctx, acct)
+		if err != nil {
+			continue
+		}
+		var n int64
+		for _, th := range threads {
+			u, _ := ot.d.Store.UnreadCount(ctx, acct, th.ID)
+			n += u
+		}
+		summary[acct] = n
+	}
+	b, _ := json.Marshal(summary)
+	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIInbox, MIMEType: "application/json", Text: string(b)}}}, nil
+}
+
+// contactRequestsResource reads the `contact requests` resource.
+func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	sc, err := ot.d.scope(ctx, ot.ident)
+	if err != nil {
+		return nil, err
+	}
+	var pending []store.Contact
+	for _, acct := range sc.AdminAccounts {
+		list, err := ot.d.Store.ListContacts(ctx, acct)
+		if err != nil {
+			continue
+		}
+		for _, c := range list {
+			if c.Status == "pending_in" {
+				pending = append(pending, c)
+			}
+		}
+	}
+	b, _ := json.Marshal(pending)
+	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIRequests, MIMEType: "application/json", Text: string(b)}}}, nil
+}
+
+// pendingRequestsResource reads the `pending agent-answered requests` resource.
+func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	sc, err := ot.d.scope(ctx, ot.ident)
+	if err != nil {
+		return nil, err
+	}
+	var rows []store.PendingRequest
+	for _, acct := range sc.AdminAccounts {
+		list, err := ot.d.Store.ListOpenPendingRequests(ctx, acct, time.Now().Unix())
+		if err != nil {
+			continue
+		}
+		rows = append(rows, list...)
+	}
+	b, _ := json.Marshal(rows)
+	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: URIPending, MIMEType: "application/json", Text: string(b)}}}, nil
+}
+
+// threadResource reads the `thread` resource.
+//
+// pact://thread/<id> (SPEC §8.5): the per-conversation signal. A template,
+// because the id is not known until a thread exists.
+func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	id := strings.TrimPrefix(req.Params.URI, URIThreadPrefix)
+	if id == "" || id == req.Params.URI {
+		return nil, fmt.Errorf("ownermcp: %s is not a thread URI", req.Params.URI)
+	}
+	sc, err := ot.d.scope(ctx, ot.ident)
+	if err != nil {
+		return nil, err
+	}
+	// A thread belongs to exactly one account, and this identity may only
+	// read the accounts it administers — the same rule every tool applies.
+	for _, acct := range sc.AdminAccounts {
+		th, err := ot.d.Store.GetThread(ctx, acct, id)
+		if err != nil {
+			continue
+		}
+		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
+		if err != nil {
+			return nil, err
+		}
+		b, _ := json.Marshal(map[string]any{"thread": th, "messages": msgs})
+		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
+			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
+	}
+	return nil, fmt.Errorf("ownermcp: no such thread")
 }
 
 // ForwardBus pushes ResourceUpdated to subscribed sessions on bus events; run it

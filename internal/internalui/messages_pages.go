@@ -87,197 +87,205 @@ type convMedia struct {
 
 // MountMessagePages registers the conversation view.
 func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
-	mux.HandleFunc("GET /api/conversations", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
-		selected := r.URL.Query().Get("contact")
+	mux.HandleFunc("GET /api/conversations", d.getAPIConversations)
+	mux.HandleFunc("POST /messages/send_media", d.postMessagesSendMedia)
+	mux.HandleFunc("POST /messages/send", d.postMessagesSend)
+}
 
-		list, err := d.Store.ListContacts(r.Context(), account)
-		if err != nil {
-			http.Error(w, "store error", http.StatusInternalServerError)
-			return
-		}
-		threads, _ := d.Store.ListThreadsByAccount(r.Context(), account)
-		lastByContact := map[string]store.Thread{}
-		for _, t := range threads {
-			if cur, ok := lastByContact[t.ContactFpr]; !ok || t.LastAt > cur.LastAt {
-				lastByContact[t.ContactFpr] = t
-			}
-		}
+// getAPIConversations serves `GET /api/conversations`.
+func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request) {
+	account := accountParam(r)
+	selected := r.URL.Query().Get("contact")
 
-		// Computed over EVERY contact, not just the ones shown: a pending
-		// impostor sharing an active contact's name is exactly the case where
-		// the owner needs the fingerprint on the row they can see.
-		labels := labelContacts(list)
-
-		var people []convContact
-		for _, c := range list {
-			// Only somebody you have actually accepted can be written to; a
-			// pending request is not yet a correspondent.
-			if c.Status != "active" {
-				continue
-			}
-			name := labels[c.Fingerprint]
-			presence, since := presenceOf(r.Context(), d.Store, account, threads, c)
-			people = append(people, convContact{
-				Fpr: c.Fingerprint, Name: name, Status: c.Status,
-				Preview:  previewOf(r.Context(), d.Store, account, threads, c.Fingerprint),
-				Selected: c.Fingerprint == selected,
-				Presence: presence, Since: since,
-			})
+	list, err := d.Store.ListContacts(r.Context(), account)
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	threads, _ := d.Store.ListThreadsByAccount(r.Context(), account)
+	lastByContact := map[string]store.Thread{}
+	for _, t := range threads {
+		if cur, ok := lastByContact[t.ContactFpr]; !ok || t.LastAt > cur.LastAt {
+			lastByContact[t.ContactFpr] = t
 		}
-		sort.SliceStable(people, func(i, j int) bool {
-			a, b := lastByContact[people[i].Fpr], lastByContact[people[j].Fpr]
-			return a.LastAt > b.LastAt // most recently active first
+	}
+
+	// Computed over EVERY contact, not just the ones shown: a pending
+	// impostor sharing an active contact's name is exactly the case where
+	// the owner needs the fingerprint on the row they can see.
+	labels := labelContacts(list)
+
+	var people []convContact
+	for _, c := range list {
+		// Only somebody you have actually accepted can be written to; a
+		// pending request is not yet a correspondent.
+		if c.Status != "active" {
+			continue
+		}
+		name := labels[c.Fingerprint]
+		presence, since := presenceOf(r.Context(), d.Store, account, threads, c)
+		people = append(people, convContact{
+			Fpr: c.Fingerprint, Name: name, Status: c.Status,
+			Preview:  previewOf(r.Context(), d.Store, account, threads, c.Fingerprint),
+			Selected: c.Fingerprint == selected,
+			Presence: presence, Since: since,
 		})
+	}
+	sort.SliceStable(people, func(i, j int) bool {
+		a, b := lastByContact[people[i].Fpr], lastByContact[people[j].Fpr]
+		return a.LastAt > b.LastAt // most recently active first
+	})
 
-		var chosen *convContact
-		for i := range people {
-			if people[i].Selected {
-				chosen = &people[i]
-			}
+	var chosen *convContact
+	for i := range people {
+		if people[i].Selected {
+			chosen = &people[i]
 		}
-		var msgs []convMessage
-		if chosen != nil {
-			// EVERY thread with this contact, merged in time order. A conversation
-			// is with a person, not with a thread id: PACT threads are a shared
-			// grouping a peer can start at will (§7), and reading only the newest
-			// showed a history one message long.
-			for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
-				cm := convMessage{
-					Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
-					When: shortTime(m.CreatedAt), Bad: deliveryNote(m), State: deliveryState(m),
-				}
-				if m.Kind == "media" {
-					if ref, ok := parseMediaRef(m.Body); ok {
-						cm.Media = &convMedia{
-							Filename: ref.Filename, Mime: ref.Mime, Size: ref.Size,
-							Hash: ref.Hash, URL: ref.URL,
-						}
-						cm.Body = "" // the reference is not prose; the view renders Media
+	}
+	var msgs []convMessage
+	if chosen != nil {
+		// EVERY thread with this contact, merged in time order. A conversation
+		// is with a person, not with a thread id: PACT threads are a shared
+		// grouping a peer can start at will (§7), and reading only the newest
+		// showed a history one message long.
+		for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
+			cm := convMessage{
+				Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
+				When: shortTime(m.CreatedAt), Bad: deliveryNote(m), State: deliveryState(m),
+			}
+			if m.Kind == "media" {
+				if ref, ok := parseMediaRef(m.Body); ok {
+					cm.Media = &convMedia{
+						Filename: ref.Filename, Mime: ref.Mime, Size: ref.Size,
+						Hash: ref.Hash, URL: ref.URL,
 					}
+					cm.Body = "" // the reference is not prose; the view renders Media
 				}
-				msgs = append(msgs, cm)
 			}
+			msgs = append(msgs, cm)
 		}
-		apiJSON(w, map[string]any{
-			"contacts": people, "messages": msgs,
-			// A fresh idempotency key per load: the send form posts it, so a
-			// double-submit acknowledges rather than re-sends (PACT §7).
-			"new_msg_id": newUIMsgID(),
-		})
+	}
+	apiJSON(w, map[string]any{
+		"contacts": people, "messages": msgs,
+		// A fresh idempotency key per load: the send form posts it, so a
+		// double-submit acknowledges rather than re-sends (PACT §7).
+		"new_msg_id": newUIMsgID(),
 	})
+}
 
-	// A file from the composer. Multipart, capped at PACT §12's 5 MiB before the
-	// body is read in full; the MIME type is sniffed from the bytes rather than
-	// trusted from the browser, and the filename is the browser's base name only.
-	// Answers JSON: an upload is a fetch, not a form the page navigates with.
-	mux.HandleFunc("POST /messages/send_media", func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, messaging.MaxMediaBytes+64<<10)
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "file over 5 MiB, or not a valid upload"})
-			return
+// postMessagesSendMedia serves `POST /messages/send_media`.
+//
+// A file from the composer. Multipart, capped at PACT §12's 5 MiB before the
+// body is read in full; the MIME type is sniffed from the bytes rather than
+// trusted from the browser, and the filename is the browser's base name only.
+// Answers JSON: an upload is a fetch, not a form the page navigates with.
+func (d MessagesDeps) postMessagesSendMedia(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, messaging.MaxMediaBytes+64<<10)
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "file over 5 MiB, or not a valid upload"})
+		return
+	}
+	account := formOrQuery(r, "account")
+	contact := formOrQuery(r, "contact")
+	msgID := r.PostForm.Get("msg_id")
+	if contact == "" || msgID == "" {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "which conversation?"})
+		return
+	}
+	if d.SendMedia == nil {
+		apiJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "this node cannot send files yet"})
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "no file"})
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, messaging.MaxMediaBytes+1))
+	if err != nil || len(data) == 0 || len(data) > messaging.MaxMediaBytes {
+		apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "file empty or over 5 MiB"})
+		return
+	}
+	name := filepath.Base(hdr.Filename)
+	if name == "." || name == "/" || name == "" {
+		name = "attachment"
+	}
+	if len(name) > 200 {
+		name = name[:200]
+	}
+	mime := http.DetectContentType(data)
+	if declared := hdr.Header.Get("Content-Type"); declared != "" && strings.HasPrefix(mime, "application/octet-stream") {
+		// The sniffer only knows a few dozen types; a declared type wins
+		// when the sniff is uninformative, never when it disagrees.
+		mime = declared
+	}
+	in := messaging.Input{
+		ThreadID: latestThreadWith(r.Context(), d.Store, account, contact),
+		MsgID:    msgID, Origin: messaging.OriginPortal,
+	}
+	res, err := d.SendMedia(r.Context(), account, contact, in, name, mime, data)
+	if err != nil {
+		if d.Audit != nil {
+			d.Audit("send_media", withAccount(r, "contact:"+contact), "error")
 		}
-		account := formOrQuery(r, "account")
-		contact := formOrQuery(r, "contact")
-		msgID := r.PostForm.Get("msg_id")
-		if contact == "" || msgID == "" {
-			apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "which conversation?"})
-			return
+		// Recorded but undelivered is still a message that exists; say which.
+		status := http.StatusBadGateway
+		if res.ThreadID == "" {
+			status = http.StatusBadRequest
 		}
-		if d.SendMedia == nil {
-			apiJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "this node cannot send files yet"})
-			return
-		}
-		f, hdr, err := r.FormFile("file")
-		if err != nil {
-			apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "no file"})
-			return
-		}
-		defer f.Close()
-		data, err := io.ReadAll(io.LimitReader(f, messaging.MaxMediaBytes+1))
-		if err != nil || len(data) == 0 || len(data) > messaging.MaxMediaBytes {
-			apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "file empty or over 5 MiB"})
-			return
-		}
-		name := filepath.Base(hdr.Filename)
-		if name == "." || name == "/" || name == "" {
-			name = "attachment"
-		}
-		if len(name) > 200 {
-			name = name[:200]
-		}
-		mime := http.DetectContentType(data)
-		if declared := hdr.Header.Get("Content-Type"); declared != "" && strings.HasPrefix(mime, "application/octet-stream") {
-			// The sniffer only knows a few dozen types; a declared type wins
-			// when the sniff is uninformative, never when it disagrees.
-			mime = declared
-		}
-		in := messaging.Input{
-			ThreadID: latestThreadWith(r.Context(), d.Store, account, contact),
-			MsgID:    msgID, Origin: messaging.OriginPortal,
-		}
-		res, err := d.SendMedia(r.Context(), account, contact, in, name, mime, data)
-		if err != nil {
-			if d.Audit != nil {
-				d.Audit("send_media", withAccount(r, "contact:"+contact), "error")
-			}
-			// Recorded but undelivered is still a message that exists; say which.
-			status := http.StatusBadGateway
-			if res.ThreadID == "" {
-				status = http.StatusBadRequest
-			}
-			apiJSONStatus(w, status, map[string]any{"error": err.Error(), "recorded": res.ThreadID != ""})
-			return
-		}
-		apiJSON(w, map[string]any{"ok": true, "status": res.Status})
-	})
+		apiJSONStatus(w, status, map[string]any{"error": err.Error(), "recorded": res.ThreadID != ""})
+		return
+	}
+	apiJSON(w, map[string]any{"ok": true, "status": res.Status})
+}
 
-	mux.HandleFunc("POST /messages/send", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+// postMessagesSend serves `POST /messages/send`.
+func (d MessagesDeps) postMessagesSend(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	account := formOrQuery(r, "account")
+	contact := formOrQuery(r, "contact")
+	text := strings.TrimSpace(r.PostForm.Get("text"))
+	back := func(errMsg string) {
+		q := url.Values{"contact": {contact}}
+		if account != "" {
+			q.Set("account", account)
 		}
-		account := formOrQuery(r, "account")
-		contact := formOrQuery(r, "contact")
-		text := strings.TrimSpace(r.PostForm.Get("text"))
-		back := func(errMsg string) {
-			q := url.Values{"contact": {contact}}
-			if account != "" {
-				q.Set("account", account)
-			}
-			if errMsg != "" {
-				q.Set("err", errMsg)
-			}
-			// Back to the SAME conversation: the view must survive sending, and a
-			// redirect means a refresh cannot send the message twice.
-			http.Redirect(w, r, "/messages?"+q.Encode(), http.StatusSeeOther)
+		if errMsg != "" {
+			q.Set("err", errMsg)
 		}
-		if text == "" || contact == "" {
-			back("nothing to send")
-			return
+		// Back to the SAME conversation: the view must survive sending, and a
+		// redirect means a refresh cannot send the message twice.
+		http.Redirect(w, r, "/messages?"+q.Encode(), http.StatusSeeOther)
+	}
+	if text == "" || contact == "" {
+		back("nothing to send")
+		return
+	}
+	if d.Send == nil {
+		back("this node cannot send yet")
+		return
+	}
+	// Continue the conversation. Leaving ThreadID empty starts a NEW thread per
+	// message, which is how the history fragmented into single-message threads.
+	in := messaging.Input{
+		ThreadID: latestThreadWith(r.Context(), d.Store, account, contact),
+		MsgID:    r.PostForm.Get("msg_id"), Text: text,
+		// The portal is a person typing (PACT §6.2's mandatory labelling);
+		// the owner MCP is what labels a message `agent`.
+		Origin: messaging.OriginPortal,
+	}
+	if _, err := d.Send(r.Context(), account, contact, in); err != nil {
+		if d.Audit != nil {
+			d.Audit("send_message", withAccount(r, "contact:"+contact), "error")
 		}
-		if d.Send == nil {
-			back("this node cannot send yet")
-			return
-		}
-		// Continue the conversation. Leaving ThreadID empty starts a NEW thread per
-		// message, which is how the history fragmented into single-message threads.
-		in := messaging.Input{
-			ThreadID: latestThreadWith(r.Context(), d.Store, account, contact),
-			MsgID:    r.PostForm.Get("msg_id"), Text: text,
-			// The portal is a person typing (PACT §6.2's mandatory labelling);
-			// the owner MCP is what labels a message `agent`.
-			Origin: messaging.OriginPortal,
-		}
-		if _, err := d.Send(r.Context(), account, contact, in); err != nil {
-			if d.Audit != nil {
-				d.Audit("send_message", withAccount(r, "contact:"+contact), "error")
-			}
-			back(err.Error())
-			return
-		}
-		back("")
-	})
+		back(err.Error())
+		return
+	}
+	back("")
 }
 
 // presenceWindow is how recently we must have confirmed contact to call somebody

@@ -59,41 +59,44 @@ type dashAccount struct {
 // /setup/begin and /setup/finish server-side, so auto-showing the wizard remains
 // presentation, not permission.
 func MountDashboard(mux *http.ServeMux, d DashboardDeps) {
-	mux.HandleFunc("GET /api/dashboard", func(w http.ResponseWriter, r *http.Request) {
-		accounts, err := d.Store.ListAccounts(r.Context())
-		if err != nil {
-			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-			return
-		}
-		rows := make([]dashAccount, 0, len(accounts))
-		for _, a := range accounts {
-			list, _ := d.Store.ListContacts(r.Context(), a.ID)
-			active, pending := 0, 0
-			for _, c := range list {
-				switch c.Status {
-				case "active":
-					active++
-				case "pending_in":
-					pending++
-				}
+	mux.HandleFunc("GET /api/dashboard", d.getAPIDashboard)
+}
+
+// getAPIDashboard serves `GET /api/dashboard`.
+func (d DashboardDeps) getAPIDashboard(w http.ResponseWriter, r *http.Request) {
+	accounts, err := d.Store.ListAccounts(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
+		return
+	}
+	rows := make([]dashAccount, 0, len(accounts))
+	for _, a := range accounts {
+		list, _ := d.Store.ListContacts(r.Context(), a.ID)
+		active, pending := 0, 0
+		for _, c := range list {
+			switch c.Status {
+			case "active":
+				active++
+			case "pending_in":
+				pending++
 			}
-			// The Requests tab this count links to also holds contacts waiting at a new address.
-			if ps, err := d.Store.ListPendingAddresses(r.Context(), a.ID); err == nil {
-				pending += len(ps)
-			}
-			rows = append(rows, dashAccount{
-				Slug: a.Slug, DisplayName: a.DisplayName, Fingerprint: a.Fingerprint,
-				Contacts: active, Pending: pending,
-			})
 		}
-		var recent []store.AuditRow
-		if d.Recent != nil {
-			recent, _ = d.Recent(r.Context(), 10)
+		// The Requests tab this count links to also holds contacts waiting at a new address.
+		if ps, err := d.Store.ListPendingAddresses(r.Context(), a.ID); err == nil {
+			pending += len(ps)
 		}
-		posture := DashboardPosture{}
-		if d.Posture != nil {
-			posture = d.Posture()
-		}
-		apiJSON(w, map[string]any{"posture": posture, "accounts": rows, "recent": recent})
-	})
+		rows = append(rows, dashAccount{
+			Slug: a.Slug, DisplayName: a.DisplayName, Fingerprint: a.Fingerprint,
+			Contacts: active, Pending: pending,
+		})
+	}
+	var recent []store.AuditRow
+	if d.Recent != nil {
+		recent, _ = d.Recent(r.Context(), 10)
+	}
+	posture := DashboardPosture{}
+	if d.Posture != nil {
+		posture = d.Posture()
+	}
+	apiJSON(w, map[string]any{"posture": posture, "accounts": rows, "recent": recent})
 }

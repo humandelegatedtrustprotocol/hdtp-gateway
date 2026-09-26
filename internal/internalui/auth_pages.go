@@ -83,91 +83,103 @@ func (d AuthDeps) audit(action, resource, outcome string) {
 
 // MountAuthPages registers the ceremonies and the login page.
 func MountAuthPages(mux *http.ServeMux, d AuthDeps) {
-	mux.HandleFunc("POST /login/begin", func(w http.ResponseWriter, r *http.Request) {
-		rp, ok := d.Origin.RelyingParty(r)
-		if !ok {
-			d.audit("portal_login", "host:"+r.Host, "refused_origin")
-			http.Error(w, "this host is not one the node registers passkeys for", http.StatusBadRequest)
-			return
-		}
-		opts, ceremony, err := d.Service.BeginLogin(r.Context(), rp)
-		if err != nil {
-			http.Error(w, "no passkeys registered", http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, map[string]any{"ceremony": ceremony, "options": opts})
-	})
+	mux.HandleFunc("POST /login/begin", d.postLoginBegin)
+	mux.HandleFunc("POST /login/finish", d.postLoginFinish)
+	mux.HandleFunc("POST /logout", d.postLogout)
+	mux.HandleFunc("POST /setup/begin", d.postSetupBegin)
+	mux.HandleFunc("POST /setup/finish", d.postSetupFinish)
+}
 
-	mux.HandleFunc("POST /login/finish", func(w http.ResponseWriter, r *http.Request) {
-		token, err := d.Service.FinishLogin(r.Context(), r.URL.Query().Get("ceremony"), r)
-		if err != nil {
-			d.audit("portal_login", "", "refused")
-			http.Error(w, "not accepted", http.StatusUnauthorized)
-			return
-		}
-		d.setSession(w, token)
-		d.audit("portal_login", "", "ok")
-		writeJSON(w, map[string]string{"status": "ok"})
-	})
+// postLoginBegin serves `POST /login/begin`.
+func (d AuthDeps) postLoginBegin(w http.ResponseWriter, r *http.Request) {
+	rp, ok := d.Origin.RelyingParty(r)
+	if !ok {
+		d.audit("portal_login", "host:"+r.Host, "refused_origin")
+		http.Error(w, "this host is not one the node registers passkeys for", http.StatusBadRequest)
+		return
+	}
+	opts, ceremony, err := d.Service.BeginLogin(r.Context(), rp)
+	if err != nil {
+		http.Error(w, "no passkeys registered", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"ceremony": ceremony, "options": opts})
+}
 
-	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(sessionCookieName()); err == nil {
-			d.Service.Logout(r.Context(), c.Value)
-		}
-		http.SetCookie(w, &http.Cookie{Name: sessionCookieName(), Value: "", Path: "/", MaxAge: -1})
-		d.audit("portal_logout", "", "ok")
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-	})
+// postLoginFinish serves `POST /login/finish`.
+func (d AuthDeps) postLoginFinish(w http.ResponseWriter, r *http.Request) {
+	token, err := d.Service.FinishLogin(r.Context(), r.URL.Query().Get("ceremony"), r)
+	if err != nil {
+		d.audit("portal_login", "", "refused")
+		http.Error(w, "not accepted", http.StatusUnauthorized)
+		return
+	}
+	d.setSession(w, token)
+	d.audit("portal_login", "", "ok")
+	writeJSON(w, map[string]string{"status": "ok"})
+}
 
-	// Registration. The gate is the wizard's: zero passkeys plus loopback or a
-	// one-time token, so this cannot be used to add a credential to a node
-	// somebody else already owns.
-	mux.HandleFunc("POST /setup/begin", func(w http.ResponseWriter, r *http.Request) {
-		if d.SetupAllowed != nil && !d.SetupAllowed(r) {
-			http.Error(w, "setup is closed", http.StatusNotFound)
-			return
-		}
-		rp, ok := d.Origin.RelyingParty(r)
-		if !ok {
-			d.audit("passkey_register", "host:"+r.Host, "refused_origin")
-			http.Error(w, "this host is not one the node registers passkeys for", http.StatusBadRequest)
-			return
-		}
-		opts, ceremony, err := d.Service.BeginRegistration(r.Context(), rp, "", "owner")
-		if err != nil {
-			http.Error(w, "could not start registration", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]any{"ceremony": ceremony, "options": opts})
-	})
+// postLogout serves `POST /logout`.
+func (d AuthDeps) postLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(sessionCookieName()); err == nil {
+		d.Service.Logout(r.Context(), c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionCookieName(), Value: "", Path: "/", MaxAge: -1})
+	d.audit("portal_logout", "", "ok")
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
 
-	mux.HandleFunc("POST /setup/finish", func(w http.ResponseWriter, r *http.Request) {
-		if d.SetupAllowed != nil && !d.SetupAllowed(r) {
-			http.Error(w, "setup is closed", http.StatusNotFound)
-			return
-		}
-		tag := r.URL.Query().Get("tag")
-		ownerID, err := d.Service.FinishRegistration(r.Context(),
-			r.URL.Query().Get("ceremony"), "", "owner", tag, r)
-		if err != nil {
-			d.audit("passkey_register", "", "refused")
-			http.Error(w, "that passkey was not accepted", http.StatusBadRequest)
-			return
-		}
-		if d.SetupDone != nil {
-			d.SetupDone(r)
-		}
-		// Sign them in on the credential they just proved. Without this, first
-		// run ends by asking for the same authenticator a second time — and now
-		// that no bind serves the portal without a session (§8.3), that second
-		// prompt is the difference between a claimed node and a confused owner
-		// staring at a sign-in page.
-		if tok, serr := d.Service.MintSession(r.Context(), ownerID); serr == nil {
-			d.setSession(w, tok)
-		}
-		d.audit("passkey_register", "owner:"+ownerID, "ok")
-		writeJSON(w, map[string]string{"status": "ok", "owner": ownerID})
-	})
+// postSetupBegin serves `POST /setup/begin`.
+//
+// Registration. The gate is the wizard's: zero passkeys plus loopback or a
+// one-time token, so this cannot be used to add a credential to a node
+// somebody else already owns.
+func (d AuthDeps) postSetupBegin(w http.ResponseWriter, r *http.Request) {
+	if d.SetupAllowed != nil && !d.SetupAllowed(r) {
+		http.Error(w, "setup is closed", http.StatusNotFound)
+		return
+	}
+	rp, ok := d.Origin.RelyingParty(r)
+	if !ok {
+		d.audit("passkey_register", "host:"+r.Host, "refused_origin")
+		http.Error(w, "this host is not one the node registers passkeys for", http.StatusBadRequest)
+		return
+	}
+	opts, ceremony, err := d.Service.BeginRegistration(r.Context(), rp, "", "owner")
+	if err != nil {
+		http.Error(w, "could not start registration", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ceremony": ceremony, "options": opts})
+}
+
+// postSetupFinish serves `POST /setup/finish`.
+func (d AuthDeps) postSetupFinish(w http.ResponseWriter, r *http.Request) {
+	if d.SetupAllowed != nil && !d.SetupAllowed(r) {
+		http.Error(w, "setup is closed", http.StatusNotFound)
+		return
+	}
+	tag := r.URL.Query().Get("tag")
+	ownerID, err := d.Service.FinishRegistration(r.Context(),
+		r.URL.Query().Get("ceremony"), "", "owner", tag, r)
+	if err != nil {
+		d.audit("passkey_register", "", "refused")
+		http.Error(w, "that passkey was not accepted", http.StatusBadRequest)
+		return
+	}
+	if d.SetupDone != nil {
+		d.SetupDone(r)
+	}
+	// Sign them in on the credential they just proved. Without this, first
+	// run ends by asking for the same authenticator a second time — and now
+	// that no bind serves the portal without a session (§8.3), that second
+	// prompt is the difference between a claimed node and a confused owner
+	// staring at a sign-in page.
+	if tok, serr := d.Service.MintSession(r.Context(), ownerID); serr == nil {
+		d.setSession(w, tok)
+	}
+	d.audit("passkey_register", "owner:"+ownerID, "ok")
+	writeJSON(w, map[string]string{"status": "ok", "owner": ownerID})
 }
 
 func (d AuthDeps) setSession(w http.ResponseWriter, token string) {

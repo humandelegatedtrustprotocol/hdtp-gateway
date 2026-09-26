@@ -81,14 +81,25 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		})
 	}
 
-	mux.HandleFunc("GET /api/identity", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "", "")
-	})
+	mux.HandleFunc("GET /api/identity", d.getAPIIdentity(render))
+	mux.HandleFunc("POST /identity/create", d.postIdentityCreate(render))
 
-	// A second identity is how one node serves two people, or one person keeps
-	// work and home apart (SPEC §3.2). It was CLI-only, which meant the portal
-	// could show a switcher it gave you no way to fill.
-	mux.HandleFunc("POST /identity/create", func(w http.ResponseWriter, r *http.Request) {
+}
+
+// getAPIIdentity serves `GET /api/identity`.
+func (d IdentityDeps) getAPIIdentity(render func(w http.ResponseWriter, r *http.Request, notice string, errMsg string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "", "")
+	}
+}
+
+// postIdentityCreate serves `POST /identity/create`.
+//
+// A second identity is how one node serves two people, or one person keeps
+// work and home apart (SPEC §3.2). It was CLI-only, which meant the portal
+// could show a switcher it gave you no way to fill.
+func (d IdentityDeps) postIdentityCreate(render func(w http.ResponseWriter, r *http.Request, notice string, errMsg string)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if d.Create == nil {
 			http.Error(w, "creating identities is not configured on this node", http.StatusServiceUnavailable)
 			return
@@ -114,6 +125,5 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		// certificate, and answers nobody until its wallet has signed one (PACT §2).
 		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is not served yet: run `pact-gateway account csr -slug "+a.Slug+
 			"`, have your wallet sign it, then `pact-gateway account install-leaf`. No restart is needed for either.", "")
-	})
-
+	}
 }
