@@ -21,6 +21,8 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/tech-sumit/pact-gateway/internal/services/auditsink"
+	"github.com/tech-sumit/pact-gateway/internal/services/presence"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 )
 
@@ -65,7 +67,7 @@ type serveRun struct {
 	chain     *integrationChain
 	binder    *capabilityBinder
 	agent     *integrations.AgentAnswered
-	presence  *ownerPresence
+	presence  *presence.Tracker
 	// surfaceChanged is filled in after node.New; the chain's hook reads it when it fires.
 	surfaceChanged func(integrationID string)
 }
@@ -186,10 +188,10 @@ func (s *serveRun) openKeyring() error {
 // and the environment choose. It returns the adapter, whose Stop is the caller's to defer.
 func (s *serveRun) startTunnel() (tunnel.Adapter, error) {
 	// ---- the public surface (SPEC §2.2) ----
-	auditLog := auditWriter(s.ctx, s.st, s.stderr)
-	s.auditFn = auditLog.system() // the node's own lifecycle and surface events
-	s.ownerFn = auditLog.owner()  // the portal and the owner MCP act for the owner
-	s.auditAs = auditLog.kinded()
+	auditLog := auditsink.New(s.ctx, s.st, s.stderr)
+	s.auditFn = auditLog.System() // the node's own lifecycle and surface events
+	s.ownerFn = auditLog.Owner()  // the portal and the owner MCP act for the owner
+	s.auditAs = auditLog.Kinded()
 
 	// Owner-set configuration layers under the environment and re-derives, so a
 	// tunnel chosen in the portal forces the same knobs an env-set one would
@@ -236,7 +238,7 @@ func (s *serveRun) startNode() error {
 	s.binder = &capabilityBinder{store: st, chain: s.chain, auditFn: s.auditFn, settings: s.settings.values}
 	// Paired on purpose: the tracker must exist before nd.Start opens the public
 	// listener, not when the owner-MCP handler is built hundreds of lines later.
-	s.agent, s.presence = newAgentAnswered(st, s.auditFn)
+	s.agent, s.presence = presence.NewAgentAnswered(st, s.auditFn)
 	nodeOpts := node.Options{
 		Config: *s.cfg, Store: st, Keyring: s.kr, Audit: s.auditFn, Adapter: s.adapterName, Bus: bus,
 		// Only a TERMINATING ingress opens the onward leg; a passthrough one
