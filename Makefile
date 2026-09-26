@@ -232,24 +232,25 @@ harness-kernel:
 	@echo "export PACT_HARNESS_KERNEL=$(CURDIR)/$(KERNEL_DIR)/vmlinuz-virt"
 
 # ---- run tiers (docs/harness-design.md §6) --------------------------------
-# The tiers exist because the full matrix is slow enough that people stop reading
-# the result. What each tier DROPS is named, so a green run is never mistaken for
-# more coverage than it is.
+# A tier is a set of scenarios read from the registry (harness/registry: each
+# scenario's Spec, in its own test), never a regular expression over test names.
+# `harness run` prints what the tier PROMISES before it starts, runs `go test -v`
+# on exactly those tests, and fails the tier if a promised scenario did not PASS
+# — a skip included. What a tier does not promise is printed with what it needs.
+# Each tier builds what it promises, so its promise is one it can keep.
 
-# PR tier: everything hermetic, plus the two live suites that carry the most
-# signal per second. Does NOT run: resilience (S7), long-horizon time (S8),
-# CalDAV booking (S4), portal screenshots (S11), or topologies T3-T6.
-harness-pr: harness
-	cd harness && PACT_HARNESS_LIVE=1 go test ./... -run 'TestPairing|TestAdversarial|TestLive' -count=1
+# Fabric tier: the fabric proving itself against real containers (F1-F5).
+harness-live: harness-image
+	cd harness && go run ./cmd/harness run -tier fabric
 
-# Nightly tier: every live suite, including the slow ones.
+# PR tier: the fabric tier plus pairing (S2) and the adversarial probes (S9).
+harness-pr: harness harness-image
+	cd harness && go run ./cmd/harness run -tier pr
+
+# Nightly tier: every scenario. It promises S8 only when PACT_HARNESS_KERNEL is
+# set and T7 only when PACT_CF_DOMAIN is set, and says so when they are not.
 harness-nightly: harness harness-image harness-image-caldav harness-shaper
-	cd harness && PACT_HARNESS_LIVE=1 go test ./... -count=1 -timeout 40m
-
-# Live fabric tests: these create real Docker networks and containers. Opt-in,
-# because they need a daemon and take minutes rather than seconds.
-harness-live:
-	cd harness && PACT_HARNESS_LIVE=1 go test ./... -run TestLive -count=1 -v
+	cd harness && go run ./cmd/harness run -tier nightly
 
 # Report whether this host can run each fabric (container, vm).
 harness-preflight:
@@ -260,8 +261,8 @@ harness-preflight:
 # cannot quietly stop matching the product.
 screenshots: harness-image
 	@tmp=$$(mktemp -d) && cd harness && \
-	  PACT_HARNESS_LIVE=1 PACT_HARNESS_ARTIFACTS=$$tmp go test ./scenario/ \
-	    -run TestEveryPortalPageRenders -count=1 >/dev/null && \
+	  { PACT_HARNESS_ARTIFACTS=$$tmp go run ./cmd/harness run -id S11 >$$tmp/run.log || \
+	    { tail -40 $$tmp/run.log; exit 1; }; } && \
 	  for n in dashboard card audit; do cp $$tmp/$$n-light.png ../docs/images/$$n.png; done && \
 	  echo "docs/images updated from a live node"
 

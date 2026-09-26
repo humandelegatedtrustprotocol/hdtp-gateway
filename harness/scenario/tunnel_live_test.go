@@ -12,6 +12,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -27,9 +28,11 @@ import (
 // node's own certificate must reach the caller. A tunnel that terminated TLS
 // would break mTLS identity, which is the whole basis of PACT §2.
 func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "T6", Name: "a node behind a self-hosted frps keeps its own chain and serves MCP", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 10 * time.Minute,
+	})
 
 	const domain = "alice.harness.test"
 	f := fabric.New("pactfrp", dockerRun)

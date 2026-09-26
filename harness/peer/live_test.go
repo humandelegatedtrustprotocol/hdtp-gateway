@@ -1,30 +1,26 @@
 package peer
 
 import (
-	"context"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
 // Drives a REAL containerised node over REAL mTLS and asserts the switchboard's
 // answer. Until this ran, the peer driver was code that had never spoken to a node.
 func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run live peer tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "F5", Name: "a stranger sees exactly the guest tier, over real mTLS", Tier: registry.Fabric,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage},
+		Timeout: 4 * time.Minute,
+	})
 	run := func(args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, "docker", args...).CombinedOutput()
-	}
-	if _, err := run("image", "inspect", images.Node); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", images.Node)
 	}
 
 	const name = "pactpeer-node"

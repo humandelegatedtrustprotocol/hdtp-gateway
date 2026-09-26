@@ -9,13 +9,16 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // S7 — what happens when the network misbehaves, and what must happen anyway.
 func TestResilienceUnderImpairment(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S7", Name: "msg_id idempotency, a real partition and heal, delivery over a lossy link", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 12 * time.Minute,
+	})
 
 	p, err := SetupPaired(ctx, "pactres", Ports{Owner: "18621", Public: "18622"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })

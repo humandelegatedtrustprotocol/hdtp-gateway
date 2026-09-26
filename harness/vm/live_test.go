@@ -1,13 +1,14 @@
 package vm
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // The clock claim, proven end to end: a REAL pact-gateway binary, unmodified, run
@@ -17,22 +18,14 @@ import (
 // This is what makes S8 possible without any product change. E11 proposed a clock
 // knob inside the node; this replaces it entirely.
 func TestGuestClockTravelsAndTheNodeBelievesIt(t *testing.T) {
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run VM tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	if err := Available(ctx); err != nil {
-		t.Skipf("%v", err)
-	}
-
-	kernel := os.Getenv("PACT_HARNESS_KERNEL")
-	if kernel == "" {
-		t.Skip("set PACT_HARNESS_KERNEL to an aarch64 vmlinuz (see make harness-kernel)")
-	}
-	if _, err := os.Stat(kernel); err != nil {
-		t.Skipf("kernel %s: %v", kernel, err)
-	}
+	// Docker builds the guest's rootfs (BuildRootfs); the kernel need covers the image file and an
+	// accelerated QEMU.
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S8", Name: "a guest's wall clock travels a year and the unmodified node believes it", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.Kernel},
+		Timeout: 10 * time.Minute,
+	})
+	kernel := os.Getenv(registry.KernelEnv)
 
 	// The ordinary shipped binary, cross-built for the guest. No build tag, no
 	// clock flag, nothing about time.

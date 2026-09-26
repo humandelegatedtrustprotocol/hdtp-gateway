@@ -1,7 +1,6 @@
 package scenario
 
 import (
-	"context"
 	"net/url"
 	"os"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // Everything an owner must be able to DO from the portal, checked on a real node.
@@ -30,9 +30,11 @@ import (
 // bind (SPEC §8.3): the document behind every path is the same empty shell, so that fetch found
 // none of its forms — and said nothing, because a live scenario is skipped unless asked for.
 func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S15", Name: "the portal offers every affordance an owner needs, as drawn", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 12 * time.Minute,
+	})
 
 	p, err := SetupPaired(ctx, "pactaff", Ports{Owner: "18661", Public: "18662"}, images.Node)
 	t.Cleanup(func() { p.Teardown(os.Getenv("PACT_HARNESS_ARTIFACTS")) })

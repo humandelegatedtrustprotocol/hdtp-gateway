@@ -11,6 +11,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -34,9 +35,11 @@ import (
 //
 // The in-process tier of the same ground is internal/node/move_partition_test.go (Toxiproxy).
 func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S10", Name: "a MOVE campaign under a partition: announce answers, resume tells only the missed contact", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 20 * time.Minute,
+	})
 
 	f := fabricFor(t, "pactmove")
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
