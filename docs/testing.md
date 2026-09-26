@@ -125,12 +125,13 @@ touches `pact-identity/` or the `pact-protocol` pointer). It needs `../pact-prot
 (SPEC.md and the seed in `vectors/lib`), the pinned `js/pkg-web` and `js/pkg-node`, and it builds
 the Go adapter itself.
 
-Every JavaScript suite writes one result file into `pact-identity/target/gate-results/`, which the
+These eight JavaScript suites each write one result file into `pact-identity/target/gate-results/`, which the
 gate wipes first: `check-wasm`, `check-go`, `intrude-wasm`, `intrude-go`, `contract-tests`,
 `parity`, `js-tests`, `musts`. Each is `{ run, repo, tier, suite, cases: [{ id, verdict, reason,
 ms }] }` (`js/results.mjs`); the gate's last step prints one line per suite and fails if a suite
 wrote no file or a case is anything but PASS. The Rust and Go test runs (`cargo test`, `go test`)
-print their own output and write no result file.
+print their own output and write no result file, and neither do the gate's single checks (`verify.mjs`,
+`contract/render.mjs --check`, `record.mjs --check`, `seed.mjs`), which pass or fail as a whole.
 
 What every offline suite is handed comes from one cast, `js/cast.mjs`: Alina, Bharat and Mallory,
 their keys built from labelled seeds by the seed library (never by the port under test), their
