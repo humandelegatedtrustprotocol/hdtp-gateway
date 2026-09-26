@@ -195,7 +195,8 @@ The run fails on: two cases with one id; a case filed under another function's s
 `expect` whose id no case has; a function in the contract, or in either dispatcher, that the three
 do not all name; a function with no case, or none compared whole on an answer that succeeded.
 A new FUNCTION is therefore four places, not one: `contract/contract.json`, both dispatchers
-(`crates/pact-identity/src/api.rs`, `go/api.go`) and a case.
+(`crates/pact-identity/src/api.rs`, and `go/api.go`'s `functions` map with the body in
+`go/api_<section>.go`) and a case.
 
 ### Adding an intrusion scenario — two files, in two repositories
 
