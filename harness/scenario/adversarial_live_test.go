@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
 
 // S9 — the refusals, probed from OUTSIDE the process against a real node.
@@ -17,14 +19,13 @@ import (
 // certificates, refuses them too — which is the only form of the claim that
 // matters to somebody running this.
 func TestAdversarialProbesAreRefused(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S9", Name: "a stranger and a narrowed contact are refused, and the audit chain survives", Tier: registry.PR,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 10 * time.Minute,
 	})
 
-	p, err := SetupPaired(ctx, "pactadv", Ports{Owner: "18611", Public: "18612"}, images.Node)
-	t.Cleanup(func() { p.Teardown("") })
+	p, err := w.Paired(ctx, images.Node)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestAdversarialProbesAreRefused(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mallory could not reach the node at all: %v", err)
 		}
-		if contains(names, "send_message") {
+		if slices.Contains(names, "send_message") {
 			t.Fatalf("an unknown identity was offered send_message: %v", names)
 		}
 		_, callErr := mallory.Call(ctx, p.Target, "send_message",
@@ -69,10 +70,10 @@ func TestAdversarialProbesAreRefused(t *testing.T) {
 		}
 		// The switchboard is enforced in tools/list, not only at call time
 		// (§5.4) — so a narrowed contact should not even SEE book_slot.
-		if contains(names, "book_slot") {
+		if slices.Contains(names, "book_slot") {
 			t.Errorf("a contact narrowed to message.text still sees book_slot: %v", names)
 		}
-		if !contains(names, "send_message") {
+		if !slices.Contains(names, "send_message") {
 			t.Errorf("narrowing removed the permission it was supposed to keep: %v", names)
 		}
 		// And calling it anyway is refused, not merely hidden.
@@ -99,6 +100,8 @@ func TestAdversarialProbesAreRefused(t *testing.T) {
 		if _, err := p.Fab.Raw(ctx, "docker", "start", p.Node.Name); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(2 * time.Second)
+		if err := topology.WaitHealthy(ctx, p.Fab, p.Node); err != nil {
+			t.Fatal(err)
+		}
 	})
 }

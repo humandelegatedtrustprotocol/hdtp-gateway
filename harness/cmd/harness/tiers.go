@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func planRun(tier string, ids []string, resultsDir string, getenv func(string) s
 		}
 		for _, e := range p.sel {
 			for _, n := range e.Needs {
-				if !contains(p.provided, n) {
+				if !slices.Contains(p.provided, n) {
 					p.provided = append(p.provided, n)
 				}
 			}
@@ -99,15 +100,6 @@ func planRun(tier string, ids []string, resultsDir string, getenv func(string) s
 	p.test = registry.GoTestFor(p.sel)
 	p.results = resultsDir
 	return p, nil
-}
-
-func contains(list []registry.Need, n registry.Need) bool {
-	for _, x := range list {
-		if x == n {
-			return true
-		}
-	}
-	return false
 }
 
 // runTier runs a tier (or named scenarios) with `go test`, then judges the results: a scenario the

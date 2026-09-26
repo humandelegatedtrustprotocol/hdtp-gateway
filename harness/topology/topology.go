@@ -67,21 +67,31 @@ func (t *Topo) Node(slug string) *Node {
 	return nil
 }
 
-// nodeSpec builds the container spec for one node. Every knob is an environment
-// variable because SPEC §12.2 makes env the highest-precedence config layer, so a
-// topology needs no config files inside the image.
-func nodeSpec(name, image string, net *fabric.Network, prefix string, extra map[string]string) fabric.Spec {
-	env := map[string]string{
+// NodeEnv is the environment every harness node starts with; a scenario adds to it (PACT_SEAL,
+// for one). Every knob is an environment variable because SPEC §12.2 makes env the
+// highest-precedence config layer, so a node needs no config files inside the image.
+//
+// publicURL is the address the node's leaf will name, so it is a name other nodes can dial and
+// never a loopback address, which no wallet issues a leaf for (PACT §14.2 rule 5).
+func NodeEnv(publicURL string) map[string]string {
+	return map[string]string{
 		"PACT_PUBLIC_BIND": fmt.Sprintf("0.0.0.0:%d", PublicPort),
-		"PACT_PUBLIC_URL":  fmt.Sprintf("https://%s-%s:%d", prefix, name, PublicPort),
+		"PACT_PUBLIC_URL":  publicURL,
 		// The portal stays on loopback inside the container: SPEC §8.3 refuses a
 		// non-loopback internal bind without auth and TLS, and the harness has no
 		// business weakening that to make itself easier to drive.
-		"PACT_INTERNAL_BIND": "127.0.0.1:8080",
+		"PACT_INTERNAL_BIND": fmt.Sprintf("127.0.0.1:%d", InternalPort),
+		// Asked for, not required: a guest arrives without a chain the node knows.
+		"PACT_CLIENT_CERT": "preferred",
 	}
-	for k, v := range extra {
-		env[k] = v
-	}
+}
+
+// InternalPort is where a node's owner surface (portal, owner MCP) listens, on loopback.
+const InternalPort = 8080
+
+// nodeSpec builds the container spec for one topology node.
+func nodeSpec(name, image string, net *fabric.Network, f *fabric.Fabric) fabric.Spec {
+	env := NodeEnv(fmt.Sprintf("https://%s:%d", f.Name(name), PublicPort))
 	return fabric.Spec{Name: name, Image: image, Network: net, Env: env, Cmd: []string{"serve"}}
 }
 
@@ -94,7 +104,7 @@ func LAN(ctx context.Context, f *fabric.Fabric, image string) (*Topo, error) {
 	}
 	t := &Topo{Kind: T1LAN, Fab: f, Image: image}
 	for _, slug := range []string{"alice", "bob"} {
-		c, err := f.Container(ctx, nodeSpec(slug, image, net, f.Prefix(), nil))
+		c, err := f.Container(ctx, nodeSpec(slug, image, net, f))
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +138,7 @@ func BehindNAT(ctx context.Context, f *fabric.Fabric, image string) (*Topo, erro
 		{"alice", wan, true},
 		{"bob", lan, false},
 	} {
-		c, err := f.Container(ctx, nodeSpec(spec.slug, image, spec.net, f.Prefix(), nil))
+		c, err := f.Container(ctx, nodeSpec(spec.slug, image, spec.net, f))
 		if err != nil {
 			return nil, err
 		}
@@ -147,45 +157,63 @@ func BehindNAT(ctx context.Context, f *fabric.Fabric, image string) (*Topo, erro
 // startup actually took.
 func (t *Topo) WaitReady(ctx context.Context) error {
 	for _, n := range t.Nodes {
-		if err := waitOne(ctx, t.Fab, n); err != nil {
+		if err := WaitHealthy(ctx, t.Fab, n.Container); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func waitOne(ctx context.Context, f *fabric.Fabric, n *Node) error {
+// HealthBudget bounds how long WaitHealthy waits for one node.
+const HealthBudget = 90 * time.Second
+
+// WaitHealthy polls a node's own healthcheck until it answers, HealthBudget passes, or the
+// context ends. Every harness node is waited for through here.
+func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) error {
+	ctx, cancel := context.WithTimeout(ctx, HealthBudget)
+	defer cancel()
 	var last error
 	for {
-		if _, err := f.Exec(ctx, n.Container, "/pact-gateway", "healthcheck"); err == nil {
+		if _, err := f.Exec(ctx, c, "/pact-gateway", "healthcheck"); err == nil {
 			return nil
 		} else {
 			last = err
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("topology: %s never became healthy: %w (last: %v)", n.Name, ctx.Err(), last)
+			logs, _ := f.Raw(context.WithoutCancel(ctx), "docker", "logs", "--tail", "40", c.Name)
+			return fmt.Errorf("topology: %s never became healthy: %w (last: %v)\n%s", c.Name, ctx.Err(), last, logs)
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
 }
 
-// Provision creates one account per node and has its owner's wallet certify it — until which
-// the account is nobody, and the node has no certificate to present (PACT §2). What it records
+// Certify creates the account `slug` on a running node and has a new wallet — its owner's root —
+// certify it. Until then the account is nobody and the node has no certificate to present
+// (PACT §2). Every harness account is made through here.
+func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string) (*wallet.Wallet, wallet.Pin, error) {
+	name := strings.ToUpper(slug[:1]) + slug[1:]
+	if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", slug, "--name", name); err != nil {
+		return nil, wallet.Pin{}, fmt.Errorf("topology: creating account %s on %s: %w (%s)", slug, c.Name, err, out)
+	}
+	w, err := wallet.New(name)
+	if err != nil {
+		return nil, wallet.Pin{}, err
+	}
+	pin, err := w.Certify(ctx, NodeOf(f, c), slug, "", "")
+	if err != nil {
+		return nil, wallet.Pin{}, fmt.Errorf("topology: certifying %s on %s: %w", slug, c.Name, err)
+	}
+	return w, pin, nil
+}
+
+// Provision creates one account per node and has its owner's wallet certify it. What it records
 // is the identity every later scenario pins against: the ROOT, and the leaf under it.
 func (t *Topo) Provision(ctx context.Context) error {
 	for _, n := range t.Nodes {
-		name := strings.ToUpper(n.Slug[:1]) + n.Slug[1:]
-		if out, err := t.Fab.Exec(ctx, n.Container, "/pact-gateway", "account", "create", "--slug", n.Slug, "--name", name); err != nil {
-			return fmt.Errorf("topology: creating account on %s: %w (%s)", n.Name, err, out)
-		}
-		w, err := wallet.New(name)
+		w, pin, err := Certify(ctx, t.Fab, n.Container, n.Slug)
 		if err != nil {
 			return err
-		}
-		pin, err := w.Certify(ctx, fabricNode{t.Fab, n.Container}, n.Slug, "", "")
-		if err != nil {
-			return fmt.Errorf("topology: certifying %s: %w", n.Name, err)
 		}
 		n.Wallet, n.Pin, n.Fingerprint = w, pin, pin.Root
 	}
@@ -197,8 +225,10 @@ func (t *Topo) Provision(ctx context.Context) error {
 	return nil
 }
 
-// fabricNode reaches a node through the fabric's own runner, so a topology built on a recording
-// runner provisions without a Docker daemon.
+// NodeOf is a node as a wallet reaches it: through the fabric's own runner, so a topology built
+// on a recording runner provisions without a Docker daemon.
+func NodeOf(f *fabric.Fabric, c *fabric.Container) wallet.Node { return fabricNode{f, c} }
+
 type fabricNode struct {
 	f *fabric.Fabric
 	c *fabric.Container

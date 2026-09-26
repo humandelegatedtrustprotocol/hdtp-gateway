@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,16 +38,13 @@ import (
 // build time (`make harness-image-caldav`) rather than fetched by npx mid-test.
 // The calendar is Radicale. Neither is a stand-in written here.
 func TestContactBooksIntoRealCalDAV(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S4", Name: "a contact books into a real CalDAV server through a supervised third-party MCP child", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.CaldavImage, registry.Chrome},
 		Timeout: 15 * time.Minute,
 	})
 
-	p, err := SetupPaired(ctx, "pactcal", Ports{Owner: "18092", Public: "18093"}, images.Caldav)
-	if p != nil {
-		t.Cleanup(func() { p.Teardown(os.Getenv("PACT_HARNESS_ARTIFACTS")) })
-	}
+	p, err := w.Paired(ctx, images.Caldav)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -145,7 +143,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	}
 	t.Logf("the contact is offered: %v", tools)
 	for _, want := range []string{"check_availability", "book_slot"} {
-		if !containsStr(tools, want) {
+		if !slices.Contains(tools, want) {
 			t.Fatalf("%s is not offered to the contact; the exposure or the permission "+
 				"did not take: %v", want, tools)
 		}
@@ -219,15 +217,6 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	}
 	t.Logf("S4: %d policy-filtered slots offered, booked %s, and the event is in Radicale",
 		len(avail.Slots), ack.BookingID)
-}
-
-func containsStr(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 // nextWorkdayWindow is the next Monday–Friday 09:00–17:00 UTC after tomorrow.

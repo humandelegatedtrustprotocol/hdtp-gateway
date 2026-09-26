@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
@@ -22,13 +21,13 @@ import (
 // owner what to grant, so the peer was permanently `permission_denied`. The owner
 // saw "error sending" from a relationship that looked established on both sides.
 func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
-	ctx := registry.Start(t, registry.Spec{
+	ctx, w := begin(t, registry.Spec{
 		ID: "S14", Name: "a conversation both ways after pairing, sealed, prompt and in the view", Tier: registry.Nightly,
 		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
 		Timeout: 15 * time.Minute,
 	})
 
-	f := fabricFor(t, "pact2way")
+	f := w.Fab
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -37,13 +36,11 @@ func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
 	// what every Cloudflare/ngrok deployment runs. A message that arrives
 	// promptly unsealed and needs a retry when sealed is a different bug.
 	env := map[string]string{"PACT_SEAL": "required"}
-	alice, err := StartOwnedNode(ctx, f, images.Node, net, "alice", "18680",
-		"https://pact2way-alice:8443", env)
+	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := StartOwnedNode(ctx, f, images.Node, net, "bob", "18681",
-		"https://pact2way-bob:8443", env)
+	bob, err := w.Node(ctx, NodeOpts{Slug: "bob", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("bob: %v", err)
 	}
@@ -175,5 +172,3 @@ func sendAndExpectAs(ctx context.Context, t *testing.T, from, to *Owned, body, m
 			from.Node.Name, to.Node.Name, time.Since(started).Round(time.Second), err)
 	}
 }
-
-var _ = strings.TrimSpace
