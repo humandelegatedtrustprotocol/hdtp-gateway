@@ -27,7 +27,7 @@ const (
 )
 
 type AgentAnswered struct {
-	Store store.Store
+	Store store.IntegrationStore
 	Bus   *messaging.Bus
 	Audit func(action, resource, outcome string)
 	// Connected reports whether an owner-agent session is live for the account;

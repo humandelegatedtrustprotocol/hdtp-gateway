@@ -104,7 +104,7 @@ type MediaMeta struct {
 }
 
 type MediaService struct {
-	Store store.Store
+	Store store.MessageStore
 	Blobs BlobDir
 	// Quota reports this account's current byte allowance. It is a FUNCTION on
 	// purpose: the owner can change the quota from the portal at any time, and a

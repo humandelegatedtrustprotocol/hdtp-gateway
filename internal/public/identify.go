@@ -111,7 +111,7 @@ type IdempotencyStore interface {
 
 // Identifier runs the pipeline for one node.
 type Identifier struct {
-	Store store.Store
+	Store store.ContactStore
 	// AccountID is the account this identifier serves. One is built per account
 	// (SPEC §5.2), so this is fixed for its lifetime.
 	AccountID string

@@ -302,7 +302,7 @@ const presenceWindow = 5 * time.Minute
 // them, or one they sent us, is proof they were reachable at that moment. No
 // probe is sent: asking every contact whether they are up, on every page render,
 // would be a burst of traffic to answer a decoration.
-func presenceOf(ctx context.Context, st store.Store, account string,
+func presenceOf(ctx context.Context, st store.MessageStore, account string,
 	threads []store.Thread, c store.Contact) (state, since string) {
 
 	granted := false
@@ -334,7 +334,7 @@ func presenceOf(ctx context.Context, st store.Store, account string,
 }
 
 // historyWith is every message exchanged with one contact, oldest first.
-func historyWith(ctx context.Context, st store.Store, account string,
+func historyWith(ctx context.Context, st store.MessageStore, account string,
 	threads []store.Thread, fpr string) []store.Message {
 
 	var all []store.Message
@@ -359,7 +359,7 @@ func historyWith(ctx context.Context, st store.Store, account string,
 
 // latestThreadWith is the conversation already under way with a contact, or ""
 // when there is none and one should be started.
-func latestThreadWith(ctx context.Context, st store.Store, account, fpr string) string {
+func latestThreadWith(ctx context.Context, st store.MessageStore, account, fpr string) string {
 	threads, err := st.ListThreadsByAccount(ctx, account)
 	if err != nil {
 		return ""
@@ -374,7 +374,7 @@ func latestThreadWith(ctx context.Context, st store.Store, account, fpr string) 
 }
 
 // previewOf is the last line of a conversation, for the list.
-func previewOf(ctx context.Context, st store.Store, account string,
+func previewOf(ctx context.Context, st store.MessageStore, account string,
 	threads []store.Thread, fpr string) string {
 
 	rows := historyWith(ctx, st, account, threads, fpr)

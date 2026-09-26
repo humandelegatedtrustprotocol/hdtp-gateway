@@ -18,7 +18,7 @@ import (
 // surface takes. A failed audit write is reported, never swallowed silently:
 // SPEC §11 forbids responding without one, and losing the chain is the kind of
 // failure an operator must see.
-func New(ctx context.Context, st store.Store, stderr io.Writer) *Sink {
+func New(ctx context.Context, st store.AuditStore, stderr io.Writer) *Sink {
 	// A container's log IS its operating surface, and this node printed six lines
 	// of banner and then nothing: an owner watching `docker logs` had no way to
 	// see a refusal, an approval, or a failed delivery, and the audit CLI cannot

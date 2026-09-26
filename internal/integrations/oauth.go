@@ -64,7 +64,7 @@ func (o *storedOAuth) config() *oauth2.Config {
 }
 
 // SealOAuth persists the token with the config that can refresh it.
-func SealOAuth(st store.Store, kr Sealer, integrationID string, tok *oauth2.Token, oc *oauth2.Config) error {
+func SealOAuth(st store.IntegrationStore, kr Sealer, integrationID string, tok *oauth2.Token, oc *oauth2.Config) error {
 	blob := storedOAuth{Token: tok}
 	if oc != nil {
 		blob.ClientID, blob.ClientSecret, blob.Scopes = oc.ClientID, oc.ClientSecret, oc.Scopes
@@ -82,7 +82,7 @@ func SealOAuth(st store.Store, kr Sealer, integrationID string, tok *oauth2.Toke
 }
 
 // openStored loads and unseals what is on file (nil when nothing is).
-func openStored(st store.Store, kr Sealer, integrationID string) (*storedOAuth, error) {
+func openStored(st store.IntegrationStore, kr Sealer, integrationID string) (*storedOAuth, error) {
 	sealed, err := st.GetIntegrationSecret(context.Background(), integrationID)
 	if err != nil || len(sealed) == 0 {
 		return nil, err
@@ -102,7 +102,7 @@ func openStored(st store.Store, kr Sealer, integrationID string) (*storedOAuth, 
 // this is where refresh rotation lands in the store.
 type persistingSource struct {
 	inner         oauth2.TokenSource
-	st            store.Store
+	st            store.IntegrationStore
 	kr            Sealer
 	integrationID string
 	cfg           *oauth2.Config
@@ -145,7 +145,7 @@ func resumable(s OAuthSetup, integrationID string) (*storedOAuth, error) {
 
 // OAuthSetup is what NewOAuthHandler needs beyond the integration row.
 type OAuthSetup struct {
-	Store   store.Store
+	Store   store.IntegrationStore
 	Keyring Sealer
 	// RedirectURL is the portal callback route. It carries nothing that names
 	// the integration: it must match, byte for byte, what was registered with
@@ -436,7 +436,7 @@ type staticCred struct {
 
 // SealStatic stores a static credential under the keyring, so a copy of the
 // database alone cannot use it (SPEC §3.7, §11.3).
-func SealStatic(st store.Store, kr Sealer, integrationID, header, value string) error {
+func SealStatic(st store.IntegrationStore, kr Sealer, integrationID, header, value string) error {
 	if header == "" || value == "" {
 		return fmt.Errorf("integrations: a static credential needs a header and a value")
 	}
@@ -454,7 +454,7 @@ func SealStatic(st store.Store, kr Sealer, integrationID, header, value string) 
 // OpenStatic reads a stored static credential. It returns empty strings with a
 // nil error when none is set — an integration whose credential the owner has not
 // supplied yet is a configuration state, not a failure.
-func OpenStatic(st store.Store, kr Sealer, integrationID string) (header, value string, err error) {
+func OpenStatic(st store.IntegrationStore, kr Sealer, integrationID string) (header, value string, err error) {
 	sealed, err := st.GetIntegrationSecret(context.Background(), integrationID)
 	if err != nil || len(sealed) == 0 {
 		return "", "", err
@@ -505,7 +505,7 @@ type clientCred struct {
 // settingsAAD must match the AAD the settings table's reader uses, because that
 // reader opens every secret row there. It is passed in rather than duplicated so
 // the two cannot drift into the boot failure described on clientCred.
-func SealClient(st store.Store, kr Sealer, settingsAAD []byte, integrationID, clientID, clientSecret string) error {
+func SealClient(st store.SettingStore, kr Sealer, settingsAAD []byte, integrationID, clientID, clientSecret string) error {
 	if clientID == "" {
 		return fmt.Errorf("integrations: an OAuth client needs a client id")
 	}
@@ -523,7 +523,7 @@ func SealClient(st store.Store, kr Sealer, settingsAAD []byte, integrationID, cl
 }
 
 // OpenClient reads a stored OAuth client, or nil when none is registered.
-func OpenClient(st store.Store, kr Sealer, settingsAAD []byte, integrationID string) (*oauthex.ClientCredentials, error) {
+func OpenClient(st store.SettingStore, kr Sealer, settingsAAD []byte, integrationID string) (*oauthex.ClientCredentials, error) {
 	rows, err := st.ListSettings(context.Background())
 	if err != nil {
 		return nil, err

@@ -20,7 +20,7 @@ import (
 const tokenPrefix = "pact_"
 
 type TokenService struct {
-	Store store.Store
+	Store store.OwnerStore
 	Now   func() time.Time
 }
 
