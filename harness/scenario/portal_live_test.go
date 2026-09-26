@@ -1,7 +1,6 @@
 package scenario
 
 import (
-	"context"
 	"crypto/sha256"
 	"os"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // S11 — every portal page, in a real browser, in both themes.
@@ -20,9 +20,11 @@ import (
 // black-on-white while the rest of the portal followed the system. No HTML
 // assertion could have caught it, and no unit test did.
 func TestEveryPortalPageRendersInBothThemes(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S11", Name: "every portal page renders in both themes with no console error", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 12 * time.Minute,
+	})
 
 	p, err := SetupPaired(ctx, "pactui", Ports{Owner: "18651", Public: "18652"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })

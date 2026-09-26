@@ -7,15 +7,16 @@
 # about the product — every scenario dying with "chrome failed to start". The
 # machine that can actually run it is this one.
 #
-# What runs by default is the hermetic tier: the fabric, topology, preflight and
-# invariant packages, tested against a recorder. No Docker, ~5 seconds. It is
-# the tier that catches the harness breaking, which is what a push should not
-# carry.
+# What runs by default is the hermetic tier (`make harness`): every harness
+# package's unit tests against a recorder, the registry and image guards, and
+# vet. No Docker. It says the harness compiles and its guards hold; it runs no
+# scenario — every live test skips without PACT_HARNESS_LIVE.
 #
-# The LIVE tiers need Docker and Chrome and take minutes, so they are opt-in:
+# The LIVE tiers need Docker and Chrome, so they are opt-in. Each builds what it
+# promises and fails if a promised scenario did not pass (docs/harness-design.md §6):
 #
-#     PACT_PREPUSH_LIVE=1 git push          # the fast live subset
-#     PACT_PREPUSH_LIVE=full git push       # the whole matrix
+#     PACT_PREPUSH_LIVE=1 git push          # the PR tier (make harness-pr)
+#     PACT_PREPUSH_LIVE=full git push       # every scenario (make harness-nightly)
 #
 # This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
@@ -58,8 +59,8 @@ done
 echo "pre-push: harness (hermetic) — CI does not run this"
 if ! make harness; then
   echo >&2
-  echo "pre-push: the harness is broken. Fix it, or push with --no-verify if you" >&2
-  echo "          are deliberately pushing a known-broken harness." >&2
+  echo "pre-push: the harness is broken. Fix it before pushing: hooks are never" >&2
+  echo "          bypassed here (CLAUDE.md)." >&2
   exit 1
 fi
 
@@ -77,11 +78,11 @@ fi
 case "${PACT_PREPUSH_LIVE:-}" in
   "") ;;
   full)
-    echo "pre-push: harness (full matrix) — needs Docker and Chrome"
-    make harness-image && make harness-shaper && make harness-nightly
+    echo "pre-push: harness nightly tier — needs Docker and Chrome"
+    make harness-nightly
     ;;
   *)
-    echo "pre-push: harness (live subset) — needs Docker and Chrome"
-    make harness-image && make harness-shaper && make harness-pr
+    echo "pre-push: harness PR tier — needs Docker and Chrome"
+    make harness-pr
     ;;
 esac

@@ -27,6 +27,10 @@ func main() {
 		os.Exit(runPreflight())
 	case "shaper":
 		os.Exit(runShaper())
+	case "list":
+		os.Exit(runList(os.Args[2:], os.Stdout))
+	case "run":
+		os.Exit(runTier(os.Args[2:], os.Stdout))
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -43,6 +47,11 @@ func usage() {
 commands:
   preflight   report whether this host can run each fabric (container, vm)
   shaper      build the traffic-shaper image if this machine does not have it
+  list        print the scenario registry as JSON (-doc: the table in docs/harness-design.md)
+  run         run a tier (-tier fabric|pr|nightly) or scenarios (-id S2,S9) and judge it:
+              a scenario the tier promised must PASS; one it did not promise says what it needs
+
+run from the harness module's directory: the registry is read from its source.
 `)
 }
 

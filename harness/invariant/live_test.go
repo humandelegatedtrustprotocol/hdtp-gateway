@@ -2,34 +2,26 @@ package invariant
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/topology"
 )
-
-func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
-}
 
 // Proves the audit-chain invariant against real nodes: it stops each one and
 // verifies its hash chain in a sidecar. Until this ran, "the invariant passes" was
 // a claim about code that had never touched a real chain.
 func TestLiveAuditChainInvariantVerifiesRealNodes(t *testing.T) {
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run live invariant tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "image", "inspect", images.Node); err != nil {
-		t.Skipf("%s not built — run `make harness-image`", images.Node)
-	}
+	ctx := registry.Start(t, registry.Spec{
+		ID: "F4", Name: "the audit-chain invariant verifies the chains of real nodes (T1)", Tier: registry.Fabric,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage},
+		Timeout: 5 * time.Minute,
+	})
 
-	f := fabric.New("pactinv", dockerRunner)
+	f := fabric.New("pactinv", fabric.Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

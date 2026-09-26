@@ -1,7 +1,6 @@
 package scenario
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // Rejecting a request must reach the requester, and unblocking a rejected request must let them
@@ -22,9 +22,11 @@ import (
 // clears his side, asks again through a fresh invite, and alice sees a waiting request again.
 // The control is the second request: it has to land, or a node that refused everything would pass.
 func TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S13", Name: "a rejection reaches the peer, and an unblock lets them ask again", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 15 * time.Minute,
+	})
 
 	f := fabricFor(t, "pactrej")
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})

@@ -1,13 +1,13 @@
 package scenario
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
 	"github.com/tech-sumit/pact-gateway/harness/peer"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // S9 — the refusals, probed from OUTSIDE the process against a real node.
@@ -17,9 +17,11 @@ import (
 // certificates, refuses them too — which is the only form of the claim that
 // matters to somebody running this.
 func TestAdversarialProbesAreRefused(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S9", Name: "a stranger and a narrowed contact are refused, and the audit chain survives", Tier: registry.PR,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 10 * time.Minute,
+	})
 
 	p, err := SetupPaired(ctx, "pactadv", Ports{Owner: "18611", Public: "18612"}, images.Node)
 	t.Cleanup(func() { p.Teardown("") })

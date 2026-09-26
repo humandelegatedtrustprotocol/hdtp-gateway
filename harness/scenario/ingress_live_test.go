@@ -11,6 +11,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 	"github.com/tech-sumit/pact-gateway/harness/wallet"
 )
 
@@ -59,9 +60,11 @@ const pebbleConfig = `{
 }`
 
 func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "T5", Name: "own-domain ingress: passthrough keeps the node's chain, terminate serves a CA certificate", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 15 * time.Minute,
+	})
 
 	const domain = "harness.test"
 	f := fabric.New("pactt5", dockerRun)

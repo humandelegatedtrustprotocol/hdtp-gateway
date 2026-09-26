@@ -3,13 +3,13 @@ package fabric
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // The tests in fabric_test.go assert what Docker was ASKED to do. This one asserts
@@ -21,28 +21,14 @@ import (
 // written and absent where they were reached. A fabric driver verified only by a
 // recorder would be the same shape of mistake.
 
-func dockerRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
-}
-
-func requireDocker(t *testing.T) {
-	t.Helper()
-	if os.Getenv("PACT_HARNESS_LIVE") == "" {
-		t.Skip("set PACT_HARNESS_LIVE=1 to run live Docker tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := dockerRunner(ctx, "docker", "version", "--format", "{{.Server.Os}}"); err != nil {
-		t.Skipf("no Docker daemon: %v", err)
-	}
-}
-
 func TestLiveInternalNetworkIsGenuinelyUnreachable(t *testing.T) {
-	requireDocker(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "F1", Name: "a container on an internal network cannot reach the outside", Tier: registry.Fabric,
+		Needs:   []registry.Need{registry.Docker},
+		Timeout: 4 * time.Minute,
+	})
 
-	f := New("pactlive1", dockerRunner)
+	f := New("pactlive1", Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -65,7 +51,7 @@ func TestLiveInternalNetworkIsGenuinelyUnreachable(t *testing.T) {
 		t.Fatalf("starting isolated container: %v", err)
 	}
 
-	out, _ := dockerRunner(ctx, "docker", "exec", "pactlive1-isolated",
+	out, _ := Local(ctx, "docker", "exec", "pactlive1-isolated",
 		"sh", "-c", "ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && echo REACHED || echo BLOCKED")
 	if !strings.Contains(string(out), "BLOCKED") {
 		t.Fatalf("a container on an --internal network reached the internet, so T2 "+
@@ -74,11 +60,13 @@ func TestLiveInternalNetworkIsGenuinelyUnreachable(t *testing.T) {
 }
 
 func TestLiveNATGivesOutboundButNoInbound(t *testing.T) {
-	requireDocker(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "F2", Name: "the NAT router admits no inbound connection, and a live run collects logs", Tier: registry.Fabric,
+		Needs:   []registry.Need{registry.Docker},
+		Timeout: 5 * time.Minute,
+	})
 
-	f := New("pactlive2", dockerRunner)
+	f := New("pactlive2", Local)
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -113,7 +101,7 @@ func TestLiveNATGivesOutboundButNoInbound(t *testing.T) {
 	}
 
 	// The asymmetry that defines a NAT: the peer cannot open a connection inward.
-	out, _ := dockerRunner(ctx, "docker", "exec", "pactlive2-peer",
+	out, _ := Local(ctx, "docker", "exec", "pactlive2-peer",
 		"sh", "-c", "nc -z -w2 pactlive2-node 22 >/dev/null 2>&1 && echo REACHED || echo BLOCKED")
 	if !strings.Contains(string(out), "BLOCKED") {
 		t.Errorf("the WAN peer dialled INTO the NATed node; the topology is not a NAT: %q", out)

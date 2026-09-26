@@ -12,6 +12,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // S4 — a contact books a real appointment in a real calendar.
@@ -36,12 +37,11 @@ import (
 // build time (`make harness-image-caldav`) rather than fetched by npx mid-test.
 // The calendar is Radicale. Neither is a stand-in written here.
 func TestContactBooksIntoRealCalDAV(t *testing.T) {
-	requireLive(t)
-	if _, err := dockerRun(context.Background(), "docker", "image", "inspect", images.Caldav); err != nil {
-		t.Skipf("%s not built — run `make harness-image-caldav`", images.Caldav)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S4", Name: "a contact books into a real CalDAV server through a supervised third-party MCP child", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.CaldavImage, registry.Chrome},
+		Timeout: 15 * time.Minute,
+	})
 
 	p, err := SetupPaired(ctx, "pactcal", Ports{Owner: "18092", Public: "18093"}, images.Caldav)
 	if p != nil {

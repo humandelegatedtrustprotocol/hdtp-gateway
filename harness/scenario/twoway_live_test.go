@@ -11,6 +11,7 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/harness/fabric"
 	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/tech-sumit/pact-gateway/harness/registry"
 )
 
 // Messaging has to work in BOTH directions after pairing.
@@ -21,9 +22,11 @@ import (
 // owner what to grant, so the peer was permanently `permission_denied`. The owner
 // saw "error sending" from a relationship that looked established on both sides.
 func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
-	requireLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	ctx := registry.Start(t, registry.Spec{
+		ID: "S14", Name: "a conversation both ways after pairing, sealed, prompt and in the view", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome},
+		Timeout: 15 * time.Minute,
+	})
 
 	f := fabricFor(t, "pact2way")
 	net, err := f.Network(ctx, "lan", fabric.NetOpts{})
