@@ -1,7 +1,45 @@
 # Testing
 
-How the suites of this workspace are built and extended, one section per repository. The result
-schema every runner writes is in `docs/release/refactor-2026-09-26.md` §1.3.
+How the suites of this workspace are built and extended: first what every suite shares — its
+result file and where it runs — then one section per repository (pact-cloud's end-to-end suites
+are described beside them, in `pact-cloud/gateway/e2e/TESTING.md`).
+
+## Results: one schema for every runner
+
+Every runner writes its run as JSON beside its console output, in one shape, so that two runs
+compare as data and a run of record is a file:
+
+```json
+{ "schema": "pact-results/1", "repo": "pact-cloud | pact-gateway | pact-identity",
+  "suite": "pair | ceremony | harness | parity | …", "tier": "…",
+  "run": { "started": "…", "ended": "…", "commit": "abc1234", "target": "what it ran against" },
+  "cases": [ { "id": "S2", "name": "…", "verdict": "PASS", "evidence": ["…"], "ms": 2100 } ],
+  "counts": { "PASS": 144 } }
+```
+
+`verdict` is one of PASS, FAIL (the product said no, or showed what it must not), UNREACHED (the
+layer under test was never reached — not a finding), ERROR (the driver broke), SKIPPED (a need the
+run lacks; the reason is `evidence[0]`) and NOT RUN (an earlier case it needs did not pass). A case
+that is not a plain PASS says why as its first line of `evidence`. A runner may add members to a
+case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harness).
+
+| Repo | Writer | Where the file goes |
+|---|---|---|
+| pact-cloud | `gateway/e2e/lib/report.mjs` (the pair, the wallet-page suite) | `gateway/e2e/results/`, or `--results <file>` |
+| pact-gateway | `harness/registry` (each scenario, and `harness run`'s `summary.json`) | `PACT_HARNESS_RESULTS` |
+| pact-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `PACT_RESULTS` (`gate.sh`: `target/gate-results`) |
+
+## Where each tier runs, and what it costs
+
+| When | pact-cloud | pact-gateway | pact-identity |
+|---|---|---|---|
+| every commit (hooks) | `make check-fast` | — | rustfmt and clippy on staged Rust |
+| every push (hooks) | `make check` (gateway tests, the wallet-page suite in a real Chrome, the portal) | `make harness` (hermetic) | `sh pact-identity/gate.sh`, when the push touches it or the SPEC pointer |
+| by hand, with Docker and Chrome | — | `harness run -tier pr` / `nightly` | — |
+| on staging | `make ship-staging` (the one-identity journey and the conformance battery); `make e2e-pair` (the pair, about an hour) | — | — |
+
+A skip is never a pass: a tier that promised a case and got SKIPPED fails (the harness's `harness
+run`, the identity gate's summary), and every other skip says why in its evidence.
 
 ## pact-gateway: the scenario harness
 
@@ -52,14 +90,13 @@ directory and prints where):
 
 ```json
 { "id": "S2", "name": "…", "test": "TestPairingAndMessagingEndToEnd",
-  "verdict": "PASS | FAIL | SKIPPED", "reason": "why, for SKIPPED and FAIL", "ms": 2100 }
+  "verdict": "PASS | FAIL | SKIPPED", "evidence": ["why, for SKIPPED and FAIL"], "ms": 2100 }
 ```
 
-and `harness run` writes `summary.json` beside them: `{ run, repo, tier, cases: [{ id, name,
-promised, verdict, reason, ms, ok }] }` — the envelope plan item T4 names for every runner, with
-cases that stay provisional until T4 settles the shared shape (it names an `evidence` field this
-one does not have). With `PACT_HARNESS_ARTIFACTS=<dir>` every container's
-log is collected there at teardown.
+— a case of the schema above — and `harness run` writes `summary.json` beside them in the full
+envelope (`suite: "harness"`), its cases adding `promised` and `ok`
+(`registry.TestResultsAreInTheOneSchema` holds both). With `PACT_HARNESS_ARTIFACTS=<dir>` every
+container's log is collected there at teardown.
 
 ### Adding a scenario
 
@@ -127,8 +164,8 @@ the Go adapter itself.
 
 These eight JavaScript suites each write one result file into `pact-identity/target/gate-results/`, which the
 gate wipes first: `check-wasm`, `check-go`, `intrude-wasm`, `intrude-go`, `contract-tests`,
-`parity`, `js-tests`, `musts`. Each is `{ run, repo, tier, suite, cases: [{ id, verdict, reason,
-ms }] }` (`js/results.mjs`); the gate's last step prints one line per suite and fails if a suite
+`parity`, `js-tests`, `musts`. Each is a file of the schema at the top of this page
+(`js/results.mjs`); the gate's last step prints one line per suite and fails if a suite
 wrote no file or a case is anything but PASS. The Rust and Go test runs (`cargo test`, `go test`)
 print their own output and write no result file, and neither do the gate's single checks (`verify.mjs`,
 `contract/render.mjs --check`, `record.mjs --check`, `seed.mjs`), which pass or fail as a whole.
