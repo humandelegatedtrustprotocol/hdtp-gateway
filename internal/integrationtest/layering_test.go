@@ -78,7 +78,6 @@ var layerRank = map[string]int{
 // layerExceptions are inversions that exist today and are to be removed, each with why it is
 // still here. Key: "importer -> imported".
 var layerExceptions = map[string]string{
-	"internal/node -> internal/internalui":               "node serves internalui.LandingHandler; refactor S2 injects it from cli",
 	"internal/node -> internal/integrations/providers":   "node's calendarAt names providers.Slot and BookingAck; refactor S2 moves them behind a port",
 	"internal/public -> internal/integrations/providers": "the public tools name providers.Slot, BookingAck and MaxSlots; refactor S2 moves them behind a port",
 }

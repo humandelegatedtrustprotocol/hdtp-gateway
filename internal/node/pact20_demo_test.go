@@ -178,7 +178,7 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 	d.install(identity.PurposeSignup, d.endpoint(), leafDays, clock.now())
 
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
-	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial,
+	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
 		Audit: func(action, resource, outcome string) { d.log = append(d.log, action+" "+resource+" → "+outcome) }})
 	if err != nil {
 		t.Fatal(err)

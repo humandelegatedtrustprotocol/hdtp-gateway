@@ -73,7 +73,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	clock.advance(31 * 24 * time.Hour)
 	again, err := New(ctx, Options{
 		Config: core.Config{DataDir: t.TempDir(), PublicURL: "https://" + bharat2.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true},
-		Store:  bharat2.st, Keyring: bharat2.idm.Keyring, Now: clock.now,
+		Store:  bharat2.st, Keyring: bharat2.idm.Keyring, Now: clock.now, Landing: testLanding,
 	})
 	if err != nil {
 		t.Fatalf("a node whose only leaf ran out while it was down must still start: %v", err)

@@ -31,7 +31,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/ingress"
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 	"github.com/tech-sumit/pact-gateway/internal/public"
@@ -51,6 +50,11 @@ type Options struct {
 	Config  core.Config
 	Store   store.Store
 	Keyring *core.Keyring
+
+	// Landing builds the invite landing page of SPEC §9.2 from what the node gives it. It is the
+	// portal's page (`serve` supplies internalui.LandingHandler), injected so that the node does not
+	// import the portal. Required: New refuses to build a node without it.
+	Landing func(LandingDeps) http.Handler
 
 	// Audit receives every refusal the surface issues before dispatch. Nil is
 	// allowed only in tests; `serve` always supplies the hash-chain writer.
@@ -191,6 +195,9 @@ func (o Options) auditAs(kind, action, resource, outcome string) {
 func New(ctx context.Context, o Options) (*Node, error) {
 	if o.Store == nil {
 		return nil, fmt.Errorf("node: no store")
+	}
+	if o.Landing == nil {
+		return nil, fmt.Errorf("node: no invite landing page")
 	}
 	if o.Bus == nil {
 		o.Bus = messaging.NewBus()
@@ -1267,10 +1274,21 @@ func (w *bindingWriter) Flush() {
 	}
 }
 
+// LandingDeps is what the node gives the invite landing page (SPEC §9.2): the store, a card signed
+// for the account that issued the token, that account's chain, the base invite links are built
+// from, and the clock.
+type LandingDeps struct {
+	Store     store.Store
+	SignCard  func(accountID string) (cardText string, sigB64 string, err error)
+	Chain     func(accountID string) ([][]byte, error)
+	PublicURL func() string
+	Now       func() time.Time
+}
+
 // inviteHandler serves the landing page of SPEC §9.2 for whichever account
 // issued the token.
 func (n *Node) inviteHandler() http.Handler {
-	return internalui.LandingHandler(internalui.LandingDeps{
+	return n.opts.Landing(LandingDeps{
 		Store: n.opts.Store,
 		SignCard: func(accountID string) (string, string, error) {
 			card, err := n.Card(context.Background(), accountID)

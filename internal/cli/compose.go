@@ -362,6 +362,14 @@ func refreshContact(nd *node.Node) func(ctx context.Context, accountID, contactF
 	}
 }
 
+// landingPage is the invite landing page (SPEC §9.2) the node serves at /i/{token}: the portal's,
+// over what the node supplies. It is handed to the node as node.Options.Landing so that the node
+// does not import the portal. The two deps types have the same fields, so a field added to one
+// and not the other stops this conversion compiling.
+func landingPage(d node.LandingDeps) http.Handler {
+	return internalui.LandingHandler(internalui.LandingDeps(d))
+}
+
 // contactsManager builds a contacts manager whose approval-awaiting events reach
 // the bus, so `pact://requests` and the portal's live view actually fire
 // (SPEC §8.5, §9.1). Nothing produced that event before.
