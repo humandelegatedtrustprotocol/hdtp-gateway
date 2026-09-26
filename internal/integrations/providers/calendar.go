@@ -15,11 +15,9 @@ import (
 
 	ics "github.com/arran4/golang-ical"
 
+	"github.com/tech-sumit/pact-gateway/internal/calendar"
 	"github.com/tech-sumit/pact-gateway/internal/integrations"
 )
-
-// MaxSlots is PACT §12's cap: never more than 5 candidate slots.
-const MaxSlots = 5
 
 // Caller invokes one upstream tool and returns its decoded JSON result.
 type Caller func(ctx context.Context, tool string, args map[string]any) (any, error)
@@ -27,12 +25,6 @@ type Caller func(ctx context.Context, tool string, args map[string]any) (any, er
 // IdemStore is the §11.2 idempotency slice the booking path needs.
 type IdemStore interface {
 	PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (string, bool, error)
-}
-
-// Slot is one candidate interval (RFC 3339 on the wire).
-type Slot struct {
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
 }
 
 // Calendar implements check_availability / book_slot / cancel_booking
@@ -68,7 +60,7 @@ func (c *Calendar) fields(own map[string]any) map[string]any {
 // 2026-09-25, "we dont manage calendar ourselves and we rely on external
 // integrations"), so a raw free/busy calendar offers any free time its owner
 // has not blocked.
-func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd time.Time, duration time.Duration) ([]Slot, error) {
+func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd time.Time, duration time.Duration) ([]calendar.Slot, error) {
 	b, ok := c.Recipe.Capabilities["check_availability"]
 	if !ok {
 		return nil, fmt.Errorf("providers: recipe %s has no check_availability", c.Recipe.Name)
@@ -85,7 +77,7 @@ func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd
 	if err != nil {
 		return nil, err
 	}
-	var candidates []Slot
+	var candidates []calendar.Slot
 	switch b.Kind {
 	case "suggest":
 		candidates, err = c.slotsFromSuggestions(b, res, duration)
@@ -104,13 +96,13 @@ func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
-	if len(out) > MaxSlots {
-		out = out[:MaxSlots]
+	if len(out) > calendar.MaxSlots {
+		out = out[:calendar.MaxSlots]
 	}
 	return out, nil
 }
 
-func (c *Calendar) slotsFromSuggestions(b integrations.Binding, res any, d time.Duration) ([]Slot, error) {
+func (c *Calendar) slotsFromSuggestions(b integrations.Binding, res any, d time.Duration) ([]calendar.Slot, error) {
 	list, ok := integrations.Lookup(res, b.Out["slots"])
 	if !ok {
 		return nil, fmt.Errorf("providers: response misses %q", b.Out["slots"])
@@ -123,7 +115,7 @@ func (c *Calendar) slotsFromSuggestions(b integrations.Binding, res any, d time.
 	if startKey == "" {
 		startKey = "start"
 	}
-	var out []Slot
+	var out []calendar.Slot
 	for _, it := range items {
 		startStr, ok := integrations.LookupString(it, startKey)
 		if !ok {
@@ -141,14 +133,14 @@ func (c *Calendar) slotsFromSuggestions(b integrations.Binding, res any, d time.
 				}
 			}
 		}
-		out = append(out, Slot{Start: start, End: end})
+		out = append(out, calendar.Slot{Start: start, End: end})
 	}
 	return out, nil
 }
 
 // slotsFromBusy computes duration-sized candidates inside the window that miss
 // every busy block: the raw free/busy NEVER leaves the provider.
-func (c *Calendar) slotsFromBusy(b integrations.Binding, res any, winStart, winEnd time.Time, d time.Duration) ([]Slot, error) {
+func (c *Calendar) slotsFromBusy(b integrations.Binding, res any, winStart, winEnd time.Time, d time.Duration) ([]calendar.Slot, error) {
 	list, ok := integrations.Lookup(res, b.Out["busy"])
 	if !ok {
 		return nil, fmt.Errorf("providers: response misses %q", b.Out["busy"])
@@ -176,9 +168,9 @@ func (c *Calendar) slotsFromBusy(b integrations.Binding, res any, winStart, winE
 		}
 		busy = append(busy, span{s, e})
 	}
-	var out []Slot
+	var out []calendar.Slot
 	for t := winStart; !t.Add(d).After(winEnd); t = t.Add(d) {
-		cand := Slot{Start: t, End: t.Add(d)}
+		cand := calendar.Slot{Start: t, End: t.Add(d)}
 		clear := true
 		for _, bz := range busy {
 			if cand.Start.Before(bz.e) && bz.s.Before(cand.End) {
@@ -193,18 +185,12 @@ func (c *Calendar) slotsFromBusy(b integrations.Binding, res any, winStart, winE
 	return out, nil
 }
 
-// BookingAck is the recorded acknowledgment (§11.2) book_slot returns.
-type BookingAck struct {
-	BookingID string `json:"booking_id"`
-	ICS       string `json:"ics"`
-}
-
 // BookSlot creates the event upstream, idempotently by msg_id: a replay returns
 // the recorded acknowledgment without re-executing (SPEC §6.7).
-func (c *Calendar) BookSlot(ctx context.Context, contactFpr, msgID string, slot Slot, subject string) (BookingAck, error) {
+func (c *Calendar) BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error) {
 	b, ok := c.Recipe.Capabilities["book_slot"]
 	if !ok {
-		return BookingAck{}, fmt.Errorf("providers: recipe %s has no book_slot", c.Recipe.Name)
+		return calendar.BookingAck{}, fmt.Errorf("providers: recipe %s has no book_slot", c.Recipe.Name)
 	}
 	args, err := integrations.BuildArgs(b, c.fields(map[string]any{
 		"start":   slot.Start.Format(time.RFC3339),
@@ -212,32 +198,32 @@ func (c *Calendar) BookSlot(ctx context.Context, contactFpr, msgID string, slot 
 		"subject": subject,
 	}))
 	if err != nil {
-		return BookingAck{}, err
+		return calendar.BookingAck{}, err
 	}
 	// idempotency FIRST: reserve the msg_id; a loser returns the winner's ack.
 	probe, existed, err := c.Store.PutIdempotency(ctx, c.Account, contactFpr, msgID, "", 0)
 	if err != nil {
-		return BookingAck{}, err
+		return calendar.BookingAck{}, err
 	}
 	if existed {
-		var ack BookingAck
+		var ack calendar.BookingAck
 		if probe == "" {
-			return BookingAck{}, fmt.Errorf("providers: booking %s is still in flight", msgID)
+			return calendar.BookingAck{}, fmt.Errorf("providers: booking %s is still in flight", msgID)
 		}
 		if err := json.Unmarshal([]byte(probe), &ack); err != nil {
-			return BookingAck{}, fmt.Errorf("providers: %w", err)
+			return calendar.BookingAck{}, fmt.Errorf("providers: %w", err)
 		}
 		return ack, nil
 	}
 	res, err := c.Call(ctx, b.Tool, args)
 	if err != nil {
-		return BookingAck{}, err
+		return calendar.BookingAck{}, err
 	}
 	eventID, ok := integrations.LookupString(res, b.Out["event_id"])
 	if !ok || eventID == "" {
-		return BookingAck{}, fmt.Errorf("providers: upstream returned no event id at %q", b.Out["event_id"])
+		return calendar.BookingAck{}, fmt.Errorf("providers: upstream returned no event id at %q", b.Out["event_id"])
 	}
-	ack := BookingAck{
+	ack := calendar.BookingAck{
 		BookingID: EncodeBookingID(eventID),
 		ICS:       c.synthesizeICS(eventID, slot, subject),
 	}
@@ -246,7 +232,7 @@ func (c *Calendar) BookSlot(ctx context.Context, contactFpr, msgID string, slot 
 	// already exists; overwrite via fresh key is impossible, so store the ack
 	// under the same key by writing again only when the reservation was ours)
 	if err := c.finalizeAck(ctx, contactFpr, msgID, string(blob)); err != nil {
-		return BookingAck{}, err
+		return calendar.BookingAck{}, err
 	}
 	return ack, nil
 }
@@ -289,7 +275,7 @@ func (c *Calendar) now() time.Time {
 
 // synthesizeICS builds the confirmation ICS from the confirmed slot + subject
 // (the provider synthesizes it; no upstream ICS is trusted — SPEC §6.7).
-func (c *Calendar) synthesizeICS(eventID string, slot Slot, subject string) string {
+func (c *Calendar) synthesizeICS(eventID string, slot calendar.Slot, subject string) string {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodRequest)
 	ev := cal.AddEvent(eventID + "@pact-gateway")
