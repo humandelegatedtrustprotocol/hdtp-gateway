@@ -176,7 +176,7 @@ func (e *env) issueLeaf(a store.Account) {
 
 func (e *env) options() Options {
 	return Options{
-		Config: e.cfg, Store: e.st, Keyring: e.kr,
+		Config: e.cfg, Store: e.st, Keyring: e.kr, Landing: testLanding,
 		Audit: func(a, r, o string) { e.mu.Lock(); e.rows = append(e.rows, a+" "+r+" "+o); e.mu.Unlock() },
 	}
 }
