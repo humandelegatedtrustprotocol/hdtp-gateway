@@ -84,6 +84,8 @@ func (l leafService) Mint(ctx context.Context, acct store.Account, purpose, endp
 		switch {
 		case errors.Is(err, store.ErrAddressVacated):
 			outcome, reason = "refused", "vacated"
+		case errors.Is(err, identity.ErrEndpointRefused):
+			outcome, reason = "refused", "address"
 		case errors.Is(err, identity.ErrLeafRefused):
 			outcome, reason = "refused", "purpose"
 		}

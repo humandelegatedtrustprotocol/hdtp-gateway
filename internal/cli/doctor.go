@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 	"io"
 	"os"
 	"time"
@@ -99,6 +100,12 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 	if cfg.PublicURL == "" {
 		fmt.Fprintln(stdout, "warn probe        skipped: public_url not configured")
 		return fail
+	}
+	// An address a wallet will not certify: every signing request under it is refused
+	// (identity.IssueCSR applies the same rule, pactidentity.AddressGuard).
+	if ok, why := pactidentity.AddressGuard(identity.EndpointFor(cfg.PublicURL, "x"), "", false); !ok {
+		fmt.Fprintf(stdout, "FAIL public_url   %s: %s; a wallet certifies no address under it, so no identity here can get a leaf\n", cfg.PublicURL, why)
+		fail = 1
 	}
 	if cfg.Mode == core.ModeEdge {
 		served = nil // the edge's WebPKI certificate is what peers see

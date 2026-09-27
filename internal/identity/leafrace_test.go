@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,5 +99,21 @@ func TestTwoAnswersTogetherInstallOnce(t *testing.T) {
 	}
 	if ok != 1 || stale != 1 {
 		t.Fatalf("two answers with one state: %d installed, %d refused as answered; want 1 and 1", ok, stale)
+	}
+}
+
+// Coordinator (QA of 2026-09-28), item 2. A public_url of localhost made `account csr` mint a
+// request for an endpoint no wallet certifies ("endpoint host is local"). The request is refused
+// in the core's words, before a key is made for it.
+func TestARequestForAnAddressNoWalletCertifiesIsRefused(t *testing.T) {
+	m, a := leafEnv(t)
+	for _, ep := range []string{"https://localhost/a/alina/mcp", "https://127.0.0.1:8443/a/alina/mcp", "https://10.0.0.7/a/alina/mcp"} {
+		_, err := m.IssueCSR(context.Background(), a.ID, PurposeSignup, ep, time.Now())
+		if !errors.Is(err, ErrLeafRefused) || !strings.Contains(err.Error(), "endpoint host is") {
+			t.Fatalf("a request for %s: %v", ep, err)
+		}
+	}
+	if leaves, _ := m.Store.ListLeaves(context.Background(), a.ID); len(leaves) != 0 {
+		t.Fatalf("a refused request left %d ledger rows", len(leaves))
 	}
 }
