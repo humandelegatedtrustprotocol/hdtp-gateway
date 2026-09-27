@@ -20,7 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // chain is [leaf, root] for a certified key, nil for one the wallet has not issued a leaf to.

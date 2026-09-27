@@ -12,7 +12,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // verifyRefreshedCard is the whole trust decision of a card refresh: a re-fetched card must

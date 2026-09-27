@@ -13,7 +13,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // movedLeaf is a leaf under a fresh root, naming endpoint: what a contact that moved presents.

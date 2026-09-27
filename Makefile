@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -194,18 +194,58 @@ test:
 harness:
 	cd harness && go vet ./... && go test -race ./...
 
+# ---- the identity module ---------------------------------------------------
+# The node requires github.com/pact-cloud/pact-identity/go BY VERSION (go.mod, no replace). The
+# repository is private and fetched over SSH, locally only: GOPRIVATE keeps it off the public
+# proxy and checksum database, and the insteadOf, set for the one process through GIT_CONFIG_*
+# (never in anybody's git config), makes the go command's git use SSH instead of HTTPS.
+# GOWORK=off: these targets are about the version go.mod names, not a workspace's checkout.
+IDENTITY_MODULE := github.com/pact-cloud/pact-identity/go
+PRIVATE_FETCH := GOWORK=off GOPRIVATE='github.com/pact-cloud/*' GIT_CONFIG_COUNT=1 \
+	GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
+IDENTITY_PROXY := .build/identity-proxy
+
+# identity-proxy fetches the version go.mod requires on the host and lays it out as a Go module
+# proxy in $(IDENTITY_PROXY) (gitignored and dockerignored), which the image builds read as the
+# named context `identityproxy`: the image builds with no credential inside Docker.
+identity-proxy:
+	@set -e; \
+	v=$$($(PRIVATE_FETCH) go list -m -f '{{.Version}}' $(IDENTITY_MODULE)); \
+	test -n "$$v" || { echo "identity-proxy: go.mod requires no version of $(IDENTITY_MODULE)"; exit 1; }; \
+	$(PRIVATE_FETCH) go mod download $(IDENTITY_MODULE)@$$v; \
+	src="$$(go env GOMODCACHE)/cache/download/$(IDENTITY_MODULE)/@v"; \
+	dst="$(IDENTITY_PROXY)/$(IDENTITY_MODULE)/@v"; \
+	rm -rf "$(IDENTITY_PROXY)"; mkdir -p "$$dst"; \
+	cp "$$src/$$v.info" "$$src/$$v.mod" "$$src/$$v.zip" "$$dst/"; \
+	echo "$$v" > "$$dst/list"; \
+	echo "identity-proxy: $(IDENTITY_MODULE)@$$v in $(IDENTITY_PROXY)"
+
+# identity-bump moves the node and the harness to another release of the identity module and
+# runs the gate on the result: `make identity-bump VERSION=0.3.0` (or v0.3.0). The Go tag is
+# go/vX.Y.Z because the module lives in go/; `go get` takes the module's own version, vX.Y.Z.
+identity-bump:
+	@test "$(origin VERSION)" = "command line" || { echo "usage: make identity-bump VERSION=x.y.z"; exit 1; }
+	@set -e; v=v$(patsubst v%,%,$(VERSION)); \
+	$(PRIVATE_FETCH) go get $(IDENTITY_MODULE)@$$v; \
+	$(PRIVATE_FETCH) go mod tidy; \
+	cd harness; \
+	$(PRIVATE_FETCH) go get $(IDENTITY_MODULE)@$$v; \
+	$(PRIVATE_FETCH) go mod tidy; \
+	echo "identity-bump: node and harness require $(IDENTITY_MODULE) $$v"
+	$(PRIVATE_FETCH) $(MAKE) check
+
 # The node image the harness stands topologies up from: the shipped artifact,
 # built from the repo's own Dockerfile.
-harness-image:
-	docker build --build-context pactidentity=../pact-identity/go -t pact-gateway:harness .
+harness-image: identity-proxy
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) -t pact-gateway:harness .
 
 # The calendar scenario (S4) needs the -FULL image — node and uv, so a supervised
 # stdio child can run in-container (SPEC §12.3) — with the upstream MCP server
 # already installed. Installed at build time rather than fetched by `npx` at run
 # time so the scenario does not depend on reaching a package registry mid-test,
 # and so what it exercises is a pinned version.
-harness-image-caldav:
-	docker build --build-context pactidentity=../pact-identity/go -f Dockerfile.full -t pact-gateway:harness-full .
+harness-image-caldav: identity-proxy
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) -f Dockerfile.full -t pact-gateway:harness-full .
 	printf 'FROM pact-gateway:harness-full\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
 	  | docker build -t pact-gateway:harness-caldav -
 
@@ -269,7 +309,7 @@ screenshots: harness-image
 # stale artifacts that no target would remove.
 clean:
 	rm -f $(BINARY)
-	rm -rf dist
+	rm -rf dist .build
 
 # distclean also drops what a build DOWNLOADS or extracts: the SPA's node
 # modules and the harness's guest kernel. Both are regenerable — `make web` and

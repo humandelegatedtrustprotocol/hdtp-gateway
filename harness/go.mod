@@ -51,9 +51,7 @@ require (
 	github.com/chromedp/chromedp v0.16.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pact-cloud/pact-gateway v0.0.0
-	github.com/tech-sumit/pact-gateway/pact-identity v0.0.0-00010101000000-000000000000
+	github.com/pact-cloud/pact-identity/go v0.2.0
 )
 
 replace github.com/pact-cloud/pact-gateway => ..
-
-replace github.com/tech-sumit/pact-gateway/pact-identity => ../../pact-identity/go

@@ -12,7 +12,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // signBytes signs with the encodings PACT §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1

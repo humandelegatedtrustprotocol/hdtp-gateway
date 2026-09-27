@@ -13,7 +13,7 @@ import (
 
 	govcard "github.com/emersion/go-vcard"
 
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 const (

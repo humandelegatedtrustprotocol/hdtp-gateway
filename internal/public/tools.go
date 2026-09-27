@@ -29,7 +29,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Boundary caps (PACT §12, SPEC §5.7). The store enforces them again.

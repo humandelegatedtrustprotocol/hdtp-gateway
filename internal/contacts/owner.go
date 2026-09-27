@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // ErrWrongState: the contact exists and is not in a state the action applies to.

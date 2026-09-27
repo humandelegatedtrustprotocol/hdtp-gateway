@@ -21,7 +21,7 @@ them break locally.
 - An API token with **Zone.DNS:Edit** on that zone
 - `cloudflared` logged in (`cloudflared tunnel login`)
 - Docker, and `make harness-image`
-- **A wallet**: `cargo build --release -p pact` in `../pact-identity`, or `PACT_WALLET=<path>`.
+- **A wallet**: `cargo build --release -p pact` in a checkout of the pact-identity repository, or `PACT_WALLET=<path>`.
   A PACT 2.0 account holds a key and no certificate until a person's root issues a leaf for
   it, so a rig whose nodes never meet a wallet has no identity to pin and the scenario stops
   at *"has no certificate yet"*. Alice and bob are fictional, so the script keeps their vaults

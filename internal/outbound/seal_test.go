@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // testIdentity is a 2.0 identity for a test: a root, a leaf naming an endpoint,

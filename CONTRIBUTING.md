@@ -19,8 +19,9 @@ below is how it will work when it opens, and how it works now.
 
 ## Getting set up
 
-You need Go (the version in [`go.mod`](go.mod)) and Docker (the pre-push gate starts a
-Postgres container, and the scenario harness needs it).
+You need Go (the version in [`go.mod`](go.mod)), Docker (the pre-push gate starts a
+Postgres container, and the scenario harness needs it), and SSH access to the private
+identity module ([below](#the-identity-module)).
 
 ```
 make build      # static binary
@@ -71,6 +72,32 @@ PACT_PREPUSH_LIVE=full git push   # every scenario (make harness-nightly)
 ```
 
 Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
+
+## The identity module
+
+The node requires `github.com/pact-cloud/pact-identity/go` **by version**: `go.mod` names a
+release (the tag `go/vX.Y.Z` in the pact-identity repository) and carries no `replace`. The
+repository is private and is fetched over SSH, from this machine only; no CI key exists for it.
+So the go command needs to be told two things, which the Makefile's fetching targets and the
+pre-push hook set for their own process and nothing else:
+
+```
+export GOPRIVATE='github.com/pact-cloud/*'      # not through the public proxy or checksum DB
+# and git over SSH rather than HTTPS, for this process only:
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
+```
+
+- `make identity-bump VERSION=0.3.0` moves the node and the harness to another release
+  (`go get` and `go mod tidy` in both modules) and runs `make check` on the result.
+- `make identity-proxy` fetches the required version on the host into `.build/identity-proxy`
+  (gitignored and dockerignored), laid out as a Go module proxy. The image builds
+  (`make harness-image`, `docker compose build`) read it as the named context `identityproxy`,
+  so no credential enters Docker; `go.sum` still verifies what it serves.
+- To work on the identity library and the node together without a release in between, point a
+  `go.work` OUTSIDE this repository at both checkouts and set `GOWORK` to it. Use a `replace`
+  line for the identity module rather than a `use` line: the node requires a version, and with
+  `use` the go command still fetches that version's `go.mod`, which fails until the tag exists.
+  Never commit a `go.work` or a `replace` pointing outside the repository.
 
 ## The scenario harness
 

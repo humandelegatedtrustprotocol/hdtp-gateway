@@ -17,7 +17,11 @@ services:
     restart: "no"
 
   pact-gateway:
-    build: .
+    # `make identity-proxy` first: the build reads the private identity module from it (Dockerfile).
+    build:
+      context: .
+      additional_contexts:
+        identityproxy: ./.build/identity-proxy
     restart: unless-stopped
     depends_on:
       init-data:

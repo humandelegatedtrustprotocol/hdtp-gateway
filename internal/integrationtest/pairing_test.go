@@ -26,7 +26,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/public"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // node is a whole pact-gateway node in-process: store, identity, public TLS

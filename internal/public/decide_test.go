@@ -15,7 +15,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // PACT 2.0 receiving (PACT §13.3, §6.1, §5.3, §14.3, §14.4) against a node

@@ -34,7 +34,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // What a refresh of one contact found, in the words the portal and the owner MCP both show.
