@@ -67,7 +67,7 @@ that cited test names exist and cannot check that the list is complete.
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
 | `identity_required` | `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored`, `TestClientCertRequiredTakesAChainAndNothingElse` |
-| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `FuzzSealedEnvelope`, and the whole intrusion battery (`pact vectors intrude`) |
+| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `FuzzSealedEnvelope`, and the whole intrusion battery (`pact vectors intrude`) |
 | `chain_required` (2.0 — a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike) | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
 | `certificate_renewed` (2.0 — an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
 | `seal_not_accepted` (a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
@@ -278,8 +278,6 @@ them, no source names them — and the rest are debt with a task against it.
 
 | Not reached | Why | Tracked by |
 |---|---|---|
-| `Envelope.UnmarshalJSON` | Interface dispatch: `encoding/json` calls it through `json.Unmarshaler`. No source can name it. | — |
-| `Envelope.MarshalJSON` | The encode half of the wire codec whose decode half production does use. Nothing in the node encodes an envelope any more — the `v: 1` sealer and the relay were the callers, and both are gone — but a codec with one half deleted is worse than an unused method, and the tests that build envelopes need it. | — |
 | `ownerUser.WebAuthnID` | Interface dispatch: `go-webauthn` calls it through `webauthn.User`. | — |
 | `ownerUser.WebAuthnName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnDisplayName` | Interface dispatch, as above. | — |

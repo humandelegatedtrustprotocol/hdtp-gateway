@@ -22,7 +22,6 @@ import (
 	"github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/miekg/dns"
 
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/tunnel"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
@@ -164,7 +163,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				var env envelope.Envelope
+				var env pactidentity.Envelope
 				if err := json.NewDecoder(c).Decode(&env); err != nil {
 					fmt.Fprintf(c, "decode: %v", err)
 					return
@@ -180,7 +179,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 					return
 				}
 				plain, err := pactidentity.Open(suite, nodePriv,
-					[]byte(pactidentity.InfoV2), env.Protected, env.Enc, env.CT)
+					[]byte(pactidentity.InfoV2), pactidentity.FromB64url(env.Protected), pactidentity.FromB64url(env.Enc), pactidentity.FromB64url(env.Ct))
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
 					return
@@ -231,7 +230,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := &envelope.Envelope{Protected: protected, Enc: enc, CT: ct, Sig: []byte("sig")}
+	env := &pactidentity.Envelope{Protected: pactidentity.B64url(protected), Enc: pactidentity.B64url(enc), Ct: pactidentity.B64url(ct), Sig: pactidentity.B64url([]byte("sig"))}
 	body, _ := json.Marshal(env)
 	var reply string
 	deadline := time.Now().Add(30 * time.Second)

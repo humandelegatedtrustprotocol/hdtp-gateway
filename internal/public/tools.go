@@ -29,6 +29,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // Boundary caps (PACT §12, SPEC §5.7). The store enforces them again.
@@ -449,7 +450,7 @@ func (d ToolDeps) chainB64(ctx context.Context) ([]string, error) {
 	if len(chain) != 2 {
 		return nil, fmt.Errorf("a chain is a leaf and a root, got %d certificates", len(chain))
 	}
-	return []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])}, nil
+	return []string{pactidentity.B64url(chain[0]), pactidentity.B64url(chain[1])}, nil
 }
 
 func (d ToolDeps) getCard() mcp.ToolHandler {
