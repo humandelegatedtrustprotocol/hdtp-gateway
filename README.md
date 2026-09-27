@@ -250,6 +250,12 @@ uses, invites, integrations, tokens scoped to it, its settings, and every leaf k
 for it. The live node stops answering for it straight away, as for an address it never served. The
 audit trail is append-only and keeps its rows, which name the account by its id.
 
+On SQLite the leaf keys are destroyed, not only deleted: the node zeroes deleted rows
+(`secure_delete`) and truncates its write-ahead log after the leave. On Postgres it cannot: a
+deleted row stays as a dead tuple until VACUUM reuses its space, in the write-ahead log until the
+segment is recycled, and in every backup — sealed under the node's keyring, but not destroyed. SPEC
+§3.9 names this divergence.
+
 The address stays **reserved** until the last leaf issued for it expires (PACT §9): until then no
 identity can be created under that slug here, and no signing request can name that address. The
 command prints each address it reserved and until when. It is refused while a move campaign for

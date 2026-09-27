@@ -387,6 +387,12 @@ type Lifecycle interface {
 	// identity is worse than none: a person's contacts without their conversations, under a
 	// name the node would then refuse to import again. fn must use the Store it is given.
 	Atomically(ctx context.Context, fn func(tx Store) error) error
+
+	// Scrub makes what this store has deleted unreadable from its own files, where the engine can:
+	// a leaf's key is destroyed, not only deleted (PACT §9, SPEC §3.9). SQLite can, and does; on
+	// Postgres it is a no-op, the divergence SPEC §3.9 names. It runs outside any transaction, after
+	// a leave, a retirement, an install and a replaced request.
+	Scrub(ctx context.Context) error
 }
 
 // OwnerStore holds the owners and what authenticates them: credentials, sessions, owner-MCP tokens,

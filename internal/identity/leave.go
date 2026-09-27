@@ -30,6 +30,9 @@ type LeaveResult struct {
 // is kept reserved — by a row that holds the endpoint, its slug and a date, and nothing that
 // names the identity — until the last leaf issued for it has expired.
 //
+// The keys are destroyed, not only deleted, where the engine allows it: store.Store.Scrub runs after
+// the commit (SPEC §3.9 names what Postgres cannot do).
+//
 // Every table that names the account by a foreign key is erased by the account row's cascade. The
 // ones that name it without one are erased here first: tokens scoped to it, its idempotency
 // records, and the per-account settings named by `settingKeys` (settings.AccountKeys). Media files
@@ -96,9 +99,14 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []str
 	if err != nil {
 		return LeaveResult{}, fmt.Errorf("identity: leave %s: %w", a.Slug, err)
 	}
-	// The records are gone. A media file is shared by hash across identities, so it goes only when
-	// no row on this node still refers to it.
+	// The rows are gone, and the leaf keys with them — once their bytes are, too: a DELETE leaves
+	// them in the database's files until they are overwritten (store.Store.Scrub).
 	var failed []error
+	if err := m.Store.Scrub(ctx); err != nil {
+		failed = append(failed, fmt.Errorf("the erased leaf keys may remain on disk: %w", err))
+	}
+	// A media file is shared by hash across identities, so it goes only when no row on this node
+	// still refers to it.
 	for _, b := range held {
 		refs, err := m.Store.CountBlobRefs(ctx, b.Hash)
 		if err != nil {
@@ -115,7 +123,7 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []str
 		res.BlobsRemoved++
 	}
 	if len(failed) > 0 {
-		return res, fmt.Errorf("identity: leave %s: the records are erased, and %d media file(s) could not be removed: %w", a.Slug, len(failed), errors.Join(failed...))
+		return res, fmt.Errorf("identity: leave %s: the records are erased, and %d thing(s) were not finished: %w", a.Slug, len(failed), errors.Join(failed...))
 	}
 	return res, nil
 }

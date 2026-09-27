@@ -95,6 +95,14 @@ func (s *Postgres) Close() error {
 	return nil
 }
 
+// Scrub does nothing on Postgres, because nothing the node can do from a connection destroys a
+// deleted row's bytes there: the old row version stays in its page as a dead tuple until VACUUM
+// reclaims the space (and reclaiming does not overwrite it), the write-ahead log keeps it until
+// the segment is recycled, and any base backup or WAL archive keeps it for as long as that is
+// kept. SPEC §3.9 names this as a divergence from PACT §9's "destroy"; what remains is ciphertext
+// sealed under the node's keyring.
+func (s *Postgres) Scrub(context.Context) error { return nil }
+
 func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()

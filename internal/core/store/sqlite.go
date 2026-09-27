@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"os"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -37,9 +38,15 @@ import (
 //     were within noise of 2 MiB), and `ANALYZE`/`PRAGMA optimize` (no plan or number changed).
 //     `mmap_size` made parallel reads a third faster and was declined as well: an I/O error on a
 //     mapped file is a signal that kills the process, not an error a statement returns.
+//   - `secure_delete` ON. A leaf's private key MUST be destroyed at expiry and when the person
+//     leaves (PACT §9, SPEC §3.9), and a DELETE does not destroy bytes: SQLite leaves a deleted
+//     row's content in freed cell space and on free pages until something reuses them. With
+//     secure_delete it overwrites them with zeros as it frees them. What the write-ahead log still
+//     holds is Scrub's to clear.
 type SQLite struct {
-	db *sql.DB
-	q  *sqlitedb.Queries
+	db   *sql.DB
+	path string
+	q    *sqlitedb.Queries
 	// inTx marks the copy Atomically hands to its callback: its `q` is a transaction already.
 	inTx bool
 }
@@ -50,14 +57,57 @@ var _ Store = (*SQLite)(nil)
 const sqliteConns = 4
 
 func OpenSQLite(path string) (*SQLite, error) {
-	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(FULL)", path)
+	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(FULL)&_pragma=secure_delete(1)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	db.SetMaxOpenConns(sqliteConns)
 	db.SetMaxIdleConns(sqliteConns)
-	return &SQLite{db: db, q: sqlitedb.New(db)}, nil
+	return &SQLite{db: db, path: path, q: sqlitedb.New(db)}, nil
+}
+
+// Scrub makes what this store has deleted unreadable from its own files. secure_delete zeroes a
+// deleted row in the database file as the row is freed; the write-ahead log still holds every
+// page image written since the last checkpoint, the deleted row's among them. Scrub checkpoints
+// the log into the database and truncates it to nothing (`wal_checkpoint(TRUNCATE)`), and proves it by the log's
+// size: a checkpoint another connection's reader kept from finishing leaves the log whole, and
+// that is an error, never a success.
+//
+// sqlc cannot express a PRAGMA (its SQLite grammar drops the statement), and the store runs no
+// statement by hand (TestNoHandWrittenSQLOutsideTheStore). So the checkpoint is a connection
+// setting, exactly as journal_mode and secure_delete are above: a connection of its own is opened
+// with the pragma in its DSN, which the driver runs as the connection opens, and closed.
+func (s *SQLite) Scrub(ctx context.Context) error {
+	if s.inTx {
+		return fmt.Errorf("store: scrub inside a transaction: the checkpoint would wait on this transaction's own lock")
+	}
+	if s.path == "" || s.path == ":memory:" {
+		return nil
+	}
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=secure_delete(1)&_pragma=wal_checkpoint(TRUNCATE)", s.path)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return fmt.Errorf("store: scrub: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("store: scrub: %w", err)
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("store: scrub: %w", err)
+	}
+	fi, err := os.Stat(s.path + "-wal")
+	switch {
+	case os.IsNotExist(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("store: scrub: %w", err)
+	case fi.Size() != 0:
+		return fmt.Errorf("store: scrub: the write-ahead log still holds %d bytes: a reader kept the checkpoint from finishing, and deleted rows may be in it until the next scrub", fi.Size())
+	}
+	return nil
 }
 
 // Atomically runs fn on a copy of this store whose queries all go through one transaction. Every
@@ -71,7 +121,7 @@ func (s *SQLite) Atomically(ctx context.Context, fn func(tx Store) error) error 
 	if err != nil {
 		return fmt.Errorf("store: begin: %w", err)
 	}
-	if err := fn(&SQLite{db: s.db, q: s.q.WithTx(tx), inTx: true}); err != nil {
+	if err := fn(&SQLite{db: s.db, path: s.path, q: s.q.WithTx(tx), inTx: true}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
