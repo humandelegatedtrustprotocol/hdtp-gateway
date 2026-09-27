@@ -7,7 +7,7 @@ One static Go binary that runs a personal, permission-gated
 else's assistant can message you, ask when you are free, and book time with you,
 with no platform in the middle deciding who may talk to whom.
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](../LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
 [![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
@@ -347,7 +347,7 @@ with the store's conformance suite run on **both** storage engines, and a fuzz
 target, run under `-fuzz` by `make fuzz` in the pre-push gate, on everything this code parses from untrusted
 input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 `FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
-every push. [SECURITY.md](../SECURITY.md) states plainly what is and
+every push. [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) states plainly what is and
 is not hardened yet.
 
 **A harness that builds the world.** 17 live scenarios stand the real binary up
@@ -403,7 +403,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | [`docs/harness-design.md`](docs/harness-design.md) | The scenario harness and what each topology proves |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and what a change must carry |
 | [`RELEASING.md`](RELEASING.md) | Cutting a release, and how to verify one you downloaded |
-| [`SECURITY.md`](../SECURITY.md) | Report a vulnerability privately — never as an issue |
+| [`SECURITY.md`](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) | Report a vulnerability privately — never as an issue |
 
 ## Honest trade-offs
 
@@ -422,4 +422,4 @@ Written down because they do not disappear by going unmentioned:
 
 ## License
 
-[Apache-2.0](../LICENSE).
+[Apache-2.0](LICENSE).
