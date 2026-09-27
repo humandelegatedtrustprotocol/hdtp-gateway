@@ -196,6 +196,8 @@ func check(n Need) error {
 		key += "|" + os.Getenv(PactCLIEnv)
 	case CloudBattery:
 		key += "|" + os.Getenv(CloudBatteryEnv)
+	case LocalCloud:
+		key += "|" + os.Getenv(LocalCloudEnv)
 	}
 	probeMu.Lock()
 	defer probeMu.Unlock()
@@ -249,6 +251,25 @@ func probe(ctx context.Context, n Need) error {
 		}
 		if out, err := local(ctx, cli, "--version"); err != nil {
 			return fmt.Errorf("%s --version: %v %s", cli, err, firstLine(string(out)))
+		}
+		return nil
+	case LocalCloud:
+		dir := os.Getenv(LocalCloudEnv)
+		if dir == "" {
+			return fmt.Errorf("%s is not set", LocalCloudEnv)
+		}
+		for _, f := range []string{"e2e/local-run.mjs", "public"} {
+			if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+				return fmt.Errorf("%s has no %s: %v", dir, f, err)
+			}
+		}
+		for _, v := range []string{"WORKOS_TEST_CLIENT_ID", "WORKOS_TEST_API_KEY"} {
+			if os.Getenv(v) == "" {
+				return fmt.Errorf("%s is not set: the local cloud's session injection verifies a WorkOS token", v)
+			}
+		}
+		if out, err := local(ctx, "node", "--version"); err != nil {
+			return fmt.Errorf("node --version: %v %s", err, firstLine(string(out)))
 		}
 		return nil
 	case CloudBattery:

@@ -75,10 +75,14 @@ const (
 	// CloudBattery is the Go conformance battery's checkout (pact-cloud/gateway/conformance), named
 	// by PACT_CLOUD_BATTERY: the one battery the cloud runs against staging, run here against a node.
 	CloudBattery Need = "cloud-battery"
+	// LocalCloud is pact-cloud's local cloud and its live-local runner (gateway/e2e/local-run.mjs),
+	// named by PACT_LOCAL_CLOUD (the gateway directory), with the WorkOS test pair its session
+	// injection verifies (WORKOS_TEST_CLIENT_ID, WORKOS_TEST_API_KEY) and its built public/.
+	LocalCloud Need = "local-cloud"
 )
 
 // Needs is every need.
-var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF, PactCLI, CloudBattery}
+var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF, PactCLI, CloudBattery, LocalCloud}
 
 // The environment variables the harness reads.
 const (
@@ -95,6 +99,8 @@ const (
 	PactCLIEnv = "PACT_CLI"
 	// CloudBatteryEnv names the battery's directory (Need CloudBattery).
 	CloudBatteryEnv = "PACT_CLOUD_BATTERY"
+	// LocalCloudEnv names pact-cloud's gateway directory (Need LocalCloud).
+	LocalCloudEnv = "PACT_LOCAL_CLOUD"
 )
 
 // Spec is one scenario.
@@ -128,7 +134,7 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("%s has tier %q, not one of %v", s.ID, s.Tier, Tiers)
 	}
 	if len(s.Needs) == 0 {
-		return fmt.Errorf("%s needs nothing: every live scenario needs at least Docker or a Kernel", s.ID)
+		return fmt.Errorf("%s needs nothing: every live scenario needs something to run on (Docker, a Kernel, the local cloud)", s.ID)
 	}
 	for i, n := range s.Needs {
 		if !slices.Contains(Needs, n) {
@@ -169,6 +175,9 @@ func Provides(t Tier, getenv func(string) string) []Need {
 	if getenv(CloudBatteryEnv) != "" {
 		out = append(out, CloudBattery)
 	}
+	if getenv(LocalCloudEnv) != "" {
+		out = append(out, LocalCloud)
+	}
 	return out
 }
 
@@ -200,6 +209,8 @@ func HowToProvide(n Need) string {
 		return "run docs/demos/cloudflare-two-users.md, then export " + CFEnv
 	case PactCLI:
 		return "make harness-pact-cli (a pact-identity checkout beside this one), or export " + PactCLIEnv + " naming a built pact"
+	case LocalCloud:
+		return "export " + LocalCloudEnv + " naming a pact-cloud gateway/ with e2e/local-run.mjs and a built public/, and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
 	case CloudBattery:
 		return "check pact-cloud out beside this repository (the Makefile then exports " + CloudBatteryEnv + "), or export it naming gateway/conformance"
 	}
