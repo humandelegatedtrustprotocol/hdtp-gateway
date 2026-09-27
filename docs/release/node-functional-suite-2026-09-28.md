@@ -96,15 +96,15 @@ is a Go stub), and media plus review-then-confirm through an export round trip.
 ### 2.2 E2E suite: one journey list, a driver per host
 
 The drivers cannot be one program (the node has no `/v1`, the cloud has no `/owner/mcp`), so the
-single definition is the **list of journeys**: `harness/journeys/journeys.json`, each with an id, the
-steps and the expected outcome. Each host's driver implements every journey or names it in the
-list's per-host divergence with a reason:
+single definition is the **list of journeys**: `harness/journeys/journeys.json`, each with an id and
+a name, the node harness scenarios that prove it and the cloud pair scenarios (or driver files) that
+do, or, for a host with none yet, why (`node_pending`, `cloud_pending`):
 
-- node: each harness scenario declares the journeys it proves; a hermetic test holds the union
-  equal to the list minus the node's divergences;
+- node: `harness/journeys` holds every node entry to a scenario the registry scans, and an empty
+  one to a reason;
 - cloud: `gateway/e2e/tables/journeys.json` is a byte-identical copy, held to the node's by the
-  node's guard (the 1.x markers' pattern: compared when the sibling is checked out), and a cloud
-  table maps each journey to the pair scenarios that prove it.
+  node's guard when the sibling is checked out (the 1.x markers' pattern), and `test/journeys.test.ts`
+  holds every cloud entry to a pair scenario or a driver file.
 
 ### 2.3 The node's own doors under attack
 
@@ -138,7 +138,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | done; the cloud path of the changed battery is not yet run against any cloud (see 3.3) |
 | B4 | The battery against a live node: S19 | node | nightly | done: 77 of 77 after the fixes in 3.1 |
 | B5 | The node's doors under attack (2.3) | node `test/node-door-attacks` | hermetic | in progress |
-| B6 | The node's missing journeys: S21 | node | nightly | done (the shared journey list with the cloud's pair is still to write) |
+| B6 | The node's missing journeys (S21) and the shared journey list | node + cloud | hermetic + nightly | done: `harness/journeys/journeys.json`, 25 journeys; its cloud copy `gateway/e2e/tables/journeys.json` on `test/battery-targets` |
 | B7 | The hostile corpus through the shipped image: S22 | node | nightly | done on the v0.3.2 corpus; see 3.2 for v0.3.3 |
 | B8 | The real wallet page from a node | node | nightly | planned |
 | B9 | Every early refusal of the public tools audited | node | hermetic | done |
