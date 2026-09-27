@@ -632,3 +632,51 @@ func TestTheCorpusIntoANewSlugIsRefusedInTheSameWords(t *testing.T) {
 		t.Fatalf("only %d hostile cases ran into a new slug", checked)
 	}
 }
+
+// A stranger's request this host holds (pending_in), and a file that says the same root is a
+// contact: the held row stands. The person decides the request here, as any other; the file does
+// not accept it for them, and the row is not marked as owed a handshake.
+func TestAHeldRequestIsKeptWhenTheFileNamesTheSameRoot(t *testing.T) {
+	ctx := context.Background()
+	raw, _ := fs.ReadFile(exportcorpus.FS, "cases.json")
+	var idx exportcorpus.Index
+	must(t, json.Unmarshal(raw, &idx))
+	now, _ := time.Parse(time.RFC3339, idx.Now)
+	valid, err := fs.ReadFile(exportcorpus.FS, "valid-export.zip")
+	must(t, err)
+	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), idx.Owner, now, ImportCeiling)
+	must(t, err)
+	var row pactidentity.ContactRow
+	for _, r := range contents.Contacts {
+		if r.Leaf != nil {
+			row = r
+		}
+	}
+	if row.Root == "" {
+		t.Fatal("the corpus's valid export must hold a row whose leaf pins")
+	}
+	e := newEnv(t, sqliteStore)
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
+	must(t, err)
+	must(t, e.st.SetAccountRoot(ctx, a.ID, idx.Owner, nil))
+	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: row.Root, SPKI: []byte("req-spki"), Status: "pending_in",
+		Endpoint: "https://asker.example/a/x/mcp", Leaf: []byte("request-leaf"), PinnedAt: 5})
+	must(t, err)
+
+	p, _, err := importFile(t, e, valid, "alina", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := false
+	for _, root := range p.Keep {
+		kept = kept || root == row.Root
+	}
+	if !kept {
+		t.Fatalf("the held request was not kept: keep=%v", p.Keep)
+	}
+	c, err := e.st.GetContact(ctx, a.ID, row.Root)
+	must(t, err)
+	if c.Status != "pending_in" || string(c.Leaf) != "request-leaf" || c.Endpoint != "https://asker.example/a/x/mcp" || c.HandshakeDue {
+		t.Fatalf("a held request was changed by a file: %+v", c)
+	}
+}
