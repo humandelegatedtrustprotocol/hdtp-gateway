@@ -8,13 +8,12 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
 	"fmt"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 	"math/big"
 	"time"
 )
@@ -41,40 +40,32 @@ type Keypair struct {
 // above it, which is what lets it present a chain and sign as the identity (PACT §2).
 func (k *Keypair) HasChain() bool { return k != nil && len(k.Leaf) > 0 && len(k.Root) > 0 }
 
-// Fingerprint computes PACT §2's identity: "sha256:" + base64url(SHA-256(SPKI)),
-// unpadded, over the PKIX/SPKI DER encoding of the public key.
+// Fingerprint computes PACT §2's identity over the PKIX/SPKI DER encoding of the public key:
+// the library's Fingerprint, "sha256:" + base64url(SHA-256(SPKI)), unpadded.
 func Fingerprint(pub crypto.PublicKey) (string, error) {
 	spki, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
 		return "", fmt.Errorf("identity: %w", err)
 	}
-	sum := sha256.Sum256(spki)
-	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:]), nil
+	return pactidentity.Fingerprint(spki), nil
 }
 
+// Generate draws a fresh key with the library's GenerateKey. Its algorithm names are this
+// package's (AlgoP256 is pactidentity.AlgP256, AlgoEd25519 is pactidentity.AlgEd25519; a test
+// holds them equal), and the key the library draws becomes a crypto.Signer here.
 func Generate(algo Algo) (*Keypair, error) {
-	var signer crypto.Signer
-	switch algo {
-	case AlgoP256:
-		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("identity: %w", err)
-		}
-		signer = k
-	case AlgoEd25519:
-		_, k, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("identity: %w", err)
-		}
-		signer = k
-	default:
+	if algo != AlgoP256 && algo != AlgoEd25519 {
 		return nil, fmt.Errorf("identity: unknown algorithm %q (want p256|ed25519)", algo)
 	}
-	fpr, err := Fingerprint(signer.Public())
+	k, err := pactidentity.GenerateKey(string(algo))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("identity: %w", err)
 	}
-	return &Keypair{Algo: algo, Signer: signer, Fingerprint: fpr}, nil
+	var signer crypto.Signer = k.EC
+	if k.EC == nil {
+		signer = k.Ed
+	}
+	return &Keypair{Algo: algo, Signer: signer, Fingerprint: pactidentity.Fingerprint(k.Public.SPKI)}, nil
 }
 
 // SelfSignedCert issues the account's long-lived self-signed certificate

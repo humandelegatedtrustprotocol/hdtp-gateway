@@ -23,6 +23,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/envelope"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
@@ -261,7 +262,7 @@ func (id *Identifier) PoolGate() func(ctx context.Context, tool string) error {
 // OpenSealed runs the numbered open order (SPEC §4.4) for one sealed_call.
 // accountID is the addressed account; tf carries the transport
 // facts of the connection the envelope arrived on.
-func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf TransportFacts, e *envelope.Envelope) (*EnvelopeFacts, error) {
+func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
 	// 0. Policy. At `none` the recipient does not accept envelopes (PACT §13.4)
 	// — the card said not to seal. The sealed_call wrapper is the only way an
 	// envelope arrives, and it opens through here. Read live, like

@@ -19,7 +19,6 @@ package ownermcp
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -29,6 +28,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // Extra is what the parity tools need beyond Deps. Each is optional: a nil field
@@ -188,7 +188,7 @@ func (ot ownerTools) identityCertificateTool(ctx context.Context, req *mcp.CallT
 	if info.Certified {
 		chain := make([]string, 0, len(info.Chain))
 		for _, c := range info.Chain {
-			chain = append(chain, base64.RawURLEncoding.EncodeToString(c))
+			chain = append(chain, pactidentity.B64url(c))
 		}
 		out["root_fingerprint"], out["kid"], out["endpoint"] = info.RootFingerprint, info.Kid, info.Endpoint
 		out["not_before"], out["not_after"] = info.NotBefore.UTC().Format(time.RFC3339), info.NotAfter.UTC().Format(time.RFC3339)

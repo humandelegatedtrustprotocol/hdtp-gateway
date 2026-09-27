@@ -14,7 +14,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
@@ -189,7 +188,7 @@ func (e *env20) currentKey(t testing.TB) *identity.Keypair {
 type seal20Opt func(*pactidentity.SealOpts)
 
 // seal20 seals a `v: 2` request from a peer to our current leaf key.
-func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *envelope.Envelope {
+func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *pactidentity.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
 	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
@@ -209,15 +208,10 @@ func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(out)
-	var wire envelope.Envelope
-	if err := json.Unmarshal(b, &wire); err != nil {
-		t.Fatal(err)
-	}
-	return &wire
+	return out
 }
 
-func (e *env20) open(t testing.TB, env *envelope.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
+func (e *env20) open(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
 	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
 }
@@ -640,5 +634,59 @@ func TestV2TransportPinChecks(t *testing.T) {
 	}
 	if ps, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(ps) != 1 || ps[0].Why != "returned after removal" {
 		t.Fatalf("tombstone pending: %+v", ps)
+	}
+}
+
+// respell rewrites one member of an envelope as it travels, leaving every other byte alone.
+func respell(t *testing.T, env *pactidentity.Envelope, member string, fn func(string) string) *pactidentity.Envelope {
+	t.Helper()
+	b, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]string
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	m[member] = fn(m[member])
+	b, _ = json.Marshal(m)
+	var out pactidentity.Envelope
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return &out
+}
+
+// An envelope member has ONE spelling on the wire (PACT §13.1): `sig` covers the DECODED bytes, so
+// every other spelling a reader accepts is a second envelope that verifies. The core refuses a last
+// character with its unused bits set and a line break inside a member. The node used to decode the
+// members itself, leniently, and hand the core a canonical re-encoding — so the core's refusal never
+// ran and the node opened both spellings. `enc` is 32 or 65 bytes, so its last character always has
+// unused bits.
+func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
+	e := newEnv20(t)
+	p := newPeer(t, fixedNow)
+	e.pin(t, p, "active")
+	if f, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); err != nil || f.From != p.fpr() {
+		t.Fatalf("the control, in its canonical spelling, must open: %v %+v", err, f)
+	}
+	spare := func(s string) string {
+		const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+		last := strings.IndexByte(alphabet, s[len(s)-1])
+		return s[:len(s)-1] + string(alphabet[last|1])
+	}
+	lineBreak := func(s string) string { return s[:8] + "\r\n" + s[8:] }
+	for name, c := range map[string]struct {
+		member string
+		fn     func(string) string
+	}{
+		"enc with a spare bit set": {"enc", spare},
+		"sig with a line break":    {"sig", lineBreak},
+		"ct with a line break":     {"ct", lineBreak},
+	} {
+		env := respell(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), c.member, c.fn)
+		if _, err := e.open(t, env, TransportFacts{}); Code(err) != "envelope_invalid" {
+			t.Errorf("%s: opened (%v); a second spelling of an envelope must be refused", name, err)
+		}
 	}
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
 	"github.com/tech-sumit/pact-gateway/internal/identity"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
@@ -63,7 +62,7 @@ func newSealedEnv(t testing.TB) *sealedEnv {
 }
 
 // call invokes sealed_call the way an MCP server would.
-func (s *sealedEnv) call(t testing.TB, env *envelope.Envelope, tf TransportFacts) *mcp.CallToolResult {
+func (s *sealedEnv) call(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) *mcp.CallToolResult {
 	t.Helper()
 	args, err := json.Marshal(env)
 	if err != nil {

@@ -10,7 +10,6 @@ package public
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,8 +64,6 @@ func (s *State20) currentKey() *identity.Keypair {
 	return nil
 }
 
-func b64u(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
-
 // nodeState builds Decide's input from the store and the supplied state.
 func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State20) (pactidentity.NodeState, error) {
 	ns := pactidentity.NodeState{
@@ -76,14 +73,14 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 		ns.AcceptNewHosts = "auto"
 	}
 	for _, c := range st.Chain {
-		ns.Chain = append(ns.Chain, b64u(c))
+		ns.Chain = append(ns.Chain, pactidentity.B64url(c))
 	}
 	for _, k := range st.Keys {
 		der, err := identity.MarshalPKCS8(k.KP)
 		if err != nil {
 			return ns, err
 		}
-		ns.Keys = append(ns.Keys, pactidentity.HeldKey{Kid: k.Kid, Leaf: b64u(k.Leaf), PKCS8: b64u(der), Current: k.Current})
+		ns.Keys = append(ns.Keys, pactidentity.HeldKey{Kid: k.Kid, Leaf: pactidentity.B64url(k.Leaf), PKCS8: pactidentity.B64url(der), Current: k.Current})
 	}
 	contacts, err := id.Store.ListContacts(ctx, accountID)
 	if err != nil {
@@ -96,7 +93,7 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
 			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
 			// certificate: a row where the two disagree is unreadable state, and is said.
-			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: b64u(c.Leaf), State: c.Status}
+			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: c.Status}
 			if len(c.SPKI) > 0 {
 				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
 			}
@@ -108,7 +105,7 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 		return ns, err
 	}
 	for _, t := range tombs {
-		ns.Tombstones = append(ns.Tombstones, pactidentity.TombstoneRec{Root: t.Root, Leaf: b64u(t.Leaf), At: time.Unix(t.At, 0).UTC().Format(time.RFC3339)})
+		ns.Tombstones = append(ns.Tombstones, pactidentity.TombstoneRec{Root: t.Root, Leaf: pactidentity.B64url(t.Leaf), At: time.Unix(t.At, 0).UTC().Format(time.RFC3339)})
 	}
 	formers, err := id.Store.ListFormerEndpoints(ctx, accountID)
 	if err != nil {
@@ -121,7 +118,7 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 }
 
 // openSealed2 is the `v: 2` half of OpenSealed.
-func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf TransportFacts, e *envelope.Envelope) (*EnvelopeFacts, error) {
+func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
 	if id.State20 == nil {
 		return nil, fmt.Errorf("%w: this identity does not speak 2.0", envelope.ErrInvalid)
 	}
@@ -132,13 +129,14 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	if st == nil || !st.HasRoot {
 		return nil, fmt.Errorf("%w: this identity has no certificate yet", envelope.ErrInvalid)
 	}
-	wire := pactidentity.Envelope{Protected: b64u(e.Protected), Enc: b64u(e.Enc), Ct: b64u(e.CT), Sig: b64u(e.Sig)}
+	// The members go to the library exactly as they arrived: it holds each to its one spelling
+	// (PACT §13.1), which a decode and re-encode here would launder.
 	now := id.now()
 	ns, err := id.nodeState(ctx, accountID, st)
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
-	d, err := pactidentity.Decide(now, wire, ns)
+	d, err := pactidentity.Decide(now, *e, ns)
 	if err != nil {
 		// Not the envelope: a row of THIS node's state — a held key's leaf, a pin, a tombstone —
 		// would not read. The port used to step over such a row and decide without it, which quietly
@@ -197,8 +195,10 @@ func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf Tran
 	if d.Result["params"] == nil {
 		params = nil
 	}
+	// Decide has read `protected` in its one spelling and verified the signature over it, so the
+	// lenient decoder reads the same bytes the strict one did.
 	var h envelope.Header
-	_ = json.Unmarshal(e.Protected, &h)
+	_ = json.Unmarshal(pactidentity.FromB64url(e.Protected), &h)
 	facts := &EnvelopeFacts{
 		Header: h, From: root, SPKI: leaf.SPKI, Payload: Payload{Method: method, Params: params},
 		Tier: policy.Tier(tier), Endpoint: endpoint, Leaf: leafDER, Form: form, Why: why,

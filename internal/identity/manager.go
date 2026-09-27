@@ -6,13 +6,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"unicode"
 
 	"github.com/tech-sumit/pact-gateway/internal/core"
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // signBytes signs with the encodings PACT §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1
@@ -126,5 +126,5 @@ func (m *Manager) SignCard(ctx context.Context, accountID string, cardText strin
 	if err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(sig), nil
+	return pactidentity.B64url(sig), nil
 }
