@@ -145,7 +145,13 @@ func account(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "%v has no leaf yet; `account csr -slug %v` prints the request for the wallet\n", out["Slug"], out["Slug"])
 			return 0
 		}
-		fmt.Fprintf(stdout, "%v: root %v\n  leaf %v for %v, %v to %v\n  renewal due: %v\n", out["Slug"], out["Root"], out["Kid"], out["Endpoint"], out["NotBefore"], out["NotAfter"], out["RenewalDue"])
+		if kid, _ := out["Kid"].(string); kid == "" {
+			// A root and no current leaf: what an import leaves, and what an expired leaf leaves. The
+			// leaf fields are zero here, and printing them described a leaf that does not exist.
+			fmt.Fprintf(stdout, "%v: root %v\n  no current leaf on this host: it is not served until the wallet signs one\n", out["Slug"], out["Root"])
+		} else {
+			fmt.Fprintf(stdout, "%v: root %v\n  leaf %v for %v, %v to %v\n  renewal due: %v\n", out["Slug"], out["Root"], out["Kid"], out["Endpoint"], out["NotBefore"], out["NotAfter"], out["RenewalDue"])
+		}
 		if p, _ := out["PendingCSR"].(string); p != "" {
 			fmt.Fprintf(stdout, "  a request for key %v awaits the wallet\n", p)
 		}
