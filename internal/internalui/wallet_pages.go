@@ -40,6 +40,8 @@ type WalletInstalled struct {
 	NotAfter time.Time
 	// Notice is the move notice (identity.MoveNotice), "" when the identity did not move.
 	Notice string
+	// Warnings are what the install did not finish although the leaf is installed.
+	Warnings []string
 }
 
 // WalletDeps is what the web-wallet pages call. Mint and Install are the node's one signing-request
@@ -91,7 +93,7 @@ const walletStyle = `<style>
  dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
  dd{margin:0;word-break:break-all}
  button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid #6b7a74;cursor:pointer}
- .muted{opacity:.7;font-size:14px} .err{color:#b3261e} .ok{color:#1e7a46}
+ .muted{opacity:.7;font-size:14px} .err{color:#b3261e} .ok{color:#1e7a46} .warn{color:#8a5a00}
 </style>`
 
 var walletAskTmpl = template.Must(template.New("ask").Parse(`<!DOCTYPE html>
@@ -282,8 +284,17 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	}
 	origin, _ := walletPortalOrigin(r) // prepare checked it
 	res, err := d.Mint(r, a, ask.purpose, ask.endpoint, d.WalletOrigin)
-	if err != nil {
-		http.Error(w, "could not make the request: "+err.Error(), http.StatusInternalServerError)
+	switch {
+	case errors.Is(err, store.ErrAddressVacated):
+		http.Error(w, "That address was left by an identity whose last certificate has not expired yet; it cannot be asked for until then.", http.StatusConflict)
+		return
+	case errors.Is(err, identity.ErrLeafRefused):
+		http.Error(w, "A web wallet signs a renewal or a move of an identity it already certified; this request is neither.", http.StatusConflict)
+		return
+	case err != nil:
+		// Never the error's text: it can name a database, a path or a key. The audit trail has the
+		// request, as account_csr `error` (cli/leafservice.go).
+		http.Error(w, "The request could not be made; try again. The audit trail records the attempt (account_csr, error).", http.StatusInternalServerError)
 		return
 	}
 	redirect := origin + "/wallet/return?slug=" + url.QueryEscape(a.Slug)
@@ -392,7 +403,12 @@ func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 		walletJSON(w, http.StatusInternalServerError, map[string]string{"error": "the certificate could not be installed"})
 		return
 	}
-	walletJSON(w, http.StatusOK, map[string]string{
+	warnings := res.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	walletJSON(w, http.StatusOK, map[string]any{
 		"endpoint": res.Endpoint, "not_after": res.NotAfter.UTC().Format(time.RFC3339), "notice": res.Notice,
+		"warnings": warnings,
 	})
 }

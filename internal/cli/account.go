@@ -55,6 +55,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stderr, "%v request for %v, key %v; suggested notAfter %v\n", out["Purpose"], out["Endpoint"], out["Kid"], out["SuggestedNotAfter"])
+		printWarnings(stderr, out)
 		fmt.Fprint(stdout, out["CSR"])
 		return 0
 	case "install-leaf":
@@ -82,6 +83,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		if n, ok := out["Notice"].(string); ok && n != "" {
 			fmt.Fprintln(stdout, n)
 		}
+		printWarnings(stderr, out)
 		return 0
 	case "announce":
 		var out map[string]any
@@ -267,4 +269,12 @@ func handshakesOwedLine(slug string, n any, hasLeaf bool) string {
 		purpose = "move"
 	}
 	return fmt.Sprintf("%d imported contact(s) of %s wait for a new leaf: run `account csr -slug %s -purpose %s`, have the wallet sign it, then `account install-leaf -slug %s -chain <file>`", count, slug, slug, purpose, slug)
+}
+
+// printWarnings writes what a request or an install did not finish, one line each.
+func printWarnings(w io.Writer, out map[string]any) {
+	ws, _ := out["Warnings"].([]any)
+	for _, x := range ws {
+		fmt.Fprintf(w, "warning: %v\n", x)
+	}
 }

@@ -33,7 +33,9 @@
     }
     return r.json().then(function (j) {
       if (r.ok) {
-        say("Installed: " + j.endpoint + ", valid until " + j.not_after + "." + (j.notice ? " " + j.notice : ""), "ok");
+        var warned = (j.warnings || []).length > 0;
+        say("Installed: " + j.endpoint + ", valid until " + j.not_after + "." + (j.notice ? " " + j.notice : "") +
+          (warned ? " Warning: " + j.warnings.join(" ") : ""), warned ? "warn" : "ok");
       } else {
         say("Not installed: " + (j.error || "refused") + ".", "err");
       }

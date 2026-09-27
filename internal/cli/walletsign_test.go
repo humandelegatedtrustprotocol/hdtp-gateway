@@ -358,7 +358,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("the answer that must pass: %d %s", res.StatusCode, body)
 	}
-	var out map[string]string
+	var out map[string]any
 	if err := json.Unmarshal([]byte(body), &out); err != nil || out["endpoint"] != identity.EndpointFor(cfg.PublicURL, "alice") || out["notice"] != "" {
 		t.Fatalf("install answered %s", body)
 	}
