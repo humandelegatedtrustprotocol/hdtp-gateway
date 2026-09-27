@@ -22,6 +22,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/integrations"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 const (
@@ -37,6 +38,9 @@ const (
 
 type Deps struct {
 	Store store.Store
+	// PublicURL is this node's public address, read live (it changes from Settings): where an
+	// invite's link lands (`/i/<token>`). "" is no address, and create_invite then mints nothing.
+	PublicURL func() string
 	// Approved tells the peer their request was accepted (`contact_accepted`).
 	// The portal's approve path calls the SAME function: approving on one surface
 	// and not the other would leave the peer stranded depending on which button
@@ -531,8 +535,52 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	r, err := jsonResult(list)
+	out := make([]contactView, 0, len(list))
+	for _, c := range list {
+		out = append(out, contactOf(c))
+	}
+	r, err := jsonResult(out)
 	return r, nil, err
+}
+
+// contactView is a contact as the owner MCP answers it (building rule 10: project, never spread):
+// the cloud's names for what this node holds (pact-cloud api/v1/routes/shared.ts `Contact`), and
+// the grant the contact made us. Not the row id, the account id, the pinned key, the card, the
+// invite or the chain mark. The cloud's last_seen_at, address_claim and acceptance_unheard_since
+// are not here: this node keeps none of them.
+type contactView struct {
+	Fingerprint      string   `json:"fingerprint"`
+	DisplayName      string   `json:"display_name"`
+	Status           string   `json:"status"`
+	Preset           string   `json:"preset"`
+	Permissions      []string `json:"permissions"`
+	TheirPermissions []string `json:"their_permissions"`
+	TrustFlag        string   `json:"trust_flag"`
+	Petname          string   `json:"petname"`
+	CreatedAt        int64    `json:"created_at"`
+	Endpoint         string   `json:"endpoint"`
+	Leaf             string   `json:"leaf,omitempty"`
+	RootCert         string   `json:"root_cert,omitempty"`
+}
+
+func contactOf(c store.Contact) contactView {
+	v := contactView{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, Status: c.Status, Preset: c.Preset,
+		Permissions: nonNil(c.Permissions), TheirPermissions: nonNil(c.TheirPermissions), TrustFlag: c.TrustFlag,
+		Petname: c.Petname, CreatedAt: c.CreatedAt, Endpoint: c.Endpoint}
+	if len(c.Leaf) > 0 {
+		v.Leaf = pactidentity.B64url(c.Leaf)
+	}
+	if len(c.RootCert) > 0 {
+		v.RootCert = pactidentity.B64url(c.RootCert)
+	}
+	return v
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // listPendingAddressesTool is the `list_pending_addresses` tool.
@@ -652,6 +700,19 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 		r, err := deny()
 		return r, nil, err
 	}
+	// The link lands at this node's public address; with none there is nowhere for it to land,
+	// and nothing is minted (the cloud refuses the same way when an identity has no address).
+	base := ""
+	if ot.d.PublicURL != nil {
+		base = strings.TrimRight(ot.d.PublicURL(), "/")
+	}
+	if base == "" {
+		b, err := json.Marshal(map[string]string{"code": "unavailable", "detail": "this node has no public address yet, so an invite has nowhere to land: set public_url"})
+		if err != nil {
+			return nil, nil, err
+		}
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+	}
 	token, inv, err := ot.d.Contacts.CreateInvite(ctx, a.AccountID, contacts.InviteOptions{
 		Label: a.Label, MaxUses: a.MaxUses, AutoAccept: a.AutoAccept,
 		Preset: a.Preset, Permissions: a.Perms,
@@ -659,7 +720,9 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	r, err := jsonResult(map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt})
+	// The cloud's answer (createInvite: id, url, expires_at). The token is in the link and nowhere
+	// else: the link is what a person sends.
+	r, err := jsonResult(map[string]any{"id": inv.ID, "url": base + "/i/" + token, "expires_at": inv.ExpiresAt})
 	return r, nil, err
 }
 
