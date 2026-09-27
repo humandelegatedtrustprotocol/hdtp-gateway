@@ -21,7 +21,12 @@
 # This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The tree being pushed is the working tree git runs this hook in, which is not where this file lives:
+# core.hooksPath is an absolute path to ONE checkout's githooks/, so from a `git worktree` this file
+# is that checkout's copy. Taking the root from the file's own directory gated that other checkout's
+# tree on every worktree push (2026-09-27: a worktree's push passed on the main checkout's files, and
+# a push from the main checkout failed on a fix that only the worktree carried).
+root="$(git rev-parse --show-toplevel)/pact-gateway"
 cd "$root"
 
 # A push that only deletes refs has nothing to test.
