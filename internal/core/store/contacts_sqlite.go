@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
@@ -56,16 +55,9 @@ func (s *SQLite) ListContacts(ctx context.Context, accountID string) ([]Contact,
 }
 
 func (s *SQLite) UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error {
-	n, err := s.q.UpdateContactStatus(ctx, sqlitedb.UpdateContactStatusParams{
+	return contactChanged(s.q.UpdateContactStatus(ctx, sqlitedb.UpdateContactStatusParams{
 		Status: status, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *SQLite) MoveContactStatus(ctx context.Context, accountID, fingerprint, from, to string) (bool, error) {
@@ -84,70 +76,35 @@ func (s *SQLite) DeleteContactInStatus(ctx context.Context, accountID, fingerpri
 }
 
 func (s *SQLite) UpdateContactPermissions(ctx context.Context, accountID, fingerprint string, permissions []string, preset string) error {
-	n, err := s.q.UpdateContactPermissions(ctx, sqlitedb.UpdateContactPermissionsParams{
+	return contactChanged(s.q.UpdateContactPermissions(ctx, sqlitedb.UpdateContactPermissionsParams{
 		Permissions: permsToJSON(permissions), Preset: preset, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *SQLite) UpdateContactTrust(ctx context.Context, accountID, fingerprint, trustFlag string) error {
-	n, err := s.q.UpdateContactTrust(ctx, sqlitedb.UpdateContactTrustParams{
+	return contactChanged(s.q.UpdateContactTrust(ctx, sqlitedb.UpdateContactTrustParams{
 		TrustFlag: trustFlag, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *SQLite) DeleteContact(ctx context.Context, accountID, fingerprint string) error {
-	n, err := s.q.DeleteContact(ctx, sqlitedb.DeleteContactParams{
+	return contactChanged(s.q.DeleteContact(ctx, sqlitedb.DeleteContactParams{
 		AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 // SetContactPetname records the owner's own name for a contact. It is local:
 // nothing about it is sent to the peer, and no peer can change it.
 func (s *SQLite) SetContactPetname(ctx context.Context, accountID, fingerprint, petname string) error {
-	n, err := s.q.UpdateContactPetname(ctx, sqlitedb.UpdateContactPetnameParams{
+	return contactChanged(s.q.UpdateContactPetname(ctx, sqlitedb.UpdateContactPetnameParams{
 		Petname: petname, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *SQLite) UpdateContactCard(ctx context.Context, accountID, fingerprint, card, displayName string) error {
-	n, err := s.q.UpdateContactCard(ctx, sqlitedb.UpdateContactCardParams{
+	return contactChanged(s.q.UpdateContactCard(ctx, sqlitedb.UpdateContactCardParams{
 		Card: card, DisplayName: displayName, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *SQLite) RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error) {
