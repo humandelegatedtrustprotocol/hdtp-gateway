@@ -144,10 +144,12 @@ file belongs to it merges, keeping every pin this host already holds. The rows g
 transaction, the files after it. An undelivered outbound message arrives as `failed`: delivering
 it was the old host's job, under the old host's leaf.
 
-Every import ends the same way: a new leaf from the wallet. The import names the command — `account
-csr -purpose move` for an identity that arrived, `-purpose renew` for one that was here — and
-installing the leaf sends every imported contact this host's handshake (`account announce` reports
-it).
+Every import ends the same way: a request for a new leaf, which the import mints itself — `move`
+for an identity that arrived, `renew` for one that was here — and prints with how to complete it
+(the portal's `/identity/<slug>/wallet` for the web wallet, or the request itself for the CLI
+wallet). Installing the leaf sends every imported contact this host's handshake (`account announce`
+reports it). With no `public_url` set there is no address to ask for, and it names `account csr`
+instead.
 
 This is not a backup of the node, and the node has none: what a host accumulates beyond contacts
 and chats is rebuilt, not restored. After a lost machine: `import`, the setup wizard for a passkey,
