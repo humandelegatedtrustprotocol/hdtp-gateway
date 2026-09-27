@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
 
@@ -206,7 +204,7 @@ func (s *Postgres) GetExposure(ctx context.Context, integrationID string, versio
 }
 
 func (s *Postgres) PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (string, bool, error) {
-	exp := pgtype.Int8{Int64: expiresAt, Valid: expiresAt != 0}
+	exp := sql.NullInt64{Int64: expiresAt, Valid: expiresAt != 0}
 	n, err := s.q.InsertIdempotency(ctx, pgdb.InsertIdempotencyParams{
 		AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
 		Ack: ack, CreatedAt: now(), ExpiresAt: exp,
@@ -293,7 +291,7 @@ func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string
 
 func (s *Postgres) AnswerPendingRequest(ctx context.Context, id, result string, answeredAt, nowUnix int64) (bool, error) {
 	n, err := s.q.AnswerPendingRequest(ctx, pgdb.AnswerPendingRequestParams{
-		Result: result, AnsweredAt: pgtype.Int8{Int64: answeredAt, Valid: true},
+		Result: result, AnsweredAt: sql.NullInt64{Int64: answeredAt, Valid: true},
 		ID: id, ExpiresAt: nowUnix,
 	})
 	if err != nil {

@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
@@ -13,7 +13,7 @@ import (
 
 func (s *Postgres) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
 	n, err := s.q.SetAccountRoot(ctx, pgdb.SetAccountRootParams{
-		RootFingerprint: pgtype.Text{String: rootFingerprint, Valid: rootFingerprint != ""},
+		RootFingerprint: sql.NullString{String: rootFingerprint, Valid: rootFingerprint != ""},
 		RootCert:        rootCert, ID: accountID,
 	})
 	if err != nil {
@@ -27,7 +27,7 @@ func (s *Postgres) SetAccountRoot(ctx context.Context, accountID, rootFingerprin
 
 func (s *Postgres) SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error {
 	n, err := s.q.SetAccountLeafKey(ctx, pgdb.SetAccountLeafKeyParams{
-		Fingerprint: pgtype.Text{String: fingerprint, Valid: true}, KeySealed: sealedKey, Algo: algo, ID: accountID,
+		Fingerprint: sql.NullString{String: fingerprint, Valid: true}, KeySealed: sealedKey, Algo: algo, ID: accountID,
 	})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -212,7 +212,7 @@ func (s *Postgres) DeletePendingAddress(ctx context.Context, accountID, root str
 
 func (s *Postgres) RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, nowTS int64) error {
 	n, err := s.q.RepinContactAddress(ctx, pgdb.RepinContactAddressParams{
-		Endpoint: endpoint, Leaf: leaf, Spki: spki, PinnedAt: pgtype.Int8{Int64: nowTS, Valid: nowTS != 0},
+		Endpoint: endpoint, Leaf: leaf, Spki: spki, PinnedAt: sql.NullInt64{Int64: nowTS, Valid: nowTS != 0},
 		AccountID: accountID, Fingerprint: root,
 	})
 	if err != nil {

@@ -2,9 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
@@ -18,7 +17,7 @@ func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		TheirPermissions: permsToJSON(c.TheirPermissions), TrustFlag: c.TrustFlag,
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
-		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
+		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
 		// What the archive says, and active is always a contact (internal/portable everActiveOf).
 		EverActive: importedEverActive(c),
@@ -36,7 +35,7 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
-		PinnedAt: pgtype.Int8{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
+		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
 		RootCert: c.RootCert, EverActive: everActive(c.Status),
 	})

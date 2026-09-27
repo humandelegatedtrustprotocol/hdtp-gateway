@@ -7,8 +7,7 @@ package pgdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const consumeInviteUse = `-- name: ConsumeInviteUse :execrows
@@ -158,7 +157,7 @@ UPDATE invites SET revoked_at = $1 WHERE id = $2 AND account_id = $3 AND revoked
 `
 
 type RevokeInviteParams struct {
-	RevokedAt pgtype.Int8
+	RevokedAt sql.NullInt64
 	ID        string
 	AccountID string
 }
