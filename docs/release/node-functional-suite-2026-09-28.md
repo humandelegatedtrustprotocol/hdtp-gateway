@@ -166,7 +166,6 @@ export — from a cloud on v0.3.3 — cannot be imported into a node on main.
 
 ### 3.3 Open, and tracked
 
-- **The address claim is not yet shown to the owner.** SPEC §5.2's second half ("shown to the owner beside the name of the contact who holds or held that address") is not built: the audit row of the redemption carries `address_of:<root>`. It can be derived at read time (the same `AddressClaim` over each `pending_in` row), with no column.
 - **MCP 2026-07-28 on the node's public surface.** The node answers `server/discover` in the 2026-07-28 shape but offers up to 2025-11-25, because the go-sdk offers 2026-07-28 only over a stateless Streamable HTTP transport and the public surface is stateful (per-session transport facts). The battery lists it as divergent for a node. Whether to move the public surface to a stateless transport is the owner's decision; it is not taken here.
 - **The changed battery has not run against a cloud.** Its session handshake, Accept header, event-stream reading, discover headers and server-certificate rule were exercised against a node only. It must run against staging (`make -C pact-cloud conformance`, or `ship-staging`) before the cloud PR merges; the plan below stands a local cloud up for it.
 - **The node PR merges after the cloud PR**: S19 needs the battery that takes a target, and the need refuses a checkout without one.
