@@ -70,6 +70,10 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		report("idempotency records", err)
 		_, err = st.DeleteExpiredSessions(ctx, now)
 		report("sessions", err)
+		// An address an identity left is reserved until the last leaf issued for it expires (PACT §9);
+		// past that the row reserves nothing, and it names the address and nothing else.
+		_, err = st.DeleteExpiredVacatedAddresses(ctx, now)
+		report("vacated addresses", err)
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
 			return
