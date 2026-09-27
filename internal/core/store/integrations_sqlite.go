@@ -8,14 +8,6 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
-func integrationFromSQL(r sqlitedb.Integration) Integration {
-	return Integration{
-		ID: r.ID, AccountID: r.AccountID, Slug: r.Slug, Transport: r.Transport,
-		Endpoint: r.Endpoint, Command: r.Command, AuthKind: r.AuthKind,
-		Status: r.Status, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-	}
-}
-
 func (s *SQLite) InsertIntegration(ctx context.Context, in Integration) (Integration, error) {
 	if in.ID == "" {
 		in.ID = newID()
@@ -46,7 +38,7 @@ func (s *SQLite) GetIntegration(ctx context.Context, accountID, slug string) (In
 	if err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
 	}
-	return integrationFromSQL(r), nil
+	return integrationFromRow(r), nil
 }
 
 func (s *SQLite) GetIntegrationByID(ctx context.Context, id string) (Integration, error) {
@@ -54,7 +46,7 @@ func (s *SQLite) GetIntegrationByID(ctx context.Context, id string) (Integration
 	if err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
 	}
-	return integrationFromSQL(r), nil
+	return integrationFromRow(r), nil
 }
 
 func (s *SQLite) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
@@ -64,7 +56,7 @@ func (s *SQLite) ListIntegrations(ctx context.Context, accountID string) ([]Inte
 	}
 	out := make([]Integration, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, integrationFromSQL(r))
+		out = append(out, integrationFromRow(r))
 	}
 	return out, nil
 }
@@ -128,10 +120,6 @@ func (s *SQLite) GetIntegrationSecret(ctx context.Context, id string) ([]byte, e
 	return b, nil
 }
 
-func catalogFromSQL(r sqlitedb.Catalog) Catalog {
-	return Catalog{ID: r.ID, IntegrationID: r.IntegrationID, Version: r.Version, Tools: r.Tools, CreatedAt: r.CreatedAt}
-}
-
 func (s *SQLite) InsertCatalog(ctx context.Context, c Catalog) (Catalog, error) {
 	if c.ID == "" {
 		c.ID = newID()
@@ -154,7 +142,7 @@ func (s *SQLite) LatestCatalog(ctx context.Context, integrationID string) (Catal
 	if err != nil {
 		return Catalog{}, fmt.Errorf("store: %w", err)
 	}
-	return catalogFromSQL(r), nil
+	return catalogFromRow(r), nil
 }
 
 func (s *SQLite) GetCatalog(ctx context.Context, integrationID string, version int64) (Catalog, error) {
@@ -162,12 +150,7 @@ func (s *SQLite) GetCatalog(ctx context.Context, integrationID string, version i
 	if err != nil {
 		return Catalog{}, fmt.Errorf("store: %w", err)
 	}
-	return catalogFromSQL(r), nil
-}
-
-func exposureFromSQL(r sqlitedb.Exposure) Exposure {
-	return Exposure{ID: r.ID, IntegrationID: r.IntegrationID, Version: r.Version,
-		CatalogVersion: r.CatalogVersion, Entries: r.Entries, CreatedAt: r.CreatedAt}
+	return catalogFromRow(r), nil
 }
 
 func (s *SQLite) InsertExposure(ctx context.Context, e Exposure) (Exposure, error) {
@@ -192,7 +175,7 @@ func (s *SQLite) LatestExposure(ctx context.Context, integrationID string) (Expo
 	if err != nil {
 		return Exposure{}, fmt.Errorf("store: %w", err)
 	}
-	return exposureFromSQL(r), nil
+	return exposureFromRow(r), nil
 }
 
 func (s *SQLite) GetExposure(ctx context.Context, integrationID string, version int64) (Exposure, error) {
@@ -200,7 +183,7 @@ func (s *SQLite) GetExposure(ctx context.Context, integrationID string, version 
 	if err != nil {
 		return Exposure{}, fmt.Errorf("store: %w", err)
 	}
-	return exposureFromSQL(r), nil
+	return exposureFromRow(r), nil
 }
 
 func (s *SQLite) PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (string, bool, error) {
@@ -234,18 +217,6 @@ func (s *SQLite) UpdateIdempotencyAck(ctx context.Context, accountID, contactFpr
 	return nil
 }
 
-func pendingFromSQL(r sqlitedb.PendingRequest) PendingRequest {
-	p := PendingRequest{
-		ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Capability: r.Capability,
-		Args: r.Args, TrustFlag: r.TrustFlag, Status: r.Status, Result: r.Result,
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
-	}
-	if r.AnsweredAt.Valid {
-		p.AnsweredAt = r.AnsweredAt.Int64
-	}
-	return p
-}
-
 func (s *SQLite) InsertPendingRequest(ctx context.Context, p PendingRequest) (PendingRequest, error) {
 	if p.ID == "" {
 		p.ID = newID()
@@ -272,7 +243,7 @@ func (s *SQLite) GetPendingRequest(ctx context.Context, id string) (PendingReque
 	if err != nil {
 		return PendingRequest{}, fmt.Errorf("store: %w", err)
 	}
-	return pendingFromSQL(r), nil
+	return pendingFromRow(r), nil
 }
 
 func (s *SQLite) ListOpenPendingRequests(ctx context.Context, accountID string, nowUnix int64) ([]PendingRequest, error) {
@@ -284,7 +255,7 @@ func (s *SQLite) ListOpenPendingRequests(ctx context.Context, accountID string, 
 	}
 	out := make([]PendingRequest, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, pendingFromSQL(r))
+		out = append(out, pendingFromRow(r))
 	}
 	return out, nil
 }

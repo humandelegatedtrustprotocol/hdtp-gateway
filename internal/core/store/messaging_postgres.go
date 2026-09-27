@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) InsertThread(ctx context.Context, t Thread) error {
@@ -94,16 +95,7 @@ func (s *Postgres) GetMessageByMsgID(ctx context.Context, accountID, contactFpr,
 	if err != nil {
 		return Message{}, err
 	}
-	return pgMessage(r), nil
-}
-
-func pgMessage(r pgdb.Message) Message {
-	return Message{
-		Seq: r.Seq, ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, MsgID: r.MsgID,
-		ThreadID: r.ThreadID, Direction: r.Direction, Sender: r.Sender, Kind: r.Kind, Body: r.Body,
-		ReplyTo: r.ReplyTo, Status: r.Status, CreatedAt: r.CreatedAt,
-		ExpiresAt: r.ExpiresAt, Attempts: r.Attempts, NextAttemptAt: r.NextAttemptAt,
-	}
+	return messageFromRow(sqlitedb.Message(r)), nil
 }
 
 func (s *Postgres) ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]Message, error) {
@@ -113,7 +105,7 @@ func (s *Postgres) ListMessagesByThread(ctx context.Context, accountID, threadID
 	}
 	out := make([]Message, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, pgMessage(r))
+		out = append(out, messageFromRow(sqlitedb.Message(r)))
 	}
 	return out, nil
 }
