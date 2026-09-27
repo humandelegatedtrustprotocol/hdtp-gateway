@@ -15,7 +15,7 @@
     { "id": "J12", "name": "an unblock", "node": ["S13", "S21"], "cloud": ["S13"] },
     { "id": "J13", "name": "a removal that reaches the peer", "node": ["S21"], "cloud": ["S5"] },
     { "id": "J14", "name": "every door that names a contact refuses one nobody holds", "node": ["S21"], "cloud": ["S14"] },
-    { "id": "J15", "name": "a signing request through the real wallet page", "node": [], "node_pending": "S20: a cloud identity moved to a node and the move signed on the node's portal through the real wallet (plan B8)", "cloud": ["make:wallet", "make:e2e-staging"] },
+    { "id": "J15", "name": "a signing request through the real wallet page", "node": ["S20"], "cloud": ["make:wallet", "make:e2e-staging"] },
     { "id": "J16", "name": "a leaf renewed", "node": ["S19"], "cloud": ["M83"] },
     { "id": "J17", "name": "a move, with the notice", "node": ["S10", "S16"], "cloud": ["R1"] },
     { "id": "J18", "name": "an export and an import, reviewed before it is written", "node": ["S16", "S22"], "cloud": ["R0", "R1", "S68"] },

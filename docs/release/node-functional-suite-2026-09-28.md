@@ -140,7 +140,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | B5 | The node's doors under attack (2.3) | node `test/node-door-attacks` | hermetic | in progress |
 | B6 | The node's missing journeys (S21) and the shared journey list | node + cloud | hermetic + nightly | done: `harness/journeys/journeys.json`, 25 journeys; its cloud copy `gateway/e2e/tables/journeys.json` on `test/battery-targets` |
 | B7 | The hostile corpus through the shipped image: S22 | node | nightly | done on the v0.3.2 corpus; see 3.2 for v0.3.3 |
-| B8 | The real wallet page from a node | node | nightly | planned |
+| B8 | The real wallet page from a node: S20 | node, with pact-cloud `test/local-cloud-target` | nightly (needs the local cloud) | done: L1, L5, L6 PASS; L5 red on a node that installs a replayed return |
 | B9 | Every early refusal of the public tools audited | node | hermetic | done |
 
 ### 3.1 What the suites found on node `main`, and the fixes
@@ -153,6 +153,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | Thirty early refusals (decode, caps, vocabulary) and a non-envelope `sealed_call` body wrote no audit row | reading the code S18 exercises | `ToolDeps.refuse`; `TestEveryMalformedCallIsRefusedAndAudited` |
 | An owner's own invite made them their own pending contact, and any redemption the peer refused as a tool error was recorded `pending_out` | S21 | the initiator refuses the identity's own offer, and a tool-error answer is a refusal with nothing recorded |
 | The address claim was not shown to the owner (SPEC §5.2's second half) | reading the first fix | the Requests tab and `list_contacts` name the contact whose address a request comes from, derived at read time |
+| After a move, doctor told the owner to have the wallet sign again for imported contacts the new leaf's campaign had already tried; the install notice said `account announce` | S20 (pact-cloud's live-local L5) | `HandshakesTried`: those contacts are sent to `account announce` |
 | `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | both wait for the SEP-2575 subscription acknowledgement |
 
 ### 3.2 The v0.3.3 and v0.3.4 corpus (SPEC 2.2.2 and 2.2.3, 44 cases)
