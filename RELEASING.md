@@ -55,4 +55,4 @@ There is no build-provenance or SBOM attestation: releases are built on a
 maintainer's machine, so nothing binds a binary to a hosted build. A matching rebuild
 is the check. And a matching rebuild says only that the artifact matches this
 repository at that commit — nothing about whether the code is correct or the design
-sound. See [SECURITY.md](../SECURITY.md) for what has and has not been reviewed.
+sound. See [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) for what has and has not been reviewed.

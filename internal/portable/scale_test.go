@@ -37,7 +37,7 @@ func scaleExport(t *testing.T, threads int) ([]byte, string) {
 			Sender: "human", Time: stamp, Body: "hello " + id, Status: "delivered", Attachments: []pactidentity.Attachment{}})
 	}
 	var buf bytes.Buffer
-	if err := pactidentity.WriteExportZip(&buf, in, nil); err != nil {
+	if _, err := pactidentity.WriteExportZip(&buf, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes(), owner.Fpr
@@ -56,7 +56,7 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 		t.Fatalf("reading %d threads: %v", threads, err)
 	}
 	started = time.Now()
-	res, err := p.Apply(context.Background(), e.st, e.blobs)
+	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now())
 	apply = time.Since(started)
 	if err != nil {
 		t.Fatalf("applying %d threads: %v", threads, err)
@@ -76,18 +76,34 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 // 12.5k -> 50k threads read in 0.16 s -> 0.66 s (4.1x) and wrote in 0.48 s -> 1.96 s (4.1x);
 // 10k -> 40k read 3.9x and wrote 3.9x and 4.1x, over two runs.
 //
-// PACT_EXPORT_SCALE=<threads> imports a quarter of that and then all of it, logs both parts, and
-// fails when either takes more than six times as long for four times the threads. `make scale` runs
-// it at 40,000 and the pre-push hook runs `make scale`; it stays out of `make check`, whose parallel
-// race-enabled packages make a wall-clock ratio say more about the machine than the code.
+// PACT_EXPORT_SCALE=<threads> imports a quarter of that and then all of it, three times over,
+// interleaved (a quarter, all, a quarter, all, ...), and takes the best time of each size, as
+// pact-identity's growth tests do: a machine busy with something else slows one run, not the best
+// of three. It fails when either part's best takes more than growthBound times as long for four
+// times the threads (linear is 4). `make scale` runs it at 40,000, and the pre-push hook runs `make
+// scale` after every other step, so the gate's own earlier steps are not the load it measures; it
+// stays out of `make check`, whose parallel race-enabled packages make a wall-clock ratio say more
+// about the machine than the code. (Measured once at 6.4 under a concurrent full gate, and 4.0-4.1
+// alone, before the best of three.)
 func TestAnImportGrowsLinearlyWithItsThreads(t *testing.T) {
 	n, err := strconv.Atoi(os.Getenv("PACT_EXPORT_SCALE"))
 	if err != nil || n < 400 {
 		t.Skip("!! NOT MEASURED: set PACT_EXPORT_SCALE=<threads> (e.g. 50000) to time an import at that size")
 	}
-	qRead, qApply := importTook(t, n/4)
-	read, apply := importTook(t, n)
-	t.Logf("%d threads: read %v, write %v; %d threads: read %v, write %v; one message each, 100 contacts, SQLite",
+	best := func(d, was time.Duration) time.Duration {
+		if was == 0 || d < was {
+			return d
+		}
+		return was
+	}
+	var qRead, qApply, read, apply time.Duration
+	for round := 0; round < 3; round++ {
+		qr, qa := importTook(t, n/4)
+		r, a := importTook(t, n)
+		t.Logf("round %d: %d threads read %v, write %v; %d threads read %v, write %v", round+1, n/4, qr, qa, n, r, a)
+		qRead, qApply, read, apply = best(qr, qRead), best(qa, qApply), best(r, read), best(a, apply)
+	}
+	t.Logf("best of three: %d threads: read %v, write %v; %d threads: read %v, write %v; one message each, 100 contacts, SQLite",
 		n/4, qRead, qApply, n, read, apply)
 	for _, m := range []struct {
 		what         string
@@ -95,8 +111,11 @@ func TestAnImportGrowsLinearlyWithItsThreads(t *testing.T) {
 	}{{"reading and checking", qRead, read}, {"writing", qApply, apply}} {
 		ratio := float64(m.all) / float64(m.quarter)
 		t.Logf("%s: %.1fx for 4x the threads", m.what, ratio)
-		if ratio > 6 {
+		if ratio > growthBound {
 			t.Errorf("%s four times the threads took %.1f times as long: it is not linear", m.what, ratio)
 		}
 	}
 }
+
+// growthBound is how many times as long four times the threads may take (linear is 4).
+const growthBound = 6

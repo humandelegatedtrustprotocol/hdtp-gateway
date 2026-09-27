@@ -15,7 +15,7 @@ export function Login() {
             setMsg({ kind: "ok", text: "Waiting for your device…" });
             try {
               await passkeyLogin();
-              location.href = "/";
+              location.href = returnPath();
             } catch (e) {
               setMsg({ kind: "err", text: String(e instanceof Error ? e.message : e) });
             }
@@ -31,4 +31,12 @@ export function Login() {
       </div>
     </main>
   );
+}
+
+// returnPath is where sign-in goes on to: the page that sent the person here (`?next=`, set by a
+// server-rendered page such as /identity/<slug>/wallet), when it is a path on this portal, and the
+// dashboard otherwise. "//host" and "/\\host" are another site to a browser, so they are refused.
+function returnPath(): string {
+  const next = new URLSearchParams(location.search).get("next") ?? "";
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
 }
