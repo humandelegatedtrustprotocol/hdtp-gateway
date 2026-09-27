@@ -172,6 +172,7 @@ func (s *serveRun) registerAdminHandlers() {
 		return map[string]any{
 			"Slug": acct.Slug, "Told": before.Told, "Waiting": before.Waiting,
 			"Walking": before.Walking || resumed, "Resumed": resumed, "Unreached": before.Unreached,
+			"NoLeaf": before.NoLeaf,
 		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
