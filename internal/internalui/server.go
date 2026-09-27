@@ -156,6 +156,20 @@ func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mou
 	return securityHeaders(h)
 }
 
+// portalCSP is every portal response's policy. The web wallet's form page alone widens its
+// form-action (wallet_pages.go, walletFormCSP).
+const portalCSP = "default-src 'self'; " +
+	// The SPA ships no inline script — Vite emits external hashed files —
+	// so script-src needs no 'unsafe-inline' any more. Styles keep it:
+	// React style props render as style attributes.
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; " + // the invite QR is a data: PNG
+	"object-src 'none'; " +
+	"base-uri 'none'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'"
+
 // securityHeaders sets what every portal HTML response should have carried and
 // did not. The media route set all of this from the start; the pages that render
 // contact names, message bodies and filenames — all peer-supplied — set none of
@@ -172,20 +186,9 @@ func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mou
 // Nonces would be stricter and are worth doing later; the directives that need no
 // refactor are worth having now.
 func securityHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'self'; " +
-		// The SPA ships no inline script — Vite emits external hashed files —
-		// so script-src needs no 'unsafe-inline' any more. Styles keep it:
-		// React style props render as style attributes.
-		"script-src 'self'; " +
-		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data:; " + // the invite QR is a data: PNG
-		"object-src 'none'; " +
-		"base-uri 'none'; " +
-		"form-action 'self'; " +
-		"frame-ancestors 'none'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hdr := w.Header()
-		hdr.Set("Content-Security-Policy", csp)
+		hdr.Set("Content-Security-Policy", portalCSP)
 		hdr.Set("X-Frame-Options", "DENY")
 		hdr.Set("X-Content-Type-Options", "nosniff")
 		hdr.Set("Referrer-Policy", "no-referrer")
