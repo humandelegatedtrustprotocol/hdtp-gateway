@@ -10,25 +10,7 @@ import (
 )
 
 func (s *Postgres) InsertIntegration(ctx context.Context, in Integration) (Integration, error) {
-	if in.ID == "" {
-		in.ID = newID()
-	}
-	if in.Status == "" {
-		in.Status = "disabled"
-	}
-	if in.AuthKind == "" {
-		in.AuthKind = "none"
-	}
-	if in.CreatedAt == 0 {
-		in.CreatedAt = now()
-	}
-	in.UpdatedAt = in.CreatedAt
-	err := s.q.InsertIntegration(ctx, pgdb.InsertIntegrationParams{
-		ID: in.ID, AccountID: in.AccountID, Slug: in.Slug, Transport: in.Transport,
-		Endpoint: in.Endpoint, Command: in.Command, AuthKind: in.AuthKind,
-		Status: in.Status, CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
-	})
-	if err != nil {
+	if err := s.q.InsertIntegration(ctx, pgdb.InsertIntegrationParams(integrationInsert(&in))); err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
 	}
 	return in, nil

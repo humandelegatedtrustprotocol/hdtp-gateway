@@ -16,22 +16,7 @@ func b2i(b bool) int64 {
 }
 
 func (s *SQLite) InsertInvite(ctx context.Context, inv Invite) (Invite, error) {
-	if inv.ID == "" {
-		inv.ID = newID()
-	}
-	if inv.CreatedAt == 0 {
-		inv.CreatedAt = now()
-	}
-	if inv.MaxUses == 0 {
-		inv.MaxUses = 1
-	}
-	err := s.q.InsertInvite(ctx, sqlitedb.InsertInviteParams{
-		ID: inv.ID, AccountID: inv.AccountID, TokenHash: inv.TokenHash,
-		ExpiresAt: inv.ExpiresAt, MaxUses: inv.MaxUses, AutoAccept: b2i(inv.AutoAccept),
-		Preset: inv.Preset, Permissions: permsToJSON(inv.Permissions), Label: inv.Label,
-		CreatedAt: inv.CreatedAt,
-	})
-	if err != nil {
+	if err := s.q.InsertInvite(ctx, inviteInsert(&inv)); err != nil {
 		return Invite{}, err
 	}
 	return inv, nil

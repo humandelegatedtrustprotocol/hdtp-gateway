@@ -79,14 +79,7 @@ func (s *SQLite) SetMessageAttempt(ctx context.Context, accountID, contactFpr, m
 }
 
 func (s *SQLite) InsertMessage(ctx context.Context, m Message) error {
-	if m.ID == "" {
-		m.ID = newID()
-	}
-	return s.q.InsertMessage(ctx, sqlitedb.InsertMessageParams{
-		ID: m.ID, AccountID: m.AccountID, ContactFpr: m.ContactFpr, MsgID: m.MsgID,
-		ThreadID: m.ThreadID, Direction: m.Direction, Sender: m.Sender, Kind: kindOrText(m.Kind), Body: m.Body,
-		ReplyTo: m.ReplyTo, Status: m.Status, CreatedAt: m.CreatedAt, ExpiresAt: m.ExpiresAt,
-	})
+	return s.q.InsertMessage(ctx, messageInsert(m))
 }
 
 func (s *SQLite) GetMessageByMsgID(ctx context.Context, accountID, contactFpr, direction, msgID string) (Message, error) {
