@@ -23,7 +23,7 @@ func (r *recorder) run(_ context.Context, name string, args ...string) ([]byte, 
 	line := strings.TrimSpace(name + " " + strings.Join(args, " "))
 	r.calls = append(r.calls, line)
 	if r.fail[line] {
-		return nil, errors.New("boom")
+		return []byte(r.out[line]), errors.New("boom")
 	}
 	if s, ok := r.out[line]; ok {
 		return []byte(s), nil
@@ -301,5 +301,48 @@ func TestDefaultRouteIsAppliedInTheTargetsNamespace(t *testing.T) {
 	// has neither a shell nor NET_ADMIN of its own.
 	if !r.saw("--network container:pacttest-node") || !r.saw("--cap-add NET_ADMIN") {
 		t.Errorf("the route was not applied inside the target's netns: %v", r.calls)
+	}
+}
+
+// A routable network is created on a /24 of 198.18.0.0/15, walks on past a pool Docker says
+// overlaps, and stops at any other refusal.
+func TestARoutableNetworkTakesAFreeSubnetOfTheBenchmarkingBlock(t *testing.T) {
+	create := func(subnet string) string {
+		return "docker network create --subnet " + subnet + " pacttest-pub"
+	}
+	r := &recorder{
+		out:  map[string]string{create("198.19.255.0/24"): "Error response from daemon: invalid pool request: Pool overlaps with other one on this address space"},
+		fail: map[string]bool{create("198.19.255.0/24"): true},
+	}
+	f := newFab(r)
+	f.pick = func() int { return 511 }
+	if _, err := f.Network(context.Background(), "pub", NetOpts{Routable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.saw(create("198.18.0.0/24")) {
+		t.Fatalf("after an overlapping pool the next /24 (wrapping to 198.18.0.0) was not tried: %v", r.calls)
+	}
+
+	r = &recorder{fail: map[string]bool{create("198.18.5.0/24"): true}, out: map[string]string{create("198.18.5.0/24"): "permission denied"}}
+	f = newFab(r)
+	f.pick = func() int { return 5 }
+	if _, err := f.Network(context.Background(), "pub", NetOpts{Routable: true}); err == nil || len(r.calls) != 1 {
+		t.Fatalf("a refusal that is not an overlap was retried or ignored: %v, %v", err, r.calls)
+	}
+
+	r = &recorder{}
+	if _, err := newFab(r).Network(context.Background(), "lan", NetOpts{}); err != nil || r.saw("--subnet") {
+		t.Fatalf("an ordinary network was given a subnet: %v", r.calls)
+	}
+}
+
+func TestConnectAttachesAContainerToANetwork(t *testing.T) {
+	r := &recorder{}
+	f := newFab(r)
+	if err := f.Connect(context.Background(), &Container{Name: "pacttest-alice"}, &Network{Name: "pacttest-home"}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.saw("docker network connect pacttest-home pacttest-alice") {
+		t.Fatalf("got %v", r.calls)
 	}
 }

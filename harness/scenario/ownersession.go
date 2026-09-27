@@ -37,10 +37,17 @@ func (s *OwnerSession) csrf() string {
 	return ""
 }
 
-func (s *OwnerSession) do(ctx context.Context, method, path string, body io.Reader, contentType string) (int, string, error) {
+// Response is what one portal request answered.
+type Response struct {
+	Code   int
+	Header http.Header
+	Body   string
+}
+
+func (s *OwnerSession) do(ctx context.Context, method, path string, body io.Reader, contentType string) (Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, s.Base+path, body)
 	if err != nil {
-		return 0, "", err
+		return Response{}, err
 	}
 	for _, c := range s.cookies {
 		req.AddCookie(c)
@@ -54,20 +61,28 @@ func (s *OwnerSession) do(ctx context.Context, method, path string, body io.Read
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)
 	if err != nil {
-		return 0, "", err
+		return Response{}, err
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	return res.StatusCode, string(b), nil
+	return Response{Code: res.StatusCode, Header: res.Header, Body: string(b)}, nil
 }
 
 // Get reads a portal path — a JSON endpoint, which is what the page reads too.
 func (s *OwnerSession) Get(ctx context.Context, path string) (int, string, error) {
+	r, err := s.Read(ctx, path)
+	return r.Code, r.Body, err
+}
+
+// Read is Get with the answer's headers, for a route whose headers are the point (a download).
+func (s *OwnerSession) Read(ctx context.Context, path string) (Response, error) {
 	return s.do(ctx, http.MethodGet, path, nil, "")
 }
 
-// PostForm submits a portal form as the owner. accountID may be empty for node-wide forms.
-func (s *OwnerSession) PostForm(ctx context.Context, path, accountID string, fields map[string]string) error {
+// Post submits a portal form as the owner and returns what it answered, whatever the status: a
+// route that answers in JSON (media fetch) says in its body what it did. accountID may be empty
+// for node-wide forms.
+func (s *OwnerSession) Post(ctx context.Context, path, accountID string, fields map[string]string) (Response, error) {
 	form := url.Values{"csrf": {s.csrf()}}
 	if accountID != "" {
 		form.Set("account", accountID)
@@ -75,12 +90,17 @@ func (s *OwnerSession) PostForm(ctx context.Context, path, accountID string, fie
 	for k, v := range fields {
 		form.Set(k, v)
 	}
-	code, body, err := s.do(ctx, http.MethodPost, path, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	return s.do(ctx, http.MethodPost, path, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+}
+
+// PostForm submits a portal form as the owner and fails on a 4xx or 5xx.
+func (s *OwnerSession) PostForm(ctx context.Context, path, accountID string, fields map[string]string) error {
+	r, err := s.Post(ctx, path, accountID, fields)
 	if err != nil {
 		return err
 	}
-	if code >= 400 {
-		return fmt.Errorf("POST %s answered %d: %s", path, code, shorten(body, 300))
+	if r.Code >= 400 {
+		return fmt.Errorf("POST %s answered %d: %s", path, r.Code, shorten(r.Body, 300))
 	}
 	return nil
 }

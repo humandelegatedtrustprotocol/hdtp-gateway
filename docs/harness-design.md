@@ -149,6 +149,7 @@ of its own (§3).
 | F4 | the audit-chain invariant verifies the chains of real nodes (T1) | fabric | docker, node-image | 5 min | `invariant.TestLiveAuditChainInvariantVerifiesRealNodes` |
 | F5 | a stranger sees exactly the guest tier, over real mTLS | fabric | docker, node-image | 4 min | `peer.TestLiveGuestTierSurfaceOverRealMTLS` |
 | S2 | pairing and a first message, end to end, through every surface | pr | docker, node-image, chrome | 8 min | `scenario.TestPairingAndMessagingEndToEnd` |
+| S3 | messaging and media: inline and url media, and an owner's fetch refused a private address and a redirect | nightly | docker, node-image, chrome | 12 min | `scenario.TestMessagingAndMediaUnderTheFetchGuard` |
 | S4 | a contact books into a real CalDAV server through a supervised third-party MCP child | nightly | docker, caldav-image, chrome | 15 min | `scenario.TestContactBooksIntoRealCalDAV` |
 | S7 | msg_id idempotency, a real partition and heal, delivery over a lossy link | nightly | docker, node-image, chrome | 12 min | `scenario.TestResilienceUnderImpairment` |
 | S8 | a guest's wall clock travels a year and the unmodified node believes it | nightly | docker, kernel | 10 min | `vm.TestGuestClockTravelsAndTheNodeBelievesIt` |
@@ -168,8 +169,11 @@ of its own (§3).
 were removed from the table on 2026-09-27 rather than left to read as coverage:
 
 - **S1** first run (pristine image → wizard → passkey → dashboard; the setup token not burned on
-  first use), **S3** messaging and media (inline and URL media; the SSRF guard against a
-  `hostile` redirector) and **S5** the reachability matrix (T1–T6 × {direct, edge}) have no test.
+  first use) and **S5** the reachability matrix (T1–T6 × {direct, edge}) have no test. **S3**
+  messaging and media was written on 2026-09-27 (in the table above): its hosts sit on a network
+  addressed from 198.18.0.0/15 (`fabric.NetOpts.Routable`), because on a default Docker network
+  every address is RFC 1918 and the SSRF guard would refuse a redirector at the first hop, for
+  the wrong reason.
 - Within the suites that do exist, these cases were listed and are not exercised: S7's `kill -9`
   mid-send and the retry schedule (P12-03); S8's message expiry, queue retention, invite expiry
   and setup-token expiry (S8 proves only that the guest clock travels and the node runs at it);
