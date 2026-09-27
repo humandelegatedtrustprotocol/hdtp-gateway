@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // Settings · identity, as it is once key rotation is gone.
@@ -119,5 +121,35 @@ func TestAFailedCreateIsReportedAndAudited(t *testing.T) {
 	}
 	if len(*audits) != 1 || (*audits)[0] != "account_create/error" {
 		t.Errorf("audits = %v", *audits)
+	}
+}
+
+// Settings · identity lists what the certificate reader says. An identity that holds its root and no
+// current leaf (an import) has no leaf date to list: the row said not_after "0001-01-01T00:00:00Z"
+// until 2026-09-28. The control: a served identity's date is listed.
+func TestIdentityListingGivesNoLeafDateWithoutALeaf(t *testing.T) {
+	info := identity.CertificateInfo{Certified: true, RootFingerprint: "sha256:root"}
+	mux := http.NewServeMux()
+	MountIdentityPages(mux, IdentityDeps{
+		Accounts: func(context.Context) ([]store.Account, error) {
+			return []store.Account{{ID: "acct-1", Slug: "alice", DisplayName: "Alice", Algo: "p256", Fingerprint: "sha256:aaa", RootFingerprint: "sha256:root"}}, nil
+		},
+		Certificate: func(context.Context, string) (identity.CertificateInfo, error) { return info, nil },
+	})
+	get := func() string {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "/api/identity", nil))
+		if w.Code != 200 {
+			t.Fatalf("GET /api/identity = %d", w.Code)
+		}
+		return w.Body.String()
+	}
+	if body := get(); strings.Contains(body, "0001-01-01") || strings.Contains(body, `"not_after"`) || !strings.Contains(body, "sha256:root") {
+		t.Fatalf("a keyless identity is listed with a leaf date, or without its root: %s", body)
+	}
+	info = identity.CertificateInfo{Certified: true, RootFingerprint: "sha256:root", Kid: "sha256:leaf", Endpoint: "https://a.example/a/alice/mcp",
+		NotAfter: time.Date(2027, 9, 1, 0, 0, 0, 0, time.UTC)}
+	if body := get(); !strings.Contains(body, `"not_after":"2027-09-01T00:00:00Z"`) {
+		t.Fatalf("a served identity is listed without its leaf date: %s", body)
 	}
 }
