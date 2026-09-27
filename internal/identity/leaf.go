@@ -643,14 +643,8 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
 		return InstallResult{}, err
 	}
-	held, err := m.Store.ListContacts(ctx, a.ID)
-	if err != nil {
+	if res.HandshakesDue, err = m.HandshakesOwed(ctx, a.ID); err != nil {
 		return InstallResult{}, err
-	}
-	for _, c := range held {
-		if c.HandshakeDue && InCampaign(c) {
-			res.HandshakesDue++
-		}
 	}
 	kp.Leaf, kp.Root = chain[0], chain[1]
 	return res, nil
@@ -669,8 +663,11 @@ type CertificateInfo struct {
 	NotAfter        time.Time
 	RenewalDue      bool
 	PendingCSR      string // the pending request's key id, "" when none
-	Superseded      []string
-	Former          []string
+	// HandshakesOwed counts the imported contacts waiting for this identity's next leaf
+	// (Manager.HandshakesOwed): a renewal, or a first leaf, is what sends them the handshake.
+	HandshakesOwed int
+	Superseded     []string
+	Former         []string
 }
 
 // Certificate reports an account's certificate state; renewal is due thirty
@@ -706,6 +703,9 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 		case LeafFormer:
 			info.Former = append(info.Former, l.Kid)
 		}
+	}
+	if info.HandshakesOwed, err = m.HandshakesOwed(ctx, accountID); err != nil {
+		return CertificateInfo{}, err
 	}
 	return info, nil
 }
