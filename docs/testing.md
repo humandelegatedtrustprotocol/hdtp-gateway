@@ -88,6 +88,7 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `kernel` | `make harness-kernel`, then `export PACT_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
 | `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export PACT_CF_DOMAIN=<domain>` | nightly, when the variable is set |
 | `pact-cli` | pact-identity's `pact` CLI, named by `PACT_CLI`; `make harness-pact-cli` builds it from a pact-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `PACT_CLI`) |
+| `local-cloud` | pact-cloud's local cloud and its live-local runner, named by `PACT_LOCAL_CLOUD` (`gateway/`, with `public/` built: `npm --prefix ../portal run build && node scripts/build-ceremony.mjs`), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when pact-cloud is checked out beside this repository and the WorkOS pair is exported |
 | `cloud-battery` | pact-cloud's Go conformance battery, named by `PACT_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when pact-cloud is checked out beside this repository (the Makefile then sets it) |
 
 ### Results

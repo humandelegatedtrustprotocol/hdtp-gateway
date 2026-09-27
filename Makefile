@@ -283,8 +283,9 @@ harness-image: identity-proxy
 	docker build --build-context identityproxy=$(IDENTITY_PROXY) -t $(HARNESS_IMAGE) .
 
 # The live batteries that are DATA in the sibling repositories, run against a node by the nightly
-# tier: pact-identity's intrusion battery through its `pact` CLI (S18), and the cloud's Go
-# conformance battery (S19). Each is a Need (harness/registry); the tier promises it when the
+# tier: pact-identity's intrusion battery through its `pact` CLI (S18), the cloud's Go conformance
+# battery (S19), and the cloud's local cloud with the real wallet page (S20; it also needs the WorkOS
+# test pair in the environment, which this Makefile does not read from any file). Each is a Need (harness/registry); the tier promises it when the
 # sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
 # when it is not. Override either with PACT_CLI or PACT_CLOUD_BATTERY in the environment.
 PACT_IDENTITY ?= $(CURDIR)/../pact-identity
@@ -297,7 +298,8 @@ harness-pact-cli:
 	else echo "!! harness-pact-cli: no pact-identity checkout at $(PACT_IDENTITY): S18 will be NOT PROMISED"; fi
 # The environment a live tier runs under: the two siblings' paths when they are on disk.
 LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_CLI_BIN)')}" \
-	PACT_CLOUD_BATTERY="$${PACT_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}"
+	PACT_CLOUD_BATTERY="$${PACT_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}" \
+	PACT_LOCAL_CLOUD="$${PACT_LOCAL_CLOUD:-$$(test -f '$(abspath $(CLOUD_BATTERY))/../e2e/local-run.mjs' && echo '$(abspath $(CLOUD_BATTERY)/..)')}"
 
 # The calendar scenario (S4) needs the -FULL image — node and uv, so a supervised
 # stdio child can run in-container (SPEC §12.3) — with the upstream MCP server
