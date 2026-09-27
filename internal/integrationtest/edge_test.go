@@ -250,7 +250,7 @@ func TestLANFlagOffRefusesDirectConnectionsAndAudits(t *testing.T) {
 // fingerprint, made with the key the peer pinned. 2.0 has no such proof: a move is
 // a new leaf for a new address, and the chain the envelope carries is what
 // authorises it (PACT §5.3, §14.3). The 2.0 move, including the receiver following
-// it under `auto`, is proven end to end by `internal/node.TestPact20ExitDemo`.
+// it under `auto`, is proven end to end by `internal/node.TestExitDemo`.
 
 /* ------------------------------ helpers ------------------------------ */
 

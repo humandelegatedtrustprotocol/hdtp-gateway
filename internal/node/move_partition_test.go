@@ -32,8 +32,8 @@ func TestAMoveCampaignSurvivesAPartitionAndResumes(t *testing.T) {
 	near := startDemoNode(t, clock, dn, "near", "Near", 365)
 	far := startDemoNode(t, clock, dn, "far", "Far", 365)
 	for _, contact := range []*demoNode{near, far} {
-		mover.pin20(contact)
-		contact.pin20(mover)
+		mover.pinPeer(contact)
+		contact.pinPeer(mover)
 	}
 
 	// `far` is reached through the proxy from here on.

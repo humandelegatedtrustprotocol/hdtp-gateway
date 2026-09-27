@@ -38,14 +38,14 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 
 	// `update_contact` from that address answers `{"status":"pending"}` — sealed
 	// already, and the control for what follows.
-	res := s.call(t, s.seal20(t, moved, "chain", "update_contact", map[string]any{"card": card20(moved)}), TransportFacts{})
+	res := s.call(t, s.sealFrom(t, moved, "chain", "update_contact", map[string]any{"card": cardOf(moved)}), TransportFacts{})
 	if result, _ := s.opened(t, res, moved, "update_contact"); string(result) == "" {
 		t.Fatal("update_contact from a new address must answer, sealed")
 	}
 
 	// Every other call from that address is `pending_approval`, and must be
 	// sealed too. `opened` fails the test on a plaintext refusal.
-	res = s.call(t, s.seal20(t, moved, "chain", "send_message", map[string]any{"text": "hello"}), TransportFacts{})
+	res = s.call(t, s.sealFrom(t, moved, "chain", "send_message", map[string]any{"text": "hello"}), TransportFacts{})
 	_, errObj := s.opened(t, res, moved, "send_message")
 	if len(errObj) == 0 {
 		t.Fatal("pending_approval must arrive in §13.2's `error` member")
@@ -65,7 +65,7 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 	// A carrier reading `rate_limited` learns the recipient is metering THIS
 	// sender, which is the same correlation by another name.
 	s.pool.Limit = func(context.Context) (bool, time.Duration) { return false, time.Minute }
-	res = s.call(t, s.seal20(t, moved, "chain", "send_message", map[string]any{"text": "again"}), TransportFacts{})
+	res = s.call(t, s.sealFrom(t, moved, "chain", "send_message", map[string]any{"text": "again"}), TransportFacts{})
 	_, errObj = s.opened(t, res, moved, "send_message")
 	if err := json.Unmarshal(errObj, &body); err != nil || body.Code != "rate_limited" {
 		t.Fatalf("a budget refusal past the open must be sealed too: %v (%s)", err, errObj)

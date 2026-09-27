@@ -28,7 +28,7 @@ const (
 	endpointA2 = "https://alina.pact.contact/alina/mcp"
 )
 
-type env20 struct {
+type recvEnv struct {
 	st      store.Store
 	m       *identity.Manager
 	id      *Identifier
@@ -91,9 +91,9 @@ func newPeer(t testing.TB, at time.Time) *peer {
 	return p
 }
 
-func newEnv20(t testing.TB) *env20 {
+func newRecvEnv(t testing.TB) *recvEnv {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "id20.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "recv.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,20 +111,20 @@ func newEnv20(t testing.TB) *env20 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env20{st: st, m: m, nowAt: fixedNow, root: newTestRoot(t, "Me", fixedNow)}
+	e := &recvEnv{st: st, m: m, nowAt: fixedNow, root: newTestRoot(t, "Me", fixedNow)}
 	e.install(t, identity.PurposeSignup, endpointMe)
 	e.acct, _ = st.GetAccountByID(ctx, a.ID)
 	e.id = &Identifier{
 		Store: st, AccountID: a.ID,
 		Seal: core.SealRequired, Cert: core.ClientCertPreferred,
-		Now:     func() time.Time { return e.nowAt },
-		State20: func(ctx context.Context) (*State20, error) { return e.state(ctx) },
+		Now:            func() time.Time { return e.nowAt },
+		RecipientState: func(ctx context.Context) (*RecipientState, error) { return e.state(ctx) },
 	}
 	return e
 }
 
 // install runs the CSR round trip of PACT §9 for our account under our root.
-func (e *env20) install(t testing.TB, purpose, endpoint string) {
+func (e *recvEnv) install(t testing.TB, purpose, endpoint string) {
 	t.Helper()
 	ctx := context.Background()
 	accts, _ := e.st.ListAccounts(ctx)
@@ -145,13 +145,13 @@ func (e *env20) install(t testing.TB, purpose, endpoint string) {
 	e.acct, _ = e.st.GetAccountByID(ctx, accts[0].ID)
 }
 
-// state is what the node supplies per call (node.state20's shape).
-func (e *env20) state(ctx context.Context) (*State20, error) {
+// state is what the node supplies per call (node.recipientState's shape).
+func (e *recvEnv) state(ctx context.Context) (*RecipientState, error) {
 	rec, err := e.st.GetAccountByID(ctx, e.acct.ID)
 	if err != nil {
 		return nil, err
 	}
-	st := &State20{HasRoot: rec.HasRoot(), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, SiblingKids: e.sibling}
+	st := &RecipientState{HasRoot: rec.HasRoot(), Endpoint: endpointMe, AcceptNewHosts: rec.AcceptNewHosts, SiblingKids: e.sibling}
 	if st.Chain, err = e.m.Chain(ctx, rec.ID); err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (e *env20) state(ctx context.Context) (*State20, error) {
 // keypair is the account's current leaf key. The tests used to fetch it through
 // `Identifier.Keypair`, a field production code set and never read — it outlived the 1.x path
 // that recorded a re-pinned contact's key on connect.
-func (e *env20) keypair(ctx context.Context) (*identity.Keypair, error) {
+func (e *recvEnv) keypair(ctx context.Context) (*identity.Keypair, error) {
 	keys, err := e.m.ActiveLeafKeypairs(ctx, e.acct.ID, e.nowAt)
 	if err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (e *env20) keypair(ctx context.Context) (*identity.Keypair, error) {
 	return keys[0].KP, nil
 }
 
-func (e *env20) currentKey(t testing.TB) *identity.Keypair {
+func (e *recvEnv) currentKey(t testing.TB) *identity.Keypair {
 	t.Helper()
 	kp, err := e.keypair(context.Background())
 	if err != nil {
@@ -185,10 +185,10 @@ func (e *env20) currentKey(t testing.TB) *identity.Keypair {
 	return kp
 }
 
-type seal20Opt func(*pactidentity.SealOpts)
+type sealOpt func(*pactidentity.SealOpts)
 
-// seal20 seals a `v: 2` request from a peer to our current leaf key.
-func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...seal20Opt) *pactidentity.Envelope {
+// sealFrom seals a `v: 2` request from a peer to our current leaf key.
+func (e *recvEnv) sealFrom(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...sealOpt) *pactidentity.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
 	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
@@ -211,25 +211,25 @@ func (e *env20) seal20(t testing.TB, p *peer, form, tool string, args map[string
 	return out
 }
 
-func (e *env20) open(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
+func (e *recvEnv) open(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
 	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
 }
 
 // pin records a 2.0 contact as a first chain would have.
-func (e *env20) pin(t testing.TB, p *peer, status string) {
+func (e *recvEnv) pin(t testing.TB, p *peer, status string) {
 	t.Helper()
 	leaf, _ := pactidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: p.fpr(), SPKI: leaf.SPKI, Status: status, Permissions: []string{"message.text"},
-		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: card20(p),
+		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: cardOf(p),
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func card20(p *peer) string {
-	card, err := contacts.BuildCard20("Alina Rao", p.leaf, "required")
+func cardOf(p *peer) string {
+	card, err := contacts.BuildCard("Alina Rao", p.leaf, "required")
 	if err != nil {
 		panic(err)
 	}
@@ -237,13 +237,13 @@ func card20(p *peer) string {
 }
 
 func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
-	_, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	_, err := e.open(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
 	if err == nil || Code(err) != "envelope_invalid" || !strings.Contains(err.Error(), "guest may only redeem or request") {
 		t.Fatalf("a stranger's send_message: %v", err)
 	}
-	f, err := e.open(t, e.seal20(t, p, "chain", "request_contact", map[string]any{"card": card20(p), "note": "hi"}), TransportFacts{})
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p), "note": "hi"}), TransportFacts{})
 	if err != nil {
 		t.Fatalf("a stranger's request_contact: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 	}
 	// The card must carry the chain's own leaf.
 	other := newPeer(t, fixedNow)
-	_, err = e.open(t, e.seal20(t, p, "chain", "request_contact", map[string]any{"card": card20(other)}), TransportFacts{})
+	_, err = e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(other)}), TransportFacts{})
 	if err == nil || !strings.Contains(err.Error(), "guest card certificate is not the chain's leaf") {
 		t.Fatalf("a card carrying another leaf: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 // the row and answer `chain_required` as if nothing were wrong, and nothing anywhere recorded that a
 // row of the contact book had gone bad — so the contact whose row it was became a stranger for good.
 func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	var rows []string
 	e.id.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) }
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
@@ -277,7 +277,7 @@ func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 	// own pin happens to come first is matched before the bad row is reached — in the core too.)
 	p := newPeer(t, fixedNow)
 
-	_, err := e.open(t, e.seal20(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	_, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
 	if err == nil || Code(err) != "envelope_invalid" || !strings.Contains(err.Error(), "recipient state unavailable") {
 		t.Fatalf("an unreadable pin must refuse the call as state that could not be loaded, got: %v", err)
 	}
@@ -294,54 +294,54 @@ func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 }
 
 func TestV2PinnedContactBothForms(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
-	f, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierContact || f.From != p.fpr() || f.Form != "chain" || f.Guest {
 		t.Fatalf("full form from a contact: %v %+v", err, f)
 	}
-	f, err = e.open(t, e.seal20(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierContact || f.From != p.fpr() || f.Form != "leaf" || f.Endpoint != endpointA {
 		t.Fatalf("small form from a contact: %v %+v", err, f)
 	}
 	// Both proofs present: a client certificate for another key is refused.
-	if _, err := e.open(t, e.seal20(t, p, "leaf", "send_message", nil), TransportFacts{ClientCertFingerprint: "sha256:x", ClientCertSPKI: []byte{1, 2, 3}}); err == nil || !strings.Contains(err.Error(), "does not match the envelope's leaf") {
+	if _, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", nil), TransportFacts{ClientCertFingerprint: "sha256:x", ClientCertSPKI: []byte{1, 2, 3}}); err == nil || !strings.Contains(err.Error(), "does not match the envelope's leaf") {
 		t.Fatalf("unified identity rule: %v", err)
 	}
 }
 
 func TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	stranger := newPeer(t, fixedNow)
-	if _, err := e.open(t, e.seal20(t, stranger, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
+	if _, err := e.open(t, e.sealFrom(t, stranger, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
 		t.Fatalf("unknown small form: %v", err)
 	}
 	blocked := newPeer(t, fixedNow)
 	e.pin(t, blocked, "blocked")
-	if _, err := e.open(t, e.seal20(t, blocked, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
+	if _, err := e.open(t, e.sealFrom(t, blocked, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
 		t.Fatalf("blocked small form: %v", err)
 	}
 	// A contact whose held leaf has expired: the small form darkens with it.
 	old := newPeer(t, fixedNow.Add(-400*24*time.Hour))
 	e.pin(t, old, "active")
-	if _, err := e.open(t, e.seal20(t, old, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
+	if _, err := e.open(t, e.sealFrom(t, old, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
 		t.Fatalf("expired held leaf: %v", err)
 	}
 	// A blocked contact's chain is a guest's (silently).
-	f, err := e.open(t, e.seal20(t, blocked, "chain", "request_contact", map[string]any{"card": card20(blocked)}), TransportFacts{})
+	f, err := e.open(t, e.sealFrom(t, blocked, "chain", "request_contact", map[string]any{"card": cardOf(blocked)}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierGuest || !f.Demote || f.Why != "blocked" {
 		t.Fatalf("blocked full form: %v %+v", err, f)
 	}
 }
 
 func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
 	oldKey := e.currentKey(t)
 	// Seal to today's key, then renew: the superseded key still opens.
-	env := e.seal20(t, p, "leaf", "send_message", nil)
+	env := e.sealFrom(t, p, "leaf", "send_message", nil)
 	e.nowAt = fixedNow.Add(time.Hour)
 	e.install(t, identity.PurposeRenew, endpointMe)
 	if e.currentKey(t).Fingerprint == oldKey.Fingerprint {
@@ -370,7 +370,7 @@ func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
 }
 
 func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -378,7 +378,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	// A renewal at the pinned endpoint replaces the pin on the way through.
 	newer := &peer{root: p.root, host: p.host}
 	newer.leaf = newer.leafFor(t, endpointA, fixedNow.Add(-30*time.Minute))
-	f, err := e.open(t, e.seal20(t, newer, "chain", "send_message", nil), TransportFacts{})
+	f, err := e.open(t, e.sealFrom(t, newer, "chain", "send_message", nil), TransportFacts{})
 	if err != nil || f.Tier != policy.TierContact {
 		t.Fatalf("renewal: %v %+v", err, f)
 	}
@@ -386,14 +386,14 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 		t.Fatal("the pin did not follow the newer leaf")
 	}
 	// The older leaf now proves nothing: a guest, whatever its validity (§14.3).
-	f, err = e.open(t, e.seal20(t, p, "chain", "request_contact", map[string]any{"card": card20(p)}), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierGuest || !f.Demote || f.Why != "superseded leaf" {
 		t.Fatalf("superseded leaf: %v %+v", err, f)
 	}
 	// Equal notBefore, different bytes: refused.
 	twin := &peer{root: p.root, host: p.host}
 	twin.leaf = twin.leafFor(t, endpointA, fixedNow.Add(-30*time.Minute))
-	if _, err := e.open(t, e.seal20(t, twin, "chain", "send_message", nil), TransportFacts{}); err == nil || !strings.Contains(err.Error(), "same notBefore") {
+	if _, err := e.open(t, e.sealFrom(t, twin, "chain", "send_message", nil), TransportFacts{}); err == nil || !strings.Contains(err.Error(), "same notBefore") {
 		t.Fatalf("conflict: %v", err)
 	}
 
@@ -402,7 +402,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	e.id.OnEvent = func(event, root, endpoint string) { events = append(events, event+"@"+endpoint) }
 	moved := &peer{root: p.root, host: p.host}
 	moved.leaf = moved.leafFor(t, endpointA2, fixedNow.Add(-15*time.Minute))
-	f, err = e.open(t, e.seal20(t, moved, "chain", "send_message", nil), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, moved, "chain", "send_message", nil), TransportFacts{})
 	if err != nil || f.Tier != policy.TierContact || f.Endpoint != endpointA2 {
 		t.Fatalf("new address under auto: %v %+v", err, f)
 	}
@@ -417,7 +417,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	}
 	// A stranger at that former address is shown beside the contact's name.
 	squatter := newPeer(t, fixedNow)
-	f, err = e.open(t, e.seal20(t, squatter, "chain", "request_contact", map[string]any{"card": card20(squatter)}), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, squatter, "chain", "request_contact", map[string]any{"card": cardOf(squatter)}), TransportFacts{})
 	if err != nil || f.AddressClaim != p.fpr() {
 		t.Fatalf("address claim: %v %+v", err, f)
 	}
@@ -430,7 +430,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 	e.id.OnPending = func(root, endpoint, why string) { pendings = append(pendings, why) }
 	back := &peer{root: p.root, host: p.host}
 	back.leaf = back.leafFor(t, endpointA, fixedNow.Add(-5*time.Minute))
-	f, err = e.open(t, e.seal20(t, back, "chain", "update_contact", map[string]any{"card": card20(back)}), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, back, "chain", "update_contact", map[string]any{"card": cardOf(back)}), TransportFacts{})
 	if err != nil || f.Tier != TierPendingAddress {
 		t.Fatalf("new address under ask: %v %+v", err, f)
 	}
@@ -455,7 +455,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 // owner: a host holding a still-valid leaf for a pinned root — a former host
 // after a move — grew both without bound just by continuing to call.
 func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow.Add(-time.Hour))
 	e.pin(t, p, "active")
@@ -468,7 +468,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 	moved := &peer{root: p.root, host: p.host}
 	moved.leaf = moved.leafFor(t, endpointA2, fixedNow.Add(-5*time.Minute))
 	for i := 0; i < 4; i++ {
-		f, err := e.open(t, e.seal20(t, moved, "chain", "update_contact", map[string]any{"card": card20(moved)}), TransportFacts{})
+		f, err := e.open(t, e.sealFrom(t, moved, "chain", "update_contact", map[string]any{"card": cardOf(moved)}), TransportFacts{})
 		if err != nil || f.Tier != TierPendingAddress {
 			t.Fatalf("call %d: %v %+v", i, err, f)
 		}
@@ -483,7 +483,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 	// A DIFFERENT address from the same root is a new thing to be told about.
 	third := &peer{root: p.root, host: p.host}
 	third.leaf = third.leafFor(t, "https://alina.third.example/alina/mcp", fixedNow.Add(-4*time.Minute))
-	if _, err := e.open(t, e.seal20(t, third, "chain", "update_contact", map[string]any{"card": card20(third)}), TransportFacts{}); err != nil {
+	if _, err := e.open(t, e.sealFrom(t, third, "chain", "update_contact", map[string]any{"card": cardOf(third)}), TransportFacts{}); err != nil {
 		t.Fatal(err)
 	}
 	if pendings != 2 {
@@ -492,7 +492,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 }
 
 func TestV2TombstoneForcesTheQuestion(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -504,14 +504,14 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 		t.Fatal("removing a 2.0 contact must leave a tombstone")
 	}
 	// The same leaf again: a stranger (its leaf is not newer than the one that removed us).
-	f, err := e.open(t, e.seal20(t, p, "chain", "request_contact", map[string]any{"card": card20(p)}), TransportFacts{})
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierGuest {
 		t.Fatalf("same leaf after removal: %v %+v", err, f)
 	}
 	// A newer leaf inside 30 days: asked about, whatever the setting says.
 	returned := &peer{root: p.root, host: p.host}
 	returned.leaf = returned.leafFor(t, endpointA, fixedNow)
-	f, err = e.open(t, e.seal20(t, returned, "chain", "request_contact", map[string]any{"card": card20(returned)}), TransportFacts{})
+	f, err = e.open(t, e.sealFrom(t, returned, "chain", "request_contact", map[string]any{"card": cardOf(returned)}), TransportFacts{})
 	if err != nil || f.Tier != TierPendingAddress {
 		t.Fatalf("returned after removal: %v %+v", err, f)
 	}
@@ -531,7 +531,7 @@ func TestV2TransportPinChecks(t *testing.T) {
 	// caller through the same pin checks as the sealed path (PACT §2, §14.3,
 	// §5.3), and what it resolves is what dispatch sees: the composed server's
 	// identity, not the gate's discarded return value.
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
 	leaf, _ := pactidentity.Parse(p.leaf)
@@ -664,10 +664,10 @@ func respell(t *testing.T, env *pactidentity.Envelope, member string, fn func(st
 // ran and the node opened both spellings. `enc` is 32 or 65 bytes, so its last character always has
 // unused bits.
 func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
-	if f, err := e.open(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); err != nil || f.From != p.fpr() {
+	if f, err := e.open(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); err != nil || f.From != p.fpr() {
 		t.Fatalf("the control, in its canonical spelling, must open: %v %+v", err, f)
 	}
 	spare := func(s string) string {
@@ -684,7 +684,7 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 		"sig with a line break":    {"sig", lineBreak},
 		"ct with a line break":     {"ct", lineBreak},
 	} {
-		env := respell(t, e.seal20(t, p, "chain", "send_message", map[string]any{"text": "hi"}), c.member, c.fn)
+		env := respell(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), c.member, c.fn)
 		if _, err := e.open(t, env, TransportFacts{}); Code(err) != "envelope_invalid" {
 			t.Errorf("%s: opened (%v); a second spelling of an envelope must be refused", name, err)
 		}

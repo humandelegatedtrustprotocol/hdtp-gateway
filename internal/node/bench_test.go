@@ -1,6 +1,6 @@
 package node
 
-// `state20` is read once per inbound envelope, on purpose: a setting the owner
+// `recipientState` is read once per inbound envelope, on purpose: a setting the owner
 // changes has to take effect without a restart. What that costs had never been
 // measured.
 //
@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func benchState20(b *testing.B, accounts int) {
+func benchRecipientState(b *testing.B, accounts int) {
 	slugs := make([]string, accounts)
 	for i := range slugs {
 		slugs[i] = fmt.Sprintf("acct%d", i)
@@ -26,12 +26,12 @@ func benchState20(b *testing.B, accounts int) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := n.state20(ctx, accts[0].ID, accts[0].Slug); err != nil {
+		if _, err := n.recipientState(ctx, accts[0].ID, accts[0].Slug); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkState20OneAccount(b *testing.B)    { benchState20(b, 1) }
-func BenchmarkState20FourAccounts(b *testing.B)  { benchState20(b, 4) }
-func BenchmarkState20EightAccounts(b *testing.B) { benchState20(b, 8) }
+func BenchmarkRecipientStateOneAccount(b *testing.B)    { benchRecipientState(b, 1) }
+func BenchmarkRecipientStateFourAccounts(b *testing.B)  { benchRecipientState(b, 4) }
+func BenchmarkRecipientStateEightAccounts(b *testing.B) { benchRecipientState(b, 8) }

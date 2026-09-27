@@ -217,7 +217,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 // sealBack seals the inner result to the caller (PACT §13.2: a sealed request
 // MUST get a sealed result — same format, the request's msg_id).
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
-	return d.sealBack20(ctx, facts, inner, false)
+	return d.sealResult(ctx, facts, inner, false)
 }
 
 // sealBackErr seals a wrapper-level refusal — one of §12's codes, in §13.2's
@@ -239,7 +239,7 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 // Falling back to plaintext when sealing itself fails is deliberate: at that
 // point the caller cannot be answered at all, and a bare code beats a hang.
 func (d SealedDeps) sealBackErr(ctx context.Context, facts *EnvelopeFacts, body json.RawMessage) *mcp.CallToolResult {
-	res, err := d.sealBack20(ctx, facts, body, true)
+	res, err := d.sealResult(ctx, facts, body, true)
 	if err != nil || res == nil {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}
 	}
@@ -251,12 +251,12 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 	return d.sealBackErr(ctx, facts, json.RawMessage(`{"code":`+strconv.Quote(code)+`}`))
 }
 
-// sealBack20 seals a result to a 2.0 caller (PACT §13.2): kid names the
+// sealResult seals a result to a 2.0 caller (PACT §13.2): kid names the
 // caller's leaf key, the plaintext carries our chain until this contact has
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.
-func (d SealedDeps) sealBack20(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage, asError bool) (*mcp.CallToolResult, error) {
-	st, err := d.Identifier.State20(ctx)
+func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage, asError bool) (*mcp.CallToolResult, error) {
+	st, err := d.Identifier.RecipientState(ctx)
 	if err != nil || st == nil || st.currentKey() == nil || len(st.Chain) != 2 {
 		return errEnvelope("unavailable"), nil
 	}

@@ -78,7 +78,7 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	// The server presents a real chain: a self-signed certificate is not an
 	// identity under 2.0, so pinning one would refuse the dial before the thing
 	// this test is about — which certificate the CLIENT sends — could be observed.
-	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
+	server := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 1)
 	addr := startTLS(t, &tls.Config{
 		Certificates: []tls.Certificate{server.tlsCert()},
@@ -129,7 +129,7 @@ func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 		return err.Error()
 	}
 	// A caller that pins a real identity at this address: the server is not it.
-	pinned := newIdentity20(t, "Bharat", "https://"+addr+"/mcp").peerOf()
+	pinned := newTestIdentity(t, "Bharat", "https://"+addr+"/mcp").peerOf()
 	// A caller that holds no pin at all.
 	unpinned := Peer{Endpoint: "https://" + addr}
 	if a, b := refusal(pinned), refusal(unpinned); a != b {

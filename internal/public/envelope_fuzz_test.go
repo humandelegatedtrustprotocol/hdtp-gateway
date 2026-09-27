@@ -25,18 +25,18 @@ import (
 // seeds come from — the contact or the stranger: a mutation that still verifies cannot speak for
 // anybody else.
 func FuzzSealedEnvelope(f *testing.F) {
-	e := newEnv20(f)
+	e := newRecvEnv(f)
 	p := newPeer(f, e.nowAt.Add(-time.Hour))
 	e.pin(f, p, "active")
 	for _, form := range []string{"chain", "leaf"} {
-		b, err := json.Marshal(e.seal20(f, p, form, "send_message", map[string]any{"msg_id": "m", "text": "hello"}))
+		b, err := json.Marshal(e.sealFrom(f, p, form, "send_message", map[string]any{"msg_id": "m", "text": "hello"}))
 		if err != nil {
 			f.Fatal(err)
 		}
 		f.Add(b)
 	}
 	stranger := newPeer(f, e.nowAt.Add(-time.Hour))
-	if b, err := json.Marshal(e.seal20(f, stranger, "chain", "request_contact", map[string]any{"card": card20(stranger)})); err == nil {
+	if b, err := json.Marshal(e.sealFrom(f, stranger, "chain", "request_contact", map[string]any{"card": cardOf(stranger)})); err == nil {
 		f.Add(b) // a guest's first envelope: the stranger's path through the open
 	}
 	for _, s := range []string{`{}`, `null`, `[]`, `{"protected":"","enc":"","ct":"","sig":""}`, `{"protected":"e30","enc":"AA","ct":"AA","sig":"AA"}`} {

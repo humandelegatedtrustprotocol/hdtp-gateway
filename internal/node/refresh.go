@@ -137,7 +137,7 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 	}
 	// "Renewed" is judged against the leaf held BEFORE the call, which is `peer.Leaf`. Over a
 	// sealed call the renewal is usually learned on the way through: her answer carries the
-	// newer chain and the client repins as it passes (§14.3, `wire20`), so by the time the card
+	// newer chain and the client repins as it passes (§14.3, `wireClient`), so by the time the card
 	// is read here `stored` already holds the new leaf, `renewed` is nil, and the owner who
 	// pressed the button during a renewal was told only that a card had changed.
 	if renewed != nil || !bytes.Equal(stored.Leaf, peer.Leaf) {

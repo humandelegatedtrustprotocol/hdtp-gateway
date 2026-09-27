@@ -147,8 +147,8 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		// What a `v: 2` envelope is decided against (PACT §13.3). Without it the
 		// identifier refuses every envelope as "does not speak 2.0" — which is the
 		// right answer for an identity with no leaf, and the wrong one here.
-		State20: func(context.Context) (*public.State20, error) {
-			return &public.State20{
+		RecipientState: func(context.Context) (*public.RecipientState, error) {
+			return &public.RecipientState{
 				HasRoot: true, Endpoint: n.endpoint, AcceptNewHosts: "auto",
 				Chain: [][]byte{n.leafDER, n.rootCert},
 				Keys: []identity.LeafKey{{
@@ -226,7 +226,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 }
 
 func (n *pactNode) card() (string, error) {
-	return contacts.BuildCard20(n.acct.DisplayName, n.leafDER, string(n.seal))
+	return contacts.BuildCard(n.acct.DisplayName, n.leafDER, string(n.seal))
 }
 
 // asPeer is what another node holds of this one: the root it pins, the leaf it
