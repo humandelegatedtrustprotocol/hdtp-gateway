@@ -25,7 +25,7 @@ func TestAMoveCampaignSaysWhenItCannotRecordItsProgress(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()
 	for _, fpr := range []string{"sha256:one", "sha256:two"} {
-		if _, err := m.Store.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", Endpoint: "https://" + fpr[7:] + ".example/mcp"}); err != nil {
+		if _, err := m.Store.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", Endpoint: "https://" + fpr[7:] + ".example/mcp", Leaf: []byte("leaf")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -81,12 +81,12 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	m, a := leafEnv(t)
 	ctx := context.Background()
 	made := func(fpr, status string) {
-		if _, err := m.Store.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, Endpoint: "https://x.example/mcp"}); err != nil {
+		if _, err := m.Store.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, Endpoint: "https://x.example/mcp", Leaf: []byte("leaf")}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	imported := func(fpr, status string) {
-		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/mcp"}); err != nil {
+		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -95,6 +95,10 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	imported("sha256:came-active", "active")
 	imported("sha256:came-pending", "pending_out")
 	imported("sha256:came-blocked", "blocked")
+	// And one whose leaf did not travel: nothing can be sealed to it.
+	if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:came-leafless", Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp"}); err != nil {
+		t.Fatal(err)
+	}
 
 	var rows []string
 	audit := func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" → "+outcome) }
@@ -126,7 +130,23 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	if !strings.Contains(strings.Join(rows, "\n"), "contact:sha256:came-pending → requested") {
 		t.Fatalf("the audit row must name what became of the contact:\n%s", strings.Join(rows, "\n"))
 	}
-	for _, fpr := range []string{"sha256:came-active", "sha256:came-pending"} {
+	if !strings.Contains(strings.Join(rows, "\n"), "contact:sha256:came-leafless why:no leaf held → unreached") {
+		t.Fatalf("a contact with no leaf must be recorded as unreached, once:\n%s", strings.Join(rows, "\n"))
+	}
+	progress, err := m.Store.ListMoveFanout(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := false
+	for _, p := range progress {
+		if p.ContactFpr == "sha256:came-leafless" {
+			recorded = p.Status == FanoutUnreached && p.LeafKid == "sha256:first"
+		}
+	}
+	if !recorded {
+		t.Fatalf("the leafless contact has no unreached progress row: %+v", progress)
+	}
+	for _, fpr := range []string{"sha256:came-active", "sha256:came-pending", "sha256:came-leafless"} {
 		if c, _ := m.Store.GetContact(ctx, a.ID, fpr); c.HandshakeDue {
 			t.Fatalf("%s was told and is still marked as owed a handshake", fpr)
 		}
@@ -134,6 +154,12 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	// The next campaign is an ordinary one: the active contacts, and nobody the import owed.
 	called = walk("sha256:second")
 	if len(called) != 2 || !called["sha256:here-active"] || !called["sha256:came-active"] {
-		t.Fatalf("the campaign after the handshake called %v, want the two active contacts", called)
+		t.Fatalf("the campaign after the handshake called %v, want the two active contacts with a leaf", called)
+	}
+	// A re-run of the same campaign records nothing new about the contact it cannot reach.
+	rows = nil
+	walk("sha256:second")
+	if strings.Contains(strings.Join(rows, "\n"), "came-leafless") {
+		t.Fatalf("a re-run recorded the unreachable contact again:\n%s", strings.Join(rows, "\n"))
 	}
 }

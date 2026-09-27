@@ -90,6 +90,9 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "contacts told of the address: told=%v waiting=%v\n", out["Told"], out["Waiting"])
+		if n, _ := out["NoLeaf"].(float64); n > 0 {
+			fmt.Fprintf(stdout, "unreached=%v: imported contacts whose leaf this host does not hold; they stay pinned by their root and are not tried again\n", out["NoLeaf"])
+		}
 		if unreached, _ := out["Unreached"].([]any); len(unreached) > 0 {
 			for _, u := range unreached {
 				if m, ok := u.(map[string]any); ok {
