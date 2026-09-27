@@ -155,7 +155,14 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | The address claim was not shown to the owner (SPEC §5.2's second half) | reading the first fix | the Requests tab and `list_contacts` name the contact whose address a request comes from, derived at read time |
 | `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | both wait for the SEP-2575 subscription acknowledgement |
 
-### 3.2 The v0.3.3 corpus (SPEC 2.2.2, 44 cases)
+### 3.2 The v0.3.3 and v0.3.4 corpus (SPEC 2.2.2 and 2.2.3, 44 cases)
+
+v0.3.4 is this round's final pact-identity release (the same API as 0.3.3, 44 corpus cases). S22
+reads the corpus of the version the harness requires, and `make identity-bump VERSION=0.3.4` moves
+the node and the harness together, so S22 runs the v0.3.4 corpus through the image of the tree
+that bumped. No node branch was on v0.3.4 when this was written; the measurement below is the
+v0.3.3 corpus's.
+
 
 S22 run with the harness on pact-identity v0.3.3 against an image of node `main` (v0.3.2): 27 of its
 44 cases fail, all on one change of format — a v0.3.3 export no longer lists media in the manifest's
