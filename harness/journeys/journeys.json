@@ -1,0 +1,30 @@
+{
+  "about": "The journeys of one product, proven on both hosts. Each names the node harness scenarios (harness/registry ids) and the cloud pair scenarios (gateway/e2e/tables/scenarios.mjs ids, or file:<path> under gateway/) that prove it, or says why a host has none yet. This file is held byte for byte to pact-cloud's gateway/e2e/tables/journeys.json; the node holds its half (harness/journeys), the cloud its own.",
+  "journeys": [
+    { "id": "J1", "name": "an identity created with a passkey", "node": ["S1"], "cloud": ["file:e2e/identity.mjs"] },
+    { "id": "J2", "name": "an invite accepted automatically", "node": ["S19", "S21"], "cloud": ["S5b"] },
+    { "id": "J3", "name": "an invite accepted by the owner's approval", "node": ["S2", "S12"], "cloud": ["S2"] },
+    { "id": "J4", "name": "a request rejected, and the peer told", "node": ["S13"], "cloud": ["S7"] },
+    { "id": "J5", "name": "an owner's own invite refused", "node": ["S21"], "cloud": ["S1"] },
+    { "id": "J6", "name": "a revoked invite refused", "node": ["S21"], "cloud": ["S6"] },
+    { "id": "J7", "name": "a used-up invite refused", "node": ["S19"], "cloud": ["S20"] },
+    { "id": "J8", "name": "messages both ways", "node": ["S14"], "cloud": ["S3"] },
+    { "id": "J9", "name": "media, and its limits", "node": ["S3"], "cloud": ["S23", "V43b"] },
+    { "id": "J10", "name": "a permission granted, and one refused", "node": ["S9"], "cloud": ["S4"] },
+    { "id": "J11", "name": "a block, indistinguishable from a stranger", "node": ["S17", "S21"], "cloud": ["S18"] },
+    { "id": "J12", "name": "an unblock", "node": ["S13", "S21"], "cloud": ["S13"] },
+    { "id": "J13", "name": "a removal that reaches the peer", "node": ["S21"], "cloud": ["S5"] },
+    { "id": "J14", "name": "every door that names a contact refuses one nobody holds", "node": ["S21"], "cloud": ["S14"] },
+    { "id": "J15", "name": "a signing request through the real wallet page", "node": [], "node_pending": "S20: a cloud identity moved to a node and the move signed on the node's portal through the real wallet (plan B8)", "cloud": ["file:e2e/ceremony.mjs", "file:e2e/identity.mjs"] },
+    { "id": "J16", "name": "a leaf renewed", "node": ["S19"], "cloud": ["M83"] },
+    { "id": "J17", "name": "a move, with the notice", "node": ["S10", "S16"], "cloud": ["R1"] },
+    { "id": "J18", "name": "an export and an import, reviewed before it is written", "node": ["S16", "S22"], "cloud": ["R0", "R1", "S68"] },
+    { "id": "J19", "name": "the handshake after an import", "node": ["S16", "S17"], "cloud": ["R1"] },
+    { "id": "J20", "name": "an identity leaves its host", "node": ["S21"], "cloud": ["M84"] },
+    { "id": "J21", "name": "the owner's agent drives the identity through the owner MCP", "node": ["S2", "S21"], "cloud": ["M41", "M42", "M49"] },
+    { "id": "J22", "name": "an agent credential scoped to one identity", "node": ["S21"], "cloud": ["T41a", "T41b", "T41c"] },
+    { "id": "J23", "name": "the live intrusion battery", "node": ["S18"], "cloud": [], "cloud_pending": "run by hand against staging (pact vectors intrude --against); the local cloud target (test/local-cloud-target) runs it in e2e-local" },
+    { "id": "J24", "name": "the conformance battery of the wire", "node": ["S19"], "cloud": ["file:e2e/identity.mjs"] },
+    { "id": "J25", "name": "the hostile export corpus through the real import door", "node": ["S22"], "cloud": [], "cloud_pending": "the cloud's import door over HTTP, in e2e-local (test/local-cloud-target)" }
+  ]
+}
