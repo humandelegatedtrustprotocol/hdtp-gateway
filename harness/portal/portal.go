@@ -178,6 +178,48 @@ func (s *Session) SignIn(ctx context.Context, base string, cookies []*http.Cooki
 	}))
 }
 
+// SignInWithPasskey signs this browser in the way a person does once their session is gone: its
+// cookies are cleared, the sign-in page is opened, and its button runs the ceremony against the
+// passkey this browser's authenticator registered. The sign-in is discoverable — the node offers no
+// credential list — so this is what proves a registered passkey can be found again; SignIn, which
+// carries cookies, proves nothing about that.
+func (s *Session) SignInWithPasskey(ctx context.Context, base string) (string, error) {
+	runCtx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
+	defer cancel()
+	const button = `//button[contains(., "Sign in with a passkey")]`
+	var msg string
+	err := chromedp.Run(runCtx,
+		network.ClearBrowserCookies(),
+		chromedp.Navigate(base+"/login"),
+		chromedp.WaitVisible(button, chromedp.BySearch),
+		chromedp.Click(button, chromedp.BySearch),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return until(ctx, 45*time.Second, 250*time.Millisecond, "the sign-in page to move past "+progressMsg, func(ctx context.Context) (bool, error) {
+				var url string
+				if err := chromedp.Location(&url).Do(ctx); err == nil && url != "" && !strings.Contains(url, "/login") {
+					msg = ""
+					return true, nil
+				}
+				var cur string
+				if err := chromedp.Text("#msg", &cur, chromedp.ByID).Do(ctx); err == nil {
+					if t := strings.TrimSpace(cur); t != "" && !strings.HasPrefix(t, progressMsg) {
+						msg = t
+						return true, nil
+					}
+				}
+				return false, nil
+			})
+		}),
+	)
+	if err != nil {
+		return msg, fmt.Errorf("portal: signing in with a passkey: %w", err)
+	}
+	if msg != "" {
+		return msg, fmt.Errorf("portal: the sign-in page did not sign in: %s", msg)
+	}
+	return "", nil
+}
+
 // Page is what a person is looking at once the application has drawn a view: the words, where
 // the links go, what can be pressed or typed into, and whether there is a way to go anywhere.
 type Page struct {

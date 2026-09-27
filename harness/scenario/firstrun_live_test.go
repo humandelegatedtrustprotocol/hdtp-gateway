@@ -31,7 +31,8 @@ import (
 
 // S1 — first run, from a pristine image: the node prints where to go and the setup token, the
 // token admits the wizard and is NOT burned by the wizard's first requests, a passkey is
-// registered in a real browser, the dashboard draws, and the wizard is gone.
+// registered in a real browser, the dashboard draws, the passkey signs the owner in again from the
+// sign-in page once the session is gone, and the wizard is gone.
 //
 // Every other scenario reaches the portal through the loopback sidecar (World.Bridge), as the
 // README's quickstart does, and on loopback the wizard needs no token at all (SPEC §8.6), so none
@@ -158,6 +159,17 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 	}
 	if !home.HasNav || len(home.Links) == 0 {
 		t.Errorf("the dashboard drew no navigation: %q", shorten(home.Text, 300))
+	}
+
+	// And the passkey signs its owner in again once the session is gone. The sign-in page asks for
+	// a discoverable credential (no list), so a passkey registered without one registers, signs in
+	// once through the wizard's own session, and is never offered again — found 2026-09-28, when a
+	// changed public URL renamed the session cookie and the owner could not get back in.
+	if msg, err := br.SignInWithPasskey(ctx, base); err != nil {
+		t.Fatalf("signing in again with the passkey the wizard registered: %v (page said %q)", err, msg)
+	}
+	if again, err := br.Rendered(ctx, base+"/"); err != nil || !again.HasNav {
+		t.Fatalf("after signing in with the passkey, the dashboard did not draw: %v %q", err, shorten(again.Text, 300))
 	}
 
 	// And the wizard is gone: the first-run token died with the first passkey.

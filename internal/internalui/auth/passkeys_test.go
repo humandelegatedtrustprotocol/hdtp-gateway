@@ -359,3 +359,57 @@ func TestAStoredCredentialThatWillNotDecodeIsAnErrorAndNotAnAbsence(t *testing.T
 		t.Fatalf("a row that will not read was reported as nothing being registered: %v", err)
 	}
 }
+
+// Login is discoverable (BeginLogin: BeginDiscoverableLogin, no allowCredentials), so the browser
+// can offer only a credential the authenticator can find by itself. Registration must therefore ask
+// for a discoverable credential: with the library's empty selection the browser's default is
+// residentKey "discouraged", and an authenticator that honours it (a security key; Chrome's virtual
+// authenticator, measured 2026-09-28) makes a credential that registers, signs the owner in once,
+// and can never sign in again — found when a public URL change renamed the session cookie and the
+// portal's own sign-in page refused the only passkey the node had.
+func TestRegistrationAsksForTheDiscoverableCredentialThatLoginNeeds(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	opts, _, err := e.svc.BeginRegistration(ctx, testRP, "", "Sumit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(opts)
+	var reg struct {
+		PublicKey struct {
+			AuthenticatorSelection struct {
+				ResidentKey        string `json:"residentKey"`
+				RequireResidentKey *bool  `json:"requireResidentKey"`
+			} `json:"authenticatorSelection"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		t.Fatal(err)
+	}
+	sel := reg.PublicKey.AuthenticatorSelection
+	if sel.ResidentKey != "required" || sel.RequireResidentKey == nil || !*sel.RequireResidentKey {
+		t.Fatalf("registration asks residentKey=%q requireResidentKey=%v; login is discoverable, so it must require one\n%s", sel.ResidentKey, sel.RequireResidentKey, raw)
+	}
+
+	// The control: login really does offer no credential list, which is why the above matters.
+	e.register(t, "", "Sumit", "phone")
+	lopts, _, err := e.svc.BeginLogin(ctx, testRP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lraw, _ := json.Marshal(lopts)
+	var login struct {
+		PublicKey struct {
+			AllowCredentials []json.RawMessage `json:"allowCredentials"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(lraw, &login); err != nil {
+		t.Fatal(err)
+	}
+	if len(login.PublicKey.AllowCredentials) != 0 {
+		t.Fatalf("login now names %d credentials; this test's premise (discoverable login) no longer holds — revisit it", len(login.PublicKey.AllowCredentials))
+	}
+	if _, err := e.login(t); err != nil {
+		t.Fatalf("the registered passkey does not sign its owner in: %v", err)
+	}
+}
