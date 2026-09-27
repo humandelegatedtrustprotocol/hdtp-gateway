@@ -147,7 +147,11 @@ func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mou
 	// Account resolution wraps the routes but sits INSIDE csrf and session: it
 	// only decides which identity a page is about, and must not run before the
 	// checks that decide whether the request is allowed at all.
-	h := csrfMiddleware(accountMiddleware(st, mux))
+	var audit func(action, resource, outcome string)
+	if authDeps != nil {
+		audit = authDeps.audit
+	}
+	h := csrfMiddleware(accountMiddleware(st, mux, audit), audit)
 	if authDeps != nil {
 		h = authDeps.SessionMiddleware(h)
 	}
@@ -245,9 +249,29 @@ func isLoopbackAddr(remote string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// csrfMiddleware: double-submit cookie. GETs receive the cookie; every other method
-// must echo it in X-Pact-Csrf. Stays on regardless of bind (SPEC §8.3).
-func csrfMiddleware(next http.Handler) http.Handler {
+// csrfMiddleware refuses a state change a page of another origin could have made, with two checks
+// that do not stand in for each other (SPEC §8.3, docs/threat-model.md boundary 2):
+//
+//   - the double-submit cookie: GETs receive it; every other method echoes it in X-Pact-Csrf or,
+//     for an HTML form, the `csrf` field (the first one: the value the page wrote);
+//   - where the request came from. The cookie alone is not enough: it is not HttpOnly (the page's
+//     script reads it), and cookies are isolated by host, not by port — so a page served on any other
+//     port of the same host (another local app, a dev server) reads it and posts it back, and
+//     SameSite=Strict does not stop that, because another port is the same SITE. A browser says
+//     where a request came from: `Sec-Fetch-Site` must be same-origin (or none, a person's own
+//     navigation). A browser that sends no Fetch Metadata still sends Origin on a POST, which must
+//     then be this portal's own. `Origin: null` alone decides nothing: the portal's own pages send it
+//     under their no-referrer policy, so without Fetch Metadata the cookie is the whole check.
+//
+// A client that is no browser sends neither header and is judged by the token alone: a forged
+// request needs a browser, and a browser says where it was. Each refusal is audited.
+func csrfMiddleware(next http.Handler, audit func(action, resource, outcome string)) http.Handler {
+	refuse := func(w http.ResponseWriter, r *http.Request, why, msg string) {
+		if audit != nil {
+			audit("portal_request", "path:"+r.URL.Path, why)
+		}
+		http.Error(w, msg, http.StatusForbidden)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(csrfCookieName())
 		if err != nil || c.Value == "" {
@@ -272,6 +296,10 @@ func csrfMiddleware(next http.Handler) http.Handler {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
+			if !sameOrigin(r) {
+				refuse(w, r, "cross_site", "cross-site request refused")
+				return
+			}
 			h := r.Header.Get("X-Pact-Csrf")
 			if h == "" {
 				// HTML forms cannot set headers: accept the double-submit value
@@ -280,12 +308,24 @@ func csrfMiddleware(next http.Handler) http.Handler {
 				h = r.PostForm.Get("csrf")
 			}
 			if h == "" || subtle.ConstantTimeCompare([]byte(h), []byte(c.Value)) != 1 {
-				http.Error(w, "csrf token missing or wrong", http.StatusForbidden)
+				refuse(w, r, "csrf", "csrf token missing or wrong")
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sameOrigin reports whether a browser says a state-changing request came from this portal (see
+// csrfMiddleware). No header at all is a client that is no browser.
+func sameOrigin(r *http.Request) bool {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+		return site == "same-origin" || site == "none"
+	}
+	if o := r.Header.Get("Origin"); o != "" && o != "null" {
+		return o == browserOrigin(r)
+	}
+	return true
 }
 
 // LoadTLS reads the internal surface's certificate and key (SPEC §8.3), once, at startup. Neither
