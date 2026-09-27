@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -28,12 +27,17 @@ func generational(name string) bool {
 
 // No Go identifier and no file name under internal/, harness/ or queries/ carries a generation
 // suffix. Identifiers are read with go/parser, so a date, a string or a comment is never one; the
-// migrations are append-only and are not scanned.
+// migrations are append-only and are not scanned. Red on 9f27f67, where it listed 75 names and
+// files, from harness/peer/peer.go's BuildCard20 to queries/*/pact20.sql.
 func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 	root := repoRoot(t)
 	var found []string
-	scanned := 0
+	// Each root must be there and must be read: a floor per root, so a walk that silently read
+	// only one of them cannot pass for all three. The floors are far below today's counts (397 Go
+	// files under internal/, 47 under harness/, 12 query files) and only a broken walk misses them.
+	floors := map[string]int{"internal": 100, "harness": 10, "queries": 2}
 	for _, dir := range []string{"internal", "harness", "queries"} {
+		files := 0
 		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -48,6 +52,10 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 			if generational(d.Name()) {
 				found = append(found, rel+" (file name)")
 			}
+			if dir == "queries" {
+				files++
+				return nil
+			}
 			if !strings.HasSuffix(p, ".go") {
 				return nil
 			}
@@ -56,7 +64,7 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 				t.Errorf("%s does not parse: %v", rel, perr)
 				return nil
 			}
-			scanned++
+			files++
 			seen := map[string]bool{}
 			ast.Inspect(f, func(n ast.Node) bool {
 				if id, ok := n.(*ast.Ident); ok && !seen[id.Name] && generational(id.Name) {
@@ -67,14 +75,12 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 			})
 			return nil
 		})
-		if err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
+		if err != nil {
+			t.Fatalf("%s/ could not be walked: %v", dir, err)
 		}
-	}
-	// A floor, derived from nothing that can go stale by growing: a scan that read nothing proves
-	// nothing, and the tree has had hundreds of Go files since the first commit.
-	if scanned < 100 {
-		t.Fatalf("scanned %d Go files; the walk is not reading the tree", scanned)
+		if files < floors[dir] {
+			t.Fatalf("read %d files under %s/, fewer than %d; the walk is not reading the tree", files, dir, floors[dir])
+		}
 	}
 	sort.Strings(found)
 	if len(found) > 0 {
