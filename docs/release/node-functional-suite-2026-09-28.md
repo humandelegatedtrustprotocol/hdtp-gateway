@@ -151,7 +151,9 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | `create_invite` answered a bare token, no link to hand out | S19, invite group | the owner MCP answers `url` on the public origin |
 | Every public caller's audit row was written as the node's own (`system`) | S19, audit group | sealed_call and the built-in tools write `guest` or `contact` |
 | Thirty early refusals (decode, caps, vocabulary) and a non-envelope `sealed_call` body wrote no audit row | reading the code S18 exercises | `ToolDeps.refuse`; `TestEveryMalformedCallIsRefusedAndAudited` |
-| `TestSubscribeInboxReceivesResourceUpdated` flaked under the pre-push gate | the gate | waits for both subscription acknowledgements |
+| An owner's own invite made them their own pending contact, and any redemption the peer refused as a tool error was recorded `pending_out` | S21 | the initiator refuses the identity's own offer, and a tool-error answer is a refusal with nothing recorded |
+| The address claim was not shown to the owner (SPEC §5.2's second half) | reading the first fix | the Requests tab and `list_contacts` name the contact whose address a request comes from, derived at read time |
+| `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | both wait for the SEP-2575 subscription acknowledgement |
 
 ### 3.2 The v0.3.3 corpus (SPEC 2.2.2, 44 cases)
 
