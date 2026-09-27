@@ -194,6 +194,11 @@ func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) err
 // (PACT §2). Every account the harness makes on a container node is made through here; the VM
 // guest (S8) creates its own, in its boot script.
 func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string) (*wallet.Wallet, wallet.Pin, error) {
+	return CertifyUntil(ctx, f, c, slug, time.Time{})
+}
+
+// CertifyUntil is Certify with a first leaf that expires at notAfter (zero: a year).
+func CertifyUntil(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string, notAfter time.Time) (*wallet.Wallet, wallet.Pin, error) {
 	name := strings.ToUpper(slug[:1]) + slug[1:]
 	if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", slug, "--name", name); err != nil {
 		return nil, wallet.Pin{}, fmt.Errorf("topology: creating account %s on %s: %w (%s)", slug, c.Name, err, out)
@@ -202,7 +207,7 @@ func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug st
 	if err != nil {
 		return nil, wallet.Pin{}, err
 	}
-	pin, err := w.Certify(ctx, NodeOf(f, c), slug, "", "")
+	pin, err := w.CertifyUntil(ctx, NodeOf(f, c), slug, "", "", notAfter)
 	if err != nil {
 		return nil, wallet.Pin{}, fmt.Errorf("topology: certifying %s on %s: %w", slug, c.Name, err)
 	}
