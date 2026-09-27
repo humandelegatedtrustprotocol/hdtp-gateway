@@ -34,7 +34,13 @@ import (
 // overrides a choice. With several identities nothing is filled in at all:
 // guessing would show one person's inbox under another's name, and a blank page
 // is a better answer than a confidently wrong one.
-func accountMiddleware(st store.Store, next http.Handler) http.Handler {
+//
+// Every account a request names is checked, wherever it names it: the query, and a urlencoded
+// form's body, every value of each. The body used to be read only when the query named none, and
+// only for its first value, and a body account the owner did not administer was passed through
+// unrefused — to handlers that act on the body's account (`/media/fetch`, `/owners/tokens/create`,
+// `/settings/storage`, `/settings/pair`, `/contacts/add`). A refusal is audited (build rule 7).
+func accountMiddleware(st store.Store, next http.Handler, audit func(action, resource, outcome string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if st == nil {
 			next.ServeHTTP(w, r)
@@ -50,11 +56,24 @@ func accountMiddleware(st store.Store, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if named := accountParam(r); named != "" {
-			if !ownerAdmins(r, st, named) {
+		named := r.URL.Query()["account"]
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err == nil {
+				named = append(named, r.PostForm["account"]...)
+			}
+		}
+		for _, id := range named {
+			if id != "" && !ownerAdmins(r, st, id) {
+				if audit != nil {
+					// Node-level (portal_request): the row names the account asked for, and it is
+					// the refusal, not an act on that account.
+					audit("portal_request", "path:"+r.URL.Path+" account:"+id, "refused")
+				}
 				http.NotFound(w, r) // not 403: whether that account exists is not this owner's business
 				return
 			}
+		}
+		if accountParam(r) != "" {
 			next.ServeHTTP(w, r)
 			return
 		}
