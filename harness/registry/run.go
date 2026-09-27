@@ -259,6 +259,12 @@ func probe(ctx context.Context, n Need) error {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
 			return fmt.Errorf("%s names no Go module: %v", CloudBatteryEnv, err)
 		}
+		// A checkout from before the battery took a target can only be aimed at the cloud: aimed
+		// at a node it fails a dozen cases for reasons that are its own. Such a checkout does not
+		// provide the need, and says why.
+		if src, err := os.ReadFile(filepath.Join(dir, "target_test.go")); err != nil || !strings.Contains(string(src), "PACT_LIVE_TARGET") {
+			return fmt.Errorf("%s is a battery that cannot be aimed at a node (no PACT_LIVE_TARGET in its target_test.go): update that pact-cloud checkout", dir)
+		}
 		return nil
 	}
 	return fmt.Errorf("no probe for %q", n)
