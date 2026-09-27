@@ -68,7 +68,9 @@ build:
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 # dist builds every platform and writes SHA256SUMS. A release is cut locally from
-# this exact target (RELEASING.md), so what ships is what anyone can rebuild.
+# this exact target (RELEASING.md), so what ships is what anyone with read access to
+# this repository and the identity module can rebuild. It fetches nothing private
+# itself: set GOPRIVATE and the SSH insteadOf first (CONTRIBUTING.md).
 dist:
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
@@ -158,6 +160,14 @@ vet:
 # moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
 # disk. A clone without the sibling says it skipped rather than passing quietly.
 #
+# The battery requires this module by a pinned version, so vetting it as it stands would judge the
+# pin, not the tree being gated. So it is built through a go.work made for the one run, in a
+# temporary directory OUTSIDE the repository: it uses the battery's checkout and REPLACES this
+# module with this tree. A replace, not a `use`: with `use` the go command still fetches the go.mod
+# of the version the battery pins, which for an unpushed commit does not exist. It is the only
+# workspace any gate builds (the pre-push hook runs everything else with GOWORK=off, so it proves
+# the committed go.mod and go.sum).
+#
 # The scenario harness (./harness) is the same shape and closer to home: a separate module in THIS
 # repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two
 # removals broke it the same day, and the fix above — made for the cloud's battery — walked past it.
@@ -170,12 +180,16 @@ dependents:
 		echo "  it is a separate Go module that imports internal/, and until 2026-09-19 only the"; \
 		echo "  pre-push hook built it — so it broke in B3c and was found at the first push."; exit 1; }
 	@if [ -d "$(CLOUD_BATTERY)" ]; then \
-		echo "go vet $(CLOUD_BATTERY)"; \
-		(cd "$(CLOUD_BATTERY)" && go vet ./...) || { \
-			echo "the cloud's conformance battery no longer compiles against this module:"; \
+		battery="$$(cd "$(CLOUD_BATTERY)" && pwd)"; ws="$$(mktemp -d)"; \
+		trap 'rm -rf "$$ws"' EXIT; \
+		(cd "$$ws" && GOWORK= go work init "$$battery" && \
+			GOWORK= go work edit -replace="$$(GOWORK=off go -C "$(CURDIR)" list -m)=$(CURDIR)") || exit 1; \
+		echo "go vet $(CLOUD_BATTERY) (go.work: this tree + the battery)"; \
+		(cd "$$battery" && GOWORK="$$ws/go.work" go vet ./...) || { \
+			echo "the cloud's conformance battery no longer compiles against this tree:"; \
 			echo "  fix it in $(CLOUD_BATTERY) in the same change that moved the API"; exit 1; }; \
 		echo "go test -run TestTheBatteryCanSealEveryShapeItSends $(CLOUD_BATTERY)"; \
-		(cd "$(CLOUD_BATTERY)" && go test -count=1 -run 'TestTheBatteryCanSealEveryShapeItSends' ./...) || { \
+		(cd "$$battery" && GOWORK="$$ws/go.work" go test -count=1 -run 'TestTheBatteryCanSealEveryShapeItSends' ./...) || { \
 			echo "the cloud's conformance battery cannot seal a call it sends: compiling was never the"; \
 			echo "  same as working, and the rest of that package only runs against a deployment"; exit 1; }; \
 	else \

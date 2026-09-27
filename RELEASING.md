@@ -2,8 +2,9 @@
 
 Releases are cut locally, by a maintainer, from a tag. There is no release workflow:
 this repository has no CI, because the node depends on a private module that no runner
-is given a key for. Every artifact is still checkable by someone who does not trust us —
-pact-gateway holds your identity keys, so "download this binary" has to be checkable.
+is given a key for. pact-gateway holds your identity keys, so "download this binary" has to
+be checkable: the checksums are published, and anyone who can read this repository AND the
+private identity module can rebuild a tag and compare.
 
 ## Cutting a release
 
@@ -34,8 +35,9 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
 **Rebuild it yourself.** Builds are reproducible: `CGO_ENABLED=0` and `-trimpath`
-mean no host libc and no embedded build paths. At the same tag, with the Go
-toolchain from `go.mod`:
+mean no host libc and no embedded build paths. It needs read access to both private
+repositories and the fetch settings of [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)
+(`make dist` does not set them). At the same tag, with the Go toolchain from `go.mod`:
 
 ```
 make dist VERSION=1.2.3
