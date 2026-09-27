@@ -25,6 +25,47 @@ type LeaveResult struct {
 	BlobsRemoved int
 }
 
+// LeavePreview is what a leave would erase, read and nothing written: what `account leave` shows
+// before the person agrees (the same two steps an import takes). Current is the endpoint the
+// identity's current leaf names, "" when it has none.
+type LeavePreview struct {
+	Slug, Root, Current                   string
+	Leaves, Contacts, Threads, MediaFiles int
+}
+
+// PreviewLeave reads what Leave would erase for this account.
+func (m *Manager) PreviewLeave(ctx context.Context, accountID string) (LeavePreview, error) {
+	a, err := m.Store.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return LeavePreview{}, err
+	}
+	p := LeavePreview{Slug: a.Slug, Root: a.RootFingerprint}
+	leaves, err := m.Store.ListLeaves(ctx, accountID)
+	if err != nil {
+		return LeavePreview{}, err
+	}
+	p.Leaves = len(leaves)
+	for _, l := range leaves {
+		if l.State == LeafCurrent {
+			p.Current = l.Endpoint
+		}
+	}
+	cs, err := m.Store.ListContacts(ctx, accountID)
+	if err != nil {
+		return LeavePreview{}, err
+	}
+	ts, err := m.Store.ListThreadsByAccount(ctx, accountID)
+	if err != nil {
+		return LeavePreview{}, err
+	}
+	bs, err := m.Store.ListBlobs(ctx, accountID)
+	if err != nil {
+		return LeavePreview{}, err
+	}
+	p.Contacts, p.Threads, p.MediaFiles = len(cs), len(ts), len(bs)
+	return p, nil
+}
+
 // Leave erases an identity from this host (PACT §9, "What a host must do when the person leaves"):
 // the leaf keys and every record of the identity go at once, in one transaction, and the address
 // is kept reserved — by a row that holds the endpoint, its slug and a date, and nothing that

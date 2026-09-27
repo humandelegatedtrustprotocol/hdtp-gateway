@@ -242,8 +242,13 @@ expires.
 When you have moved an identity to another host, tell this one to forget it:
 
 ```
-pact-gateway account leave -slug me
+pact-gateway account leave -slug me          # shows what it would erase, erases nothing
+pact-gateway account leave -slug me -yes     # erases it
 ```
+
+It refuses an identity this node serves at its own address for it right now — which is what
+"delete it at the old host" would name after a move to another address on this same node — unless
+you add `-force-current`.
 
 It erases every record of the identity at once: its contacts, chats, media no other identity here
 uses, invites, integrations and their OAuth client credentials, tokens scoped to it, its settings,
