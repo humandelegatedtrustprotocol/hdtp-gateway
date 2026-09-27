@@ -4,6 +4,7 @@ package internalui
 // the card builder with .vcf export. Every mutation audits.
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -154,6 +155,11 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 		// it is the more trustworthy of the two.
 		ViaInvite   bool   `json:"via_invite"`
 		InviteLabel string `json:"invite_label,omitempty"`
+		// AddressOf is the root of the contact whose address this request comes from, now or
+		// within the claim window, and AddressOfName that contact's name: PACT §5.2, "shown to the
+		// owner beside the name of the contact who holds or held that address".
+		AddressOf     string `json:"address_of,omitempty"`
+		AddressOfName string `json:"address_of_name,omitempty"`
 	}
 	var labels map[string]string
 	pending := []row{}
@@ -162,6 +168,16 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		rw := row{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, ViaInvite: c.InviteID != ""}
+		if d.Contacts != nil {
+			if claim, err := d.Contacts.AddressClaim(r.Context(), account, c.Endpoint, c.Fingerprint); err == nil && claim != "" {
+				rw.AddressOf, rw.AddressOfName = claim, claim
+				for _, held := range list {
+					if held.Fingerprint == claim {
+						rw.AddressOfName = cmp.Or(held.Petname, held.DisplayName, claim)
+					}
+				}
+			}
+		}
 		if c.InviteID != "" {
 			if labels == nil {
 				labels = map[string]string{}
