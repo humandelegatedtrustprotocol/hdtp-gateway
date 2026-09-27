@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/envelope"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // FuzzSealedEnvelope feeds arbitrary bytes down the path a sealed_call's argument takes in
@@ -44,7 +44,7 @@ func FuzzSealedEnvelope(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var env envelope.Envelope
+		var env pactidentity.Envelope
 		if json.Unmarshal(data, &env) != nil {
 			return // the wrapper answers envelope_invalid before OpenSealed is reached
 		}

@@ -191,6 +191,9 @@ type Result struct {
 	Skipped []string
 }
 
+// b64 reads an archive's byte strings, and refuses one that is not base64url; writing them is the
+// library's B64url. The library exports no decoder that refuses: its FromB64url skips what it cannot
+// read, which would take a damaged archive for a shorter byte string.
 var b64 = base64.RawURLEncoding
 
 /* --------------------------------- export --------------------------------- */
@@ -229,7 +232,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			continue
 		}
 		res.Identities = append(res.Identities, a.Slug)
-		if err := emit(KindIdentity, Identity{Kind: KindIdentity, Slug: a.Slug, DisplayName: a.DisplayName, Root: a.RootFingerprint, RootCert: b64.EncodeToString(a.RootCert)}); err != nil {
+		if err := emit(KindIdentity, Identity{Kind: KindIdentity, Slug: a.Slug, DisplayName: a.DisplayName, Root: a.RootFingerprint, RootCert: pactidentity.B64url(a.RootCert)}); err != nil {
 			return res, err
 		}
 		contacts, err := st.ListContacts(ctx, a.ID)
@@ -243,7 +246,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 				Preset: c.Preset, Permissions: orEmpty(c.Permissions), TheirPermissions: orEmpty(c.TheirPermissions),
 				TrustFlag: c.TrustFlag, DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card,
 				CreatedAt: c.CreatedAt, PinnedAt: c.PinnedAt, Endpoint: c.Endpoint,
-				Leaf: b64.EncodeToString(c.Leaf), SPKI: b64.EncodeToString(c.SPKI), RootCert: b64.EncodeToString(c.RootCert),
+				Leaf: pactidentity.B64url(c.Leaf), SPKI: pactidentity.B64url(c.SPKI), RootCert: pactidentity.B64url(c.RootCert),
 				EverActive: &everActive,
 			}); err != nil {
 				return res, err

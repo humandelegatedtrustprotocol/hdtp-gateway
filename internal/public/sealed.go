@@ -121,7 +121,7 @@ func spendGuestBudget(ctx context.Context, d SealedDeps) *mcp.CallToolResult {
 
 func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var env envelope.Envelope
+		var env pactidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
 			return errEnvelope("envelope_invalid"), nil
 		}
@@ -142,7 +142,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				d.audit("sealed_call", "account:"+d.AccountID, "certificate_renewed")
 				chain := make([]string, 0, len(renewed.Chain))
 				for _, c := range renewed.Chain {
-					chain = append(chain, b64u(c))
+					chain = append(chain, pactidentity.B64url(c))
 				}
 				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": map[string]any{"chain": chain}})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil

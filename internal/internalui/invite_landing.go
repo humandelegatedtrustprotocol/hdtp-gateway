@@ -20,6 +20,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
 // LandingDeps is what the landing page reads. Its fields are node.LandingDeps' exactly, so the one
@@ -115,7 +116,7 @@ func LandingHandler(d LandingDeps) http.Handler {
 			w.Header().Set("Content-Type", "application/pact-invite+json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"card": card, "card_sig": sig,
-				"chain": []string{base64.RawURLEncoding.EncodeToString(chain[0]), base64.RawURLEncoding.EncodeToString(chain[1])},
+				"chain": []string{pactidentity.B64url(chain[0]), pactidentity.B64url(chain[1])},
 			})
 			return
 		}

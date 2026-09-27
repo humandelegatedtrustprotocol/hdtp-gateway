@@ -336,7 +336,9 @@ What belongs here is what is the node's own:
 
 - **Where it lives.** `internal/public/sealed.go` and `identify20.go` open and dispatch
   an inbound envelope; `internal/outbound/client20.go` seals an outbound one;
-  `internal/envelope` carries the wire struct and its JSON. Chain validation and the
+  the wire struct is `pact-identity`'s `Envelope`, handed to its `Decide` exactly as it
+  arrived, and `internal/envelope` keeps only the protected header's shape and the
+  `envelope_invalid` error. Chain validation and the
   certificate profile come from `pact-identity` (`CONTRACT.md`) and never from a general
   X.509 path validator — PACT §14.2 is deliberately not RFC 5280 path validation, and
   reaching for one refuses chains a conforming implementation accepts.
