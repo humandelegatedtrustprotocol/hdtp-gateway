@@ -95,7 +95,7 @@ func TestDefaultCapAndExplicitUncap(t *testing.T) {
 	}
 }
 
-// AC (Linux CI): a child exceeding the memory cap is killed — the allocation
+// AC (Linux): a child exceeding the memory cap is killed — the allocation
 // fails under RLIMIT_AS and the process exits non-zero, which the supervisor's
 // existing crash path audits (integration_child_crash).
 func TestChildExceedingMemoryCapIsKilled(t *testing.T) {

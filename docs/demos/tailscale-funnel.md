@@ -8,7 +8,7 @@ callers' client certificates reach the node end to end — this is **direct mode
 (SPEC §13).
 
 **Verification status:** configuration plumbing is unit-tested
-(`internal/tunnel/tailscale_test.go`). CI cannot run Funnel (needs a tailnet). The live
+(`internal/tunnel/tailscale_test.go`). The automated gate cannot run Funnel (it needs a tailnet). The live
 run below has **not yet been executed** — record it here when done:
 `Last manual run: —`.
 

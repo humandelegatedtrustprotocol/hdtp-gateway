@@ -7,7 +7,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core"
 )
 
-// Funnel itself cannot run in CI (needs a tailnet + auth key): these cover the
+// Funnel itself cannot run in the automated gate (needs a tailnet + auth key): these cover the
 // configuration plumbing; the live run is documented in docs/demos/tailscale-funnel.md.
 func TestTailscaleOptionsPlumbing(t *testing.T) {
 	t.Setenv("TS_AUTHKEY", "")

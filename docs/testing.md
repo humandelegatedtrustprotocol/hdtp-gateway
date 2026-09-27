@@ -33,8 +33,8 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 
 | When | pact-cloud | pact-gateway | pact-identity |
 |---|---|---|---|
-| every commit (hooks) | `make check-fast` | — | rustfmt and clippy on staged Rust |
-| every push (hooks) | `make check` (gateway tests, the wallet-page suite in a real Chrome, the portal) | `make harness` (hermetic) | `sh pact-identity/gate.sh`, when the push touches it or the SPEC pointer |
+| every commit (hooks) | `make check-fast` | gofmt on staged Go, re-staged | its own repository's hooks |
+| every push (hooks) | `make check` (gateway tests, the wallet-page suite in a real Chrome, the portal) | `make check` against a named Postgres container the hook starts, `make analyze`, `make sqlc-check`, `make fuzz`, `make harness` (hermetic); `make web` with `web/dist` unchanged when the push touches `web/` | `sh gate.sh`, in its own repository |
 | by hand, with Docker and Chrome | — | `harness run -tier pr` / `nightly` | — |
 | on staging | `make ship-staging` (the one-identity journey and the conformance battery); `make e2e-pair` (the pair, about an hour) | — | — |
 
@@ -158,8 +158,8 @@ whether it promised it.
 
 ## pact-identity
 
-`sh pact-identity/gate.sh` is the whole gate (the umbrella's pre-push hook runs it when a push
-touches `pact-identity/` or the `pact-protocol` pointer). It needs `../pact-protocol` beside it
+`sh gate.sh` in the pact-identity repository is the whole gate; it is that repository's, and this
+repository's hooks no longer run it (the node consumes pact-identity by version). It needs `../pact-protocol` beside it
 (SPEC.md and the seed in `vectors/lib`), the pinned `js/pkg-web` and `js/pkg-node`, and it builds
 the Go adapter itself.
 

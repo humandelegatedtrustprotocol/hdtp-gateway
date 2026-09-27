@@ -18,9 +18,8 @@ all: web check analyze build dist sbom
 	@echo
 	@echo "all: portal rebuilt, gate green, analysis clean, artifacts in dist/"
 
-# analyze runs exactly what CI runs, so what fails there fails here first.
-# The versions are pinned HERE and the workflow calls these targets — one list,
-# not two to drift apart.
+# analyze is what the pre-push hook runs (githooks/pre-push). The versions are
+# pinned HERE and the hook calls these targets — one list, not two to drift apart.
 analyze: vulncheck staticcheck gosec deadcode
 
 vulncheck:
@@ -51,9 +50,9 @@ deadcode:
 	status=$$?; rm -f "$$report"; exit $$status
 
 # Every parser that meets untrusted input, 30s each. Deliberately not part of
-# `all`: two minutes of wall clock that finds nothing on most runs. CI runs it
-# on every push, and TestEveryFuzzTargetRunsInCI fails the build if a target is
-# added and this list is not.
+# `all`: two minutes of wall clock that finds nothing on most runs. The pre-push
+# hook runs it on every push, and TestEveryFuzzTargetRunsUnderMakeFuzz fails the
+# build if a target is added and this list is not.
 fuzz:
 	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 30s
 	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 30s
@@ -68,9 +67,8 @@ build:
 # what lets a third party rebuild a tag and compare checksums.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-# dist builds every platform and writes SHA256SUMS. The release workflow runs this
-# exact target rather than its own build commands, so what CI ships is what a
-# maintainer can reproduce locally.
+# dist builds every platform and writes SHA256SUMS. A release is cut locally from
+# this exact target (RELEASING.md), so what ships is what anyone can rebuild.
 dist:
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
@@ -81,17 +79,17 @@ dist:
 	done
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
-# hooks points git at the versioned hooks in githooks/ — the path is relative to
-# the repository root, one level up from this module. One setting, and the
-# hooks travel with the repository instead of living in an untracked .git/hooks
-# that every clone starts without.
+# hooks points git at the versioned hooks in githooks/. The path is relative, so
+# it resolves against each worktree's top level and every worktree runs its own
+# copy. One setting, and the hooks travel with the repository instead of living in
+# an untracked .git/hooks that every clone starts without.
 hooks:
-	git config core.hooksPath pact-gateway/githooks
+	git config core.hooksPath githooks
 	@echo "hooks installed: $$(git config core.hooksPath)"
-	@echo "pre-push runs the harness — the tier CI cannot run (no Chrome on a runner)."
+	@echo "pre-commit styles staged Go; pre-push runs the whole gate (this repository has no CI)."
 
 # web rebuilds the embedded portal SPA. Its OUTPUT (web/dist) is committed, so
-# plain `go build` and the release workflow need no Node toolchain; run this
+# plain `go build` and `make dist` need no Node toolchain; run this
 # after changing anything under web/src and commit what it writes.
 web:
 	cd web && npm ci && npm run build
@@ -130,9 +128,8 @@ sqlc:
 
 # sqlc-check fails when the committed generated code does not match what the
 # current sources produce. NOT part of `check`: it builds sqlc from source, which
-# is minutes, and `check` runs on every commit. CI and `make all` are where it
-# belongs, and it is named here rather than left implicit because the drift it
-# catches is exactly what went unnoticed for weeks.
+# is minutes. The pre-push hook runs it, and it is a target of its own rather than
+# left implicit because the drift it catches is exactly what went unnoticed for weeks.
 sqlc-check:
 	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 		cp -R internal/core/store/sqlitedb internal/core/store/pgdb "$$tmp/"; \
@@ -159,7 +156,7 @@ vet:
 # stopped compiling twice in one day — `Keypair.Protocol` removed, then `Call`'s signature — and
 # neither was noticed until an unrelated `go vet` happened to run over it. The repository that
 # moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
-# disk. CI checks out no sibling; there it says it skipped rather than passing quietly.
+# disk. A clone without the sibling says it skipped rather than passing quietly.
 #
 # The scenario harness (./harness) is the same shape and closer to home: a separate module in THIS
 # repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two

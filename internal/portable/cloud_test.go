@@ -23,8 +23,8 @@ import (
 // travels under — and imports it. The importer is strict, so a field the converter adds without
 // its being declared in this package fails here, in this repository's gate, on the day it is added.
 //
-// It needs the sibling repository and node, and says so loudly when it has neither: a CI that
-// checks out one repository skips this, and must not read that as the two formats agreeing.
+// It needs the sibling repository and node, and says so loudly when it has neither: a clone of this
+// repository alone skips this, and must not read that as the two formats agreeing.
 func TestTheCloudsLeaveFileImports(t *testing.T) {
 	gateway, err := filepath.Abs(filepath.Join("..", "..", "..", "pact-cloud", "gateway"))
 	if err != nil {
