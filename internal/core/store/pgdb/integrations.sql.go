@@ -49,6 +49,19 @@ func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, expiresAt sql.Nu
 	return result.RowsAffected(), nil
 }
 
+const deleteIdempotencyByAccount = `-- name: DeleteIdempotencyByAccount :execrows
+DELETE FROM idempotency WHERE account_id = $1
+`
+
+// The records of an identity that has left this host (PACT sec. 9): the table has no foreign key.
+func (q *Queries) DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteIdempotencyByAccount, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteIntegration = `-- name: DeleteIntegration :execrows
 DELETE FROM integrations WHERE id = $1
 `

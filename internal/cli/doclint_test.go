@@ -77,7 +77,7 @@ type quoted struct {
 func invocations(doc string) []quoted {
 	var out []quoted
 	inFence := false
-	envOrExec := regexp.MustCompile(`^(?:[A-Z_][A-Z0-9_]*=\S+ +|\$ +|docker compose exec +\S+ +|sudo +)*`)
+	envOrExec := regexp.MustCompile(`^(?:[A-Z_][A-Z0-9_]*=\S+ +|\$ +|docker compose exec +(?:-\S+ +)*\S+ +|sudo +)*`)
 	output := regexp.MustCompile(`^pact-gateway [a-z-]+:`)
 	for _, line := range strings.Split(doc, "\n") {
 		trimmed := strings.TrimSpace(line)

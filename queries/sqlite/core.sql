@@ -149,3 +149,14 @@ DELETE FROM audit_events WHERE seq <= ?;
 -- name: DeleteCredentialIfNotLast :execrows
 DELETE FROM credentials WHERE credentials.id = ? AND credentials.kind = ?
   AND (SELECT COUNT(*) FROM credentials WHERE credentials.kind = ?) > 1;
+
+-- name: DeleteAccount :execrows
+-- An identity leaving this host (PACT sec. 9): every table that names the account by a foreign
+-- key goes with it (ON DELETE CASCADE). The ones that name it without one (tokens, idempotency,
+-- the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
+DELETE FROM accounts WHERE id = ?;
+
+-- name: DeleteTokensByAccount :execrows
+-- A token scoped to an identity that has left acts for nobody. Deleted, not revoked: a revoked
+-- row would go on naming the account.
+DELETE FROM tokens WHERE account_id = ?;

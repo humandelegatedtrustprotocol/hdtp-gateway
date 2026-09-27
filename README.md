@@ -94,13 +94,20 @@ deliberately no online recovery path. If you lose them all, recovery needs shell
 access on the host — `pact-gateway passkey reset-wizard` mints a one-time link
 that re-opens registration.
 
-Then create the identity people will reach:
+Then create the identity people will reach, and have your wallet certify this node for it (see
+[Your wallet](#your-wallet)):
 
 ```
 docker compose exec pact-gateway pact-gateway account create --slug me --name "Your Name"
+docker compose exec -T pact-gateway pact-gateway account csr --slug me > me.csr
+pact id create --name "Your Name" --vault me.pact-vault.json
+pact id issue --vault me.pact-vault.json --csr me.csr --chain-out chain.pem
+docker compose cp chain.pem pact-gateway:/tmp/chain.pem
+docker compose exec pact-gateway pact-gateway account install-leaf --slug me --chain /tmp/chain.pem
 ```
 
-Open *Card* in the portal and download `me.vcf`. That is what you hand to people.
+Open *Card* in the portal and download `me.vcf`. That is what you hand to people. Until the chain is
+installed there is no card: the page says the account has no certificate yet.
 
 > This quickstart is not prose someone hopes still works. An automated scenario
 > builds these images, drives the portal through a real Chrome, registers a
@@ -191,6 +198,47 @@ nobody to ask. Register a second passkey on another device before you need one.
 > `127.0.0.1` — a loopback portal presents itself as `localhost` because an IP is
 > not a valid WebAuthn relying-party ID, so that is the name your passkey is
 > bound to.
+
+### Your wallet
+
+Your identity is a **root**, and the root lives in your **wallet**, never on this node. The node
+holds a **leaf**: a certificate your root issues to this host, for one address, until one date
+(PACT §9, §14.1). The node makes the request, the wallet signs it, the node installs the answer:
+
+```
+pact-gateway account csr -slug me > me.csr              # the request: this host's key and address
+pact id issue --vault me.pact-vault.json --csr me.csr --chain-out chain.pem
+pact-gateway account install-leaf -slug me -chain chain.pem
+```
+
+The wallet a self-hoster uses is the `pact` CLI from pact-identity. `pact id create` makes the root
+once, in a vault file under a passphrase; `pact id issue` shows what a request names and asks
+before it signs. `account csr` prints only the request on its standard output (what it is for goes
+to standard error), and `install-leaf` takes the two certificates `--chain-out` writes, leaf then
+root. `account csr -slug me -purpose renew` asks for the next leaf before this one runs out, and
+`-purpose move` for a leaf at a new address.
+
+The root never comes to this node, and nothing here can make one: losing the vault and its
+passphrase is losing that identity.
+
+### Leave this node
+
+When you have moved an identity to another host, tell this one to forget it:
+
+```
+pact-gateway account leave -slug me
+```
+
+It erases every record of the identity at once: its contacts, chats, media no other identity here
+uses, invites, integrations, tokens scoped to it, its settings, and every leaf key this node held
+for it. The live node stops answering for it straight away, as for an address it never served. The
+audit trail is append-only and keeps its rows, which name the account by its id.
+
+The address stays **reserved** until the last leaf issued for it expires (PACT §9): until then no
+identity can be created under that slug here, and no signing request can name that address. The
+command prints each address it reserved and until when. It is refused while a move campaign for
+that identity is running (`account announce -slug me` says when it has finished). There is no undo,
+and no portal or owner-MCP button: like `import`, it needs shell access on the host.
 
 ### Take your data with you
 
