@@ -83,7 +83,7 @@ that cited test names exist and cannot check that the list is complete.
 | invite `expires_at` | ≤90 days | `TestRedeemFailures` |
 | per-contact rate | 60 calls/hour | `TestContactRateLimit60PerHour` |
 | guest rate | 10/hour per IP+key | `TestGuestRateLimit10PerHourPerIPAndKey` |
-| request body (pre-parse) | 8 MiB | `TestBodyCap` |
+| request body (pre-parse) | 8 MiB, refused `too_large` by the bytes that arrive | `TestBodyCap`; on the running listener `TestBodiesPastTheCapAreRefusedByTheBytesThatArrive` (a body of exactly 8 MiB answered, one byte more refused) |
 
 ## Beyond the checklist
 
