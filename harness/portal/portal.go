@@ -99,8 +99,7 @@ func (s *Session) RegisterFirstPasskey(ctx context.Context, setupURL, tag string
 		// non-empty" returns immediately with "Waiting for your device…" and
 		// reports a hang that never happened. Wait for a TERMINAL message.
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			deadline := time.Now().Add(45 * time.Second)
-			for {
+			return until(ctx, 45*time.Second, 250*time.Millisecond, "the wizard to move past "+progressMsg, func(ctx context.Context) (bool, error) {
 				// Check the LOCATION first. On success the wizard navigates to
 				// "/", and #msg goes with it — so reading the message first races
 				// the navigation and reports a failure that did not happen. The
@@ -109,21 +108,17 @@ func (s *Session) RegisterFirstPasskey(ctx context.Context, setupURL, tag string
 				if err := chromedp.Location(&url).Do(ctx); err == nil &&
 					url != "" && !strings.Contains(url, "/setup") {
 					msg = "Registered. Opening your node…"
-					return nil
+					return true, nil
 				}
 				var cur string
-				if err := chromedp.Text("#msg", &cur, chromedp.ByID).Do(ctx); err != nil { //nolint:staticcheck
-					_ = err
-				} else if t := strings.TrimSpace(cur); t != "" && !strings.HasPrefix(t, progressMsg) {
-					msg = t
-					return nil
+				if err := chromedp.Text("#msg", &cur, chromedp.ByID).Do(ctx); err == nil {
+					if t := strings.TrimSpace(cur); t != "" && !strings.HasPrefix(t, progressMsg) {
+						msg = t
+						return true, nil
+					}
 				}
-				if time.Now().After(deadline) {
-					msg = strings.TrimSpace(msg)
-					return fmt.Errorf("the wizard never moved past %q", progressMsg)
-				}
-				time.Sleep(250 * time.Millisecond)
-			}
+				return false, nil
+			})
 		}),
 	)
 	if err != nil {
@@ -208,17 +203,13 @@ func (s *Session) Rendered(ctx context.Context, url string) (Page, error) {
 		// A view draws its frame first and its data after the first fetch answers. Wait for the
 		// loading placeholder to go rather than sleeping a guessed interval.
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			deadline := time.Now().Add(20 * time.Second)
-			for {
+			return until(ctx, 20*time.Second, 150*time.Millisecond, "the view to finish loading", func(ctx context.Context) (bool, error) {
 				var loading bool
 				if err := chromedp.Evaluate(`!!document.querySelector("[aria-busy=true], .loading")`, &loading).Do(ctx); err != nil {
-					return err
+					return false, err
 				}
-				if !loading || time.Now().After(deadline) {
-					return nil
-				}
-				time.Sleep(150 * time.Millisecond)
-			}
+				return !loading, nil
+			})
 		}),
 		chromedp.Evaluate(read, &page),
 	)
@@ -318,4 +309,29 @@ func (v Visit) SaveScreenshot(dir, name string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, name+".png"), v.Screenshot, 0o644)
+}
+
+// until asks probe every interval until it answers done, and fails when the budget runs out or ctx
+// ends — never returns as if the thing had happened. Rendered's wait for the loading placeholder
+// used to return nil at its deadline, so a view still showing its placeholder was read and asserted
+// on as if it had drawn. A probe's error ends the wait at once.
+func until(ctx context.Context, budget, interval time.Duration, what string, probe func(context.Context) (bool, error)) error {
+	deadline := time.Now().Add(budget)
+	for {
+		done, err := probe(ctx)
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("portal: waited %s for %s", budget, what)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("portal: waiting for %s: %w", what, ctx.Err())
+		case <-time.After(interval):
+		}
+	}
 }
