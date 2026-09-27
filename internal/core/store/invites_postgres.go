@@ -2,9 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
@@ -78,7 +77,7 @@ func (s *Postgres) ConsumeInviteUse(ctx context.Context, inviteID string, nowTS 
 
 func (s *Postgres) RevokeInvite(ctx context.Context, accountID, inviteID string, nowTS int64) error {
 	n, err := s.q.RevokeInvite(ctx, pgdb.RevokeInviteParams{
-		RevokedAt: pgtype.Int8{Int64: nowTS, Valid: true}, ID: inviteID, AccountID: accountID,
+		RevokedAt: sql.NullInt64{Int64: nowTS, Valid: true}, ID: inviteID, AccountID: accountID,
 	})
 	if err != nil {
 		return err

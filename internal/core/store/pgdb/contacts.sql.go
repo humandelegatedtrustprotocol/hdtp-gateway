@@ -7,8 +7,7 @@ package pgdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const deleteContact = `-- name: DeleteContact :execrows
@@ -142,7 +141,7 @@ type ImportContactParams struct {
 	Petname          string
 	Card             string
 	CreatedAt        int64
-	PinnedAt         pgtype.Int8
+	PinnedAt         sql.NullInt64
 	Endpoint         string
 	Leaf             []byte
 	RootCert         []byte
@@ -193,7 +192,7 @@ type InsertContactParams struct {
 	DisplayName  string
 	Card         string
 	CreatedAt    int64
-	PinnedAt     pgtype.Int8
+	PinnedAt     sql.NullInt64
 	InviteID     string
 	Endpoint     string
 	Leaf         []byte
@@ -356,7 +355,7 @@ WHERE account_id = $4 AND fingerprint = $5
 type SetContactAcceptedParams struct {
 	Card             string
 	TheirPermissions string
-	PinnedAt         pgtype.Int8
+	PinnedAt         sql.NullInt64
 	AccountID        string
 	Fingerprint      string
 }

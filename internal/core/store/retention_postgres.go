@@ -2,8 +2,7 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 )
@@ -18,7 +17,7 @@ func (p *Postgres) DeleteEmptyThreads(ctx context.Context, accountID string) (in
 
 // DeleteExpiredIdempotency is two statements; see the sqlite side for why.
 func (p *Postgres) DeleteExpiredIdempotency(ctx context.Context, now int64) (int64, error) {
-	dated, err := p.q.DeleteExpiredIdempotency(ctx, pgtype.Int8{Int64: now, Valid: true})
+	dated, err := p.q.DeleteExpiredIdempotency(ctx, sql.NullInt64{Int64: now, Valid: true})
 	if err != nil {
 		return 0, err
 	}

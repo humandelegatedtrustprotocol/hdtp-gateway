@@ -7,8 +7,7 @@ package pgdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const clearAccountKey = `-- name: ClearAccountKey :execrows
@@ -334,7 +333,7 @@ type RepinContactAddressParams struct {
 	Endpoint    string
 	Leaf        []byte
 	Spki        []byte
-	PinnedAt    pgtype.Int8
+	PinnedAt    sql.NullInt64
 	AccountID   string
 	Fingerprint string
 }
@@ -398,7 +397,7 @@ UPDATE accounts SET fingerprint = $1, key_sealed = $2, algo = $3 WHERE id = $4
 `
 
 type SetAccountLeafKeyParams struct {
-	Fingerprint pgtype.Text
+	Fingerprint sql.NullString
 	KeySealed   []byte
 	Algo        string
 	ID          string
@@ -426,7 +425,7 @@ UPDATE accounts SET root_fingerprint = $1, root_cert = $2 WHERE id = $3
 `
 
 type SetAccountRootParams struct {
-	RootFingerprint pgtype.Text
+	RootFingerprint sql.NullString
 	RootCert        []byte
 	ID              string
 }
