@@ -59,6 +59,8 @@ type Result struct {
 	// AlreadyHere counts, on an import, the threads, messages and files this identity already
 	// held; they are left as they are.
 	AlreadyHere int
-	// LeftOut names what an export did not carry, and why.
-	LeftOut []string
+	// LeftOut names what an export did not carry, and why. LeftOutMessages are the ids of the
+	// messages among them, which the writer left out (its audit row names them).
+	LeftOut         []string
+	LeftOutMessages []string
 }

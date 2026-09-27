@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"context"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/portable"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The review of 2026-09-28 on the two verbs.
@@ -42,24 +45,23 @@ func exportedNode(t *testing.T) (idNode, store.Store, store.Account, string) {
 
 // H3. A message's reply_to names another message by its msg_id, and a peer's send_message only caps
 // its length: a reply to a message this host never held, or one retention has deleted since,
-// travelled as it was, and every importer refuses a file whose reply_to names no message in it -
-// while `export` said it had written one and exited 0. The file is read back as an importer reads it
-// before it is reported; one that does not read is removed and the export fails, saying why.
-//
-// pact-identity v0.3.3 nulls a dangling reply_to in WriteExportZip (one implementation, for every
-// host): at that bump these files become good exports, and this test's trigger goes with it.
-func TestAnExportThatDoesNotReadBackIsNotLeftBehind(t *testing.T) {
+// travelled as it was, every importer refused the file, and `export` said it had written one and
+// exited 0. pact-identity 0.3.3's writer nulls such a reply_to, for every host (the node does not
+// null it itself: one implementation). The export also reads its file back as an importer would
+// before it reports it (portable.CheckWritten, TestAFileThatDoesNotReadBackIsRefused).
+func TestADanglingReplyTravelsAsNoReply(t *testing.T) {
 	for _, c := range []struct {
 		name   string
-		dangle func(t *testing.T, st store.Store, a store.Account, peer string)
+		dangle func(t *testing.T, st store.Store, a store.Account, peer string) string
 	}{
-		{"a peer's reply to a message never held", func(t *testing.T, st store.Store, a store.Account, peer string) {
+		{"a peer's reply to a message never held", func(t *testing.T, st store.Store, a store.Account, peer string) string {
 			if err := st.InsertMessage(context.Background(), store.Message{ID: "m1", AccountID: a.ID, ContactFpr: peer, MsgID: "p-1", ThreadID: "t1",
 				Direction: "in", Sender: "human", Kind: "text", Body: "about that", ReplyTo: "never-here", Status: "delivered", CreatedAt: 1790000005}); err != nil {
 				t.Fatal(err)
 			}
+			return "m1"
 		}},
-		{"a reply whose parent retention deleted", func(t *testing.T, st store.Store, a store.Account, peer string) {
+		{"a reply whose parent retention deleted", func(t *testing.T, st store.Store, a store.Account, peer string) string {
 			ctx := context.Background()
 			for _, m := range []store.Message{
 				{ID: "m1", MsgID: "p-1", Body: "the question", CreatedAt: 1790000001},
@@ -73,21 +75,61 @@ func TestAnExportThatDoesNotReadBackIsNotLeftBehind(t *testing.T) {
 			if n, err := st.DeleteMessagesBefore(ctx, a.ID, 1790000005); err != nil || n != 1 {
 				t.Fatalf("retention: %d %v", n, err)
 			}
+			return "m2"
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			n, st, a, peer := exportedNode(t)
-			c.dangle(t, st, a, peer)
+			reply := c.dangle(t, st, a, peer)
 			st.Close()
 			file := filepath.Join(t.TempDir(), "alice.zip")
 			code, out, errb := run(t, "export", "-config", n.cfg, "-slug", "alice", "-out", file)
-			if code == 0 || !strings.Contains(errb, "does not read back as an export") {
+			if code != 0 {
 				t.Fatalf("export: code=%d out=%q err=%q", code, out, errb)
 			}
-			if _, err := os.Stat(file); !os.IsNotExist(err) {
-				t.Fatalf("the file that does not read was left behind: %v", err)
+			zr, err := zip.OpenReader(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer zr.Close()
+			got, err := pactidentity.ReadExportZip(&zr.Reader, a.RootFingerprint, time.Now(), portable.ImportCeiling)
+			if err != nil {
+				t.Fatalf("the file does not read: %v", err)
+			}
+			for _, m := range got.Messages {
+				if m.ID == reply && m.ReplyTo != nil {
+					t.Fatalf("the dangling reply_to travelled: %q", *m.ReplyTo)
+				}
 			}
 		})
+	}
+}
+
+// Coordinator (pact-identity 0.3.3, SPEC 9.2 #25). The writer leaves out a message a contact made
+// that the file must never carry — here one whose body reads as a private key — and the export
+// names it, by id and the writer's reason, in its output and its audit row.
+func TestAMessageTheWriterLeftOutIsReported(t *testing.T) {
+	n, st, a, peer := exportedNode(t)
+	ctx := context.Background()
+	body := "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----"
+	if err := st.InsertMessage(ctx, store.Message{ID: "m-key", AccountID: a.ID, ContactFpr: peer, MsgID: "p-key", ThreadID: "t1",
+		Direction: "in", Sender: "agent", Kind: "text", Body: body, Status: "delivered", CreatedAt: 1790000006}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	file := filepath.Join(t.TempDir(), "alice.zip")
+	code, out, errb := run(t, "export", "-config", n.cfg, "-slug", "alice", "-out", file)
+	if code != 0 || !strings.Contains(out, "left out: message m-key: its body holds what reads as a private key") || !strings.Contains(out, "0 message(s)") {
+		t.Fatalf("export: code=%d out=%q err=%q", code, out, errb)
+	}
+	got := openStoreAt(t, n.dir)
+	rows, _ := got.ListAuditEvents(ctx, "")
+	named := false
+	for _, r := range rows {
+		named = named || (r.Action == "account_export" && strings.Contains(r.Resource, "left_out:m-key"))
+	}
+	if !named {
+		t.Fatal("the export's audit row does not name the message it left out")
 	}
 }
 
