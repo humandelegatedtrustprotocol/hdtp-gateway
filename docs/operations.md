@@ -112,8 +112,9 @@ PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench
 
   The first run seeds the file — 10,000 contacts, a million messages, a million audit rows — and
   takes about a minute. `make scale` runs these benchmarks over a scratch file, and times an import
-  of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), failing if reading or writing it
-  grows faster than linearly; the pre-push hook runs `make scale`.
+  of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), three rounds interleaved, failing
+  if the best of three takes more than 6 times as long for 4 times the threads, in reading or in
+  writing (linear is 4); the pre-push hook runs `make scale` last, after every other step.
 
 ## Export and import
 
