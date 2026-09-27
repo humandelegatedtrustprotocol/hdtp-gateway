@@ -154,3 +154,14 @@ WITH held AS (
 )
 DELETE FROM credentials WHERE credentials.id = $1 AND credentials.kind = $2
   AND (SELECT COUNT(*) FROM held) > 1;
+
+-- name: DeleteAccount :execrows
+-- An identity leaving this host (PACT sec. 9): every table that names the account by a foreign
+-- key goes with it (ON DELETE CASCADE). The ones that name it without one (tokens, idempotency,
+-- the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
+DELETE FROM accounts WHERE id = $1;
+
+-- name: DeleteTokensByAccount :execrows
+-- A token scoped to an identity that has left acts for nobody. Deleted, not revoked: a revoked
+-- row would go on naming the account.
+DELETE FROM tokens WHERE account_id = $1;

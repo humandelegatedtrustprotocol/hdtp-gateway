@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -51,6 +52,22 @@ type Leaf struct {
 	Endpoint  string
 	CreatedAt int64
 }
+
+// VacatedAddress is an address an identity has left (migration 0040, PACT §9): the endpoint its
+// leaves named, the slug that endpoint carries on this node, and the latest notAfter among those
+// leaves. It names no identity. Until UntilAt the slug cannot be given to a new account and the
+// endpoint cannot be asked for in a signing request.
+type VacatedAddress struct {
+	Endpoint string
+	Slug     string
+	UntilAt  int64
+	At       int64
+}
+
+// ErrAddressVacated is CreateAccount's refusal of a slug an identity has left while the last
+// leaf issued for it is live (PACT §9: "An address an identity has vacated MUST NOT be assigned
+// to another identity until the last leaf issued for it has expired").
+var ErrAddressVacated = errors.New("store: that address was vacated by an identity that left this node, and stays reserved until the last leaf issued for it expires")
 
 // Tombstone remembers a removed root and the leaf that removed it (PACT §5.3).
 type Tombstone struct {
@@ -432,6 +449,21 @@ type AccountStore interface {
 	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
 	ClearAccountKey(ctx context.Context, accountID string) error
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
+
+	// An identity leaving this host (PACT §9, identity.Manager.Leave). DeleteAccount deletes the
+	// account row and, by ON DELETE CASCADE, every row that names it by a foreign key;
+	// DeleteTokensByAccount and DeleteIdempotencyByAccount are the tables that name it without one.
+	DeleteAccount(ctx context.Context, accountID string) (int64, error)
+	DeleteTokensByAccount(ctx context.Context, accountID string) (int64, error)
+	DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error)
+	// UpsertVacatedAddress records an address left behind; a second record of the same endpoint
+	// keeps the later UntilAt. LiveVacatedSlug and LiveVacatedEndpoint say whether a record is
+	// still reserving it at `now`; DeleteExpiredVacatedAddresses drops the ones that no longer do.
+	UpsertVacatedAddress(ctx context.Context, v VacatedAddress) error
+	LiveVacatedSlug(ctx context.Context, slug string, now int64) (bool, error)
+	LiveVacatedEndpoint(ctx context.Context, endpoint string, now int64) (bool, error)
+	ListVacatedAddresses(ctx context.Context) ([]VacatedAddress, error)
+	DeleteExpiredVacatedAddresses(ctx context.Context, now int64) (int64, error)
 }
 
 // InviteStore holds an account's invites (SPEC §9.2).

@@ -75,7 +75,7 @@ commands:
   migrate   run store migrations (node must be stopped)
   doctor    diagnose configuration, data dir, store, lock
   healthcheck  probe the internal /healthz (container HEALTHCHECK)
-  account   create|list accounts and identity keys; csr|install-leaf|certificate|address|announce the leaf a wallet issues and the move it may be (node must be running; talks over the admin socket)
+  account   create|list accounts and identity keys; csr|install-leaf|certificate|address|announce the leaf a wallet issues and the move it may be; leave erases an identity that has moved away (node must be running; talks over the admin socket)
   passkey   list|remove|reset-wizard (node must be running)
   token     create|list|revoke owner-MCP bearer tokens (node must be running)
   audit     verify|export|archive|repair the hash chain (offline; node must be stopped)

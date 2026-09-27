@@ -171,6 +171,13 @@ func StorageKeyRetention(accountID string) string { return "storage.retention." 
 // ContactsKeyRequestExpiry is the per-account key for how long an unanswered request waits.
 func ContactsKeyRequestExpiry(accountID string) string { return "contacts.request_expiry." + accountID }
 
+// AccountKeys is every settings key that belongs to one account: what an identity leaving this
+// host erases with it (identity.Manager.Leave). A new per-account key function belongs here too;
+// TestAccountKeysNamesEveryPerAccountKey holds the two to each other.
+func AccountKeys(accountID string) []string {
+	return []string{StorageKeyQuota(accountID), StorageKeyRetention(accountID), ContactsKeyRequestExpiry(accountID)}
+}
+
 // RequestExpiryFor is how long an unanswered request of this account waits before it expires
 // (SPEC §9.1): the owner's setting when it is within bounds, else the default thirty days.
 func (s *Service) RequestExpiryFor(ctx context.Context, accountID string) time.Duration {
