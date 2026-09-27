@@ -259,8 +259,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 h1:zYyBkD/k9seD2A7fsi6Oo2LfFZAehjjQMERAvZLEDnQ=
 github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646/go.mod h1:jpp1/29i3P1S/RLdc7JQKbRpFeM1dOBd8T9ki5s+AY8=
-github.com/pact-cloud/pact-identity/go v0.3.1 h1:jQYaHHA50F9489zag9NkZonwmRwulKvxAAgWfAYt/kQ=
-github.com/pact-cloud/pact-identity/go v0.3.1/go.mod h1:mip0V3p5Ds7HQtFGT4G2sn3CrNUG2xYPxLlHh+hPS8U=
+github.com/pact-cloud/pact-identity/go v0.3.2 h1:fwUiz7JD108GyWAC2CiD/lK7feYKuaH/qV3SXmAsQRA=
+github.com/pact-cloud/pact-identity/go v0.3.2/go.mod h1:mip0V3p5Ds7HQtFGT4G2sn3CrNUG2xYPxLlHh+hPS8U=
 github.com/pelletier/go-toml/v2 v2.2.0 h1:QLgLl2yMN7N+ruc31VynXs1vhMZa7CeHHejIeBAsoHo=
 github.com/pelletier/go-toml/v2 v2.2.0/go.mod h1:1t835xjRzz80PqgE6HHgN2JOsmgYu/h4qDAS4n929Rs=
 github.com/philhofer/fwd v1.2.0 h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=
