@@ -71,6 +71,11 @@ type Deps struct {
 	// same function behind the button on the portal's contact page. There is no tool that
 	// refreshes more than the contact it is given. nil hides the tool.
 	RefreshContact func(ctx context.Context, accountID, contactFpr string) (outcome, why string, err error)
+	// PublicURL is the node's public origin, where an invite lands (`/i/<token>`, SPEC §4): with
+	// it, create_invite answers the URL the owner hands out, as the landing page's own QR does.
+	// Without it an owner's agent was handed a bare token and no way to say where it is redeemed.
+	// nil (tests) answers the token alone.
+	PublicURL func() string
 	// Audit records owner-agent actions that change security posture. The trust
 	// flip is the one that matters most: it decides whether a contact's words
 	// may INSTRUCT the owner's agent, and an unaudited flip is exactly the kind
@@ -659,7 +664,13 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	r, err := jsonResult(map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt})
+	out := map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt}
+	if ot.d.PublicURL != nil {
+		if base := strings.TrimRight(ot.d.PublicURL(), "/"); base != "" {
+			out["url"] = base + "/i/" + token
+		}
+	}
+	r, err := jsonResult(out)
 	return r, nil, err
 }
 
