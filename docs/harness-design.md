@@ -373,7 +373,9 @@ not built — S11 asserts on console errors and prints them, but does not save t
 - **Flakiness.** Real networking is not deterministic. Mitigation: waits poll to a
   deadline (a node's health, the published owner surface, a log line, a zone) rather
   than sleeping a guessed interval; the loops that do sleep between polls are bounded
-  by a deadline. Every scenario states its own timeout in its spec. There is no retry:
+  by a deadline, and reaching it is a failure, never an arrival (the portal driver's wait
+  for a view's loading placeholder used to return at its deadline as if the view had
+  drawn; `portal.until` now fails, and `until_test.go` holds it). Every scenario states its own timeout in its spec. There is no retry:
   a failed scenario fails its tier.
 - **Collisions.** Two scenarios, or two runs, fighting over a port or a name. Mitigation:
   host ports come from `fabric.FreePort`, and every name carries the scenario's id and
