@@ -363,9 +363,9 @@ func TestAStoredCredentialThatWillNotDecodeIsAnErrorAndNotAnAbsence(t *testing.T
 // Login is discoverable (BeginLogin: BeginDiscoverableLogin, no allowCredentials), so the browser
 // can offer only a credential the authenticator can find by itself. Registration must therefore ask
 // for a discoverable credential: with the library's empty selection the browser's default is
-// residentKey "discouraged", and an authenticator that honours it (a security key; Chrome's virtual
-// authenticator, measured 2026-09-28) makes a credential that registers, signs the owner in once,
-// and can never sign in again — found when a public URL change renamed the session cookie and the
+// residentKey "discouraged", and an authenticator that honours it (Chrome's virtual authenticator,
+// measured 2026-09-28; a physical security key is not measured) makes a credential that registers,
+// signs the owner in once, and can never sign in again — found when a public URL change renamed the session cookie and the
 // portal's own sign-in page refused the only passkey the node had.
 func TestRegistrationAsksForTheDiscoverableCredentialThatLoginNeeds(t *testing.T) {
 	e := newTestEnv(t)
