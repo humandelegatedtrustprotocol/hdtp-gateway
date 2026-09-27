@@ -275,7 +275,8 @@ func TestAnExportCarriesContactsChatsAndFilesAndNothingElse(t *testing.T) {
 	if m := byID["m2"]; m.Body != "" || len(m.Attachments) != 1 || m.Attachments[0].File != s.mediaHash || m.Attachments[0].Filename != "whiteboard.png" || m.ReplyTo == nil || *m.ReplyTo != "msg-1" {
 		t.Fatalf("the file message: %+v", m)
 	}
-	if m := byID["m3"]; m.Body != "https://files.example/slides.pdf" || len(m.Attachments) != 0 || m.Status != "delivered" {
+	// It was waiting for its human (queued_for_human): it travels queued, as the cloud writes it.
+	if m := byID["m3"]; m.Body != "https://files.example/slides.pdf" || len(m.Attachments) != 0 || m.Status != "queued" {
 		t.Fatalf("the link message: %+v", m)
 	}
 	if m := byID["m4"]; m.Status != "queued" {
@@ -421,7 +422,7 @@ func TestANewSlugHoldsOnlyTheFilesRoot(t *testing.T) {
 	// store refuses any new account there, and nothing is written.
 	left := newEnv(t, sqliteStore)
 	must(t, left.st.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://node.example/a/vacated/mcp", Slug: "vacated", UntilAt: time.Now().Add(24 * time.Hour).Unix()}))
-	if _, _, err := importFile(t, left, valid, "vacated", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "was left by another identity") {
+	if _, _, err := importFile(t, left, valid, "vacated", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), `"vacated" is reserved`) {
 		t.Fatalf("an import into a vacated slug: %v", err)
 	}
 	if accts, _ := left.st.ListAccounts(ctx); len(accts) != 0 {
@@ -501,15 +502,15 @@ func TestAnImportIntoTheSameIdentityMergesAndNeverReplacesAHeldPin(t *testing.T)
 			if pactidentity.B64url(c.Leaf) != *pinnedRow.Leaf || len(c.SPKI) == 0 || !c.HandshakeDue {
 				t.Fatalf("a contact held with no leaf must take the file's validated pin and be owed the handshake: %+v", c)
 			}
-			if res.Contacts != len(contents.Contacts)-1 {
-				t.Fatalf("wrote %d contacts, want every row but the kept one (%d)", res.Contacts, len(contents.Contacts)-1)
+			if res.Contacts != len(contents.Contacts)-2 || res.PinsFilled != 1 {
+				t.Fatalf("added %d contacts and filled %d pins, want every row but the kept and the filled one (%d) and one", res.Contacts, res.PinsFilled, len(contents.Contacts)-2)
 			}
 			// The same file again: nothing new, and it says so.
 			_, again, err := importFile(t, e, valid, "alina", now)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if again.Contacts != 0 || again.Threads != 0 || again.Messages != 0 || again.AlreadyHere != len(contents.Threads)+len(contents.Messages) {
+			if again.Contacts != 0 || again.Threads != 0 || again.Messages != 0 || again.Media != 0 || again.AlreadyHere != len(contents.Threads)+len(contents.Messages)+len(contents.Media) {
 				t.Fatalf("a second import of the same file: %+v", again)
 			}
 		})

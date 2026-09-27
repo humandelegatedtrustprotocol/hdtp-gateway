@@ -181,11 +181,7 @@ func (s *serveRun) openKeyring() error {
 	if err := s.st.Migrate(s.ctx); err != nil {
 		return err
 	}
-	keyPath := s.cfg.MasterKeyFile
-	if keyPath == "" {
-		keyPath = filepath.Join(s.cfg.DataDir, "keyring.key")
-	}
-	kr, err := core.OpenKeyring(keyPath, os.LookupEnv)
+	kr, err := openKeyringFor(s.cfg)
 	if err != nil {
 		return err
 	}
@@ -500,4 +496,14 @@ func (s *serveRun) internalSurface() http.Handler {
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
 		setStatic, setOAuthClient, s.ownerFn,
 		cfg.PublicURL, s.settings.Deps(), authDeps, cfg)
+}
+
+// openKeyringFor opens the node's keyring as `serve` does: the configured master key file, or
+// keyring.key in the data directory, or the master key the environment names.
+func openKeyringFor(cfg *core.Config) (*core.Keyring, error) {
+	keyPath := cfg.MasterKeyFile
+	if keyPath == "" {
+		keyPath = filepath.Join(cfg.DataDir, "keyring.key")
+	}
+	return core.OpenKeyring(keyPath, os.LookupEnv)
 }

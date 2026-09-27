@@ -1,0 +1,307 @@
+package portable
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"runtime"
+	"runtime/debug"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/pact-cloud/pact-identity/go/exportcorpus"
+)
+
+// The review of 2026-09-28 on export and import.
+
+// corpusValid is pact-identity's valid export, its owner, and the corpus's clock.
+func corpusValid(t *testing.T) ([]byte, string, time.Time) {
+	t.Helper()
+	raw, _ := fs.ReadFile(exportcorpus.FS, "cases.json")
+	var idx exportcorpus.Index
+	must(t, json.Unmarshal(raw, &idx))
+	now, _ := time.Parse(time.RFC3339, idx.Now)
+	valid, err := fs.ReadFile(exportcorpus.FS, "valid-export.zip")
+	must(t, err)
+	return valid, idx.Owner, now
+}
+
+// rezip rewrites one member of a zip.
+func rezip(t *testing.T, b []byte, name string, edit func([]byte) []byte) []byte {
+	t.Helper()
+	zr := zipReader(t, b)
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		must(t, err)
+		body, err := io.ReadAll(rc)
+		must(t, err)
+		rc.Close()
+		if f.Name == name {
+			body = edit(body)
+		}
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: f.Name, Method: f.Method, Modified: f.Modified})
+		must(t, err)
+		_, err = w.Write(body)
+		must(t, err)
+	}
+	must(t, zw.Close())
+	return out.Bytes()
+}
+
+// Coordinator item 5. Thread ids are an account's own, and a file names its threads by id: into an
+// identity already here, a file thread `t` of contact Y met this identity's thread `t` of contact
+// X, was left as it was, and Y's messages were written into X's thread. It is refused, and the
+// review says so before anything is written.
+func TestAFileThreadIsNotMergedIntoAnotherContactsThread(t *testing.T) {
+	ctx := context.Background()
+	valid, owner, now := corpusValid(t)
+	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
+	must(t, err)
+	if len(contents.Threads) == 0 {
+		t.Fatal("the corpus's valid export must hold a thread")
+	}
+	th := contents.Threads[0]
+	e := newEnv(t, sqliteStore)
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
+	must(t, err)
+	must(t, e.st.SetAccountRoot(ctx, a.ID, owner, nil))
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: th.ID, AccountID: a.ID, ContactFpr: "sha256:somebody-else", Topic: "ours", CreatedAt: 1, LastAt: 1}))
+	_, err = Read(ctx, e.st, zipReader(t, valid), "alina", now)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "thread "+th.ID) {
+		t.Fatalf("a file thread over another contact's thread: %v", err)
+	}
+	if got, _ := e.st.ListMessagesByThread(ctx, a.ID, th.ID); len(got) != 0 {
+		t.Fatalf("messages were written into the other contact's thread: %d", len(got))
+	}
+}
+
+// Coordinator item 5, the same class for messages. A message's id is unique on the node, so a file
+// message whose id another message holds - another identity's, here - was not written and was
+// counted as "already here".
+func TestAFileMessageWhoseIDIsTakenIsRefused(t *testing.T) {
+	ctx := context.Background()
+	valid, owner, now := corpusValid(t)
+	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
+	must(t, err)
+	m := contents.Messages[0]
+	e := newEnv(t, sqliteStore)
+	other, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+	must(t, err)
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "their-thread", AccountID: other.ID, ContactFpr: "sha256:x", CreatedAt: 1, LastAt: 1}))
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: m.ID, AccountID: other.ID, ContactFpr: "sha256:x", MsgID: "theirs", ThreadID: "their-thread",
+		Direction: "in", Sender: "human", Kind: "text", Body: "somebody else's", Status: "delivered", CreatedAt: 1}))
+	_, res, err := importFile(t, e, valid, "moved-here", now)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "message "+m.ID) {
+		t.Fatalf("a file message whose id is taken: %v %+v", err, res)
+	}
+	if _, err := e.st.GetAccountBySlug(ctx, "moved-here"); err == nil {
+		t.Fatal("the refused import made the identity")
+	}
+}
+
+// M6. The import made the account with the file's owner_name and without the check every other
+// door makes: a display name is one line of the account's card, and a control character in it is
+// refused (identity.ValidDisplayName). The review refuses it before anything is written.
+func TestAnOwnerNameWithAControlCharacterIsRefusedAtTheReview(t *testing.T) {
+	ctx := context.Background()
+	valid, _, now := corpusValid(t)
+	bad := rezip(t, valid, "manifest.json", func(b []byte) []byte {
+		var m map[string]any
+		must(t, json.Unmarshal(b, &m))
+		m["owner_name"] = "Alina\u0085ORG:Somebody Else"
+		out, err := json.Marshal(m)
+		must(t, err)
+		return out
+	})
+	e := newEnv(t, sqliteStore)
+	_, err := Read(ctx, e.st, zipReader(t, bad), "moved-here", now)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "control character") {
+		t.Fatalf("an owner_name with a control character: %v", err)
+	}
+}
+
+// L4. A slug an identity left, while a leaf issued for it is live, is refused by the REVIEW - the
+// run without -yes - and not first by the write; and the words do not claim who left it (it may be
+// this very identity, returning).
+func TestAVacatedSlugIsRefusedAtTheReview(t *testing.T) {
+	ctx := context.Background()
+	valid, _, now := corpusValid(t)
+	e := newEnv(t, sqliteStore)
+	must(t, e.st.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://node.example/a/vacated/mcp", Slug: "vacated", UntilAt: time.Now().Add(24 * time.Hour).Unix()}))
+	_, err := Read(ctx, e.st, zipReader(t, valid), "vacated", now)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "reserved") || strings.Contains(err.Error(), "another identity") {
+		t.Fatalf("the review of an import into a vacated slug: %v", err)
+	}
+}
+
+// L10. An import's counts are what it wrote: a file already here is counted as already here, not as
+// written, and a contact held with no leaf that the file's pin fills is a fill, shown and counted
+// as one, not a new contact.
+func TestAnImportCountsWhatItWrote(t *testing.T) {
+	ctx := context.Background()
+	src := newEnv(t, sqliteStore)
+	s := seed(t, src)
+	file, _ := exportOf(t, src, "alina")
+	e := newEnv(t, sqliteStore)
+	// The same identity is here, holding the contact with no leaf.
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
+	must(t, err)
+	must(t, e.st.SetAccountRoot(ctx, a.ID, s.me.Fpr, nil))
+	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: s.peer.Fpr, Status: "active", Endpoint: s.host.Endpoint})
+	must(t, err)
+	p, res, err := importFile(t, e, file, "alina", time.Now())
+	must(t, err)
+	if len(p.Fill) != 1 || p.Fill[0] != s.peer.Fpr || res.Contacts != 0 || res.PinsFilled != 1 || res.Media != 1 {
+		t.Fatalf("a first import: fill=%v %+v", p.Fill, res)
+	}
+	_, again, err := importFile(t, e, file, "alina", time.Now())
+	must(t, err)
+	if again.Media != 0 || again.Threads != 0 || again.Messages != 0 || again.AlreadyHere != 1+4+1 {
+		t.Fatalf("the same file again: %+v, want nothing written and a thread, four messages and a file already here", again)
+	}
+}
+
+// L11. An export that leaves a conversation out says why, truly: a request never accepted, or a
+// contact that was removed (a conversation outlives its contact's row).
+func TestAnExportSaysTrulyWhyItLeftAConversationOut(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-removed", AccountID: s.accountID, ContactFpr: "sha256:removed", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
+	_, res := exportOf(t, e, "alina")
+	joined := strings.Join(res.LeftOut, "\n")
+	if !strings.Contains(joined, "with "+s.strangerID+", whose request was never accepted") ||
+		!strings.Contains(joined, "with sha256:removed, a contact removed from this identity") ||
+		strings.Contains(joined, "sha256:removed, whose request was never accepted") {
+		t.Fatalf("left out:\n%s", joined)
+	}
+}
+
+// Coordinator item 8. A message waiting for its human (the legacy queued_for_human) travels as
+// `queued`, as the cloud's exporter writes it; it had been written `delivered`. An inbound message
+// arrives at the importing host as delivered, whatever the file says of it: it reached the host
+// that exported it.
+func TestAMessageWaitingForItsHumanTravelsQueued(t *testing.T) {
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	file, _ := exportOf(t, e, "alina")
+	got, err := pactidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	must(t, err)
+	for _, m := range got.Messages {
+		if m.ID == "m3" && m.Status != "queued" {
+			t.Fatalf("a message waiting for its human travels as %q", m.Status)
+		}
+	}
+	into := newEnv(t, sqliteStore)
+	_, _, err = importFile(t, into, file, "alina", time.Now())
+	must(t, err)
+	a, _ := into.st.GetAccountBySlug(context.Background(), "alina")
+	msgs, _ := into.st.ListMessagesByThread(context.Background(), a.ID, "t1")
+	for _, m := range msgs {
+		if m.ID == "m3" && m.Status != "delivered" {
+			t.Fatalf("an inbound message arrived as %q", m.Status)
+		}
+	}
+}
+
+// L12. An export over what PACT Cloud takes back in is written, and says so, naming the limits:
+// other hosts may take it, so it is a warning and never a refusal (SPEC 2.2.1: a host's own import
+// ceilings never refuse an export).
+func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	must(t, e.st.Atomically(ctx, func(tx store.Store) error {
+		for i := 0; i < 5000; i++ {
+			if err := tx.InsertThread(ctx, store.Thread{ID: fmt.Sprintf("bulk-%d", i), AccountID: s.accountID, ContactFpr: s.peer.Fpr, CreatedAt: 1790000100, LastAt: 1790000100}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	file, res := exportOf(t, e, "alina")
+	warnings := CloudCeilings(zipReader(t, file), int64(len(file)))
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "5001 threads") || !strings.Contains(warnings[0], "5000") || res.Threads != 5001 {
+		t.Fatalf("the warnings: %v (threads %d)", warnings, res.Threads)
+	}
+	small := newEnv(t, sqliteStore)
+	seed(t, small)
+	file, _ = exportOf(t, small, "alina")
+	if w := CloudCeilings(zipReader(t, file), int64(len(file))); len(w) != 0 {
+		t.Fatalf("a small export warned: %v", w)
+	}
+}
+
+// L12, the importer's side. What an import holds in memory follows messages.jsonl, the one member
+// read whole, and is bounded by ImportMessagesCeiling, checked against the member's declared size
+// before a byte of it is read. The allocation per byte is measured here, at N and 4N messages, and
+// the ceiling is held to it: at most 16 bytes allocated per byte (11.4-11.5 measured), so the
+// ceiling's worst case stays under 2 GiB.
+func TestAnImportsMemoryFollowsItsMessages(t *testing.T) {
+	per := func(n int) float64 {
+		owner := testidWallet(t, "Probe")
+		at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339)
+		root := testidWallet(t, "C")
+		in := pactidentity.ExportInput{Owner: owner, OwnerName: "P", Tool: "probe", ExportedAt: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC),
+			Contacts: []pactidentity.ContactRow{{Root: root, Endpoint: "https://c.example/a/c/mcp", Status: "active", WasActive: true, Permissions: []string{}, TheirPermissions: []string{}, Added: at}},
+			Threads:  []pactidentity.ThreadRow{{ID: "t", Contact: root, CreatedAt: at, LastAt: at}}, Media: []pactidentity.ExportMedia{}}
+		body := strings.Repeat("x", 1000)
+		for i := 0; i < n; i++ {
+			id := fmt.Sprint(i)
+			in.Messages = append(in.Messages, pactidentity.MessageRow{ID: "m" + id, Thread: "t", Contact: root, MsgID: "msg-" + id, Direction: "in",
+				Sender: "human", Time: at, Body: body, Status: "delivered", Attachments: []pactidentity.Attachment{}})
+		}
+		var buf bytes.Buffer
+		must(t, pactidentity.WriteExportZip(&buf, in, nil))
+		var size uint64
+		for _, f := range zipReader(t, buf.Bytes()).File {
+			if f.Name == "messages.jsonl" {
+				size = f.UncompressedSize64
+			}
+		}
+		e := newEnv(t, sqliteStore)
+		runtime.GC()
+		defer debug.SetGCPercent(debug.SetGCPercent(-1))
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		p, err := Read(context.Background(), e.st, zipReader(t, buf.Bytes()), "probe", time.Now())
+		must(t, err)
+		runtime.ReadMemStats(&after)
+		runtime.KeepAlive(p)
+		return float64(after.TotalAlloc-before.TotalAlloc) / float64(size)
+	}
+	small, large := per(2000), per(8000)
+	t.Logf("allocated per byte of messages.jsonl: %.1f at 2,000 messages, %.1f at 8,000", small, large)
+	for _, r := range []float64{small, large} {
+		if r > 16 {
+			t.Fatalf("an import allocates %.1f bytes per byte of messages.jsonl, over the 16 its ceiling is set by", r)
+		}
+	}
+	if float64(ImportMessagesCeiling)*16 > 2<<30 {
+		t.Fatalf("ImportMessagesCeiling %d allows over 2 GiB of allocation at 16 bytes per byte", ImportMessagesCeiling)
+	}
+	// A messages.jsonl that declares more than the ceiling is refused by that declaration, unread.
+	valid, _, now := corpusValid(t)
+	zr := zipReader(t, valid)
+	for _, f := range zr.File {
+		if f.Name == "messages.jsonl" {
+			f.UncompressedSize64 = ImportMessagesCeiling + 1
+		}
+	}
+	if _, err := Read(context.Background(), newEnv(t, sqliteStore).st, zr, "moved-here", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "reads into memory") {
+		t.Fatalf("a messages.jsonl over the ceiling: %v", err)
+	}
+}
+
+func testidWallet(t *testing.T, cn string) string { return testid.NewWallet(t, cn).Fpr }

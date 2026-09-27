@@ -33,9 +33,10 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	if err != nil {
 		return res, fmt.Errorf("export: %w", err)
 	}
-	carried := map[string]bool{}
+	carried, requested := map[string]bool{}, map[string]bool{}
 	for _, c := range held {
 		if c.Status == "pending_in" {
+			requested[c.Fingerprint] = true
 			// A stranger's request to THIS host: the person has not accepted it, so it is not one
 			// of their contacts, and it stays with the host it was made to.
 			res.LeftOut = append(res.LeftOut, "a request from "+c.Fingerprint+" that was never accepted")
@@ -57,7 +58,13 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			return res, fmt.Errorf("export: %w", err)
 		}
 		if !carried[t.ContactFpr] {
-			res.LeftOut = append(res.LeftOut, fmt.Sprintf("a conversation of %d message(s) with %s, whose request was never accepted", len(msgs), t.ContactFpr))
+			// Why, truly: the stranger's request was never accepted, or the contact was removed and
+			// its conversation outlived it (a removal deletes the contact's row, not its thread).
+			why := "whose request was never accepted"
+			if !requested[t.ContactFpr] {
+				why = "a contact removed from this identity"
+			}
+			res.LeftOut = append(res.LeftOut, fmt.Sprintf("a conversation of %d message(s) with %s, %s", len(msgs), t.ContactFpr, why))
 			continue
 		}
 		in.Threads = append(in.Threads, pactidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt)})
@@ -143,16 +150,17 @@ func messageRow(m store.Message) (pactidentity.MessageRow, string, error) {
 	return row, meta.Hash, nil
 }
 
-// exportStatus maps the node's delivery states onto the format's (PACT §9.2). An inbound message
-// waiting for its human was delivered to this host; an outbound one still pending is queued, and
-// an importer does not send it.
+// exportStatus maps the node's delivery states onto the format's (PACT §9.2). An outbound message
+// still pending is queued, and an importer does not send it. An inbound message still waiting for
+// its human (queued_for_human, which nothing writes any more; rows from before remain) is queued
+// too, as the cloud's exporter writes it: one mapping for both hosts (building rule 1).
 func exportStatus(s string) string {
 	switch s {
-	case "pending":
+	case "pending", "queued_for_human":
 		return "queued"
 	case "failed":
 		return "failed"
-	default: // delivered, queued_for_human
+	default: // delivered
 		return "delivered"
 	}
 }
