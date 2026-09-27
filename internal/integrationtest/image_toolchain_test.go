@@ -1,15 +1,15 @@
 package integrationtest
 
-// CI builds the product with `go-version-file: go.mod`, so it always uses whatever
-// toolchain go.mod asks for. The Dockerfiles pin a golang image by tag instead, and
+// `go build` on the host follows go.mod's toolchain line (GOTOOLCHAIN), so it always
+// uses whatever toolchain go.mod asks for. The Dockerfiles pin a golang image by tag instead, and
 // nothing compared the two — so when go.mod's `go` directive was raised, the images
 // silently stopped building:
 //
 //	go: go.mod requires go >= 1.26.6 (running go 1.25.14; GOTOOLCHAIN=local)
 //
 // That breaks `docker compose up`, which SPEC §12.4 and the README quickstart both
-// present as the first thing a new owner does. CI cannot notice, because CI never
-// builds an image. This test is the comparison nobody was making.
+// present as the first thing a new owner does. `make check` cannot notice, because it
+// never builds an image. This test is the comparison nobody was making.
 
 import (
 	"os"
@@ -54,8 +54,8 @@ func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 		if gotMajor < wantMajor || (gotMajor == wantMajor && gotMinor < wantMinor) {
 			t.Errorf("%s builds with golang:%d.%d but go.mod requires go >= %d.%d — "+
 				"the image cannot build at all, so `docker compose up` (SPEC §12.4, and the "+
-				"README quickstart) is broken. CI does not catch this: it uses "+
-				"go-version-file: go.mod and never builds an image.",
+				"README quickstart) is broken. make check does not catch this: "+
+				"it builds with go.mod's toolchain and never builds an image.",
 				f, gotMajor, gotMinor, wantMajor, wantMinor)
 		}
 	}

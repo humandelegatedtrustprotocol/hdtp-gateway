@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// PACT 1.x is gone, and this is what holds it gone: no tracked file of this repository — the
-// node, pact-identity, the workflows and the templates beside them — carries a NAME that 1.x had and 2.x does not — a card property, a flag, a mode, a
+// PACT 1.x is gone, and this is what holds it gone: no tracked file of this repository (the
+// node) carries a NAME that 1.x had and 2.x does not — a card property, a flag, a mode, a
 // tool, a column, a table, an audit action, an event, an identifier — outside the three kinds of
 // file that are allowed to:
 //
@@ -31,33 +31,31 @@ import (
 //
 // The names are in testdata/pact1x-markers.txt. pact-cloud and pact-protocol are their own
 // repositories and carry their own guard and their own copy of that file; when they are checked
-// out beside this one, their copies must be these bytes.
+// out beside this one (the umbrella's layout), their copies must be these bytes.
 func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 	root := repoRoot(t)
-	umbrella := filepath.Dir(root)
+	beside := filepath.Dir(root)
 	markers, raw := loadMarkers(t, filepath.Join(root, "internal", "integrationtest", "testdata", "pact1x-markers.txt"))
 
 	// History by construction: never scanned.
-	history := regexp.MustCompile(`^(pact-gateway/migrations/|pact-gateway/docs/release/|pact-gateway/PLAN\.md$)`)
+	history := regexp.MustCompile(`^(migrations/|docs/release/|PLAN\.md$)`)
 	// Generated or vendored: what they hold is decided elsewhere.
 	built := regexp.MustCompile(`(^|/)(dist|node_modules|target)/|package-lock\.json$|\.(png|jpg|jpeg|gif|ico|pdf|wasm|woff2?|gz|tar|db|sum)$`)
 
 	allowed := map[string]string{
-		"pact-gateway/internal/contacts/vcard_test.go":              "feeds 1.x cards to the parser to prove intake refuses them and that a 2.x card ignores the retired properties",
-		"pact-gateway/internal/contacts/testdata/iphone-export.vcf": "a phone's export of a 1.x card, the input of the refusal above",
-		"pact-gateway/internal/contacts/displayname_test.go":        "a 1.x card as the input of a refusal",
-		"pact-gateway/internal/cli/offer_test.go":                   "an invite offer carrying a 1.x card must be refused",
-		"pact-gateway/internal/cli/offer_fuzz_test.go":              "a 1.x card in the fuzz corpus of the same refusal",
-		"pact-gateway/internal/internalui/chrome_test.go":           "asserts the portal never shows the retired card properties to a person",
-		"pact-gateway/internal/node/node_test.go":                   "asserts the relay's route answers 404 and the invite landing names no retired property",
-		"pact-gateway/internal/internalui/ownermcp/server_test.go":  "asserts the contact sweep's tool is not offered",
-		"pact-gateway/internal/core/store/fanoutkind_test.go":       "a fixture of a store that lived through 1.x, migrated forward from version 34",
-		"pact-gateway/internal/core/store/relaystatus_test.go":      "a fixture of a store holding a message left at a relay, migrated forward from version 36",
-		"pact-identity/js/intrude.mjs":                              "the intrusion battery: every 1.x input it sends must be refused",
-		"pact-identity/crates/pact-identity/src/hpke.rs":            "asserts a 2.x ciphertext does not open under the 1.x info string",
+		"internal/contacts/vcard_test.go":              "feeds 1.x cards to the parser to prove intake refuses them and that a 2.x card ignores the retired properties",
+		"internal/contacts/testdata/iphone-export.vcf": "a phone's export of a 1.x card, the input of the refusal above",
+		"internal/contacts/displayname_test.go":        "a 1.x card as the input of a refusal",
+		"internal/cli/offer_test.go":                   "an invite offer carrying a 1.x card must be refused",
+		"internal/cli/offer_fuzz_test.go":              "a 1.x card in the fuzz corpus of the same refusal",
+		"internal/internalui/chrome_test.go":           "asserts the portal never shows the retired card properties to a person",
+		"internal/node/node_test.go":                   "asserts the relay's route answers 404 and the invite landing names no retired property",
+		"internal/internalui/ownermcp/server_test.go":  "asserts the contact sweep's tool is not offered",
+		"internal/core/store/fanoutkind_test.go":       "a fixture of a store that lived through 1.x, migrated forward from version 34",
+		"internal/core/store/relaystatus_test.go":      "a fixture of a store holding a message left at a relay, migrated forward from version 36",
 	}
 
-	out, err := exec.Command("git", "-C", umbrella, "ls-files").Output()
+	out, err := exec.Command("git", "-C", root, "ls-files").Output()
 	if err != nil {
 		t.Skipf("SKIPPED, and so clearance is unchecked: git is unavailable (%v)", err)
 	}
@@ -69,12 +67,11 @@ func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 		if rel == "" || history.MatchString(rel) || built.MatchString(rel) || filepath.Base(rel) == "pact1x-markers.txt" {
 			continue
 		}
-		// pact-cloud and pact-protocol are listed as one entry each: other repositories, with
-		// their own guard. A path that is gone was deleted between ls-files and now.
-		if st, err := os.Stat(filepath.Join(umbrella, rel)); err != nil || st.IsDir() {
+		// A path that is gone was deleted between ls-files and now.
+		if st, err := os.Stat(filepath.Join(root, rel)); err != nil || st.IsDir() {
 			continue
 		}
-		f, err := os.Open(filepath.Join(umbrella, rel))
+		f, err := os.Open(filepath.Join(root, rel))
 		if err != nil {
 			continue
 		}
@@ -97,7 +94,7 @@ func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 		}
 		_ = f.Close()
 	}
-	// A guard that read nothing passes. This tree has about 570 tracked files of text outside its
+	// A guard that read nothing passes. This tree has about 550 tracked files of text outside its
 	// migrations and records; the floor is there to catch a walk that broke, not to track the count.
 	if scanned < 300 {
 		t.Fatalf("scanned only %d files: the walk is broken, not the tree", scanned)
@@ -116,7 +113,7 @@ func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 
 	// The siblings' copies of the list are these bytes.
 	for _, sibling := range []string{"pact-cloud/gateway/scripts/pact1x-markers.txt", "pact-protocol/vectors/pact1x-markers.txt"} {
-		theirs, err := os.ReadFile(filepath.Join(umbrella, sibling))
+		theirs, err := os.ReadFile(filepath.Join(beside, sibling))
 		if err != nil {
 			t.Logf("not compared: %s is not checked out beside this repository", sibling)
 			continue

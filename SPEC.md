@@ -988,7 +988,7 @@ All persistence goes through a single Go `Store` interface. No SQL exists outsid
 - **SQLite** via modernc.org/sqlite — the default; pure Go, which preserves the static `CGO_ENABLED=0` build (§12).
 - **PostgreSQL** via pgx — enabled by the `postgres` compose profile (§12).
 
-A store conformance suite — one test suite exercising the complete `Store` contract — MUST pass against both engines in CI (§14).
+A store conformance suite — one test suite exercising the complete `Store` contract — MUST pass against both engines in the gate every push runs (§14).
 
 ### 11.2 Tables
 
@@ -1169,7 +1169,7 @@ flowchart TB
 
 **Store conformance on both engines.** One conformance suite runs against the `Store` interface (§11) on both shipped engines — modernc SQLite (default) and pgx PostgreSQL — covering every table of §11 and the boundary limits of PACT §12 enforced at the store layer.
 
-**CI hardening.** CI runs `govulncheck` and the Go race detector on every change.
+**Gate hardening.** The pre-push gate (`githooks/pre-push`) runs `govulncheck` and the Go race detector on every push.
 
 **Integration scenarios.** Four end-to-end scenarios, run in-process by `make check`:
 

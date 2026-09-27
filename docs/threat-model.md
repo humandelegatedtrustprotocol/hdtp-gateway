@@ -98,7 +98,7 @@ address not be reassigned until the last leaf for it has expired.
 | Tier and permission gate every tool | `TestAllowExactTierAndPermission`, `TestBuiltinToolSurfacePerTier` |
 | Rate limits apply on the real listener, not just in unit tests | `TestGuestRateLimitIsEnforcedOnTheRealListener`, `TestContactRateLimit60PerHour` |
 | The audit chain detects tampering and survives pruning | `TestAuditTamperedExportDetected`, `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
-| Parsers on untrusted input do not crash | Four fuzz targets, run in CI, kept honest by `TestEveryFuzzTargetRunsInCI` |
+| Parsers on untrusted input do not crash | Four fuzz targets, run by `make fuzz` in the pre-push gate, kept honest by `TestEveryFuzzTargetRunsUnderMakeFuzz` |
 | Only a chain that validates names a caller; a lone certificate names nobody | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestClientCertRequiredTakesAChainAndNothingElse` |
 | A refusal past the open is sealed, so a carrier cannot tell a pinned sender from a stranger | `TestARefusalPastTheOpenIsSealed` |
 | A carrier's forged plaintext answer is not the peer's answer | `TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer` |

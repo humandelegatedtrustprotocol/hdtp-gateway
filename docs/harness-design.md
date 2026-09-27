@@ -202,7 +202,7 @@ The owner asked for Firecracker microVMs. Firecracker cannot run on this machine
 it needs `/dev/kvm`, macOS has no KVM, and the M2 Max has no nested
 virtualization (that arrived with the M3). `/dev/kvm` is absent even inside a
 `--privileged` container — checked, not assumed. Firecracker remains available
-only on a Linux CI host.
+only on a Linux host with KVM.
 
 But the *capability* the owner was reaching for — a guest with its own kernel,
 therefore its own `CLOCK_REALTIME` — is available here through a **first-level**
@@ -355,14 +355,15 @@ The measured times are the scenarios' own (the sum of the verdicts' durations, o
 package's time), from one run on one machine with every image already built. Building the
 images is not counted.
 
-**None of this runs in GitHub CI, and that is deliberate.** The live tiers drive
-real containers and a real Chrome over CDP; a runner has neither Chrome nor a
-reason to build the product image, so running them there reported the runner's
-missing browser (`chrome failed to start`) rather than anything about the
+**None of this runs on a hosted runner, and that is deliberate.** The live tiers
+drive real containers and a real Chrome over CDP; a GitHub runner had neither
+Chrome nor a reason to build the product image, so running them there reported the
+runner's missing browser (`chrome failed to start`) rather than anything about the
 product. The machine that can run this is a developer's, so that is where it
-runs — `make hooks` installs the `pre-push` hook that does it. CI keeps what it
-is genuinely good at: `make check` on both storage engines, the analyzers, and
-the fuzzers.
+runs — `make hooks` installs the `pre-push` hook that does it. The repository has
+no CI at all now (the node depends on a private module no runner is given a key
+for), so the same hook also runs `make check` on both storage engines, the
+analyzers and the fuzzers.
 
 **What the PR tier does not run, stated so it is not mistaken for full coverage:**
 everything the nightly tier adds — S4, S7, S8, S10–S15, T5–T7. A green PR run means
@@ -395,7 +396,7 @@ not built — S11 asserts on console errors and prints them, but does not save t
   a per-run token (`fabric.PrefixFor`).
 - **Image drift.** Mitigation: upstream images are pinned by digest (`harness/images`);
   the node image is rebuilt by each tier's Makefile target, from Docker's layer cache.
-- **Docker-in-CI privileges.** `iptables` and `tc` need `NET_ADMIN`. Mitigation:
+- **Container privileges.** `iptables` and `tc` need `NET_ADMIN`. Mitigation:
   confine it to the `nat-*` and `shaper` containers; the node containers stay
   unprivileged, as they ship.
 - **Scope creep into a second product.** Mitigation: the harness asserts only

@@ -8,6 +8,7 @@ package integrationtest
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -32,11 +33,12 @@ func TestThreatModelCitesRealTests(t *testing.T) {
 		doc = append(doc, b...)
 	}
 
-	// This node's tests, and the identity library's Go port beside it: the envelope and the
-	// certificate rules live there (`go.mod` replaces onto it, so it is always checked out), and
-	// the review brief cites the tests that hold them.
+	// This node's tests, and the identity library's Go port: the envelope and the certificate
+	// rules live there, and the review brief cites the tests that hold them. The port is read
+	// where the go command resolves it — the version go.mod requires, from the module cache —
+	// so a citation is checked against the release this node actually links.
 	have := map[string]bool{}
-	for _, dir := range []string{filepath.Join(root, "internal"), filepath.Join(filepath.Dir(root), "pact-identity", "go")} {
+	for _, dir := range []string{filepath.Join(root, "internal"), identityModuleDir(t, root)} {
 		err := filepath.WalkDir(dir, walkGoTests(func(_ string, src []byte) {
 			for _, m := range regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w+)\(`).FindAllStringSubmatch(string(src), -1) {
 				have[m[1]] = true
@@ -69,3 +71,19 @@ func TestThreatModelCitesRealTests(t *testing.T) {
 			docsCitingTests, strings.Join(missing, ", "))
 	}
 }
+
+// identityModuleDir is where the go command resolves the identity module for this build.
+func identityModuleDir(t *testing.T, root string) string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", identityModule)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	dir := strings.TrimSpace(string(out))
+	if err != nil || dir == "" {
+		t.Fatalf("go list -m %s: %v (%q)", identityModule, err, out)
+	}
+	return dir
+}
+
+// identityModule is the import path of the identity library this node requires.
+const identityModule = "github.com/tech-sumit/pact-gateway/pact-identity"

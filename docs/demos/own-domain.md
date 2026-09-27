@@ -6,7 +6,7 @@ The P5 exit demo: a pact-gateway in the **ingress role** on a public VPS holds
 one in **terminate** (ACME certificate at the ingress, fresh mutually-pinned mTLS to
 the node, edge mode). Both home nodes only ever connect **outbound**.
 
-**Verification status:** the whole path runs in-process in CI against an embedded frp
+**Verification status:** the whole path runs in-process in `make check` against an embedded frp
 server and an in-process Pebble ACME CA (`internal/integrationtest/ingress_test.go`).
 The live VPS run below has **not yet been executed** — `Last manual run: —`.
 
