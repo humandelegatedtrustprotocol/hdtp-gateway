@@ -133,14 +133,32 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 
 | # | Item | Repo, branch | Tier | Status |
 |---|---|---|---|---|
-| B1 | This map and plan | node `test/node-functional-suite` | — | written |
-| B2 | Intrusion against a live node (harness scenario) | node | nightly | planned |
-| B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | planned |
-| B4 | The battery against a live node (harness scenario) | node | nightly | planned |
-| B5 | The node's doors under attack (2.3) | node | hermetic | planned |
+| B1 | This map and plan | node `test/node-functional-suite` | — | done |
+| B2 | Intrusion against a live node: S18 | node | nightly | done: 28 of 28 blocked, the control through, 28 refusal rows; red on an image that stops auditing envelope refusals and on one that answers `unavailable` |
+| B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | done; the cloud path of the changed battery is not yet run against any cloud (see 3.2) |
+| B4 | The battery against a live node: S19 | node | nightly | done: 77 of 77 after the fixes in 3.1 |
+| B5 | The node's doors under attack (2.3) | node | hermetic | in progress |
 | B6 | The journey list and the node's missing journeys | node + cloud | hermetic + nightly | planned |
 | B7 | The hostile corpus through the shipped image | node | nightly | planned |
 | B8 | The real wallet page from a node | node | nightly | planned |
+| B9 | Every early refusal of the public tools audited | node | hermetic | done |
+
+### 3.1 What the suites found on node `main`, and the fixes
+
+| Finding | Found by | Fix |
+|---|---|---|
+| A stranger whose leaf names a pinned contact's address redeemed an auto-accept invite and became a contact (PACT §5.2 says never) | S19, contact group | the core's `address_claim` rides on the proof; the store answers the same rule for a certificate-proven guest; the two held equal by `TestTheTwoAddressClaimsAgree` |
+| `create_invite` answered a bare token, no link to hand out | S19, invite group | the owner MCP answers `url` on the public origin |
+| Every public caller's audit row was written as the node's own (`system`) | S19, audit group | sealed_call and the built-in tools write `guest` or `contact` |
+| Thirty early refusals (decode, caps, vocabulary) and a non-envelope `sealed_call` body wrote no audit row | reading the code S18 exercises | `ToolDeps.refuse`; `TestEveryMalformedCallIsRefusedAndAudited` |
+| `TestSubscribeInboxReceivesResourceUpdated` flaked under the pre-push gate | the gate | waits for both subscription acknowledgements |
+
+### 3.2 Open, and tracked
+
+- **The address claim is not yet shown to the owner.** SPEC §5.2's second half ("shown to the owner beside the name of the contact who holds or held that address") is not built: the audit row of the redemption carries `address_of:<root>`. It can be derived at read time (the same `AddressClaim` over each `pending_in` row), with no column.
+- **MCP 2026-07-28 on the node's public surface.** The node answers `server/discover` in the 2026-07-28 shape but offers up to 2025-11-25, because the go-sdk offers 2026-07-28 only over a stateless Streamable HTTP transport and the public surface is stateful (per-session transport facts). The battery lists it as divergent for a node. Whether to move the public surface to a stateless transport is the owner's decision; it is not taken here.
+- **The changed battery has not run against a cloud.** Its session handshake, Accept header, event-stream reading, discover headers and server-certificate rule were exercised against a node only. It must run against staging (`make -C pact-cloud conformance`, or `ship-staging`) before the cloud PR merges; the plan below stands a local cloud up for it.
+- **The node PR merges after the cloud PR**: S19 needs the battery that takes a target, and the need refuses a checkout without one.
 
 Needs staging (the owner deploys): the battery and intrusion against `stg`, node ↔ cloud export and
 import, the cloud's journeys through `make e2e-pair`.
