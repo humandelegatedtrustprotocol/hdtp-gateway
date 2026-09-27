@@ -80,11 +80,25 @@ address not be reassigned until the last leaf for it has expired.
    mints one in a second.
 2. **Node → owner surface.** Separate mux, bearer token on every bind including
    loopback (`TestOwnerMCPRequiresATokenEvenOnLoopback`), passkey for the portal,
-   CSRF on state change (`TestCSRFCookieOnGETAndEnforcedOnPOST`).
+   CSRF on state change (`TestCSRFCookieOnGETAndEnforcedOnPOST`) — the double-submit
+   token AND where a browser says the request came from (`Sec-Fetch-Site`, else a
+   foreign `Origin`), because the token cookie is readable by a page on any other
+   port of the same host (`TestEveryMutatingPortalRouteRefusesAForgedRequest`, over
+   every mutating route the portal registers). No answer lets another origin read it
+   (`TestNoPortalAnswerAllowsAnotherOrigin`). Owner-MCP bodies are capped at 1 MiB
+   (`TestBodiesPastTheCapAreRefusedByTheBytesThatArrive`).
 3. **Node → upstream integration.** Only tools the owner explicitly exposed;
    write-capable exposure takes a recorded acknowledgment.
 4. **Account → account.** One node may hold several identities; nothing crosses
-   (`TestAuditQueryNeverLeavesTheIdentitysAccounts`).
+   (`TestAuditQueryNeverLeavesTheIdentitysAccounts`; every owner-MCP tool that takes
+   an account answers another identity's as it answers none,
+   `TestTheOwnerMCPNeverReachesAnotherIdentity`; every portal route refuses an
+   account its owner does not administer, named in the query or the form, and
+   audits it, `TestAnotherOwnersAccountIsNotFoundAndTheRefusalAudited`; a web
+   wallet's answer installs only for the request that minted its state,
+   `TestAWalletAnswerCannotCrossIdentitiesOrEndpoints`). In v1 every owner is
+   granted every account (internal/identity/membership.go), so these hold a
+   boundary a token narrowed to one account, and a later non-admin owner, rely on.
 
 ## Claims, and what holds them
 
