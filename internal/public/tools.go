@@ -108,6 +108,8 @@ type ToolDeps struct {
 	// Invalidate drops a caller's cached MCP server after its tier changes.
 	Invalidate func(ctx context.Context, accountID, fpr string) error
 	Audit      AuditFn
+	// AuditAs, when set, is used instead of Audit and is told who acted (see audit).
+	AuditAs func(kind, action, resource, outcome string)
 	// Limits reports the boundary caps in force, for get_card's metadata; nil
 	// means the compiled-in defaults. A function, not a snapshot, because the
 	// rate budgets are owner knobs that change while the node serves.
@@ -135,7 +137,7 @@ func (d ToolDeps) holdsLeaf(ctx context.Context) bool {
 // generation in which a bare key is one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Refusal == "" {
-		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf}
+		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf, AddressClaim: f.AddressClaim}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}
@@ -147,6 +149,14 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}
+		// A sealed guest's claim comes from the core's Decide (above); one proven by its client
+		// certificate never reaches Decide, so the same rule is asked of the store here. A claim
+		// that cannot be read is treated as one: the owner decides.
+		claim, err := d.Contacts.AddressClaim(ctx, d.AccountID, p.Endpoint, p.Fingerprint)
+		if err != nil {
+			claim = "unreadable"
+		}
+		p.AddressClaim = claim
 		return p
 	}
 	return contacts.Proof{}
@@ -156,7 +166,19 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 // it is what the portal colours, counts and filters by, so a caller fingerprint
 // or a failure sentence in that column turns every row into its own category.
 // Those belong in the resource, which is the free-text locator (SPEC §11.5).
+//
+// With AuditAs set the row names who acted, in the store's actor vocabulary: the two guest tools
+// are a guest's, every other tool here is reached only at the pending or contact tier (the
+// switchboard serves nothing else), which the store calls `contact` — Pool.audit's mapping.
 func (d ToolDeps) audit(action, resource, outcome string) {
+	if d.AuditAs != nil {
+		kind := "contact"
+		if action == "redeem_invite" || action == "request_contact" {
+			kind = "guest"
+		}
+		d.AuditAs(kind, action, resource, outcome)
+		return
+	}
 	if d.Audit != nil {
 		d.Audit(action, resource, outcome)
 	}
@@ -313,7 +335,12 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			// SPEC §9.1: answered as a stranger; only the audit log knows.
 			outcome = "blocked_silent"
 		}
-		d.audit("redeem_invite", "caller:"+fpr, outcome)
+		resource := "caller:" + fpr
+		if proof.AddressClaim != "" {
+			// PACT §5.2: the owner sees whose address this is; the audit row is where it is kept.
+			resource += " address_of:" + proof.AddressClaim
+		}
+		d.audit("redeem_invite", resource, outcome)
 		return toolOK(map[string]any{
 			"status": res.Status, "permissions": res.Permissions,
 			"card": card, "card_sig": sig, "chain": chain,
