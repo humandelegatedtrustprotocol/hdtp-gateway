@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -187,11 +186,40 @@ func walletPortalOrigin(r *http.Request) (string, error) {
 	if u.Scheme == "https" {
 		return o, nil
 	}
-	h := u.Hostname()
-	if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
+	host := u.Host
+	if u.Port() != "" {
+		host = strings.TrimSuffix(host, ":"+u.Port())
+	}
+	if walletLoopbackHost(host) {
 		return o, nil
 	}
-	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost")
+	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost, 127.x.y.z or [::1]")
+}
+
+// walletLoopbackHost is the wallet's rule for a host it answers over http (pact-identity's
+// loopbackHost, which the wallet applies to the redirect): localhost, a dotted quad in 127.0.0.0/8
+// in the normal form (four decimal octets, no leading zero), or [::1] — and no other spelling of
+// loopback, such as [::ffff:7f00:1], which net.ParseIP calls loopback and the wallet refuses. The
+// core does not export it; TestThePortalsLoopbackRuleIsTheWallets holds this copy to the wallet's
+// answer, host by host.
+func walletLoopbackHost(host string) bool {
+	if host == "localhost" || host == "[::1]" {
+		return true
+	}
+	octets := strings.Split(host, ".")
+	if len(octets) != 4 || octets[0] != "127" {
+		return false
+	}
+	for _, o := range octets {
+		if o == "" || len(o) > 3 || (len(o) > 1 && o[0] == '0') {
+			return false
+		}
+		n, err := strconv.Atoi(o)
+		if err != nil || n < 0 || n > 255 || strings.ContainsAny(o, "+-") {
+			return false
+		}
+	}
+	return true
 }
 
 // ask is what the GET page shows and the start handler checks: the address, the purpose, and a
@@ -242,6 +270,12 @@ func (d WalletDeps) prepare(w http.ResponseWriter, r *http.Request, a store.Acco
 // a request is already waiting. It mints nothing and writes nothing.
 func (d WalletDeps) getWallet(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
+	// Signed out: to sign-in, and back here after (the page is the link an import and a move
+	// notice give). Signed in as somebody who does not administer it stays a 404 (walletAccount).
+	if OwnerFrom(r.Context()) == "" {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
+		return
+	}
 	a, ok := d.walletAccount(w, r)
 	if !ok {
 		return
