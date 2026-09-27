@@ -1015,6 +1015,31 @@ func (n *Node) stopServing(rec store.Account) {
 	n.awaiting[rec.Slug] = struct{}{}
 }
 
+// ForgetAccount takes an identity that has left this host out of the live node entirely: out of
+// every index the listener answers from, and out of the lists of accounts awaiting a leaf or
+// unavailable. Its address is then answered as an address this node never served (PACT §9).
+// stopServing is the other way out and is not this one: it keeps the slug as awaiting a leaf,
+// because that account is still here.
+func (n *Node) ForgetAccount(accountID, slug string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.accounts, accountID)
+	delete(n.bySlug, slug)
+	for host, a := range n.byHost {
+		if a.rec.ID == accountID {
+			delete(n.byHost, host)
+		}
+	}
+	delete(n.awaiting, slug)
+	delete(n.unavailable, slug)
+}
+
+// MoveWalking reports whether the identity's move campaign is walking right now (campaign.go).
+func (n *Node) MoveWalking(accountID string) bool {
+	_, walking := n.campaigns.Load(accountID)
+	return walking
+}
+
 // AdoptAccount brings an account created while the node is RUNNING into the live
 // node: its keypair, its certificate, and its per-caller MCP surface.
 //

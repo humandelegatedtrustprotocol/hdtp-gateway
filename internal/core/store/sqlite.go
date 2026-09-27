@@ -187,19 +187,39 @@ func (s *SQLite) DeleteOwner(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateAccount refuses a slug an identity has vacated while the last leaf issued for it is live
+// (ErrAddressVacated, PACT §9). It is here, and not in identity.Manager, because every door that
+// creates an account reaches this method and not all of them go through the manager: an import
+// (internal/portable) creates its identities in the store's own transaction.
 func (s *SQLite) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
-	id := newID()
-	err := s.q.InsertAccount(ctx, sqlitedb.InsertAccountParams{
-		ID: id, Slug: p.Slug, DisplayName: p.DisplayName, Algo: p.Algo, CreatedAt: now(),
+	var out Account
+	err := s.Atomically(ctx, func(tx Store) error {
+		t := tx.(*SQLite)
+		at := now()
+		vacated, err := t.LiveVacatedSlug(ctx, p.Slug, at)
+		if err != nil {
+			return err
+		}
+		if vacated {
+			return ErrAddressVacated
+		}
+		id := newID()
+		if err := t.q.InsertAccount(ctx, sqlitedb.InsertAccountParams{
+			ID: id, Slug: p.Slug, DisplayName: p.DisplayName, Algo: p.Algo, CreatedAt: at,
+		}); err != nil {
+			return err
+		}
+		r, err := t.q.GetAccount(ctx, id)
+		if err != nil {
+			return err
+		}
+		out = accountFromRow(r)
+		return nil
 	})
 	if err != nil {
 		return Account{}, err
 	}
-	r, err := s.q.GetAccount(ctx, id)
-	if err != nil {
-		return Account{}, err
-	}
-	return accountFromRow(r), nil
+	return out, nil
 }
 
 func (s *SQLite) SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error {

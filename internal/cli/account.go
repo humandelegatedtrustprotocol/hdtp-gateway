@@ -12,7 +12,7 @@ import (
 
 func account(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -103,6 +103,27 @@ func account(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "a walk is under way; run `account announce` again to see how far it has got")
 		}
 		return 0
+	case "leave":
+		var out map[string]any
+		if err := core.AdminCall(sock, "account.leave", map[string]string{"slug": slug}, &out); err != nil {
+			fmt.Fprintln(stderr, "account:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%v has left this node: its records and its %v leaf key(s) are erased, and %v media file(s) no other identity used\n", out["Slug"], out["Leaves"], out["MediaRemoved"])
+		reserved, _ := out["Reserved"].([]any)
+		for _, r := range reserved {
+			if m, ok := r.(map[string]any); ok {
+				fmt.Fprintf(stdout, "  %v stays reserved until %v, when the last leaf issued for it expires; no identity can be given it before then\n", m["Endpoint"], m["Until"])
+			}
+		}
+		if len(reserved) == 0 {
+			fmt.Fprintln(stdout, "  no live leaf named an address here, so none is reserved")
+		}
+		if w, ok := out["Warning"].(string); ok {
+			fmt.Fprintln(stderr, "account:", w)
+			return 1
+		}
+		return 0
 	case "certificate":
 		var out map[string]any
 		if err := core.AdminCall(sock, "account.certificate", map[string]string{"slug": slug}, &out); err != nil {
@@ -158,7 +179,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce> [flags]")
+		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
 		return 2
 	}
 }
