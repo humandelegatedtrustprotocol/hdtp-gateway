@@ -57,6 +57,11 @@ how to use it and how to add to it.
 | `make harness-pr` | fabric + S2, S9 (`PACT_PREPUSH_LIVE=1 git push` runs it too) | Docker, Chrome |
 | `make harness-nightly` | every scenario (`PACT_PREPUSH_LIVE=full git push`) | Docker, Chrome; S8 needs `PACT_HARNESS_KERNEL`, T7 needs `PACT_CF_DOMAIN` |
 
+The node image's tag is the Makefile's `HARNESS_IMAGE` (default `pact-gateway:harness`), handed to
+the harness as `PACT_HARNESS_IMAGE`: two worktrees on one machine each take their own
+(`make harness-nightly HARNESS_IMAGE=pact-gateway:harness-<branch>`), or each tests whichever binary
+the other built last.
+
 Each target builds the images it promises (`harness-image`, and for nightly
 `harness-image-caldav` and `harness-shaper`) and then runs `go run ./cmd/harness run -tier …`
 from `harness/`. That command:
@@ -82,6 +87,8 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `caldav-image` | `make harness-image-caldav` | nightly |
 | `kernel` | `make harness-kernel`, then `export PACT_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
 | `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export PACT_CF_DOMAIN=<domain>` | nightly, when the variable is set |
+| `pact-cli` | pact-identity's `pact` CLI, named by `PACT_CLI`; `make harness-pact-cli` builds it from a pact-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `PACT_CLI`) |
+| `cloud-battery` | pact-cloud's Go conformance battery, named by `PACT_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when pact-cloud is checked out beside this repository (the Makefile then sets it) |
 
 ### Results
 
