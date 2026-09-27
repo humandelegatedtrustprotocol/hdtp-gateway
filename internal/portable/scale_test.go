@@ -37,7 +37,7 @@ func scaleExport(t *testing.T, threads int) ([]byte, string) {
 			Sender: "human", Time: stamp, Body: "hello " + id, Status: "delivered", Attachments: []pactidentity.Attachment{}})
 	}
 	var buf bytes.Buffer
-	if err := pactidentity.WriteExportZip(&buf, in, nil); err != nil {
+	if _, err := pactidentity.WriteExportZip(&buf, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes(), owner.Fpr
