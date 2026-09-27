@@ -38,10 +38,10 @@ type Card struct {
 	Cert []byte
 }
 
-// BuildCard20 renders a 2.0 card (PACT §3): the leaf, the version, the seal. It refuses a name or a
+// BuildCard renders a 2.0 card (PACT §3): the leaf, the version, the seal. It refuses a name or a
 // seal that carries a control character (PACT §3, 2.1.3): a card is lines, and a line break in a
 // display name wrote a property of the name's choosing into the card this node serves.
-func BuildCard20(fn string, leaf []byte, seal string) (string, error) {
+func BuildCard(fn string, leaf []byte, seal string) (string, error) {
 	return pactidentity.EncodeCard(fn, leaf, seal, nil)
 }
 

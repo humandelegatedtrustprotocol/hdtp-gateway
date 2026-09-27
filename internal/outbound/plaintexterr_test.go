@@ -44,8 +44,8 @@ func forgingPeer(t *testing.T, code string) *httptest.Server {
 
 func TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer(t *testing.T) {
 	ctx := context.Background()
-	peerID := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
-	caller := newIdentity20(t, "Alina", "https://agent.alina.example/mcp").client()
+	peerID := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
+	caller := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp").client()
 
 	// Codes that can only be reached after the envelope opened. None of them
 	// may be attributed to the peer when they arrive in the clear.
@@ -53,7 +53,7 @@ func TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer(t *testing.T) {
 		ts := forgingPeer(t, code)
 		p := peerID.peerOf()
 		p.Endpoint, p.ChainSeen = ts.URL, true
-		_, refusal, err := caller.sealedExchange20(ctx, p, "tools/call", map[string]any{"name": "send_message"}, "m-1")
+		_, refusal, err := caller.sealedExchange(ctx, p, "tools/call", map[string]any{"name": "send_message"}, "m-1")
 		if refusal != nil {
 			t.Fatalf("%q: a forged plaintext refusal was reported as the peer's answer", code)
 		}
@@ -69,7 +69,7 @@ func TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer(t *testing.T) {
 		ts := forgingPeer(t, code)
 		p := peerID.peerOf()
 		p.Endpoint, p.ChainSeen = ts.URL, true
-		_, refusal, err := caller.sealedExchange20(ctx, p, "tools/call", map[string]any{"name": "send_message"}, "m-2")
+		_, refusal, err := caller.sealedExchange(ctx, p, "tools/call", map[string]any{"name": "send_message"}, "m-2")
 		if err != nil {
 			t.Fatalf("%q: %v", code, err)
 		}

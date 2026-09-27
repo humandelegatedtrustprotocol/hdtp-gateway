@@ -38,9 +38,9 @@ func (c *Client) now() time.Time {
 	return time.Now()
 }
 
-// speaks20 reports whether this exchange is a 2.0 one: our identity holds a
+// canSeal reports whether this exchange is a 2.0 one: our identity holds a
 // chain and the peer is pinned by its root.
-func (c *Client) speaks20(peer Peer) bool { return peer.Known() && c.chain() != nil }
+func (c *Client) canSeal(peer Peer) bool { return peer.Known() && c.chain() != nil }
 
 // pinOf is the pin the answer is opened against.
 func pinOf(peer Peer) pactidentity.Pin {
@@ -105,14 +105,14 @@ func (c *Client) repin(peer Peer, leaf []byte) (Peer, []byte, error) {
 	return peer, parsed.SPKI, nil
 }
 
-// sealedExchange20 is one 2.0 request and its answer, with the three
+// sealedExchange is one 2.0 request and its answer, with the three
 // one-time follow-ups of PACT §13.2 and §14.4 applied.
-func (c *Client) sealedExchange20(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
+func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	form := "chain"
 	if peer.ChainSeen {
 		form = "leaf"
 	}
-	plain, refusal, err := c.attempt20(ctx, peer, method, params, msgID, form)
+	plain, refusal, err := c.attempt(ctx, peer, method, params, msgID, form)
 	var unverifiable *errUnverifiable
 	switch {
 	case err == nil && refusal == nil:
@@ -124,7 +124,7 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, method string,
 			// The peer no longer holds our leaf — a renewal it has not seen, or
 			// a pin it lost. Once, with the chain (§13.2).
 			if form == "leaf" {
-				return c.attempt20(ctx, peer, method, params, msgID, "chain")
+				return c.attempt(ctx, peer, method, params, msgID, "chain")
 			}
 		case "certificate_renewed":
 			// The key we sealed to has been renewed. The chain proves nothing by
@@ -146,7 +146,7 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, method string,
 			if err != nil {
 				return nil, refusal, err
 			}
-			return c.attempt20(ctx, next, method, params, msgID, form)
+			return c.attempt(ctx, next, method, params, msgID, form)
 		}
 		return nil, refusal, nil
 	case errors.As(err, &unverifiable):
@@ -162,7 +162,7 @@ func (c *Client) sealedExchange20(ctx context.Context, peer Peer, method string,
 		if rerr != nil {
 			return nil, nil, rerr
 		}
-		return c.attempt20(ctx, next, method, params, msgID, form)
+		return c.attempt(ctx, next, method, params, msgID, form)
 	default:
 		return nil, nil, err
 	}
@@ -187,8 +187,8 @@ func (e *errUnattributable) Error() string {
 	return "outbound: " + e.code + " arrived in plaintext; §13.2 requires it sealed, so it is not the peer's answer"
 }
 
-// attempt20 seals one request in the given form, sends it, and opens the answer.
-func (c *Client) attempt20(ctx context.Context, peer Peer, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
+// attempt seals one request in the given form, sends it, and opens the answer.
+func (c *Client) attempt(ctx context.Context, peer Peer, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
 	// Sealed to the key of the leaf we hold for this peer, read from that leaf. It used to arrive
 	// as a second argument beside `peer`, and the first thing done with it was to check it was
 	// this same key — two copies of one fact, and a plaintext downgrade wherever a caller had

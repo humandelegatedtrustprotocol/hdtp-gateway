@@ -47,9 +47,9 @@ func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 	}, nil
 }
 
-// wire20 attaches to a client what it must be able to write back about the
+// wireClient attaches to a client what it must be able to write back about the
 // contacts it reaches (PACT §13.2, §14.3).
-func (n *Node) wire20(accountID string, client *outbound.Client) *outbound.Client {
+func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.Client {
 	client.Now = n.opts.Now
 	client.DialContext = n.opts.DialContext
 	client.OnChainSent = func(peer outbound.Peer) {

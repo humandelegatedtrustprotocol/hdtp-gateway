@@ -8,5 +8,5 @@ import "time"
 // and an Identifier wired to them: `idEnv`, `newIdEnv`, `sender` and `spkiOf`. Those tests went
 // with the 1.x reader they were about, and staticcheck named the helpers as unused rather than
 // letting them sit here looking load-bearing. What the 2.0 tests still share is the instant, so
-// that is all this holds; `identify20_test.go` builds its own world, from a root and a leaf.
+// that is all this holds; `decide_test.go` builds its own world, from a root and a leaf.
 var fixedNow = time.Unix(1756000000, 0)

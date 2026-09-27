@@ -29,7 +29,7 @@ func Run(t *testing.T, newStore Factory) {
 	ownerUnderAChosenID(t, newStore)
 	petnames(t, newStore)
 	importAndMove(t, newStore)
-	pact20State(t, newStore)
+	identityState(t, newStore)
 	retention(t, newStore)
 	settings(t, newStore)
 	credentials(t, newStore)

@@ -334,8 +334,8 @@ author.
 
 What belongs here is what is the node's own:
 
-- **Where it lives.** `internal/public/sealed.go` and `identify20.go` open and dispatch
-  an inbound envelope; `internal/outbound/client20.go` seals an outbound one;
+- **Where it lives.** `internal/public/sealed.go` and `decide.go` open and dispatch
+  an inbound envelope; `internal/outbound/seal.go` seals an outbound one;
   the wire struct is `pact-identity`'s `Envelope`, handed to its `Decide` exactly as it
   arrived, and `internal/envelope` keeps only the protected header's shape and the
   `envelope_invalid` error. Chain validation and the

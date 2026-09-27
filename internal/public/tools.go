@@ -120,8 +120,8 @@ type ToolDeps struct {
 	Chain func(ctx context.Context) ([][]byte, error)
 }
 
-// speaks20 reports whether this account holds a leaf, and so has a chain to answer with.
-func (d ToolDeps) speaks20(ctx context.Context) bool {
+// holdsLeaf reports whether this account holds a leaf, and so has a chain to answer with.
+func (d ToolDeps) holdsLeaf(ctx context.Context) bool {
 	if d.Chain == nil {
 		return false
 	}
@@ -142,7 +142,7 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 		return p
 	}
 	tf := FactsFrom(ctx)
-	if tf.ChainProven() && d.speaks20(ctx) {
+	if tf.ChainProven() && d.holdsLeaf(ctx) {
 		p := contacts.Proof{Fingerprint: tf.ClientCertFingerprint, SPKI: tf.ClientCertSPKI, Endpoint: tf.ClientEndpoint, Leaf: tf.ClientLeaf, RootCert: tf.ClientRoot}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()

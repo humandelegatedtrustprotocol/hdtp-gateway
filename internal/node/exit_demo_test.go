@@ -192,8 +192,8 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 	return d
 }
 
-// pin20 is the owner's side of accepting a 2.0 contact from its card and chain.
-func (d *demoNode) pin20(peer *demoNode) {
+// pinPeer is the owner's side of accepting a 2.0 contact from its card and chain.
+func (d *demoNode) pinPeer(peer *demoNode) {
 	d.t.Helper()
 	if _, err := d.st.InsertContact(context.Background(), store.Contact{
 		AccountID: d.acct.ID, Fingerprint: peer.rootFpr(), SPKI: peer.leafSPKI(), Status: "active",
@@ -242,7 +242,7 @@ func (d *demoNode) received(text string) bool {
 	return false
 }
 
-func TestPact20ExitDemo(t *testing.T) {
+func TestExitDemo(t *testing.T) {
 	ctx := context.Background()
 	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
@@ -260,7 +260,7 @@ func TestPact20ExitDemo(t *testing.T) {
 	if c := alina.contact(bharat.rootFpr()); c.Status != "active" || len(c.Leaf) == 0 || c.Endpoint != bharat.endpoint() {
 		t.Fatalf("alina must pin bharat by his root at his address: %+v", c)
 	}
-	bharat.pin20(alina)
+	bharat.pinPeer(alina)
 
 	// --- messages both ways: the chain once, the fingerprint after ---
 	bharat.send(alina, alina.rootFpr(), "b1", "hello alina")

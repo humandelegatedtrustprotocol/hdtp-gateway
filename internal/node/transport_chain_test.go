@@ -18,7 +18,7 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/outbound"
 )
 
-func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
+func TestATransportChainResolvesThroughThePinChecks(t *testing.T) {
 	ctx := context.Background()
 	clock := &demoClock{t: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}
@@ -28,10 +28,10 @@ func TestPact20TransportChainResolvesThroughThePinChecks(t *testing.T) {
 	if err := alina.n.SetSeal(ctx, alina.acct.ID, core.SealOptional); err != nil {
 		t.Fatal(err)
 	}
-	alina.pin20(bharat)
+	alina.pinPeer(bharat)
 	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	clientFor := func(kp *identity.Keypair) *outbound.Client {
-		return bharat.n.wire20(bharat.acct.ID, &outbound.Client{Keypair: kp, Cert: tlsCertOf(kp)})
+		return bharat.n.wireClient(bharat.acct.ID, &outbound.Client{Keypair: kp, Cert: tlsCertOf(kp)})
 	}
 	names := func(c *outbound.Client) map[string]bool {
 		tools, err := c.ListTools(ctx, peerA)
@@ -152,14 +152,14 @@ func TestTheTransportJudgesAChainAtTheNodesClock(t *testing.T) {
 	if err := alina.n.SetSeal(ctx, alina.acct.ID, core.SealOptional); err != nil {
 		t.Fatal(err)
 	}
-	alina.pin20(bharat)
+	alina.pinPeer(bharat)
 	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "optional", Root: alina.rootFpr(), Leaf: alina.leaf()}
 	bharatKP := bharat.kp()
 	listed := func() map[string]bool {
 		// Built by hand from the key captured above: once bharat's own clock passes his leaf's
 		// date his node will not hand it out (F2), and this is about what ALINA's listener makes
 		// of a chain, not about what bharat's node is willing to send.
-		tools, err := bharat.n.wire20(bharat.acct.ID, &outbound.Client{Keypair: bharatKP, Cert: tlsCertOf(bharatKP)}).ListTools(ctx, peerA)
+		tools, err := bharat.n.wireClient(bharat.acct.ID, &outbound.Client{Keypair: bharatKP, Cert: tlsCertOf(bharatKP)}).ListTools(ctx, peerA)
 		if err != nil {
 			t.Fatalf("tools/list: %v", err)
 		}

@@ -119,7 +119,7 @@ conforming validator accepts that it should not?**
 - **Refusals**: `pact-identity/js/intrude.mjs` is a battery of hostile inputs — stale info
   strings, moved `enc`/`ct` boundaries, small-order points, malformed DER — run against the
   Wasm core and the Go port, verdict by verdict.
-- **This node's decision**: `internal/public/identify20_test.go` and `sealed20_test.go`
+- **This node's decision**: `internal/public/decide_test.go` and `sealed_test.go`
   (`TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer`,
   `TestV2StaleKidIsAnsweredWithTheCurrentChain`, `TestSealedReplayReturnsRecordedResult`).
 - **Parsers**: four fuzz targets (`make fuzz`), including the sealed payload.
@@ -143,4 +143,4 @@ cd pact-gateway && make check                        # this node: fmt, vet, race
 
 The construction lives in `pact-identity/crates/pact-identity/src/envelope.rs` and its Go
 port `pact-identity/go/envelope.go`; this node's use of it is
-`internal/public/identify20.go` and `internal/public/sealed.go`. Those are the review.
+`internal/public/decide.go` and `internal/public/sealed.go`. Those are the review.

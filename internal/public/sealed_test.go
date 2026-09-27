@@ -23,9 +23,9 @@ import (
 // gating, replay, the guest budget and the seal policy are the same rules either
 // way — so the tests are the same tests over the envelope that still exists.
 
-// sealedEnv is env20 plus the registry, pool and SealedDeps that `serve` composes.
+// sealedEnv is recvEnv plus the registry, pool and SealedDeps that `serve` composes.
 type sealedEnv struct {
-	*env20
+	*recvEnv
 	pool *Pool
 	deps SealedDeps
 }
@@ -42,7 +42,7 @@ func echoTool(name string, tier policy.Tier, perm string) Entry {
 
 func newSealedEnv(t testing.TB) *sealedEnv {
 	t.Helper()
-	e := newEnv20(t)
+	e := newRecvEnv(t)
 	reg := &Registry{}
 	reg.Add(
 		echoTool("redeem_invite", policy.TierGuest, ""),
@@ -58,7 +58,7 @@ func newSealedEnv(t testing.TB) *sealedEnv {
 		Idem:    e.st, Now: func() time.Time { return e.nowAt },
 	}
 	reg.Add(SealedEntries(deps)...)
-	return &sealedEnv{env20: e, pool: pool, deps: deps}
+	return &sealedEnv{recvEnv: e, pool: pool, deps: deps}
 }
 
 // call invokes sealed_call the way an MCP server would.
@@ -91,7 +91,7 @@ func text(t testing.TB, res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-// msgIDFor mirrors what seal20 stamps on a request, so a result can be correlated.
+// msgIDFor mirrors what sealFrom stamps on a request, so a result can be correlated.
 func msgIDFor(tool, form string) string { return "m-" + tool + "-" + form }
 
 // opened unseals the answer to a peer and reports the inner result and error.
@@ -165,14 +165,14 @@ func TestSealedGuestReachesGuestToolsOnly(t *testing.T) {
 	s := newSealedEnv(t)
 	p := newPeer(t, s.nowAt)
 	// A guest's sealed call must carry the card it is binding to.
-	env := s.seal20(t, p, "chain", "redeem_invite", map[string]any{"card": card20(p)})
+	env := s.sealFrom(t, p, "chain", "redeem_invite", map[string]any{"card": cardOf(p)})
 	if got, _ := s.opened(t, s.call(t, env, TransportFacts{}), p, "redeem_invite"); got == nil {
 		t.Error("a guest could not reach redeem_invite")
 	}
 	// A guest's sealed call may only redeem or request (PACT §13.2). Anything else
 	// fails the guest binding, which happens BEFORE the envelope is dispatched — so
 	// the refusal is plaintext, with no proven key to seal toward.
-	env = s.seal20(t, p, "chain", "send_message", map[string]any{"card": card20(p)})
+	env = s.sealFrom(t, p, "chain", "send_message", map[string]any{"card": cardOf(p)})
 	res := s.call(t, env, TransportFacts{})
 	if !res.IsError || !strings.Contains(text(t, res), "envelope_invalid") {
 		t.Errorf("a guest reached a contact tool: %s", text(t, res))
@@ -209,7 +209,7 @@ func TestSealedReplayReturnsRecordedResult(t *testing.T) {
 	s := newSealedEnv(t)
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
-	env := s.seal20(t, p, "chain", "send_message", map[string]any{})
+	env := s.sealFrom(t, p, "chain", "send_message", map[string]any{})
 	first, _ := s.opened(t, s.call(t, env, TransportFacts{}), p, "send_message")
 	second, _ := s.opened(t, s.call(t, env, TransportFacts{}), p, "send_message")
 	if string(first) != string(second) {
@@ -222,7 +222,7 @@ func TestSealNoneRefusesEnvelopes(t *testing.T) {
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
 	s.id.Seal = core.SealNone
-	env := s.seal20(t, p, "chain", "send_message", map[string]any{})
+	env := s.sealFrom(t, p, "chain", "send_message", map[string]any{})
 	res := s.call(t, env, TransportFacts{})
 	if !res.IsError || !strings.Contains(text(t, res), "seal_not_accepted") {
 		t.Fatalf("an envelope to a seal=none account: %s", text(t, res))
@@ -233,7 +233,7 @@ func TestAnEmptyMsgIDIsInvalid(t *testing.T) {
 	s := newSealedEnv(t)
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
-	env := s.seal20(t, p, "chain", "send_message", map[string]any{},
+	env := s.sealFrom(t, p, "chain", "send_message", map[string]any{},
 		func(o *pactidentity.SealOpts) { o.MsgID = "" })
 	res := s.call(t, env, TransportFacts{})
 	if !res.IsError || !strings.Contains(text(t, res), "envelope_invalid") {
@@ -246,7 +246,7 @@ func TestDispatchErrorsAreSealedBack(t *testing.T) {
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
 	// book_slot needs calendar.book, which pin() does not grant.
-	env := s.seal20(t, p, "chain", "book_slot", map[string]any{})
+	env := s.sealFrom(t, p, "chain", "book_slot", map[string]any{})
 	// The refusal is the inner tool's answer, so it rides back inside the sealed
 	// result as an isError CallToolResult — not as the envelope's own error member,
 	// which is for failures the envelope layer itself produced.

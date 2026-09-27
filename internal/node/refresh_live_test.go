@@ -29,7 +29,7 @@ func TestRefreshingOneContactOverTheWire(t *testing.T) {
 	if res, err := clientB.SealedCall(ctx, peerA, "redeem_invite", map[string]any{"token": token, "card": bharat.card()}, "redeem-b"); err != nil || res.IsError {
 		t.Fatalf("redeem: %v %+v", err, res)
 	}
-	bharat.pin20(alina)
+	bharat.pinPeer(alina)
 	refresh := func(want string) {
 		t.Helper()
 		found, err := bharat.n.RefreshContact(ctx, bharat.acct.ID, alina.rootFpr())
@@ -49,7 +49,7 @@ func TestRefreshingOneContactOverTheWire(t *testing.T) {
 	}
 
 	// --- updated: the card he holds is an older one of hers, under the same leaf ---
-	stale, err := contacts.BuildCard20("Alina R.", alina.leaf(), "required")
+	stale, err := contacts.BuildCard("Alina R.", alina.leaf(), "required")
 	if err != nil {
 		t.Fatal(err)
 	}
