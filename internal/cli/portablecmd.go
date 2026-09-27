@@ -196,7 +196,7 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "nothing was written. If this is what you expect, run it again with -yes\n")
 		return 0
 	}
-	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")})
+	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, time.Now())
 	if err != nil {
 		auditFn("account_import", "account:"+accountID+" slug:"+slug, "error")
 		fmt.Fprintln(stderr, "import:", err)

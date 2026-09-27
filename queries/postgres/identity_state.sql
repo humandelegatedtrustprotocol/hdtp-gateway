@@ -29,6 +29,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- name: UpdateLeaf :execrows
 UPDATE leaves SET leaf = $1, not_before = $2, not_after = $3, state = $4, endpoint = $5 WHERE account_id = $6 AND kid = $7;
 
+-- name: SetLeafMoved :execrows
+-- Whether installing this leaf moved the identity, as the install decided it (migration 0043): what
+-- a resumed campaign reads to know whom it walks.
+UPDATE leaves SET moved = $1 WHERE account_id = $2 AND kid = $3;
+
 -- name: ListLeaves :many
 SELECT * FROM leaves WHERE account_id = $1 ORDER BY created_at, kid;
 

@@ -140,10 +140,10 @@ func contacts(t *testing.T, newStore Factory) {
 			t.Error("contact_accepted activated a row without recording it")
 		}
 		// an import knows only the status it carries
-		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-active", Status: "active", TrustFlag: "messages_only"}); err != nil {
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-active", Status: "active", TrustFlag: "messages_only", HandshakeDueAt: 1}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-blocked", Status: "blocked", TrustFlag: "messages_only"}); err != nil {
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:imp-blocked", Status: "blocked", TrustFlag: "messages_only", HandshakeDueAt: 1}); err != nil {
 			t.Fatal(err)
 		}
 		if !ever("sha256:imp-active") || ever("sha256:imp-blocked") {
@@ -253,6 +253,49 @@ func contacts(t *testing.T, newStore Factory) {
 		}
 		if _, err := s.GetContact(ctx, b.ID, "sha256:other-account"); err != nil {
 			t.Error("another account's request was removed")
+		}
+	})
+
+	// The request clock (migration 0043). A contact known for years that becomes a request today
+	// (the handshake's fallback, PACT §9.2) waits the whole window from today; a request that is
+	// taken back returns to what it was, ever_active untouched; and an import names when its
+	// handshake became owed.
+	t.Run("TheExpiryWindowRunsFromTheRequest", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "rq", DisplayName: "RQ", Algo: "p256"})
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:old-friend", Status: "active", TrustFlag: "messages_only", CreatedAt: 100}); err == nil {
+			t.Fatal("an import without the time its handshake became owed was written")
+		}
+		if err := s.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:old-friend", Status: "active", TrustFlag: "messages_only", CreatedAt: 100, HandshakeDueAt: 900}); err != nil {
+			t.Fatal(err)
+		}
+		if c, _ := s.GetContact(ctx, a.ID, "sha256:old-friend"); !c.HandshakeDue || c.HandshakeDueAt != 900 || c.RequestedAt != 0 {
+			t.Fatalf("imported: due=%v at=%d requested=%d", c.HandshakeDue, c.HandshakeDueAt, c.RequestedAt)
+		}
+		if ok, err := s.MarkContactRequested(ctx, a.ID, "sha256:old-friend", "blocked", 1000); err != nil || ok {
+			t.Fatalf("a mark from a status the row is not in: %v %v", ok, err)
+		}
+		if ok, err := s.MarkContactRequested(ctx, a.ID, "sha256:old-friend", "active", 1000); err != nil || !ok {
+			t.Fatalf("mark: %v %v", ok, err)
+		}
+		if gone, err := s.DeleteExpiredPendingContacts(ctx, a.ID, 500); err != nil || len(gone) != 0 {
+			t.Fatalf("a request made at 1000 expired at a cutoff of 500 because the contact dates from 100: %v %v", gone, err)
+		}
+		if ok, err := s.TakeBackContactRequest(ctx, a.ID, "sha256:old-friend", "active", 0, 999); err != nil || ok {
+			t.Fatalf("a take-back of another mark: %v %v", ok, err)
+		}
+		if ok, err := s.TakeBackContactRequest(ctx, a.ID, "sha256:old-friend", "active", 0, 1000); err != nil || !ok {
+			t.Fatalf("take back: %v %v", ok, err)
+		}
+		if c, _ := s.GetContact(ctx, a.ID, "sha256:old-friend"); c.Status != "active" || c.RequestedAt != 0 || !c.EverActive {
+			t.Fatalf("taken back: %s requested=%d ever=%v", c.Status, c.RequestedAt, c.EverActive)
+		}
+		if _, err := s.MarkContactRequested(ctx, a.ID, "sha256:old-friend", "active", 1000); err != nil {
+			t.Fatal(err)
+		}
+		if gone, err := s.DeleteExpiredPendingContacts(ctx, a.ID, 1001); err != nil || len(gone) != 1 {
+			t.Fatalf("the request still expires once the window from it has run: %v %v", gone, err)
 		}
 	})
 

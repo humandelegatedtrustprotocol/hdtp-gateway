@@ -29,7 +29,7 @@ func TestAMoveCampaignSaysWhenItCannotRecordItsProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	camp := Campaign{AccountID: a.ID, NewKid: "sha256:new-leaf"}
+	camp := Campaign{AccountID: a.ID, NewKid: "sha256:new-leaf", Moved: true}
 	var rows []string
 	audit := func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" → "+outcome) }
 	now := func() time.Time { return time.Unix(1790000000, 0) }
@@ -58,7 +58,7 @@ func TestAMoveCampaignSaysWhenItCannotRecordItsProgress(t *testing.T) {
 	// is lost, and that has to come back as an error that is NOT the ordinary one.
 	broken := &Announcer{Manager: &Manager{Store: refusingProgress{m.Store}, Keyring: m.Keyring}, Audit: audit, Now: now}
 	rows = nil
-	_, _, err = broken.Fanout(ctx, Campaign{AccountID: a.ID, NewKid: "sha256:another-leaf"}, "card", func(context.Context, store.Contact, string) (string, error) { return "updated", nil })
+	_, _, err = broken.Fanout(ctx, Campaign{AccountID: a.ID, NewKid: "sha256:another-leaf", Moved: true}, "card", func(context.Context, store.Contact, string) (string, error) { return "updated", nil })
 	if err == nil || errors.Is(err, ErrFanoutIncomplete) {
 		t.Fatalf("progress that could not be recorded was reported as %v", err)
 	}
@@ -86,7 +86,7 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 		}
 	}
 	imported := func(fpr, status string) {
-		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf")}); err != nil {
+		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf"), HandshakeDueAt: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,7 +96,7 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	imported("sha256:came-pending", "pending_out")
 	imported("sha256:came-blocked", "blocked")
 	// And one whose leaf did not travel: nothing can be sealed to it.
-	if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:came-leafless", Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp"}); err != nil {
+	if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:came-leafless", Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", HandshakeDueAt: 1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	ann := &Announcer{Manager: m, Audit: audit, Now: func() time.Time { return time.Unix(1790000000, 0) }}
 	walk := func(kid string) map[string]bool {
 		called := map[string]bool{}
-		_, _, err := ann.Fanout(ctx, Campaign{AccountID: a.ID, NewKid: kid}, "card", func(_ context.Context, c store.Contact, _ string) (string, error) {
+		_, _, err := ann.Fanout(ctx, Campaign{AccountID: a.ID, NewKid: kid, Moved: true, RequestedAt: 1 << 40}, "card", func(_ context.Context, c store.Contact, _ string) (string, error) {
 			called[c.Fingerprint] = true
 			if c.Fingerprint == "sha256:came-pending" {
 				return "requested", nil

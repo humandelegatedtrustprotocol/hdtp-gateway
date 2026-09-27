@@ -456,9 +456,10 @@ type InstallResult struct {
 	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
 	Retired []string
-	// HandshakesDue counts the contacts an import brought that are owed this host's handshake and
-	// not blocked (PACT §9.2). The caller starts the campaign when it is not zero, moved or not:
-	// an import into an identity already served here is followed by a renewal at the same address.
+	// HandshakesDue counts the contacts an import brought that this leaf's campaign owes the
+	// handshake (Campaign.Owes, PACT §9.2). The caller starts the campaign when it is not zero,
+	// moved or not: an import into an identity already served here is followed by a renewal at the
+	// same address, and that campaign walks these contacts and nobody else.
 	HandshakesDue int
 }
 
@@ -626,6 +627,10 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
 		return InstallResult{}, err
 	}
+	// The install's decision, kept with the leaf: a campaign resumed later walks whom this one does.
+	if err := m.Store.SetLeafMoved(ctx, a.ID, pending.Kid, res.Moved); err != nil {
+		return InstallResult{}, err
+	}
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
 		return InstallResult{}, err
@@ -643,8 +648,15 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
 		return InstallResult{}, err
 	}
-	if res.HandshakesDue, err = m.HandshakesOwed(ctx, a.ID); err != nil {
+	camp := Campaign{AccountID: a.ID, NewKid: pending.Kid, Moved: res.Moved, RequestedAt: pending.CreatedAt}
+	held, err := m.Store.ListContacts(ctx, a.ID)
+	if err != nil {
 		return InstallResult{}, err
+	}
+	for _, c := range held {
+		if camp.Owes(c) {
+			res.HandshakesDue++
+		}
 	}
 	kp.Leaf, kp.Root = chain[0], chain[1]
 	return res, nil

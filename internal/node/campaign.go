@@ -30,8 +30,8 @@ type MoveUnreached struct {
 
 // MoveProgress is a campaign as the ledger has it.
 type MoveProgress struct {
-	// Told is how many contacts the campaign walks (identity.InCampaign) have been told of the
-	// current leaf's address.
+	// Told is how many contacts the campaign walks (identity.Campaign.Walks) have been told of
+	// the current leaf.
 	Told int `json:"told"`
 	// Waiting is how many have not: tried and unreached, or not tried yet.
 	Waiting int `json:"waiting"`
@@ -39,14 +39,22 @@ type MoveProgress struct {
 	Walking bool `json:"walking"`
 	// Unreached names the contacts a walk has tried and failed to tell, worst first.
 	Unreached []MoveUnreached `json:"unreached,omitempty"`
-	// NoLeaf counts the imported contacts the handshake recorded as `unreached`: this host holds
-	// no leaf of theirs, so nothing can be sealed to them, and they are not tried again (PACT §9.2).
+	// NoLeaf counts the contacts the campaign recorded as `unreached`: this host holds no leaf of
+	// theirs — any contact whose leaf is not held, whether an import brought it or not — so nothing
+	// can be sealed to them, and they are not tried again for this leaf (PACT §9.2).
 	NoLeaf int `json:"no_leaf"`
+	// Refused counts the contacts that answered the handshake with a refusal (identity.FanoutRefused):
+	// they are not waiting and are not asked again for this leaf.
+	Refused int `json:"refused"`
 }
 
 // MoveProgress reads the ledger for the identity's current leaf.
 func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MoveProgress, error) {
 	st := n.idm.Store
+	camp, err := n.idm.CampaignFor(ctx, accountID, kid)
+	if err != nil {
+		return MoveProgress{}, err
+	}
 	contacts, err := st.ListContacts(ctx, accountID)
 	if err != nil {
 		return MoveProgress{}, err
@@ -55,7 +63,7 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 	if err != nil {
 		return MoveProgress{}, err
 	}
-	told, noLeaf := map[string]bool{}, map[string]bool{}
+	told, noLeaf, refused := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	var out MoveProgress
 	for _, r := range rows {
 		if r.LeafKid != kid {
@@ -70,15 +78,23 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 			out.NoLeaf++
 			continue
 		}
+		if r.Status == identity.FanoutRefused {
+			refused[r.ContactFpr] = true
+			out.Refused++
+			continue
+		}
 		out.Unreached = append(out.Unreached, MoveUnreached{Contact: r.ContactFpr, Attempts: r.Attempts, LastError: r.LastError})
 	}
 	for _, c := range contacts {
-		if !identity.InCampaign(c) || noLeaf[c.Fingerprint] {
+		if c.Status == "blocked" || noLeaf[c.Fingerprint] || refused[c.Fingerprint] {
 			continue
 		}
-		if told[c.Fingerprint] && !c.HandshakeDue {
+		switch {
+		case told[c.Fingerprint] && !camp.Owes(c):
+			// Told of this leaf. A handshake's contact is no longer one the campaign walks once
+			// it has been told (its mark is cleared), and is counted here all the same.
 			out.Told++
-		} else {
+		case camp.Walks(c):
 			out.Waiting++
 		}
 	}
@@ -101,14 +117,20 @@ func (n *Node) ResumeMove(ctx context.Context, accountID, kid string) bool {
 	bg := context.WithoutCancel(ctx)
 	go func() {
 		defer n.campaigns.Delete(accountID)
+		// A move's walk is a move campaign; any other leaf's is the handshake an import left owed,
+		// and is recorded as that (identity.Campaign).
+		action := "account_handshake_campaign"
+		if camp, cerr := n.idm.CampaignFor(bg, accountID, kid); cerr == nil && camp.Moved {
+			action = "account_move_campaign"
+		}
 		done, failed, err := n.AnnounceMove(bg, accountID, kid)
 		switch {
 		case err != nil:
-			n.opts.audit("account_move_campaign", "account:"+accountID, "error")
+			n.opts.audit(action, "account:"+accountID, "error")
 		case failed > 0:
-			n.opts.audit("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, done, failed), "failed")
+			n.opts.audit(action, fmt.Sprintf("account:%s done:%d failed:%d", accountID, done, failed), "failed")
 		default:
-			n.opts.audit("account_move_campaign", fmt.Sprintf("account:%s done:%d failed:%d", accountID, done, failed), "ok")
+			n.opts.audit(action, fmt.Sprintf("account:%s done:%d failed:%d", accountID, done, failed), "ok")
 		}
 	}()
 	return true
