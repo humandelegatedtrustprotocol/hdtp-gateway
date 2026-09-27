@@ -38,9 +38,9 @@ const (
 
 // CloudCeilings names each of PACT Cloud's import ceilings a written export is over, with the
 // number and the limit; none when it is under all of them.
-func CloudCeilings(zr *zip.Reader, zipBytes int64) []string {
+func CloudCeilings(zr *zip.Reader, zipBytes uint64) []string {
 	var out []string
-	over := func(what string, n, limit int64) {
+	over := func(what string, n, limit uint64) {
 		if n > limit {
 			out = append(out, fmt.Sprintf("%d %s, over PACT Cloud's %d", n, what, limit))
 		}
@@ -48,10 +48,10 @@ func CloudCeilings(zr *zip.Reader, zipBytes int64) []string {
 	for _, f := range zr.File {
 		switch f.Name {
 		case "contacts.csv":
-			over("bytes of contacts.csv", int64(f.UncompressedSize64), cloudContactsCSVBytes)
+			over("bytes of contacts.csv", f.UncompressedSize64, cloudContactsCSVBytes)
 			over("contacts", csvRows(f), cloudContacts)
 		case "threads.csv":
-			over("bytes of threads.csv", int64(f.UncompressedSize64), cloudThreadsCSVBytes)
+			over("bytes of threads.csv", f.UncompressedSize64, cloudThreadsCSVBytes)
 			over("threads", csvRows(f), cloudThreads)
 		case "messages.jsonl":
 			lines, ids := messageLines(f)
@@ -64,7 +64,7 @@ func CloudCeilings(zr *zip.Reader, zipBytes int64) []string {
 }
 
 // csvRows counts a CSV member's records after its header.
-func csvRows(f *zip.File) int64 {
+func csvRows(f *zip.File) uint64 {
 	rc, err := f.Open()
 	if err != nil {
 		return 0
@@ -72,7 +72,7 @@ func csvRows(f *zip.File) int64 {
 	defer rc.Close()
 	r := csv.NewReader(rc)
 	r.FieldsPerRecord = -1
-	var n int64
+	var n uint64
 	for {
 		if _, err := r.Read(); err == io.EOF {
 			break
@@ -88,7 +88,7 @@ func csvRows(f *zip.File) int64 {
 }
 
 // messageLines counts messages.jsonl's lines and the characters of the ids they carry.
-func messageLines(f *zip.File) (lines, ids int64) {
+func messageLines(f *zip.File) (lines, ids uint64) {
 	rc, err := f.Open()
 	if err != nil {
 		return 0, 0
@@ -104,11 +104,19 @@ func messageLines(f *zip.File) (lines, ids int64) {
 			ReplyTo *string `json:"reply_to"`
 		}
 		if json.Unmarshal(sc.Bytes(), &m) == nil {
-			ids += int64(len([]rune(m.ID)) + len([]rune(m.MsgID)))
+			ids += runes(m.ID) + runes(m.MsgID)
 			if m.ReplyTo != nil {
-				ids += int64(len([]rune(*m.ReplyTo)))
+				ids += runes(*m.ReplyTo)
 			}
 		}
 	}
 	return lines, ids
+}
+
+// runes counts a string's characters, as the cloud's limit counts them.
+func runes(s string) (n uint64) {
+	for range s {
+		n++
+	}
+	return n
 }

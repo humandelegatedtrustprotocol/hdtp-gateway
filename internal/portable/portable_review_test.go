@@ -231,14 +231,14 @@ func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {
 		return nil
 	}))
 	file, res := exportOf(t, e, "alina")
-	warnings := CloudCeilings(zipReader(t, file), int64(len(file)))
+	warnings := CloudCeilings(zipReader(t, file), uint64(len(file)))
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "5001 threads") || !strings.Contains(warnings[0], "5000") || res.Threads != 5001 {
 		t.Fatalf("the warnings: %v (threads %d)", warnings, res.Threads)
 	}
 	small := newEnv(t, sqliteStore)
 	seed(t, small)
 	file, _ = exportOf(t, small, "alina")
-	if w := CloudCeilings(zipReader(t, file), int64(len(file))); len(w) != 0 {
+	if w := CloudCeilings(zipReader(t, file), uint64(len(file))); len(w) != 0 {
 		t.Fatalf("a small export warned: %v", w)
 	}
 }
