@@ -295,3 +295,10 @@ func (s *Postgres) SetLeafMoved(ctx context.Context, accountID, kid string, move
 	}
 	return nil
 }
+
+func (s *Postgres) LockAccount(ctx context.Context, accountID string) error {
+	if err := s.q.LockAccountRow(ctx, accountID); err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	return nil
+}

@@ -66,6 +66,9 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					case cerr != nil:
 						fmt.Fprintf(stdout, "FAIL leaf         %s: %v\n", a.Slug, cerr)
 						fail = 1
+					case !info.Certified:
+						// A root and no leaf: an identity an import brought, before its first leaf here.
+						fmt.Fprintf(stdout, "warn leaf         %s has no leaf yet (root %s): run `account csr -slug %s -purpose move`\n", a.Slug, info.RootFingerprint, a.Slug)
 					case info.RenewalDue:
 						fmt.Fprintf(stdout, "warn leaf         %s expires %s: renewal due (run `account csr -slug %s -purpose renew`)\n", a.Slug, info.NotAfter.Format("2006-01-02"), a.Slug)
 					default:

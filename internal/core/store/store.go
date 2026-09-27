@@ -476,6 +476,10 @@ type AccountStore interface {
 	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
 	ClearAccountKey(ctx context.Context, accountID string) error
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
+	// LockAccount, inside Atomically, makes every other transaction that locks the same account
+	// wait until this one ends: a signing request replacing the pending one is one step, never
+	// two interleaved (migration 0044). SQLite's transactions are already one at a time.
+	LockAccount(ctx context.Context, accountID string) error
 	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (PACT §9.1,
 	// migration 0041): the state's hash goes on with the request and comes off, in one statement
 	// that also checks it, when an answer carrying it is installed.

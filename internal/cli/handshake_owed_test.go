@@ -54,6 +54,16 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 		t.Fatalf("doctor must name the owed handshake:\n%s", out)
 	}
 
+	// M5 (review 2026-09-28): a keyless imported slug holds its root and no leaf. Certified means a
+	// current leaf, so neither command reports one, and neither prints the zero date a missing
+	// leaf's notAfter is.
+	for _, args := range [][]string{{"account", "certificate", "-config", cfg, "-slug", "work"}, {"doctor", "-config", cfg}} {
+		_, out, _ := runQuiet(args...)
+		if !strings.Contains(out, "work has no leaf yet") || strings.Contains(out, "0001-01-01") || strings.Contains(out, "1970-01-01") || strings.Contains(out, "valid until") {
+			t.Fatalf("%s on a slug with no leaf:\n%s", args[0], out)
+		}
+	}
+
 	// L5 (review 2026-09-28): announce on a slug with no leaf yet has nothing to walk and must not
 	// say it resumed anything; the handshake goes out when the first leaf is installed.
 	if code, out, errb := runQuiet("account", "announce", "-config", cfg, "-slug", "work"); code == 0 || strings.Contains(out, "resumed") || !strings.Contains(errb, "no leaf yet") {

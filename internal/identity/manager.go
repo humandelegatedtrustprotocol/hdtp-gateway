@@ -42,6 +42,11 @@ const keyAAD = "accounts.key_sealed"
 type Manager struct {
 	Store   store.Store
 	Keyring *core.Keyring
+
+	// beforeInstallWrites, when a test sets it, runs after an install has passed every check and
+	// before its transaction: where two answers carrying one state are held together
+	// (TestTwoAnswersTogetherInstallOnce).
+	beforeInstallWrites func()
 }
 
 // CreateAccount makes the account row, generates its keypair, and binds the

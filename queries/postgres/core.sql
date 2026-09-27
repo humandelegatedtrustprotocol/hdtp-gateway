@@ -165,3 +165,9 @@ DELETE FROM accounts WHERE id = $1;
 -- A token scoped to an identity that has left acts for nobody. Deleted, not revoked: a revoked
 -- row would go on naming the account.
 DELETE FROM tokens WHERE account_id = $1;
+
+-- name: LockAccountRow :exec
+-- Holds one account's row until the transaction ends, so two transactions that change the same
+-- account's ledger run one after the other (a signing request replacing the pending one). SQLite
+-- needs no statement for it: every transaction there takes the write lock at BEGIN.
+SELECT id FROM accounts WHERE id = $1 FOR UPDATE;

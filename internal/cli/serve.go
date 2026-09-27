@@ -474,7 +474,7 @@ func (s *serveRun) internalSurface() http.Handler {
 			if err != nil {
 				return internalui.WalletInstalled{}, err
 			}
-			return internalui.WalletInstalled{Endpoint: res.Endpoint, NotAfter: res.NotAfter, Notice: res.Notice}, nil
+			return internalui.WalletInstalled{Endpoint: res.Endpoint, NotAfter: res.NotAfter, Notice: res.Notice, Warnings: warningTexts(res.Warnings)}, nil
 		},
 	}
 	identityDeps := internalui.IdentityDeps{

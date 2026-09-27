@@ -295,3 +295,7 @@ func (s *SQLite) SetLeafMoved(ctx context.Context, accountID, kid string, moved 
 	}
 	return nil
 }
+
+// LockAccount needs no statement on SQLite: this store opens every transaction with BEGIN
+// IMMEDIATE (`_txlock=immediate`), so a transaction already runs alone.
+func (s *SQLite) LockAccount(context.Context, string) error { return nil }
