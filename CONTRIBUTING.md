@@ -61,10 +61,11 @@ its own copy):
 - **pre-push** runs, in order: `make web` and a check that it left `web/dist`
   unchanged (only when the push touches `web/`); `make check` with
   `PACT_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
-  `pact-gateway-prepush-pg` and removes on every exit (no Docker, no push);
+  `pact-gateway-prepush-pg-<pid>` and removes on every exit (no Docker, no push);
   `make analyze`; `make sqlc-check`; `make fuzz`; and `make harness`, the harness's
-  hermetic tier. The live scenarios need a real Chrome and a real container fabric,
-  so they are opt-in from the same hook:
+  hermetic tier. Everything runs with `GOWORK=off`, so the gate proves the committed
+  `go.mod` and `go.sum`, whatever workspace your shell has. The live scenarios need a
+  real Chrome and a real container fabric, so they are opt-in from the same hook:
 
 ```
 PACT_PREPUSH_LIVE=1 git push      # the PR tier (make harness-pr, needs Docker and Chrome)
@@ -92,7 +93,9 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CON
 - `make identity-proxy` fetches the required version on the host into `.build/identity-proxy`
   (gitignored and dockerignored), laid out as a Go module proxy. The image builds
   (`make harness-image`, `docker compose build`) read it as the named context `identityproxy`,
-  so no credential enters Docker; `go.sum` still verifies what it serves.
+  so no credential enters Docker; `go.sum` still verifies what it serves. `make harness-image`
+  refreshes it every time; before `docker compose build`, run it again after the required
+  version changes, or the build asks the proxy for a version it does not hold and fails.
 - To work on the identity library and the node together without a release in between, point a
   `go.work` OUTSIDE this repository at both checkouts and set `GOWORK` to it. Use a `replace`
   line for the identity module rather than a `use` line: the node requires a version, and with
