@@ -272,6 +272,22 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 			updated <- r.Params.URI
 		},
 	})
+	// Under SEP-2575 the server acknowledges a subscription after Subscribe returns, and an update
+	// sent inside that window is lost by the SDK (ownermcp's tests wait it out the same way). This
+	// test recorded at once and failed under load — 3 runs of 3 on 2026-09-28 with the machine at
+	// a load of 27 — while passing alone.
+	acked := make(chan struct{}, 1)
+	client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "notifications/subscriptions/acknowledged" {
+				select {
+				case acked <- struct{}{}:
+				default:
+				}
+			}
+			return next(mctx, method, req)
+		}
+	})
 	cs, err := client.Connect(agentCtx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +295,11 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	defer cs.Close()
 	if err := cs.Subscribe(ctx, &mcp.SubscribeParams{URI: ownermcp.URIInbox}); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-acked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the subscription was never acknowledged")
 	}
 
 	// 7. Bella's message lands → the agent is notified, reads, and answers.
