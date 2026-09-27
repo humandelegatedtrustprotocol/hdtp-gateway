@@ -114,6 +114,7 @@ step check
 step analyze
 step sqlc-check
 step fuzz
+step scale
 step harness
 
 case "${PACT_PREPUSH_LIVE:-}" in

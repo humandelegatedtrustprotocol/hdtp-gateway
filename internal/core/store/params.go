@@ -50,8 +50,20 @@ func contactImport(c Contact) sqlitedb.ImportContactParams {
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
-		// What the archive says, and active is always a contact (internal/portable everActiveOf).
+		// What the export says (its was_active), and active is always a contact.
 		EverActive: importedEverActive(c),
+	}
+}
+
+// contactPin returns ImportContactPin's parameters. A nil root certificate keeps the one the row holds.
+func contactPin(c Contact) sqlitedb.ImportContactPinParams {
+	var rootCert []byte
+	if len(c.RootCert) > 0 {
+		rootCert = c.RootCert
+	}
+	return sqlitedb.ImportContactPinParams{
+		Endpoint: c.Endpoint, Leaf: c.Leaf, Spki: c.SPKI, RootCert: rootCert,
+		AccountID: c.AccountID, Fingerprint: c.Fingerprint,
 	}
 }
 
@@ -93,6 +105,15 @@ func messageInsert(m Message) sqlitedb.InsertMessageParams {
 		ID: m.ID, AccountID: m.AccountID, ContactFpr: m.ContactFpr, MsgID: m.MsgID,
 		ThreadID: m.ThreadID, Direction: m.Direction, Sender: m.Sender, Kind: kindOrText(m.Kind), Body: m.Body,
 		ReplyTo: m.ReplyTo, Status: m.Status, CreatedAt: m.CreatedAt, ExpiresAt: m.ExpiresAt,
+	}
+}
+
+// messageImport returns ImportMessage's parameters: a message an export carried, which keeps its id.
+func messageImport(m Message) sqlitedb.ImportMessageParams {
+	return sqlitedb.ImportMessageParams{
+		ID: m.ID, AccountID: m.AccountID, ContactFpr: m.ContactFpr, MsgID: m.MsgID,
+		ThreadID: m.ThreadID, Direction: m.Direction, Sender: m.Sender, Kind: kindOrText(m.Kind), Body: m.Body,
+		ReplyTo: m.ReplyTo, Status: m.Status, CreatedAt: m.CreatedAt,
 	}
 }
 

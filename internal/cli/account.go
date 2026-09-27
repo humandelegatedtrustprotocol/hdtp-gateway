@@ -90,6 +90,9 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "contacts told of the address: told=%v waiting=%v\n", out["Told"], out["Waiting"])
+		if n, _ := out["NoLeaf"].(float64); n > 0 {
+			fmt.Fprintf(stdout, "unreached=%v: imported contacts whose leaf this host does not hold; they stay pinned by their root and are not tried again\n", out["NoLeaf"])
+		}
 		if unreached, _ := out["Unreached"].([]any); len(unreached) > 0 {
 			for _, u := range unreached {
 				if m, ok := u.(map[string]any); ok {
@@ -132,6 +135,11 @@ func account(args []string, stdout, stderr io.Writer) int {
 		if err := core.AdminCall(sock, "account.certificate", map[string]string{"slug": slug}, &out); err != nil {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
+		}
+		// Owed handshakes are said first, whatever the leaf's state: an import leaves them waiting
+		// for the next leaf, and this is where the owner looks (PACT §9.2).
+		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], fmt.Sprint(out["Kid"]) != ""); line != "" {
+			fmt.Fprintln(stdout, line)
 		}
 		if certified, _ := out["Certified"].(bool); !certified {
 			fmt.Fprintf(stdout, "%v has no leaf yet; `account csr -slug %v` prints the request for the wallet\n", out["Slug"], out["Slug"])
@@ -234,4 +242,26 @@ func addressDriftLine(publicURL, slug, leafEndpoint string) string {
 	return fmt.Sprintf("%s answers at %s (the address in its certificate) and this node advertises %s. If the node's address changed, "+
 		"run `pact-gateway account csr -slug %s -purpose move`, have the wallet sign it, then `account install-leaf`: that is what moves an identity and tells its contacts",
 		slug, leafEndpoint, advertised, slug)
+}
+
+// handshakesOwedLine is what `account certificate` and `doctor` say of contacts an import left
+// owed this host's handshake, or "" when there are none. n arrives as whatever the caller holds:
+// an int from the manager, a JSON number over the admin socket. An identity with no leaf here yet
+// (it arrived in an import) asks for a move; one that is served asks for a renewal.
+func handshakesOwedLine(slug string, n any, hasLeaf bool) string {
+	var count int
+	switch v := n.(type) {
+	case int:
+		count = v
+	case float64:
+		count = int(v)
+	}
+	if count <= 0 {
+		return ""
+	}
+	purpose := "renew"
+	if !hasLeaf {
+		purpose = "move"
+	}
+	return fmt.Sprintf("%d imported contact(s) of %s wait for a new leaf: run `account csr -slug %s -purpose %s`, have the wallet sign it, then `account install-leaf -slug %s -chain <file>`", count, slug, slug, purpose, slug)
 }

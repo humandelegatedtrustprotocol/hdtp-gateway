@@ -28,6 +28,7 @@ func contactFromRow(r sqlitedb.Contact) Contact {
 		ChainSentKid:     r.ChainSentKid,
 		RootCert:         r.RootCert,
 		EverActive:       r.EverActive != 0,
+		HandshakeDue:     r.HandshakeDue != 0,
 	}
 }
 

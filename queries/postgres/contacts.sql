@@ -54,9 +54,22 @@ WHERE account_id = $4 AND fingerprint = $5;
 -- A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
 -- statement, and none it does not. invite_id stays empty because invites do not travel, and
 -- chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
--- seen - and this host has not been issued one yet.
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);
+-- seen - and this host has not been issued one yet. handshake_due is set: the contact is owed
+-- this host's handshake once its next leaf is installed (sec. 9.2).
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 1);
+
+-- name: ImportContactPin :execrows
+-- An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
+-- a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
+-- validated there - and is owed this host's handshake. A contact held WITH a leaf is never
+-- written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
+UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, root_cert = COALESCE($4, root_cert), handshake_due = 1
+WHERE account_id = $5 AND fingerprint = $6 AND (leaf IS NULL OR octet_length(leaf) = 0);
+
+-- name: ClearContactHandshake :execrows
+-- The campaign has told this contact: it is owed nothing more (sec. 9.2).
+UPDATE contacts SET handshake_due = 0 WHERE account_id = $1 AND fingerprint = $2;
 
 -- name: RedeemOverPendingContact :execrows
 -- A request still awaiting the owner (pending_in) redeems one of the owner's invites: the row

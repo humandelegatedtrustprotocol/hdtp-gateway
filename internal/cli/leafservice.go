@@ -76,8 +76,8 @@ func (l leafService) Mint(ctx context.Context, acct store.Account, purpose, endp
 // installed is what an install did, for either door to report.
 type installed struct {
 	identity.InstallResult
-	// Campaign is set when the install moved the identity and the node started telling its
-	// contacts (node.ResumeMove).
+	// Campaign is set when the install moved the identity, or left imported contacts owed the
+	// handshake, and the node started telling its contacts (node.ResumeMove).
 	Campaign bool
 	// Notice is the move notice (identity.MoveNotice), "" when the identity did not move.
 	Notice string
@@ -131,8 +131,10 @@ func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]
 	// durable part and it answers now; the walk is durable too (`move_fanout`), and
 	// `account announce` reports it and resumes it.
 	//
-	// Whether it moved is the install's to say (identity.InstallResult.Moved).
-	if res.Moved && nd != nil {
+	// Whether it moved is the install's to say (identity.InstallResult.Moved). An import also
+	// leaves contacts owed this host's handshake (PACT §9.2), and they are owed it after the next
+	// leaf whether or not that leaf moved the identity (identity.InstallResult.HandshakesDue).
+	if (res.Moved || res.HandshakesDue > 0) && nd != nil {
 		nd.ResumeMove(ctx, acct.ID, res.Kid)
 		out.Campaign = true
 	}

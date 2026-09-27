@@ -47,25 +47,39 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file := filepath.Join(t.TempDir(), "alice.pact-export")
-	code, out, errb := run(t, "export", "-config", old.cfg, "-out", file)
-	if code != 0 || !strings.Contains(out, "1 identity, 1 contact") || !strings.Contains(out, "nothing else") {
+	file := filepath.Join(t.TempDir(), "alice.zip")
+	code, out, errb := run(t, "export", "-config", old.cfg, "-slug", "alice", "-out", file)
+	if code != 0 || !strings.Contains(out, "1 contact(s)") {
 		t.Fatalf("export: code=%d out=%q err=%q", code, out, errb)
+	}
+	// The person is told, before the file is written, what an unencrypted file means (§9.2).
+	if !strings.HasPrefix(out, "This file is not encrypted. Anyone who gets it can read your contact list") {
+		t.Fatalf("export must say what the file is before it writes it: %q", out)
 	}
 	if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("an export is somebody's address book and mail, and must be 0600: %v %v", fi, err)
 	}
 	// It never replaces a file.
-	if code, _, errb := run(t, "export", "-config", old.cfg, "-out", file); code == 0 {
+	if code, _, errb := run(t, "export", "-config", old.cfg, "-slug", "alice", "-out", file); code == 0 {
 		t.Fatalf("a second export overwrote the first: %q", errb)
 	}
 
 	fresh := newIDNode(t, "fresh")
-	code, out, errb = run(t, "import", "-config", fresh.cfg, "-from", file)
-	if code != 0 || !strings.Contains(out, "not served yet: alice") {
-		t.Fatalf("import: code=%d out=%q err=%q", code, out, errb)
+	// Without -yes it is a review: what would be written, and nothing written.
+	code, out, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice")
+	if code != 0 || !strings.Contains(out, "write "+peer.Fpr) || !strings.Contains(out, "nothing was written") {
+		t.Fatalf("import review: code=%d out=%q err=%q", code, out, errb)
 	}
 	got := openStoreAt(t, fresh.dir)
+	if _, err := got.GetAccountBySlug(ctx, "alice"); err == nil {
+		t.Fatal("the review wrote the identity")
+	}
+	got.Close()
+	code, out, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice", "-yes")
+	if code != 0 || !strings.Contains(out, "not served yet: alice") || !strings.Contains(out, "account csr -slug alice -purpose move") {
+		t.Fatalf("import: code=%d out=%q err=%q", code, out, errb)
+	}
+	got = openStoreAt(t, fresh.dir)
 	b, err := got.GetAccountBySlug(ctx, "alice")
 	if err != nil || b.RootFingerprint != wallet.fingerprint() {
 		t.Fatalf("the identity did not arrive as itself: %+v %v", b, err)
@@ -73,8 +87,22 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 	if sealed, _ := got.GetAccountSealedKey(ctx, b.ID); len(sealed) != 0 {
 		t.Fatalf("an imported identity arrived holding %d bytes of key", len(sealed))
 	}
-	if c, err := got.GetContact(ctx, b.ID, peer.Fpr); err != nil || c.Endpoint != ph.Endpoint {
-		t.Fatalf("the contact did not arrive: %+v %v", c, err)
+	if c, err := got.GetContact(ctx, b.ID, peer.Fpr); err != nil || c.Endpoint != ph.Endpoint || !c.HandshakeDue {
+		t.Fatalf("the contact did not arrive owed the handshake: %+v %v", c, err)
+	}
+	// One audit row for the import, naming the identity it made.
+	rows, err := got.ListAuditEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := 0
+	for _, r := range rows {
+		if r.Action == "account_import" && r.Outcome == "ok" && strings.Contains(r.Resource, "account:"+b.ID) {
+			imports++
+		}
+	}
+	if imports != 1 {
+		t.Fatalf("the import wrote %d account_import rows naming %s, want 1", imports, b.ID)
 	}
 	got.Close()
 	// And the SAME wallet certifies the new home. It has no ledger, so it is a move.
@@ -82,9 +110,26 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 	if res.RootFingerprint != wallet.fingerprint() || !res.Moved {
 		t.Fatalf("the first leaf on the new host: %+v", res)
 	}
-	// A second import of the same identity is refused, and says nothing was written.
-	if code, _, errb := run(t, "import", "-config", fresh.cfg, "-from", file); code == 0 || !strings.Contains(errb, "already on this node") || !strings.Contains(errb, "nothing was written") {
-		t.Fatalf("a second import: code=%d err=%q", code, errb)
+	// The same file into the same identity merges: nothing new, and it ends with a renewal.
+	code, out, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice", "-yes")
+	if code != 0 || !strings.Contains(out, "keep  "+peer.Fpr) || !strings.Contains(out, "0 contact(s)") || !strings.Contains(out, "-purpose renew") {
+		t.Fatalf("a second import into the same identity: code=%d out=%q err=%q", code, out, errb)
+	}
+	// Into a slug that is somebody else: refused, audited, nothing written.
+	code, _, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice-two", "-yes")
+	if code == 0 || !strings.Contains(errb, `already on this node as "alice"`) || !strings.Contains(errb, "nothing was written") {
+		t.Fatalf("the same root under another slug: code=%d err=%q", code, errb)
+	}
+	got = openStoreAt(t, fresh.dir)
+	rows, _ = got.ListAuditEvents(ctx, "")
+	refusals := 0
+	for _, r := range rows {
+		if r.Action == "account_import" && r.Outcome == "refused" {
+			refusals++
+		}
+	}
+	if refusals != 1 {
+		t.Fatalf("a refused import must be audited once as refused: %d", refusals)
 	}
 }
 
@@ -95,17 +140,21 @@ func TestTheExportVerbsCostNothingWhenTypedBare(t *testing.T) {
 	if code, _, errb := run(t, "backup", "create"); code != 2 || !strings.Contains(errb, "unknown command") {
 		t.Fatalf("backup: code=%d err=%q", code, errb)
 	}
-	for _, verb := range []string{"export", "import"} {
+	for _, verb := range [][]string{{"export", "-slug", "x"}, {"export", "-out", "x.zip"}, {"import", "-slug", "x"}, {"import", "x.zip"}} {
 		dir := filepath.Join(t.TempDir(), "never-made")
 		cfg := filepath.Join(t.TempDir(), "config.json")
 		if err := os.WriteFile(cfg, []byte(`{"data_dir":"`+dir+`"}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if code, _, errb := run(t, verb, "-config", cfg); code != 2 || !strings.Contains(errb, "is required") {
-			t.Fatalf("%s: code=%d err=%q", verb, code, errb)
+		args := append(append([]string{}, verb...), "-config", cfg)
+		if verb[0] == "import" && verb[1] == "x.zip" {
+			args = []string{"import", "x.zip", "-config", cfg}
+		}
+		if code, _, errb := run(t, args...); code != 2 || !strings.Contains(errb, "required") {
+			t.Fatalf("%v: code=%d err=%q", verb, code, errb)
 		}
 		if _, err := os.Stat(dir); err == nil {
-			t.Fatalf("%s made the data directory before it refused", verb)
+			t.Fatalf("%v made the data directory before it refused", verb)
 		}
 	}
 }
