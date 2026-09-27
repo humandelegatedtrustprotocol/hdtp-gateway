@@ -4,10 +4,12 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
@@ -280,5 +282,38 @@ func TestScopedTokenCannotReadNodeLevelAuditRows(t *testing.T) {
 	body2 := callParity(t, ctx, all, "audit_query", map[string]any{})
 	if !strings.Contains(body2, "node_level") {
 		t.Fatalf("an unscoped owner lost node-level rows: %s", body2)
+	}
+}
+
+// A root with no current leaf (what an import leaves) has no leaf to describe: identity_certificate
+// must not print the zero leaf's fields as one. It answered kid "", endpoint "" and
+// not_before/not_after "0001-01-01T00:00:00Z" until 2026-09-28. The control: a served identity's
+// leaf fields are all there.
+func TestIdentityCertificateDescribesNoLeafWhenThereIsNone(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	info := identity.CertificateInfo{Certified: true, RootFingerprint: "sha256:root"}
+	extra := Extra{
+		Certificate: func(context.Context, string) (identity.CertificateInfo, error) { return info, nil },
+		Log:         func(string, string, string) {},
+	}
+	srv := NewServerWithExtra(e.deps, extra, auth.Identity{OwnerID: e.owner})
+	body := callParity(t, ctx, srv, "identity_certificate", map[string]any{"account_id": e.acctA})
+	if !strings.Contains(body, `"root_fingerprint":"sha256:root"`) {
+		t.Fatalf("the root is the identity and must be named: %s", body)
+	}
+	for _, leafOnly := range []string{"0001-01-01", `"not_after"`, `"not_before"`, `"kid"`, `"endpoint"`, `"renewal_due"`} {
+		if strings.Contains(body, leafOnly) {
+			t.Errorf("identity_certificate describes a leaf the identity does not have (%s): %s", leafOnly, body)
+		}
+	}
+
+	info = identity.CertificateInfo{Certified: true, RootFingerprint: "sha256:root", Kid: "sha256:leaf", Endpoint: "https://a.example/a/x/mcp",
+		NotBefore: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2027, 9, 1, 0, 0, 0, 0, time.UTC)}
+	body = callParity(t, ctx, srv, "identity_certificate", map[string]any{"account_id": e.acctA})
+	for _, want := range []string{`"kid":"sha256:leaf"`, `"endpoint":"https://a.example/a/x/mcp"`, `"not_after":"2027-09-01T00:00:00Z"`, `"renewal_due":false`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("a served identity's certificate lacks %s: %s", want, body)
+		}
 	}
 }

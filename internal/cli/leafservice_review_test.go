@@ -75,7 +75,7 @@ func TestAnInstallWhoseNodeCannotReloadIsInstalledWithAWarning(t *testing.T) {
 	if strings.Contains(res.Warnings[0].Text, "store is closed") {
 		t.Fatal("the warning carries the error's text")
 	}
-	if info, _ := idm.Certificate(ctx, a.ID, now); !info.Certified {
+	if info, _ := idm.Certificate(ctx, a.ID, now); !info.Served() {
 		t.Fatal("the leaf is not installed")
 	}
 	if res.HandshakesDue != 1 || res.Campaign {

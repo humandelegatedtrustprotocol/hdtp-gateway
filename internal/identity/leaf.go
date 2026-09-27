@@ -721,10 +721,8 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 
 // CertificateInfo is `account certificate`'s answer.
 type CertificateInfo struct {
-	// Certified is whether this host holds a current leaf for the identity. A root alone is not
-	// that: an identity an import brought holds its root and no leaf until the wallet's first leaf
-	// here is installed, and then every date below would be the zero time. It was HasRoot() until
-	// 2026-09-28, which reported such an identity as certified.
+	// Certified is whether the wallet has issued this identity a leaf yet. It was `Protocol`, 1
+	// or 2, a generation number that had come to mean exactly this.
 	Certified       bool
 	RootFingerprint string
 	Chain           [][]byte
@@ -741,6 +739,13 @@ type CertificateInfo struct {
 	Former         []string
 }
 
+// Served reports whether this host holds a current leaf for the identity. An identity can hold its
+// root and none: an import leaves it so until the wallet signs one, and the retire sweep moves a
+// current leaf past its notAfter to former (RetireExpiredLeafKeys). Then Kid, Endpoint, NotBefore,
+// NotAfter and RenewalDue are zero values, and a door that printed them described a leaf that does
+// not exist ("valid until 0001-01-01"). Every door asks this before it gives the leaf's fields.
+func (c CertificateInfo) Served() bool { return c.Kid != "" }
+
 // Certificate reports an account's certificate state; renewal is due thirty
 // days ahead of the leaf's notAfter (PACT §2).
 func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Time) (CertificateInfo, error) {
@@ -748,7 +753,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	if err != nil {
 		return CertificateInfo{}, err
 	}
-	info := CertificateInfo{RootFingerprint: a.RootFingerprint}
+	info := CertificateInfo{Certified: a.HasRoot(), RootFingerprint: a.RootFingerprint}
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
 		return CertificateInfo{}, err
@@ -756,7 +761,6 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	for _, l := range leaves {
 		switch l.State {
 		case LeafCurrent:
-			info.Certified = true
 			info.Chain = [][]byte{l.Leaf, a.RootCert}
 			info.Kid, info.Endpoint = l.Kid, l.Endpoint
 			info.NotBefore, info.NotAfter = time.Unix(l.NotBefore, 0).UTC(), time.Unix(l.NotAfter, 0).UTC()
