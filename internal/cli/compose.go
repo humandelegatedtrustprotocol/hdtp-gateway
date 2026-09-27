@@ -296,6 +296,8 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 			},
 			// The switchboard the portal offers, so set_permissions can grant an integration.
 			ServedPermissions: nd.ServedPermissions,
+			// Where an invite lands, so create_invite answers the link to hand out (SPEC §4).
+			PublicURL: nd.PublicURL,
 		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
 		ownermcp.ForwardBus(ctx, srv, nd.Bus())
 		presence.Add(srv)
