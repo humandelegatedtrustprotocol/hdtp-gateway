@@ -258,6 +258,16 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		got[f[0]] = f[1]
 		names = append(names, f[0])
 	}
+	// The wallet's own check, from the released pact-identity: the node's form and the wallet's list
+	// of members are two copies of one list, and this holds them together. The origin is the one the
+	// browser sends with the form: the portal's.
+	request := map[string]any{}
+	for _, f := range fields {
+		request[f[0]] = f[1]
+	}
+	if _, err := pactidentity.SigningRequestCheck(request, base, time.Now(), [][]byte{key.Public.SPKI}); err != nil {
+		t.Fatalf("the wallet refuses the request this node sends: %v", err)
+	}
 	sort.Strings(names)
 	if strings.Join(names, ",") != "csr,expect_root,expires,purpose,recipient,redirect,root_cert,state,valid_days" {
 		t.Fatalf("the form carries %v; a wallet refuses a request with any other member (a csrf field included)", names)
