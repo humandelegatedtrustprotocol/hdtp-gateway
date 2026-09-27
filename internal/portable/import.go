@@ -168,6 +168,11 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		accountID := p.AccountID
 		if p.New {
 			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: p.Slug, DisplayName: p.OwnerName, Algo: string(identity.AlgoP256)})
+			if errors.Is(err, store.ErrAddressVacated) {
+				// An identity left this node from that address, and a leaf issued for it is still
+				// live (PACT §9): the store's one guard, said as a refusal of this import.
+				return refuse("%q was left by another identity, whose last leaf has not yet expired; choose another slug", p.Slug)
+			}
 			if err != nil {
 				return fmt.Errorf("import: %w", err)
 			}
