@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
@@ -45,30 +46,12 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 	return s.GetContact(ctx, c.AccountID, c.Fingerprint)
 }
 
-func pgContact(r pgdb.Contact) Contact {
-	return Contact{
-		ID: r.ID, AccountID: r.AccountID, Fingerprint: r.Fingerprint, SPKI: r.Spki,
-		Status: r.Status, Preset: r.Preset, Permissions: permsFromJSON(r.Permissions),
-		TrustFlag: r.TrustFlag, DisplayName: r.DisplayName, Card: r.Card,
-		CreatedAt: r.CreatedAt, PinnedAt: r.PinnedAt.Int64,
-		// What the peer granted US (PACT §6.2), which every read used to drop.
-		TheirPermissions: permsFromJSON(r.TheirPermissions),
-		Petname:          r.Petname,
-		InviteID:         r.InviteID,
-		Endpoint:         r.Endpoint,
-		Leaf:             r.Leaf,
-		ChainSentKid:     r.ChainSentKid,
-		RootCert:         r.RootCert,
-		EverActive:       r.EverActive != 0,
-	}
-}
-
 func (s *Postgres) GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error) {
 	r, err := s.q.GetContact(ctx, pgdb.GetContactParams{AccountID: accountID, Fingerprint: fingerprint})
 	if err != nil {
 		return Contact{}, err
 	}
-	return pgContact(r), nil
+	return contactFromRow(sqlitedb.Contact(r)), nil
 }
 
 func (s *Postgres) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -78,7 +61,7 @@ func (s *Postgres) ListContacts(ctx context.Context, accountID string) ([]Contac
 	}
 	out := make([]Contact, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, pgContact(r))
+		out = append(out, contactFromRow(sqlitedb.Contact(r)))
 	}
 	return out, nil
 }

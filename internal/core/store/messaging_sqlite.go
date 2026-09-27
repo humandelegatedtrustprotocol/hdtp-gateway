@@ -94,16 +94,7 @@ func (s *SQLite) GetMessageByMsgID(ctx context.Context, accountID, contactFpr, d
 	if err != nil {
 		return Message{}, err
 	}
-	return sqliteMessage(r), nil
-}
-
-func sqliteMessage(r sqlitedb.Message) Message {
-	return Message{
-		Seq: r.Seq, ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, MsgID: r.MsgID,
-		ThreadID: r.ThreadID, Direction: r.Direction, Sender: r.Sender, Kind: r.Kind, Body: r.Body,
-		ReplyTo: r.ReplyTo, Status: r.Status, CreatedAt: r.CreatedAt,
-		ExpiresAt: r.ExpiresAt, Attempts: r.Attempts, NextAttemptAt: r.NextAttemptAt,
-	}
+	return messageFromRow(r), nil
 }
 
 func (s *SQLite) ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]Message, error) {
@@ -113,7 +104,7 @@ func (s *SQLite) ListMessagesByThread(ctx context.Context, accountID, threadID s
 	}
 	out := make([]Message, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, sqliteMessage(r))
+		out = append(out, messageFromRow(r))
 	}
 	return out, nil
 }
