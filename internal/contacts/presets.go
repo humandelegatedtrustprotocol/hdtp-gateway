@@ -159,3 +159,28 @@ func ValidatePreset(name string, perms []string) error {
 var AllPermissions = []string{
 	"message.text", "message.media", "status.view", "calendar.availability", "calendar.book",
 }
+
+// integrationGrant is an integration's permission name as a grant carries it: `integration.` and a
+// slug, and only a slug — no dot, no wildcard, so no grant can name them all (pact-cloud's
+// isIntegrationPermission, the same expression).
+var integrationGrant = regexp.MustCompile(`^integration\.[a-z0-9][a-z0-9-]{0,62}$`)
+
+// TheirPermissions is what a peer says it granted us (contact_accepted, PACT §6.2), as this node
+// records it: only what a grant can be — PACT §8's names (AllPermissions) and integration.<slug> —
+// each once, in the order given. Anything else a peer sends is dropped at intake.
+func TheirPermissions(in []string) []string {
+	core := map[string]bool{}
+	for _, p := range AllPermissions {
+		core[p] = true
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range in {
+		if seen[p] || !(core[p] || integrationGrant.MatchString(p)) {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}

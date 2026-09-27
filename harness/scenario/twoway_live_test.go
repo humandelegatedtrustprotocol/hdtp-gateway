@@ -54,10 +54,10 @@ func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_invite: %v", err)
 	}
-	var inv struct{ Token, URL string }
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(inviteRaw), &inv)
 	if inv.URL == "" {
-		inv.URL = "https://" + bob.Node.Name + ":8443/i/" + inv.Token
+		t.Fatalf("create_invite answered no link: %s", shorten(inviteRaw, 200))
 	}
 	addRaw, err := alice.Owner.Call(ctx, "add_contact", map[string]any{
 		// No grant named on purpose: accepting an invite must leave them able to

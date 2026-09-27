@@ -67,10 +67,10 @@ func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_invite: %v", err)
 	}
-	var inv struct{ Token, URL string }
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(inviteRaw), &inv)
 	if inv.URL == "" {
-		inv.URL = "https://" + mover.Node.Name + ":8443/i/" + inv.Token
+		t.Fatalf("create_invite answered no link: %s", shorten(inviteRaw, 200))
 	}
 	for _, contact := range []*Owned{near, far} {
 		raw, err := contact.Owner.Call(ctx, "add_contact", map[string]any{"account_id": contact.AccountID, "invite_url": inv.URL})

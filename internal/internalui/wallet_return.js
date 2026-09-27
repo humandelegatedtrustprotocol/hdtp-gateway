@@ -9,8 +9,12 @@
   var answer = new URLSearchParams(location.hash.slice(1));
   var slug = new URLSearchParams(location.search).get("slug") || "";
   history.replaceState(null, "", location.pathname + location.search);
+  // A wallet's refusal is a code (PACT §9.1 names `cancelled`), shown as a fixed sentence and never
+  // as the text the fragment carries: anyone can link here with any fragment, and the page must not
+  // say what a link tells it to.
+  var refusals = { cancelled: "You declined in your wallet. Nothing was installed." };
   if (answer.get("error")) {
-    say("Your wallet did not sign (" + answer.get("error") + "). Nothing was installed.", "err");
+    say(refusals[answer.get("error")] || "Your wallet did not sign. Nothing was installed.", "err");
     return;
   }
   var chain = answer.get("chain"), state = answer.get("state");
@@ -33,7 +37,9 @@
     }
     return r.json().then(function (j) {
       if (r.ok) {
-        say("Installed: " + j.endpoint + ", valid until " + j.not_after + "." + (j.notice ? " " + j.notice : ""), "ok");
+        var warned = (j.warnings || []).length > 0;
+        say("Installed: " + j.endpoint + ", valid until " + j.not_after + "." + (j.notice ? " " + j.notice : "") +
+          (warned ? " Warning: " + j.warnings.join(" ") : ""), warned ? "warn" : "ok");
       } else {
         say("Not installed: " + (j.error || "refused") + ".", "err");
       }

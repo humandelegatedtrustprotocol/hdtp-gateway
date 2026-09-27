@@ -13,6 +13,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
@@ -62,6 +63,9 @@ func (s *serveRun) registerAdminHandlers() {
 		}
 		if res.PreviousNotBefore != nil {
 			out["PreviousNotBefore"] = res.PreviousNotBefore.UTC().Format(time.RFC3339)
+		}
+		if len(res.Warnings) > 0 {
+			out["Warnings"] = warningTexts(res.Warnings)
 		}
 		return out, nil
 	}
@@ -144,6 +148,9 @@ func (s *serveRun) registerAdminHandlers() {
 		if res.Notice != "" {
 			out["Notice"] = res.Notice
 		}
+		if len(res.Warnings) > 0 {
+			out["Warnings"] = warningTexts(res.Warnings)
+		}
 		return out, nil
 	})
 	// account.announce reports the campaign an install starts — the move's update_contact walk —
@@ -164,6 +171,11 @@ func (s *serveRun) registerAdminHandlers() {
 		if !acct.HasRoot() || s.nd == nil {
 			return nil, fmt.Errorf("account.announce: %s has no certificate yet, or the node is not running", acct.Slug)
 		}
+		// A campaign is a leaf's: an identity an import brought holds its root and no leaf yet, and
+		// what it owes goes out when its first leaf is installed. There is nothing to resume.
+		if _, err := idm.CampaignFor(ctx, acct.ID, acct.Fingerprint); err != nil {
+			return nil, fmt.Errorf("account.announce: %s has no leaf yet: its contacts are told when the wallet's first leaf is installed (`account csr -slug %s -purpose move`)", acct.Slug, acct.Slug)
+		}
 		before, err := s.nd.MoveProgress(ctx, acct.ID, acct.Fingerprint)
 		if err != nil {
 			return nil, err
@@ -172,7 +184,7 @@ func (s *serveRun) registerAdminHandlers() {
 		return map[string]any{
 			"Slug": acct.Slug, "Told": before.Told, "Waiting": before.Waiting,
 			"Walking": before.Walking || resumed, "Resumed": resumed, "Unreached": before.Unreached,
-			"NoLeaf": before.NoLeaf,
+			"NoLeaf": before.NoLeaf, "Refused": before.Refused,
 		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
@@ -266,13 +278,46 @@ func (s *serveRun) registerAdminHandlers() {
 		if err != nil {
 			return nil, err
 		}
+		// Two steps, as an import takes: without `yes` the leave shows what it would erase and
+		// erases nothing. The erase has no undo.
+		preview, err := idm.PreviewLeave(ctx, acct.ID)
+		if err != nil {
+			return nil, err
+		}
+		review := map[string]any{"Slug": preview.Slug, "Root": preview.Root, "Leaves": preview.Leaves, "Contacts": preview.Contacts,
+			"Threads": preview.Threads, "MediaFiles": preview.MediaFiles, "Current": preview.Current}
+		if args["yes"] != "1" {
+			return map[string]any{"Review": review}, nil
+		}
+		// The identity's current leaf is at this node's own address for it: it is served HERE, now.
+		// After a move to another address on this same node, "delete the identity at the old host"
+		// names this node and would erase the identity that was just moved. Refused unless the
+		// person says, in so many words, that they mean the live one.
+		if here := endpointFor(acct.Slug); preview.Current != "" && preview.Current == here && args["force_current"] != "1" {
+			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+" reason:current_endpoint", "refused")
+			return nil, fmt.Errorf("account.leave: %s is served here, now, at %s — its current leaf names this node's own address for it. After a move to another address on this node there is nothing to delete here: the old leaf answers until it expires. To erase the live identity anyway, run it again with -force-current", acct.Slug, here)
+		}
 		// A move campaign that is walking holds the account's key and writes its rows; erasing
-		// them under it would leave the walk failing against records that are gone.
-		if s.nd != nil && s.nd.MoveWalking(acct.ID) {
+		// them under it would leave the walk failing against records that are gone. The node holds
+		// the campaign slot for the whole erase, so none can start between the check and the erase.
+		var res identity.LeaveResult
+		erase := func() error {
+			var err error
+			res, err = idm.Leave(ctx, acct.ID, func(ctx context.Context, tx store.Store) ([]string, error) {
+				keys, err := integrations.ClientKeys(ctx, tx, acct.ID)
+				return append(settings.AccountKeys(acct.ID), keys...), err
+			}, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
+			return err
+		}
+		if s.nd != nil {
+			err = s.nd.WithoutCampaign(acct.ID, erase)
+		} else {
+			err = erase()
+		}
+		if errors.Is(err, node.ErrCampaignWalking) {
 			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+" reason:campaign_walking", "refused")
 			return nil, fmt.Errorf("account.leave: %s is telling its contacts of a move right now; run `account announce -slug %s` until it has finished, then leave", acct.Slug, acct.Slug)
 		}
-		res, err := idm.Leave(ctx, acct.ID, settings.AccountKeys(acct.ID), messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
 		if err != nil && res.AccountID == "" {
 			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug, "error")
 			return nil, err

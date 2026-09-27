@@ -8,7 +8,6 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/node"
 )
 
 // leafService is the one implementation of an identity's signing request and of installing the
@@ -20,16 +19,27 @@ import (
 // are read when a call runs, never captured.
 type leafService struct {
 	idm         *identity.Manager
-	node        func() *node.Node
 	audit       func(action, resource, outcome string)
 	endpointFor func(slug string) string
+	// adopt reloads an account on the live node and resume starts its campaign there; both are
+	// nil while no node is running. They are the node's AdoptAccount and ResumeMove.
+	adopt  func(ctx context.Context, accountID string) error
+	resume func(ctx context.Context, accountID, kid string) bool
 }
 
 func (s *serveRun) leafService(idm *identity.Manager, endpointFor func(string) string) leafService {
 	return leafService{
 		idm: idm, endpointFor: endpointFor,
-		node:  func() *node.Node { return s.nd },
 		audit: func(action, resource, outcome string) { s.auditFn(action, resource, outcome) },
+		adopt: func(ctx context.Context, accountID string) error {
+			if s.nd == nil {
+				return nil
+			}
+			return s.nd.AdoptAccount(ctx, accountID)
+		},
+		resume: func(ctx context.Context, accountID, kid string) bool {
+			return s.nd != nil && s.nd.ResumeMove(ctx, accountID, kid)
+		},
 	}
 }
 
@@ -62,14 +72,31 @@ func (l leafService) Mint(ctx context.Context, acct store.Account, purpose, endp
 	} else {
 		res, err = l.idm.IssueWalletCSR(ctx, acct.ID, purpose, endpoint, walletOrigin, time.Now())
 	}
+	via := ""
+	if walletOrigin != "" {
+		via = " wallet_origin:" + walletOrigin
+	}
 	if err != nil {
+		// A request that was not made is audited too, on either door: `refused` when the request
+		// itself is not one this node makes (a purpose, an address), `error` when this node failed.
+		// The reason is a code, never the error's text.
+		outcome, reason := "error", "failed"
+		switch {
+		case errors.Is(err, store.ErrAddressVacated):
+			outcome, reason = "refused", "vacated"
+		case errors.Is(err, identity.ErrEndpointRefused):
+			outcome, reason = "refused", "address"
+		case errors.Is(err, identity.ErrLeafRefused):
+			outcome, reason = "refused", "purpose"
+		}
+		l.audit("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+" purpose:"+purpose+" endpoint:"+endpoint+via+" reason:"+reason, outcome)
 		return identity.CSRResult{}, err
 	}
-	if walletOrigin != "" {
-		l.audit("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+" purpose:"+purpose+" endpoint:"+endpoint+" key:"+res.Kid+" wallet_origin:"+walletOrigin, "ok")
-	} else {
-		l.audit("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+" purpose:"+purpose+" endpoint:"+endpoint+" key:"+res.Kid, "ok")
+	detail, outcome := " purpose:"+purpose+" endpoint:"+endpoint+" key:"+res.Kid+via, "ok"
+	for _, w := range res.Warnings {
+		detail, outcome = detail+" warning:"+w.Code, "partial"
 	}
+	l.audit("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+detail, outcome)
 	return res, nil
 }
 
@@ -81,6 +108,9 @@ type installed struct {
 	Campaign bool
 	// Notice is the move notice (identity.MoveNotice), "" when the identity did not move.
 	Notice string
+	// Warnings are what was not finished although the leaf is installed (identity's own, and a
+	// live node that could not reload the account). Each door shows them; the install stands.
+	Warnings []identity.Warning
 }
 
 // Install installs the wallet's answer. `state` is "" for the CLI's `install-leaf -chain FILE`, and
@@ -106,25 +136,34 @@ func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]
 		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug, "error")
 		return installed{}, err
 	}
-	if state != "" {
-		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint+" via:wallet", "ok")
-	} else {
-		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok")
-	}
 	// Key material was destroyed, so the chain says so, once per key: a superseded leaf whose
 	// key this node could no longer open (its master key is not the one that sealed it).
 	for _, kid := range res.Retired {
 		l.audit("account_leaf_key_retired", "account:"+acct.ID+" slug:"+acct.Slug+" key:"+kid+" reason:unopenable", "ok")
 	}
-	out := installed{InstallResult: res, Notice: identity.MoveNotice(res)}
-	nd := l.node()
+	out := installed{InstallResult: res, Notice: identity.MoveNotice(res), Warnings: append([]identity.Warning(nil), res.Warnings...)}
 	// The node loaded the account's key and certificate when it started; the install changed both
-	// in the store. Rebuild it live.
-	if nd != nil {
-		if aerr := nd.AdoptAccount(ctx, acct.ID); aerr != nil {
-			return out, fmt.Errorf("install: reloading the account on the live node: %w", aerr)
+	// in the store. Rebuild it live. The install is committed whatever this does: a node that could
+	// not reload is a warning with what to do, never a failed install (the wallet's answer is used,
+	// and asking the person to sign again would change nothing).
+	adopted := true
+	if l.adopt != nil {
+		if aerr := l.adopt(ctx, acct.ID); aerr != nil {
+			adopted = false
+			out.Warnings = append(out.Warnings, identity.Warning{Code: "not_loaded",
+				Text: "the leaf is installed and the running node could not load it; restart the node, then run `account announce -slug " + acct.Slug + "`"})
 		}
 	}
+	// One row for the install: `partial` when the leaf is installed and something after it was not
+	// finished, each thing named.
+	detail, outcome := " root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok"
+	if state != "" {
+		detail += " via:wallet"
+	}
+	for _, w := range out.Warnings {
+		detail, outcome = detail+" warning:"+w.Code, "partial"
+	}
+	l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+detail, outcome)
 	// The campaign an install can start — the move's update_contact toward contacts pinned by
 	// our root (PACT §5.3, §9) — runs DETACHED (node.ResumeMove): an unreachable contact holds
 	// the walk until the call gives up, and the leaf is already installed. The install is the
@@ -134,9 +173,21 @@ func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]
 	// Whether it moved is the install's to say (identity.InstallResult.Moved). An import also
 	// leaves contacts owed this host's handshake (PACT §9.2), and they are owed it after the next
 	// leaf whether or not that leaf moved the identity (identity.InstallResult.HandshakesDue).
-	if (res.Moved || res.HandshakesDue > 0) && nd != nil {
-		nd.ResumeMove(ctx, acct.ID, res.Kid)
+	//
+	// Not when the node could not load the account: it would announce the card it still holds,
+	// the old leaf's. The warning says to restart and announce.
+	if (res.Moved || res.HandshakesDue > 0) && adopted && l.resume != nil {
+		l.resume(ctx, acct.ID, res.Kid)
 		out.Campaign = true
 	}
 	return out, nil
+}
+
+// warningTexts is what a door shows of a request's or an install's warnings.
+func warningTexts(ws []identity.Warning) []string {
+	out := make([]string, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, w.Text)
+	}
+	return out
 }
