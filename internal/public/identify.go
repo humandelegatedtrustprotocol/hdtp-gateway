@@ -89,7 +89,7 @@ type EnvelopeFacts struct {
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
-	// PACT 2.0 (identify20.go). Protocol is 2 for a `v: 2` envelope; Tier is
+	// PACT 2.0 (decide.go). Protocol is 2 for a `v: 2` envelope; Tier is
 	// what Decide resolved; Demote says a pin exists for From but the leaf
 	// proved nothing for it (blocked, superseded), so the caller is a guest
 	// whatever the pool would resolve; Endpoint and Leaf are the proven
@@ -126,11 +126,11 @@ type Identifier struct {
 	Now    func() time.Time
 	// Audit records refusals; nil discards.
 	Audit func(action, resource, outcome string)
-	// State20 supplies what a `v: 2` envelope is decided against (PACT §13.3):
+	// RecipientState supplies what a `v: 2` envelope is decided against (PACT §13.3):
 	// the keys this endpoint holds, the chain, the owner's settings. Read per
 	// call, so a setting the owner
 	// changes takes effect without a restart.
-	State20 func(ctx context.Context) (*State20, error)
+	RecipientState func(ctx context.Context) (*RecipientState, error)
 	// OnEvent is told of a renewal or a new address learned from a chain
 	// (PACT §5.3: shown to the owner as an event); OnPending of an address
 	// awaiting the owner's answer. Both may be nil.
@@ -205,14 +205,14 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 	// §5.3 — re-pinned under `auto`, parked under `ask` with every call
 	// answered pending_approval until the owner decides.
 	if tf.ChainProven() {
-		if id.speaks20(ctx) {
+		if id.holdsLeaf(ctx) {
 			tc, ok := TransportCallerFrom(ctx)
 			if !ok {
 				tc = id.ResolveTransport(ctx, tf)
 			}
 			if tc.Refusal != "" {
 				// A `sealed_call` is answered by its envelope, not here. The envelope carries the
-				// same chain, meets the same §5.3 decision in `identify20`, and its refusal goes
+				// same chain, meets the same §5.3 decision in `decide.go`, and its refusal goes
 				// back SEALED (PACT §13.2) — whereas refusing at this gate answered in plaintext
 				// before anything was opened. A caller that holds §13.2 to its word reads a
 				// plaintext `pending_approval` to a sealed call as forged, so a contact presenting
@@ -235,12 +235,12 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 	return tf.ClientCertFingerprint, nil
 }
 
-// speaks20 reports whether the account this identifier serves holds a leaf.
-func (id *Identifier) speaks20(ctx context.Context) bool {
-	if id.State20 == nil {
+// holdsLeaf reports whether the account this identifier serves holds a leaf.
+func (id *Identifier) holdsLeaf(ctx context.Context) bool {
+	if id.RecipientState == nil {
 		return false
 	}
-	st, err := id.State20(ctx)
+	st, err := id.RecipientState(ctx)
 	return err == nil && st != nil && st.HasRoot
 }
 
@@ -273,7 +273,7 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf Trans
 	// Every envelope is `v: 2` (PACT §13.1): the header has no `from` and no `to`,
 	// and the open order is the library's (§13.3). A header whose `v` is anything
 	// else is refused there.
-	return id.openSealed2(ctx, accountID, tf, e)
+	return id.decideEnvelope(ctx, accountID, tf, e)
 }
 
 // Replay checks step 8: a msg_id already processed for this caller returns its

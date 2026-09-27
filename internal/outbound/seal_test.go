@@ -11,9 +11,9 @@ import (
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 
-// identity20 is a 2.0 identity for a test: a root, a leaf naming an endpoint,
+// testIdentity is a 2.0 identity for a test: a root, a leaf naming an endpoint,
 // and the leaf's key as the node's keypair with the chain attached.
-type identity20 struct {
+type testIdentity struct {
 	root     *pactidentity.PrivateKey
 	rootCert []byte
 	rootFpr  string
@@ -22,7 +22,7 @@ type identity20 struct {
 	endpoint string
 }
 
-func newIdentity20(t *testing.T, cn, endpoint string) *identity20 {
+func newTestIdentity(t *testing.T, cn, endpoint string) *testIdentity {
 	t.Helper()
 	root, err := pactidentity.GenerateKey("ed25519")
 	if err != nil {
@@ -48,17 +48,17 @@ func newIdentity20(t *testing.T, cn, endpoint string) *identity20 {
 		t.Fatal(err)
 	}
 	kp.Leaf, kp.Root = leaf, rootCert
-	return &identity20{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public.SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
+	return &testIdentity{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public.SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
 }
 
-func (i *identity20) tlsCert() tls.Certificate {
+func (i *testIdentity) tlsCert() tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{i.leaf, i.rootCert}, PrivateKey: i.kp.Signer}
 }
 
-func (i *identity20) client() *Client { return &Client{Keypair: i.kp, Cert: i.tlsCert()} }
+func (i *testIdentity) client() *Client { return &Client{Keypair: i.kp, Cert: i.tlsCert()} }
 
 // peerOf is the pin a caller holds for this identity.
-func (i *identity20) peerOf() Peer {
+func (i *testIdentity) peerOf() Peer {
 	return Peer{Endpoint: i.endpoint, Seal: "required", Root: i.rootFpr, Leaf: i.leaf}
 }
 
@@ -67,11 +67,11 @@ func (i *identity20) peerOf() Peer {
 // pinned at the address it dialed, refuses another root, refuses another
 // address, and refuses a pin that names a leaf key rather than a root.
 func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
-	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
+	server := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 8)
 	addr := startTLS(t, &tls.Config{Certificates: []tls.Certificate{server.tlsCert()}, ClientAuth: tls.RequestClientCert}, got)
 
-	caller := newIdentity20(t, "Alina", "https://agent.alina.example/mcp").client()
+	caller := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp").client()
 	dial := func(peer Peer) error {
 		conn, err := tls.Dial("tcp", addr, caller.tlsConfig(peer, "agent.bharat.example"))
 		if err != nil {
@@ -86,7 +86,7 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	}
 	// The chain travels as OUR client certificate too (PACT §2): the server
 	// saw two certificates, the leaf first.
-	other := newIdentity20(t, "Mallory", "https://agent.bharat.example/mcp")
+	other := newTestIdentity(t, "Mallory", "https://agent.bharat.example/mcp")
 	wrong := server.peerOf()
 	wrong.Root = other.rootFpr
 	if err := dial(wrong); err == nil || !strings.Contains(err.Error(), "neither a chain under the pinned root nor a WebPKI-valid certificate") {
@@ -121,9 +121,9 @@ func TestClientPresentsItsChain(t *testing.T) {
 	// The server presents a real chain, because since 2026-09-18 nothing else is
 	// recognised: a self-signed certificate names no root and a caller refuses it
 	// whatever fingerprint it is pinned under.
-	server := newIdentity20(t, "Bharat", "https://agent.bharat.example/mcp")
+	server := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	addr := startTLS(t, &tls.Config{Certificates: []tls.Certificate{server.tlsCert()}, ClientAuth: tls.RequestClientCert}, got)
-	me := newIdentity20(t, "Alina", "https://agent.alina.example/mcp")
+	me := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp")
 	conn, err := tls.Dial("tcp", addr, me.client().tlsConfig(server.peerOf(), "agent.bharat.example"))
 	if err != nil {
 		t.Fatal(err)

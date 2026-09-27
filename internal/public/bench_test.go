@@ -22,10 +22,10 @@ import (
 // BenchmarkOpenSealedSmallForm is the common case: a pinned contact naming its
 // leaf by fingerprint (PACT §13.2). Every message after the first is this.
 func BenchmarkOpenSealedSmallForm(b *testing.B) {
-	e := newEnv20(b)
+	e := newRecvEnv(b)
 	p := newPeer(b, e.nowAt.Add(-time.Hour))
 	e.pin(b, p, "active")
-	env := e.seal20(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
+	env := e.sealFrom(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, env); err != nil {
@@ -37,10 +37,10 @@ func BenchmarkOpenSealedSmallForm(b *testing.B) {
 // BenchmarkOpenSealedChainForm carries the chain: first contact, and the first
 // envelope after every renewal. It pays for chain validation on top.
 func BenchmarkOpenSealedChainForm(b *testing.B) {
-	e := newEnv20(b)
+	e := newRecvEnv(b)
 	p := newPeer(b, e.nowAt.Add(-time.Hour))
 	e.pin(b, p, "active")
-	env := e.seal20(b, p, "chain", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
+	env := e.sealFrom(b, p, "chain", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, env); err != nil {
@@ -70,7 +70,7 @@ func BenchmarkSealBack(b *testing.B) {
 	s := newSealedEnv(b)
 	p := newPeer(b, s.nowAt.Add(-time.Hour))
 	s.pin(b, p, "active")
-	env := s.seal20(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
+	env := s.sealFrom(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"})
 	facts, err := s.id.OpenSealed(context.Background(), s.acct.ID, TransportFacts{}, env)
 	if err != nil {
 		b.Fatal(err)
@@ -95,7 +95,7 @@ func BenchmarkSealedCallEndToEnd(b *testing.B) {
 		b.StopTimer()
 		// A fresh msg_id each time: a replay is answered from the idempotency
 		// record, which is a different (and much cheaper) path.
-		env := s.seal20(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"},
+		env := s.sealFrom(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"},
 			func(o *pactidentity.SealOpts) { o.MsgID = "bench-" + strconv.Itoa(i) })
 		b.StartTimer()
 		res := s.call(b, env, TransportFacts{})

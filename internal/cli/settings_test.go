@@ -424,7 +424,7 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 // that binds to 127.0.0.1 therefore cannot present a chain that validates — no
 // matter that the pin and the SAN agree — so a hermetic two-node test over real
 // TLS is not possible at this level any more. It is proven instead by
-// `internal/node.TestPact20ExitDemo`, which stands three whole nodes up in one
+// `internal/node.TestExitDemo`, which stands three whole nodes up in one
 // process behind a dial map so their leaves can name real hosts, and over the wire
 // by the Docker harness. Adding a dial seam to the CLI for tests was considered
 // and rejected: the harness notes retire exactly that kind of knob ("E11 is

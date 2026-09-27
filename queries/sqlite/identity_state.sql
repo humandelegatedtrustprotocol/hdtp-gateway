@@ -33,7 +33,7 @@ UPDATE leaves SET leaf = ?, not_before = ?, not_after = ?, state = ?, endpoint =
 SELECT * FROM leaves WHERE account_id = ? ORDER BY created_at, kid;
 
 -- name: ListKidsExcept :many
--- Every leaf kid on this node that does NOT belong to one account. State20 asks
+-- Every leaf kid on this node that does NOT belong to one account. RecipientState asks
 -- this once per inbound envelope, to tell a kid held for a SIBLING identity from
 -- one this endpoint never held (PACT sec. 13.3, sec. 14.4). It used to be one
 -- query per other account, so the cost of every message grew with the number of

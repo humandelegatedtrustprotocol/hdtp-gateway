@@ -143,7 +143,7 @@ These are decisions, not backlog (SPEC §13.2):
 
 ## Where a reviewer should start
 
-1. `internal/public/identify20.go` — `openSealed2` and the pin checks around it.
+1. `internal/public/decide.go` — `decideEnvelope` and the pin checks around it.
    The open order is PACT §13.3's and is load-bearing: version and suite, then
    `kid` against the keys this endpoint holds, then HPKE-open, then the signature
    under the chain's leaf, then the tier, then freshness, then replay. The

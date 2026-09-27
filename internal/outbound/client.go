@@ -257,11 +257,11 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, msgID string) (
 }
 
 // exchange seals one inner request to the peer and opens the answer. A contact is pinned by
-// its root and a call is sealed to its leaf's key (client20.go); a peer we hold neither for is
+// its root and a call is sealed to its leaf's key (seal.go); a peer we hold neither for is
 // refused here, because there is nothing to seal to and nothing to verify the answer under.
 func (c *Client) exchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
-	if !c.speaks20(peer) {
+	if !c.canSeal(peer) {
 		return nil, nil, fmt.Errorf("outbound: no root and leaf are held for %s, so there is nothing to seal to or verify under; add them from their card", peer.name())
 	}
-	return c.sealedExchange20(ctx, peer, method, params, msgID)
+	return c.sealedExchange(ctx, peer, method, params, msgID)
 }

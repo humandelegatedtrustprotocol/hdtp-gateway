@@ -7,14 +7,14 @@ import (
 	"github.com/tech-sumit/pact-gateway/internal/core/store"
 )
 
-// pact20State is the suite for the PACT 2.0 state: the root, the leaf ledger and the side tables.
-func pact20State(t *testing.T, newStore Factory) {
+// identityState is the suite for the PACT 2.0 state: the root, the leaf ledger and the side tables.
+func identityState(t *testing.T, newStore Factory) {
 	// PACT 2.0 (migration 0027): the root beside the account, the leaf ledger,
 	// 2.0 pins that move without the root moving, and the §5.3 side tables.
-	t.Run("Pact20StateRoundTrips", func(t *testing.T) {
+	t.Run("IdentityStateRoundTrips", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
-		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "p20", DisplayName: "P", Algo: "ed25519"})
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ids", DisplayName: "P", Algo: "ed25519"})
 		// A new account holds a key and no leaf: it is protocol 1 in the row until
 		// `install-leaf` writes 2, and it serves nothing until then.
 		if a.AcceptNewHosts != "auto" {

@@ -40,9 +40,9 @@ func (e *CertificateRenewed) Error() string { return "certificate_renewed" }
 // pool knows; the call answers `{"status": "pending"}` and nothing runs.
 const TierPendingAddress policy.Tier = "pending_new_address"
 
-// State20 is everything Decide reads about this account, supplied per call so
+// RecipientState is everything Decide reads about this account, supplied per call so
 // a setting the owner changes takes effect without a restart.
-type State20 struct {
+type RecipientState struct {
 	// HasRoot is whether the wallet has issued this identity a leaf: until it has, there is no
 	// chain to speak under and nothing sealed can be opened (PACT §2).
 	HasRoot        bool
@@ -55,7 +55,7 @@ type State20 struct {
 }
 
 // currentKey is the leaf key that signs and seals today.
-func (s *State20) currentKey() *identity.Keypair {
+func (s *RecipientState) currentKey() *identity.Keypair {
 	for _, k := range s.Keys {
 		if k.Current {
 			return k.KP
@@ -65,7 +65,7 @@ func (s *State20) currentKey() *identity.Keypair {
 }
 
 // nodeState builds Decide's input from the store and the supplied state.
-func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State20) (pactidentity.NodeState, error) {
+func (id *Identifier) nodeState(ctx context.Context, accountID string, st *RecipientState) (pactidentity.NodeState, error) {
 	ns := pactidentity.NodeState{
 		Endpoint: st.Endpoint, AcceptNewHosts: st.AcceptNewHosts, Former: st.Former, SiblingKids: st.SiblingKids,
 	}
@@ -117,12 +117,12 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *State
 	return ns, nil
 }
 
-// openSealed2 is the `v: 2` half of OpenSealed.
-func (id *Identifier) openSealed2(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
-	if id.State20 == nil {
+// decideEnvelope is the `v: 2` half of OpenSealed.
+func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
+	if id.RecipientState == nil {
 		return nil, fmt.Errorf("%w: this identity does not speak 2.0", envelope.ErrInvalid)
 	}
-	st, err := id.State20(ctx)
+	st, err := id.RecipientState(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
@@ -331,7 +331,7 @@ func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
 
 // ResolveTransport applies the pin checks to a validated client chain and
 // records what they change, exactly as the sealed path does through Decide's
-// effects (identify20.go apply): a newer leaf at the pinned endpoint replaces
+// effects (decide.go apply): a newer leaf at the pinned endpoint replaces
 // it; another endpoint is §5.3 — re-pinned with the former endpoint and the
 // owner's event under `auto`, parked as a pending address under `ask`, and
 // and under `ask` after a removal within the tombstone window. It runs once per
@@ -375,8 +375,8 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 	}
 	if endpoint != c.Endpoint {
 		policy := "auto"
-		if id.State20 != nil {
-			if st, serr := id.State20(ctx); serr == nil && st != nil && st.AcceptNewHosts != "" {
+		if id.RecipientState != nil {
+			if st, serr := id.RecipientState(ctx); serr == nil && st != nil && st.AcceptNewHosts != "" {
 				policy = st.AcceptNewHosts
 			}
 		}

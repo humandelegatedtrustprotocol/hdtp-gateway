@@ -514,7 +514,9 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		Audit:     n.opts.audit,
 		// PACT 2.0: what a `v: 2` envelope is decided against, read per call
 		// so the owner's settings and a renewal take effect without a restart.
-		State20: func(ctx context.Context) (*public.State20, error) { return n.state20(ctx, rec.ID, rec.Slug) },
+		RecipientState: func(ctx context.Context) (*public.RecipientState, error) {
+			return n.recipientState(ctx, rec.ID, rec.Slug)
+		},
 		OnEvent: func(event, root, endpoint string) {
 			if n.opts.Bus != nil {
 				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID, ContactFpr: root})
@@ -671,7 +673,7 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return contacts.BuildCard20(rec.DisplayName, chain[0], string(a.sealValue()))
+	return contacts.BuildCard(rec.DisplayName, chain[0], string(a.sealValue()))
 }
 
 func (n *Node) now() time.Time {
@@ -681,17 +683,17 @@ func (n *Node) now() time.Time {
 	return time.Now()
 }
 
-// state20 is what a `v: 2` envelope for an account is decided against (PACT
+// recipientState is what a `v: 2` envelope for an account is decided against (PACT
 // §13.3): the account's own endpoint and settings, its chain, the keys it holds
 // today, the kids it once held, and the kids every OTHER account on this node
 // holds — a key held for another identity must never answer at this one's path
 // (§14.4).
-func (n *Node) state20(ctx context.Context, accountID, slug string) (*public.State20, error) {
+func (n *Node) recipientState(ctx context.Context, accountID, slug string) (*public.RecipientState, error) {
 	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	st := &public.State20{
+	st := &public.RecipientState{
 		HasRoot: rec.HasRoot(), Endpoint: identity.EndpointFor(n.PublicURL(), slug),
 		AcceptNewHosts: rec.AcceptNewHosts,
 	}
@@ -902,7 +904,7 @@ func (n *Node) OutboundClient(accountID string) (*outbound.Client, error) {
 	// Roots stays nil: nil means the SYSTEM roots, and an empty pool would mean
 	// "trust nothing", which silently kills the WebPKI branch of PACT §2 — so
 	// this node could reach pinned self-signed peers and nothing behind an edge.
-	return n.wire20(accountID, &outbound.Client{Keypair: a.kp, Cert: a.cert}), nil
+	return n.wireClient(accountID, &outbound.Client{Keypair: a.kp, Cert: a.cert}), nil
 }
 
 // Pool exposes an account's caller pool, so the portal can drop a cached server

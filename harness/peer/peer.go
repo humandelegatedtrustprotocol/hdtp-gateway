@@ -131,7 +131,7 @@ func NewAgent(name string) (*Agent, error) {
 
 // Card is this agent's contact card: the leaf, and the seal policy it claims.
 func (a *Agent) Card(seal string) string {
-	card, err := contacts.BuildCard20(a.name, a.Leaf, seal)
+	card, err := contacts.BuildCard(a.name, a.Leaf, seal)
 	if err != nil {
 		panic("peer: " + err.Error()) // a scenario's own name, which carries no control character
 	}
