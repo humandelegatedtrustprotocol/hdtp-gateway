@@ -262,6 +262,12 @@ func csrfMiddleware(next http.Handler) http.Handler {
 				HttpOnly: false, SameSite: http.SameSiteStrictMode,
 			})
 			c = &http.Cookie{Name: csrfCookieName(), Value: v}
+			// A handler that renders the token into a form reads it from the request, so the value
+			// minted here has to be on the request too: the browser only has it once this response
+			// arrives. Without this, a page opened with no cookie yet (a bookmark, a link) rendered
+			// an empty token, and its form was refused.
+			r = r.Clone(r.Context())
+			r.AddCookie(c)
 		}
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:

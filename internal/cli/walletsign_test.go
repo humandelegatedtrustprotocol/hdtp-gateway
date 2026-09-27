@@ -208,6 +208,25 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatalf("another owner minted a request: %+v", got)
 	}
 
+	// A browser that has never been to the portal (a bookmark, a link) has no CSRF cookie: the page
+	// it is given must still carry a token its own form can submit.
+	fresh := &walletBrowser{t: t, base: base, session: signedIn.session}
+	res, page = fresh.do("GET", "/identity/alice/wallet", nil, nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("the asking page to a fresh browser: %d", res.StatusCode)
+	}
+	if action, fields := formFields(t, page); action != "/identity/alice/wallet/start" {
+		t.Fatalf("the asking page's form goes to %q", action)
+	} else {
+		f := url.Values{}
+		for _, kv := range fields {
+			f.Set(kv[0], kv[1])
+		}
+		if f.Get("csrf") == "" || f.Get("csrf") != fresh.csrf.Value {
+			t.Fatalf("the page's token %q is not the cookie it set %q", f.Get("csrf"), fresh.csrf.Value)
+		}
+	}
+
 	// 2. Start: the form is exactly the signing request a wallet takes.
 	start := func(replace bool) (*http.Response, string) {
 		f := url.Values{"csrf": {signedIn.csrf.Value}}

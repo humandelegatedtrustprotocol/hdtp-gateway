@@ -231,9 +231,11 @@ pact-cloud's and is not live yet, and how browsers treat a public page sending y
 `http://localhost` has not been measured, so until both are, use the `pact` CLI.
 
 **After a move.** When an install moves the identity to a new address, both the CLI and the portal
-say so: the old host's certificate stays valid until its own date for contacts not yet told, so run
-`pact-gateway account announce -slug me` until none are waiting, then delete the identity at the
-old host.
+say so, and say to run `pact-gateway account announce -slug me` until no contact is waiting: the
+previous certificate stays valid until its own date for contacts not yet told. When the identity
+came from another host, that is also when to delete it there. When this node itself moved to a new
+address, there is nothing to delete: the previous certificate goes on answering here until it
+expires.
 
 ### Leave this node
 
