@@ -33,6 +33,11 @@ cd "$root"
 # and checksum database; the insteadOf, set for this process only (never in anybody's git
 # config), makes the go command's git fetch it over SSH rather than HTTPS.
 export GOPRIVATE="${GOPRIVATE:-github.com/pact-cloud/*}"
+
+# The gate proves the COMMITTED go.mod and go.sum: no go.work the pusher's environment happens to
+# resolve (an umbrella's, a GOWORK variable) may stand in for them. The one workspace a gate builds
+# is `make dependents`' own, for the cloud's battery (Makefile).
+export GOWORK=off
 if [ -z "${GIT_CONFIG_COUNT:-}" ]; then
   export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
 fi
@@ -81,14 +86,15 @@ if [ "$web_touched" = true ]; then
 fi
 # The Postgres engine's tests skip without PACT_TEST_POSTGRES_DSN, so the hook provides one: a
 # NAMED container (the image the node's tests were written against), removed by name on every
-# way out of this script. Without Docker the push is refused — a skipped engine is not a pass.
-pg=pact-gateway-prepush-pg
+# way out of this script. The name carries this hook's PID, so two pushes running at once (two
+# worktrees, two builders) never remove each other's database. Without Docker the push is
+# refused — a skipped engine is not a pass.
+pg="pact-gateway-prepush-pg-$$"
 if ! docker info >/dev/null 2>&1; then
   echo "pre-push: Docker is not running, and make check needs it for the Postgres engine's tests." >&2
   echo "          Start Docker and push again." >&2
   exit 1
 fi
-docker rm -f "$pg" >/dev/null 2>&1 || true
 trap 'docker rm -f "$pg" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$pg" -e POSTGRES_USER=pact -e POSTGRES_PASSWORD=pact \
   -p 127.0.0.1::5432 postgres:16-alpine >/dev/null
