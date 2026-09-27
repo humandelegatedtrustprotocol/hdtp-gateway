@@ -39,6 +39,12 @@ func (s *Postgres) UpsertVacatedAddress(ctx context.Context, v VacatedAddress) e
 	if v.At == 0 {
 		v.At = now()
 	}
+	// The slug's lock (LockSlug): a create of the same slug waits for this transaction and then
+	// reads the reservation. Inside Atomically, as identity.Manager.Leave calls it; outside one the
+	// lock is released as the statement ends and orders nothing.
+	if err := s.q.LockSlug(ctx, v.Slug); err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
 	if err := s.q.UpsertVacatedAddress(ctx, pgdb.UpsertVacatedAddressParams{Endpoint: v.Endpoint, Slug: v.Slug, UntilAt: v.UntilAt, At: v.At}); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}

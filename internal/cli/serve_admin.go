@@ -13,6 +13,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
@@ -276,12 +277,26 @@ func (s *serveRun) registerAdminHandlers() {
 			return nil, err
 		}
 		// A move campaign that is walking holds the account's key and writes its rows; erasing
-		// them under it would leave the walk failing against records that are gone.
-		if s.nd != nil && s.nd.MoveWalking(acct.ID) {
+		// them under it would leave the walk failing against records that are gone. The node holds
+		// the campaign slot for the whole erase, so none can start between the check and the erase.
+		var res identity.LeaveResult
+		erase := func() error {
+			var err error
+			res, err = idm.Leave(ctx, acct.ID, func(ctx context.Context, tx store.Store) ([]string, error) {
+				keys, err := integrations.ClientKeys(ctx, tx, acct.ID)
+				return append(settings.AccountKeys(acct.ID), keys...), err
+			}, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
+			return err
+		}
+		if s.nd != nil {
+			err = s.nd.WithoutCampaign(acct.ID, erase)
+		} else {
+			err = erase()
+		}
+		if errors.Is(err, node.ErrCampaignWalking) {
 			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+" reason:campaign_walking", "refused")
 			return nil, fmt.Errorf("account.leave: %s is telling its contacts of a move right now; run `account announce -slug %s` until it has finished, then leave", acct.Slug, acct.Slug)
 		}
-		res, err := idm.Leave(ctx, acct.ID, settings.AccountKeys(acct.ID), messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
 		if err != nil && res.AccountID == "" {
 			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug, "error")
 			return nil, err

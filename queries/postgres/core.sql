@@ -171,3 +171,9 @@ DELETE FROM tokens WHERE account_id = $1;
 -- account's ledger run one after the other (a signing request replacing the pending one). SQLite
 -- needs no statement for it: every transaction there takes the write lock at BEGIN.
 SELECT id FROM accounts WHERE id = $1 FOR UPDATE;
+
+-- name: LockSlug :exec
+-- A transaction-scoped lock on one slug: creating an account under it and reserving it for an
+-- identity that left (vacated_addresses) take it, so the one that comes second reads what the
+-- first wrote. Released at commit or rollback.
+SELECT pg_advisory_xact_lock(hashtext($1));
