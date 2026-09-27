@@ -163,3 +163,43 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 		t.Fatalf("a re-run recorded the unreachable contact again:\n%s", strings.Join(rows, "\n"))
 	}
 }
+
+// HandshakesTried counts the owed contacts the campaign of ONE leaf has tried and not reached: what
+// `account announce` resumes, as against those waiting for a leaf. Measured after a real move
+// (pact-cloud's live-local L5): four imported contacts at unreachable addresses were told to wait
+// for a new leaf that was already installed.
+func TestHandshakesTriedCountsWhatThisLeafsCampaignMissed(t *testing.T) {
+	m, a := leafEnv(t)
+	ctx := context.Background()
+	for _, fpr := range []string{"sha256:reached", "sha256:missed", "sha256:untried"} {
+		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ann := &Announcer{Manager: m, Now: func() time.Time { return time.Unix(1790000000, 0) }}
+	camp := Campaign{AccountID: a.ID, NewKid: "sha256:this-leaf"}
+	_, _, _ = ann.Fanout(ctx, camp, "card", func(_ context.Context, c store.Contact, _ string) (string, error) {
+		switch c.Fingerprint {
+		case "sha256:missed":
+			return "", errors.New("offline")
+		case "sha256:untried":
+			return "", errors.New("offline")
+		}
+		return "updated", nil
+	})
+	// One of the two misses is recorded as another leaf's: owed, and not tried by THIS leaf.
+	if err := m.Store.UpsertMoveFanout(ctx, store.MoveFanout{AccountID: a.ID, ContactFpr: "sha256:untried", LeafKid: "sha256:older-leaf", Status: "pending", Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	owed, err := m.HandshakesOwed(ctx, a.ID)
+	if err != nil || owed != 2 {
+		t.Fatalf("owed %d (%v), want the two not reached", owed, err)
+	}
+	tried, err := m.HandshakesTried(ctx, a.ID, "sha256:this-leaf")
+	if err != nil || tried != 1 {
+		t.Fatalf("tried by this leaf %d (%v), want the one its campaign missed", tried, err)
+	}
+	if n, _ := m.HandshakesTried(ctx, a.ID, ""); n != 0 {
+		t.Fatalf("with no leaf nothing is tried: %d", n)
+	}
+}
