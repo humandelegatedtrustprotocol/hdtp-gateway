@@ -146,16 +146,22 @@ func TestWalletPurposeIsTheRuleTheInstallMovesBy(t *testing.T) {
 		if ep == endpointB && (purpose != PurposeMove || MoveNotice(res) == "" || !strings.Contains(MoveNotice(res), res.OldNotAfter.UTC().Format(time.RFC3339))) {
 			t.Fatalf("a move to %s: purpose %s, notice %q", ep, purpose, MoveNotice(res))
 		}
+		// This node moved its own address: the old host is this node, and nothing is to be deleted.
+		if ep == endpointB && (strings.Contains(MoveNotice(res), "delete") || !strings.Contains(MoveNotice(res), endpointA)) {
+			t.Fatalf("a move within this node tells the person to delete it: %q", MoveNotice(res))
+		}
 		if ep == endpointA && MoveNotice(res) != "" {
 			t.Fatalf("a renewal gave a move notice: %q", MoveNotice(res))
 		}
 	}
 }
 
-// After an import that carried no ledger there is no date to give, and the notice says so.
+// After an import that carried no ledger there is no date to give, and the notice says so; the old
+// host is elsewhere, so it is where the identity is deleted once the contacts are reached.
 func TestAMoveNoticeWithNoLedgerGivesNoDate(t *testing.T) {
 	n := MoveNotice(InstallResult{Moved: true, Slug: "alina"})
-	if !strings.Contains(n, "does not hold its date") || !strings.Contains(n, "account announce -slug alina") {
+	if !strings.Contains(n, "does not hold its date") || !strings.Contains(n, "account announce -slug alina") ||
+		!strings.Contains(n, "delete the identity at the old host") {
 		t.Fatalf("%q", n)
 	}
 	if MoveNotice(InstallResult{Slug: "alina"}) != "" {
