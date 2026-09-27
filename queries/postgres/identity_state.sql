@@ -100,6 +100,17 @@ UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1;
 -- cert already stored is the one that was checked when the pin was made.
 UPDATE contacts SET root_cert = $1 WHERE account_id = $2 AND fingerprint = $3 AND (root_cert IS NULL OR length(root_cert) = 0);
 
+-- name: SetLeafRequest :execrows
+-- The state a web wallet's answer must carry, as its SHA-256, and the wallet the request went to
+-- (migration 0041). Only a pending request carries one.
+UPDATE leaves SET request_state_hash = $1, wallet_origin = $2 WHERE account_id = $3 AND kid = $4 AND state = 'pending';
+
+-- name: ConsumeLeafRequest :execrows
+-- An answer is accepted once: the check and the consumption are one statement, so two answers
+-- carrying the same state cannot both see it.
+UPDATE leaves SET request_state_hash = NULL
+WHERE account_id = $1 AND kid = $2 AND state = 'pending' AND request_state_hash = $3;
+
 -- name: UpsertVacatedAddress :exec
 -- An address an identity has left (migration 0040, PACT sec. 9). The row keeps the latest
 -- not_after it has been given: a second vacating of the same endpoint never shortens it.

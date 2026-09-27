@@ -48,24 +48,13 @@ func (s *serveRun) registerAdminHandlers() {
 		}
 		return identity.EndpointFor(cfg.PublicURL, slug)
 	}
+	leaves := s.leafService(idm, endpointFor)
+	s.leaves = leaves
 	csrFor := func(acct store.Account, purpose, endpoint string) (map[string]any, error) {
-		if purpose == "" {
-			purpose = identity.PurposeRenew
-			if !acct.HasRoot() {
-				purpose = identity.PurposeSignup
-			}
-		}
-		if endpoint == "" {
-			endpoint = endpointFor(acct.Slug)
-		}
-		if endpoint == "" {
-			return nil, fmt.Errorf("account.csr: no public URL is configured; pass -endpoint")
-		}
-		res, err := idm.IssueCSR(ctx, acct.ID, purpose, endpoint, time.Now())
+		res, err := leaves.Mint(ctx, acct, purpose, endpoint, "")
 		if err != nil {
 			return nil, err
 		}
-		s.auditFn("account_csr", "account:"+acct.ID+" slug:"+acct.Slug+" purpose:"+purpose+" endpoint:"+endpoint+" key:"+res.Kid, "ok")
 		out := map[string]any{
 			"Slug": acct.Slug, "Purpose": res.Purpose, "Endpoint": res.Endpoint, "Kid": res.Kid,
 			"CSR":               string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: res.CSR})),
@@ -138,23 +127,9 @@ func (s *serveRun) registerAdminHandlers() {
 		if err != nil {
 			return nil, err
 		}
-		res, err := idm.InstallLeaf(ctx, acct.ID, chain, time.Now())
+		res, err := leaves.Install(ctx, acct, chain, "")
 		if err != nil {
-			s.auditFn("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug, "error")
 			return nil, err
-		}
-		s.auditFn("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok")
-		// Key material was destroyed, so the chain says so, once per key: a superseded leaf whose
-		// key this node could no longer open (its master key is not the one that sealed it).
-		for _, kid := range res.Retired {
-			s.auditFn("account_leaf_key_retired", "account:"+acct.ID+" slug:"+acct.Slug+" key:"+kid+" reason:unopenable", "ok")
-		}
-		// The node loaded the account's key and certificate when it started;
-		// the install changed both in the store. Rebuild it live.
-		if s.nd != nil {
-			if aerr := s.nd.AdoptAccount(ctx, acct.ID); aerr != nil {
-				return nil, fmt.Errorf("install: reloading the account on the live node: %w", aerr)
-			}
 		}
 		out := map[string]any{
 			"Slug": acct.Slug, "Root": res.RootFingerprint, "Kid": res.Kid, "Endpoint": res.Endpoint,
@@ -163,17 +138,11 @@ func (s *serveRun) registerAdminHandlers() {
 		if len(res.Retired) > 0 {
 			out["Retired"] = res.Retired
 		}
-		// The campaign an install can start — the move's update_contact toward contacts pinned by
-		// our root (PACT §5.3, §9) — runs DETACHED (node.ResumeMove): an unreachable contact holds
-		// the walk until the call gives up, the admin client waits thirty seconds for anything, and
-		// the leaf is already installed. The install is the durable part and it answers now; the walk is
-		// durable too (`move_fanout`), and `account announce` reports it and resumes it.
-		//
-		// Whether it moved is the install's to say (identity.InstallResult.Moved). This worked it
-		// out here from the superseded leaf's endpoint, and so never campaigned after an import.
-		if res.Moved && s.nd != nil {
-			s.nd.ResumeMove(ctx, acct.ID, res.Kid)
+		if res.Campaign {
 			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
+		}
+		if res.Notice != "" {
+			out["Notice"] = res.Notice
 		}
 		return out, nil
 	})

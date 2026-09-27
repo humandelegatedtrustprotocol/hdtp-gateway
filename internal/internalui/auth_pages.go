@@ -228,6 +228,10 @@ func (d AuthDeps) SessionMiddleware(next http.Handler) http.Handler {
 		// wizard views need to render — and its account list is empty until a
 		// session exists (OwnerFrom is "" and membership scoping hides them).
 		"/api/session": true,
+		// The web wallet navigates back here cross-site, so the Strict session cookie is not sent
+		// with it. The page and its script hold no data; the install they POST to is not open
+		// (wallet_pages.go).
+		"/wallet/return": true, "/wallet/return.js": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookieName()); err == nil && c.Value != "" {

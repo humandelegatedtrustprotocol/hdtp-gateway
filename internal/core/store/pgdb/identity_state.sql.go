@@ -39,6 +39,27 @@ func (q *Queries) ClearChainSentKids(ctx context.Context, accountID string) (int
 	return result.RowsAffected(), nil
 }
 
+const consumeLeafRequest = `-- name: ConsumeLeafRequest :execrows
+UPDATE leaves SET request_state_hash = NULL
+WHERE account_id = $1 AND kid = $2 AND state = 'pending' AND request_state_hash = $3
+`
+
+type ConsumeLeafRequestParams struct {
+	AccountID        string
+	Kid              string
+	RequestStateHash []byte
+}
+
+// An answer is accepted once: the check and the consumption are one statement, so two answers
+// carrying the same state cannot both see it.
+func (q *Queries) ConsumeLeafRequest(ctx context.Context, arg ConsumeLeafRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeLeafRequest, arg.AccountID, arg.Kid, arg.RequestStateHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countLiveVacatedEndpoint = `-- name: CountLiveVacatedEndpoint :one
 SELECT COUNT(*) FROM vacated_addresses WHERE endpoint = $1 AND until_at > $2
 `
@@ -275,7 +296,7 @@ func (q *Queries) ListKidsExcept(ctx context.Context, accountID string) ([]ListK
 }
 
 const listLeaves = `-- name: ListLeaves :many
-SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at FROM leaves WHERE account_id = $1 ORDER BY created_at, kid
+SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at, request_state_hash, wallet_origin FROM leaves WHERE account_id = $1 ORDER BY created_at, kid
 `
 
 func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, error) {
@@ -297,6 +318,8 @@ func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, err
 			&i.State,
 			&i.Endpoint,
 			&i.CreatedAt,
+			&i.RequestStateHash,
+			&i.WalletOrigin,
 		); err != nil {
 			return nil, err
 		}
@@ -549,6 +572,32 @@ type SetContactRootCertParams struct {
 // cert already stored is the one that was checked when the pin was made.
 func (q *Queries) SetContactRootCert(ctx context.Context, arg SetContactRootCertParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setContactRootCert, arg.RootCert, arg.AccountID, arg.Fingerprint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setLeafRequest = `-- name: SetLeafRequest :execrows
+UPDATE leaves SET request_state_hash = $1, wallet_origin = $2 WHERE account_id = $3 AND kid = $4 AND state = 'pending'
+`
+
+type SetLeafRequestParams struct {
+	RequestStateHash []byte
+	WalletOrigin     string
+	AccountID        string
+	Kid              string
+}
+
+// The state a web wallet's answer must carry, as its SHA-256, and the wallet the request went to
+// (migration 0041). Only a pending request carries one.
+func (q *Queries) SetLeafRequest(ctx context.Context, arg SetLeafRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setLeafRequest,
+		arg.RequestStateHash,
+		arg.WalletOrigin,
+		arg.AccountID,
+		arg.Kid,
+	)
 	if err != nil {
 		return 0, err
 	}
