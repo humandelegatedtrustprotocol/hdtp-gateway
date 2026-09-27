@@ -93,9 +93,18 @@ func (m *Manager) WalletPurpose(ctx context.Context, accountID, endpoint string)
 }
 
 // MoveNotice is what a host says after an install that moved the identity (the identity-boundary
-// design, §3), or "" when it did not move. The date is the leaf it follows, when this host's ledger
-// knows one; after an import that carried no ledger it does not, and the notice says so rather
-// than give one.
+// design, §3), or "" when it did not move.
+//
+// Two moves reach it, and they are told apart by whether this node held the current leaf (OldKid):
+//   - from another host (after an import): the old host is elsewhere, and the person deletes the
+//     identity there once the contacts are reached;
+//   - to a new address on THIS node (its public URL changed): the "old host" is this node, and the
+//     design's wording — "then delete the identity at the old host" — would have the person erase
+//     the identity they just moved (`account leave`). The superseded leaf goes on answering here
+//     until its notAfter with nobody acting, so there is nothing to delete.
+//
+// The date is the leaf it follows, when this host's ledger knows one; after an import that carried
+// no ledger it does not, and the notice says so rather than give one.
 func MoveNotice(res InstallResult) string {
 	if !res.Moved {
 		return ""
@@ -104,6 +113,11 @@ func MoveNotice(res InstallResult) string {
 	if !res.OldNotAfter.IsZero() {
 		until = "until " + res.OldNotAfter.UTC().Format(time.RFC3339)
 	}
-	return "The old host's certificate stays valid " + until + " for contacts not yet reached. Run `pact-gateway account announce -slug " +
-		res.Slug + "` until none are waiting, then delete the identity at the old host."
+	announce := "Run `pact-gateway account announce -slug " + res.Slug + "` until none are waiting"
+	if res.OldKid != "" {
+		return "This node goes on answering at " + res.OldEndpoint + " with the previous certificate " + until +
+			", for contacts not yet reached. " + announce + "."
+	}
+	return "The old host's certificate stays valid " + until + " for contacts not yet reached. " + announce +
+		", then delete the identity at the old host."
 }
