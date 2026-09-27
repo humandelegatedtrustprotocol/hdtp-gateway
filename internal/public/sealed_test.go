@@ -12,7 +12,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The `sealed_call` wrapper: what it is present at, what it lets through, what it

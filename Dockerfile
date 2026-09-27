@@ -3,12 +3,15 @@
 # (Dockerfile.full) or mount your own.
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-# go.mod replaces pact-identity with a sibling checkout (../pact-identity/go), which sits
-# OUTSIDE this build context, so `go mod download` cannot see it and the build fails.
-# BuildKit's named context carries it in at the path the replace resolves to (WORKDIR is
-# /src, so ../pact-identity/go is /pact-identity/go). The Makefile passes
-# --build-context pactidentity=../pact-identity/go.
-COPY --from=pactidentity . /pact-identity/go
+# The node requires the PRIVATE module github.com/pact-cloud/pact-identity/go by version, and
+# no credential enters this build. `make identity-proxy` fetches that one module on the host
+# (over SSH) into .build/identity-proxy, laid out as a Go module proxy, and the build receives
+# it as the named context `identityproxy` (the Makefile's --build-context, compose.yaml's
+# additional_contexts). The go command asks that proxy first and the public one for everything
+# else; go.sum still verifies what it serves. GONOSUMDB, not GOPRIVATE: GOPRIVATE would also
+# skip the proxy list and fetch the module from GitHub directly, which needs the credential.
+COPY --from=identityproxy . /identity-proxy
+ENV GOPROXY=file:///identity-proxy,https://proxy.golang.org GONOSUMDB=github.com/pact-cloud/*
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .

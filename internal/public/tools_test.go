@@ -23,7 +23,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 type fakeCalendar struct {

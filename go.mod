@@ -15,13 +15,12 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/libdns/cloudflare v0.2.2
-	github.com/libdns/libdns v1.1.1
 	github.com/miekg/dns v1.1.73
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/pact-cloud/pact-identity/go v0.2.0
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rs/zerolog v1.35.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/tech-sumit/pact-gateway/pact-identity v0.0.0-00010101000000-000000000000
 	golang.ngrok.com/ngrok/v2 v2.2.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.48.0
@@ -74,6 +73,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/reedsolomon v1.12.0 // indirect
 	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
+	github.com/libdns/libdns v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
@@ -147,5 +147,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/tech-sumit/pact-gateway/pact-identity => ../pact-identity/go

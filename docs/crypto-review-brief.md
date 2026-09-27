@@ -134,11 +134,14 @@ decisions were wrong — but they were decisions.
 
 ## Reproducing
 
+The `pact-identity/` paths are in the pact-identity repository; check out the release this
+node's `go.mod` requires (the tag `go/vX.Y.Z` names the Go module's version) beside this one.
+
 ```
 cd pact-identity && cargo test                       # the Rust core against Appendix B
 cd pact-identity/go && make test                     # the Go port against the same vectors
 cd pact-identity && node js/check.mjs && node js/parity.mjs && node js/intrude.mjs
-cd pact-gateway && make check                        # this node: fmt, vet, race tests
+make check                                           # this node, in this repository
 ```
 
 The construction lives in `pact-identity/crates/pact-identity/src/envelope.rs` and its Go

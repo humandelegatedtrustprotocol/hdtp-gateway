@@ -35,7 +35,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/public"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // MaxBodyBytes is SPEC §5.7's pre-parse body cap: 5 MiB of inline media plus

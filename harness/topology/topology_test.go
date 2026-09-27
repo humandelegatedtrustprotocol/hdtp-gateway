@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 type rec struct{ calls []string }

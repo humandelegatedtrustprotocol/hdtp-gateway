@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Wallet is the person's side of PACT §9: a root key, and the certificate for it.

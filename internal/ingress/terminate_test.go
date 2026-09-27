@@ -24,7 +24,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // stubDNS answers every A query with 127.0.0.1 so Pebble's validator reaches
