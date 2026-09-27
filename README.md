@@ -246,8 +246,8 @@ pact-gateway account leave -slug me
 ```
 
 It erases every record of the identity at once: its contacts, chats, media no other identity here
-uses, invites, integrations, tokens scoped to it, its settings, and every leaf key this node held
-for it. The live node stops answering for it straight away, as for an address it never served. The
+uses, invites, integrations and their OAuth client credentials, tokens scoped to it, its settings,
+and every leaf key this node held for it. The live node stops answering for it straight away, as for an address it never served. The
 audit trail is append-only and keeps its rows, which name the account by its id.
 
 On SQLite the leaf keys are destroyed, not only deleted: the node zeroes deleted rows

@@ -167,6 +167,12 @@ func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Ac
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
 		t := tx.(*Postgres)
+		// Wait for a leave of this slug that has not committed yet, then read what it reserved.
+		// Without the lock the check below ran before such a leave committed and the insert, held
+		// on the slug's unique index, went through after it.
+		if err := t.q.LockSlug(ctx, p.Slug); err != nil {
+			return err
+		}
 		at := now()
 		vacated, err := t.LiveVacatedSlug(ctx, p.Slug, at)
 		if err != nil {
