@@ -536,7 +536,23 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	r, err := jsonResult(list)
+	// A request from an address that belongs, or lately belonged, to another contact carries that
+	// contact's root (PACT §5.2), as the portal's Requests list does.
+	type row struct {
+		store.Contact
+		AddressOf string `json:",omitempty"`
+	}
+	out := make([]row, 0, len(list))
+	for _, c := range list {
+		rw := row{Contact: c}
+		if c.Status == "pending_in" && ot.d.Contacts != nil {
+			if claim, err := ot.d.Contacts.AddressClaim(ctx, a.AccountID, c.Endpoint, c.Fingerprint); err == nil {
+				rw.AddressOf = claim
+			}
+		}
+		out = append(out, rw)
+	}
+	r, err := jsonResult(out)
 	return r, nil, err
 }
 
