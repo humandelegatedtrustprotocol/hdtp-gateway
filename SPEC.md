@@ -792,7 +792,7 @@ The owner MCP endpoint authenticates with **named, revocable bearer tokens** (§
 | Identity | `list_accounts`, `identity_certificate` |
 | Contacts & permissions | contact management — `list_contacts` (named fields, the cloud's where the node holds them: never the row id, the pinned key, the card or the invite), `add_contact`, `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact`, `rename_contact` (§9.1) — `set_permissions` (the portal's switchboard: a name it does not offer is refused), `set_trust_flag`, `refresh_contact` (below) |
 | Contacts at a new address | `list_pending_addresses`, `approve_address`, `reject_address` — the owner's answer to a contact that moved while this identity's policy is *ask* (PACT §5.3, §9.1) |
-| Invites & card | `create_invite` (answers the cloud's shape — `id`, `url`, `expires_at` — the link at this node's public address, and mints nothing when there is none), `list_invites`, `revoke_invite`, `export_card` |
+| Invites & card | `create_invite` (answers the cloud's shape — id, url, expires_at — the link at this node's public address, and mints nothing when there is none), `list_invites`, `revoke_invite`, `export_card` |
 | Requests | `list_pending`, `answer_request` |
 | Integrations | `list_integrations`, `set_exposure` |
 | Audit | `audit_query` |
