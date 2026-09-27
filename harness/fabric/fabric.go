@@ -52,6 +52,12 @@ type NetOpts struct {
 	// Internal removes the network's route to the outside world. A container with
 	// only internal networks cannot be reached from, or reach, anything else.
 	Internal bool
+	// Routable addresses the network from 198.18.0.0/15 (RFC 2544's benchmarking block) instead of
+	// Docker's private pools. The node's SSRF guard (SPEC §7.5) refuses loopback, unspecified, RFC 1918,
+	// unique-local, link-local and CGNAT addresses and nothing else, so a container here stands
+	// where a host on the internet stands. On a default network every address is RFC 1918, and a
+	// fetch the guard must judge hop by hop is refused at the first one, for the wrong reason.
+	Routable bool
 }
 
 // Container is one container created by this run.
@@ -109,6 +115,9 @@ type Fabric struct {
 	// before the networks they sit on, or Docker refuses the network removal.
 	containers []*Container
 	networks   []*Network
+
+	// pick draws where a routable network's search for a free /24 starts; nil is crypto/rand.
+	pick func() int
 }
 
 func New(prefix string, run Runner) *Fabric {
@@ -195,13 +204,58 @@ func (f *Fabric) Network(ctx context.Context, name string, o NetOpts) (*Network,
 	if o.Internal {
 		args = append(args, "--internal")
 	}
-	args = append(args, full)
-	if _, err := f.run(ctx, "docker", args...); err != nil {
-		return nil, fmt.Errorf("fabric: creating network %s: %w", full, err)
+	if !o.Routable {
+		if _, err := f.run(ctx, "docker", append(args, full)...); err != nil {
+			return nil, fmt.Errorf("fabric: creating network %s: %w", full, err)
+		}
+	} else if err := f.routable(ctx, args, full); err != nil {
+		return nil, err
 	}
 	n := &Network{Name: full, Internal: o.Internal}
 	f.networks = append(f.networks, n)
 	return n, nil
+}
+
+// routableSubnets is how many /24s 198.18.0.0/15 holds.
+const routableSubnets = 512
+
+// routable creates a network on a /24 of 198.18.0.0/15. The block is shared by every run on the
+// machine, so the /24 is drawn at random (f.pick) and, where Docker answers that the pool
+// overlaps one already in use, the next is tried; any other refusal is the answer.
+func (f *Fabric) routable(ctx context.Context, args []string, full string) error {
+	pick := f.pick
+	if pick == nil {
+		pick = func() int {
+			var b [2]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				panic(err)
+			}
+			return int(b[0])<<8 | int(b[1])
+		}
+	}
+	start := pick()
+	var last []byte
+	for i := range 32 {
+		n := (start + i) % routableSubnets
+		subnet := fmt.Sprintf("198.%d.%d.0/24", 18+n/256, n%256)
+		out, err := f.run(ctx, "docker", append(args, "--subnet", subnet, full)...)
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(string(out), "overlaps") {
+			return fmt.Errorf("fabric: creating network %s on %s: %w: %s", full, subnet, err, strings.TrimSpace(string(out)))
+		}
+		last = out
+	}
+	return fmt.Errorf("fabric: creating network %s: 32 subnets of 198.18.0.0/15 were taken: %s", full, strings.TrimSpace(string(last)))
+}
+
+// Connect attaches a running container to a further network.
+func (f *Fabric) Connect(ctx context.Context, c *Container, n *Network) error {
+	if _, err := f.run(ctx, "docker", "network", "connect", n.Name, c.Name); err != nil {
+		return fmt.Errorf("fabric: attaching %s to %s: %w", c.Name, n.Name, err)
+	}
+	return nil
 }
 
 // Container starts a container on a network.
@@ -257,8 +311,8 @@ func (f *Fabric) NAT(ctx context.Context, name string, outside, inside *Network)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := f.run(ctx, "docker", "network", "connect", inside.Name, c.Name); err != nil {
-		return nil, fmt.Errorf("fabric: attaching %s to %s: %w", c.Name, inside.Name, err)
+	if err := f.Connect(ctx, c, inside); err != nil {
+		return nil, err
 	}
 	// Deliberately outbound-only. No DNAT, no --publish: the inside segment stays
 	// undialable, which is the property T2 exists to exercise.

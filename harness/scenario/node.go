@@ -288,26 +288,34 @@ func (w *World) Paired(ctx context.Context, image string) (*Paired, error) {
 	if err != nil {
 		return p, err
 	}
-	token, err := invite(ctx, alice, "harness", 1)
+	p.Contact, p.Target, err = w.Contact(ctx, alice)
+	return p, err
+}
+
+// Contact is bob, an agent in the test process who redeems an invite from a node published with
+// PublishPublic and is approved as a friend. The target is how he reaches it.
+func (w *World) Contact(ctx context.Context, o *Owned) (*peer.Agent, peer.Target, error) {
+	target := o.Target()
+	token, err := invite(ctx, o, "harness", 1)
 	if err != nil {
-		return p, err
+		return nil, target, err
 	}
-	if p.Contact, err = peer.NewAgent("bob"); err != nil {
-		return p, err
+	bob, err := peer.NewAgent("bob")
+	if err != nil {
+		return nil, target, err
 	}
-	p.Target = alice.Target()
 	// The card IS the leaf certificate (PACT §3): the address is inside it, and it has to be one
 	// §14.2 rule 5 allows.
-	if _, err := p.Contact.Call(ctx, p.Target, "redeem_invite",
-		map[string]any{"token": token, "card": p.Contact.Card("optional")}, "redeem-1"); err != nil {
-		return p, fmt.Errorf("redeem_invite: %w", err)
+	if _, err := bob.Call(ctx, target, "redeem_invite",
+		map[string]any{"token": token, "card": bob.Card("optional")}, "redeem-1"); err != nil {
+		return bob, target, fmt.Errorf("redeem_invite: %w", err)
 	}
-	if _, err := alice.Owner.Call(ctx, "approve_contact", map[string]any{
-		"account_id": alice.AccountID, "contact_fpr": p.Contact.Fingerprint(), "preset": "friend",
+	if _, err := o.Owner.Call(ctx, "approve_contact", map[string]any{
+		"account_id": o.AccountID, "contact_fpr": bob.Fingerprint(), "preset": "friend",
 	}); err != nil {
-		return p, fmt.Errorf("approve_contact: %w", err)
+		return bob, target, fmt.Errorf("approve_contact: %w", err)
 	}
-	return p, nil
+	return bob, target, nil
 }
 
 // Target is how an agent in the test process reaches a node published with PublishPublic.
