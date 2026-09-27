@@ -190,9 +190,12 @@ func (ot ownerTools) identityCertificateTool(ctx context.Context, req *mcp.CallT
 		for _, c := range info.Chain {
 			chain = append(chain, pactidentity.B64url(c))
 		}
-		out["root_fingerprint"], out["kid"], out["endpoint"] = info.RootFingerprint, info.Kid, info.Endpoint
-		out["not_before"], out["not_after"] = info.NotBefore.UTC().Format(time.RFC3339), info.NotAfter.UTC().Format(time.RFC3339)
-		out["renewal_due"], out["chain"] = info.RenewalDue, chain
+		out["root_fingerprint"], out["chain"] = info.RootFingerprint, chain
+		if info.Served() {
+			out["kid"], out["endpoint"] = info.Kid, info.Endpoint
+			out["not_before"], out["not_after"] = info.NotBefore.UTC().Format(time.RFC3339), info.NotAfter.UTC().Format(time.RFC3339)
+			out["renewal_due"] = info.RenewalDue
+		}
 		out["superseded"], out["former"] = info.Superseded, info.Former
 		if info.PendingCSR != "" {
 			out["pending_csr"] = info.PendingCSR

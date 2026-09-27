@@ -670,6 +670,13 @@ type CertificateInfo struct {
 	Former         []string
 }
 
+// Served reports whether this host holds a current leaf for the identity. An identity can hold its
+// root and none: an import leaves it so until the wallet signs one, and the retire sweep moves a
+// current leaf past its notAfter to former (RetireExpiredLeafKeys). Then Kid, Endpoint, NotBefore,
+// NotAfter and RenewalDue are zero values, and a door that printed them described a leaf that does
+// not exist ("valid until 0001-01-01"). Every door asks this before it gives the leaf's fields.
+func (c CertificateInfo) Served() bool { return c.Kid != "" }
+
 // Certificate reports an account's certificate state; renewal is due thirty
 // days ahead of the leaf's notAfter (PACT §2).
 func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Time) (CertificateInfo, error) {
