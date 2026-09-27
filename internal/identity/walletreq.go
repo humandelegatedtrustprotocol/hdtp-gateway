@@ -17,6 +17,11 @@ import (
 // one that is not newer than the current leaf. The install doors audit it as a refusal, not a failure.
 var ErrLeafRefused = errors.New("leaf refused")
 
+// ErrEndpointRefused marks a signing request refused for its endpoint: an address PACT's address
+// rule refuses (pactidentity.AddressGuard), which no wallet would certify. It comes with
+// ErrLeafRefused.
+var ErrEndpointRefused = errors.New("the endpoint is not an address a wallet certifies")
+
 // ErrRequestState marks an answer that does not carry the pending request's state, or carries one
 // already used (PACT §9.1). It is a refusal too, and says the request is not in the state the answer
 // assumes.

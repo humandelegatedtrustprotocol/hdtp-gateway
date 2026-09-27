@@ -35,15 +35,32 @@ func refuse(format string, a ...any) error {
 }
 
 // ImportCeiling is the whole-file limit this host sets on what an import decompresses (PACT
-// §9.2): far above any history a person accumulates, far below a disk.
+// §9.2). It bounds the DISK an import can fill: the media files, which are most of any export's
+// bytes, are hashed as they stream and written one at a time, never held together.
 const ImportCeiling = 16 << 30
+
+// ImportMessagesCeiling bounds what an import holds in MEMORY. messages.jsonl is the one member read
+// into memory whole: every message becomes a row in the plan the person reviews, and Apply writes
+// them in one transaction. Measured on 2026-09-28 (TestAnImportsMemoryFollowsItsMessages, 1 KB
+// bodies, 10,000 and 40,000 messages): reading allocates 11.4-11.5 bytes per byte of
+// messages.jsonl in all, and the plan holds 1.1-1.3 bytes per byte once the collector has run. At
+// 128 MiB the read allocates at most about 1.5 GiB over its course and holds about 170 MB; a
+// larger messages.jsonl is refused by its declared size, which archive/zip holds the member to,
+// before a byte of it is read. (The contacts and threads members are bounded by the format, at
+// 4 MiB and 16 MiB.)
+const ImportMessagesCeiling = 128 << 20
 
 // Result says what an export wrote or an import took in.
 type Result struct {
 	Contacts, Threads, Messages, Media int
+	// PinsFilled counts, on an import, the contacts held here with no leaf whose pin the file
+	// filled; Contacts counts the contacts it added.
+	PinsFilled int
 	// AlreadyHere counts, on an import, the threads, messages and files this identity already
 	// held; they are left as they are.
 	AlreadyHere int
-	// LeftOut names what an export did not carry, and why.
-	LeftOut []string
+	// LeftOut names what an export did not carry, and why. LeftOutMessages are the ids of the
+	// messages among them, which the writer left out (its audit row names them).
+	LeftOut         []string
+	LeftOutMessages []string
 }

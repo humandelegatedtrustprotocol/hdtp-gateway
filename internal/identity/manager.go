@@ -42,19 +42,33 @@ const keyAAD = "accounts.key_sealed"
 type Manager struct {
 	Store   store.Store
 	Keyring *core.Keyring
+
+	// beforeInstallWrites, when a test sets it, runs after an install has passed every check and
+	// before its transaction: where two answers carrying one state are held together
+	// (TestTwoAnswersTogetherInstallOnce).
+	beforeInstallWrites func()
+}
+
+// ValidDisplayName is the one rule for an account's display name, on every door that names one
+// (`account create`, the portal, an import's owner_name): the name is written into the account's
+// card as one line (PACT §3), and a control character in it is a card the writer refuses to write —
+// a line break used to put a property of the NAME'S choosing into the card this node serves — so
+// the account is refused before a key is made for it, not at the first request for a card it
+// cannot have.
+func ValidDisplayName(name string) error {
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return errors.New("identity: a display name carries no control character (it is one line of the account's card)")
+		}
+	}
+	return nil
 }
 
 // CreateAccount makes the account row, generates its keypair, and binds the
 // fingerprint + sealed key in one flow (SPEC §3.2).
 func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, algo Algo) (store.Account, error) {
-	// The display name is written into this account's card as one line (PACT §3). A control character
-	// in it is a card the writer refuses to write — a line break used to put a property of the NAME'S
-	// choosing into the card this node serves — so the account is refused here, before a key is made
-	// for it, and not at the first request for a card it cannot have.
-	for _, r := range displayName {
-		if unicode.IsControl(r) {
-			return store.Account{}, errors.New("identity: a display name carries no control character (it is one line of the account's card)")
-		}
+	if err := ValidDisplayName(displayName); err != nil {
+		return store.Account{}, err
 	}
 	if algo == "" {
 		algo = AlgoP256
