@@ -37,7 +37,7 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 			t.Fatal(err)
 		}
 		for fpr, status := range map[string]string{friend.Fpr: "active", blocked.Fpr: "blocked"} {
-			if err := st.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/a/x/mcp"}); err != nil {
+			if err := st.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: status, TrustFlag: "messages_only", Endpoint: "https://x.example/a/x/mcp", HandshakeDueAt: 1}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -52,6 +52,12 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 	_, out, _ = runQuiet("doctor", "-config", cfg)
 	if !strings.Contains(out, "warn handshake    "+want) {
 		t.Fatalf("doctor must name the owed handshake:\n%s", out)
+	}
+
+	// L5 (review 2026-09-28): announce on a slug with no leaf yet has nothing to walk and must not
+	// say it resumed anything; the handshake goes out when the first leaf is installed.
+	if code, out, errb := runQuiet("account", "announce", "-config", cfg, "-slug", "work"); code == 0 || strings.Contains(out, "resumed") || !strings.Contains(errb, "no leaf yet") {
+		t.Fatalf("announce on a keyless slug: code=%d out=%q err=%q", code, out, errb)
 	}
 
 	// Told, so owed nothing: both fall silent.

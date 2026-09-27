@@ -160,8 +160,9 @@ func merge(held, rows []pactidentity.ContactRow, p *Plan) error {
 }
 
 // Apply writes a plan: the rows under one transaction, then the files. Every contact written is
-// owed this host's handshake (PACT §9.2), which the campaign after the identity's next leaf sends.
-func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir) (Result, error) {
+// owed this host's handshake from `now` (PACT §9.2), which the campaign of the identity's next leaf
+// — the first one requested after the import — sends.
+func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir, now time.Time) (Result, error) {
 	var res Result
 	err := st.Atomically(ctx, func(tx store.Store) error {
 		res = Result{}
@@ -190,6 +191,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			if err != nil {
 				return err
 			}
+			c.HandshakeDueAt = now.Unix()
 			if _, gerr := tx.GetContact(ctx, accountID, r.Root); gerr == nil {
 				// Held with no leaf (export_merge wrote it only so): the file's pin fills it.
 				wrote, err := tx.ImportContactPin(ctx, c)

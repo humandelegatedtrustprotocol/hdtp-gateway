@@ -56,6 +56,10 @@ type Leaf struct {
 	// WalletOrigin is the wallet the request went to; "" for one handed over by the CLI.
 	RequestStateHash []byte
 	WalletOrigin     string
+	// Moved is whether installing this leaf moved the identity, as the install decided it
+	// (migration 0043): a move's campaign tells every active contact, any other leaf's campaign
+	// only the contacts an import left owed the handshake.
+	Moved bool
 }
 
 // VacatedAddress is an address an identity has left (migration 0040, PACT §9): the endpoint its
@@ -183,9 +187,16 @@ type Contact struct {
 	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
 	// HandshakeDue says this contact arrived in an import and has not yet heard from this host
-	// (migration 0042, PACT §9.2): the campaign after the identity's next leaf owes it
+	// (migration 0042, PACT §9.2): the campaign of the identity's next leaf owes it
 	// update_contact, or request_contact if it refuses that, and clears this when it is told.
-	HandshakeDue bool
+	// HandshakeDueAt is when it became owed — the import's time (migration 0043) — so the
+	// campaign of a leaf requested before the import does not spend it; an import sets it, and
+	// ImportContact refuses a row without it.
+	HandshakeDue   bool
+	HandshakeDueAt int64
+	// RequestedAt is when this row became a request, ours or theirs (migration 0043): the clock
+	// the expiry sweep reads (SPEC §9.1). Zero for a row that has never been one.
+	RequestedAt int64
 }
 
 // ExpiredContact is one unanswered request the expiry sweep removed.
@@ -444,6 +455,7 @@ type AccountStore interface {
 	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error
 	InsertLeaf(ctx context.Context, l Leaf) error
 	UpdateLeaf(ctx context.Context, l Leaf) error
+	SetLeafMoved(ctx context.Context, accountID, kid string, moved bool) error
 	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)
 
 	// ListKidsExcept is every leaf kid on this node that belongs to some OTHER
@@ -567,11 +579,21 @@ type ContactStore interface {
 	// to active also sets EverActive.
 	MoveContactStatus(ctx context.Context, accountID, fingerprint, from, to string) (bool, error)
 
+	// MarkContactRequested makes a contact of status `from` an approach of ours (pending_out)
+	// requested at `at`, and leaves EverActive as it was: the handshake's fallback to
+	// request_contact, written before the request is sent (PACT §9.2). False when the row changed.
+	MarkContactRequested(ctx context.Context, accountID, fingerprint, from string, at int64) (bool, error)
+	// TakeBackContactRequest returns a row MarkContactRequested marked at `markedAt` to status
+	// `to` and request clock `requestedAt` (0 for none): a request that did not arrive, or was
+	// refused. False when the row is no longer that approach.
+	TakeBackContactRequest(ctx context.Context, accountID, fingerprint, to string, requestedAt, markedAt int64) (bool, error)
+
 	// DeleteContactInStatus removes the row only while it is still `status`. False when it is not.
 	DeleteContactInStatus(ctx context.Context, accountID, fingerprint, status string) (bool, error)
 
-	// DeleteExpiredPendingContacts removes the account's pending_in and pending_out rows created
-	// before cutoff (SPEC §9.1: an unanswered request expires) and reports which went.
+	// DeleteExpiredPendingContacts removes the account's pending_in and pending_out rows whose
+	// request was made before cutoff (SPEC §9.1: an unanswered request expires; the clock is
+	// Contact.RequestedAt) and reports which went.
 	DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error)
 
 	// SetContactAccepted records a peer's post-approval card and the permissions

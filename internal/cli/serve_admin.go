@@ -164,6 +164,11 @@ func (s *serveRun) registerAdminHandlers() {
 		if !acct.HasRoot() || s.nd == nil {
 			return nil, fmt.Errorf("account.announce: %s has no certificate yet, or the node is not running", acct.Slug)
 		}
+		// A campaign is a leaf's: an identity an import brought holds its root and no leaf yet, and
+		// what it owes goes out when its first leaf is installed. There is nothing to resume.
+		if _, err := idm.CampaignFor(ctx, acct.ID, acct.Fingerprint); err != nil {
+			return nil, fmt.Errorf("account.announce: %s has no leaf yet: its contacts are told when the wallet's first leaf is installed (`account csr -slug %s -purpose move`)", acct.Slug, acct.Slug)
+		}
 		before, err := s.nd.MoveProgress(ctx, acct.ID, acct.Fingerprint)
 		if err != nil {
 			return nil, err
@@ -172,7 +177,7 @@ func (s *serveRun) registerAdminHandlers() {
 		return map[string]any{
 			"Slug": acct.Slug, "Told": before.Told, "Waiting": before.Waiting,
 			"Walking": before.Walking || resumed, "Resumed": resumed, "Unreached": before.Unreached,
-			"NoLeaf": before.NoLeaf,
+			"NoLeaf": before.NoLeaf, "Refused": before.Refused,
 		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {

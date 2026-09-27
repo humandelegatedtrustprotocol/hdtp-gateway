@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
@@ -31,7 +33,11 @@ func (s *SQLite) InsertContact(ctx context.Context, c Contact) (Contact, error) 
 }
 
 func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
-	return s.q.ImportContact(ctx, contactImport(c))
+	p, err := contactImport(c)
+	if err != nil {
+		return err
+	}
+	return s.q.ImportContact(ctx, p)
 }
 
 func (s *SQLite) ClearContactHandshake(ctx context.Context, accountID, fingerprint string) error {
@@ -124,7 +130,7 @@ func (s *SQLite) RedeemOverPendingContact(ctx context.Context, c Contact) (bool,
 }
 
 func (s *SQLite) DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error) {
-	rows, err := s.q.DeleteExpiredPendingContacts(ctx, sqlitedb.DeleteExpiredPendingContactsParams{AccountID: accountID, CreatedAt: cutoff})
+	rows, err := s.q.DeleteExpiredPendingContacts(ctx, sqlitedb.DeleteExpiredPendingContactsParams{AccountID: accountID, RequestedAt: sql.NullInt64{Int64: cutoff, Valid: true}})
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +159,30 @@ func everActive(status string) int64 {
 }
 
 func (s *SQLite) ImportContactPin(ctx context.Context, c Contact) (bool, error) {
-	n, err := s.q.ImportContactPin(ctx, contactPin(c))
+	p, err := contactPin(c)
+	if err != nil {
+		return false, err
+	}
+	n, err := s.q.ImportContactPin(ctx, p)
 	return n > 0, err
+}
+
+func (s *SQLite) MarkContactRequested(ctx context.Context, accountID, fingerprint, from string, at int64) (bool, error) {
+	n, err := s.q.MarkContactRequested(ctx, sqlitedb.MarkContactRequestedParams{
+		RequestedAt: nullUnix(at), AccountID: accountID, Fingerprint: fingerprint, Status: from,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: %w", err)
+	}
+	return n > 0, nil
+}
+
+func (s *SQLite) TakeBackContactRequest(ctx context.Context, accountID, fingerprint, to string, requestedAt, markedAt int64) (bool, error) {
+	n, err := s.q.TakeBackContactRequest(ctx, sqlitedb.TakeBackContactRequestParams{
+		Status: to, RequestedAt: nullUnix(requestedAt), AccountID: accountID, Fingerprint: fingerprint, RequestedAt_2: nullUnix(markedAt),
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: %w", err)
+	}
+	return n > 0, nil
 }

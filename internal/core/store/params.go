@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
@@ -33,15 +34,30 @@ func contactInsert(c *Contact) sqlitedb.InsertContactParams {
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
-		RootCert: c.RootCert, EverActive: everActive(c.Status),
+		RootCert: c.RootCert, EverActive: everActive(c.Status), RequestedAt: requestedAt(c.Status, c.CreatedAt),
 	}
 }
 
+// requestedAt is the request clock a row written with this status starts with (migration 0043):
+// its creation, when it is written as a request, and none otherwise.
+func requestedAt(status string, createdAt int64) sql.NullInt64 {
+	if status == "pending_in" || status == "pending_out" {
+		return sql.NullInt64{Int64: createdAt, Valid: true}
+	}
+	return sql.NullInt64{}
+}
+
+// nullUnix is a unix time as a nullable column: zero is NULL.
+func nullUnix(t int64) sql.NullInt64 { return sql.NullInt64{Int64: t, Valid: t != 0} }
+
 // contactImport returns ImportContact's parameters for an archived contact, giving it an id if it
-// has none.
-func contactImport(c Contact) sqlitedb.ImportContactParams {
+// has none. An imported contact is owed the handshake from a time the caller names.
+func contactImport(c Contact) (sqlitedb.ImportContactParams, error) {
 	if c.ID == "" {
 		c.ID = newID()
+	}
+	if c.HandshakeDueAt <= 0 {
+		return sqlitedb.ImportContactParams{}, fmt.Errorf("store: imported contact %s names no time its handshake became owed", c.Fingerprint)
 	}
 	return sqlitedb.ImportContactParams{
 		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
@@ -51,20 +67,26 @@ func contactImport(c Contact) sqlitedb.ImportContactParams {
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
 		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
 		// What the export says (its was_active), and active is always a contact.
-		EverActive: importedEverActive(c),
-	}
+		EverActive:   importedEverActive(c),
+		HandshakeDue: c.HandshakeDueAt,
+		RequestedAt:  requestedAt(c.Status, c.CreatedAt),
+	}, nil
 }
 
-// contactPin returns ImportContactPin's parameters. A nil root certificate keeps the one the row holds.
-func contactPin(c Contact) sqlitedb.ImportContactPinParams {
+// contactPin returns ImportContactPin's parameters. A nil root certificate keeps the one the row
+// holds; the handshake is owed from the time the caller names, as for ImportContact.
+func contactPin(c Contact) (sqlitedb.ImportContactPinParams, error) {
+	if c.HandshakeDueAt <= 0 {
+		return sqlitedb.ImportContactPinParams{}, fmt.Errorf("store: imported pin %s names no time its handshake became owed", c.Fingerprint)
+	}
 	var rootCert []byte
 	if len(c.RootCert) > 0 {
 		rootCert = c.RootCert
 	}
 	return sqlitedb.ImportContactPinParams{
-		Endpoint: c.Endpoint, Leaf: c.Leaf, Spki: c.SPKI, RootCert: rootCert,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, Spki: c.SPKI, RootCert: rootCert, HandshakeDue: c.HandshakeDueAt,
 		AccountID: c.AccountID, Fingerprint: c.Fingerprint,
-	}
+	}, nil
 }
 
 // contactRedeem returns RedeemOverPendingContact's parameters.

@@ -69,10 +69,16 @@ type demoNode struct {
 	acct store.Account
 	slug string
 	host string
+	dir  string // the node's data directory: its database is <dir>/<slug>.db
 	root *pactidentity.PrivateKey
 	rc   []byte // root certificate
 	log  []string
+	// hook, when set, sees each audit line as it is written, inside the handler that writes it.
+	hookMu sync.Mutex
+	hook   func(line string)
 }
+
+func (d *demoNode) onAudit(f func(line string)) { d.hookMu.Lock(); d.hook = f; d.hookMu.Unlock() }
 
 func (d *demoNode) endpoint() string { return identity.EndpointFor("https://"+d.host, d.slug) }
 func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public.SPKI) }
@@ -167,7 +173,7 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test"}
+	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test", dir: dir}
 	d.root, err = pactidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +185,16 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
-		Audit: func(action, resource, outcome string) { d.log = append(d.log, action+" "+resource+" → "+outcome) }})
+		Audit: func(action, resource, outcome string) {
+			line := action + " " + resource + " → " + outcome
+			d.log = append(d.log, line)
+			d.hookMu.Lock()
+			hook := d.hook
+			d.hookMu.Unlock()
+			if hook != nil {
+				hook(line)
+			}
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
