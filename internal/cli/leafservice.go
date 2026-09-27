@@ -106,11 +106,16 @@ func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]
 		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug, "error")
 		return installed{}, err
 	}
+	// One row for the install: `partial` when the leaf is installed and something after it was not
+	// finished, each thing named.
+	detail, outcome := " root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok"
 	if state != "" {
-		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint+" via:wallet", "ok")
-	} else {
-		l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+" root:"+res.RootFingerprint+" key:"+res.Kid+" endpoint:"+res.Endpoint, "ok")
+		detail += " via:wallet"
 	}
+	for _, w := range res.Warnings {
+		detail, outcome = detail+" warning:"+w, "partial"
+	}
+	l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+detail, outcome)
 	// Key material was destroyed, so the chain says so, once per key: a superseded leaf whose
 	// key this node could no longer open (its master key is not the one that sealed it).
 	for _, kid := range res.Retired {
