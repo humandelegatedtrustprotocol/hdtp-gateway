@@ -67,10 +67,10 @@ that cited test names exist and cannot check that the list is complete.
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
 | `identity_required` | `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored`, `TestClientCertRequiredTakesAChainAndNothingElse` |
-| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `FuzzSealedEnvelope`, and the whole intrusion battery (`pact vectors intrude`) |
+| `envelope_invalid` | `TestV2FirstContactMustRedeemOrRequest`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `TestAnUnreadableEnvelopeIsRefusedLikeAnyOther`, `FuzzSealedEnvelope`, and the whole intrusion battery (`pact vectors intrude`) |
 | `chain_required` (2.0 — a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike) | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
 | `certificate_renewed` (2.0 — an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
-| `seal_not_accepted` (a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes` |
+| `seal_not_accepted` (a sealed call to a recipient whose card says `X-PACT-SEAL: none`) | `TestSealNoneRefusesEnvelopes`, `TestAnUnreadableEnvelopeIsRefusedLikeAnyOther` |
 
 ## Limits
 
