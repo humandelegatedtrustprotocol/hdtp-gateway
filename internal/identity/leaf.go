@@ -356,6 +356,13 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	if !pactidentity.IsNormalHTTPS(endpoint) {
 		return CSRResult{}, fmt.Errorf("identity: %q is not an https URL in normal form (PACT §14.1)", endpoint)
 	}
+	// The core's address rule, the one a wallet applies before it certifies an endpoint and a peer
+	// before it takes one into a card: a request naming an address it refuses (a loopback, private
+	// or local host, as a public_url of localhost makes) is refused here, in its words, rather than
+	// handed to a wallet that will refuse it.
+	if ok, why := pactidentity.AddressGuard(endpoint, "", false); !ok {
+		return CSRResult{}, fmt.Errorf("identity: %s: %s; set public_url to the address people reach this node at: %w: %w", endpoint, why, ErrEndpointRefused, ErrLeafRefused)
+	}
 	// An address an identity left stays reserved until the last leaf issued for it expires (PACT
 	// §9, migration 0040). A request naming it would ask a wallet for a leaf at an address this
 	// node must not assign; the account slug is guarded where accounts are created (the store).

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,5 +112,19 @@ func TestARefusedRequestIsAudited(t *testing.T) {
 	}
 	if len(rows) != 1 || !strings.HasPrefix(rows[0], "account_csr account:"+a.ID) || !strings.HasSuffix(rows[0], "reason:purpose → refused") {
 		t.Fatalf("the refused request's row: %q", rows)
+	}
+}
+
+// Coordinator (QA of 2026-09-28), item 2: doctor names a public_url no wallet certifies an address
+// under, with the core's reason.
+func TestDoctorNamesAPublicURLNoWalletCertifies(t *testing.T) {
+	n := newIDNode(t, "local")
+	body := `{"data_dir":"` + n.dir + `","internal_bind":"127.0.0.1:0","public_bind":"127.0.0.1:0","public_url":"https://localhost:8443"}`
+	if err := os.WriteFile(n.cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := runQuiet("doctor", "-config", n.cfg)
+	if code == 0 || !strings.Contains(out, "FAIL public_url   https://localhost:8443: endpoint host is local") {
+		t.Fatalf("doctor on a localhost public_url: code=%d\n%s", code, out)
 	}
 }

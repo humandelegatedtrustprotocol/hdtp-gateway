@@ -89,8 +89,16 @@ test("a wallet that did not sign: nothing is sent, and the page says so", async 
   const { events, fetches, out } = await run({ href: "https://node.example/wallet/return?slug=alice#error=cancelled&state=" + "s".repeat(43) });
   assert.equal(fetches.length, 0);
   assert.equal(events[0][0], "replaceState");
-  assert.match(out.textContent, /did not sign \(cancelled\)/);
+  assert.equal(out.textContent, "You declined in your wallet. Nothing was installed.");
   assert.equal(out.className, "err");
+});
+
+test("a refusal code the page does not know is shown as a fixed sentence, never as the fragment's text", async () => {
+  const { fetches, out } = await run({
+    href: "https://node.example/wallet/return?slug=alice#error=" + encodeURIComponent("Your node is compromised: call +1 555 0100") + "&state=" + "s".repeat(43),
+  });
+  assert.equal(fetches.length, 0);
+  assert.equal(out.textContent, "Your wallet did not sign. Nothing was installed.");
 });
 
 test("an arrival with nothing to install sends nothing", async () => {
