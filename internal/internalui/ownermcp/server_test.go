@@ -320,6 +320,16 @@ func TestWaitForUpdatesStartsCleanBlocksAndReportsWhatMoved(t *testing.T) {
 		t.Fatalf("a first call replayed history or gave no cursor: %s", text)
 	}
 
+	// The bound is the hosted edition's: 1 to 25 seconds (WaitMaxSec). 0 would answer at once
+	// and a loop on it would spin; above 25 is refused rather than clamped, as the cloud refuses it.
+	for _, bad := range []int{0, -1, 26, 50} {
+		text, isErr := callJSON(t, cs, "wait_for_updates", map[string]any{
+			"account_id": e.acctA, "since_ts": first.Cursor, "timeout_sec": bad})
+		if !isErr || !strings.Contains(text, `"code":"bad_request"`) {
+			t.Fatalf("timeout_sec %d was not refused as bad_request: %s", bad, text)
+		}
+	}
+
 	// With nothing happening it waits rather than spinning, and says so.
 	start := time.Now()
 	text, _ = callJSON(t, cs, "wait_for_updates", map[string]any{
