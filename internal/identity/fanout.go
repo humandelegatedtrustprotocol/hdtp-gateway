@@ -89,6 +89,21 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		if !InCampaign(ct) {
 			continue
 		}
+		if len(ct.Leaf) == 0 {
+			// A contact whose leaf this host does not hold — typically an imported one whose leaf
+			// did not travel, or did not validate at its endpoint (export_read nulls it): nothing
+			// can be sealed to it, and a stranger cannot fetch its card (get_card is
+			// contact-tier). It stays pinned by its root and is reached when it next calls this
+			// identity. The campaign records it as `unreached` once and does not call it
+			// (PACT §9.2).
+			if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == FanoutUnreached && !ct.HandshakeDue {
+				continue // already recorded for this leaf
+			}
+			if a.unreached(ctx, c, ct) {
+				unrecorded++
+			}
+			continue
+		}
 		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" && !ct.HandshakeDue {
 			done++
 			continue
@@ -133,4 +148,27 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		return done, failed, ErrFanoutIncomplete
 	}
 	return done, failed, nil
+}
+
+// FanoutUnreached is the move_fanout status of a contact a campaign could not reach at all,
+// because this host holds no leaf of theirs to seal to.
+const FanoutUnreached = "unreached"
+
+// unreached records one contact whose leaf is not held: its progress row, its handshake mark
+// cleared (a no-op for a contact that had none), and its audit row. It reports whether the record could not be written.
+func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact) (failed bool) {
+	st := a.Manager.Store
+	if err := st.UpsertMoveFanout(ctx, store.MoveFanout{
+		AccountID: c.AccountID, ContactFpr: ct.Fingerprint, LeafKid: c.NewKid, Status: FanoutUnreached,
+		Attempts: 0, LastError: "no leaf of theirs is held here", UpdatedAt: a.now().Unix(),
+	}); err != nil {
+		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:progress not recorded", "error")
+		return true
+	}
+	if err := st.ClearContactHandshake(ctx, c.AccountID, ct.Fingerprint); err != nil {
+		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:handshake mark not cleared", "error")
+		return true
+	}
+	a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:no leaf held", FanoutUnreached)
+	return false
 }

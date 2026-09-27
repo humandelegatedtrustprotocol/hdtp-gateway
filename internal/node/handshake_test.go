@@ -16,13 +16,18 @@ import (
 // here a RENEWAL at the same address, which is not a move and used to start no campaign at all.
 //
 //   - Bharat pins Alina's root: update_contact is accepted, and he is told.
+//
 //   - Chitra does not: update_contact is a contact-tier tool and she refuses it, so the campaign
 //     falls back to request_contact, Alina's row waits as pending_out, and Chitra's owner has the
 //     request in front of her. She accepts, Alina takes the answer, and they talk.
+//
 //   - Dmitri does not either, and his owner rejects: Alina's row is demoted to blocked, and an
 //     unblock restores him, because the import said he had been a contact.
 //
-// All three are told, each audit row says which way, and the marks are cleared so the campaign
+//   - Erin's leaf did not travel: nothing can be sealed to her, so she is recorded `unreached`
+//     once, counted apart by `account announce`, and stays pinned by her root.
+//
+// The three with a leaf are told, each audit row says which way, and the marks are cleared so the campaign
 // after this one is an ordinary one.
 func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	ctx := context.Background()
@@ -44,19 +49,30 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 		}
 	}
 
+	// Erin's leaf did not travel (export_read nulls one that does not validate): she is pinned by
+	// her root alone, and nothing can be sealed to her.
+	erin := startDemoNode(t, clock, dn, "erin", "Erin Walsh", 365)
+	if err := alina.st.ImportContact(ctx, store.Contact{
+		AccountID: alina.acct.ID, Fingerprint: erin.rootFpr(), Status: "active", TrustFlag: "messages_only",
+		DisplayName: erin.acct.DisplayName, Endpoint: erin.endpoint(), RootCert: erin.rc, EverActive: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	clock.advance(time.Hour)
 	res := alina.install(identity.PurposeRenew, alina.endpoint(), 365, clock.now())
-	if res.Moved || res.HandshakesDue != 3 {
-		t.Fatalf("a renewal after an import must owe the three imported contacts a handshake and not be a move: %+v", res)
+	if res.Moved || res.HandshakesDue != 4 {
+		t.Fatalf("a renewal after an import must owe the four imported contacts a handshake and not be a move: %+v", res)
 	}
 	done, failed, err := alina.n.AnnounceMove(ctx, alina.acct.ID, res.Kid)
-	if err != nil || done != 3 || failed != 0 {
+	if err != nil || done != 3 || failed != 0 { // erin is neither: she is unreached
 		t.Fatalf("the handshake: done=%d failed=%d err=%v\n%s", done, failed, err, strings.Join(alina.log, "\n"))
 	}
 	trail := strings.Join(alina.log, "\n")
 	for _, want := range []string{
 		"account_move_fanout account:" + alina.acct.ID + " contact:" + bharat.rootFpr() + " → updated",
 		"account_move_fanout account:" + alina.acct.ID + " contact:" + chitra.rootFpr() + " → requested",
+		"account_move_fanout account:" + alina.acct.ID + " contact:" + erin.rootFpr() + " why:no leaf held → unreached",
 	} {
 		if !strings.Contains(trail, want) {
 			t.Fatalf("missing from alina's trail: %q\n%s", want, trail)
@@ -72,7 +88,18 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	if c := alina.contact(chitra.rootFpr()); c.Status != "pending_out" {
 		t.Fatalf("alina must hold chitra as an approach awaiting her answer: %q", c.Status)
 	}
-	for _, peer := range []*demoNode{bharat, chitra, dmitri} {
+	// `account announce` reads this: Bharat told; Erin counted apart, never waiting, never retried.
+	prog, err := alina.n.MoveProgress(ctx, alina.acct.ID, res.Kid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prog.Told != 1 || prog.Waiting != 0 || prog.NoLeaf != 1 {
+		t.Fatalf("the campaign's ledger: told=%d waiting=%d no_leaf=%d, want 1, 0, 1", prog.Told, prog.Waiting, prog.NoLeaf)
+	}
+	if c := alina.contact(erin.rootFpr()); c.Status != "active" || c.Fingerprint != erin.rootFpr() {
+		t.Fatalf("erin must stay pinned by her root: %+v", c)
+	}
+	for _, peer := range []*demoNode{bharat, chitra, dmitri, erin} {
 		if alina.contact(peer.rootFpr()).HandshakeDue {
 			t.Fatalf("%s was told and is still owed a handshake", peer.slug)
 		}
