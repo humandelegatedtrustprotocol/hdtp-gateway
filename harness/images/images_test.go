@@ -45,12 +45,13 @@ func TestEveryImageConstantIsListed(t *testing.T) {
 	seen := 0
 	for _, d := range f.Decls {
 		g, ok := d.(*ast.GenDecl)
-		if !ok || g.Tok != token.CONST {
+		// Node is a var (its tag may be chosen per worktree); the rest are constants.
+		if !ok || (g.Tok != token.CONST && g.Tok != token.VAR) {
 			continue
 		}
 		for _, s := range g.Specs {
 			for _, n := range s.(*ast.ValueSpec).Names {
-				if n.Name == "ShaperDockerfile" {
+				if n.Name == "ShaperDockerfile" || n.Name == "Local" || n.Name == "Pulled" {
 					continue
 				}
 				seen++

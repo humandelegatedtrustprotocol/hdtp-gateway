@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: harness-pact-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -273,9 +273,31 @@ identity-bump:
 	$(PRIVATE_FETCH) $(MAKE) check
 
 # The node image the harness stands topologies up from: the shipped artifact,
-# built from the repo's own Dockerfile.
+# built from the repo's own Dockerfile. HARNESS_IMAGE is its tag, exported to the harness as
+# PACT_HARNESS_IMAGE (harness/images): two worktrees on one machine each take a tag of their own
+# (`make harness-nightly HARNESS_IMAGE=pact-gateway:harness-mine`), or each tests whichever binary
+# the other built last.
+HARNESS_IMAGE ?= pact-gateway:harness
+export PACT_HARNESS_IMAGE := $(HARNESS_IMAGE)
 harness-image: identity-proxy
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) -t pact-gateway:harness .
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) -t $(HARNESS_IMAGE) .
+
+# The live batteries that are DATA in the sibling repositories, run against a node by the nightly
+# tier: pact-identity's intrusion battery through its `pact` CLI (S18), and the cloud's Go
+# conformance battery (S19). Each is a Need (harness/registry); the tier promises it when the
+# sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
+# when it is not. Override either with PACT_CLI or PACT_CLOUD_BATTERY in the environment.
+PACT_IDENTITY ?= $(CURDIR)/../pact-identity
+PACT_CLI_BIN := $(PACT_IDENTITY)/target/release/pact
+harness-pact-cli:
+	@if [ -n "$$PACT_CLI" ]; then echo "harness-pact-cli: PACT_CLI=$$PACT_CLI"; \
+	elif [ -f "$(PACT_IDENTITY)/Cargo.toml" ]; then \
+		cargo build --release -q -p pact --manifest-path "$(PACT_IDENTITY)/Cargo.toml" || exit 1; \
+		echo "harness-pact-cli: $(PACT_CLI_BIN)"; \
+	else echo "!! harness-pact-cli: no pact-identity checkout at $(PACT_IDENTITY): S18 will be NOT PROMISED"; fi
+# The environment a live tier runs under: the two siblings' paths when they are on disk.
+LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_CLI_BIN)')}" \
+	PACT_CLOUD_BATTERY="$${PACT_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}"
 
 # The calendar scenario (S4) needs the -FULL image — node and uv, so a supervised
 # stdio child can run in-container (SPEC §12.3) — with the upstream MCP server
@@ -324,8 +346,8 @@ harness-pr: harness harness-image
 
 # Nightly tier: every scenario. It promises S8 only when PACT_HARNESS_KERNEL is
 # set and T7 only when PACT_CF_DOMAIN is set, and says so when they are not.
-harness-nightly: harness harness-image harness-image-caldav harness-shaper
-	cd harness && go run ./cmd/harness run -tier nightly
+harness-nightly: harness harness-image harness-image-caldav harness-shaper harness-pact-cli
+	cd harness && $(LIVE_ENV) go run ./cmd/harness run -tier nightly
 
 # Report whether this host can run each fabric (container, vm).
 harness-preflight:

@@ -192,6 +192,10 @@ func check(n Need) error {
 		key += "|" + os.Getenv(KernelEnv)
 	case CF:
 		key += "|" + os.Getenv(CFEnv)
+	case PactCLI:
+		key += "|" + os.Getenv(PactCLIEnv)
+	case CloudBattery:
+		key += "|" + os.Getenv(CloudBatteryEnv)
 	}
 	probeMu.Lock()
 	defer probeMu.Unlock()
@@ -236,6 +240,24 @@ func probe(ctx context.Context, n Need) error {
 	case CF:
 		if os.Getenv(CFEnv) == "" {
 			return fmt.Errorf("%s is not set", CFEnv)
+		}
+		return nil
+	case PactCLI:
+		cli := os.Getenv(PactCLIEnv)
+		if cli == "" {
+			return fmt.Errorf("%s is not set", PactCLIEnv)
+		}
+		if out, err := local(ctx, cli, "--version"); err != nil {
+			return fmt.Errorf("%s --version: %v %s", cli, err, firstLine(string(out)))
+		}
+		return nil
+	case CloudBattery:
+		dir := os.Getenv(CloudBatteryEnv)
+		if dir == "" {
+			return fmt.Errorf("%s is not set", CloudBatteryEnv)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+			return fmt.Errorf("%s names no Go module: %v", CloudBatteryEnv, err)
 		}
 		return nil
 	}
