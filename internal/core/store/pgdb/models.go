@@ -5,7 +5,7 @@
 package pgdb
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 type Account struct {
@@ -13,18 +13,18 @@ type Account struct {
 	Slug            string
 	DisplayName     string
 	Algo            string
-	Fingerprint     pgtype.Text
+	Fingerprint     sql.NullString
 	KeySealed       []byte
 	Seal            string
 	Status          string
 	CreatedAt       int64
-	RootFingerprint pgtype.Text
+	RootFingerprint sql.NullString
 	RootCert        []byte
 	AcceptNewHosts  string
 }
 
 type AuditAnchor struct {
-	ID                 int32
+	ID                 int64
 	ArchivedThroughSeq int64
 	TerminalHash       string
 	ArchivePath        string
@@ -34,7 +34,7 @@ type AuditAnchor struct {
 type AuditEvent struct {
 	Seq       int64
 	Ts        int64
-	AccountID pgtype.Text
+	AccountID sql.NullString
 	ActorKind string
 	ActorID   string
 	Action    string
@@ -75,7 +75,7 @@ type Contact struct {
 	DisplayName      string
 	Card             string
 	CreatedAt        int64
-	PinnedAt         pgtype.Int8
+	PinnedAt         sql.NullInt64
 	TheirPermissions string
 	Petname          string
 	InviteID         string
@@ -93,7 +93,7 @@ type Credential struct {
 	Tag        string
 	Data       []byte
 	CreatedAt  int64
-	LastUsedAt pgtype.Int8
+	LastUsedAt sql.NullInt64
 }
 
 type Exposure struct {
@@ -118,7 +118,7 @@ type Idempotency struct {
 	MsgID      string
 	Ack        string
 	CreatedAt  int64
-	ExpiresAt  pgtype.Int8
+	ExpiresAt  sql.NullInt64
 }
 
 type Integration struct {
@@ -146,7 +146,7 @@ type Invite struct {
 	Preset      string
 	Permissions string
 	Label       string
-	RevokedAt   pgtype.Int8
+	RevokedAt   sql.NullInt64
 	CreatedAt   int64
 }
 
@@ -224,7 +224,7 @@ type PendingRequest struct {
 	Result     string
 	CreatedAt  int64
 	ExpiresAt  int64
-	AnsweredAt pgtype.Int8
+	AnsweredAt sql.NullInt64
 }
 
 type Session struct {
@@ -256,9 +256,9 @@ type Token struct {
 	OwnerID   string
 	Label     string
 	Hash      []byte
-	AccountID pgtype.Text
+	AccountID sql.NullString
 	CreatedAt int64
-	RevokedAt pgtype.Int8
+	RevokedAt sql.NullInt64
 }
 
 type Tombstone struct {

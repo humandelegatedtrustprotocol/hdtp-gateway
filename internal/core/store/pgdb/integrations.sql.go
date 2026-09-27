@@ -7,8 +7,7 @@ package pgdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const answerPendingRequest = `-- name: AnswerPendingRequest :execrows
@@ -18,7 +17,7 @@ WHERE id = $3 AND status = 'open' AND expires_at > $4
 
 type AnswerPendingRequestParams struct {
 	Result     string
-	AnsweredAt pgtype.Int8
+	AnsweredAt sql.NullInt64
 	ID         string
 	ExpiresAt  int64
 }
@@ -42,7 +41,7 @@ DELETE FROM idempotency WHERE expires_at <= $1
 
 // A record past its window protects nothing (PACT 13.3): nothing later than the window passes
 // the freshness check, so a replay of that envelope is refused before this table is asked.
-func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, expiresAt pgtype.Int8) (int64, error) {
+func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, expiresAt sql.NullInt64) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredIdempotency, expiresAt)
 	if err != nil {
 		return 0, err
@@ -283,7 +282,7 @@ type InsertIdempotencyParams struct {
 	MsgID      string
 	Ack        string
 	CreatedAt  int64
-	ExpiresAt  pgtype.Int8
+	ExpiresAt  sql.NullInt64
 }
 
 func (q *Queries) InsertIdempotency(ctx context.Context, arg InsertIdempotencyParams) (int64, error) {

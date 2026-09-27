@@ -21,3 +21,16 @@ sql:
         rename:
           leafe: "Leaf"
         sql_package: "pgx/v5"
+        # The Postgres rows are read into the SAME Go types the SQLite rows are, so the store maps
+        # a row to its domain type once for both engines (a struct conversion, checked by the
+        # compiler) instead of twice. pgx reads and writes database/sql's Null types through
+        # their Scanner and Valuer; the engine conformance suite is what proves it.
+        overrides:
+          - db_type: "pg_catalog.int8"
+            nullable: true
+            go_type: "database/sql.NullInt64"
+          - db_type: "text"
+            nullable: true
+            go_type: "database/sql.NullString"
+          - db_type: "pg_catalog.int4"
+            go_type: "int64"

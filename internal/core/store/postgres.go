@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"math"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -168,7 +167,7 @@ func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Ac
 
 func (s *Postgres) SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error {
 	n, err := s.q.SetAccountKey(ctx, pgdb.SetAccountKeyParams{
-		Fingerprint: pgtype.Text{String: fingerprint, Valid: true}, KeySealed: sealedKey, ID: accountID,
+		Fingerprint: sql.NullString{String: fingerprint, Valid: true}, KeySealed: sealedKey, ID: accountID,
 	})
 	if err != nil {
 		return err
@@ -304,7 +303,7 @@ func (s *Postgres) RemoveSession(ctx context.Context, id string) error {
 func (s *Postgres) InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error {
 	return s.q.InsertToken(ctx, pgdb.InsertTokenParams{
 		ID: id, OwnerID: ownerID, Label: label, Hash: hash,
-		AccountID: pgtype.Text{String: accountID, Valid: accountID != ""}, CreatedAt: createdAt,
+		AccountID: sql.NullString{String: accountID, Valid: accountID != ""}, CreatedAt: createdAt,
 	})
 }
 
@@ -338,7 +337,7 @@ func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
 }
 
 func (s *Postgres) RevokeToken(ctx context.Context, id string, now int64) error {
-	n, err := s.q.RevokeToken(ctx, pgdb.RevokeTokenParams{RevokedAt: pgtype.Int8{Int64: now, Valid: true}, ID: id})
+	n, err := s.q.RevokeToken(ctx, pgdb.RevokeTokenParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, ID: id})
 	if err != nil {
 		return err
 	}
@@ -350,7 +349,7 @@ func (s *Postgres) RevokeToken(ctx context.Context, id string, now int64) error 
 
 func (s *Postgres) InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error {
 	return s.q.InsertAuditEvent(ctx, pgdb.InsertAuditEventParams{
-		Seq: seq, Ts: ts, AccountID: pgtype.Text{String: accountID, Valid: accountID != ""}, ActorKind: actorKind, ActorID: actorID,
+		Seq: seq, Ts: ts, AccountID: sql.NullString{String: accountID, Valid: accountID != ""}, ActorKind: actorKind, ActorID: actorID,
 		Action: action, Resource: resource, Outcome: outcome, RequestID: requestID,
 		Details: details, PrevHash: prevHash, Hash: hash,
 	})

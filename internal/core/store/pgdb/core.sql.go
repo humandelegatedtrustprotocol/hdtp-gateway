@@ -7,8 +7,7 @@ package pgdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const countCredentialsByKind = `-- name: CountCredentialsByKind :one
@@ -267,7 +266,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 type InsertAuditEventParams struct {
 	Seq       int64
 	Ts        int64
-	AccountID pgtype.Text
+	AccountID sql.NullString
 	ActorKind string
 	ActorID   string
 	Action    string
@@ -382,7 +381,7 @@ type InsertTokenParams struct {
 	OwnerID   string
 	Label     string
 	Hash      []byte
-	AccountID pgtype.Text
+	AccountID sql.NullString
 	CreatedAt int64
 }
 
@@ -836,7 +835,7 @@ UPDATE tokens SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL
 `
 
 type RevokeTokenParams struct {
-	RevokedAt pgtype.Int8
+	RevokedAt sql.NullInt64
 	ID        string
 }
 
@@ -853,7 +852,7 @@ UPDATE accounts SET fingerprint = $1, key_sealed = $2 WHERE id = $3 AND fingerpr
 `
 
 type SetAccountKeyParams struct {
-	Fingerprint pgtype.Text
+	Fingerprint sql.NullString
 	KeySealed   []byte
 	ID          string
 }
