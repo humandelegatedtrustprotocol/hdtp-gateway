@@ -262,8 +262,8 @@ Your identity is the **root** in your wallet. It is never on this node, so nothi
 What you can take away is what is yours: your **contacts** and your **chats**.
 
 ```
-pact-gateway export -out alina.pact-export
-pact-gateway import -from alina.pact-export
+pact-gateway export -slug alina -out alina.zip
+pact-gateway import alina.zip -slug alina -yes
 ```
 
 Both are offline (stop the node first) and both need host shell access. They work on SQLite and on

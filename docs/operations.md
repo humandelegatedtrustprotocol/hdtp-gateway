@@ -116,34 +116,36 @@ PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench
 ## Export and import
 
 ```
-pact-gateway export --config config.json --out alina.pact-export
-pact-gateway import --config config.json --from alina.pact-export
+pact-gateway export --config config.json --slug alina --out alina.zip
+pact-gateway import alina.zip --config config.json --slug alina          # review: writes nothing
+pact-gateway import alina.zip --config config.json --slug alina --yes    # writes it
 ```
 
 Both are **offline** commands: stop the node first (they refuse while `pact.lock` is held).
 
-**An export is a person's contacts and chats, and nothing else.** For each identity that has a
-root: its name (slug, display name, the root's fingerprint and certificate — all public), its
-contacts as pinned, and its conversations with their media. It is written through the node's
-`Store` interface, so it is an allow-list by construction, and it works on Postgres exactly as on
-SQLite. It is a gzipped tar of a manifest, `data.jsonl` (one JSON object per line, five kinds) and
-`media/<sha256>`; the manifest carries the digest of the data, and the file is created `0600` and
-never replaces an existing one.
+**An export is one identity's contacts, chats and files, and nothing else** (SPEC §3.10, PACT
+§9.2): one unencrypted zip of `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and
+`media/<sha256>`, the same format the cloud and the `pact` CLI read and write. `export` says, before
+it writes, that the file is not encrypted: anyone who gets it can read the contact list and every
+conversation and file, though it holds no key and cannot be used to speak as anyone. The file is
+created `0600` and never replaces an existing one. A stranger's request that was never accepted,
+and its conversation, stay behind.
 
-What is **not** in it, because it is the host's and not the person's: every key (leaf keys, and
-`keyring.key`, which used to ride along), saved settings, integration credentials, owners, passkeys,
-sessions, tokens, invites, the audit chain, and the ledger of leaves. There is no flag that adds
-any of them.
+What is **not** in it, because it is the host's and not the person's: every key, saved settings,
+integration credentials, owners, passkeys, sessions, tokens, invites, the audit chain, the ledger
+of leaves, and a contact's preset, trust flag and card. There is no flag that adds any of them.
 
-`import` creates each identity — it never merges into one that is already here, by slug or by
-root — under ONE transaction, so a refused or interrupted import leaves nothing behind. It is
-strict: a member, a kind of line, or a single field it does not know is a refusal. An undelivered
-outbound message arrives as `failed`: delivering it was the old host's job, under the old host's
-leaf.
+`import` checks the WHOLE file before it writes anything, and refuses it whole at the first fault,
+naming the member, row or line. Without `--yes` it shows what it would write and stops. Into a slug
+that is not here it creates the identity keyless — its root and nothing more; into the slug the
+file belongs to it merges, keeping every pin this host already holds. The rows go in under one
+transaction, the files after it. An undelivered outbound message arrives as `failed`: delivering
+it was the old host's job, under the old host's leaf.
 
-Every import ends the same way. The identities are **named and not served**; `serve` prints the
-`account csr` to run for each, the wallet signs it, and `account install-leaf` ends the wait — and,
-the identity having arrived from elsewhere, starts the move campaign that tells its contacts.
+Every import ends the same way: a new leaf from the wallet. The import names the command — `account
+csr -purpose move` for an identity that arrived, `-purpose renew` for one that was here — and
+installing the leaf sends every imported contact this host's handshake (`account announce` reports
+it).
 
 This is not a backup of the node, and the node has none: what a host accumulates beyond contacts
 and chats is rebuilt, not restored. After a lost machine: `import`, the setup wizard for a passkey,
@@ -153,8 +155,8 @@ reconnect integrations, one certificate per identity.
 
 | Lost | Consequence | Do |
 |---|---|---|
-| the node, with an export | identities are not served until re-certified; settings, integrations, passkeys and the audit history are not in an export | `import`, `serve`, the setup wizard; then one `account csr` / `install-leaf` per identity. Contacts keep their pins |
-| `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good: `export`, then `import` into a fresh data directory — an export never needed the master key, because it never held anything sealed under it. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so |
+| the node, with an export per identity | identities are not served until re-certified; settings, integrations, passkeys and the audit history are not in an export | `import` each, `serve`, the setup wizard; then one `account csr` / `install-leaf` per identity. Contacts keep their pins |
+| `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good: `export -slug` each identity, then `import` each into a fresh data directory — an export never needed the master key, because it never held anything sealed under it. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so |
 | a leaf simply ran out (nobody renewed it) | the account stops being served within the hour and its key is destroyed; contacts keep their pins, and `doctor` warns before it happens | `account csr --slug me -purpose renew`, the wallet signs, `account install-leaf` |
 | one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `pact-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (PACT §14.3) |
 | nothing: the person moved an identity to another host | this node goes on serving it, with its key, until told | `pact-gateway account leave -slug me` once the new host has told the contacts: every record and leaf key of the identity erased, its address reserved until its last leaf expires (SPEC.md §3.11) |

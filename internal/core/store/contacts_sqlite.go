@@ -151,3 +151,8 @@ func everActive(status string) int64 {
 	}
 	return 0
 }
+
+func (s *SQLite) ImportContactPin(ctx context.Context, c Contact) (bool, error) {
+	n, err := s.q.ImportContactPin(ctx, contactPin(c))
+	return n > 0, err
+}

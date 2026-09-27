@@ -606,9 +606,9 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// bob is what `npm run leave` writes: an account with its root and its ledger and no key,
-		// because a leaf key belongs to the host that issued it and does not travel. The last leaf
-		// he held named another host's address, which is what makes his next certificate a move.
+		// bob holds his root and a ledger and no key — a leaf key belongs to the host that issued
+		// it and does not travel. The last leaf he held named another host's address, which is
+		// what makes his next certificate a move.
 		//
 		// He used to be an account with no key and NO ROOT, which no import produces, and the
 		// banner called that a move because "no key" was all it looked at.
