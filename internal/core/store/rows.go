@@ -1,6 +1,10 @@
 package store
 
-import "github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+import (
+	"fmt"
+
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+)
 
 // A row becomes its domain type HERE, once, for both engines. sqlc generates the two queriers'
 // row types separately, and sqlc.yaml's overrides make the Postgres ones the same shape as the
@@ -102,4 +106,16 @@ func auditFromRow(r sqlitedb.AuditEvent) AuditRow {
 		Action: r.Action, Resource: r.Resource, Outcome: r.Outcome, RequestID: r.RequestID,
 		Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash,
 	}
+}
+
+// contactChanged is the answer of a write to one contact, from what the statement returned: its
+// error, or "contact not found" when it changed no row. Both engines' contact writes end in it.
+func contactChanged(n int64, err error) error {
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("store: contact not found")
+	}
+	return nil
 }
