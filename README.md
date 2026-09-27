@@ -221,6 +221,22 @@ root. `account csr -slug me -purpose renew` asks for the next leaf before this o
 The root never comes to this node, and nothing here can make one: losing the vault and its
 passphrase is losing that identity.
 
+**A web wallet, from the portal.** Once an identity has its first leaf, *Identity → Sign with my
+web wallet* asks a web wallet (`PACT_WALLET_URL`, pact-cloud's ceremony page by default) for the
+next one: a renewal, or a move when the address changes. The page shows what it will ask and
+changes nothing until you continue; a request already waiting is replaced only if you confirm it.
+The wallet sends its answer back to this node's `/wallet/return` in the same browser, and the
+portal installs it with your session. This is the node's side of it. The wallet's `/sign` page is
+pact-cloud's and is not live yet, and how browsers treat a public page sending you back to
+`http://localhost` has not been measured, so until both are, use the `pact` CLI.
+
+**After a move.** When an install moves the identity to a new address, both the CLI and the portal
+say so, and say to run `pact-gateway account announce -slug me` until no contact is waiting: the
+previous certificate stays valid until its own date for contacts not yet told. When the identity
+came from another host, that is also when to delete it there. When this node itself moved to a new
+address, there is nothing to delete: the previous certificate goes on answering here until it
+expires.
+
 ### Leave this node
 
 When you have moved an identity to another host, tell this one to forget it:

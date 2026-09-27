@@ -60,6 +60,9 @@ type serveRun struct {
 
 	authSvc *auth.Service
 	tokSvc  *auth.TokenService
+	// leaves is the signing request and its install (leafservice.go), shared by the admin socket
+	// and the portal's web-wallet pages. Set when the admin handlers are registered.
+	leaves leafService
 
 	settings    *settings.Service
 	stored      map[string]string
@@ -454,8 +457,28 @@ func (s *serveRun) internalSurface() http.Handler {
 	setOAuthClient := func(ctx context.Context, integrationID, clientID, clientSecret string) error {
 		return integrations.SealClient(st, s.kr, core.SettingsAAD(), integrationID, clientID, clientSecret)
 	}
+	// The web wallet's signing request and its answer, through the SAME service the admin socket's
+	// `account csr` and `account install-leaf` use, auditing as the owner.
+	portalLeaves := s.leaves.actingFor(s.ownerFn)
+	wallet := &internalui.WalletDeps{
+		Store: st, WalletOrigin: cfg.WalletOrigin(), Audit: s.ownerFn,
+		Endpoint: func(slug string) string { return identity.EndpointFor(nd.PublicURL(), slug) },
+		Purpose: func(r *http.Request, accountID, endpoint string) (string, error) {
+			return idm.WalletPurpose(r.Context(), accountID, endpoint)
+		},
+		Mint: func(r *http.Request, acct store.Account, purpose, endpoint, walletOrigin string) (identity.CSRResult, error) {
+			return portalLeaves.Mint(r.Context(), acct, purpose, endpoint, walletOrigin)
+		},
+		Install: func(r *http.Request, acct store.Account, chain [][]byte, state string) (internalui.WalletInstalled, error) {
+			res, err := portalLeaves.Install(r.Context(), acct, chain, state)
+			if err != nil {
+				return internalui.WalletInstalled{}, err
+			}
+			return internalui.WalletInstalled{Endpoint: res.Endpoint, NotAfter: res.NotAfter, Notice: res.Notice}, nil
+		},
+	}
 	identityDeps := internalui.IdentityDeps{
-		Accounts: st.ListAccounts, Audit: s.auditFn,
+		Accounts: st.ListAccounts, Audit: s.auditFn, Wallet: wallet,
 		Certificate: func(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
 			return idm.Certificate(ctx, accountID, time.Now())
 		},

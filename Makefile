@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -108,7 +108,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet dependents test
+check: fmt vet dependents test test-js
 
 # SQLC pins the generator. It is pinned HERE and nowhere else: `sqlc` is not
 # installed on any machine that builds this, and the version matters more than
@@ -202,6 +202,14 @@ dependents:
 # code and stops a dependency's test failures from reading as ours.
 test:
 	go test -race ./cmd/... ./internal/...
+
+# The portal's page scripts that no Go test can execute: wallet_return.js reads the web wallet's
+# answer out of the fragment and POSTs it (internalui/wallet_pages.go). `node --test` runs them
+# against a stubbed browser, with no package installed; the Node it needs is the one `make web`
+# already requires, and a machine without it fails here rather than skipping.
+test-js:
+	@command -v node >/dev/null || { echo "test-js: node is not installed; it is what make web needs too"; exit 1; }
+	node --test internal/internalui/*_test.mjs
 
 # The scenario harness (docs/harness-design.md). Separate module, separate command,
 # deliberately not part of `check`.

@@ -8,7 +8,8 @@
 #
 #   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
 #                     disk), race tests — with PACT_TEST_POSTGRES_DSN pointing at a Postgres this
-#                     hook starts, so the Postgres engine's tests run rather than skip
+#                     hook starts, so the Postgres engine's tests run rather than skip — and the
+#                     portal's page scripts under node --test (make test-js)
 #   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
 #   make sqlc-check   the committed generated store code matches its sources
 #   make fuzz         every Fuzz target under -fuzz, 30 s each
