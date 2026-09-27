@@ -66,6 +66,10 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					case cerr != nil:
 						fmt.Fprintf(stdout, "FAIL leaf         %s: %v\n", a.Slug, cerr)
 						fail = 1
+					case info.Kid == "":
+						// A root and no current leaf (an import, or a leaf that expired): not served,
+						// and there is no date to give.
+						fmt.Fprintf(stdout, "warn leaf         %s has no current leaf on this host (root %s): it is not served until the wallet signs one\n", a.Slug, info.RootFingerprint)
 					case info.RenewalDue:
 						fmt.Fprintf(stdout, "warn leaf         %s expires %s: renewal due (run `account csr -slug %s -purpose renew`)\n", a.Slug, info.NotAfter.Format("2006-01-02"), a.Slug)
 					default:
