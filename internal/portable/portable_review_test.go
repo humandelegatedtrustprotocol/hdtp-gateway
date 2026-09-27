@@ -263,7 +263,8 @@ func TestAnImportsMemoryFollowsItsMessages(t *testing.T) {
 				Sender: "human", Time: at, Body: body, Status: "delivered", Attachments: []pactidentity.Attachment{}})
 		}
 		var buf bytes.Buffer
-		must(t, pactidentity.WriteExportZip(&buf, in, nil))
+		_, err := pactidentity.WriteExportZip(&buf, in, nil)
+		must(t, err)
 		var size uint64
 		for _, f := range zipReader(t, buf.Bytes()).File {
 			if f.Name == "messages.jsonl" {
@@ -305,3 +306,51 @@ func TestAnImportsMemoryFollowsItsMessages(t *testing.T) {
 }
 
 func testidWallet(t *testing.T, cn string) string { return testid.NewWallet(t, cn).Fpr }
+
+// H3, the read-back. `export` reads its file back as an importer would before it reports it; a
+// file that does not read — here one member rewritten after it was written, so its hash is not the
+// manifest's — is refused, and the verb removes it.
+func TestAFileThatDoesNotReadBackIsRefused(t *testing.T) {
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	file, _ := exportOf(t, e, "alina")
+	must(t, CheckWritten(zipReader(t, file), s.me.Fpr, time.Now()))
+	bad := rezip(t, file, "threads.csv", func(b []byte) []byte {
+		return append(b, []byte("t9,"+s.peer.Fpr+",x,2026-01-01T00:00:00Z,2026-01-01T00:00:00Z\n")...)
+	})
+	if err := CheckWritten(zipReader(t, bad), s.me.Fpr, time.Now()); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "does not read back as an export") {
+		t.Fatalf("a file that does not read: %v", err)
+	}
+}
+
+// pact-identity 0.3.3's export_merge keeps a contact held here blocked, and the permissions held
+// here, whatever the file says, and reports each difference as a conflict; the review shows them.
+func TestAMergeKeepsAHeldBlockAndSaysSo(t *testing.T) {
+	ctx := context.Background()
+	src := newEnv(t, sqliteStore)
+	s := seed(t, src)
+	file, _ := exportOf(t, src, "alina")
+	e := newEnv(t, sqliteStore)
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
+	must(t, err)
+	must(t, e.st.SetAccountRoot(ctx, a.ID, s.me.Fpr, nil))
+	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: s.peer.Fpr, SPKI: s.host.Key.Public.SPKI, Status: "blocked",
+		Permissions: []string{"message.text"}, Endpoint: s.host.Endpoint, Leaf: s.host.LeafDER})
+	must(t, err)
+	p, err := Read(ctx, e.st, zipReader(t, file), "alina", time.Now())
+	must(t, err)
+	fields := map[string]bool{}
+	for _, c := range p.Conflicts {
+		fields[c.Field] = c.Root == s.peer.Fpr
+	}
+	if !fields["status"] || !fields["permissions"] {
+		t.Fatalf("the review's conflicts: %+v", p.Conflicts)
+	}
+	_, _, err = importFile(t, e, file, "alina", time.Now())
+	must(t, err)
+	c, err := e.st.GetContact(ctx, a.ID, s.peer.Fpr)
+	must(t, err)
+	if c.Status != "blocked" || strings.Join(c.Permissions, " ") != "message.text" {
+		t.Fatalf("the held contact after the merge: %s %v", c.Status, c.Permissions)
+	}
+}

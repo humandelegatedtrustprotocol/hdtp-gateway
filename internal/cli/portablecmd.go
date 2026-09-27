@@ -133,7 +133,7 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "export:", err)
 		return 1
 	}
-	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d", accountID, res.Contacts, res.Threads, res.Messages, res.Media), "ok")
+	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d left_out:%s", accountID, res.Contacts, res.Threads, res.Messages, res.Media, strings.Join(res.LeftOutMessages, ",")), "ok")
 	fmt.Fprintf(stdout, "exported %s to %s: %s\n", slug, out, countsLine(res))
 	for _, s := range res.LeftOut {
 		fmt.Fprintf(stdout, "left out: %s\n", s)

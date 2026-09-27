@@ -92,7 +92,11 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		}
 	}
 	sort.Slice(in.Media, func(i, j int) bool { return in.Media[i].Hash < in.Media[j].Hash })
-	err = pactidentity.WriteExportZip(w, in, func(hash string) (io.ReadCloser, error) {
+	// The writer leaves out what the file must never carry and a contact could put there — a
+	// message whose body or file reads as a private key, with its file — and lists each one; it
+	// nulls a reply_to whose message the file does not carry (SPEC §9.2, pact-identity 0.3.3). Every
+	// message left out is named to the person, with the writer's reason (SPEC §9.2 #25).
+	leftOut, err := pactidentity.WriteExportZip(w, in, func(hash string) (io.ReadCloser, error) {
 		data, err := blobs.Get(hash)
 		if err != nil {
 			return nil, refuse("file %s went from this node while it was being exported", hash)
@@ -102,7 +106,23 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	if err != nil {
 		return res, refuse("%v", err)
 	}
-	res.Contacts, res.Threads, res.Messages, res.Media = len(in.Contacts), len(in.Threads), len(in.Messages), len(in.Media)
+	gone := map[string]bool{}
+	for _, l := range leftOut {
+		gone[l.ID] = true
+		res.LeftOutMessages = append(res.LeftOutMessages, l.ID)
+		res.LeftOut = append(res.LeftOut, fmt.Sprintf("message %s: %s", l.ID, l.Reason))
+	}
+	files := map[string]bool{}
+	for _, m := range in.Messages {
+		if gone[m.ID] {
+			continue
+		}
+		res.Messages++
+		for _, a := range m.Attachments {
+			files[a.File] = true
+		}
+	}
+	res.Contacts, res.Threads, res.Media = len(in.Contacts), len(in.Threads), len(files)
 	return res, nil
 }
 
