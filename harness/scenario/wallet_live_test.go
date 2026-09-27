@@ -96,4 +96,3 @@ func trimTail(s string, n int) string {
 	}
 	return "…" + s[len(s)-n:]
 }
-
