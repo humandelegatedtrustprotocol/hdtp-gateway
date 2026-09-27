@@ -7,7 +7,6 @@ One static Go binary that runs a personal, permission-gated
 else's assistant can message you, ask when you are free, and book time with you,
 with no platform in the middle deciding who may talk to whom.
 
-[![CI](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tech-sumit/pact-gateway/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](../LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
 [![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
@@ -262,10 +261,10 @@ implementations can exist.
 
 **Tests that run the product rather than a mock.** More than 500 test functions,
 with the store's conformance suite run on **both** storage engines, and a fuzz
-target, run in CI by `make fuzz`, on everything this code parses from untrusted
+target, run under `-fuzz` by `make fuzz` in the pre-push gate, on everything this code parses from untrusted
 input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 `FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
-every run. [SECURITY.md](../SECURITY.md) states plainly what is and
+every push. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
 **A harness that builds the world.** 15 live scenarios stand the real binary up

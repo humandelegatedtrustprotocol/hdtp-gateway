@@ -14,8 +14,8 @@ import (
 )
 
 // TestPostgresConformance runs the same suite as SQLite against a real Postgres,
-// gated by PACT_TEST_POSTGRES_DSN (CI sets it via a service container; locally:
-// docker compose -f compose.test.yaml up -d). Each subtest gets a fresh database.
+// gated by PACT_TEST_POSTGRES_DSN (the pre-push hook starts a named Postgres
+// container and sets it; by hand: docker compose -f compose.test.yaml up -d). Each subtest gets a fresh database.
 func TestPostgresConformance(t *testing.T) {
 	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
 	if dsn == "" {

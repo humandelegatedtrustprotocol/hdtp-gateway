@@ -19,15 +19,15 @@ below is how it will work when it opens, and how it works now.
 
 ## Getting set up
 
-You need Go (the version in [`go.mod`](go.mod) — CI uses exactly that) and, for the
-scenario harness, Docker.
+You need Go (the version in [`go.mod`](go.mod)) and Docker (the pre-push gate starts a
+Postgres container, and the scenario harness needs it).
 
 ```
 make build      # static binary
-make check      # fmt, vet, race tests, both engines — the gate CI runs
+make check      # fmt, vet, race tests (Postgres too when PACT_TEST_POSTGRES_DSN is set)
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
-make hooks      # install the pre-push hook (runs the harness; do this once)
+make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)
 ```
 
 `make check` is the gate. If it is green your change is in reasonable shape; if it is
@@ -41,30 +41,36 @@ committed rather than the one your sources produce; and **`sbom` after `dist`**,
 because `dist` begins by deleting the directory `sbom` writes into.
 
 `make analyze` (govulncheck, staticcheck, gosec, and deadcode held to the Reachability
-table of docs/conformance.md) is exactly what CI runs — the
-versions and flags are pinned in the Makefile and the workflow calls the target, so
-there is one list rather than two to drift apart. Same for `make fuzz`, which is not
-part of `all`: it is two minutes that find nothing on most runs, and CI runs it on
-every push.
+table of docs/conformance.md) is exactly what the pre-push hook runs — the versions and
+flags are pinned in the Makefile and the hook calls the target, so there is one list
+rather than two to drift apart. Same for `make fuzz`, which is not part of `all`: it is
+two minutes that find nothing on most runs, and the pre-push hook runs it on every push.
 
 `make all` does **not** run the scenario harness or build the container images. Those
 are `make harness` / `make harness-pr` and `make harness-image`.
 
 ## Hooks
 
-`make hooks` points git at `githooks/`, which holds a `pre-push` hook. It runs the
-harness's hermetic tier — about five seconds, no Docker — because **CI does not run
-the harness at all**: the live scenarios need a real Chrome and a real container
-fabric, and a GitHub runner has neither, so running them there reported the
-runner's missing browser rather than anything about the product.
+This repository has no CI: every gate runs on the machine that pushes. `make hooks`
+points git at `githooks/` (`core.hooksPath githooks`, relative, so each worktree runs
+its own copy):
 
-The live tiers are opt-in from the same hook:
+- **pre-commit** runs every staged `*.go` file through gofmt and re-stages it, so a
+  commit is styled before it exists. A partly staged Go file is refused, not styled.
+- **pre-push** runs, in order: `make web` and a check that it left `web/dist`
+  unchanged (only when the push touches `web/`); `make check` with
+  `PACT_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
+  `pact-gateway-prepush-pg` and removes on every exit (no Docker, no push);
+  `make analyze`; `make sqlc-check`; `make fuzz`; and `make harness`, the harness's
+  hermetic tier. The live scenarios need a real Chrome and a real container fabric,
+  so they are opt-in from the same hook:
 
 ```
-PACT_PREPUSH_LIVE=1 git push      # the fast live subset (~8 min, needs Docker)
-PACT_PREPUSH_LIVE=full git push   # the whole matrix (~45 min)
-git push --no-verify              # skip the hook entirely
+PACT_PREPUSH_LIVE=1 git push      # the PR tier (make harness-pr, needs Docker and Chrome)
+PACT_PREPUSH_LIVE=full git push   # every scenario (make harness-nightly)
 ```
+
+Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
 
 ## The scenario harness
 
@@ -108,7 +114,7 @@ by review, which is the argument for adding a scenario when you add a surface.
 
 `web/` holds the portal SPA (React + Vite + TypeScript). Its build OUTPUT,
 `web/dist/`, is **committed**, and `go:embed` compiles it into the binary — so
-plain `go build`, `make dist` and the release workflow need no Node toolchain.
+plain `go build` and `make dist` need no Node toolchain.
 
 After changing anything under `web/src`:
 

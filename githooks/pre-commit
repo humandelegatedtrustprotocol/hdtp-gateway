@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
-# Pre-commit: Rust under pact-identity/ arrives styled, and lint-clean, or it does not arrive.
+# Pre-commit: Go arrives gofmt-styled, or it does not arrive.
 #
-# Nobody formats by hand here and nothing is "fixed for style" afterwards, for a reason particular
-# to this tree: pact-identity ships a PINNED binary, built from a commit (js/reproduce.sh). A style
-# fix made after a pin moves lines; a moved line renumbers a `#[track_caller]` site; the number is
-# in the Wasm; the pin stops matching. That happened on 2026-09-20, over one clippy style lint that
-# no machine had ever been asked to enforce. Style applied BEFORE the commit cannot do it.
+# Style is applied BEFORE the commit and automatically, never "fixed for style" afterwards:
+# every staged *.go file is run through gofmt and re-staged, so the commit carries the styled
+# text and `make check`'s fmt step (run again by the pre-push hook) has nothing to find.
 #
-#   1. staged *.rs under pact-identity/ is run through rustfmt (pact-identity/rustfmt.toml) and
-#      re-staged — automatically, so the commit carries the styled text;
-#   2. clippy must pass with warnings as errors.
-#
-# A file that is only PARTLY staged is refused rather than formatted: re-staging it would sweep the
-# unstaged half into the commit behind the author's back. And clippy reads the working tree, not
-# the index, so with other Rust files modified and unstaged it is judging slightly more than the
-# commit; the pre-push gate (pact-identity/gate.sh) and the build-from-HEAD are the exact ones.
+# A file that is only PARTLY staged is refused rather than formatted: re-staging it would sweep
+# the unstaged half into the commit behind the author's back.
 set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
@@ -22,7 +14,7 @@ cd "$top"
 
 staged=()
 while IFS= read -r f; do
-  case "$f" in pact-identity/*.rs) staged+=("$f") ;; esac
+  case "$f" in *.go) staged+=("$f") ;; esac
 done < <(git diff --cached --name-only --diff-filter=ACMR)
 [ "${#staged[@]}" -gt 0 ] || exit 0
 
@@ -31,28 +23,16 @@ for f in "${staged[@]}"; do
   git diff --quiet -- "$f" || partly+=("$f")
 done
 if [ "${#partly[@]}" -gt 0 ]; then
-  echo "pre-commit: these Rust files are only partly staged, so they cannot be styled and re-staged" >&2
+  echo "pre-commit: these Go files are only partly staged, so they cannot be styled and re-staged" >&2
   echo "            without committing the rest of them too. Stage them whole, or stash the rest:" >&2
   printf '              %s\n' "${partly[@]}" >&2
   exit 1
 fi
 
-edition="$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' pact-identity/Cargo.toml | head -1)"
-
-# Through STDIN, one file at a time, and that is the whole point.
-#
-# `rustfmt <paths>` recursively formats every out-of-line module reachable from a file it is given —
-# `lib.rs` declares 13 of them, `main.rs` 5 — and `skip_children`, the option that turns that off, is
-# unstable. So staging `lib.rs` alone silently reformatted 13 siblings, including any work in progress
-# the author was holding back; the loop below inspected only the staged set, so those rewrites were
-# neither reported nor staged, and the next `reproduce.sh --pin` then refused to pin, naming files the
-# author never touched. Reading from stdin gives rustfmt no path to resolve a `mod` against, so it
-# formats exactly what it is handed and nothing else. Partly-staged files are refused above, so the
-# working tree's bytes are the staged bytes and writing back is safe.
 restyled=()
 for f in "${staged[@]}"; do
-  if ! out="$(rustfmt --emit stdout --edition "${edition:-2021}" --config-path pact-identity/rustfmt.toml < "$f")"; then
-    echo "pre-commit: rustfmt could not parse $f — fix the syntax, then commit" >&2
+  if ! out="$(gofmt < "$f")"; then
+    echo "pre-commit: gofmt could not parse $f — fix the syntax, then commit" >&2
     exit 1
   fi
   if [ "$out" != "$(cat -- "$f")" ]; then
@@ -62,14 +42,6 @@ for f in "${staged[@]}"; do
 done
 if [ "${#restyled[@]}" -gt 0 ]; then
   git add -- "${restyled[@]}"
-  echo "pre-commit: styled and re-staged ${#restyled[@]} Rust file(s):"
+  echo "pre-commit: gofmt styled and re-staged ${#restyled[@]} Go file(s):"
   printf '              %s\n' "${restyled[@]}"
-fi
-
-echo "pre-commit: clippy (warnings are errors)"
-if ! (cd pact-identity && cargo clippy --workspace --all-targets --locked --quiet -- -D warnings); then
-  echo >&2
-  echo "pre-commit: clippy refused this. Fix it NOW, before the commit — a style fix made after a pin" >&2
-  echo "            changes the pinned bytes (see pact-identity/rustfmt.toml)." >&2
-  exit 1
 fi

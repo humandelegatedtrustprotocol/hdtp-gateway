@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Pre-push: run the scenario harness here, because CI cannot.
+# Pre-push: the node's whole gate, run here because nothing else runs it.
 #
-# The harness is a separate module that drives real containers and a real Chrome
-# over CDP. A GitHub runner has neither Chrome nor a reason to build the product
-# image, so running it there produced failures about the runner rather than
-# about the product — every scenario dying with "chrome failed to start". The
-# machine that can actually run it is this one.
+# This repository has no CI. The node depends on the private module
+# github.com/pact-cloud/pact-identity/go, fetched over SSH, and no CI runner is given a key
+# (the owner's decision: "No CI key required, we deploy from local only"). So every check that
+# used to run on a runner runs on this machine, before anything leaves it:
 #
-# What runs by default is the hermetic tier (`make harness`): every harness
-# package's unit tests against a recorder, the registry and image guards, and
-# vet. No Docker. It says the harness compiles and its guards hold; it runs no
-# scenario — every live test skips without PACT_HARNESS_LIVE.
+#   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
+#                     disk), race tests — with PACT_TEST_POSTGRES_DSN pointing at a Postgres this
+#                     hook starts, so the Postgres engine's tests run rather than skip
+#   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
+#   make sqlc-check   the committed generated store code matches its sources
+#   make fuzz         every Fuzz target under -fuzz, 30 s each
+#   make harness      the scenario harness's hermetic tier (no Docker)
+#   make web          and web/dist must be unchanged by it — only when the push touches web/
 #
-# The LIVE tiers need Docker and Chrome, so they are opt-in. Each builds what it
+# The LIVE harness tiers need Docker and Chrome, so they are opt-in. Each builds what it
 # promises and fails if a promised scenario did not pass (docs/harness-design.md §6):
 #
 #     PACT_PREPUSH_LIVE=1 git push          # the PR tier (make harness-pr)
@@ -21,73 +24,93 @@
 # This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
 
-# The tree being pushed is the working tree git runs this hook in, which is not where this file lives:
-# core.hooksPath is an absolute path to ONE checkout's githooks/, so from a `git worktree` this file
-# is that checkout's copy. Taking the root from the file's own directory gated that other checkout's
-# tree on every worktree push (2026-09-27: a worktree's push passed on the main checkout's files, and
-# a push from the main checkout failed on a fix that only the worktree carried).
-root="$(git rev-parse --show-toplevel)/pact-gateway"
+# The tree being gated is the working tree git runs this hook in: the repository's top level,
+# which is the node. core.hooksPath is the relative `githooks`, so each worktree runs its own copy.
+root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-# A push that only deletes refs has nothing to test.
-#
-# The same pass over the refs answers a second question: does this push touch `pact-identity/`
-# or move the `pact-protocol` pointer? If it does, pact-identity's cross-language gate runs below.
-# A new ref has no base to compare with, and a base this clone has never fetched cannot be
-# compared at all; both count as "yes", because the gate running once too often costs a minute
-# and the gate not running is how it went five days without running anywhere.
+# The identity module is private and fetched over SSH. GOPRIVATE keeps it off the public proxy
+# and checksum database; the insteadOf, set for this process only (never in anybody's git
+# config), makes the go command's git fetch it over SSH rather than HTTPS.
+export GOPRIVATE="${GOPRIVATE:-github.com/pact-cloud/*}"
+if [ -z "${GIT_CONFIG_COUNT:-}" ]; then
+  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
+fi
+
+# A push that only deletes refs has nothing to test. The same pass answers whether the push
+# touches web/: a new ref, or a base this clone has never fetched, counts as yes.
 zero=0000000000000000000000000000000000000000
 only_deletes=true
-identity_touched=false
+web_touched=false
 pushed=""
 while read -r _local_ref local_sha _remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
   only_deletes=false
   pushed="$pushed $local_sha"
-  if [ "$remote_sha" = "$zero" ] || ! git diff --quiet "$remote_sha" "$local_sha" -- ../pact-identity ../pact-protocol 2>/dev/null; then
-    identity_touched=true
+  if [ "$remote_sha" = "$zero" ] || ! git diff --quiet "$remote_sha" "$local_sha" -- web 2>/dev/null; then
+    web_touched=true
   fi
 done
 if [ "$only_deletes" = true ]; then
   exit 0
 fi
 
-# What the gate below checks is the CHECKED-OUT TREE: `pact-identity/gate.sh` runs cargo, the Go port
-# and `js/verify.mjs`, and `verify.mjs`'s answer is about HEAD. Pushing a ref that is not HEAD —
-# `git push origin feature:main`, or `HEAD~3:refs/heads/staging` — therefore gates the wrong commit.
-# Saying so is honest; refusing outright would break a legitimate workflow.
+# What the gate checks is the CHECKED-OUT TREE. Pushing a ref that is not HEAD —
+# `git push origin feature:main` — therefore gates the wrong commit. Saying so is honest;
+# refusing outright would break a legitimate workflow.
 head_sha="$(git rev-parse HEAD)"
 for sha in $pushed; do
   [ "$sha" = "$head_sha" ] || echo "pre-push: NOTE — gating the checked-out tree ($(git rev-parse --short HEAD)), not $(git rev-parse --short "$sha")" >&2
 done
 
-echo "pre-push: harness (hermetic) — CI does not run this"
-if ! make harness; then
-  echo >&2
-  echo "pre-push: the harness is broken. Fix it before pushing: hooks are never" >&2
-  echo "          bypassed here (CLAUDE.md)." >&2
-  exit 1
-fi
-
-# pact-identity's gate reads the private sibling `pact-protocol`, which a CI runner cannot see and
-# will not be given a credential for (the owner's decision, 2026-09-20). So it runs here or nowhere.
-if [ "$identity_touched" = true ]; then
-  echo "pre-push: pact-identity gate — CI cannot run this"
-  if ! sh ../pact-identity/gate.sh; then
+step() {
+  echo "pre-push: make $1"
+  if ! make "$1"; then
     echo >&2
-    echo "pre-push: pact-identity's gate failed (sh pact-identity/gate.sh reproduces it)." >&2
+    echo "pre-push: make $1 failed. Fix it before pushing: hooks are never bypassed here (CLAUDE.md)." >&2
+    exit 1
+  fi
+}
+
+if [ "$web_touched" = true ]; then
+  step web
+  if ! git diff --stat --exit-code -- web/dist; then
+    echo "pre-push: web/dist is stale — make web changed it. Commit what it wrote." >&2
     exit 1
   fi
 fi
+# The Postgres engine's tests skip without PACT_TEST_POSTGRES_DSN, so the hook provides one: a
+# NAMED container (the image the node's tests were written against), removed by name on every
+# way out of this script. Without Docker the push is refused — a skipped engine is not a pass.
+pg=pact-gateway-prepush-pg
+if ! docker info >/dev/null 2>&1; then
+  echo "pre-push: Docker is not running, and make check needs it for the Postgres engine's tests." >&2
+  echo "          Start Docker and push again." >&2
+  exit 1
+fi
+docker rm -f "$pg" >/dev/null 2>&1 || true
+trap 'docker rm -f "$pg" >/dev/null 2>&1 || true' EXIT
+docker run -d --name "$pg" -e POSTGRES_USER=pact -e POSTGRES_PASSWORD=pact \
+  -p 127.0.0.1::5432 postgres:16-alpine >/dev/null
+for _ in $(seq 1 60); do
+  docker exec "$pg" pg_isready -U pact -h 127.0.0.1 >/dev/null 2>&1 && break
+  sleep 1
+done
+if ! docker exec "$pg" pg_isready -U pact -h 127.0.0.1 >/dev/null 2>&1; then
+  echo "pre-push: the Postgres container $pg did not become ready in 60 s" >&2
+  exit 1
+fi
+port="$(docker port "$pg" 5432/tcp | head -1 | sed 's/.*://')"
+export PACT_TEST_POSTGRES_DSN="postgres://pact:pact@127.0.0.1:${port}/postgres?sslmode=disable"
+
+step check
+step analyze
+step sqlc-check
+step fuzz
+step harness
 
 case "${PACT_PREPUSH_LIVE:-}" in
   "") ;;
-  full)
-    echo "pre-push: harness nightly tier — needs Docker and Chrome"
-    make harness-nightly
-    ;;
-  *)
-    echo "pre-push: harness PR tier — needs Docker and Chrome"
-    make harness-pr
-    ;;
+  full) step harness-nightly ;;
+  *) step harness-pr ;;
 esac

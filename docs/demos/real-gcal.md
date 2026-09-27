@@ -5,7 +5,7 @@ their node, exposes `check_availability` + `book_slot` in **mapped** mode throug
 shipped recipe, and a contact's agent books a slot — receiving a `booking_id` and an
 ICS, never raw free/busy (SPEC §6.7, PACT §6.2/§12).
 
-The automated version of this path runs in CI against an in-test fake
+The automated version of this path runs in `make check` against an in-test fake
 (`internal/integrationtest/calendar_test.go`). This document is the manual run
 against a **real** calendar.
 
