@@ -35,9 +35,18 @@ type Session struct {
 }
 
 // Open launches a headless browser with a virtual authenticator installed.
-func Open(parent context.Context) (*Session, error) {
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(parent,
-		append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", "new"))...)
+func Open(parent context.Context) (*Session, error) { return OpenTrusting(parent) }
+
+// OpenTrusting is Open with a browser that accepts the certificates whose public keys hash to
+// spki (base64 SHA-256 of the SubjectPublicKeyInfo, Chrome's --ignore-certificate-errors-spki-list),
+// for a portal served over TLS with a certificate no public authority signed. Only those keys are
+// trusted; every other certificate error is still an error.
+func OpenTrusting(parent context.Context, spki ...string) (*Session, error) {
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", "new"))
+	if len(spki) > 0 {
+		opts = append(opts, chromedp.Flag("ignore-certificate-errors-spki-list", strings.Join(spki, ",")))
+	}
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(parent, opts...)
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	cancel := func() { cancelBrowser(); cancelAlloc() }
 

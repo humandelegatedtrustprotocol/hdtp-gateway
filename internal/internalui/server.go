@@ -8,7 +8,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -277,14 +279,44 @@ func csrfMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Serve runs the internal listener until ctx ends (wired by `serve`, SPEC §2.2).
-func Serve(ctx context.Context, bind string, h http.Handler) error {
+// LoadTLS reads the internal surface's certificate and key (SPEC §8.3), once, at startup. Neither
+// set is nil: the surface is served over plain HTTP, which the config allows only on a loopback
+// bind. One without the other, or a pair that does not load, is an error that names the paths: a
+// configuration that promises TLS never falls back to plaintext.
+//
+// Until 2026-09-27 nothing read these files. The config check (config.go) accepted a non-loopback
+// bind once the two PATHS were set, the printed portal URL said https, the session cookie was
+// marked Secure, and the listener spoke plain HTTP on every interface.
+func LoadTLS(certFile, keyFile string) (*tls.Config, error) {
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, fmt.Errorf("internal TLS needs both a certificate and a key (internal_tls_cert %q, internal_tls_key %q)", certFile, keyFile)
+	}
+	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("internal TLS: loading %s and %s: %w", certFile, keyFile, err)
+	}
+	return &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}, nil
+}
+
+// Serve runs the internal listener until ctx ends (wired by `serve`, SPEC §2.2): over TLS when
+// tlsConfig is set (LoadTLS), over plain HTTP when it is nil.
+func Serve(ctx context.Context, bind string, tlsConfig *tls.Config, h http.Handler) error {
 	srv := &http.Server{
 		Addr: bind, Handler: h,
 		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsConfig,
 	}
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() {
+		if tlsConfig != nil {
+			errc <- srv.ListenAndServeTLS("", "")
+			return
+		}
+		errc <- srv.ListenAndServe()
+	}()
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

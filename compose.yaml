@@ -1,7 +1,8 @@
 # pact-gateway (SPEC §12.4). First run: `docker compose up` — the logs print the
-# portal URL and a one-time setup token. Until phase P2 lands passkeys + internal
-# TLS, the portal binds loopback INSIDE the container (the non-loopback startup
-# invariant of SPEC §8.3 is doing its job); the container healthcheck exercises it.
+# portal URL and a one-time setup token. The portal binds loopback INSIDE the
+# container: a non-loopback bind needs a passkey host, auth and TLS (SPEC §8.3),
+# which a first run has not got. The container healthcheck exercises the portal,
+# over TLS when internal TLS is configured.
 # Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
 services:
   # Named volumes are created root-owned and ownership propagation from the image

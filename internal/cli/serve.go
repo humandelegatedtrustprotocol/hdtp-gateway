@@ -98,6 +98,11 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return fail(err)
 	}
 	s.cfg = cfg
+	// Before anything is opened: a TLS configuration that does not load refuses to start.
+	internalTLS, err := internalui.LoadTLS(cfg.InternalTLSCert, cfg.InternalTLSKey)
+	if err != nil {
+		return fail(err)
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fail(err)
 	}
@@ -164,7 +169,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	defer func() { stopBackground(); background.Wait() }()
 	s.startBackground(bgCtx, &background)
 
-	return runErr(internalui.Serve(ctx, cfg.InternalBind, s.internalSurface()), stderr)
+	return runErr(internalui.Serve(ctx, cfg.InternalBind, internalTLS, s.internalSurface()), stderr)
 }
 
 // openKeyring migrates the store, opens the keyring and creates the admin socket's server and the

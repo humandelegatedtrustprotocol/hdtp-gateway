@@ -112,6 +112,7 @@ of it, and are listed so a reader can tell the two apart.
 | a passkey can be registered and used through the portal, and the session gates it | `TestPortalRegistrationAndLoginCeremony` |
 | only one owner can win a concurrent first registration | `TestConcurrentFirstRegistrationYieldsOneOwner` |
 | a non-loopback portal refuses to start without a host passkeys can bind to | `TestNonLoopbackInternalNeedsAHost` |
+| configured internal TLS is served, a pair that does not load refuses the start by name, and the healthcheck reaches the TLS portal and accepts only its certificate (§8.3) | `TestTheInternalSurfaceIsServedOverTheConfiguredTLS`, `TestATLSConfigurationThatDoesNotLoadIsRefusedByName`, `TestServeRefusesATLSConfigurationThatDoesNotLoad`, `TestServeHonoursInternalTLSAndTheHealthcheckFollowsIt`, `TestTheHealthcheckAcceptsOnlyTheConfiguredCertificate`; live: S1 |
 | the portal requires a session on every bind, loopback included (§8.3); a spoofed Host cannot become the relying party | `TestLoopbackStillDemandsALoginAndHostIsNotTrusted` |
 | an owner locked out of every passkey recovers with a minted token, and only with one (§3.1, §8.6) | `TestALockedOutOwnerCanRecoverWithAMintedToken` |
 | an export carries contacts and chats and nothing else: five kinds of line, no member but the manifest, the data and the media, and none of a host's secrets anywhere in its bytes (§3.10) | `TestAnExportCarriesContactsAndChatsAndNothingElse` |
