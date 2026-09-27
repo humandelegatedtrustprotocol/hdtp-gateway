@@ -169,6 +169,7 @@ of its own (§3).
 | S18 | the intrusion battery (pact vectors intrude) against a node: every attack refused, the control through, each refusal audited | nightly | docker, node-image, chrome, pact-cli | 12 min | `scenario.TestTheIntrusionBatteryIsRefusedByANode` |
 | S19 | the cloud's Go conformance battery against a node, through the node's own owner door | nightly | docker, node-image, chrome, cloud-battery | 20 min | `scenario.TestTheConformanceBatteryPassesAgainstANode` |
 | S21 | self-invite, revoked invite, phantoms, block and unblock, removal, a scoped token, and leave, between two nodes | nightly | docker, node-image, chrome | 25 min | `scenario.TestTheJourneysTheNodeHadNoScenarioFor` |
+| S22 | the shared hostile export corpus through the shipped image's import: each refused in its words, nothing written, the valid files taken whole | nightly | docker, node-image | 15 min | `scenario.TestTheHostileCorpusIsRefusedByTheShippedImage` |
 | T5 | own-domain ingress: passthrough keeps the node's chain, terminate serves a CA certificate | nightly | docker, node-image, chrome | 15 min | `scenario.TestOwnDomainIngressServesPassthroughAndTerminate` |
 | T6 | a node behind a self-hosted frps keeps its own chain and serves MCP | nightly | docker, node-image, chrome | 10 min | `scenario.TestNodeIsReachableThroughSelfHostedFrps` |
 | T7 | two people over two real Cloudflare tunnels, sealed end to end | nightly | docker, chrome, cf | 20 min | `scenario.TestTwoUsersOverRealCloudflareTunnels` |
