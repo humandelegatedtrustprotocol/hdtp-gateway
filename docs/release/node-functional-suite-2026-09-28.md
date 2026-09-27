@@ -1,0 +1,150 @@
+# One end-to-end suite and one attack suite, for the node and the cloud (2026-09-28)
+
+The owner's requirement: "same as pact-cloud, have suite of tests which are functional and can be
+adopted in gateway have them in pact-gateway as well along side the testing suite. we want to make
+sure both are 100% properly tested and safe before releasing." Clarified the same day: "basically
+both are one in the same thing. I want e2e tests and attack vector tests specifically."
+
+So the node and the cloud are one product speaking one protocol. The plan below builds ONE
+definition of each suite and runs it against every target (a node, the cloud, staging), and keeps
+the doors that exist on only one host in an explicit divergence list that a test holds (build rule 1).
+
+This page is the map (part 1), the design (part 2), and the build plan with its status (part 3).
+It was written before any code, from `origin/main` of each repository: node `d039bbe`, cloud
+`bd474f0`, pact-identity `c486047`.
+
+## 1. The map: what exists, and whether it applies to the node
+
+### 1.1 What the two hosts share, and what they do not
+
+What the hosts share is **the wire**: the public MCP surface at an identity's endpoint, sealed
+envelopes (§13), the chain (§2, §14), the guest, pending and contact tiers, the invite landing
+(§4), and the error vocabulary. Every attack suite that speaks the wire can run against both hosts
+unchanged, given a target.
+
+What they do not share is **the owner's doors**:
+
+| | Node | Cloud |
+|---|---|---|
+| Owner API | `/owner/mcp`: flat tools (`approve_contact`, `create_invite`, `get_inbox`, `audit_query`, ...), one bearer token per owner | `/v1` REST with agent keys, plus `/mcp?identity=` router tools (`pact_contacts_change` `{action, arguments}`) |
+| Portal | a Go SPA on the internal listener (loopback or `InternalHost`), passkey plus a double-submit CSRF cookie | the Worker portal, WorkOS session, workspaces |
+| Export and import | the CLI (`pact-gateway export` / `import`), with the node stopped | `/v1` export zip; import through the portal's wallet |
+| Renew, move, sign | `account csr` plus `install-leaf`, or the portal's wallet (`/identity/{slug}/wallet` to the wallet's `/sign`) | the portal relays a wallet request |
+| Identities | `account create` over the admin socket, certified by a wallet | WorkOS user, workspace, `claimIdentity`, wallet ceremony |
+| Card over HTTP | `/card.vcf` on the portal (owner-side); peers get it from the `get_card` tool | `https://<host>/<slug>/card.vcf`, public |
+| Invite landing | `/i/<token>` at the host root | `/i/<token>` under the identity's address |
+
+SPEC §4 places the invite at "a path segment on the issuer's host — `/i/<token>`", and no SPEC
+section requires a public `card.vcf`. So the two address layouts are both conformant: they are
+target parameters, not findings.
+
+### 1.2 The cloud's suites
+
+| Suite | What it is | Applies to the node? |
+|---|---|---|
+| `gateway/e2e/pair.mjs` + `tables/scenarios.mjs` (95 scenarios, 8 subcases), the `calls*.mjs` tables | Two or three identities on staging, driven through `/v1`, the router MCP and the portal DOM | **Adapted.** About 45 scenarios are protocol journeys (invite, accept, reject, self-invite, messages, media, permissions, block/unblock/remove, card, export/import, renewal, move). About 36 are cloud-platform only (workspaces, plans, billing, promos, members, webhooks, SSO and residency, custom domains, sessions, OAuth AS, edge). The driver is hard-wired to WorkOS, `/v1` and the portal and cannot drive a node. What carries over is the **journey list**, which becomes the shared definition (2.2). |
+| `e2e/identity.mjs` / `make e2e-staging` | One identity end to end (WorkOS user, workspace, wallet ceremony over CDP with a PRF authenticator, agent key), then the Go battery against it | **Adapted.** The node's equivalent is `World.Node` (passkey wizard, certify, owner token); the battery half is 2.1. The wallet half is 2.4. |
+| `e2e/ceremony.mjs` / `make wallet` | The real wallet page, served from a Node http server with an in-memory relay; eleven sections including `/sign` from a loopback STUB node | **Yes, against a REAL node.** Its section 5b drives `/sign` from a stub; 2.4 drives it from the node's portal. |
+| `gateway/conformance` (the Go battery, 55 live subtests plus 9 certificate subtests) | The wire, driven through the node's own `internal/outbound` client; controls for the guest negatives, the envelope negatives and the budget | **Yes, with a target.** As written it only reaches the cloud: it builds `https://host/slug`, reads `card.vcf` at the endpoint, trusts only WebPKI, and drives the cloud's router MCP as its owner. 2.1 gives it a target. |
+| `pact vectors intrude --against` (pact-identity, 28 live scenarios in `js/live-scenarios.json`, control last, fresh attacker keys every run, UNREACHED on `http_*`) | Envelope, chain, time and header forgeries against a live host | **Yes, unchanged.** It is already one definition with no host in it. Nothing runs it against a node. |
+| `test/public-surface*.test.ts`, `guest-budget`, `invite-landing`, `client-refusal`, `request-contact` (vitest in workerd) | The cloud's wire refusals, hermetically | **No, as themselves**: they call the Worker. The node's counterparts are its Go tests (`internal/public`, `docs/conformance.md` maps each clause to one). The shared live form is the battery and intrude. |
+| `scripts/check-no-keys.mjs`, `check-no-import.mjs`, `check-key-boundary.mjs` | Static text guards over the cloud's source | **No**: they are about the Worker's module layout. The node's equivalents are its own static guards (`no1x`, `nohandsql`, `layering`, `wholechain`). |
+| The `staging-*.test.ts` table guards | Hermetic: every call in the tables names a real route or action | **Adapted**: the journey list gets the same kind of guard on both sides (2.2). |
+
+### 1.3 The node's suites today
+
+| Suite | Covers |
+|---|---|
+| `make check` (`internal/...`) | unit and integration tests; `internal/public` refusals; `internal/portable` with the pact-identity hostile export corpus (`TestTheCorpusIsImportedAsTheCoreReadsIt`, at least 30 cases); fuzzing of four parsers; the doc gates (`docs/conformance.md` cites real tests) |
+| `make harness` (hermetic) | the harness's own guards: registry, images, ports, certify |
+| harness live tiers | F1–F5 (fabric; F5 is the guest tier over real mTLS), S1–S4, S7–S17, T5–T7 (`docs/harness-design.md` §4) |
+
+The node's journeys already built: first run and the wizard (S1), pairing (S2, S12), reject and
+unblock (S13), messages both ways (S14), media under the fetch guard (S3), a stranger and a narrowed
+contact refused (S9), a move campaign (S10), export and import onto a new host (S16, S17).
+
+### 1.4 The gaps
+
+Attack vectors not run against a node at all:
+
+1. The 28 live intrusion scenarios (forged, expired, replayed envelopes, chain shapes, a key-pinned card) — only offline, against the ports.
+2. The Go battery's 64 live subtests (the guest tier, `chain_required`, the budget with its second-root control, invite no-oracle 404s, replay of a redeem, audit hashing) — only against the cloud.
+3. The node's own doors under attack: CSRF on the portal and the wallet's install (foreign origin, `Origin: null`, repeated fields), wallet-return replay and state reuse, a chain from the wrong root, owner tokens reaching another account, oversized bodies on the owner surface.
+4. The hostile export corpus through the REAL door (the `import` command in the shipped image), not only the package.
+
+Journeys not run against a node: self-invite, a revoked or used-up invite, auto-accept, remove,
+leave, owner-token scope, the real wallet page's `/sign` from the node's portal (the harness's wallet
+is a Go stub), and media plus review-then-confirm through an export round trip.
+
+## 2. The design
+
+### 2.1 Attack suite: the two wire batteries, parameterised by target
+
+- **Intrusion** (`pact vectors intrude`): one definition already. A harness scenario stands a
+  node up, takes its card from the owner's `export_card` tool, and runs
+  `pact vectors intrude --against <endpoint> --card <file> --allow-insecure`. Its verdicts
+  (CONTROL REFUSED, REPRODUCES, UNREACHED) fail the scenario.
+- **The Go battery** gets a `Target`: the endpoint URL whole, where the card comes from, where
+  invites land, how TLS is trusted (WebPKI for the cloud, pinned to the card's leaf for a node), and
+  an owner adapter with two implementations (the cloud's router MCP, the node's `/owner/mcp`). A
+  transport failure becomes UNREACHED, never a finding. Cases that do not apply to one target are
+  skipped from ONE list (`divergence`), each entry naming a real subtest and a reason, held by a
+  hermetic test; no other code skips by target. A harness scenario runs the battery against a
+  live node through a `go.work` (the pattern `make dependents` uses), with the battery's checkout
+  declared as a Need so a tier says NOT PROMISED rather than skipping.
+
+### 2.2 E2E suite: one journey list, a driver per host
+
+The drivers cannot be one program (the node has no `/v1`, the cloud has no `/owner/mcp`), so the
+single definition is the **list of journeys**: `harness/journeys/journeys.json`, each with an id, the
+steps and the expected outcome. Each host's driver implements every journey or names it in the
+list's per-host divergence with a reason:
+
+- node: each harness scenario declares the journeys it proves; a hermetic test holds the union
+  equal to the list minus the node's divergences;
+- cloud: `gateway/e2e/tables/journeys.json` is a byte-identical copy, held to the node's by the
+  node's guard (the 1.x markers' pattern: compared when the sibling is checked out), and a cloud
+  table maps each journey to the pair scenarios that prove it.
+
+### 2.3 The node's own doors under attack
+
+Hermetic, in `make check`, against the real handlers (`httptest`): CSRF and CORS on the portal and
+the wallet install, repeated and `__proto__` fields, wallet-return replay and state reuse, a chain
+from the wrong root, owner tokens across accounts (a 404-shaped refusal, never another account's
+data), the owner surface's body cap. Each attack has a control that must get through.
+
+### 2.4 The wallet, for real
+
+A harness scenario serves the cloud's REAL wallet page (the one `make wallet` serves) beside a node,
+and drives the node's portal to `/sign`, the passkey (a PRF virtual authenticator), the return and
+the install, then a replay of the return.
+
+### 2.5 Tiers
+
+| Tier | What runs |
+|---|---|
+| hermetic (`make check`, `make harness`) | 2.3; the divergence and journey-list guards; the battery's offline seal test; the recipe guards |
+| live local (`harness-pr`, `harness-nightly`) | intrusion and the battery against a node; the journeys; the corpus through the image; the real wallet |
+| staging (owner's) | the battery and intrusion against staging (`make -C pact-cloud conformance`, `ship-staging`); node ↔ cloud export and import |
+
+## 3. Build plan and status
+
+Each item: built, mutation-checked (red on broken code), gated, pushed, PR opened; not merged.
+
+| # | Item | Repo, branch | Tier | Status |
+|---|---|---|---|---|
+| B1 | This map and plan | node `test/node-functional-suite` | — | written |
+| B2 | Intrusion against a live node (harness scenario) | node | nightly | planned |
+| B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | planned |
+| B4 | The battery against a live node (harness scenario) | node | nightly | planned |
+| B5 | The node's doors under attack (2.3) | node | hermetic | planned |
+| B6 | The journey list and the node's missing journeys | node + cloud | hermetic + nightly | planned |
+| B7 | The hostile corpus through the shipped image | node | nightly | planned |
+| B8 | The real wallet page from a node | node | nightly | planned |
+
+Needs staging (the owner deploys): the battery and intrusion against `stg`, node ↔ cloud export and
+import, the cloud's journeys through `make e2e-pair`.
+
+Known before starting: a passkey registered by the setup wizard cannot sign the owner in again
+(residentKey not required), found by the QA run and fixed on `fix/passkey-discoverable`; this work
+does not re-fix it.
