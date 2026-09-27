@@ -52,12 +52,26 @@ func (a *Announcer) audit(action, resource, outcome string) {
 	}
 }
 
-// FanoutCall delivers the campaign to one contact.
-type FanoutCall func(ctx context.Context, contact store.Contact, card string) error
+// FanoutCall delivers the campaign to one contact, and names what became of it: the literal
+// outcome the audit row records (`updated`, `awaiting_approval`, `requested`). An error is a
+// contact not told.
+type FanoutCall func(ctx context.Context, contact store.Contact, card string) (outcome string, err error)
 
-// Fanout walks the account's active contacts, recording per-contact outcome
+// InCampaign says whether a contact is walked by the campaign: every active contact, which pins
+// this identity's root and is owed its new address (PACT §5.3, §9), and every contact an import
+// brought that is not blocked and has not heard from this host yet (PACT §9.2). A blocked contact
+// is never called, whatever brought it.
+func InCampaign(c store.Contact) bool {
+	if c.Status == "blocked" {
+		return false
+	}
+	return c.Status == "active" || c.HandshakeDue
+}
+
+// Fanout walks the contacts InCampaign names, recording per-contact outcome
 // durably; contacts already marked done for this campaign are skipped, so a
-// re-run after an interruption resumes exactly where it stopped.
+// re-run after an interruption resumes exactly where it stopped. A contact an
+// import brought is told once: its mark is cleared when it has been.
 func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call FanoutCall) (done, failed int, err error) {
 	st := a.Manager.Store
 	contacts, err := st.ListContacts(ctx, c.AccountID)
@@ -72,18 +86,18 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		}
 	}
 	for _, ct := range contacts {
-		if ct.Status != "active" {
+		if !InCampaign(ct) {
 			continue
 		}
-		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" {
+		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" && !ct.HandshakeDue {
 			done++
 			continue
 		}
 		attempts := progress[ct.Fingerprint].Attempts + 1
-		callErr := call(ctx, ct, card)
+		outcome, callErr := call(ctx, ct, card)
 		status, lastErr := "done", ""
 		if callErr != nil {
-			status, lastErr = "pending", callErr.Error()
+			status, lastErr, outcome = "pending", callErr.Error(), "pending"
 			failed++
 		} else {
 			done++
@@ -101,7 +115,16 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 			a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:progress not recorded", "error")
 			continue
 		}
-		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint, status)
+		if status == "done" && ct.HandshakeDue {
+			// Told, so owed nothing more. A mark that will not clear means the next campaign
+			// tells this contact again, which costs a call and harms nothing; it is said.
+			if cerr := st.ClearContactHandshake(ctx, c.AccountID, ct.Fingerprint); cerr != nil {
+				unrecorded++
+				a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:handshake mark not cleared", "error")
+				continue
+			}
+		}
+		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint, outcome)
 	}
 	switch {
 	case unrecorded > 0:

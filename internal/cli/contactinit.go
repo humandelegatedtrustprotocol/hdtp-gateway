@@ -15,6 +15,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,6 +45,7 @@ func newContactInitiator(st store.Store, nd *node.Node,
 		manager:  contactsManager(st, nd),
 		card:     nd.Card,
 		outbound: nd.OutboundClient,
+		request:  nd.RequestContact,
 		audit:    auditFn,
 		contact: func(ctx context.Context, accountID, fpr string) (store.Contact, error) {
 			return st.GetContact(ctx, accountID, fpr)
@@ -226,7 +228,10 @@ type contactInitiator struct {
 	manager  *contacts.Manager
 	card     func(ctx context.Context, accountID string) (string, error)
 	outbound func(accountID string) (*outbound.Client, error)
-	audit    func(action, resource, outcome string)
+	// request sends request_contact: node.RequestContact, which the move campaign's fallback
+	// calls too.
+	request func(ctx context.Context, accountID string, peer outbound.Peer, note, callID string) error
+	audit   func(action, resource, outcome string)
 	// httpClient fetches invite landings; nil uses offerClient().
 	httpClient func() *http.Client
 }
@@ -386,26 +391,18 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	if err != nil {
 		return out, fmt.Errorf("that card cannot be pinned: %w", err)
 	}
-	ourCard, err := ci.card(ctx, accountID)
-	if err != nil {
-		return out, err
-	}
-	client, err := ci.outbound(accountID)
-	if err != nil {
-		return out, err
-	}
 	// **The key comes with the card now.** In 1.x a card named a fingerprint and nothing more, so
 	// this call went out in plain text and the key was bound on first contact. A 2.0 card carries
 	// the certificate, so the key is here — and the request is sealed to it, which is the only way
 	// to reach a peer whose card says `X-PACT-SEAL:required`.
-	peer := peerOfCard(peerCard)
-	args := map[string]any{"card": ourCard}
-	if note != "" {
-		args["note"] = note
-	}
-	if _, err := client.Call(ctx, peer, "request_contact", args, newCallID()); err != nil {
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
-		return out, fmt.Errorf("the peer refused the request: %w", err)
+	if err := ci.request(ctx, accountID, peerOfCard(peerCard), note, newCallID()); err != nil {
+		outcome := "unreachable"
+		var refused node.ErrRequestRefused
+		if errors.As(err, &refused) {
+			outcome = "refused"
+		}
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, outcome)
+		return out, fmt.Errorf("the request did not land: %w", err)
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err

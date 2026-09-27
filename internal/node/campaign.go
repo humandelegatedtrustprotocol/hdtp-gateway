@@ -17,6 +17,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // MoveUnreached is one contact the current campaign has tried and not yet told.
@@ -28,7 +30,8 @@ type MoveUnreached struct {
 
 // MoveProgress is a campaign as the ledger has it.
 type MoveProgress struct {
-	// Told is how many active contacts have been told of the current leaf's address.
+	// Told is how many contacts the campaign walks (identity.InCampaign) have been told of the
+	// current leaf's address.
 	Told int `json:"told"`
 	// Waiting is how many have not: tried and unreached, or not tried yet.
 	Waiting int `json:"waiting"`
@@ -62,10 +65,10 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 		out.Unreached = append(out.Unreached, MoveUnreached{Contact: r.ContactFpr, Attempts: r.Attempts, LastError: r.LastError})
 	}
 	for _, c := range contacts {
-		if c.Status != "active" {
+		if !identity.InCampaign(c) {
 			continue
 		}
-		if told[c.Fingerprint] {
+		if told[c.Fingerprint] && !c.HandshakeDue {
 			out.Told++
 		} else {
 			out.Waiting++
