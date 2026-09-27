@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -26,40 +25,14 @@ func permsFromJSON(raw string) []string {
 }
 
 func (s *SQLite) InsertContact(ctx context.Context, c Contact) (Contact, error) {
-	if c.ID == "" {
-		c.ID = newID()
-	}
-	if c.CreatedAt == 0 {
-		c.CreatedAt = now()
-	}
-	err := s.q.InsertContact(ctx, sqlitedb.InsertContactParams{
-		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
-		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
-		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
-		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
-		RootCert: c.RootCert, EverActive: everActive(c.Status),
-	})
-	if err != nil {
+	if err := s.q.InsertContact(ctx, contactInsert(&c)); err != nil {
 		return Contact{}, err
 	}
 	return s.GetContact(ctx, c.AccountID, c.Fingerprint)
 }
 
 func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
-	if c.ID == "" {
-		c.ID = newID()
-	}
-	return s.q.ImportContact(ctx, sqlitedb.ImportContactParams{
-		ID: c.ID, AccountID: c.AccountID, Fingerprint: c.Fingerprint, Spki: c.SPKI,
-		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
-		TheirPermissions: permsToJSON(c.TheirPermissions), TrustFlag: c.TrustFlag,
-		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
-		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
-		// What the archive says, and active is always a contact (internal/portable everActiveOf).
-		EverActive: importedEverActive(c),
-	})
+	return s.q.ImportContact(ctx, contactImport(c))
 }
 
 func (s *SQLite) GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error) {
@@ -178,15 +151,7 @@ func (s *SQLite) UpdateContactCard(ctx context.Context, accountID, fingerprint, 
 }
 
 func (s *SQLite) RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error) {
-	var rootCert []byte
-	if len(c.RootCert) > 0 {
-		rootCert = c.RootCert // nil keeps the certificate the row already holds
-	}
-	n, err := s.q.RedeemOverPendingContact(ctx, sqlitedb.RedeemOverPendingContactParams{
-		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions), InviteID: c.InviteID,
-		DisplayName: c.DisplayName, Card: c.Card, Spki: c.SPKI, Endpoint: c.Endpoint, Leaf: c.Leaf,
-		RootCert: rootCert, AccountID: c.AccountID, Fingerprint: c.Fingerprint,
-	})
+	n, err := s.q.RedeemOverPendingContact(ctx, contactRedeem(c))
 	return n > 0, err
 }
 

@@ -325,10 +325,7 @@ func (s *SQLite) RemoveSession(ctx context.Context, id string) error {
 }
 
 func (s *SQLite) InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error {
-	return s.q.InsertToken(ctx, sqlitedb.InsertTokenParams{
-		ID: id, OwnerID: ownerID, Label: label, Hash: hash,
-		AccountID: sql.NullString{String: accountID, Valid: accountID != ""}, CreatedAt: createdAt,
-	})
+	return s.q.InsertToken(ctx, tokenInsert(id, ownerID, label, hash, accountID, createdAt))
 }
 
 func (s *SQLite) GetTokenByHash(ctx context.Context, hash []byte) (Token, error) {
@@ -363,11 +360,7 @@ func (s *SQLite) RevokeToken(ctx context.Context, id string, now int64) error {
 }
 
 func (s *SQLite) InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error {
-	return s.q.InsertAuditEvent(ctx, sqlitedb.InsertAuditEventParams{
-		Seq: seq, Ts: ts, AccountID: sql.NullString{String: accountID, Valid: accountID != ""}, ActorKind: actorKind, ActorID: actorID,
-		Action: action, Resource: resource, Outcome: outcome, RequestID: requestID,
-		Details: details, PrevHash: prevHash, Hash: hash,
-	})
+	return s.q.InsertAuditEvent(ctx, auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash))
 }
 
 func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {
