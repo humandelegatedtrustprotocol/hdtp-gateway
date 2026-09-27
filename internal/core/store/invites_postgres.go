@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) InsertInvite(ctx context.Context, inv Invite) (Invite, error) {
@@ -30,21 +31,12 @@ func (s *Postgres) InsertInvite(ctx context.Context, inv Invite) (Invite, error)
 	return inv, nil
 }
 
-func pgInvite(r pgdb.Invite) Invite {
-	return Invite{
-		ID: r.ID, AccountID: r.AccountID, TokenHash: r.TokenHash, ExpiresAt: r.ExpiresAt,
-		MaxUses: r.MaxUses, Uses: r.Uses, AutoAccept: r.AutoAccept != 0, Preset: r.Preset,
-		Permissions: permsFromJSON(r.Permissions), Label: r.Label,
-		RevokedAt: r.RevokedAt.Int64, CreatedAt: r.CreatedAt,
-	}
-}
-
 func (s *Postgres) GetInviteByHash(ctx context.Context, accountID string, tokenHash []byte) (Invite, error) {
 	r, err := s.q.GetInviteByHash(ctx, pgdb.GetInviteByHashParams{AccountID: accountID, TokenHash: tokenHash})
 	if err != nil {
 		return Invite{}, err
 	}
-	return pgInvite(r), nil
+	return inviteFromRow(sqlitedb.Invite(r)), nil
 }
 
 func (s *Postgres) GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) (Invite, error) {
@@ -52,7 +44,7 @@ func (s *Postgres) GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) 
 	if err != nil {
 		return Invite{}, err
 	}
-	return pgInvite(r), nil
+	return inviteFromRow(sqlitedb.Invite(r)), nil
 }
 
 func (s *Postgres) ListInvites(ctx context.Context, accountID string) ([]Invite, error) {
@@ -62,7 +54,7 @@ func (s *Postgres) ListInvites(ctx context.Context, accountID string) ([]Invite,
 	}
 	out := make([]Invite, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, pgInvite(r))
+		out = append(out, inviteFromRow(sqlitedb.Invite(r)))
 	}
 	return out, nil
 }

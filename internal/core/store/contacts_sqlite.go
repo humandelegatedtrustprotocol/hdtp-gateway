@@ -62,25 +62,6 @@ func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
 	})
 }
 
-func contactFromRow(r sqlitedb.Contact) Contact {
-	return Contact{
-		ID: r.ID, AccountID: r.AccountID, Fingerprint: r.Fingerprint, SPKI: r.Spki,
-		Status: r.Status, Preset: r.Preset, Permissions: permsFromJSON(r.Permissions),
-		TrustFlag: r.TrustFlag, DisplayName: r.DisplayName, Card: r.Card,
-		CreatedAt: r.CreatedAt, PinnedAt: r.PinnedAt.Int64,
-		// What the peer granted US (PACT §6.2). The column and its writer both
-		// existed; nothing read it back, so the value was write-only.
-		TheirPermissions: permsFromJSON(r.TheirPermissions),
-		Petname:          r.Petname,
-		InviteID:         r.InviteID,
-		Endpoint:         r.Endpoint,
-		Leaf:             r.Leaf,
-		ChainSentKid:     r.ChainSentKid,
-		RootCert:         r.RootCert,
-		EverActive:       r.EverActive != 0,
-	}
-}
-
 func (s *SQLite) GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error) {
 	r, err := s.q.GetContact(ctx, sqlitedb.GetContactParams{AccountID: accountID, Fingerprint: fingerprint})
 	if err != nil {

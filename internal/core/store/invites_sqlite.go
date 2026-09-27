@@ -37,15 +37,6 @@ func (s *SQLite) InsertInvite(ctx context.Context, inv Invite) (Invite, error) {
 	return inv, nil
 }
 
-func inviteFromRow(r sqlitedb.Invite) Invite {
-	return Invite{
-		ID: r.ID, AccountID: r.AccountID, TokenHash: r.TokenHash, ExpiresAt: r.ExpiresAt,
-		MaxUses: r.MaxUses, Uses: r.Uses, AutoAccept: r.AutoAccept != 0, Preset: r.Preset,
-		Permissions: permsFromJSON(r.Permissions), Label: r.Label,
-		RevokedAt: r.RevokedAt.Int64, CreatedAt: r.CreatedAt,
-	}
-}
-
 func (s *SQLite) GetInviteByHash(ctx context.Context, accountID string, tokenHash []byte) (Invite, error) {
 	r, err := s.q.GetInviteByHash(ctx, sqlitedb.GetInviteByHashParams{AccountID: accountID, TokenHash: tokenHash})
 	if err != nil {

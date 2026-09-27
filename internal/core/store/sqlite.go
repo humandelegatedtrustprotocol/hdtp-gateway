@@ -258,15 +258,6 @@ func (s *SQLite) ListAccounts(ctx context.Context) ([]Account, error) {
 	return out, nil
 }
 
-func accountFromRow(r sqlitedb.Account) Account {
-	return Account{
-		ID: r.ID, Slug: r.Slug, DisplayName: r.DisplayName, Algo: r.Algo,
-		Fingerprint: r.Fingerprint.String, Seal: r.Seal, Status: r.Status, CreatedAt: r.CreatedAt,
-		RootFingerprint: r.RootFingerprint.String, RootCert: r.RootCert,
-		AcceptNewHosts: r.AcceptNewHosts,
-	}
-}
-
 func (s *SQLite) AddMembership(ctx context.Context, ownerID, accountID, role string) error {
 	return s.q.InsertMembership(ctx, sqlitedb.InsertMembershipParams{OwnerID: ownerID, AccountID: accountID, Role: role})
 }
@@ -340,21 +331,12 @@ func (s *SQLite) InsertToken(ctx context.Context, id, ownerID, label string, has
 	})
 }
 
-func tokenFromRowSQL(r sqlitedb.Token) Token {
-	t := Token{ID: r.ID, OwnerID: r.OwnerID, Label: r.Label, CreatedAt: r.CreatedAt}
-	if r.AccountID.Valid {
-		t.AccountID = r.AccountID.String
-	}
-	t.RevokedAt = r.RevokedAt.Int64
-	return t
-}
-
 func (s *SQLite) GetTokenByHash(ctx context.Context, hash []byte) (Token, error) {
 	r, err := s.q.GetTokenByHash(ctx, hash)
 	if err != nil {
 		return Token{}, err
 	}
-	return tokenFromRowSQL(r), nil
+	return tokenFromRow(r), nil
 }
 
 func (s *SQLite) ListTokens(ctx context.Context) ([]Token, error) {
@@ -364,7 +346,7 @@ func (s *SQLite) ListTokens(ctx context.Context) ([]Token, error) {
 	}
 	out := make([]Token, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, tokenFromRowSQL(r))
+		out = append(out, tokenFromRow(r))
 	}
 	return out, nil
 }
@@ -396,18 +378,6 @@ func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	return r.Seq, r.Hash, nil
 }
 
-func auditRowSQL(r sqlitedb.AuditEvent) AuditRow {
-	acct := ""
-	if r.AccountID.Valid {
-		acct = r.AccountID.String
-	}
-	return AuditRow{
-		Seq: r.Seq, TS: r.Ts, AccountID: acct, ActorKind: r.ActorKind, ActorID: r.ActorID,
-		Action: r.Action, Resource: r.Resource, Outcome: r.Outcome, RequestID: r.RequestID,
-		Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash,
-	}
-}
-
 func (s *SQLite) ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error) {
 	var rs []sqlitedb.AuditEvent
 	var err error
@@ -421,7 +391,7 @@ func (s *SQLite) ListAuditEvents(ctx context.Context, actorFilter string) ([]Aud
 	}
 	out := make([]AuditRow, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, auditRowSQL(r))
+		out = append(out, auditFromRow(r))
 	}
 	return out, nil
 }
@@ -487,7 +457,7 @@ func (s *SQLite) ListAuditEventsPage(ctx context.Context, p AuditPage) ([]AuditR
 	}
 	out := make([]AuditRow, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, auditRowSQL(r))
+		out = append(out, auditFromRow(r))
 	}
 	return out, nil
 }

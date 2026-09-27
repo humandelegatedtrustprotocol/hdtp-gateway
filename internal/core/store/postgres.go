@@ -12,6 +12,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 	"github.com/tech-sumit/pact-gateway/migrations"
 )
 
@@ -162,7 +163,7 @@ func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Ac
 	if err != nil {
 		return Account{}, err
 	}
-	return pgAccount(r), nil
+	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
 func (s *Postgres) SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error {
@@ -183,7 +184,7 @@ func (s *Postgres) GetAccountByID(ctx context.Context, id string) (Account, erro
 	if err != nil {
 		return Account{}, err
 	}
-	return pgAccount(r), nil
+	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
 func (s *Postgres) GetAccountSealedKey(ctx context.Context, id string) ([]byte, error) {
@@ -206,7 +207,7 @@ func (s *Postgres) GetAccountBySlug(ctx context.Context, slug string) (Account, 
 	if err != nil {
 		return Account{}, err
 	}
-	return pgAccount(r), nil
+	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
 func (s *Postgres) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -216,22 +217,9 @@ func (s *Postgres) ListAccounts(ctx context.Context) ([]Account, error) {
 	}
 	out := make([]Account, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, pgAccount(r))
+		out = append(out, accountFromRow(sqlitedb.Account(r)))
 	}
 	return out, nil
-}
-
-func pgAccount(r pgdb.Account) Account {
-	fp := ""
-	if r.Fingerprint.Valid {
-		fp = r.Fingerprint.String
-	}
-	return Account{
-		ID: r.ID, Slug: r.Slug, DisplayName: r.DisplayName, Algo: r.Algo,
-		Fingerprint: fp, Seal: r.Seal, Status: r.Status, CreatedAt: r.CreatedAt,
-		RootFingerprint: r.RootFingerprint.String, RootCert: r.RootCert,
-		AcceptNewHosts: r.AcceptNewHosts,
-	}
 }
 
 func (s *Postgres) AddMembership(ctx context.Context, ownerID, accountID, role string) error {
@@ -307,21 +295,12 @@ func (s *Postgres) InsertToken(ctx context.Context, id, ownerID, label string, h
 	})
 }
 
-func tokenFromRowPG(r pgdb.Token) Token {
-	t := Token{ID: r.ID, OwnerID: r.OwnerID, Label: r.Label, CreatedAt: r.CreatedAt}
-	if r.AccountID.Valid {
-		t.AccountID = r.AccountID.String
-	}
-	t.RevokedAt = r.RevokedAt.Int64
-	return t
-}
-
 func (s *Postgres) GetTokenByHash(ctx context.Context, hash []byte) (Token, error) {
 	r, err := s.q.GetTokenByHash(ctx, hash)
 	if err != nil {
 		return Token{}, err
 	}
-	return tokenFromRowPG(r), nil
+	return tokenFromRow(sqlitedb.Token(r)), nil
 }
 
 func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
@@ -331,7 +310,7 @@ func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
 	}
 	out := make([]Token, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, tokenFromRowPG(r))
+		out = append(out, tokenFromRow(sqlitedb.Token(r)))
 	}
 	return out, nil
 }
@@ -363,18 +342,6 @@ func (s *Postgres) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	return r.Seq, r.Hash, nil
 }
 
-func auditRowPG(r pgdb.AuditEvent) AuditRow {
-	acct := ""
-	if r.AccountID.Valid {
-		acct = r.AccountID.String
-	}
-	return AuditRow{
-		Seq: r.Seq, TS: r.Ts, AccountID: acct, ActorKind: r.ActorKind, ActorID: r.ActorID,
-		Action: r.Action, Resource: r.Resource, Outcome: r.Outcome, RequestID: r.RequestID,
-		Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash,
-	}
-}
-
 func (s *Postgres) ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error) {
 	var rs []pgdb.AuditEvent
 	var err error
@@ -388,7 +355,7 @@ func (s *Postgres) ListAuditEvents(ctx context.Context, actorFilter string) ([]A
 	}
 	out := make([]AuditRow, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, auditRowPG(r))
+		out = append(out, auditFromRow(sqlitedb.AuditEvent(r)))
 	}
 	return out, nil
 }
@@ -454,7 +421,7 @@ func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]Audi
 	}
 	out := make([]AuditRow, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, auditRowPG(r))
+		out = append(out, auditFromRow(sqlitedb.AuditEvent(r)))
 	}
 	return out, nil
 }

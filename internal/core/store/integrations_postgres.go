@@ -6,15 +6,8 @@ import (
 	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
 )
-
-func integrationFromPG(r pgdb.Integration) Integration {
-	return Integration{
-		ID: r.ID, AccountID: r.AccountID, Slug: r.Slug, Transport: r.Transport,
-		Endpoint: r.Endpoint, Command: r.Command, AuthKind: r.AuthKind,
-		Status: r.Status, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-	}
-}
 
 func (s *Postgres) InsertIntegration(ctx context.Context, in Integration) (Integration, error) {
 	if in.ID == "" {
@@ -46,7 +39,7 @@ func (s *Postgres) GetIntegration(ctx context.Context, accountID, slug string) (
 	if err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
 	}
-	return integrationFromPG(r), nil
+	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
 func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integration, error) {
@@ -54,7 +47,7 @@ func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integrati
 	if err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
 	}
-	return integrationFromPG(r), nil
+	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
 func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
@@ -64,7 +57,7 @@ func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]In
 	}
 	out := make([]Integration, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, integrationFromPG(r))
+		out = append(out, integrationFromRow(sqlitedb.Integration(r)))
 	}
 	return out, nil
 }
@@ -128,10 +121,6 @@ func (s *Postgres) GetIntegrationSecret(ctx context.Context, id string) ([]byte,
 	return b, nil
 }
 
-func catalogFromPG(r pgdb.Catalog) Catalog {
-	return Catalog{ID: r.ID, IntegrationID: r.IntegrationID, Version: r.Version, Tools: r.Tools, CreatedAt: r.CreatedAt}
-}
-
 func (s *Postgres) InsertCatalog(ctx context.Context, c Catalog) (Catalog, error) {
 	if c.ID == "" {
 		c.ID = newID()
@@ -154,7 +143,7 @@ func (s *Postgres) LatestCatalog(ctx context.Context, integrationID string) (Cat
 	if err != nil {
 		return Catalog{}, fmt.Errorf("store: %w", err)
 	}
-	return catalogFromPG(r), nil
+	return catalogFromRow(sqlitedb.Catalog(r)), nil
 }
 
 func (s *Postgres) GetCatalog(ctx context.Context, integrationID string, version int64) (Catalog, error) {
@@ -162,12 +151,7 @@ func (s *Postgres) GetCatalog(ctx context.Context, integrationID string, version
 	if err != nil {
 		return Catalog{}, fmt.Errorf("store: %w", err)
 	}
-	return catalogFromPG(r), nil
-}
-
-func exposureFromPG(r pgdb.Exposure) Exposure {
-	return Exposure{ID: r.ID, IntegrationID: r.IntegrationID, Version: r.Version,
-		CatalogVersion: r.CatalogVersion, Entries: r.Entries, CreatedAt: r.CreatedAt}
+	return catalogFromRow(sqlitedb.Catalog(r)), nil
 }
 
 func (s *Postgres) InsertExposure(ctx context.Context, e Exposure) (Exposure, error) {
@@ -192,7 +176,7 @@ func (s *Postgres) LatestExposure(ctx context.Context, integrationID string) (Ex
 	if err != nil {
 		return Exposure{}, fmt.Errorf("store: %w", err)
 	}
-	return exposureFromPG(r), nil
+	return exposureFromRow(sqlitedb.Exposure(r)), nil
 }
 
 func (s *Postgres) GetExposure(ctx context.Context, integrationID string, version int64) (Exposure, error) {
@@ -200,7 +184,7 @@ func (s *Postgres) GetExposure(ctx context.Context, integrationID string, versio
 	if err != nil {
 		return Exposure{}, fmt.Errorf("store: %w", err)
 	}
-	return exposureFromPG(r), nil
+	return exposureFromRow(sqlitedb.Exposure(r)), nil
 }
 
 func (s *Postgres) PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (string, bool, error) {
@@ -234,18 +218,6 @@ func (s *Postgres) UpdateIdempotencyAck(ctx context.Context, accountID, contactF
 	return nil
 }
 
-func pendingFromPG(r pgdb.PendingRequest) PendingRequest {
-	p := PendingRequest{
-		ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Capability: r.Capability,
-		Args: r.Args, TrustFlag: r.TrustFlag, Status: r.Status, Result: r.Result,
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
-	}
-	if r.AnsweredAt.Valid {
-		p.AnsweredAt = r.AnsweredAt.Int64
-	}
-	return p
-}
-
 func (s *Postgres) InsertPendingRequest(ctx context.Context, p PendingRequest) (PendingRequest, error) {
 	if p.ID == "" {
 		p.ID = newID()
@@ -272,7 +244,7 @@ func (s *Postgres) GetPendingRequest(ctx context.Context, id string) (PendingReq
 	if err != nil {
 		return PendingRequest{}, fmt.Errorf("store: %w", err)
 	}
-	return pendingFromPG(r), nil
+	return pendingFromRow(sqlitedb.PendingRequest(r)), nil
 }
 
 func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string, nowUnix int64) ([]PendingRequest, error) {
@@ -284,7 +256,7 @@ func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string
 	}
 	out := make([]PendingRequest, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, pendingFromPG(r))
+		out = append(out, pendingFromRow(sqlitedb.PendingRequest(r)))
 	}
 	return out, nil
 }
