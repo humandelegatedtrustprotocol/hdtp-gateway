@@ -172,3 +172,20 @@ func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact)
 	a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:no leaf held", FanoutUnreached)
 	return false
 }
+
+// HandshakesOwed counts the contacts an import brought that are owed this host's handshake and
+// not blocked (PACT §9.2): what the next leaf's campaign will walk. It is the one count the
+// install, `account certificate` and `doctor` all read, so an owed handshake is never unseen.
+func (m *Manager) HandshakesOwed(ctx context.Context, accountID string) (int, error) {
+	held, err := m.Store.ListContacts(ctx, accountID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range held {
+		if c.HandshakeDue && InCampaign(c) {
+			n++
+		}
+	}
+	return n, nil
+}

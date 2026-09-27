@@ -332,7 +332,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every push. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 15 live scenarios stand the real binary up
+**A harness that builds the world.** 17 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
@@ -348,6 +348,8 @@ in containers and drive it as a person would:
 | Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |
 | Impairment | Latency and loss, and a partition that severs the node and then heals | `TestResilienceUnderImpairment` |
 | A move under a partition | A contact cut off while the move campaign runs is named, and told on resume | `TestAMoveCampaignSurvivesAPartition` |
+| A move by export and import | An identity exported offline from one host and imported onto another that never held it; the new host's first leaf hands a peer that pins it the new address | `TestAPeerFollowsAnIdentityImportedOntoANewHost` |
+| A peer that blocked the identity | The same move, and a peer that had blocked the identity: the handshake's request meets its block, and its pin does not move | `TestAPeerThatBlockedTheIdentityDecidesUnderItsOwnPolicy` |
 | Own-domain ingress | A containerised ACME CA and an authoritative DNS zone | `TestOwnDomainIngressServesPassthroughAndTerminate` |
 | Tunnel | A self-hosted `frps`; the node's own certificate has to survive the hop | `TestNodeIsReachableThroughSelfHostedFrps` |
 | Cloudflare | Two people over two real Cloudflare tunnels on a real domain (an owner run: it needs an account) | `TestTwoUsersOverRealCloudflareTunnels` |
