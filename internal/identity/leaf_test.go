@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // wallet is the person's side of PACT §9 in a test: a root, and the ledger the

@@ -23,7 +23,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/envelope"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid

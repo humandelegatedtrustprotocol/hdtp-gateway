@@ -78,10 +78,11 @@ the whole address book.
 
 ## Quickstart
 
-Five minutes from nothing to a working node. You need Docker with Compose.
+Five minutes from nothing to a working node. You need Docker with Compose, Go, and SSH
+access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
 
 ```
-cd pact-gateway/pact-gateway
+make identity-proxy     # fetch the identity module on this machine, for the image build
 docker compose up -d
 docker compose logs pact-gateway | grep -A2 "setup"
 ```

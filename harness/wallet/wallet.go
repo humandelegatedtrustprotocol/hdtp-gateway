@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 	"time"
 
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Wallet is one person's root.

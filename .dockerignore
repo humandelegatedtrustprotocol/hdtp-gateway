@@ -1,0 +1,3 @@
+# The identity proxy reaches the image build as its own named context (`identityproxy`), never
+# through `COPY . .`.
+.build/

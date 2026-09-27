@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Initiated records a contact the owner started: we called the peer's

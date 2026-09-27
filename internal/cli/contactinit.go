@@ -29,7 +29,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/node"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // newContactInitiator builds the one initiator every surface uses.

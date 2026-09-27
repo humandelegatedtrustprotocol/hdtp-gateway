@@ -19,7 +19,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // issueLeafFor plays the person's wallet for a test account: a root, and a leaf

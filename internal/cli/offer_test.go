@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // What an invite offer is, and what it takes to be one worth pinning (SPEC §9.2, §14.2).

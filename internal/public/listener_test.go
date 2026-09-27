@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // testServer starts a real TLS listener with two SNI accounts and an echo handler

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // loadFixture parses a committed PKCS#8 PEM and its openssl-computed fingerprint.
