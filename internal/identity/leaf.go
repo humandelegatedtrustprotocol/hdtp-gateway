@@ -456,6 +456,10 @@ type InstallResult struct {
 	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
 	Retired []string
+	// HandshakesDue counts the contacts an import brought that are owed this host's handshake and
+	// not blocked (PACT §9.2). The caller starts the campaign when it is not zero, moved or not:
+	// an import into an identity already served here is followed by a renewal at the same address.
+	HandshakesDue int
 }
 
 // InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
@@ -638,6 +642,15 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	}
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
 		return InstallResult{}, err
+	}
+	held, err := m.Store.ListContacts(ctx, a.ID)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	for _, c := range held {
+		if c.HandshakeDue && InCampaign(c) {
+			res.HandshakesDue++
+		}
 	}
 	kp.Leaf, kp.Root = chain[0], chain[1]
 	return res, nil

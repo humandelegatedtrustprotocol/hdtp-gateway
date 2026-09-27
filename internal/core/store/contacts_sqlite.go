@@ -34,6 +34,17 @@ func (s *SQLite) ImportContact(ctx context.Context, c Contact) error {
 	return s.q.ImportContact(ctx, contactImport(c))
 }
 
+func (s *SQLite) ClearContactHandshake(ctx context.Context, accountID, fingerprint string) error {
+	n, err := s.q.ClearContactHandshake(ctx, sqlitedb.ClearContactHandshakeParams{AccountID: accountID, Fingerprint: fingerprint})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLite) GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error) {
 	r, err := s.q.GetContact(ctx, sqlitedb.GetContactParams{AccountID: accountID, Fingerprint: fingerprint})
 	if err != nil {

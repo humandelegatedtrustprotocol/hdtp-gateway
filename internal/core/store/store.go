@@ -182,6 +182,10 @@ type Contact struct {
 	// carried; it is how an unblock tells a contact the owner blocked (restored) from a request
 	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
+	// HandshakeDue says this contact arrived in an import and has not yet heard from this host
+	// (migration 0042, PACT §9.2): the campaign after the identity's next leaf owes it
+	// update_contact, or request_contact if it refuses that, and clears this when it is told.
+	HandshakeDue bool
 }
 
 // ExpiredContact is one unanswered request the expiry sweep removed.
@@ -542,6 +546,8 @@ type ContactStore interface {
 	// export carries, and none it does not — no invite, and no record of which of this host's
 	// leaves the contact has seen, because this host has not been issued one yet.
 	ImportContact(ctx context.Context, c Contact) error
+	// ClearContactHandshake records that an imported contact has been sent this host's handshake.
+	ClearContactHandshake(ctx context.Context, accountID, fingerprint string) error
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
 
