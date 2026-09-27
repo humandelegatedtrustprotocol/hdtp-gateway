@@ -18,6 +18,8 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -33,10 +35,18 @@ type WaitArgs struct {
 	// from now: the first call returns immediately with a cursor and no
 	// backlog, so an agent can begin a loop without replaying its history.
 	SinceTS int64 `json:"since_ts,omitempty" jsonschema:"cursor from a previous wait_for_updates; omit to start from now"`
-	// TimeoutSec bounds the wait. Default 25, max 50 — under a minute so a
-	// proxy or an idle-timeout does not cut the call mid-wait.
-	TimeoutSec int64 `json:"timeout_sec,omitempty" jsonschema:"how long to wait for something to happen; default 25, max 50"`
+	// TimeoutSec bounds the wait: whole seconds from 1 to WaitMaxSec, WaitMaxSec
+	// when omitted. A pointer, so an omitted bound (the default) and an explicit 0
+	// (refused: it would answer at once, and a loop on it spins) are told apart.
+	TimeoutSec *int64 `json:"timeout_sec,omitempty" jsonschema:"seconds to wait for something to happen, from 1 to 25; 25 when omitted"`
 }
+
+// WaitMaxSec is the longest wait_for_updates holds a call, and its default: the
+// hosted edition's bound too (pact-cloud WATCH_WAIT_MAX_SEC, its /v1 watchChanges
+// and its owner MCP's wait), so an agent written for one host waits the same on
+// the other. Under half a minute, so a proxy's or a platform's idle timeout does
+// not cut a call mid-wait.
+const WaitMaxSec = 25
 
 type DigestArgs struct {
 	AccountID string `json:"account_id"`
@@ -135,9 +145,16 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 		r, err := deny()
 		return r, nil, err
 	}
-	timeout := 25 * time.Second
-	if a.TimeoutSec > 0 {
-		timeout = time.Duration(min(a.TimeoutSec, 50)) * time.Second
+	timeout := WaitMaxSec * time.Second
+	if a.TimeoutSec != nil {
+		if *a.TimeoutSec < 1 || *a.TimeoutSec > WaitMaxSec {
+			b, err := json.Marshal(map[string]string{"code": "bad_request", "detail": fmt.Sprintf("timeout_sec is whole seconds from 1 to %d", WaitMaxSec)})
+			if err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+		}
+		timeout = time.Duration(*a.TimeoutSec) * time.Second
 	}
 	// A first call has nothing to say: hand back a cursor and let the next
 	// call do the waiting. Replaying every thread on connect would make the
