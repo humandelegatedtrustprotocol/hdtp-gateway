@@ -123,6 +123,17 @@ func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
 	if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: URIThreadPrefix + threadID}); err != nil {
 		t.Fatal(err)
 	}
+	// Both subscriptions are acknowledged before anything is published: an update that races
+	// into the SEP-2575 handshake window is lost by the SDK (the note on connect). Without this
+	// wait the thread's update was lost under load — a pre-push gate on 2026-09-28 saw the inbox
+	// update and not the thread's, 30 s later.
+	for range 2 {
+		select {
+		case <-e.subAck:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a subscription was never acknowledged")
+		}
+	}
 	// new inbound message → bus → ResourceUpdated(inbox) and (that thread)
 	if _, err := e.deps.Msg.Record(context.Background(), e.acctA, "sha256:alina", messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", ThreadID: threadID, Text: "hi", Sender: messaging.SenderAgent}); err != nil {
