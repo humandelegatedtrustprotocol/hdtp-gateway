@@ -137,9 +137,9 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | B2 | Intrusion against a live node: S18 | node | nightly | done: 28 of 28 blocked, the control through, 28 refusal rows; red on an image that stops auditing envelope refusals and on one that answers `unavailable` |
 | B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | done; the cloud path of the changed battery is not yet run against any cloud (see 3.2) |
 | B4 | The battery against a live node: S19 | node | nightly | done: 77 of 77 after the fixes in 3.1 |
-| B5 | The node's doors under attack (2.3) | node | hermetic | in progress |
-| B6 | The journey list and the node's missing journeys | node + cloud | hermetic + nightly | planned |
-| B7 | The hostile corpus through the shipped image | node | nightly | planned |
+| B5 | The node's doors under attack (2.3) | node `test/node-door-attacks` | hermetic | in progress |
+| B6 | The node's missing journeys: S21 | node | nightly | done (the shared journey list with the cloud's pair is still to write) |
+| B7 | The hostile corpus through the shipped image: S22 | node | nightly | done on the v0.3.2 corpus; see 3.3 for v0.3.3 |
 | B8 | The real wallet page from a node | node | nightly | planned |
 | B9 | Every early refusal of the public tools audited | node | hermetic | done |
 
@@ -152,6 +152,17 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | Every public caller's audit row was written as the node's own (`system`) | S19, audit group | sealed_call and the built-in tools write `guest` or `contact` |
 | Thirty early refusals (decode, caps, vocabulary) and a non-envelope `sealed_call` body wrote no audit row | reading the code S18 exercises | `ToolDeps.refuse`; `TestEveryMalformedCallIsRefusedAndAudited` |
 | `TestSubscribeInboxReceivesResourceUpdated` flaked under the pre-push gate | the gate | waits for both subscription acknowledgements |
+
+### 3.3 The v0.3.3 corpus (SPEC 2.2.2, 44 cases)
+
+S22 run with the harness on pact-identity v0.3.3 against an image of node `main` (v0.3.2): 27 of its
+44 cases fail, all on one change of format — a v0.3.3 export no longer lists media in the manifest's
+`files` — so main refuses both valid files (and with them the wrong-owner control, whose identity a
+valid file makes), refuses 24 hostile files in other words than the corpus's, and lets
+`media-listed-in-files.zip` through. (The commit that added S22 said "misreads 29"; this is the
+measured count.) The node's move to v0.3.3 (in progress on `fix/review-2026-09-28`) carries it;
+the harness moves with it by `make identity-bump`, and S22 is re-run then. Until then a v0.3.3
+export — from a cloud on v0.3.3 — cannot be imported into a node on main.
 
 ### 3.2 Open, and tracked
 
