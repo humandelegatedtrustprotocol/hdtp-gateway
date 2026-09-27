@@ -37,6 +37,10 @@ var uiExempt = map[string]string{
 	"/setup":        "the wizard page itself, served through the §8.6 gate",
 	"/threads/{id}/send": "superseded by /messages/send: the conversation view sends to a " +
 		"CONTACT and lets the node pick the thread, because a conversation is with a person",
+	"/identity/{slug}/wallet/start": "the form of the server-rendered page GET /identity/{slug}/wallet, " +
+		"which the Identity view links to (wallet_pages.go)",
+	"/identity/{slug}/wallet/install": "POSTed by /wallet/return.js, the script of the page a web wallet " +
+		"navigates back to (wallet_pages.go)",
 }
 
 var postRoute = regexp.MustCompile(`"POST (/[^"]*)"`)

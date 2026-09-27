@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -43,6 +44,7 @@ const (
 	RuleEdgeClientCert     = "edge_mode_forces_client_cert_off"         // SPEC §2.5
 	RuleEnum               = "invalid_enum_value"
 	RuleRange              = "value_out_of_range"
+	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, PACT §9.1
 )
 
 type Config struct {
@@ -64,6 +66,13 @@ type Config struct {
 	// bootstrap, never owner-settable (SPEC §12.2): it gates authentication, so
 	// it must not come from data the authenticated surface can write.
 	InternalHost string `json:"internal_host"`
+
+	// WalletURL is the ORIGIN of the web wallet the portal sends a signing request to (PACT §9.1):
+	// the page POSTs to WalletURL + "/sign" and the wallet answers at the portal's /wallet/return.
+	// It is bootstrap, never owner-settable: it is the one foreign origin the portal's form-action
+	// admits, so it cannot come from data the authenticated surface writes. Defaults to the cloud's
+	// ceremony host (DefaultWalletURL).
+	WalletURL string `json:"wallet_url"`
 
 	InternalAuthEnabled bool   `json:"internal_auth_enabled"`
 	InternalTLSCert     string `json:"internal_tls_cert"`
@@ -141,6 +150,7 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 		Seal:         SealRequired,
 		ClientCert:   ClientCertPreferred,
 		StoreEngine:  "sqlite",
+		WalletURL:    DefaultWalletURL,
 	}
 	var lanOpt *bool
 	var filePinned map[string]bool
@@ -195,6 +205,7 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("PACT_POSTGRES_DSN", &c.PostgresDSN)
 	envStr("PACT_MASTER_KEY_FILE", &c.MasterKeyFile)
 	envStr("PACT_TUNNEL", &c.Tunnel)
+	envStr("PACT_WALLET_URL", &c.WalletURL)
 	if v, ok := lookup("PACT_MODE"); ok {
 		c.Mode = Mode(v)
 	}
@@ -324,6 +335,10 @@ func (c *Config) validate() error {
 		}
 	}
 
+	if err := validWalletURL(c.WalletURL); err != nil {
+		return fmt.Errorf("%s: wallet_url %q: %v", RuleWalletURL, c.WalletURL, err)
+	}
+
 	if c.StoreEngine == "postgres" && c.PostgresDSN == "" {
 		return fmt.Errorf("%s: store_engine postgres needs postgres_dsn", RulePostgresDSN)
 	}
@@ -368,3 +383,35 @@ func isLoopbackBind(bind string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
+
+// DefaultWalletURL is the web wallet a portal sends a signing request to when nothing else is
+// configured: pact-cloud's ceremony host (its production TENANT_ADDRESS_TEMPLATE,
+// `{workspace}.pact.contact`, with the workspace `ceremony`).
+const DefaultWalletURL = "https://ceremony.pact.contact"
+
+// validWalletURL holds wallet_url to an origin a form may be sent to: https, or http to a loopback
+// host (a wallet under test on this machine); a scheme and a host with nothing after them, because
+// it is written into the portal's form-action as an origin.
+func validWalletURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("want an origin, scheme://host[:port], and nothing after it")
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		h := u.Hostname()
+		if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
+			return nil
+		}
+		return fmt.Errorf("http is for a wallet on this machine only; use https")
+	}
+	return fmt.Errorf("want https")
+}
+
+// WalletOrigin is wallet_url as the origin a browser writes (no trailing slash).
+func (c *Config) WalletOrigin() string { return strings.TrimRight(c.WalletURL, "/") }

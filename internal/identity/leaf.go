@@ -15,6 +15,7 @@ package identity
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"strings"
@@ -297,6 +298,10 @@ type CSRResult struct {
 	Kid               string // fingerprint of the key the request carries
 	SuggestedNotAfter time.Time
 	PreviousNotBefore *time.Time
+	// State is the random value a web wallet's answer must carry back (PACT §9.1): 32 bytes,
+	// base64url, 43 characters. The host keeps only its SHA-256 (migration 0041); an answer is
+	// accepted once, with it (InstallWalletLeaf).
+	State string
 }
 
 // IssueCSR makes the request a wallet signs (PACT §9).
@@ -314,6 +319,23 @@ type CSRResult struct {
 // `upgrade` was the fourth purpose and went with 1.x: it carried the identity's existing key so
 // that every pin of that key stayed valid, and there is no such pin any more.
 func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint string, now time.Time) (CSRResult, error) {
+	return m.issueCSR(ctx, accountID, purpose, endpoint, "", now)
+}
+
+// IssueWalletCSR is IssueCSR for a request sent to a web wallet at `walletOrigin` (PACT §9.1): the
+// same request, with the wallet it went to recorded beside the state's hash. The web wallet does not
+// take `signup` (O8 of the identity-boundary design), so neither does this.
+func (m *Manager) IssueWalletCSR(ctx context.Context, accountID, purpose, endpoint, walletOrigin string, now time.Time) (CSRResult, error) {
+	if purpose != PurposeRenew && purpose != PurposeMove {
+		return CSRResult{}, fmt.Errorf("identity: a web wallet signs a renew or a move, not %q; a first leaf comes from the CLI wallet: %w", purpose, ErrLeafRefused)
+	}
+	if walletOrigin == "" {
+		return CSRResult{}, errors.New("identity: a request for a web wallet names the wallet")
+	}
+	return m.issueCSR(ctx, accountID, purpose, endpoint, walletOrigin, now)
+}
+
+func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, walletOrigin string, now time.Time) (CSRResult, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
 		return CSRResult{}, err
@@ -392,7 +414,14 @@ func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint str
 		// that is already a leaf's, or a renewal that generated no new key).
 		return CSRResult{}, fmt.Errorf("identity: a leaf for key %s already exists: %w", kp.Fingerprint, err)
 	}
-	res := CSRResult{CSR: csr, Purpose: purpose, Endpoint: endpoint, Kid: kp.Fingerprint, SuggestedNotAfter: now.Add(365 * 24 * time.Hour)}
+	state, err := newRequestState()
+	if err != nil {
+		return CSRResult{}, err
+	}
+	if err := m.Store.SetLeafRequest(ctx, accountID, kp.Fingerprint, stateHash(state), walletOrigin); err != nil {
+		return CSRResult{}, err
+	}
+	res := CSRResult{CSR: csr, Purpose: purpose, Endpoint: endpoint, Kid: kp.Fingerprint, SuggestedNotAfter: now.Add(365 * 24 * time.Hour), State: state}
 	if leaves, err := m.Store.ListLeaves(ctx, accountID); err == nil {
 		for _, l := range leaves {
 			if l.State == LeafCurrent {
@@ -412,6 +441,9 @@ type InstallResult struct {
 	Kid             string // the new current leaf's key id
 	OldKid          string // the superseded leaf's key id, "" on a first install
 	OldEndpoint     string // where the identity answered before this leaf, when this host's ledger knows
+	// OldNotAfter is when the leaf this one follows expires, when this host's ledger knows it; zero
+	// after an import that carried no ledger. It is the date a move notice gives (MoveNotice).
+	OldNotAfter time.Time
 	// Moved says this leaf put the identity at an address its contacts do not know yet, so they
 	// are owed `update_contact` from it (PACT §5.3, §9). See InstallLeaf for how it is decided.
 	Moved        bool
@@ -434,6 +466,22 @@ type InstallResult struct {
 // becomes current, the account's key column points at it, and every contact's
 // chain-sent mark is cleared so each sees the new chain once (§13.2).
 func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]byte, now time.Time) (InstallResult, error) {
+	return m.installLeaf(ctx, accountID, chain, "", now)
+}
+
+// InstallWalletLeaf is InstallLeaf for a web wallet's answer (PACT §9.1): "A host MUST accept an
+// answer only once, only with the state it minted for a pending request, and only a chain whose
+// leaf carries that request's key and validates at its endpoint." The state is checked before the
+// chain is, and consumed — in the statement that checks it — only once the chain has passed, so a
+// refused chain leaves the request answerable.
+func (m *Manager) InstallWalletLeaf(ctx context.Context, accountID string, chain [][]byte, state string, now time.Time) (InstallResult, error) {
+	if state == "" {
+		return InstallResult{}, fmt.Errorf("identity: an answer from a web wallet carries the request's state: %w", ErrRequestState)
+	}
+	return m.installLeaf(ctx, accountID, chain, state, now)
+}
+
+func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]byte, state string, now time.Time) (InstallResult, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
 		return InstallResult{}, err
@@ -452,22 +500,39 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 		}
 	}
 	if pending == nil {
-		return InstallResult{}, errors.New("identity: no certificate request is pending for this account; run `account csr` first")
+		if state != "" {
+			return InstallResult{}, fmt.Errorf("identity: no certificate request is pending for this account, so no answer is expected (it may have been answered already): %w", ErrRequestState)
+		}
+		return InstallResult{}, fmt.Errorf("identity: no certificate request is pending for this account; run `account csr` first: %w", ErrLeafRefused)
+	}
+	if state != "" && (len(pending.RequestStateHash) == 0 || subtle.ConstantTimeCompare(pending.RequestStateHash, stateHash(state)) != 1) {
+		return InstallResult{}, fmt.Errorf("identity: the answer's state is not the pending request's (another request, or one already answered): %w", ErrRequestState)
 	}
 	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now, ExpectedRoot: a.RootFingerprint, ExpectedEndpoint: pending.Endpoint})
 	if !vr.OK {
-		return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s", vr.Rule, vr.Reason)
+		return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s: %w", vr.Rule, vr.Reason, ErrLeafRefused)
 	}
 	if got := pactidentity.Fingerprint(vr.LeafKey.SPKI); got != pending.Kid {
-		return InstallResult{}, fmt.Errorf("identity: the leaf carries key %s, not the requested %s", got, pending.Kid)
+		return InstallResult{}, fmt.Errorf("identity: the leaf carries key %s, not the requested %s: %w", got, pending.Kid, ErrLeafRefused)
 	}
 	if current != nil {
 		cmp, err := pactidentity.CompareLeaves(current.Leaf, chain[0])
 		if err != nil {
-			return InstallResult{}, fmt.Errorf("identity: %w", err)
+			return InstallResult{}, fmt.Errorf("identity: %w: %w", err, ErrLeafRefused)
 		}
 		if cmp != "newer" {
-			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3)", cmp)
+			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3): %w", cmp, ErrLeafRefused)
+		}
+	}
+	// The answer has passed every check; now it is used, once. Two answers carrying one state both
+	// reach this line only if they arrive together, and the statement lets exactly one through.
+	if state != "" {
+		ok, err := m.Store.ConsumeLeafRequest(ctx, a.ID, pending.Kid, stateHash(state))
+		if err != nil {
+			return InstallResult{}, err
+		}
+		if !ok {
+			return InstallResult{}, fmt.Errorf("identity: the request was answered already: %w", ErrRequestState)
 		}
 	}
 	kp, err := m.openLeafKey(pending.KeySealed)
@@ -521,26 +586,11 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 	//   - a root and no ledger at all: it arrived from another host with its name and nothing
 	//     else. Moved. If its contacts happen to hold this very address already, what they
 	//     receive is a card refresh, which costs nothing.
-	if current == nil && a.HasRoot() {
-		var last *store.Leaf
-		for i := range leaves {
-			l := &leaves[i]
-			if l.State == LeafPending || len(l.Leaf) == 0 || l.Endpoint == "" {
-				continue
-			}
-			if last == nil || l.NotBefore >= last.NotBefore {
-				last = l
-			}
-		}
-		if last != nil {
-			res.OldEndpoint = last.Endpoint
-		} else {
-			res.Moved = true
-		}
+	if prev := departedFrom(leaves); prev != nil {
+		res.OldEndpoint = prev.Endpoint
+		res.OldNotAfter = time.Unix(prev.NotAfter, 0).UTC()
 	}
-	if !res.FirstInstall && res.OldEndpoint != "" && res.OldEndpoint != res.Endpoint {
-		res.Moved = true
-	}
+	res.Moved = moves(a, leaves, res.Endpoint)
 
 	// A superseded leaf is kept for one reason: to be SERVED, as a guest, until its notAfter, so an
 	// envelope still sealed to it is answered `certificate_renewed` (PACT §14.4). A key this node
