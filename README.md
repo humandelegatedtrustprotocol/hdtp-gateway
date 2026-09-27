@@ -337,7 +337,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every push. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 17 live scenarios stand the real binary up
+**A harness that builds the world.** 19 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
@@ -349,6 +349,8 @@ in containers and drive it as a person would:
 | Approval | The owner approves over the owner MCP, and both nodes then say active | `TestApprovingAContactReachesThePeer` |
 | Rejection | The requester's own node learns it was rejected; an unblock lets them ask again | `TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain` |
 | Adversarial probes | A stranger, an over-reaching contact, and the audit chain intact through every refusal — over a real socket | `TestAdversarialProbesAreRefused` |
+| The intrusion battery | pact-identity's live battery (`pact vectors intrude`): forged, tampered, replayed and expired envelopes and every chain shape, from an attacker with new keys each run, with one call that must get through; each refusal on the audit trail | `TestTheIntrusionBatteryIsRefusedByANode` |
+| The conformance battery | The cloud's Go battery of the wire, aimed at a node through its owner MCP: the guest tier, the per-root budget, envelopes, invites, a key past its leaf's life answered `certificate_renewed`, the audit rows hashed as the reference hashes them | `TestTheConformanceBatteryPassesAgainstANode` |
 | Portal affordances | Every action an owner needs, found on the page Chrome draws for a signed-in owner | `TestPortalOffersEveryAffordanceAnOwnerNeeds` |
 | Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |
 | Impairment | Latency and loss, and a partition that severs the node and then heals | `TestResilienceUnderImpairment` |
