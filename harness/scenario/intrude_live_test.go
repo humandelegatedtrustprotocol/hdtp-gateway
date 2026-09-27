@@ -80,7 +80,9 @@ func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
 		refused, kinds := 0, map[string]int{}
 		for _, r := range fresh {
 			kinds[r.Action+" "+r.Outcome]++
-			if r.Outcome != "ok" {
+			// Every scenario but the control reaches the node as one sealed_call; its refusal is
+			// that tool's row with the code it was answered.
+			if r.Action == "sealed_call" && r.Outcome != "ok" {
 				refused++
 			}
 		}
