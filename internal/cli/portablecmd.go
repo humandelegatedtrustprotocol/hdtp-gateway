@@ -160,7 +160,11 @@ func checkWritten(path, owner string, now time.Time, warnings *[]string) error {
 	if err != nil {
 		return err
 	}
-	*warnings = portable.CloudCeilings(&zr.Reader, fi.Size())
+	var size uint64
+	if n := fi.Size(); n > 0 {
+		size = uint64(n)
+	}
+	*warnings = portable.CloudCeilings(&zr.Reader, size)
 	return nil
 }
 
