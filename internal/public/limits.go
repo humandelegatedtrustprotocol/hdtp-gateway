@@ -5,6 +5,8 @@ package public
 // size is capped at the transport so nothing oversized even reaches parsing.
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -109,11 +111,40 @@ type AuditFn func(action, resource, outcome string)
 // refusal is a `rate_limited` tool error, which is what a caller's agent can
 // actually act on.
 
+// CapBody refuses a request body past maxBytes, counted by the bytes that arrive rather than by the
+// length the request declares, with 413 and PACT's `too_large` (SPEC §5.7), before anything parses
+// it; a body within the cap is handed on whole. It used to wrap the body in a MaxBytesReader and
+// leave the answer to whatever read it — which, behind the MCP SDK, was the SDK's own plaintext 413,
+// at the SDK's own default of 4 MiB, under this cap: the 8 MiB SPEC §5.7 sizes for 5 MiB of inline
+// media was never what the listener took (TestBodyCap held a stub reader, not the listener).
 func CapBody(next http.Handler, maxBytes int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.ContentLength > maxBytes {
+			tooLarge(w)
+			return
+		}
+		b, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
+		if err != nil {
+			http.Error(w, "the request body could not be read", http.StatusBadRequest)
+			return
+		}
+		if int64(len(b)) > maxBytes {
+			tooLarge(w)
+			return
+		}
+		r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(b)), int64(len(b))
 		next.ServeHTTP(w, r)
 	})
+}
+
+func tooLarge(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusRequestEntityTooLarge)
+	_, _ = w.Write([]byte(`{"code":"too_large"}`))
 }
 
 // sweepLocked drops keys whose window has emptied.

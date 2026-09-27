@@ -27,6 +27,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/internalui/ownermcp"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/public"
 	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
 	"github.com/pact-cloud/pact-gateway/internal/services/presence"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
@@ -308,9 +309,19 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 		// resource notification sent while it was away — the exact case
 		// subscriptions exist for.
 		EventStore: mcp.NewMemoryEventStore(nil),
+		// Bounded by CapBody below; the SDK's own limit is set to the same number so there is one.
+		MaxRequestBodyBytes: OwnerMCPMaxBodyBytes,
 	})
-	return requireOwnerToken(tokens, auditFn, inner)
+	// A body is bounded where it enters, before the token is looked at: nothing reads a byte past
+	// the cap, authenticated or not.
+	return public.CapBody(requireOwnerToken(tokens, auditFn, inner), OwnerMCPMaxBodyBytes)
 }
+
+// OwnerMCPMaxBodyBytes caps a request to the owner MCP. Its largest legitimate call carries a
+// contact-tool call's arguments (64 KiB, the portal's cap on the same call) or a card; nothing on
+// this surface carries media. One MiB leaves room for all of it and nothing like the public
+// listener's 8 MiB. Before this the cap was the SDK's unnamed default (4 MiB).
+const OwnerMCPMaxBodyBytes int64 = 1 << 20
 
 // ownerIdentity resolves the bearer token on a request, or reports refusal.
 func ownerIdentity(r *http.Request, tokens *auth.TokenService) (auth.Identity, bool) {
