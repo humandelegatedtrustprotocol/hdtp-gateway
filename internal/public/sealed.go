@@ -142,6 +142,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var env pactidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
+			// Not an envelope at all. Refused like any other that does not open, and audited like
+			// one: this answered and wrote nothing.
+			d.audit("guest", "sealed_call", "account:"+d.AccountID, "envelope_invalid")
 			return errEnvelope("envelope_invalid"), nil
 		}
 		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
