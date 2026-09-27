@@ -99,3 +99,21 @@ UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1;
 -- Never overwrites, because the root a pin names cannot change (PACT sec. 14.3) and the
 -- cert already stored is the one that was checked when the pin was made.
 UPDATE contacts SET root_cert = $1 WHERE account_id = $2 AND fingerprint = $3 AND (root_cert IS NULL OR length(root_cert) = 0);
+
+-- name: UpsertVacatedAddress :exec
+-- An address an identity has left (migration 0040, PACT sec. 9). The row keeps the latest
+-- not_after it has been given: a second vacating of the same endpoint never shortens it.
+INSERT INTO vacated_addresses (endpoint, slug, until_at, at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (endpoint) DO UPDATE SET slug = excluded.slug, until_at = GREATEST(vacated_addresses.until_at, excluded.until_at), at = excluded.at;
+
+-- name: CountLiveVacatedSlug :one
+SELECT COUNT(*) FROM vacated_addresses WHERE slug = $1 AND until_at > $2;
+
+-- name: CountLiveVacatedEndpoint :one
+SELECT COUNT(*) FROM vacated_addresses WHERE endpoint = $1 AND until_at > $2;
+
+-- name: ListVacatedAddresses :many
+SELECT * FROM vacated_addresses ORDER BY endpoint;
+
+-- name: DeleteExpiredVacatedAddresses :execrows
+DELETE FROM vacated_addresses WHERE until_at <= $1;

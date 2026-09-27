@@ -21,6 +21,21 @@ func (q *Queries) CountCredentialsByKind(ctx context.Context, kind string) (int6
 	return count, err
 }
 
+const deleteAccount = `-- name: DeleteAccount :execrows
+DELETE FROM accounts WHERE id = ?
+`
+
+// An identity leaving this host (PACT sec. 9): every table that names the account by a foreign
+// key goes with it (ON DELETE CASCADE). The ones that name it without one (tokens, idempotency,
+// the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
+func (q *Queries) DeleteAccount(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAccount, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteAuditEventsThrough = `-- name: DeleteAuditEventsThrough :execrows
 DELETE FROM audit_events WHERE seq <= ?
 `
@@ -118,6 +133,20 @@ DELETE FROM settings WHERE key = ?
 func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
 	_, err := q.db.ExecContext(ctx, deleteSetting, key)
 	return err
+}
+
+const deleteTokensByAccount = `-- name: DeleteTokensByAccount :execrows
+DELETE FROM tokens WHERE account_id = ?
+`
+
+// A token scoped to an identity that has left acts for nobody. Deleted, not revoked: a revoked
+// row would go on naming the account.
+func (q *Queries) DeleteTokensByAccount(ctx context.Context, accountID sql.NullString) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTokensByAccount, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getAccount = `-- name: GetAccount :one

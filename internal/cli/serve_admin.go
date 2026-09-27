@@ -5,6 +5,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,7 +14,9 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/services/settings"
 )
 
 // registerAdminHandlers registers the admin socket's commands (SPEC §12.1): the account, passkey
@@ -274,6 +278,50 @@ func (s *serveRun) registerAdminHandlers() {
 		}
 		s.auditFn("settings_accept_new_hosts", "account:"+acct.ID+" policy:"+args["policy"], "ok")
 		return map[string]any{"Slug": acct.Slug, "Policy": args["policy"]}, nil
+	})
+	// account.leave is the person leaving this host (PACT §9, "What a host must do when the person
+	// leaves"): every record of the identity and every leaf key it held are erased at once, the
+	// live node forgets it so its address answers as one never served, and the address stays
+	// reserved until the last leaf issued for it expires. It is on the admin socket only, like
+	// `import`: shell access on the host is its authorisation, and no portal or owner-MCP door has
+	// it (a named divergence: README "Leave this node", SPEC.md §3.11).
+	admin.Handle("account.leave", func(args map[string]string) (any, error) {
+		if args["slug"] == "" {
+			return nil, fmt.Errorf("account.leave needs slug")
+		}
+		acct, err := accountBySlug(args["slug"])
+		if err != nil {
+			return nil, err
+		}
+		// A move campaign that is walking holds the account's key and writes its rows; erasing
+		// them under it would leave the walk failing against records that are gone.
+		if s.nd != nil && s.nd.MoveWalking(acct.ID) {
+			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+" reason:campaign_walking", "refused")
+			return nil, fmt.Errorf("account.leave: %s is telling its contacts of a move right now; run `account announce -slug %s` until it has finished, then leave", acct.Slug, acct.Slug)
+		}
+		res, err := idm.Leave(ctx, acct.ID, settings.AccountKeys(acct.ID), messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
+		if err != nil && res.AccountID == "" {
+			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug, "error")
+			return nil, err
+		}
+		// The records are gone from here on, whatever the media files did.
+		if s.nd != nil {
+			s.nd.ForgetAccount(acct.ID, acct.Slug)
+		}
+		reserved := make([]map[string]any, 0, len(res.Vacated))
+		for _, v := range res.Vacated {
+			reserved = append(reserved, map[string]any{"Endpoint": v.Endpoint, "Until": time.Unix(v.UntilAt, 0).UTC().Format(time.RFC3339)})
+		}
+		erased := " leaves:" + strconv.Itoa(res.Leaves) + " reserved:" + strconv.Itoa(len(res.Vacated)) + " media:" + strconv.Itoa(res.BlobsRemoved)
+		out := map[string]any{"Slug": acct.Slug, "Leaves": res.Leaves, "Reserved": reserved, "MediaRemoved": res.BlobsRemoved}
+		if err != nil {
+			// Erased, with media files left on disk that no record refers to any more.
+			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+erased, "partial")
+			out["Warning"] = err.Error()
+			return out, nil
+		}
+		s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+erased, "ok")
+		return out, nil
 	})
 	admin.Handle("account.addresses", func(args map[string]string) (any, error) {
 		if args["slug"] == "" {
