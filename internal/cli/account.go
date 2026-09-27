@@ -17,6 +17,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 	}
 	sub, rest := args[0], args[1:]
 	var cfgPath, slug, name, algo, purpose, endpoint, chainPath, root, decision, policy string
+	var yes, forceCurrent bool
 	fs := commonFlags("account "+sub, &cfgPath, stderr)
 	fs.StringVar(&slug, "slug", "", "account slug (endpoint path segment)")
 	fs.StringVar(&name, "name", "", "display name")
@@ -27,6 +28,8 @@ func account(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
 	fs.StringVar(&decision, "decision", "", "address: approve|reject; omitted lists what is pending")
 	fs.StringVar(&policy, "policy", "", "address: auto|ask — what happens when a pinned contact turns up at a new address (PACT §5.3)")
+	fs.BoolVar(&yes, "yes", false, "leave: erase what the review shows (without it, the review and nothing else)")
+	fs.BoolVar(&forceCurrent, "force-current", false, "leave: erase the identity even though its current leaf is at this node's own address for it")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
@@ -116,9 +119,25 @@ func account(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "leave":
 		var out map[string]any
-		if err := core.AdminCall(sock, "account.leave", map[string]string{"slug": slug}, &out); err != nil {
+		call := map[string]string{"slug": slug}
+		if yes {
+			call["yes"] = "1"
+		}
+		if forceCurrent {
+			call["force_current"] = "1"
+		}
+		if err := core.AdminCall(sock, "account.leave", call, &out); err != nil {
 			fmt.Fprintln(stderr, "account:", err)
 			return 1
+		}
+		if r, ok := out["Review"].(map[string]any); ok {
+			fmt.Fprintf(stdout, "leaving would erase %v (root %v) from this node: %v leaf key(s), %v contact(s), %v conversation(s) and %v media record(s) (a file goes only when no other identity here uses it)\n",
+				r["Slug"], r["Root"], r["Leaves"], r["Contacts"], r["Threads"], r["MediaFiles"])
+			if c, _ := r["Current"].(string); c != "" {
+				fmt.Fprintf(stdout, "  its current leaf names %v\n", c)
+			}
+			fmt.Fprintf(stdout, "nothing was erased, and there is no undo. If this is what you mean, run it again with -yes\n")
+			return 0
 		}
 		fmt.Fprintf(stdout, "%v has left this node: its records and its %v leaf key(s) are erased, and %v media file(s) no other identity used\n", out["Slug"], out["Leaves"], out["MediaRemoved"])
 		reserved, _ := out["Reserved"].([]any)

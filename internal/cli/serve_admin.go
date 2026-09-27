@@ -278,6 +278,25 @@ func (s *serveRun) registerAdminHandlers() {
 		if err != nil {
 			return nil, err
 		}
+		// Two steps, as an import takes: without `yes` the leave shows what it would erase and
+		// erases nothing. The erase has no undo.
+		preview, err := idm.PreviewLeave(ctx, acct.ID)
+		if err != nil {
+			return nil, err
+		}
+		review := map[string]any{"Slug": preview.Slug, "Root": preview.Root, "Leaves": preview.Leaves, "Contacts": preview.Contacts,
+			"Threads": preview.Threads, "MediaFiles": preview.MediaFiles, "Current": preview.Current}
+		if args["yes"] != "1" {
+			return map[string]any{"Review": review}, nil
+		}
+		// The identity's current leaf is at this node's own address for it: it is served HERE, now.
+		// After a move to another address on this same node, "delete the identity at the old host"
+		// names this node and would erase the identity that was just moved. Refused unless the
+		// person says, in so many words, that they mean the live one.
+		if here := endpointFor(acct.Slug); preview.Current != "" && preview.Current == here && args["force_current"] != "1" {
+			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+" reason:current_endpoint", "refused")
+			return nil, fmt.Errorf("account.leave: %s is served here, now, at %s — its current leaf names this node's own address for it. After a move to another address on this node there is nothing to delete here: the old leaf answers until it expires. To erase the live identity anyway, run it again with -force-current", acct.Slug, here)
+		}
 		// A move campaign that is walking holds the account's key and writes its rows; erasing
 		// them under it would leave the walk failing against records that are gone. The node holds
 		// the campaign slot for the whole erase, so none can start between the check and the erase.
