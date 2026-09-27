@@ -59,6 +59,14 @@ WHERE account_id = ? AND fingerprint = ?;
 INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 
+-- name: ImportContactPin :execrows
+-- An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
+-- a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
+-- validated there - and is owed this host's handshake. A contact held WITH a leaf is never
+-- written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
+UPDATE contacts SET endpoint = ?, leaf = ?, spki = ?, root_cert = COALESCE(?, root_cert), handshake_due = 1
+WHERE account_id = ? AND fingerprint = ? AND (leaf IS NULL OR length(leaf) = 0);
+
 -- name: ClearContactHandshake :execrows
 -- The campaign has told this contact: it is owed nothing more (sec. 9.2).
 UPDATE contacts SET handshake_due = 0 WHERE account_id = ? AND fingerprint = ?;

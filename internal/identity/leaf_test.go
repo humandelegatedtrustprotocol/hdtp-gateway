@@ -303,20 +303,18 @@ func TestAFirstLeafOverAFreshKeyRetiresNothing(t *testing.T) {
 	}
 }
 
-// AC (2026-09-18): the FIRST leaf after a data-only import installs, and the host
-// starts serving an identity it holds no key for.
+// AC (2026-09-18): the FIRST leaf over an account that names a key it does not hold installs,
+// and the host starts serving an identity it holds no key for.
 //
-// This is the last step of `npm run leave` (pact-cloud gateway/src/leave/convert.ts):
-// the archive carries the person's root and its contacts and NO key, because a leaf
-// key belongs to the host that issued it (PACT §9). So the account arrives naming
-// the previous host's leaf as its fingerprint with nothing here to sign with, asks
-// its wallet for a move, and installs what comes back.
+// No leaf key travels between hosts (PACT §9), so an account can name a leaf kid issued
+// elsewhere with nothing here to sign with. It asks its wallet for a move and installs what
+// comes back. (An export of today's format arrives with no key named at all:
+// TestAnImportedSlugHoldsOnlyItsRootUntilTheFirstChainInstalls.)
 //
-// It could not be done at all until today. `GetAccountSealedKey` reported an absent
+// It could not be done at all until 2026-09-18. `GetAccountSealedKey` reported an absent
 // key as an error, so both branches written for it — the mint in `IssueCSR` and the
 // "nothing to retire" in `InstallLeaf` — were unreachable, and the install failed on
-// "read the key being retired". The archive's BYTES were proven by the cloud's
-// selftest; this is the node's reading of them, which was asserted in a comment.
+// "read the key being retired".
 func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "moved.db"))

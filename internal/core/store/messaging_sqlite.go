@@ -159,3 +159,24 @@ func (s *SQLite) MarkThreadRead(ctx context.Context, accountID, threadID string)
 	_, err := s.q.MarkThreadRead(ctx, sqlitedb.MarkThreadReadParams{AccountID: accountID, ThreadID: threadID, AccountID_2: accountID, ID: threadID})
 	return err
 }
+
+func (s *SQLite) ImportThread(ctx context.Context, t Thread) (bool, error) {
+	n, err := s.q.ImportThread(ctx, sqlitedb.ImportThreadParams{
+		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
+		Topic: t.Topic, CreatedAt: t.CreatedAt, LastAt: t.LastAt,
+	})
+	return n > 0, err
+}
+
+func (s *SQLite) ImportMessage(ctx context.Context, m Message) (bool, error) {
+	n, err := s.q.ImportMessage(ctx, messageImport(m))
+	return n > 0, err
+}
+
+func (s *SQLite) ImportBlob(ctx context.Context, b Blob) (bool, error) {
+	n, err := s.q.ImportBlob(ctx, sqlitedb.ImportBlobParams{
+		AccountID: b.AccountID, Hash: b.Hash, Size: b.Size, Mime: b.Mime,
+		Filename: b.Filename, CreatedAt: b.CreatedAt,
+	})
+	return n > 0, err
+}

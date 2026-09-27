@@ -80,3 +80,21 @@ WHERE account_id = $3 AND contact_fpr = $4 AND msg_id = $5 AND direction = 'out'
 -- name: ListPendingOutbound :many
 SELECT seq, id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at, expires_at, attempts, next_attempt_at
 FROM messages WHERE direction = 'out' AND status = 'pending' ORDER BY seq LIMIT $1;
+
+-- name: ImportThread :execrows
+-- A thread arriving in an export (SPEC sec. 3.10). One already here, by id, is left as it is:
+-- importing into an identity this host already holds adds what it lacks and changes nothing else.
+INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at) VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT DO NOTHING;
+
+-- name: ImportMessage :execrows
+-- A message arriving in an export, with no retry schedule (it was the old host's to deliver).
+-- One already here, by id or by its sender's msg_id, is left as it is.
+INSERT INTO messages (id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT DO NOTHING;
+
+-- name: ImportBlob :execrows
+-- The record of a file arriving in an export. One already here, by hash, is left as it is.
+INSERT INTO blobs (account_id, hash, size, mime, filename, created_at) VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT DO NOTHING;

@@ -199,6 +199,39 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 	return err
 }
 
+const importContactPin = `-- name: ImportContactPin :execrows
+UPDATE contacts SET endpoint = ?, leaf = ?, spki = ?, root_cert = COALESCE(?, root_cert), handshake_due = 1
+WHERE account_id = ? AND fingerprint = ? AND (leaf IS NULL OR length(leaf) = 0)
+`
+
+type ImportContactPinParams struct {
+	Endpoint    string
+	Leaf        []byte
+	Spki        []byte
+	RootCert    []byte
+	AccountID   string
+	Fingerprint string
+}
+
+// An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
+// a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
+// validated there - and is owed this host's handshake. A contact held WITH a leaf is never
+// written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
+func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, importContactPin,
+		arg.Endpoint,
+		arg.Leaf,
+		arg.Spki,
+		arg.RootCert,
+		arg.AccountID,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertContact = `-- name: InsertContact :exec
 INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
