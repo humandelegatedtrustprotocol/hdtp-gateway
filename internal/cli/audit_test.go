@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/audit"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/audit"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // seedAudit migrates a store in dir/data and appends n chained events.

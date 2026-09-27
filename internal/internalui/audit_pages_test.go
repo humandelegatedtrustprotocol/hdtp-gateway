@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/audit"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/audit"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // auditEnv builds a two-account, two-owner node with an attributed row in each

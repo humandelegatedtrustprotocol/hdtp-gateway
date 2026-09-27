@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/harness/portal"
+	"github.com/pact-cloud/pact-gateway/harness/portal"
 )
 
 // OwnerSession is a signed-in owner of one node's portal.

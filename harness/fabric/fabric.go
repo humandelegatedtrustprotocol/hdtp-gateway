@@ -29,7 +29,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/images"
 )
 
 // Runner executes one command. Injected so the driver is testable without Docker.

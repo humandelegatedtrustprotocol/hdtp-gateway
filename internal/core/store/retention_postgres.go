@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
 )
 
 func (p *Postgres) DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error) {

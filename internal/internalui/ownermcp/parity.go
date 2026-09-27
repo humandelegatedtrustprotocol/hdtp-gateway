@@ -25,9 +25,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 

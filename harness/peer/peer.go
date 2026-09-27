@@ -21,9 +21,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // `StdioConfigFor` had ZERO production callers — only stdio_test.go set it — so

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // S4 — a contact books a real appointment in a real calendar.

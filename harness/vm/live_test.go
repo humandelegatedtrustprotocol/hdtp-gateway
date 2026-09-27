@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // The clock claim, proven end to end: a REAL pact-gateway binary, unmodified, run

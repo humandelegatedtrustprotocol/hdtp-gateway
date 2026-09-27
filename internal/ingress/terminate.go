@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // Terminator listens on the public port for terminate-mode subdomains.

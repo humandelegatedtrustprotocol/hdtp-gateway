@@ -8,8 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 // NewAgentAnswered builds the agent-answered service together with the tracker

@@ -13,7 +13,7 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"os"
 	"strings"
 )

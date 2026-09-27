@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // Presets are owner-defined bundles (PACT §8): assigned at approval time,

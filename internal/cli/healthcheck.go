@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/internalui"
 )
 
 // healthcheck probes the internal listener's /healthz; the container HEALTHCHECK

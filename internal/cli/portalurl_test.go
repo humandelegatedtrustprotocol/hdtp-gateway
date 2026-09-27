@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // AC (P10-05c): the printed setup URL must be one a browser can complete a

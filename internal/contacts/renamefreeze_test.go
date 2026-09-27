@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // update_contact is available at contact tier regardless of permissions, and it

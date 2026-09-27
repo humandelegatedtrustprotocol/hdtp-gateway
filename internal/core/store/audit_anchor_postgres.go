@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
 )
 
 func (p *Postgres) AuditAnchor(ctx context.Context) (AuditAnchorRow, error) {

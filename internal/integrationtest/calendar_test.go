@@ -13,13 +13,13 @@ import (
 	ics "github.com/arran4/golang-ical"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/calendar"
-	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/recipes"
-	"github.com/tech-sumit/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/calendar"
+	"github.com/pact-cloud/pact-gateway/internal/core/policy"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/integrations/providers"
+	"github.com/pact-cloud/pact-gateway/internal/integrations/recipes"
+	"github.com/pact-cloud/pact-gateway/internal/public"
 )
 
 // Tuesday 2026-08-25.

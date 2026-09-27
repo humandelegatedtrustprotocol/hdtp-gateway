@@ -14,12 +14,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
-	"github.com/tech-sumit/pact-gateway/internal/node"
-	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/ownermcp"
+	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
 )
 
 func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *integrationchain.Chain,

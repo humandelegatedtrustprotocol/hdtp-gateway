@@ -12,10 +12,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
 // Run dispatches os.Args-style arguments; version is the build-stamped version

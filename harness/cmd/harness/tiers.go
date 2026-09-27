@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // runList prints the registry: JSON by default, the docs table with -doc.

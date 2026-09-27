@@ -17,8 +17,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
 type OwnersDeps struct {

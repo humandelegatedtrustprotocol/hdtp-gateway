@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 )
 
 func inboxEnv(t *testing.T) (*http.ServeMux, *messaging.Service, *messaging.Bus, string) {

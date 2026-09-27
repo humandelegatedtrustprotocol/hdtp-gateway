@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // An invite is a link you send someone. The page showed only the PATH —

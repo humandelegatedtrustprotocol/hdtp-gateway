@@ -18,18 +18,18 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/ownermcp"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
-	"github.com/tech-sumit/pact-gateway/internal/node"
-	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
-	"github.com/tech-sumit/pact-gateway/internal/services/presence"
-	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/ownermcp"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
+	"github.com/pact-cloud/pact-gateway/internal/services/presence"
+	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
 // tunnelExtra collects adapter settings from the environment:

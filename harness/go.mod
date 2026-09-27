@@ -5,7 +5,7 @@
 // out of the binary but not out of the root go.mod, go.sum, or govulncheck's surface.
 // A separate module keeps them out of all four, and Go excludes nested modules from the
 // parent's ./... automatically — so `make check` never compiles this.
-module github.com/tech-sumit/pact-gateway/harness
+module github.com/pact-cloud/pact-gateway/harness
 
 go 1.26.6
 
@@ -50,10 +50,10 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260804232424-e85f50dbfd32
 	github.com/chromedp/chromedp v0.16.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/tech-sumit/pact-gateway v0.0.0
+	github.com/pact-cloud/pact-gateway v0.0.0
 	github.com/tech-sumit/pact-gateway/pact-identity v0.0.0-00010101000000-000000000000
 )
 
-replace github.com/tech-sumit/pact-gateway => ..
+replace github.com/pact-cloud/pact-gateway => ..
 
 replace github.com/tech-sumit/pact-gateway/pact-identity => ../../pact-identity/go

@@ -24,10 +24,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/ingress"
-	"github.com/tech-sumit/pact-gateway/internal/ingress/dns"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/ingress"
+	"github.com/pact-cloud/pact-gateway/internal/ingress/dns"
 )
 
 type ingressFlags struct {

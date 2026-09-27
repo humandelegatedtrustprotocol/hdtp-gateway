@@ -20,8 +20,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 type SettingsDeps struct {

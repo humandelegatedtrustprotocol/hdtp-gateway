@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {

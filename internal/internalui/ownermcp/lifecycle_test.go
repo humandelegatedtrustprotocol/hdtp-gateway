@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
 // N-06 and N-21 on the agent's surface: approval tells the peer the grant the row holds, within a

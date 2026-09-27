@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 func tokenEnv(t *testing.T) (*TokenService, string) {

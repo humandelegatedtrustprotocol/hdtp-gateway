@@ -31,7 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "modernc.org/sqlite"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // growing is every table whose size follows use rather than configuration. The others hold a row

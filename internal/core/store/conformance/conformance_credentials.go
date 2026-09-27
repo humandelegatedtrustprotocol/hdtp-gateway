@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // credentials is the suite for credentials, and the last passkey that cannot be removed.

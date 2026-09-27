@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 )
 
 // SweepInterval is how often retention is applied. An hour is far finer than any

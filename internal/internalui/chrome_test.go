@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/web"
+	"github.com/pact-cloud/pact-gateway/web"
 )
 
 // The routes the shell's navigation offers. A route here that stops serving the

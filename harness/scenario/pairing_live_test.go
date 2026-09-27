@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/peer"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/topology"
+	"github.com/pact-cloud/pact-gateway/harness/peer"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/topology"
 )
 
 // PlaintextCanary is planted in message bodies so that whatever CARRIES a sealed message — a

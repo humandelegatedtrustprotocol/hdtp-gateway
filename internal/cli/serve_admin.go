@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
-	"github.com/tech-sumit/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/node"
 )
 
 // registerAdminHandlers registers the admin socket's commands (SPEC §12.1): the account, passkey

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 func mediaEnv(t *testing.T, quota int64) (*MediaService, *Service, string) {

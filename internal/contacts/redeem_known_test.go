@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // A root this account already holds a row for redeems one of its invites (review N-08, P-22).

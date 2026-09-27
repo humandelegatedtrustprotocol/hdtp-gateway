@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 )
 
 // AC (P10-11c): the owner can read media this node already holds, and cannot

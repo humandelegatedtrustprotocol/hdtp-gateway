@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // importAndMove is the suite for an import lands whole or not at all, a move campaign is resumable, and an imported contact keeps what its export carried.

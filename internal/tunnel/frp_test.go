@@ -15,7 +15,7 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/server"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 func TestFRPOptionsPlumbing(t *testing.T) {

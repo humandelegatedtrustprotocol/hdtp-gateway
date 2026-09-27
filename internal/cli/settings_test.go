@@ -21,13 +21,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/ingress"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
-	"github.com/tech-sumit/pact-gateway/internal/services/settings"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/ingress"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/pact-cloud/pact-gateway/internal/services/settings"
 )
 
 // portal drives the settings page the way a browser would, carrying the CSRF

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // integrations is the suite for integrations.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // The shape tests above assert what the topology ASKS Docker for. This one stands

@@ -24,11 +24,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/calendar"
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/calendar"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/policy"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 

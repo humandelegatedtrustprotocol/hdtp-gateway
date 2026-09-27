@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // PACT §5.3 gives the owner a choice, per identity, for what happens when a pinned contact turns

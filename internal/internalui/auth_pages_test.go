@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/tech-sumit/pact-gateway/web"
+	"github.com/pact-cloud/pact-gateway/web"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -14,8 +14,8 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
 const (

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 )
 
 // AuthDeps is what the ceremonies and the session gate need.

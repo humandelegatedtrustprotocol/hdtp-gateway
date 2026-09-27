@@ -15,8 +15,8 @@ import (
 
 	ics "github.com/arran4/golang-ical"
 
-	"github.com/tech-sumit/pact-gateway/internal/calendar"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/calendar"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 // Caller invokes one upstream tool and returns its decoded JSON result.

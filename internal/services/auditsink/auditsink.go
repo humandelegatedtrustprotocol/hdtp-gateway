@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/audit"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/audit"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // New turns the hash-chain writer into the three-argument sink every

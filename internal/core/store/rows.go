@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 // A row becomes its domain type HERE, once, for both engines. sqlc generates the two queriers'

@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) InsertThread(ctx context.Context, t Thread) error {

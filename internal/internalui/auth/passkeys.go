@@ -20,8 +20,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 const sessionTTL = 12 * time.Hour

@@ -20,8 +20,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 )
 
 // MediaDeps is what the media routes need.

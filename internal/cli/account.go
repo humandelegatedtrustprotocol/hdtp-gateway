@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 func account(args []string, stdout, stderr io.Writer) int {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/testid"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 )
 
 // freeAddr is a loopback address nothing is listening on.

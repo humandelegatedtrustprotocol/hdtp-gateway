@@ -3,7 +3,7 @@ package tunnel
 import (
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // derivesEdge reports whether configuring this adapter puts a node in edge mode,

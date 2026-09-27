@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/text/secure/precis"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // labelContacts decides what to CALL each contact in a list.

@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/tech-sumit/pact-gateway/internal/cli"
+	"github.com/pact-cloud/pact-gateway/internal/cli"
 )
 
 // version is stamped by the release build via -ldflags; the default marks dev builds.
