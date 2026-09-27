@@ -17,6 +17,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // MoveUnreached is one contact the current campaign has tried and not yet told.
@@ -28,7 +30,8 @@ type MoveUnreached struct {
 
 // MoveProgress is a campaign as the ledger has it.
 type MoveProgress struct {
-	// Told is how many active contacts have been told of the current leaf's address.
+	// Told is how many contacts the campaign walks (identity.InCampaign) have been told of the
+	// current leaf's address.
 	Told int `json:"told"`
 	// Waiting is how many have not: tried and unreached, or not tried yet.
 	Waiting int `json:"waiting"`
@@ -36,6 +39,9 @@ type MoveProgress struct {
 	Walking bool `json:"walking"`
 	// Unreached names the contacts a walk has tried and failed to tell, worst first.
 	Unreached []MoveUnreached `json:"unreached,omitempty"`
+	// NoLeaf counts the imported contacts the handshake recorded as `unreached`: this host holds
+	// no leaf of theirs, so nothing can be sealed to them, and they are not tried again (PACT §9.2).
+	NoLeaf int `json:"no_leaf"`
 }
 
 // MoveProgress reads the ledger for the identity's current leaf.
@@ -49,7 +55,7 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 	if err != nil {
 		return MoveProgress{}, err
 	}
-	told := map[string]bool{}
+	told, noLeaf := map[string]bool{}, map[string]bool{}
 	var out MoveProgress
 	for _, r := range rows {
 		if r.LeafKid != kid {
@@ -59,13 +65,18 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 			told[r.ContactFpr] = true
 			continue
 		}
+		if r.Status == identity.FanoutUnreached {
+			noLeaf[r.ContactFpr] = true
+			out.NoLeaf++
+			continue
+		}
 		out.Unreached = append(out.Unreached, MoveUnreached{Contact: r.ContactFpr, Attempts: r.Attempts, LastError: r.LastError})
 	}
 	for _, c := range contacts {
-		if c.Status != "active" {
+		if !identity.InCampaign(c) || noLeaf[c.Fingerprint] {
 			continue
 		}
-		if told[c.Fingerprint] {
+		if told[c.Fingerprint] && !c.HandshakeDue {
 			out.Told++
 		} else {
 			out.Waiting++

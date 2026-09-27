@@ -84,6 +84,7 @@ type Contact struct {
 	ChainSentKid     string
 	RootCert         []byte
 	EverActive       int64
+	HandshakeDue     int64
 }
 
 type Credential struct {

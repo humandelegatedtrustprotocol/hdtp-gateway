@@ -182,6 +182,10 @@ type Contact struct {
 	// carried; it is how an unblock tells a contact the owner blocked (restored) from a request
 	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
+	// HandshakeDue says this contact arrived in an import and has not yet heard from this host
+	// (migration 0042, PACT §9.2): the campaign after the identity's next leaf owes it
+	// update_contact, or request_contact if it refuses that, and clears this when it is told.
+	HandshakeDue bool
 }
 
 // ExpiredContact is one unanswered request the expiry sweep removed.
@@ -542,6 +546,12 @@ type ContactStore interface {
 	// export carries, and none it does not — no invite, and no record of which of this host's
 	// leaves the contact has seen, because this host has not been issued one yet.
 	ImportContact(ctx context.Context, c Contact) error
+	// ClearContactHandshake records that an imported contact has been sent this host's handshake.
+	ClearContactHandshake(ctx context.Context, accountID, fingerprint string) error
+	// ImportContactPin gives a contact held with NO leaf the pin an import carries (endpoint, leaf,
+	// its key, the root's certificate) and marks it owed the handshake. A contact held with a leaf
+	// is left as it is, and false says so: a pin this host validated is never replaced by a file's.
+	ImportContactPin(ctx context.Context, c Contact) (bool, error)
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
 
@@ -579,6 +589,12 @@ type ContactStore interface {
 // make a call safe to repeat, and the local deletes retention makes (SPEC §7, §11.2).
 type MessageStore interface {
 	InsertThread(ctx context.Context, t Thread) error
+	// ImportThread, ImportMessage and ImportBlob write what an export carried (SPEC §3.10). Each
+	// leaves a row that is already here as it is, so an import into an identity this host already
+	// holds adds what it lacks and changes nothing it has; each reports whether it wrote.
+	ImportThread(ctx context.Context, t Thread) (bool, error)
+	ImportMessage(ctx context.Context, m Message) (bool, error)
+	ImportBlob(ctx context.Context, b Blob) (bool, error)
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)
 	TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error
 	InsertMessage(ctx context.Context, m Message) error

@@ -456,6 +456,10 @@ type InstallResult struct {
 	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
 	Retired []string
+	// HandshakesDue counts the contacts an import brought that are owed this host's handshake and
+	// not blocked (PACT §9.2). The caller starts the campaign when it is not zero, moved or not:
+	// an import into an identity already served here is followed by a renewal at the same address.
+	HandshakesDue int
 }
 
 // InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
@@ -639,6 +643,9 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
 		return InstallResult{}, err
 	}
+	if res.HandshakesDue, err = m.HandshakesOwed(ctx, a.ID); err != nil {
+		return InstallResult{}, err
+	}
 	kp.Leaf, kp.Root = chain[0], chain[1]
 	return res, nil
 }
@@ -656,8 +663,11 @@ type CertificateInfo struct {
 	NotAfter        time.Time
 	RenewalDue      bool
 	PendingCSR      string // the pending request's key id, "" when none
-	Superseded      []string
-	Former          []string
+	// HandshakesOwed counts the imported contacts waiting for this identity's next leaf
+	// (Manager.HandshakesOwed): a renewal, or a first leaf, is what sends them the handshake.
+	HandshakesOwed int
+	Superseded     []string
+	Former         []string
 }
 
 // Certificate reports an account's certificate state; renewal is due thirty
@@ -693,6 +703,9 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 		case LeafFormer:
 			info.Former = append(info.Former, l.Kid)
 		}
+	}
+	if info.HandshakesOwed, err = m.HandshakesOwed(ctx, accountID); err != nil {
+		return CertificateInfo{}, err
 	}
 	return info, nil
 }

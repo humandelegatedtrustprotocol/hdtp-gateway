@@ -11,6 +11,17 @@ func (s *Postgres) ImportContact(ctx context.Context, c Contact) error {
 	return s.q.ImportContact(ctx, pgdb.ImportContactParams(contactImport(c)))
 }
 
+func (s *Postgres) ClearContactHandshake(ctx context.Context, accountID, fingerprint string) error {
+	n, err := s.q.ClearContactHandshake(ctx, pgdb.ClearContactHandshakeParams{AccountID: accountID, Fingerprint: fingerprint})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error) {
 	if err := s.q.InsertContact(ctx, pgdb.InsertContactParams(contactInsert(&c))); err != nil {
 		return Contact{}, err
@@ -106,4 +117,9 @@ func (s *Postgres) DeleteExpiredPendingContacts(ctx context.Context, accountID s
 		out = append(out, ExpiredContact{Fingerprint: r.Fingerprint, Status: r.Status})
 	}
 	return out, nil
+}
+
+func (s *Postgres) ImportContactPin(ctx context.Context, c Contact) (bool, error) {
+	n, err := s.q.ImportContactPin(ctx, pgdb.ImportContactPinParams(contactPin(c)))
+	return n > 0, err
 }
