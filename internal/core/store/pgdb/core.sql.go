@@ -849,6 +849,18 @@ func (q *Queries) LockAccountRow(ctx context.Context, id string) error {
 	return err
 }
 
+const lockSlug = `-- name: LockSlug :exec
+SELECT pg_advisory_xact_lock(hashtext($1))
+`
+
+// A transaction-scoped lock on one slug: creating an account under it and reserving it for an
+// identity that left (vacated_addresses) take it, so the one that comes second reads what the
+// first wrote. Released at commit or rollback.
+func (q *Queries) LockSlug(ctx context.Context, hashtext string) error {
+	_, err := q.db.Exec(ctx, lockSlug, hashtext)
+	return err
+}
+
 const putSetting = `-- name: PutSetting :exec
 INSERT INTO settings (key, value, secret, updated_at) VALUES ($1, $2, $3, $4)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, secret = excluded.secret, updated_at = excluded.updated_at

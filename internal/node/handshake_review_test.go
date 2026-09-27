@@ -305,3 +305,28 @@ func TestTheHandshakeIsNotSpentOnTheLeafTheImportFound(t *testing.T) {
 		t.Fatal("the handshake was spent on the old leaf")
 	}
 }
+
+// L2 (review 2026-09-28). A leave holds the account's campaign slot from its check to the end of
+// its erase: no walk can start in between (ResumeMove from `account announce`, or an install).
+func TestNoCampaignStartsWhileTheWorkHoldsTheSlot(t *testing.T) {
+	clock := &demoClock{t: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	dn := &demoNet{hosts: map[string]string{}}
+	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 365)
+	ran := false
+	err := alina.n.WithoutCampaign(alina.acct.ID, func() error {
+		ran = true
+		if alina.n.ResumeMove(context.Background(), alina.acct.ID, alina.acct.Fingerprint) {
+			t.Fatal("a campaign started while the slot was held")
+		}
+		if err := alina.n.WithoutCampaign(alina.acct.ID, func() error { return nil }); err != ErrCampaignWalking {
+			t.Fatalf("a second holder: %v", err)
+		}
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("the work: %v %v", ran, err)
+	}
+	if _, held := alina.n.campaigns.Load(alina.acct.ID); held {
+		t.Fatal("the slot was not released")
+	}
+}

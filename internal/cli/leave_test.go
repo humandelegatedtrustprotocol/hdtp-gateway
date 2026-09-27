@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 // What the public listener answers at an identity's address and at its invite link, as the status
@@ -37,7 +39,7 @@ func publicAnswer(t *testing.T, public, slug, token string) string {
 func TestAccountLeaveOnARunningNode(t *testing.T) {
 	ctx := context.Background()
 	var alice store.Account
-	var slowRoot string
+	var slowRoot, oauthIntegration string
 	// A contact whose host accepts a connection and says nothing for a while: the move campaign's
 	// walk waits on it, which is the one state leave refuses.
 	hold, err := net.Listen("tcp", "127.0.0.1:0")
@@ -73,6 +75,16 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 			if slug == "alice" {
 				alice = a
 			}
+		}
+		// M2 (review 2026-09-28): an integration of alice's with a pre-registered OAuth client, whose
+		// credentials are a settings row keyed by the integration's id.
+		in, err := st.InsertIntegration(ctx, store.Integration{AccountID: alice.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://cal.example/mcp", AuthKind: "oauth", Status: "disabled"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		oauthIntegration = in.ID
+		if err := integrations.SealClient(st, idm.Keyring, core.SettingsAAD(), in.ID, "client-id", "client-secret"); err != nil {
+			t.Fatal(err)
 		}
 		peer := newTestPeer(t, "Slow", "https://"+hold.Addr().String()+"/a/slow/mcp")
 		slowRoot = peer.Root()
@@ -139,6 +151,16 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	}
 	if got, want := publicAnswer(t, r.public, "alice", token), publicAnswer(t, r.public, never, neverToken); got != want {
 		t.Fatalf("the vacated address answers unlike one never served:\n%s\n---\n%s", got, want)
+	}
+	// The OAuth client's credentials went with the identity (M2).
+	settingsLeft, err := st.ListSettings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range settingsLeft {
+		if strings.Contains(row.Key, oauthIntegration) {
+			t.Fatalf("the leave left a settings row of alice's integration: %s", row.Key)
+		}
 	}
 	// Bob, on the same node, is untouched.
 	if _, err := st.GetAccountBySlug(ctx, "bob"); err != nil {

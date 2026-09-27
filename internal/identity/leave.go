@@ -35,42 +35,48 @@ type LeaveResult struct {
 //
 // Every table that names the account by a foreign key is erased by the account row's cascade. The
 // ones that name it without one are erased here first: tokens scoped to it, its idempotency
-// records, and the per-account settings named by `settingKeys` (settings.AccountKeys). Media files
-// are removed after the commit by `removeBlob` (messaging.BlobDir.Remove), and only when no other
-// identity still refers to the hash.
+// records, and the per-account settings `settingKeys` names (settings.AccountKeys, and the OAuth
+// client credentials of each of its integrations: integrations.ClientKeys), read inside the same
+// transaction. Media files are removed after the commit by `removeBlob`
+// (messaging.BlobDir.Remove), and only when no other identity still refers to the hash.
+//
+// Everything the erase decides from — the account, its leaves (what to reserve), its media (what
+// to remove after) — is read INSIDE the transaction, so a leaf installed or a file received a
+// moment before cannot be missed by the reservation or left behind on disk.
 //
 // The audit trail is append-only and is not erased: its rows keep the account id.
-func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []string, removeBlob func(hash string) error, now time.Time) (LeaveResult, error) {
-	a, err := m.Store.GetAccountByID(ctx, accountID)
-	if err != nil {
-		return LeaveResult{}, err
-	}
-	leaves, err := m.Store.ListLeaves(ctx, accountID)
-	if err != nil {
-		return LeaveResult{}, err
-	}
-	// The last leaf issued for each address: a leaf this host installed (a pending request has none).
-	until := map[string]int64{}
-	for _, l := range leaves {
-		if len(l.Leaf) == 0 || l.Endpoint == "" {
-			continue
+func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(ctx context.Context, tx store.Store) ([]string, error), removeBlob func(hash string) error, now time.Time) (LeaveResult, error) {
+	var res LeaveResult
+	var held []store.Blob
+	err := m.Store.Atomically(ctx, func(tx store.Store) error {
+		a, err := tx.GetAccountByID(ctx, accountID)
+		if err != nil {
+			return err
 		}
-		if l.NotAfter > until[l.Endpoint] {
-			until[l.Endpoint] = l.NotAfter
+		leaves, err := tx.ListLeaves(ctx, accountID)
+		if err != nil {
+			return err
 		}
-	}
-	res := LeaveResult{AccountID: a.ID, Slug: a.Slug, Leaves: len(leaves)}
-	for ep, na := range until {
-		if na > now.Unix() {
-			res.Vacated = append(res.Vacated, store.VacatedAddress{Endpoint: ep, Slug: a.Slug, UntilAt: na, At: now.Unix()})
+		// The last leaf issued for each address: a leaf this host installed (a pending request has none).
+		until := map[string]int64{}
+		for _, l := range leaves {
+			if len(l.Leaf) == 0 || l.Endpoint == "" {
+				continue
+			}
+			if l.NotAfter > until[l.Endpoint] {
+				until[l.Endpoint] = l.NotAfter
+			}
 		}
-	}
-	sort.Slice(res.Vacated, func(i, j int) bool { return res.Vacated[i].Endpoint < res.Vacated[j].Endpoint })
-	held, err := m.Store.ListBlobs(ctx, accountID)
-	if err != nil {
-		return LeaveResult{}, err
-	}
-	err = m.Store.Atomically(ctx, func(tx store.Store) error {
+		res = LeaveResult{AccountID: a.ID, Slug: a.Slug, Leaves: len(leaves)}
+		for ep, na := range until {
+			if na > now.Unix() {
+				res.Vacated = append(res.Vacated, store.VacatedAddress{Endpoint: ep, Slug: a.Slug, UntilAt: na, At: now.Unix()})
+			}
+		}
+		sort.Slice(res.Vacated, func(i, j int) bool { return res.Vacated[i].Endpoint < res.Vacated[j].Endpoint })
+		if held, err = tx.ListBlobs(ctx, accountID); err != nil {
+			return err
+		}
 		for _, v := range res.Vacated {
 			if err := tx.UpsertVacatedAddress(ctx, v); err != nil {
 				return err
@@ -82,9 +88,15 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []str
 		if _, err := tx.DeleteIdempotencyByAccount(ctx, accountID); err != nil {
 			return err
 		}
-		for _, k := range settingKeys {
-			if err := tx.DeleteSetting(ctx, k); err != nil {
+		if settingKeys != nil {
+			keys, err := settingKeys(ctx, tx)
+			if err != nil {
 				return err
+			}
+			for _, k := range keys {
+				if err := tx.DeleteSetting(ctx, k); err != nil {
+					return err
+				}
 			}
 		}
 		n, err := tx.DeleteAccount(ctx, accountID)
@@ -97,7 +109,7 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []str
 		return nil
 	})
 	if err != nil {
-		return LeaveResult{}, fmt.Errorf("identity: leave %s: %w", a.Slug, err)
+		return LeaveResult{}, fmt.Errorf("identity: leave %s: %w", accountID, err)
 	}
 	// The rows are gone, and the leaf keys with them — once their bytes are, too: a DELETE leaves
 	// them in the database's files until they are overwritten (store.Store.Scrub).
@@ -123,7 +135,7 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys []str
 		res.BlobsRemoved++
 	}
 	if len(failed) > 0 {
-		return res, fmt.Errorf("identity: leave %s: the records are erased, and %d thing(s) were not finished: %w", a.Slug, len(failed), errors.Join(failed...))
+		return res, fmt.Errorf("identity: leave %s: the records are erased, and %d thing(s) were not finished: %w", res.Slug, len(failed), errors.Join(failed...))
 	}
 	return res, nil
 }
