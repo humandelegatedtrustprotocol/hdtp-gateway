@@ -204,8 +204,10 @@ func (s *serveRun) registerAdminHandlers() {
 			"RenewalDue": info.RenewalDue, "PendingCSR": info.PendingCSR, "Superseded": info.Superseded, "Former": info.Former,
 			"HandshakesOwed": info.HandshakesOwed,
 		}
-		if info.Certified {
+		if info.Served() {
 			out["NotBefore"], out["NotAfter"] = info.NotBefore.Format(time.RFC3339), info.NotAfter.Format(time.RFC3339)
+		}
+		if info.Certified {
 			var chain strings.Builder
 			for _, c := range info.Chain {
 				chain.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c}))

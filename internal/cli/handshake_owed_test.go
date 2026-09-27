@@ -49,19 +49,17 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 	if code != 0 || !strings.Contains(out, want) {
 		t.Fatalf("account certificate must name the owed handshake: code=%d out=%q err=%q", code, out, errb)
 	}
+	// The identity holds its root and no leaf: neither report may describe a leaf it does not have
+	// (both printed the zero time as one — "valid until 0001-01-01" — until 2026-09-28).
+	if strings.Contains(out, "0001-01-01") || !strings.Contains(out, "work: root "+owner.Fpr+"\n  no current leaf on this host") {
+		t.Fatalf("account certificate describes a leaf an imported identity does not have:\n%s", out)
+	}
 	_, out, _ = runQuiet("doctor", "-config", cfg)
 	if !strings.Contains(out, "warn handshake    "+want) {
 		t.Fatalf("doctor must name the owed handshake:\n%s", out)
 	}
-
-	// M5 (review 2026-09-28): a keyless imported slug holds its root and no leaf. Certified means a
-	// current leaf, so neither command reports one, and neither prints the zero date a missing
-	// leaf's notAfter is.
-	for _, args := range [][]string{{"account", "certificate", "-config", cfg, "-slug", "work"}, {"doctor", "-config", cfg}} {
-		_, out, _ := runQuiet(args...)
-		if !strings.Contains(out, "work has no leaf yet") || strings.Contains(out, "0001-01-01") || strings.Contains(out, "1970-01-01") || strings.Contains(out, "valid until") {
-			t.Fatalf("%s on a slug with no leaf:\n%s", args[0], out)
-		}
+	if strings.Contains(out, "0001-01-01") || strings.Contains(out, "ok   leaf         work") || !strings.Contains(out, "warn leaf         work has no current leaf on this host") {
+		t.Fatalf("doctor calls a keyless identity's leaf ok:\n%s", out)
 	}
 
 	// L5 (review 2026-09-28): announce on a slug with no leaf yet has nothing to walk and must not
