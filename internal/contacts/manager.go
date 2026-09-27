@@ -258,7 +258,7 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 // AddressClaim is the root of a contact of accountID, other than root, whose pin is at endpoint
 // or was within pactidentity.ClaimWindow (PACT §5.2) — the rule the core's Decide applies to a
 // sealed guest (its `address_claim`), for a guest proven by its client certificate instead, which
-// Decide never sees. TestAddressClaimAgreesWithTheCore holds the two to each other.
+// Decide never sees. internal/public TestTheTwoAddressClaimsAgree holds the two to each other.
 func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root string) (string, error) {
 	if endpoint == "" {
 		return "", nil
