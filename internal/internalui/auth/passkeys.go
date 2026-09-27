@@ -85,6 +85,14 @@ func webauthnFor(rp RelyingParty) (*webauthn.WebAuthn, error) {
 		RPDisplayName: "pact-gateway",
 		RPID:          rp.ID,
 		RPOrigins:     []string{rp.Origin},
+		// Login is discoverable (BeginLogin offers no credential list), so a passkey is useful only
+		// if the authenticator can find it by itself. Left unset, the browser's default is
+		// residentKey "discouraged", and an authenticator that honours it registers a credential
+		// the sign-in page can never offer.
+		AuthenticatorSelection: protocol.AuthenticatorSelection{
+			ResidentKey:        protocol.ResidentKeyRequirementRequired,
+			RequireResidentKey: protocol.ResidentKeyRequired(),
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("auth: relying party %s/%s: %w", rp.ID, rp.Origin, err)
