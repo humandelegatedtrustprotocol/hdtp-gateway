@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -48,6 +48,22 @@ deadcode:
 	PACT_DEADCODE_REPORT="$$report" go test ./internal/integrationtest \
 		-run '^TestDeadcodeFindsOnlyWhatTheTableExcuses$$' -count=1 -v; \
 	status=$$?; rm -f "$$report"; exit $$status
+
+# The node at the size it grows to, run by the pre-push hook. Two measurements, each of which is
+# skipped in an ordinary `go test` because it takes a minute or needs a big file:
+#   - the store's scale benchmarks (internal/core/store/scale_test.go), over a seeded database of
+#     a million messages and a million audit rows in a scratch file. Before this target nothing
+#     ran them: they were a comment with a command in it;
+#   - an import of 40,000 threads against one of 10,000 (internal/portable/scale_test.go), which
+#     fails when reading, or writing, four times the threads costs more than six times as long.
+#     pact-identity v0.3.0's quadratic threads.csv reader measured 10.8x and 17.7x here.
+# The status is carried by hand: make 3.81 ignores .SHELLFLAGS, so a pipeline or a later command
+# would otherwise decide whether this failed.
+scale:
+	@dir=$$(mktemp -d); \
+	PACT_SCALE_DB="$$dir/scale.db" go test ./internal/core/store/ -run '^$$' -bench '^BenchmarkScale' -benchtime 3x -count=1; \
+	status=$$?; rm -rf "$$dir"; test $$status -eq 0 || exit $$status; \
+	PACT_EXPORT_SCALE=40000 go test ./internal/portable/ -run '^TestAnImportGrowsLinearlyWithItsThreads$$' -count=1 -v -timeout 20m
 
 # Every parser that meets untrusted input, 30s each. Deliberately not part of
 # `all`: two minutes of wall clock that finds nothing on most runs. The pre-push
