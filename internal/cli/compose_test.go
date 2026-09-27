@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,6 +85,12 @@ func publicURLOf(t *testing.T, dir string) string {
 // runServe starts the real `serve` command against a fresh data dir.
 func runServe(t *testing.T, seed func(t *testing.T, dir string)) *running {
 	t.Helper()
+	return runServeWith(t, nil, seed)
+}
+
+// runServeWith is runServe with extra config keys (they win), for a test about the config itself.
+func runServeWith(t *testing.T, extra map[string]any, seed func(t *testing.T, dir string)) *running {
+	t.Helper()
 	dir := t.TempDir()
 	internal, public := freePort(t), freePort(t)
 	cfg := map[string]any{
@@ -91,6 +98,7 @@ func runServe(t *testing.T, seed func(t *testing.T, dir string)) *running {
 		"public_url": "https://" + public, "store_engine": "sqlite",
 		"seal": "optional", "client_cert": "preferred",
 	}
+	maps.Copy(cfg, extra)
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -115,9 +123,18 @@ func startServeAt(t *testing.T, dir, cfgPath, internal, public string) *running 
 	out := &lockedBuf{buf: r.out, mu: &mu}
 	go func() { r.done <- serveWith(ctx, []string{"--config", cfgPath}, out, out) }()
 	t.Cleanup(func() { r.stop() })
+	// Ready is what the healthcheck says: it reaches the portal the way serve serves it.
+	loaded, err := loadConfig(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, url, err := healthClient(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		res, err := http.Get("http://" + internal + "/healthz")
+		res, err := client.Get(url)
 		if err == nil {
 			res.Body.Close()
 			if res.StatusCode == 200 {

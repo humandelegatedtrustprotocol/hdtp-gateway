@@ -268,11 +268,12 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every run. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 14 live scenarios stand the real binary up
+**A harness that builds the world.** 15 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
 |---|---|---|
+| First run | A pristine node serving its portal on every interface over TLS: the setup token admits the wizard, survives its first requests, and dies with the passkey Chrome registers | `TestFirstRunFromAPristineImage` |
 | Pairing and messaging | The setup wizard in Chrome with a virtual authenticator, the owner MCP over a bearer token, a contact's agent over real mTLS | `TestPairingAndMessagingEndToEnd` |
 | Media and the fetch guard | Inline and url media from a contact; the owner's fetch reaches a host on a routable network and is refused a private address and a redirect, with a canary on the home network never reached | `TestMessagingAndMediaUnderTheFetchGuard` |
 | Both directions | After pairing, each side messages the other | `TestMessagingWorksBothWaysAfterPairing` |

@@ -34,8 +34,11 @@ four review passes correcting.
 | **P10-12h** ngrok TLS endpoint | **not closable** | — TLS endpoints require a paid plan | Everything, for the same reason |
 
 **Four of six move. Two stay owner runs and should stay on the board as such.** Of the four,
-P10-12j (T5) and P10-12f (S4) have scenarios; P10-12e (S1) has none, and for P10-12i the NAT
-topology is proven (F3) but no scenario pairs or messages across it.
+P10-12j (T5), P10-12f (S4) and P10-12e (S1) have scenarios, and for P10-12i the NAT topology is
+proven (F3) but no scenario pairs or messages across it. S1 is a first run from the pristine image
+but not the README's commands verbatim: it serves the portal on every interface over TLS, because
+the quickstart's loopback forwarder admits the wizard without the setup token, and the token is
+what S1 holds.
 
 ### The six documented coverage gaps
 
@@ -148,6 +151,7 @@ of its own (§3).
 | F3 | T2: a node behind the NAT cannot be dialled, one on the WAN can | fabric | docker, node-image | 6 min | `topology.TestLiveNATTopologyMakesBobUndialable` |
 | F4 | the audit-chain invariant verifies the chains of real nodes (T1) | fabric | docker, node-image | 5 min | `invariant.TestLiveAuditChainInvariantVerifiesRealNodes` |
 | F5 | a stranger sees exactly the guest tier, over real mTLS | fabric | docker, node-image | 4 min | `peer.TestLiveGuestTierSurfaceOverRealMTLS` |
+| S1 | first run: the setup token admits the wizard, survives its first requests, and dies with the first passkey | nightly | docker, node-image, chrome | 8 min | `scenario.TestFirstRunFromAPristineImage` |
 | S2 | pairing and a first message, end to end, through every surface | pr | docker, node-image, chrome | 8 min | `scenario.TestPairingAndMessagingEndToEnd` |
 | S3 | messaging and media: inline and url media, and an owner's fetch refused a private address and a redirect | nightly | docker, node-image, chrome | 12 min | `scenario.TestMessagingAndMediaUnderTheFetchGuard` |
 | S4 | a contact books into a real CalDAV server through a supervised third-party MCP child | nightly | docker, caldav-image, chrome | 15 min | `scenario.TestContactBooksIntoRealCalDAV` |
@@ -168,12 +172,17 @@ of its own (§3).
 **Designed and never built.** This section used to list suites that no test implements. They
 were removed from the table on 2026-09-27 rather than left to read as coverage:
 
-- **S1** first run (pristine image → wizard → passkey → dashboard; the setup token not burned on
-  first use) and **S5** the reachability matrix (T1–T6 × {direct, edge}) have no test. **S3**
-  messaging and media was written on 2026-09-27 (in the table above): its hosts sit on a network
+- **S1** first run and **S3** messaging and media were written on 2026-09-27 (in the table above).
+  S1 found that a node configured for internal TLS served its portal in plaintext — nothing loaded
+  the certificate — and could only pass once the listener was fixed. S3's hosts sit on a network
   addressed from 198.18.0.0/15 (`fabric.NetOpts.Routable`), because on a default Docker network
-  every address is RFC 1918 and the SSRF guard would refuse a redirector at the first hop, for
-  the wrong reason.
+  every address is RFC 1918 and the SSRF guard would refuse a redirector at the first hop, for the
+  wrong reason.
+- **S5**, the reachability matrix (T1–T6 × {direct, edge}), is not planned. Of its rows, T3 cannot
+  be built (its only builder needed the relay mode 2.x refuses, §3) and T4 has no local edge: the
+  edge column exists only through Cloudflare's, which T7 already runs. What remains of the matrix
+  is already a scenario each — T1 under every S, T5, T6, T7 — except T2, where F3 proves the NAT
+  and nothing pairs across it; that gap is named above (P10-12i) rather than filed under S5.
 - Within the suites that do exist, these cases were listed and are not exercised: S7's `kill -9`
   mid-send and the retry schedule (P12-03); S8's message expiry, queue retention, invite expiry
   and setup-token expiry (S8 proves only that the guest clock travels and the node runs at it);
