@@ -255,3 +255,42 @@ func TestDispatchErrorsAreSealedBack(t *testing.T) {
 		t.Errorf("a permission refusal was not sealed back: %s", out)
 	}
 }
+
+// A sealed_call whose members are not base64url is an envelope that cannot be opened, like any
+// other: it is answered envelope_invalid and audited once as a sealed_call refusal, and under
+// seal=none it is answered seal_not_accepted, as every envelope is. The node used to decode the
+// members itself before the open, and answered this one early — unaudited, and envelope_invalid
+// whatever the seal policy said.
+func TestAnUnreadableEnvelopeIsRefusedLikeAnyOther(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt)
+	s.pin(t, p, "active")
+	var rows []string
+	s.deps.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+outcome) }
+	raw := func(args string) *mcp.CallToolResult {
+		t.Helper()
+		ctx := context.WithValue(context.Background(), factsKey{}, TransportFacts{})
+		res, err := sealedHandler(s.deps)(ctx, &mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Name: SealedToolName, Arguments: json.RawMessage(args)},
+		})
+		if err != nil {
+			t.Fatalf("sealed_call returned a transport error rather than a result: %v", err)
+		}
+		return res
+	}
+	if res := s.call(t, s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); res.IsError {
+		t.Fatalf("the control, a well-formed envelope from a contact, must get through: %s", text(t, res))
+	}
+	const unreadable = `{"protected":"!!!","enc":"AA","ct":"AA","sig":"AA"}`
+	rows = nil
+	if res := raw(unreadable); !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) {
+		t.Fatalf("members that are not base64url: %s", text(t, res))
+	}
+	if len(rows) != 1 || rows[0] != "sealed_call envelope_invalid" {
+		t.Fatalf("the refusal must be audited once, as a sealed_call refusal; audited %q", rows)
+	}
+	s.id.Seal = core.SealNone
+	if res := raw(unreadable); !res.IsError || !strings.Contains(text(t, res), "seal_not_accepted") {
+		t.Fatalf("under seal=none, members that are not base64url: %s", text(t, res))
+	}
+}
