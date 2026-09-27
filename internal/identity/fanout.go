@@ -173,6 +173,38 @@ func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact)
 	return false
 }
 
+// HandshakesTried counts, of the contacts HandshakesOwed counts, those the campaign of the leaf
+// whose key is kid has already tried and not reached (their move_fanout row for kid is pending).
+// They wait for `account announce`, which resumes that campaign, not for another leaf: telling the
+// owner to have the wallet sign again for them was wrong (found by pact-cloud's live-local run, L5,
+// after a move installed through the real wallet).
+func (m *Manager) HandshakesTried(ctx context.Context, accountID, kid string) (int, error) {
+	if kid == "" {
+		return 0, nil
+	}
+	held, err := m.Store.ListContacts(ctx, accountID)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := m.Store.ListMoveFanout(ctx, accountID)
+	if err != nil {
+		return 0, err
+	}
+	tried := map[string]bool{}
+	for _, r := range rows {
+		if r.LeafKid == kid && r.Status == "pending" {
+			tried[r.ContactFpr] = true
+		}
+	}
+	n := 0
+	for _, c := range held {
+		if c.HandshakeDue && InCampaign(c) && tried[c.Fingerprint] {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // HandshakesOwed counts the contacts an import brought that are owed this host's handshake and
 // not blocked (PACT §9.2): what the next leaf's campaign will walk. It is the one count the
 // install, `account certificate` and `doctor` all read, so an owed handshake is never unseen.

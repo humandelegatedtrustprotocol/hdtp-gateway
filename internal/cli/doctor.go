@@ -78,10 +78,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					if line := addressDriftLine(cfg.PublicURL, a.Slug, info.Endpoint); line != "" {
 						fmt.Fprintf(stdout, "warn address      %s\n", line)
 					}
-					if n, herr := idm.HandshakesOwed(context.Background(), a.ID); herr != nil {
-						fmt.Fprintf(stdout, "FAIL handshake    %s: %v\n", a.Slug, herr)
-						fail = 1
-					} else if line := handshakesOwedLine(a.Slug, n, info.Served()); line != "" {
+					if line := handshakesOwedLine(a.Slug, info.HandshakesOwed, info.HandshakesTried, info.Served()); line != "" {
 						fmt.Fprintf(stdout, "warn handshake    %s\n", line)
 					}
 				}

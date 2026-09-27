@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
@@ -138,7 +139,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		// Owed handshakes are said first, whatever the leaf's state: an import leaves them waiting
 		// for the next leaf, and this is where the owner looks (PACT §9.2).
-		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], fmt.Sprint(out["Kid"]) != ""); line != "" {
+		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], out["HandshakesTried"], fmt.Sprint(out["Kid"]) != ""); line != "" {
 			fmt.Fprintln(stdout, line)
 		}
 		if certified, _ := out["Certified"].(bool); !certified {
@@ -251,23 +252,33 @@ func addressDriftLine(publicURL, slug, leafEndpoint string) string {
 }
 
 // handshakesOwedLine is what `account certificate` and `doctor` say of contacts an import left
-// owed this host's handshake, or "" when there are none. n arrives as whatever the caller holds:
-// an int from the manager, a JSON number over the admin socket. An identity with no leaf here yet
-// (it arrived in an import) asks for a move; one that is served asks for a renewal.
-func handshakesOwedLine(slug string, n any, hasLeaf bool) string {
-	var count int
+// owed this host's handshake, or "" when there are none. The counts arrive as whatever the caller
+// holds: ints from the manager, JSON numbers over the admin socket. Contacts the current leaf's
+// campaign has tried and not reached wait for `account announce`, which resumes it; the rest wait
+// for a leaf: an identity with no leaf here yet (it arrived in an import) asks for a move, one that
+// is served asks for a renewal.
+func handshakesOwedLine(slug string, owed, tried any, hasLeaf bool) string {
+	count, retry := asCount(owed), asCount(tried)
+	var parts []string
+	if retry > 0 {
+		parts = append(parts, fmt.Sprintf("%d imported contact(s) of %s were not reached by this leaf's handshake yet: run `account announce -slug %s` to try them again", retry, slug, slug))
+	}
+	if waiting := count - retry; waiting > 0 {
+		purpose := "renew"
+		if !hasLeaf {
+			purpose = "move"
+		}
+		parts = append(parts, fmt.Sprintf("%d imported contact(s) of %s wait for a new leaf: run `account csr -slug %s -purpose %s`, have the wallet sign it, then `account install-leaf -slug %s -chain <file>`", waiting, slug, slug, purpose, slug))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func asCount(n any) int {
 	switch v := n.(type) {
 	case int:
-		count = v
+		return v
 	case float64:
-		count = int(v)
+		return int(v)
 	}
-	if count <= 0 {
-		return ""
-	}
-	purpose := "renew"
-	if !hasLeaf {
-		purpose = "move"
-	}
-	return fmt.Sprintf("%d imported contact(s) of %s wait for a new leaf: run `account csr -slug %s -purpose %s`, have the wallet sign it, then `account install-leaf -slug %s -chain <file>`", count, slug, slug, purpose, slug)
+	return 0
 }
