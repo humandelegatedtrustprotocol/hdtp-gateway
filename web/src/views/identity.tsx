@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchSession, getJSON, postForm } from "../api";
 import { Badge, Button, EmptyState, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
 
-type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string };
+type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string; web_wallet?: boolean; root_fingerprint?: string };
 type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
 
 export function Identity() {
@@ -54,8 +54,10 @@ export function Identity() {
         </Section>
       )}
       {d.rows.map((a) => (
-        <Section key={a.id} title={a.display_name} meta={<><Badge mono>{a.slug}</Badge><Badge mono>{a.algo}</Badge></>}>
+        <Section key={a.id} title={a.display_name} meta={<><Badge mono>{a.slug}</Badge><Badge mono>{a.algo}</Badge></>}
+          footer={a.web_wallet ? <Button variant="secondary" href={"/identity/" + encodeURIComponent(a.slug) + "/wallet"}>Sign with my web wallet</Button> : undefined}>
           <p><Readout value={a.fingerprint} copy /></p>
+          {!a.root_fingerprint && <p className="muted">Its first certificate comes from your command-line wallet: <code>pact-gateway account csr -slug {a.slug}</code>, <code>pact id issue</code>, then <code>pact-gateway account install-leaf -slug {a.slug}</code>.</p>}
         </Section>
       ))}
       {d.rows.length === 0 && <EmptyState title="No identities yet" />}
