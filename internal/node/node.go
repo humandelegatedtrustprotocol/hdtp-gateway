@@ -581,8 +581,8 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			}
 			return l
 		},
-		Audit: func(action, resource, outcome string) {
-			n.opts.audit(action, "account:"+rec.ID+" "+resource, outcome)
+		AuditAs: func(kind, action, resource, outcome string) {
+			n.opts.auditAs(kind, action, "account:"+rec.ID+" "+resource, outcome)
 			// A contact ACTED — wake the owner's change feed (§7.7). Messages
 			// wake it through the messaging service; the calendar and media
 			// tools would otherwise be invisible until the next poll.
@@ -602,7 +602,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
 		Idem:    n.opts.Store,
 		Now:     n.opts.Now,
-		Audit:   n.opts.audit,
+		AuditAs: n.opts.auditAs,
 	})
 	if a.sealValue() != core.SealNone {
 		reg.Replace(sealedGroup, a.sealedEntries)
