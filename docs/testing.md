@@ -151,7 +151,8 @@ What the hermetic tier holds you to, so these fail at `make harness`, not in a n
   an account and never has a wallet certify it fails `wallet_test.go`.
 
 And what no test can hold, so it is on you: wait for a condition with a deadline, never a fixed
-sleep; name what you build through the World (`w.Fab.Name`), so two runs never collide; and do
+sleep (the one exception is an absence, which cannot be polled for, only given a margin: S3 waits
+five seconds before counting that a url was not fetched on arrival); name what you build through the World (`w.Fab.Name`), so two runs never collide; and do
 not `t.Skip` inside a scenario for a missing tool — declare it as a need, so the tier knows
 whether it promised it.
 
