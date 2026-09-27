@@ -297,7 +297,7 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 	if card == "" {
 		card = c.Card
 	}
-	return m.Store.SetContactAccepted(ctx, accountID, callerFpr, card, theirPermissions, m.now().Unix())
+	return m.Store.SetContactAccepted(ctx, accountID, callerFpr, card, TheirPermissions(theirPermissions), m.now().Unix())
 }
 
 // ContactRejected: the peer declines our approach. The pending_out row is demoted to blocked,
