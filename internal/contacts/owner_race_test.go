@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // staleOnce answers the first GetContact with the row as it was when the owner's decision read it,

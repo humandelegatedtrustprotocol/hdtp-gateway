@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // "Until one date" has to be true of the KEY, not only of the certificate. A leaf that runs out

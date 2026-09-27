@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *SQLite) ListSettings(ctx context.Context) ([]Setting, error) {

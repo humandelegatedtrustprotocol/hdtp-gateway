@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // S3 — messaging and media, and the guard on the one request a contact can make the node send.

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 const tokenPrefix = "pact_"

@@ -13,8 +13,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/preflight"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/preflight"
 )
 
 func main() {

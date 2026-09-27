@@ -16,7 +16,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 func TestClientCertRequiredTakesAChainAndNothingElse(t *testing.T) {

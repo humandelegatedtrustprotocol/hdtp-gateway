@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 // A domain value becomes a statement's parameters HERE, once, for both engines, with the defaults

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // Messaging has to work in BOTH directions after pairing.

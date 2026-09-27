@@ -44,7 +44,7 @@ deadcode:
 	@report=$$(mktemp) && \
 	go run golang.org/x/tools/cmd/deadcode@v0.49.0 \
 		-f '{{range .Funcs}}{{$$.Path}} {{.Name}}{{"\n"}}{{end}}' \
-		-filter '^github.com/tech-sumit/pact-gateway/(cmd|internal)/' ./... > "$$report" && \
+		-filter '^github.com/pact-cloud/pact-gateway/(cmd|internal)/' ./... > "$$report" && \
 	PACT_DEADCODE_REPORT="$$report" go test ./internal/integrationtest \
 		-run '^TestDeadcodeFindsOnlyWhatTheTableExcuses$$' -count=1 -v; \
 	status=$$?; rm -f "$$report"; exit $$status

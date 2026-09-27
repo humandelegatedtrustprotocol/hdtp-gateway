@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/wallet"
 )
 
 // Kind names a topology from the design document.

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // IdentityDeps is what the identity page needs.

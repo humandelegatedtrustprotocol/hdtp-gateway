@@ -12,8 +12,8 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
-	"github.com/tech-sumit/pact-gateway/migrations"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/migrations"
 )
 
 // SQLite is the default engine (SPEC §11.1): pure Go driver, one file, WAL mode,

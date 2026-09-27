@@ -22,10 +22,10 @@ import (
 	"github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/miekg/dns"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/ingress"
-	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/ingress"
+	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
 func freePort(t *testing.T) int {

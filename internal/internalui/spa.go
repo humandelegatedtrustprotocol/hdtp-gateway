@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/web"
+	"github.com/pact-cloud/pact-gateway/web"
 )
 
 // mountSPA registers the asset routes and the history fallback. It is called by

@@ -24,12 +24,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/node"
-	"github.com/tech-sumit/pact-gateway/internal/public"
-	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
+	"github.com/pact-cloud/pact-gateway/internal/core/policy"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
 )
 
 // integrationSurface rebuilds what one integration serves.

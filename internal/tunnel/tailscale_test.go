@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // Funnel itself cannot run in the automated gate (needs a tailnet + auth key): these cover the

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // `internal_host` is the passkey relying party (SPEC §12.2), and since go-webauthn 0.18 the library

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // AC (P8-01, defect #2): every audit write must carry an actor kind the store

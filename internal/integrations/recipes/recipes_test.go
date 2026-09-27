@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 type fixtureTool struct {

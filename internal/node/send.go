@@ -27,12 +27,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/calendar"
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
-	"github.com/tech-sumit/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/calendar"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/public"
 )
 
 // Delivery statuses a message row can carry (SPEC §7.1).

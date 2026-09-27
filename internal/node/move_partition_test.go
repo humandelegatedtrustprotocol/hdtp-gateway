@@ -10,7 +10,7 @@ import (
 	toxiproxy "github.com/Shopify/toxiproxy/v2"
 	"github.com/rs/zerolog"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // The move campaign under a network partition (PACT §5.3, §9): one contact reachable, one cut off

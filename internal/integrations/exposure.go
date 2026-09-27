@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // Serving modes (SPEC §6.6).

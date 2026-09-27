@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // SPEC §9.1 draws the contact lifecycle as a mermaid state diagram, and the diagram said a

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // contacts is the suite for contacts: the lifecycle, the guarded writes, pending requests and their expiry, invites, and what a contact granted us.

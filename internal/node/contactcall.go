@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/tech-sumit/pact-gateway/internal/outbound"
+	"github.com/pact-cloud/pact-gateway/internal/outbound"
 )
 
 // ContactTool is what a contact's server offers this identity: the peer's own

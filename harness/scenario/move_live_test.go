@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/topology"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/topology"
 )
 
 // S10: the MOVE campaign under a network partition (PACT §5.3, §9).

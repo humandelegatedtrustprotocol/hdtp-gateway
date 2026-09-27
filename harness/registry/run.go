@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/portal"
-	"github.com/tech-sumit/pact-gateway/harness/preflight"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/portal"
+	"github.com/pact-cloud/pact-gateway/harness/preflight"
 )
 
 // Verdict is how one scenario ended.

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
 )
 
 // AC (P10-04e): the embedded recipe corpus is readable by shipped code, and a

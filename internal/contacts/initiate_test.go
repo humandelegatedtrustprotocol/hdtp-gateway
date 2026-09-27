@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-import "github.com/tech-sumit/pact-gateway/internal/core/store"
+import "github.com/pact-cloud/pact-gateway/internal/core/store"
 
 // newInitEnv and peerCard reuse the existing manager-test helpers so the two
 // suites cannot drift on what a card or a keypair looks like.

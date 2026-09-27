@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/internalui"
 )
 
 // testLanding is the landing page `serve` injects (cli's landingPage): the portal's, over what the

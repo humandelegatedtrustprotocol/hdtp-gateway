@@ -1,4 +1,4 @@
-module github.com/tech-sumit/pact-gateway
+module github.com/pact-cloud/pact-gateway
 
 go 1.26.6
 

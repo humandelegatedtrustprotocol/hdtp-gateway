@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/messaging"
-	"github.com/tech-sumit/pact-gateway/internal/portable"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/pact-cloud/pact-gateway/internal/portable"
 )
 
 // portableStore opens what both verbs need: the config, the data directory's lock (both are

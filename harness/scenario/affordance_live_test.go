@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/portal"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/portal"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
 )
 
 // Everything an owner must be able to DO from the portal, checked on a real node.

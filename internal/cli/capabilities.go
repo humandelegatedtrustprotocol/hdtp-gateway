@@ -22,12 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/providers"
-	"github.com/tech-sumit/pact-gateway/internal/integrations/recipes"
-	"github.com/tech-sumit/pact-gateway/internal/public"
-	"github.com/tech-sumit/pact-gateway/internal/services/integrationchain"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/integrations/providers"
+	"github.com/pact-cloud/pact-gateway/internal/integrations/recipes"
+	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
 )
 
 // capabilityBinder answers "which provider serves this account's core

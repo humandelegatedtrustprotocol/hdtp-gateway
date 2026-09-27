@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // failingRevoke is a store whose invite revocation fails as a store fails: not "no such invite".

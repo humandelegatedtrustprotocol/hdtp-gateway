@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/testid"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 )
 
 // The cloud's `npm run leave` writes this node's import file (pact-cloud/gateway/src/leave), and

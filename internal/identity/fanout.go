@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // Campaign is what a fan-out needs: whose contacts, and which leaf is being announced. The
