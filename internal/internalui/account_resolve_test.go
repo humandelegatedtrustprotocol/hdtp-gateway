@@ -40,7 +40,7 @@ func TestPagesResolveTheAccountWithoutItBeingInTheURL(t *testing.T) {
 		// What a page handler sees. It must be the real account, from a URL that
 		// never mentioned one.
 		_, _ = w.Write([]byte(r.URL.Query().Get("account")))
-	}))
+	}), nil)
 
 	owner := ownerOf(t, e.st)
 	for _, path := range []string{"/card", "/invites", "/contacts", "/invites/create"} {
@@ -83,7 +83,7 @@ func TestAnExplicitAccountIsNeverOverridden(t *testing.T) {
 	owner := ownerOf(t, e.st)
 	h := accountMiddleware(e.st, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(r.URL.Query().Get("account")))
-	}))
+	}), nil)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/card?account="+chosen.ID, nil)
 	h.ServeHTTP(rr, signedIn(req, owner))
@@ -106,7 +106,7 @@ func TestSeveralAccountsAreNeverGuessedBetween(t *testing.T) {
 	}
 	h := accountMiddleware(e.st, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("[" + r.URL.Query().Get("account") + "]"))
-	}))
+	}), nil)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/card", nil)
 	h.ServeHTTP(rr, req)
