@@ -215,23 +215,5 @@ func pinnedEndpoint(ctx context.Context, t *testing.T, o *Owned, root string) st
 // countAudit counts the rows of one action in a node's trail.
 func countAudit(ctx context.Context, t *testing.T, o *Owned, action string) int {
 	t.Helper()
-	raw, err := o.Owner.Call(ctx, "audit_query", map[string]any{"limit": 1000})
-	if err != nil {
-		t.Fatalf("%s audit_query: %v", o.Node.Name, err)
-	}
-	var rows []struct{ Action string }
-	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
-		var wrapped struct{ Rows []struct{ Action string } }
-		if err2 := json.Unmarshal([]byte(raw), &wrapped); err2 != nil {
-			t.Fatalf("%s audit_query is neither a list nor {rows}: %v\n%s", o.Node.Name, err, shorten(raw, 200))
-		}
-		rows = wrapped.Rows
-	}
-	n := 0
-	for _, r := range rows {
-		if r.Action == action {
-			n++
-		}
-	}
-	return n
+	return countAuditOutcome(ctx, t, o, action, "")
 }
