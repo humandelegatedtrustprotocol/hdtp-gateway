@@ -34,7 +34,8 @@ import (
 // update_contact is a contact-tier tool, so a peer that does not pin this identity refuses it —
 // which is what a contact an import brought may well be: it knew the identity at another host, or
 // never accepted it at all (PACT §9.2). Such a refusal falls back to request_contact, and that peer
-// decides under its own policy. The contact is then told: the campaign has done what it can.
+// decides under its own policy. The contact is then told — the campaign has done what it can — and
+// it waits here as pending_out for that peer's answer.
 func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done, failed int, err error) {
 	card, err := n.Card(ctx, accountID)
 	if err != nil {
@@ -66,11 +67,17 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 		}
 		// They do not hold us as a contact. Ask to become one.
 		rerr := n.RequestContact(ctx, accountID, peer, "", "handshake-"+newKid+"-"+c.Fingerprint)
-		if code, refused := requestRefusal(rerr); refused && code == "pending_approval" {
-			return "requested", nil // a request from us is already in front of their owner
-		}
-		if rerr != nil {
+		if code, refused := requestRefusal(rerr); rerr != nil && !(refused && code == "pending_approval") {
 			return "", fmt.Errorf("peer refused update_contact, then request_contact: %w", rerr)
+		}
+		// Whatever the import said, this is now an approach of ours that their owner has not
+		// answered: pending_out, which is the state their `contact_accepted` and
+		// `contact_rejected` answer (PACT §5.1). Left active, their acceptance would be refused
+		// here as coming from nobody we had asked.
+		if c.Status == "active" {
+			if _, err := n.idm.Store.MoveContactStatus(ctx, accountID, c.Fingerprint, "active", "pending_out"); err != nil {
+				return "", fmt.Errorf("the request landed and the contact could not be marked as awaiting their answer: %w", err)
+			}
 		}
 		return "requested", nil
 	})
