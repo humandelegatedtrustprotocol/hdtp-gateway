@@ -287,9 +287,11 @@ Keep it where you keep private documents, and delete it once it has been importe
 **An import checks the whole file before it writes anything,** and refuses it whole at the first
 fault. Into a slug that is not here, the identity arrives with its root and nothing more — **not
 served** until your wallet issues this host a leaf; into the identity it belongs to, it merges,
-and every pin this host already holds stands. Either way it ends with a new leaf from your wallet
-(the import names the command, and `account certificate` and `doctor` keep naming it until it is
-done), and installing that leaf tells the imported contacts where you are now.
+and every pin this host already holds stands. Either way it ends with a request for a new leaf that
+the import makes itself (complete it in your web wallet from the portal, or with the CLI wallet from
+the request it prints; `account certificate` and `doctor` keep naming it until it is done), and
+installing that leaf tells the imported contacts where you are now. An export reads its own file
+back before it reports it, and warns when the file is more than PACT Cloud takes back in.
 
 ### Be reachable
 
