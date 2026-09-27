@@ -118,3 +118,8 @@ func (s *Postgres) DeleteExpiredPendingContacts(ctx context.Context, accountID s
 	}
 	return out, nil
 }
+
+func (s *Postgres) ImportContactPin(ctx context.Context, c Contact) (bool, error) {
+	n, err := s.q.ImportContactPin(ctx, pgdb.ImportContactPinParams(contactPin(c)))
+	return n > 0, err
+}
