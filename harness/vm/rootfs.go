@@ -13,7 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/tech-sumit/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/images"
 )
 
 // RootfsSpec describes the guest image to build.

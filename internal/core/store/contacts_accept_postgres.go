@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
 )
 
 func (p *Postgres) SetContactAccepted(ctx context.Context, accountID, fingerprint, card string, theirPermissions []string, now int64) error {

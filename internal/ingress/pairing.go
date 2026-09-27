@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 // PairRequest is the node's one-shot registration.

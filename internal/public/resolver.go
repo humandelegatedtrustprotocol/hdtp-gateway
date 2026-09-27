@@ -3,8 +3,8 @@ package public
 import (
 	"context"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/policy"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/policy"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // StoreResolver builds the production CallerResolver: contact rows become policy

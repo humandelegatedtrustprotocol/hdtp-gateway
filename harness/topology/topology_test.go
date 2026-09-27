@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
 	pactidentity "github.com/tech-sumit/pact-gateway/pact-identity"
 )
 

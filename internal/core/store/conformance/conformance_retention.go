@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // retention is the suite for retention: the primitives the sweeper uses, and the idempotency windows that close.

@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
-	"github.com/tech-sumit/pact-gateway/internal/node"
-	"github.com/tech-sumit/pact-gateway/internal/public"
-	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
 // isSecretKey decides what gets encrypted at rest. It errs toward secrecy: a

@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
-	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
-	"github.com/tech-sumit/pact-gateway/migrations"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/pact-cloud/pact-gateway/migrations"
 )
 
 // Postgres is the disconnect-the-storage engine (SPEC §11.1): same Store contract,

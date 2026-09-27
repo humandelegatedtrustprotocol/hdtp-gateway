@@ -56,7 +56,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/tech-sumit/pact-gateway"
+const modulePath = "github.com/pact-cloud/pact-gateway"
 
 // binaryEntry is the shipped command. Reachability means "imported, directly or
 // transitively, by this".

@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/contacts"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // Invalidator drops + reconciles a caller's composed server (public.Pool.Invalidate).

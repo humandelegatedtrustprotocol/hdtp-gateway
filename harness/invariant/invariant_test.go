@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/topology"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/topology"
 )
 
 func TestAFailedInvariantFailsTheReport(t *testing.T) {

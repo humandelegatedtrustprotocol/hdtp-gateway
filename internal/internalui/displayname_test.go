@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // The name shown for a contact is the FN from the card THAT CONTACT supplied. Two

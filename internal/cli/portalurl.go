@@ -20,7 +20,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // portalBase is the scheme://host:port an owner should open.

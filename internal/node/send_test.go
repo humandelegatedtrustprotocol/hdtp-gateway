@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // AC (P10-07b): the deadline is the sender-chosen `expires`, defaulting to

@@ -1,7 +1,7 @@
 package contacts
 
 import (
-	"github.com/tech-sumit/pact-gateway/internal/testid"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 	"os"
 	"strings"
 	"testing"

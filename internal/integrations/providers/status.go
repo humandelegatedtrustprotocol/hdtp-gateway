@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tech-sumit/pact-gateway/internal/integrations"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 // Status implements get_status (PACT §6.2): node-local status by default; a

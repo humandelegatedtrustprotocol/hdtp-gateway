@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/identity"
-	"github.com/tech-sumit/pact-gateway/internal/services/settings"
-	"github.com/tech-sumit/pact-gateway/internal/tunnel"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
 func doctor(args []string, stdout, stderr io.Writer) int {

@@ -10,8 +10,8 @@ package internalui
 
 import (
 	"context"
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"net/http"
 	"net/http/httptest"
 	"strings"

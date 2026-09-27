@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // SetupTokens: setup URLs (SPEC §12.4) — ≥128 bits entropy, 24 h expiry, and

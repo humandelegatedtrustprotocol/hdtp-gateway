@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 func TestNgrokIsConfigGated(t *testing.T) {

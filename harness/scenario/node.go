@@ -22,14 +22,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/harness/fabric"
-	"github.com/tech-sumit/pact-gateway/harness/images"
-	"github.com/tech-sumit/pact-gateway/harness/owner"
-	"github.com/tech-sumit/pact-gateway/harness/peer"
-	"github.com/tech-sumit/pact-gateway/harness/portal"
-	"github.com/tech-sumit/pact-gateway/harness/registry"
-	"github.com/tech-sumit/pact-gateway/harness/topology"
-	"github.com/tech-sumit/pact-gateway/harness/wallet"
+	"github.com/pact-cloud/pact-gateway/harness/fabric"
+	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/pact-cloud/pact-gateway/harness/owner"
+	"github.com/pact-cloud/pact-gateway/harness/peer"
+	"github.com/pact-cloud/pact-gateway/harness/portal"
+	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/pact-cloud/pact-gateway/harness/wallet"
 )
 
 // ArtifactsEnv names a directory each scenario's container logs are collected into at teardown

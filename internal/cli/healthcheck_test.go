@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tech-sumit/pact-gateway/internal/core"
-	"github.com/tech-sumit/pact-gateway/internal/internalui"
-	"github.com/tech-sumit/pact-gateway/internal/testid"
+	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 )
 
 // With internal TLS configured, serve's portal speaks TLS, a plaintext request is not answered as
