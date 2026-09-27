@@ -155,7 +155,7 @@ var (
 	tierNames = map[string]Tier{"Fabric": Fabric, "PR": PR, "Nightly": Nightly}
 	needNames = map[string]Need{
 		"Docker": Docker, "NodeImage": NodeImage, "CaldavImage": CaldavImage,
-		"Chrome": Chrome, "Kernel": Kernel, "CF": CF,
+		"Chrome": Chrome, "Kernel": Kernel, "CF": CF, "PactCLI": PactCLI, "CloudBattery": CloudBattery,
 	}
 )
 

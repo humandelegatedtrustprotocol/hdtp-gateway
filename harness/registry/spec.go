@@ -68,10 +68,17 @@ const (
 	// CF is PACT_CF_DOMAIN: two real Cloudflare tunnels built by
 	// docs/demos/cloudflare-two-users.md, which no test may provision.
 	CF Need = "cf"
+	// PactCLI is the `pact` command of pact-identity, named by PACT_CLI: the live intrusion battery
+	// (`pact vectors intrude --against`), which is data in pact-identity and aimed at any host.
+	// `make harness-pact-cli` builds it from the sibling checkout.
+	PactCLI Need = "pact-cli"
+	// CloudBattery is the Go conformance battery's checkout (pact-cloud/gateway/conformance), named
+	// by PACT_CLOUD_BATTERY: the one battery the cloud runs against staging, run here against a node.
+	CloudBattery Need = "cloud-battery"
 )
 
 // Needs is every need.
-var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF}
+var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF, PactCLI, CloudBattery}
 
 // The environment variables the harness reads.
 const (
@@ -84,6 +91,10 @@ const (
 	KernelEnv = "PACT_HARNESS_KERNEL"
 	// CFEnv names the Cloudflare domain (Need CF).
 	CFEnv = "PACT_CF_DOMAIN"
+	// PactCLIEnv names the pact CLI (Need PactCLI).
+	PactCLIEnv = "PACT_CLI"
+	// CloudBatteryEnv names the battery's directory (Need CloudBattery).
+	CloudBatteryEnv = "PACT_CLOUD_BATTERY"
 )
 
 // Spec is one scenario.
@@ -152,6 +163,12 @@ func Provides(t Tier, getenv func(string) string) []Need {
 	if getenv(CFEnv) != "" {
 		out = append(out, CF)
 	}
+	if getenv(PactCLIEnv) != "" {
+		out = append(out, PactCLI)
+	}
+	if getenv(CloudBatteryEnv) != "" {
+		out = append(out, CloudBattery)
+	}
 	return out
 }
 
@@ -181,6 +198,10 @@ func HowToProvide(n Need) string {
 		return "make harness-kernel, then export " + KernelEnv + " (and an accelerated qemu-system-aarch64)"
 	case CF:
 		return "run docs/demos/cloudflare-two-users.md, then export " + CFEnv
+	case PactCLI:
+		return "make harness-pact-cli (a pact-identity checkout beside this one), or export " + PactCLIEnv + " naming a built pact"
+	case CloudBattery:
+		return "check pact-cloud out beside this repository (the Makefile then exports " + CloudBatteryEnv + "), or export it naming gateway/conformance"
 	}
 	return "unknown need"
 }
