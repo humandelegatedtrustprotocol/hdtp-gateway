@@ -135,11 +135,11 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 |---|---|---|---|---|
 | B1 | This map and plan | node `test/node-functional-suite` | — | done |
 | B2 | Intrusion against a live node: S18 | node | nightly | done: 28 of 28 blocked, the control through, 28 refusal rows; red on an image that stops auditing envelope refusals and on one that answers `unavailable` |
-| B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | done; the cloud path of the changed battery is not yet run against any cloud (see 3.2) |
+| B3 | The battery's `Target` and divergence list | cloud `test/battery-targets` | hermetic + staging | done; the cloud path of the changed battery is not yet run against any cloud (see 3.3) |
 | B4 | The battery against a live node: S19 | node | nightly | done: 77 of 77 after the fixes in 3.1 |
 | B5 | The node's doors under attack (2.3) | node `test/node-door-attacks` | hermetic | in progress |
 | B6 | The node's missing journeys: S21 | node | nightly | done (the shared journey list with the cloud's pair is still to write) |
-| B7 | The hostile corpus through the shipped image: S22 | node | nightly | done on the v0.3.2 corpus; see 3.3 for v0.3.3 |
+| B7 | The hostile corpus through the shipped image: S22 | node | nightly | done on the v0.3.2 corpus; see 3.2 for v0.3.3 |
 | B8 | The real wallet page from a node | node | nightly | planned |
 | B9 | Every early refusal of the public tools audited | node | hermetic | done |
 
@@ -153,7 +153,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | Thirty early refusals (decode, caps, vocabulary) and a non-envelope `sealed_call` body wrote no audit row | reading the code S18 exercises | `ToolDeps.refuse`; `TestEveryMalformedCallIsRefusedAndAudited` |
 | `TestSubscribeInboxReceivesResourceUpdated` flaked under the pre-push gate | the gate | waits for both subscription acknowledgements |
 
-### 3.3 The v0.3.3 corpus (SPEC 2.2.2, 44 cases)
+### 3.2 The v0.3.3 corpus (SPEC 2.2.2, 44 cases)
 
 S22 run with the harness on pact-identity v0.3.3 against an image of node `main` (v0.3.2): 27 of its
 44 cases fail, all on one change of format — a v0.3.3 export no longer lists media in the manifest's
@@ -164,7 +164,7 @@ measured count.) The node's move to v0.3.3 (in progress on `fix/review-2026-09-2
 the harness moves with it by `make identity-bump`, and S22 is re-run then. Until then a v0.3.3
 export — from a cloud on v0.3.3 — cannot be imported into a node on main.
 
-### 3.2 Open, and tracked
+### 3.3 Open, and tracked
 
 - **The address claim is not yet shown to the owner.** SPEC §5.2's second half ("shown to the owner beside the name of the contact who holds or held that address") is not built: the audit row of the redemption carries `address_of:<root>`. It can be derived at read time (the same `AddressClaim` over each `pending_in` row), with no column.
 - **MCP 2026-07-28 on the node's public surface.** The node answers `server/discover` in the 2026-07-28 shape but offers up to 2025-11-25, because the go-sdk offers 2026-07-28 only over a stateless Streamable HTTP transport and the public surface is stateful (per-session transport facts). The battery lists it as divergent for a node. Whether to move the public surface to a stateless transport is the owner's decision; it is not taken here.
