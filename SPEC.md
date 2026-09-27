@@ -320,6 +320,16 @@ Every import therefore ends in the same place, whether it is a new machine, a ne
 
 This is not a backup of the node and there is none: nothing this node writes carries a key, a master key or a setting out of it. What a host accumulates beyond contacts and chats is rebuilt after a loss, not restored.
 
+### 3.11 When the person leaves
+
+`account leave -slug S` (§12) is what this node does when the person leaves it (PACT §9, "What a host must do when the person leaves"). It runs on the admin socket only and, like `export` and `import`, needs host shell access: no portal page, owner-MCP tool or bearer token reaches it.
+
+It erases the identity in ONE transaction (`identity.Manager.Leave`): the account row, and with it every row that names the account by a foreign key — contacts, invites, threads, messages, media records, integrations with their catalogs and exposures, pending requests, the move campaign's ledger, every leaf with its sealed key, removal tombstones, former endpoints and pending addresses — and the rows that name it without one: tokens scoped to it, its idempotency records and its per-account settings. A media file goes only when no other identity on the node still refers to its hash. The live node then forgets the identity, so its address is answered as an address this node never served. The audit chain is append-only (§11.4) and is not touched: its rows keep the account id. `TestSQLiteLeaveErasesEveryRowThatNamesTheIdentity` (and its Postgres twin) reads the tables from the migrated schema and holds every one of them to this.
+
+The address stays reserved: PACT §9 has "An address an identity has vacated MUST NOT be assigned to another identity until the last leaf issued for it has expired." For each endpoint a leaf installed here named, with its latest `notAfter` still ahead, the node keeps a row of the endpoint, the slug and that date, and nothing that names the identity (`vacated_addresses`, migration 0040). While the row is live, creating an account with that slug is refused at every door (the store's `CreateAccount`, which `import` reaches too), and so is a signing request naming that endpoint (`IssueCSR`). The hourly sweep drops a row once its date has passed. A person returning to this node under the same slug before then is refused too: the row cannot tell them from anybody else.
+
+A leave is refused while the identity's move campaign is walking (it holds the key and writes the rows the leave erases), and for a slug the node does not hold. Each attempt on a slug the node holds writes one `account_leave` row: `refused`, `error`, `ok`, or `partial` when the records are erased and a media file could not be removed.
+
 
 ---
 
@@ -1015,6 +1025,7 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `leaves` | PACT 2.0 (PACT §2, §14): every leaf certificate this host holds for an account — `pending` while a CSR awaits the wallet, `current`, `superseded` with its key kept until `not_after`, `former` with the key destroyed and the key id kept so an envelope sealed to it is answered `certificate_renewed` |
 | `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
 | `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
+| `vacated_addresses` | An address an identity left when it left this node (PACT §9, §3.11): the endpoint, its slug and the last leaf's `notAfter`, and nothing that names the identity. While live it refuses the slug to a new account and the endpoint to a signing request; the hourly sweep drops it once its date has passed |
 | `pending_addresses` | PACT 2.0 (PACT §5.3): a contact at a new address awaiting the owner under `accept_new_hosts = ask` |
 | `audit_anchor` | The terminal hash of the archived audit segment the retained chain must extend (§11.6) |
 | `audit_events` | The append-only audit chain (§11.4) |
@@ -1065,7 +1076,7 @@ One binary, subcommand-per-concern:
 | `migrate` | Run store migrations; the node must be stopped (§11) |
 | `doctor` | Diagnostics: configuration, data dir, store, lock (§10.4) |
 | `healthcheck` | Probe the internal `/healthz`; the container HEALTHCHECK uses it (§12.3) |
-| `account` | `create` \| `list` — the node's identities; `csr` \| `install-leaf` \| `certificate` \| `address` \| `announce` — the leaf: a signing request for the wallet (`-purpose signup\|renew\|move`), the install of the chain it answers, the certificate state, the owner's answer to a contact at a new address and the choice between `auto` and `ask` (`-policy`), and the campaign that tells every contact of a move — durable, walked in the background one identity at a time, and both reported and resumed by `announce`, which answers from the ledger at once and never waits for the walk (PACT §5.3, §9). Runs over the admin socket, so the node must be running |
+| `account` | `create` \| `list` — the node's identities; `csr` \| `install-leaf` \| `certificate` \| `address` \| `announce` \| `leave` — the leaf: a signing request for the wallet (`-purpose signup\|renew\|move`), the install of the chain it answers, the certificate state, the owner's answer to a contact at a new address and the choice between `auto` and `ask` (`-policy`), and the campaign that tells every contact of a move — durable, walked in the background one identity at a time, and both reported and resumed by `announce`, which answers from the ledger at once and never waits for the walk (PACT §5.3, §9). `leave` erases an identity that has left this node and reserves its address until its last leaf expires (§3.11). Runs over the admin socket, so the node must be running |
 | `passkey` | `list` \| `remove` \| `reset-wizard` — owner passkeys; `reset-wizard` mints a one-time setup URL (§3.1, §8.6) |
 | `token` | `create` \| `list` \| `revoke` — named owner-MCP bearer tokens (§3, §8.4) |
 | `audit` | `verify` \| `export` \| `archive` \| `repair` — the hash chain, offline; the node must be stopped (§11.4, §11.6) |

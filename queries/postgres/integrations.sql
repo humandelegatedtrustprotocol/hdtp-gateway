@@ -65,6 +65,10 @@ DELETE FROM idempotency WHERE expires_at <= $1;
 -- A record written without a window (a `book_slot` replay guard) is kept thirty days (SPEC 11).
 DELETE FROM idempotency WHERE expires_at IS NULL AND created_at <= $1;
 
+-- name: DeleteIdempotencyByAccount :execrows
+-- The records of an identity that has left this host (PACT sec. 9): the table has no foreign key.
+DELETE FROM idempotency WHERE account_id = $1;
+
 -- name: InsertPendingRequest :exec
 INSERT INTO pending_requests (id, account_id, contact_fpr, capability, args, trust_flag, created_at, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
