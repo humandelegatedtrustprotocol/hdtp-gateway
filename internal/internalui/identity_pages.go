@@ -76,8 +76,11 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 			row.WebWallet = a.HasRoot() && d.Wallet != nil
 			if a.HasRoot() && d.Certificate != nil {
 				if info, err := d.Certificate(r.Context(), a.ID); err == nil && info.Certified {
-					row.RootFingerprint, row.Endpoint = info.RootFingerprint, info.Endpoint
-					row.NotAfter, row.RenewalDue = info.NotAfter.UTC().Format(time.RFC3339), info.RenewalDue
+					row.RootFingerprint = info.RootFingerprint
+					if info.Served() {
+						row.Endpoint = info.Endpoint
+						row.NotAfter, row.RenewalDue = info.NotAfter.UTC().Format(time.RFC3339), info.RenewalDue
+					}
 				}
 			}
 			rows = append(rows, row)

@@ -66,7 +66,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					case cerr != nil:
 						fmt.Fprintf(stdout, "FAIL leaf         %s: %v\n", a.Slug, cerr)
 						fail = 1
-					case info.Kid == "":
+					case !info.Served():
 						// A root and no current leaf (an import, or a leaf that expired): not served,
 						// and there is no date to give.
 						fmt.Fprintf(stdout, "warn leaf         %s has no current leaf on this host (root %s): it is not served until the wallet signs one\n", a.Slug, info.RootFingerprint)
@@ -81,7 +81,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 					if n, herr := idm.HandshakesOwed(context.Background(), a.ID); herr != nil {
 						fmt.Fprintf(stdout, "FAIL handshake    %s: %v\n", a.Slug, herr)
 						fail = 1
-					} else if line := handshakesOwedLine(a.Slug, n, info.Kid != ""); line != "" {
+					} else if line := handshakesOwedLine(a.Slug, n, info.Served()); line != "" {
 						fmt.Fprintf(stdout, "warn handshake    %s\n", line)
 					}
 				}
