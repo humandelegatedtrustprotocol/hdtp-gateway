@@ -13,6 +13,11 @@ import (
 // and the compiler refuses the conversion the day the two drift. Only the writes whose parameters
 // carry logic — a default, an encoding, a NULL — are here; a statement that takes two plain
 // arguments is clearer written where it is called.
+//
+// Five generated types differ between the engines and stay per engine: the two audit-page
+// parameter types (sqlc types LIMIT int32 on Postgres, int64 on SQLite),
+// DeleteCredentialIfNotLast's (SQLite passes the kind twice as `?`, Postgres names it once as $2),
+// and Setting's and PutSetting's (`secret` is boolean on Postgres and INTEGER on SQLite).
 
 // contactInsert fills a new contact's defaults into c and returns InsertContact's parameters.
 func contactInsert(c *Contact) sqlitedb.InsertContactParams {

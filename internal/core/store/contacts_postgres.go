@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/tech-sumit/pact-gateway/internal/core/store/pgdb"
 	"github.com/tech-sumit/pact-gateway/internal/core/store/sqlitedb"
@@ -40,16 +39,9 @@ func (s *Postgres) ListContacts(ctx context.Context, accountID string) ([]Contac
 }
 
 func (s *Postgres) UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error {
-	n, err := s.q.UpdateContactStatus(ctx, pgdb.UpdateContactStatusParams{
+	return contactChanged(s.q.UpdateContactStatus(ctx, pgdb.UpdateContactStatusParams{
 		Status: status, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *Postgres) MoveContactStatus(ctx context.Context, accountID, fingerprint, from, to string) (bool, error) {
@@ -68,70 +60,35 @@ func (s *Postgres) DeleteContactInStatus(ctx context.Context, accountID, fingerp
 }
 
 func (s *Postgres) UpdateContactPermissions(ctx context.Context, accountID, fingerprint string, permissions []string, preset string) error {
-	n, err := s.q.UpdateContactPermissions(ctx, pgdb.UpdateContactPermissionsParams{
+	return contactChanged(s.q.UpdateContactPermissions(ctx, pgdb.UpdateContactPermissionsParams{
 		Permissions: permsToJSON(permissions), Preset: preset, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *Postgres) UpdateContactTrust(ctx context.Context, accountID, fingerprint, trustFlag string) error {
-	n, err := s.q.UpdateContactTrust(ctx, pgdb.UpdateContactTrustParams{
+	return contactChanged(s.q.UpdateContactTrust(ctx, pgdb.UpdateContactTrustParams{
 		TrustFlag: trustFlag, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *Postgres) DeleteContact(ctx context.Context, accountID, fingerprint string) error {
-	n, err := s.q.DeleteContact(ctx, pgdb.DeleteContactParams{
+	return contactChanged(s.q.DeleteContact(ctx, pgdb.DeleteContactParams{
 		AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 // SetContactPetname records the owner's own name for a contact. It is local:
 // nothing about it is sent to the peer, and no peer can change it.
 func (s *Postgres) SetContactPetname(ctx context.Context, accountID, fingerprint, petname string) error {
-	n, err := s.q.UpdateContactPetname(ctx, pgdb.UpdateContactPetnameParams{
+	return contactChanged(s.q.UpdateContactPetname(ctx, pgdb.UpdateContactPetnameParams{
 		Petname: petname, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *Postgres) UpdateContactCard(ctx context.Context, accountID, fingerprint, card, displayName string) error {
-	n, err := s.q.UpdateContactCard(ctx, pgdb.UpdateContactCardParams{
+	return contactChanged(s.q.UpdateContactCard(ctx, pgdb.UpdateContactCardParams{
 		Card: card, DisplayName: displayName, AccountID: accountID, Fingerprint: fingerprint,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("store: contact not found")
-	}
-	return nil
+	}))
 }
 
 func (s *Postgres) RedeemOverPendingContact(ctx context.Context, c Contact) (bool, error) {
