@@ -590,3 +590,45 @@ func TestAnExportRefusesWhatItCannotCarry(t *testing.T) {
 		t.Fatalf("a file this node no longer holds: %v", err)
 	}
 }
+
+// The same corpus imported into a slug that is NOT here — a move onto a fresh host, which is how
+// most imports go. The owner then comes from the file, so every refusal but the owner's own must be
+// the same words, and nothing is written; wrong-owner has no meaning for a new slug.
+func TestTheCorpusIntoANewSlugIsRefusedInTheSameWords(t *testing.T) {
+	raw, err := fs.ReadFile(exportcorpus.FS, "cases.json")
+	must(t, err)
+	var idx exportcorpus.Index
+	must(t, json.Unmarshal(raw, &idx))
+	now, err := time.Parse(time.RFC3339, idx.Now)
+	must(t, err)
+	checked := 0
+	for _, c := range idx.Cases {
+		if c.Accept != nil || c.File == "wrong-owner.zip" {
+			continue
+		}
+		t.Run(c.File, func(t *testing.T) {
+			ctx := context.Background()
+			e := newEnv(t, sqliteStore)
+			b, err := fs.ReadFile(exportcorpus.FS, c.File)
+			must(t, err)
+			_, _, err = importFile(t, e, b, "fresh", now)
+			if !errors.Is(err, ErrRefused) {
+				t.Fatalf("%s was not refused: %v", c.File, err)
+			}
+			why := strings.TrimPrefix(err.Error(), ErrRefused.Error()+": ")
+			switch {
+			case c.Refusal != "" && why != c.Refusal:
+				t.Fatalf("%s: refused with\n  %q\nwant\n  %q", c.File, why, c.Refusal)
+			case c.RefusalPrefix != "" && !strings.HasPrefix(why, c.RefusalPrefix):
+				t.Fatalf("%s: refused with %q, want it to begin %q", c.File, why, c.RefusalPrefix)
+			}
+			if accts, _ := e.st.ListAccounts(ctx); len(accts) != 0 {
+				t.Fatalf("%s was refused and made %d identity", c.File, len(accts))
+			}
+			checked++
+		})
+	}
+	if checked < 30 {
+		t.Fatalf("only %d hostile cases ran into a new slug", checked)
+	}
+}
