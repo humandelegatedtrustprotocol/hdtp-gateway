@@ -76,8 +76,9 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		}
 		peer := newTestPeer(t, "Slow", "https://"+hold.Addr().String()+"/a/slow/mcp")
 		slowRoot = peer.Root()
-		if _, err := st.InsertContact(ctx, store.Contact{AccountID: alice.ID, Fingerprint: peer.Root(), Status: "active",
-			Endpoint: peer.Endpoint, Leaf: peer.Host.LeafDER, SPKI: []byte{1}, RootCert: peer.Wallet.RootDER}); err != nil {
+		// An imported contact, owed the handshake: the campaign `announce` resumes walks it.
+		if err := st.ImportContact(ctx, store.Contact{AccountID: alice.ID, Fingerprint: peer.Root(), Status: "active", TrustFlag: "messages_only",
+			Endpoint: peer.Endpoint, Leaf: peer.Host.LeafDER, SPKI: []byte{1}, RootCert: peer.Wallet.RootDER, HandshakeDueAt: 1}); err != nil {
 			t.Fatal(err)
 		}
 	})

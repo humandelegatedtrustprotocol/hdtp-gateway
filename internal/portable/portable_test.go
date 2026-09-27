@@ -213,7 +213,7 @@ func importFile(t *testing.T, e env, b []byte, slug string, now time.Time) (*Pla
 	if err != nil {
 		return nil, Result{}, err
 	}
-	res, err := p.Apply(context.Background(), e.st, e.blobs)
+	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now())
 	return p, res, err
 }
 
