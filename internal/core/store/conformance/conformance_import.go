@@ -136,5 +136,29 @@ func importAndMove(t *testing.T, newStore Factory) {
 		if got.InviteID != "" || got.ChainSentKid != "" {
 			t.Fatalf("an imported contact arrived with the old host's state: invite=%q chain_sent_kid=%q", got.InviteID, got.ChainSentKid)
 		}
+		// It is owed this host's handshake (PACT §9.2), until the campaign clears the mark; a
+		// contact made here any other way is owed nothing.
+		if !got.HandshakeDue {
+			t.Fatal("an imported contact arrived without the mark that it is owed a handshake")
+		}
+		if err := s.ClearContactHandshake(ctx, a.ID, "sha256:root"); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetContact(ctx, a.ID, "sha256:root"); got.HandshakeDue {
+			t.Fatal("clearing the handshake mark left it set")
+		}
+		if err := s.ClearContactHandshake(ctx, a.ID, "sha256:nobody"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("clearing the mark of a contact that is not there: %v, want ErrNotFound", err)
+		}
+		made, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:made-here", SPKI: []byte("s"), Status: "active"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if made.HandshakeDue {
+			t.Fatal("a contact made on this host is marked as owed an import's handshake")
+		}
+		if got, _ := s.GetContact(ctx, a.ID, "sha256:made-here"); got.HandshakeDue {
+			t.Fatal("a contact made on this host reads back as owed an import's handshake")
+		}
 	})
 }

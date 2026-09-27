@@ -156,6 +156,111 @@ func (q *Queries) GetThread(ctx context.Context, arg GetThreadParams) (Thread, e
 	return i, err
 }
 
+const importBlob = `-- name: ImportBlob :execrows
+INSERT INTO blobs (account_id, hash, size, mime, filename, created_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+`
+
+type ImportBlobParams struct {
+	AccountID string
+	Hash      string
+	Size      int64
+	Mime      string
+	Filename  string
+	CreatedAt int64
+}
+
+// The record of a file arriving in an export. One already here, by hash, is left as it is.
+func (q *Queries) ImportBlob(ctx context.Context, arg ImportBlobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, importBlob,
+		arg.AccountID,
+		arg.Hash,
+		arg.Size,
+		arg.Mime,
+		arg.Filename,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const importMessage = `-- name: ImportMessage :execrows
+INSERT INTO messages (id, account_id, contact_fpr, msg_id, thread_id, direction, sender, kind, body, reply_to, status, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+`
+
+type ImportMessageParams struct {
+	ID         string
+	AccountID  string
+	ContactFpr string
+	MsgID      string
+	ThreadID   string
+	Direction  string
+	Sender     string
+	Kind       string
+	Body       string
+	ReplyTo    string
+	Status     string
+	CreatedAt  int64
+}
+
+// A message arriving in an export, with no retry schedule (it was the old host's to deliver).
+// One already here, by id or by its sender's msg_id, is left as it is.
+func (q *Queries) ImportMessage(ctx context.Context, arg ImportMessageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, importMessage,
+		arg.ID,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.MsgID,
+		arg.ThreadID,
+		arg.Direction,
+		arg.Sender,
+		arg.Kind,
+		arg.Body,
+		arg.ReplyTo,
+		arg.Status,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const importThread = `-- name: ImportThread :execrows
+INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+`
+
+type ImportThreadParams struct {
+	ID         string
+	AccountID  string
+	ContactFpr string
+	Topic      string
+	CreatedAt  int64
+	LastAt     int64
+}
+
+// A thread arriving in an export (SPEC sec. 3.10). One already here, by id, is left as it is:
+// importing into an identity this host already holds adds what it lacks and changes nothing else.
+func (q *Queries) ImportThread(ctx context.Context, arg ImportThreadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, importThread,
+		arg.ID,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.Topic,
+		arg.CreatedAt,
+		arg.LastAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertBlob = `-- name: InsertBlob :exec
 INSERT INTO blobs (account_id, hash, size, mime, filename, created_at) VALUES (?, ?, ?, ?, ?, ?)
 `

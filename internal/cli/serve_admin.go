@@ -172,6 +172,7 @@ func (s *serveRun) registerAdminHandlers() {
 		return map[string]any{
 			"Slug": acct.Slug, "Told": before.Told, "Waiting": before.Waiting,
 			"Walking": before.Walking || resumed, "Resumed": resumed, "Unreached": before.Unreached,
+			"NoLeaf": before.NoLeaf,
 		}, nil
 	})
 	admin.Handle("account.certificate", func(args map[string]string) (any, error) {
@@ -189,6 +190,7 @@ func (s *serveRun) registerAdminHandlers() {
 		out := map[string]any{
 			"Slug": acct.Slug, "Certified": info.Certified, "Root": info.RootFingerprint, "Kid": info.Kid, "Endpoint": info.Endpoint,
 			"RenewalDue": info.RenewalDue, "PendingCSR": info.PendingCSR, "Superseded": info.Superseded, "Former": info.Former,
+			"HandshakesOwed": info.HandshakesOwed,
 		}
 		if info.Certified {
 			out["NotBefore"], out["NotAfter"] = info.NotBefore.Format(time.RFC3339), info.NotAfter.Format(time.RFC3339)

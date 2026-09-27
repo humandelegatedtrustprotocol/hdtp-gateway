@@ -10,6 +10,24 @@ import (
 	"database/sql"
 )
 
+const clearContactHandshake = `-- name: ClearContactHandshake :execrows
+UPDATE contacts SET handshake_due = 0 WHERE account_id = ? AND fingerprint = ?
+`
+
+type ClearContactHandshakeParams struct {
+	AccountID   string
+	Fingerprint string
+}
+
+// The campaign has told this contact: it is owed nothing more (sec. 9.2).
+func (q *Queries) ClearContactHandshake(ctx context.Context, arg ClearContactHandshakeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearContactHandshake, arg.AccountID, arg.Fingerprint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteContact = `-- name: DeleteContact :execrows
 DELETE FROM contacts WHERE account_id = ? AND fingerprint = ?
 `
@@ -89,7 +107,7 @@ func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteEx
 }
 
 const getContact = `-- name: GetContact :one
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active FROM contacts WHERE account_id = ? AND fingerprint = ?
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due FROM contacts WHERE account_id = ? AND fingerprint = ?
 `
 
 type GetContactParams struct {
@@ -121,13 +139,14 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 		&i.ChainSentKid,
 		&i.RootCert,
 		&i.EverActive,
+		&i.HandshakeDue,
 	)
 	return i, err
 }
 
 const importContact = `-- name: ImportContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 `
 
 type ImportContactParams struct {
@@ -154,7 +173,8 @@ type ImportContactParams struct {
 // A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
 // statement, and none it does not. invite_id stays empty because invites do not travel, and
 // chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
-// seen - and this host has not been issued one yet.
+// seen - and this host has not been issued one yet. handshake_due is set: the contact is owed
+// this host's handshake once its next leaf is installed (sec. 9.2).
 func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) error {
 	_, err := q.db.ExecContext(ctx, importContact,
 		arg.ID,
@@ -177,6 +197,39 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 		arg.EverActive,
 	)
 	return err
+}
+
+const importContactPin = `-- name: ImportContactPin :execrows
+UPDATE contacts SET endpoint = ?, leaf = ?, spki = ?, root_cert = COALESCE(?, root_cert), handshake_due = 1
+WHERE account_id = ? AND fingerprint = ? AND (leaf IS NULL OR length(leaf) = 0)
+`
+
+type ImportContactPinParams struct {
+	Endpoint    string
+	Leaf        []byte
+	Spki        []byte
+	RootCert    []byte
+	AccountID   string
+	Fingerprint string
+}
+
+// An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
+// a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
+// validated there - and is owed this host's handshake. A contact held WITH a leaf is never
+// written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
+func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, importContactPin,
+		arg.Endpoint,
+		arg.Leaf,
+		arg.Spki,
+		arg.RootCert,
+		arg.AccountID,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertContact = `-- name: InsertContact :exec
@@ -228,7 +281,7 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 }
 
 const listContacts = `-- name: ListContacts :many
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active FROM contacts WHERE account_id = ? ORDER BY created_at, id
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due FROM contacts WHERE account_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -261,6 +314,7 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 			&i.ChainSentKid,
 			&i.RootCert,
 			&i.EverActive,
+			&i.HandshakeDue,
 		); err != nil {
 			return nil, err
 		}

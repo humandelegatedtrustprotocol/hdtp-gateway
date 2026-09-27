@@ -144,3 +144,24 @@ func (s *Postgres) MarkThreadRead(ctx context.Context, accountID, threadID strin
 	_, err := s.q.MarkThreadRead(ctx, pgdb.MarkThreadReadParams{AccountID: accountID, ThreadID: threadID, AccountID_2: accountID, ID: threadID})
 	return err
 }
+
+func (s *Postgres) ImportThread(ctx context.Context, t Thread) (bool, error) {
+	n, err := s.q.ImportThread(ctx, pgdb.ImportThreadParams{
+		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
+		Topic: t.Topic, CreatedAt: t.CreatedAt, LastAt: t.LastAt,
+	})
+	return n > 0, err
+}
+
+func (s *Postgres) ImportMessage(ctx context.Context, m Message) (bool, error) {
+	n, err := s.q.ImportMessage(ctx, pgdb.ImportMessageParams(messageImport(m)))
+	return n > 0, err
+}
+
+func (s *Postgres) ImportBlob(ctx context.Context, b Blob) (bool, error) {
+	n, err := s.q.ImportBlob(ctx, pgdb.ImportBlobParams{
+		AccountID: b.AccountID, Hash: b.Hash, Size: b.Size, Mime: b.Mime,
+		Filename: b.Filename, CreatedAt: b.CreatedAt,
+	})
+	return n > 0, err
+}

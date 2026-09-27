@@ -259,26 +259,31 @@ and no portal or owner-MCP button: like `import`, it needs shell access on the h
 ### Take your data with you
 
 Your identity is the **root** in your wallet. It is never on this node, so nothing here *is* you.
-What you can take away is what is yours: your **contacts** and your **chats**.
+What you can take away is what is yours: your **contacts**, your **chats** and the **files** in
+them — one identity at a time, in one zip that the cloud and any other PACT host read too.
 
 ```
-pact-gateway export -out alina.pact-export
-pact-gateway import -from alina.pact-export
+pact-gateway export -slug alina -out alina.zip
+pact-gateway import alina.zip -slug alina          # shows what it would write, writes nothing
+pact-gateway import alina.zip -slug alina -yes     # writes it
 ```
 
 Both are offline (stop the node first) and both need host shell access. They work on SQLite and on
 Postgres alike, because the file is written through the node's own store rather than copied out of
 a database.
 
-**An export carries contacts and chats, and nothing else.** No key of any kind — not a leaf's, not
-the node's master key — and no settings, integration credentials, tokens, passkeys, invites or
-audit history: those belong to the host that made them. An import refuses a file that holds
-anything more, down to a single unknown field.
+**The file is not encrypted.** Anyone who gets it can read your contact list and all your
+conversations and files; `export` says so before it writes. It holds no keys, so it cannot be used
+to speak as you — no leaf's key, not the node's master key — and no settings, integration
+credentials, tokens, passkeys, invites or audit history: those belong to the host that made them.
+Keep it where you keep private documents, and delete it once it has been imported.
 
-So every import ends the same way, whether it is a new machine, a new host, or this node after it
-lost its master key: the identity is there by name with its contacts and conversations, it is
-**not served**, and `serve` names the certificate request to make. Your wallet issues the new host
-a leaf of its own, and that is what tells your contacts where you are now.
+**An import checks the whole file before it writes anything,** and refuses it whole at the first
+fault. Into a slug that is not here, the identity arrives with its root and nothing more — **not
+served** until your wallet issues this host a leaf; into the identity it belongs to, it merges,
+and every pin this host already holds stands. Either way it ends with a new leaf from your wallet
+(the import names the command, and `account certificate` and `doctor` keep naming it until it is
+done), and installing that leaf tells the imported contacts where you are now.
 
 ### Be reachable
 
@@ -332,7 +337,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every push. [SECURITY.md](../SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 15 live scenarios stand the real binary up
+**A harness that builds the world.** 17 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
@@ -348,6 +353,8 @@ in containers and drive it as a person would:
 | Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |
 | Impairment | Latency and loss, and a partition that severs the node and then heals | `TestResilienceUnderImpairment` |
 | A move under a partition | A contact cut off while the move campaign runs is named, and told on resume | `TestAMoveCampaignSurvivesAPartition` |
+| A move by export and import | An identity exported offline from one host and imported onto another that never held it; the new host's first leaf hands a peer that pins it the new address | `TestAPeerFollowsAnIdentityImportedOntoANewHost` |
+| A peer that blocked the identity | The same move, and a peer that had blocked the identity: the handshake's request meets its block, and its pin does not move | `TestAPeerThatBlockedTheIdentityDecidesUnderItsOwnPolicy` |
 | Own-domain ingress | A containerised ACME CA and an authoritative DNS zone | `TestOwnDomainIngressServesPassthroughAndTerminate` |
 | Tunnel | A self-hosted `frps`; the node's own certificate has to survive the hop | `TestNodeIsReachableThroughSelfHostedFrps` |
 | Cloudflare | Two people over two real Cloudflare tunnels on a real domain (an owner run: it needs an account) | `TestTwoUsersOverRealCloudflareTunnels` |
