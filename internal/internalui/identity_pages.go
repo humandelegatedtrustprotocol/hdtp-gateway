@@ -33,6 +33,9 @@ type IdentityDeps struct {
 	// the identity, the endpoint, the dates, and whether renewal is due —
 	// the thirty-day prompt a host owes the person. nil hides the columns.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
+	// Wallet mounts the web-wallet signing request (wallet_pages.go); nil leaves the portal with
+	// the command-line wallet only.
+	Wallet *WalletDeps
 }
 
 func (d IdentityDeps) audit(action, resource, outcome string) {
@@ -52,6 +55,9 @@ type identityRow struct {
 	Endpoint        string `json:"endpoint,omitempty"`
 	NotAfter        string `json:"not_after,omitempty"`
 	RenewalDue      bool   `json:"renewal_due,omitempty"`
+	// WebWallet is whether "Sign with my web wallet" is offered: the identity has a root (the web
+	// wallet renews and moves; a first leaf comes from the CLI) and the node mounts the pages.
+	WebWallet bool `json:"web_wallet,omitempty"`
 }
 
 func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
@@ -67,6 +73,7 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 				ID: a.ID, Slug: a.Slug, DisplayName: a.DisplayName,
 				Algo: a.Algo, Fingerprint: a.Fingerprint,
 			}
+			row.WebWallet = a.HasRoot() && d.Wallet != nil
 			if a.HasRoot() && d.Certificate != nil {
 				if info, err := d.Certificate(r.Context(), a.ID); err == nil && info.Certified {
 					row.RootFingerprint, row.Endpoint = info.RootFingerprint, info.Endpoint
@@ -83,6 +90,9 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 
 	mux.HandleFunc("GET /api/identity", d.getAPIIdentity(render))
 	mux.HandleFunc("POST /identity/create", d.postIdentityCreate(render))
+	if d.Wallet != nil {
+		MountWalletPages(mux, *d.Wallet)
+	}
 
 }
 

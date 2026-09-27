@@ -83,7 +83,8 @@ func (s *Postgres) ListLeaves(ctx context.Context, accountID string) ([]Leaf, er
 	out := make([]Leaf, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Leaf{AccountID: r.AccountID, Kid: r.Kid, Leaf: r.Leaf, KeySealed: r.KeySealed,
-			NotBefore: r.NotBefore, NotAfter: r.NotAfter, State: r.State, Endpoint: r.Endpoint, CreatedAt: r.CreatedAt})
+			NotBefore: r.NotBefore, NotAfter: r.NotAfter, State: r.State, Endpoint: r.Endpoint, CreatedAt: r.CreatedAt,
+			RequestStateHash: r.RequestStateHash, WalletOrigin: r.WalletOrigin})
 	}
 	return out, nil
 }
@@ -255,4 +256,27 @@ func (s *Postgres) SetContactRootCert(ctx context.Context, accountID, root strin
 		return fmt.Errorf("store: %w", err)
 	}
 	return nil
+}
+
+// SetLeafRequest records, on the pending request for `kid`, the SHA-256 of the state a web
+// wallet's answer must carry and the wallet it went to (migration 0041).
+func (s *Postgres) SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error {
+	n, err := s.q.SetLeafRequest(ctx, pgdb.SetLeafRequestParams{RequestStateHash: stateHash, WalletOrigin: walletOrigin, AccountID: accountID, Kid: kid})
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: no pending request %s for account %s", kid, accountID)
+	}
+	return nil
+}
+
+// ConsumeLeafRequest takes the state off the pending request for `kid` if, and only if, it is the
+// one given; false when it is not there (never minted, another state, or already used).
+func (s *Postgres) ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error) {
+	n, err := s.q.ConsumeLeafRequest(ctx, pgdb.ConsumeLeafRequestParams{AccountID: accountID, Kid: kid, RequestStateHash: stateHash})
+	if err != nil {
+		return false, fmt.Errorf("store: %w", err)
+	}
+	return n == 1, nil
 }

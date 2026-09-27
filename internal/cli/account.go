@@ -79,6 +79,9 @@ func account(args []string, stdout, stderr io.Writer) int {
 		if c, ok := out["Campaigns"]; ok {
 			fmt.Fprintf(stdout, "telling contacts of the new address: %v\n", c)
 		}
+		if n, ok := out["Notice"].(string); ok && n != "" {
+			fmt.Fprintln(stdout, n)
+		}
 		return 0
 	case "announce":
 		var out map[string]any

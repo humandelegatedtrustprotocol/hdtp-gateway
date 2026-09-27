@@ -51,6 +51,11 @@ type Leaf struct {
 	State     string
 	Endpoint  string
 	CreatedAt int64
+	// RequestStateHash is the SHA-256 of the state a web wallet's answer to this pending request
+	// must carry, nil once consumed or for a leaf that is not pending (migration 0041).
+	// WalletOrigin is the wallet the request went to; "" for one handed over by the CLI.
+	RequestStateHash []byte
+	WalletOrigin     string
 }
 
 // VacatedAddress is an address an identity has left (migration 0040, PACT §9): the endpoint its
@@ -449,6 +454,11 @@ type AccountStore interface {
 	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
 	ClearAccountKey(ctx context.Context, accountID string) error
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
+	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (PACT §9.1,
+	// migration 0041): the state's hash goes on with the request and comes off, in one statement
+	// that also checks it, when an answer carrying it is installed.
+	SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error
+	ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error)
 
 	// An identity leaving this host (PACT §9, identity.Manager.Leave). DeleteAccount deletes the
 	// account row and, by ON DELETE CASCADE, every row that names it by a foreign key;
