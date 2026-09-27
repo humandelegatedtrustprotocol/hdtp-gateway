@@ -300,6 +300,8 @@ waits for a renewal, which has never needed the old key. This holds for the curr
 as a superseded one. It did not: a leaf nobody renewed was served, and its key held, for as long
 as the process ran.
 
+**Destroyed, on SQLite; not on Postgres.** On SQLite the node runs with `secure_delete` on and, after every leave, retirement and install, checkpoints the write-ahead log and truncates it (`store.Store.Scrub`), so a destroyed key's bytes are overwritten in the database file and gone from the log (`TestALeaveLeavesNoLeafKeyOnDisk`, `TestARetiredLeafKeyIsNotLeftOnDisk` read the files byte for byte). On Postgres the node cannot do this: a deleted or overwritten row stays in its page as a dead tuple until VACUUM reuses the space, in the write-ahead log until its segment is recycled, and in every base backup and WAL archive for as long as they are kept, so what PACT §9 calls destroying the leaf's key is, on Postgres, deleting it — a named divergence. What remains there is the key sealed under the node's keyring (AES-256-GCM), readable only by someone who also holds that keyring.
+
 Losing the **root** is losing the identity, and the root is not here. It lives in the
 person's wallet (PACT §9): no third party holds a copy, this node cannot mint one, and
 there is no recovery ceremony. That trade-off is the wallet's to state; it is repeated
@@ -328,7 +330,7 @@ It erases the identity in ONE transaction (`identity.Manager.Leave`): the accoun
 
 The address stays reserved: PACT §9 has "An address an identity has vacated MUST NOT be assigned to another identity until the last leaf issued for it has expired." For each endpoint a leaf installed here named, with its latest `notAfter` still ahead, the node keeps a row of the endpoint, the slug and that date, and nothing that names the identity (`vacated_addresses`, migration 0040). While the row is live, creating an account with that slug is refused at every door (the store's `CreateAccount`, which `import` reaches too), and so is a signing request naming that endpoint (`IssueCSR`). The hourly sweep drops a row once its date has passed. A person returning to this node under the same slug before then is refused too: the row cannot tell them from anybody else.
 
-A leave is refused while the identity's move campaign is walking (it holds the key and writes the rows the leave erases), and for a slug the node does not hold. Each attempt on a slug the node holds writes one `account_leave` row: `refused`, `error`, `ok`, or `partial` when the records are erased and a media file could not be removed.
+A leave is refused while the identity's move campaign is walking (it holds the key and writes the rows the leave erases), and for a slug the node does not hold. Each attempt on a slug the node holds writes one `account_leave` row: `refused`, `error`, `ok`, or `partial` when the records are erased and a media file could not be removed, or the erased keys could not yet be scrubbed from disk.
 
 
 ### 3.12 A signing request to a web wallet

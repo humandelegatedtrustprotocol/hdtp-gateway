@@ -240,6 +240,13 @@ func (m *Manager) RetireExpiredLeafKeys(ctx context.Context, accountID string, n
 		}
 		out = append(out, RetiredLeaf{Kid: l.Kid, Current: current})
 	}
+	// NULL is not destroyed: the key's bytes are still in the database's files until they are
+	// overwritten (store.Store.Scrub).
+	if len(out) > 0 {
+		if err := m.Store.Scrub(ctx); err != nil {
+			return out, fmt.Errorf("identity: the retired keys are cleared and their bytes may remain on disk: %w", err)
+		}
+	}
 	return out, nil
 }
 
@@ -461,6 +468,10 @@ type InstallResult struct {
 	// moved or not: an import into an identity already served here is followed by a renewal at the
 	// same address, and that campaign walks these contacts and nobody else.
 	HandshakesDue int
+	// Warnings are what the install did not finish although the leaf is installed: a destroyed
+	// key whose bytes could not yet be scrubbed from the store's files (store.Store.Scrub). The
+	// caller reports each one.
+	Warnings []string
 }
 
 // InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
@@ -659,6 +670,11 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		}
 	}
 	kp.Leaf, kp.Root = chain[0], chain[1]
+	// The install replaced the account's copy of its key, and may have deleted or retired a leaf's:
+	// their bytes go now, not whenever the pages are reused (store.Store.Scrub).
+	if err := m.Store.Scrub(ctx); err != nil {
+		res.Warnings = append(res.Warnings, "the replaced key's bytes may remain on disk until the next scrub: "+err.Error())
+	}
 	return res, nil
 }
 
