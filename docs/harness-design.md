@@ -164,6 +164,8 @@ of its own (§3).
 | S13 | a rejection reaches the peer, and an unblock lets them ask again | nightly | docker, node-image, chrome | 15 min | `scenario.TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain` |
 | S14 | a conversation both ways after pairing, sealed, prompt and in the view | nightly | docker, node-image, chrome | 15 min | `scenario.TestMessagingWorksBothWaysAfterPairing` |
 | S15 | the portal offers every affordance an owner needs, as drawn | nightly | docker, node-image, chrome | 12 min | `scenario.TestPortalOffersEveryAffordanceAnOwnerNeeds` |
+| S16 | after export and import onto a new host, a peer that pins the identity follows it | nightly | docker, node-image, chrome | 20 min | `scenario.TestAPeerFollowsAnIdentityImportedOntoANewHost` |
+| S17 | after export and import, a peer that blocked the identity is asked, and its block answers | nightly | docker, node-image, chrome | 20 min | `scenario.TestAPeerThatBlockedTheIdentityDecidesUnderItsOwnPolicy` |
 | T5 | own-domain ingress: passthrough keeps the node's chain, terminate serves a CA certificate | nightly | docker, node-image, chrome | 15 min | `scenario.TestOwnDomainIngressServesPassthroughAndTerminate` |
 | T6 | a node behind a self-hosted frps keeps its own chain and serves MCP | nightly | docker, node-image, chrome | 10 min | `scenario.TestNodeIsReachableThroughSelfHostedFrps` |
 | T7 | two people over two real Cloudflare tunnels, sealed end to end | nightly | docker, chrome, cf | 20 min | `scenario.TestTwoUsersOverRealCloudflareTunnels` |
