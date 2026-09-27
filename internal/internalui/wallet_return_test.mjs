@@ -76,6 +76,15 @@ test("a move notice the node returns is shown", async () => {
   assert.match(out.textContent, /Run announce\.$/);
 });
 
+test("an install the node finished with a warning says installed, and the warning", async () => {
+  const { out } = await run({
+    href: answer,
+    reply: { status: 200, body: { endpoint: "e", not_after: "t", notice: "", warnings: ["Restart the node, then announce."] } },
+  });
+  assert.equal(out.textContent, "Installed: e, valid until t. Warning: Restart the node, then announce.");
+  assert.equal(out.className, "warn");
+});
+
 test("a wallet that did not sign: nothing is sent, and the page says so", async () => {
   const { events, fetches, out } = await run({ href: "https://node.example/wallet/return?slug=alice#error=cancelled&state=" + "s".repeat(43) });
   assert.equal(fetches.length, 0);

@@ -63,6 +63,9 @@ func (s *serveRun) registerAdminHandlers() {
 		if res.PreviousNotBefore != nil {
 			out["PreviousNotBefore"] = res.PreviousNotBefore.UTC().Format(time.RFC3339)
 		}
+		if len(res.Warnings) > 0 {
+			out["Warnings"] = warningTexts(res.Warnings)
+		}
 		return out, nil
 	}
 
@@ -143,6 +146,9 @@ func (s *serveRun) registerAdminHandlers() {
 		}
 		if res.Notice != "" {
 			out["Notice"] = res.Notice
+		}
+		if len(res.Warnings) > 0 {
+			out["Warnings"] = warningTexts(res.Warnings)
 		}
 		return out, nil
 	})

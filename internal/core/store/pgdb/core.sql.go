@@ -837,6 +837,18 @@ func (q *Queries) ListTokens(ctx context.Context) ([]Token, error) {
 	return items, nil
 }
 
+const lockAccountRow = `-- name: LockAccountRow :exec
+SELECT id FROM accounts WHERE id = $1 FOR UPDATE
+`
+
+// Holds one account's row until the transaction ends, so two transactions that change the same
+// account's ledger run one after the other (a signing request replacing the pending one). SQLite
+// needs no statement for it: every transaction there takes the write lock at BEGIN.
+func (q *Queries) LockAccountRow(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, lockAccountRow, id)
+	return err
+}
+
 const putSetting = `-- name: PutSetting :exec
 INSERT INTO settings (key, value, secret, updated_at) VALUES ($1, $2, $3, $4)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, secret = excluded.secret, updated_at = excluded.updated_at

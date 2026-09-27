@@ -2,6 +2,9 @@ package conformance
 
 import (
 	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
@@ -226,6 +229,67 @@ func identityState(t *testing.T, newStore Factory) {
 		}
 		if _, err := s.GetPendingAddress(ctx, a.ID, "sha256:peer-root"); err == nil {
 			t.Fatal("pending address still readable after delete")
+		}
+	})
+
+	// One pending signing request per account (migration 0044), and replacing it is one step on
+	// either engine: three writers replacing the pending request together, round after round,
+	// leave exactly one and none of them fails. On Postgres it is LockAccount that makes them
+	// wait for each other; without it they meet the unique index instead.
+	t.Run("OnePendingRequestAndReplacingItIsOneStep", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "pend", DisplayName: "P", Algo: "ed25519"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "pend2", DisplayName: "Q", Algo: "ed25519"})
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:p1", State: "pending", CreatedAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "sha256:p2", State: "pending", CreatedAt: 2}); err == nil {
+			t.Fatal("a second pending request for one account was written")
+		}
+		if err := s.InsertLeaf(ctx, store.Leaf{AccountID: b.ID, Kid: "sha256:q1", State: "pending", CreatedAt: 1}); err != nil {
+			t.Fatalf("another account's pending request: %v", err)
+		}
+		var seq atomic.Int64
+		for round := 0; round < 10; round++ {
+			var wg sync.WaitGroup
+			errs := make(chan error, 3)
+			for i := 0; i < 3; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					kid := fmt.Sprintf("sha256:r%d", seq.Add(1))
+					errs <- s.Atomically(ctx, func(tx store.Store) error {
+						if err := tx.LockAccount(ctx, a.ID); err != nil {
+							return err
+						}
+						if _, err := tx.DeleteLeavesByState(ctx, a.ID, "pending"); err != nil {
+							return err
+						}
+						if err := tx.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: kid, State: "pending", CreatedAt: 3}); err != nil {
+							return err
+						}
+						return tx.SetLeafRequest(ctx, a.ID, kid, []byte("hash"), "")
+					})
+				}()
+			}
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				if err != nil {
+					t.Fatalf("round %d: a replacement failed: %v", round, err)
+				}
+			}
+			leaves, _ := s.ListLeaves(ctx, a.ID)
+			pending := 0
+			for _, l := range leaves {
+				if l.State == "pending" {
+					pending++
+				}
+			}
+			if pending != 1 {
+				t.Fatalf("round %d: %d pending requests", round, pending)
+			}
 		}
 	})
 }

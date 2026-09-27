@@ -309,6 +309,9 @@ type CSRResult struct {
 	// base64url, 43 characters. The host keeps only its SHA-256 (migration 0041); an answer is
 	// accepted once, with it (InstallWalletLeaf).
 	State string
+	// Warnings are what the request did not finish although it is made: a replaced request's key
+	// whose bytes could not yet be scrubbed (store.Store.Scrub).
+	Warnings []Warning
 }
 
 // IssueCSR makes the request a wallet signs (PACT §9).
@@ -413,22 +416,40 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	if err != nil {
 		return CSRResult{}, err
 	}
-	if _, err := m.Store.DeleteLeavesByState(ctx, accountID, LeafPending); err != nil {
-		return CSRResult{}, err
-	}
-	if err := m.Store.InsertLeaf(ctx, store.Leaf{AccountID: accountID, Kid: kp.Fingerprint, KeySealed: sealed, State: LeafPending, Endpoint: endpoint, CreatedAt: now.Unix()}); err != nil {
-		// The key already names a leaf of this account (an upgrade of a key
-		// that is already a leaf's, or a renewal that generated no new key).
-		return CSRResult{}, fmt.Errorf("identity: a leaf for key %s already exists: %w", kp.Fingerprint, err)
-	}
 	state, err := newRequestState()
 	if err != nil {
 		return CSRResult{}, err
 	}
-	if err := m.Store.SetLeafRequest(ctx, accountID, kp.Fingerprint, stateHash(state), walletOrigin); err != nil {
+	// The replacement is one step: the pending request goes and this one takes its place, or
+	// nothing changes. Two requests made together used to interleave the three writes and leave
+	// two pending rows (migration 0044 now refuses a second one).
+	var replaced int64
+	err = m.Store.Atomically(ctx, func(tx store.Store) error {
+		if err := tx.LockAccount(ctx, accountID); err != nil {
+			return err
+		}
+		n, err := tx.DeleteLeavesByState(ctx, accountID, LeafPending)
+		if err != nil {
+			return err
+		}
+		replaced = n
+		if err := tx.InsertLeaf(ctx, store.Leaf{AccountID: accountID, Kid: kp.Fingerprint, KeySealed: sealed, State: LeafPending, Endpoint: endpoint, CreatedAt: now.Unix()}); err != nil {
+			// The key already names a leaf of this account (an upgrade of a key
+			// that is already a leaf's, or a renewal that generated no new key).
+			return fmt.Errorf("identity: a leaf for key %s already exists: %w", kp.Fingerprint, err)
+		}
+		return tx.SetLeafRequest(ctx, accountID, kp.Fingerprint, stateHash(state), walletOrigin)
+	})
+	if err != nil {
 		return CSRResult{}, err
 	}
 	res := CSRResult{CSR: csr, Purpose: purpose, Endpoint: endpoint, Kid: kp.Fingerprint, SuggestedNotAfter: now.Add(365 * 24 * time.Hour), State: state}
+	// The replaced request's key goes with its row, bytes and all (store.Store.Scrub).
+	if replaced > 0 {
+		if err := m.Store.Scrub(ctx); err != nil {
+			res.Warnings = append(res.Warnings, WarnUnscrubbed)
+		}
+	}
 	if leaves, err := m.Store.ListLeaves(ctx, accountID); err == nil {
 		for _, l := range leaves {
 			if l.State == LeafCurrent {
@@ -471,7 +492,7 @@ type InstallResult struct {
 	// Warnings are what the install did not finish although the leaf is installed: a destroyed
 	// key whose bytes could not yet be scrubbed from the store's files (store.Store.Scrub). The
 	// caller reports each one.
-	Warnings []string
+	Warnings []Warning
 }
 
 // InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
@@ -507,13 +528,19 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		return InstallResult{}, err
 	}
 	var pending, current *store.Leaf
+	pendings := 0
 	for i := range leaves {
 		switch leaves[i].State {
 		case LeafPending:
 			pending = &leaves[i]
+			pendings++
 		case LeafCurrent:
 			current = &leaves[i]
 		}
+	}
+	if pendings > 1 {
+		// Migration 0044 makes this impossible; a ledger that holds it anyway is not one to guess in.
+		return InstallResult{}, fmt.Errorf("identity: %d certificate requests are pending for this account and one is expected; run `account csr` again", pendings)
 	}
 	if pending == nil {
 		if state != "" {
@@ -540,16 +567,12 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3): %w", cmp, ErrLeafRefused)
 		}
 	}
-	// The answer has passed every check; now it is used, once. Two answers carrying one state both
-	// reach this line only if they arrive together, and the statement lets exactly one through.
-	if state != "" {
-		ok, err := m.Store.ConsumeLeafRequest(ctx, a.ID, pending.Kid, stateHash(state))
-		if err != nil {
-			return InstallResult{}, err
-		}
-		if !ok {
-			return InstallResult{}, fmt.Errorf("identity: the request was answered already: %w", ErrRequestState)
-		}
+	// The answer has passed every check. What follows is one transaction: the answer is used —
+	// once — and installed, or neither. Two answers carrying one state both reach this point only
+	// if they arrive together; the statement that consumes the state lets exactly one through, and
+	// the other's transaction writes nothing.
+	if m.beforeInstallWrites != nil {
+		m.beforeInstallWrites()
 	}
 	kp, err := m.openLeafKey(pending.KeySealed)
 	if err != nil {
@@ -562,17 +585,6 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if current != nil {
 		res.OldKid, res.OldEndpoint = current.Kid, current.Endpoint
 		res.KeyChanged = current.Kid != pending.Kid
-		if res.KeyChanged {
-			if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: current.Kid, Leaf: current.Leaf, NotBefore: current.NotBefore, NotAfter: current.NotAfter, State: LeafSuperseded, Endpoint: current.Endpoint}); err != nil {
-				return InstallResult{}, err
-			}
-		} else {
-			// The same key under a newer leaf — a wallet that re-issued over the key it
-			// was given rather than a fresh one: there is nothing to keep.
-			if _, err := m.Store.DeleteLeavesByState(ctx, accountID, LeafCurrent); err != nil {
-				return InstallResult{}, err
-			}
-		}
 	} else if a.Fingerprint != "" && a.Fingerprint != pending.Kid {
 		// A first leaf over a key other than the one the account names: requested as a renewal or
 		// a move rather than a signup, or installed after a data-only import, where the account
@@ -620,28 +632,6 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	// could not install the one thing that recovers it, for the sake of a value nobody used. Under
 	// 2.0 that recovery is real: the identity is the root, the root is in the wallet, and the
 	// wallet can certify this host again.
-	for _, l := range leaves {
-		outgoing := current != nil && res.KeyChanged && l.Kid == current.Kid
-		if l.State != LeafSuperseded && !outgoing {
-			continue
-		}
-		if len(l.KeySealed) > 0 {
-			if _, oerr := m.openLeafKey(l.KeySealed); oerr == nil {
-				continue
-			}
-		}
-		if err := m.Store.RetireLeafKey(ctx, a.ID, l.Kid); err != nil {
-			return InstallResult{}, err
-		}
-		res.Retired = append(res.Retired, l.Kid)
-	}
-	if err := m.Store.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
-		return InstallResult{}, err
-	}
-	// The install's decision, kept with the leaf: a campaign resumed later walks whom this one does.
-	if err := m.Store.SetLeafMoved(ctx, a.ID, pending.Kid, res.Moved); err != nil {
-		return InstallResult{}, err
-	}
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
 		return InstallResult{}, err
@@ -650,38 +640,91 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := m.Store.SetAccountLeafKey(ctx, a.ID, pending.Kid, sealedAcct, string(kp.Algo)); err != nil {
-		return InstallResult{}, err
-	}
-	if err := m.Store.SetAccountRoot(ctx, a.ID, vr.RootFingerprint, chain[1]); err != nil {
-		return InstallResult{}, err
-	}
-	if err := m.Store.ClearChainSentKids(ctx, a.ID); err != nil {
-		return InstallResult{}, err
-	}
-	camp := Campaign{AccountID: a.ID, NewKid: pending.Kid, Moved: res.Moved, RequestedAt: pending.CreatedAt}
-	held, err := m.Store.ListContacts(ctx, a.ID)
+	var retired []string
+	err = m.Store.Atomically(ctx, func(tx store.Store) error {
+		retired, res.HandshakesDue = nil, 0
+		if state != "" {
+			ok, err := tx.ConsumeLeafRequest(ctx, a.ID, pending.Kid, stateHash(state))
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("identity: the request was answered already: %w", ErrRequestState)
+			}
+		}
+		if current != nil {
+			if res.KeyChanged {
+				if err := tx.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: current.Kid, Leaf: current.Leaf, NotBefore: current.NotBefore, NotAfter: current.NotAfter, State: LeafSuperseded, Endpoint: current.Endpoint}); err != nil {
+					return err
+				}
+			} else if _, err := tx.DeleteLeavesByState(ctx, accountID, LeafCurrent); err != nil {
+				// The same key under a newer leaf — a wallet that re-issued over the key it was
+				// given rather than a fresh one: there is nothing to keep.
+				return err
+			}
+		}
+		for _, l := range leaves {
+			outgoing := current != nil && res.KeyChanged && l.Kid == current.Kid
+			if l.State != LeafSuperseded && !outgoing {
+				continue
+			}
+			if len(l.KeySealed) > 0 {
+				if _, oerr := m.openLeafKey(l.KeySealed); oerr == nil {
+					continue
+				}
+			}
+			if err := tx.RetireLeafKey(ctx, a.ID, l.Kid); err != nil {
+				return err
+			}
+			retired = append(retired, l.Kid)
+		}
+		if err := tx.UpdateLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: pending.Kid, Leaf: chain[0], NotBefore: vr.Leaf.NotBefore.Unix(), NotAfter: vr.Leaf.NotAfter.Unix(), State: LeafCurrent, Endpoint: vr.Endpoint}); err != nil {
+			return err
+		}
+		// The install's decision, kept with the leaf: a campaign resumed later walks whom this one does.
+		if err := tx.SetLeafMoved(ctx, a.ID, pending.Kid, res.Moved); err != nil {
+			return err
+		}
+		if err := tx.SetAccountLeafKey(ctx, a.ID, pending.Kid, sealedAcct, string(kp.Algo)); err != nil {
+			return err
+		}
+		if err := tx.SetAccountRoot(ctx, a.ID, vr.RootFingerprint, chain[1]); err != nil {
+			return err
+		}
+		if err := tx.ClearChainSentKids(ctx, a.ID); err != nil {
+			return err
+		}
+		camp := Campaign{AccountID: a.ID, NewKid: pending.Kid, Moved: res.Moved, RequestedAt: pending.CreatedAt}
+		held, err := tx.ListContacts(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		for _, c := range held {
+			if camp.Owes(c) {
+				res.HandshakesDue++
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return InstallResult{}, err
 	}
-	for _, c := range held {
-		if camp.Owes(c) {
-			res.HandshakesDue++
-		}
-	}
+	res.Retired = retired
 	kp.Leaf, kp.Root = chain[0], chain[1]
 	// The install replaced the account's copy of its key, and may have deleted or retired a leaf's:
 	// their bytes go now, not whenever the pages are reused (store.Store.Scrub).
 	if err := m.Store.Scrub(ctx); err != nil {
-		res.Warnings = append(res.Warnings, "the replaced key's bytes may remain on disk until the next scrub: "+err.Error())
+		res.Warnings = append(res.Warnings, WarnUnscrubbed)
 	}
 	return res, nil
 }
 
 // CertificateInfo is `account certificate`'s answer.
 type CertificateInfo struct {
-	// Certified is whether the wallet has issued this identity a leaf yet. It was `Protocol`, 1
-	// or 2, a generation number that had come to mean exactly this.
+	// Certified is whether this host holds a current leaf for the identity. A root alone is not
+	// that: an identity an import brought holds its root and no leaf until the wallet's first leaf
+	// here is installed, and then every date below would be the zero time. It was HasRoot() until
+	// 2026-09-28, which reported such an identity as certified.
 	Certified       bool
 	RootFingerprint string
 	Chain           [][]byte
@@ -705,7 +748,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	if err != nil {
 		return CertificateInfo{}, err
 	}
-	info := CertificateInfo{Certified: a.HasRoot(), RootFingerprint: a.RootFingerprint}
+	info := CertificateInfo{RootFingerprint: a.RootFingerprint}
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
 		return CertificateInfo{}, err
@@ -713,6 +756,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	for _, l := range leaves {
 		switch l.State {
 		case LeafCurrent:
+			info.Certified = true
 			info.Chain = [][]byte{l.Leaf, a.RootCert}
 			info.Kid, info.Endpoint = l.Kid, l.Endpoint
 			info.NotBefore, info.NotAfter = time.Unix(l.NotBefore, 0).UTC(), time.Unix(l.NotAfter, 0).UTC()
@@ -737,3 +781,15 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	}
 	return info, nil
 }
+
+// Warning is something a request or an install did not finish although it is made: a code for the
+// audit row and a sentence for the person, neither carrying an error's text (building rule 10).
+type Warning struct {
+	Code string
+	Text string
+}
+
+// WarnUnscrubbed: a destroyed key's row is gone and its bytes may still be in the store's files,
+// because the scrub after it did not finish (store.Store.Scrub); the next leave, retirement,
+// install or replaced request scrubs again.
+var WarnUnscrubbed = Warning{Code: "unscrubbed", Text: "a destroyed key's bytes may remain in the database's files until the next scrub"}
