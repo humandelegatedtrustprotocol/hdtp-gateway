@@ -45,27 +45,25 @@ import (
 
 // doorsNode is a running node with two owners, each administering one identity.
 type doorsNode struct {
-	r                 *running
-	st                store.Store
-	base              string
-	sessionName       string
-	csrfName          string
-	me                string
-	mine, theirs      store.Account
-	scopedToken       string // me, narrowed to mine
-	nodeToken         string // me, node-wide: still only what me administers
-	revokedToken      string
-	sessions          *auth.Service
-	ownerMCPURL       string
-	publicURL         string
-	internalPortalURL string
+	r            *running
+	st           store.Store
+	base         string
+	sessionName  string
+	csrfName     string
+	me           string
+	mine, theirs store.Account
+	scopedToken  string // me, narrowed to mine
+	nodeToken    string // me, node-wide: still only what me administers
+	revokedToken string
+	sessions     *auth.Service
+	ownerMCPURL  string
+	publicURL    string
 }
 
 func startDoorsNode(t *testing.T) *doorsNode {
 	t.Helper()
 	ctx := context.Background()
 	d := &doorsNode{}
-	var them string
 	d.r = runServeWith(t, nil, func(t *testing.T, dir string) {
 		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
 		if err != nil {
@@ -94,7 +92,7 @@ func startDoorsNode(t *testing.T) *doorsNode {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d.me, them = me.ID, other.ID
+		d.me = me.ID
 		if err := st.AddMembership(ctx, me.ID, d.mine.ID, "admin"); err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +114,6 @@ func startDoorsNode(t *testing.T) *doorsNode {
 			t.Fatal(err)
 		}
 	})
-	_ = them
 	d.st = openStoreAt(t, d.r.dir)
 	cfg, err := loadConfig(filepath.Join(d.r.dir, "config.json"))
 	if err != nil {
