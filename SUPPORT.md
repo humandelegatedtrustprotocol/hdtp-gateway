@@ -1,11 +1,13 @@
 # Support
 
 **This repository is private and has not been released**, so there is no public issue
-tracker or discussion forum yet. Reach the maintainer directly:
-**mr.sumitagrawal.17@gmail.com**.
+tracker or discussion forum yet. Reach the maintainer at **security@pact-protocol.com** with the
+subject `[pact-gateway support]`.
 
-**Do not send security reports here.** They have their own private path and their own
-response commitments — see [SECURITY.md](../SECURITY.md).
+**A security report is not a support question.** Send it to the same address under the subject and
+process of the organisation's
+[security policy](https://github.com/pact-cloud/.github/blob/main/SECURITY.md), which carries its
+own response commitments.
 
 ## Before you ask
 
