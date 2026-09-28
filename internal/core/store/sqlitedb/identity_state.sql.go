@@ -441,16 +441,17 @@ func (q *Queries) ListVacatedAddresses(ctx context.Context) ([]VacatedAddress, e
 }
 
 const repinContactAddress = `-- name: RepinContactAddress :execrows
-UPDATE contacts SET endpoint = ?, leaf = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?
+UPDATE contacts SET endpoint = ?, leaf = ?, leaf_fingerprint = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?
 `
 
 type RepinContactAddressParams struct {
-	Endpoint    string
-	Leaf        []byte
-	Spki        []byte
-	PinnedAt    sql.NullInt64
-	AccountID   string
-	Fingerprint string
+	Endpoint        string
+	Leaf            []byte
+	LeafFingerprint sql.NullString
+	Spki            []byte
+	PinnedAt        sql.NullInt64
+	AccountID       string
+	Fingerprint     string
 }
 
 // The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
@@ -460,6 +461,7 @@ func (q *Queries) RepinContactAddress(ctx context.Context, arg RepinContactAddre
 	result, err := q.db.ExecContext(ctx, repinContactAddress,
 		arg.Endpoint,
 		arg.Leaf,
+		arg.LeafFingerprint,
 		arg.Spki,
 		arg.PinnedAt,
 		arg.AccountID,

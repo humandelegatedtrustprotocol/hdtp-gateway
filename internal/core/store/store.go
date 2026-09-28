@@ -576,6 +576,11 @@ type ContactStore interface {
 	ImportContactPin(ctx context.Context, c Contact) (bool, error)
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
+	// PinCandidates is the contacts a sealed call's proof could concern, in ListContacts' order: the
+	// row of `root`, the rows at `endpoint`, and the row whose pinned leaf's key has the fingerprint
+	// `leafFingerprint` (migration 0046). An empty argument matches nothing. public/decide.go hands
+	// these to Decide instead of every contact.
+	PinCandidates(ctx context.Context, accountID, root, endpoint, leafFingerprint string) ([]Contact, error)
 	// CountHeldContacts counts what an account holds against its contact cap: active contacts
 	// and the requests it sent (pending_out).
 	CountHeldContacts(ctx context.Context, accountID string) (int64, error)

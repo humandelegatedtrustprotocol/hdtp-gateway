@@ -213,7 +213,7 @@ func (s *SQLite) DeletePendingAddress(ctx context.Context, accountID, root strin
 
 func (s *SQLite) RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, nowTS int64) error {
 	n, err := s.q.RepinContactAddress(ctx, sqlitedb.RepinContactAddressParams{
-		Endpoint: endpoint, Leaf: leaf, Spki: spki, PinnedAt: sql.NullInt64{Int64: nowTS, Valid: nowTS != 0},
+		Endpoint: endpoint, Leaf: leaf, LeafFingerprint: leafFingerprint(leaf, spki), Spki: spki, PinnedAt: sql.NullInt64{Int64: nowTS, Valid: nowTS != 0},
 		AccountID: accountID, Fingerprint: root,
 	})
 	if err != nil {
