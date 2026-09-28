@@ -30,11 +30,7 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 	// still sends subscriptions/acknowledged, and a ResourceUpdated that races
 	// into that window is lost by the SDK. Wait the handshake out — the JS
 	// agents speak 2025-06-18 (legacy notifications) and never see this race.
-	select {
-	case <-e.subAck:
-	case <-time.After(10 * time.Second):
-		t.Fatal("subscription never acknowledged")
-	}
+	awaitSubscribed(t, e, 1)
 
 	// a contact's agent-answered call parks and signals pact://pending
 	entry := integrations.ExposureEntry{Tool: "ask", Mode: integrations.ModeAgent, ExposedName: "ask_me"}
