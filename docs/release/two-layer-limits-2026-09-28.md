@@ -12,8 +12,8 @@ Owner, 2026-09-28:
 
 The node's proxy is Envoy (owner's choice).
 
-Status: **approved 2026-09-28** (the design). The node's middleware placement (§3, M-N2) closes with
-the owner once the survey item M-N0 is done.
+Status: **approved 2026-09-28** (the design); **the M-N0 choice, the sidecar-down rule and the two new
+numbers decided by the owner 2026-09-29** (§6).
 
 ## 1. The design
 
@@ -144,3 +144,28 @@ The table is the middleware's state, not application logic.
 
 - Layer 1's cloud limiter changes (feat/surface-bounds carries them).
 - Any change to the numbers themselves. They move from code to configuration unchanged. Changing a number is the owner's call, made in the configuration.
+
+## 6. Amendments
+
+**2026-09-29, the owner's decisions after the M-N0 survey** (measured under the lock: a node open is
+359 µs for the small form and 518 µs for the chain form; one ask over a kept-open local socket is
+5.3 µs; the decision itself 0.28 µs at any contact count):
+
+- **M-N0 is option (b).** The node opens the envelope as it does today and asks the Rust sidecar
+  for a decision over a local socket on a kept-open connection, sending the charge (root, tier,
+  source, contact cap). No key leaves the node process. Envoy's `ext_authz` never sees the caller,
+  so the node calls the sidecar, not Envoy. One counter is shared by every node process (N0 of the
+  stateless plan).
+- **When the sidecar is down, the node REFUSES.** Every sealed call answers `unavailable` until the
+  sidecar is back. The node's health and status output name the sidecar's state so an operator sees
+  why. The docs and the node SPEC say this in so many words.
+- **The two new limits are configuration defaults:** `guest_total_calls_per_hour` = 600 per
+  identity (all strangers together, charged BEFORE any cryptography) and `pending_in_cap` = 500 per
+  identity. They live in the cloud's `platform-limits` document and the node sidecar's config file,
+  never in code.
+
+Also decided the same day, from the open-path benchmark: `hpke_open` and `open_result` take the
+recipient's public key as an argument ("since the calling entity is the platform itself this can be
+trusted"); the core never derives it from the private key on a call. Shipped in pact-identity 0.4.0
+(Rust) and 0.4.1 (the Go port, which 0.4.0's commit had wrongly claimed).
+
