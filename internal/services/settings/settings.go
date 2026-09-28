@@ -27,7 +27,6 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/internalui"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/public"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
@@ -324,12 +323,10 @@ func (s *Service) apply(ctx context.Context, key, value string, here bool) error
 		return nil
 	}
 	switch key {
-	case "limit.contact_per_hour":
-		// The limiter asks for the budget on every call, so writing the resolved
-		// config is the whole of applying it.
-		s.writeCfg(func(c *core.Config) { c.LimitContactPerHour = core.ParseCount(value) })
-	case "limit.guest_per_hour":
-		s.writeCfg(func(c *core.Config) { c.LimitGuestPerHour = core.ParseCount(value) })
+	case "limit.contacts":
+		// The cap and the limiter ask for it on every use, so writing the resolved config is the
+		// whole of applying it.
+		s.writeCfg(func(c *core.Config) { c.LimitContacts = core.ParseCount(value) })
 	case "seal":
 		// The node config holds the default; every account carries the value
 		// its card advertises, so both move together and the card can never
@@ -497,19 +494,11 @@ func (s *Service) Deps() internalui.SettingsDeps {
 	}
 }
 
-// RateBudget reads the per-hour call caps. Zero means PACT §12's documented
-// numbers, which is what an unset knob leaves in force; the limiter treats any
-// answer at or below zero as "use the default", so a bad row cannot open the
-// gate.
-func (s *Service) RateBudget(kind public.LimitKind) int {
+// ContactCap reads the number of contacts each account may hold (limit.contacts), the default
+// when unset: what the contact managers enforce and what sizes every account's call budget.
+func (s *Service) ContactCap() int {
 	var n int
-	s.readCfg(func(c *core.Config) {
-		if kind == public.KindGuest {
-			n = c.LimitGuestPerHour
-			return
-		}
-		n = c.LimitContactPerHour
-	})
+	s.readCfg(func(c *core.Config) { n = c.ContactCap() })
 	return n
 }
 

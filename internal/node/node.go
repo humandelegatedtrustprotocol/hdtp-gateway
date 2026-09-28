@@ -93,10 +93,11 @@ type Options struct {
 	// DialContext overrides how outbound calls reach a contact's host; nil
 	// dials it. Tests map the hosts leaves name onto local listeners with it.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-	// RateBudget reports the per-hour call cap for a caller kind while the node
-	// runs; 0 = PACT §12's documented numbers. A function, not a snapshot, so
-	// raising the cap from the portal takes effect on the next call.
-	RateBudget func(kind public.LimitKind) int
+	// ContactCap reports how many contacts each account may hold (limit.contacts) while the node
+	// runs; nil or 0 = core.DefaultLimitContacts. It is enforced where contacts are added and it
+	// sizes every account's call budget (PACT §12). A function, not a snapshot, so raising it from
+	// the portal takes effect on the next call.
+	ContactCap func() int
 	// Quota reports an account's media quota in bytes; 0 = the documented
 	// default (SPEC §7.4). Read at build time, per account.
 	Quota func(accountID string) int64
@@ -300,15 +301,13 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// Order matters, outermost first: cap the body before anything parses it,
 	// refuse LAN sources before any handler runs, count the call against its
 	// caller's budget, then the routes.
-	// PACT §12's caps: 60 calls/hour per contact, 10/hour per guest IP+key.
+	// PACT §12's budgets (public/limits.go): per contact, per account, per guest, per source.
 	// Installed through Server.Inner so it runs INSIDE the facts middleware —
 	// it classifies by the caller's fingerprint, which does not exist until the
 	// TLS facts are attached — and still outside the routes, so a refusal costs
 	// nothing downstream.
 	n.limiter = public.NewLimiter(o.Now)
-	if o.RateBudget != nil {
-		n.limiter.Budget = func(k public.LimitKey) int { return o.RateBudget(k.Kind) }
-	}
+	n.limiter.ContactCap = func(string) int { return n.contactCap() }
 	h := n.srv.Handler()
 	h = public.LANGuard{
 		Adapter: o.Adapter, AllowFn: n.LANAllowed,
@@ -329,9 +328,24 @@ func (n *Node) quotaFor(accountID string) int64 {
 	return n.opts.Quota(accountID)
 }
 
-// consumeBudget spends one unit of this caller's PACT §12 allowance.
-func (n *Node) consumeBudget(ctx context.Context) (bool, time.Duration) {
-	key := n.classifyCtx(ctx)
+// ContactCap is the number of contacts each account may hold (limit.contacts): what every contact
+// manager enforces and what sizes every account's call budget.
+func (n *Node) ContactCap() int { return n.contactCap() }
+
+// contactCap is the number of contacts each account may hold (limit.contacts).
+func (n *Node) contactCap() int {
+	if n.opts.ContactCap != nil {
+		if c := n.opts.ContactCap(); c > 0 {
+			return c
+		}
+	}
+	return core.DefaultLimitContacts
+}
+
+// consumeBudget spends one unit of a PACT §12 allowance of accountID: the caller's own, or the
+// guest or source budget `as` names (public.Pool.Limit).
+func (n *Node) consumeBudget(ctx context.Context, accountID string, as public.Charge) (bool, time.Duration) {
+	key := n.classifyCtx(ctx, accountID, as)
 	ok, retry := n.limiter.Allow(key)
 	if !ok {
 		n.opts.audit("rate_limited", string(key.Kind)+":"+fprOr(key.Fingerprint, key.IP), "refused")
@@ -346,53 +360,45 @@ func fprOr(fpr, ip string) string {
 	return ip
 }
 
-// classify decides which budget a request counts against (SPEC §5.7). A
-// contact has an identity and gets the per-contact budget; anyone else is a
-// guest, budgeted per IP AND key so one address cannot exhaust every guest and
-// one key cannot hop addresses. The source address comes from the adapter's
-// trusted header behind a terminating edge and from the socket otherwise —
-// never a generic forwarded-for header.
-func (n *Node) classifyCtx(ctx context.Context) public.LimitKey {
-	f := public.FactsFrom(ctx)
-	ip := f.RemoteIP
-
-	// WHO is calling: the envelope when the call was sealed, the client
-	// certificate when it was not.
-	//
-	// Reading only the certificate made this unusable in edge mode. Edge mode
-	// FORCES client_cert off (§10.1) because the edge terminates TLS and the node
-	// never sees one — identity there comes from the sealed envelope and nowhere
-	// else. So every contact was classified as an anonymous guest and budgeted per
-	// IP, and since a tunnelled peer arrives from its edge's address, all of them
-	// shared one bucket: a normal exchange between two contacts exhausted the
-	// guest allowance (PACT §12: 10/hour) and everything after it was refused
-	// `rate_limited`. Cloudflare, ngrok and terminate-mode ingress were all
-	// affected — which is to say every deployment that is not directly reachable.
-	caller := f.ClientCertFingerprint
-	if e := public.EnvelopeFactsFrom(ctx); e != nil && e.From != "" {
-		// The envelope's sender is PROVEN: §4.4 verifies its signature before any
-		// dispatch, so this is not a claim the caller can simply assert.
+// classifyCtx decides which of accountID's budgets a call counts against (PACT §12). Every budget
+// is the account's the call is ADDRESSED to: being a contact of another account on this node earns
+// nothing here, and a contact's calls to one account never spend another's.
+//
+// WHO is calling: the envelope's proven sender when the call was sealed, the client certificate
+// when it was not. Reading only the certificate made this unusable in edge mode, which forces
+// client_cert off (§10.1): every contact was an anonymous guest keyed on the edge's address.
+//
+//   - an active contact of accountID whose proof the envelope did not demote: its own bucket and
+//     the account's aggregate;
+//   - any other proven root (a stranger, the pending tier, a blocked or superseded root, a pinned
+//     root at an address not approved — ChargeGuest): the guest budget of that root at its source;
+//   - nothing proven (ChargeSource, or no identity at all): the source address alone.
+//
+// The source comes from the adapter's trusted header behind a terminating edge and from the
+// socket otherwise — never a generic forwarded-for header.
+func (n *Node) classifyCtx(ctx context.Context, accountID string, as public.Charge) public.LimitKey {
+	ip := public.FactsFrom(ctx).RemoteIP
+	source := public.LimitKey{Kind: public.KindSource, AccountID: accountID, IP: ip}
+	if as == public.ChargeSource {
+		return source
+	}
+	caller := public.FactsFrom(ctx).ClientCertFingerprint
+	e := public.EnvelopeFactsFrom(ctx)
+	if e != nil && e.From != "" {
+		// The envelope's sender is PROVEN: its signature verified before any dispatch.
 		caller = e.From
 	}
-
-	if caller != "" {
-		// Budgets are per CALLER, not per account, so being a contact of any
-		// account on this node earns the contact budget. An unknown fingerprint
-		// is still a guest and keeps the IP dimension, so one key cannot hop
-		// addresses and one address cannot exhaust every guest.
-		n.mu.RLock()
-		ids := make([]string, 0, len(n.accounts))
-		for id := range n.accounts {
-			ids = append(ids, id)
-		}
-		n.mu.RUnlock()
-		for _, id := range ids {
-			if c, err := n.opts.Store.GetContact(ctx, id, caller); err == nil && c.Status == "active" {
-				return public.LimitKey{Kind: public.KindContact, Fingerprint: caller}
-			}
-		}
+	if caller == "" {
+		return source
 	}
-	return public.LimitKey{Kind: public.KindGuest, Fingerprint: caller, IP: ip}
+	guest := public.LimitKey{Kind: public.KindGuest, AccountID: accountID, Fingerprint: caller, IP: ip}
+	if as == public.ChargeGuest || (e != nil && (e.Demote || e.Guest)) {
+		return guest
+	}
+	if c, err := n.opts.Store.GetContact(ctx, accountID, caller); err == nil && c.Status == "active" {
+		return public.LimitKey{Kind: public.KindContact, AccountID: accountID, Fingerprint: caller}
+	}
+	return guest
 }
 
 // probeHandler defers the public URL to call time; the owner can change it while
@@ -491,7 +497,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		rec: rec, kp: kp,
 		cert: cert,
 		cm: &contacts.Manager{
-			Store: n.opts.Store,
+			Store: n.opts.Store, ContactCap: n.contactCap,
 			// A guest's `request_contact` is the main way a request appears, so
 			// this is the manager that must reach the bus (SPEC §8.5, §9.1).
 			OnRequest: func(accountID, contactFpr string) {
@@ -553,7 +559,9 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		},
 	}
 	a.pool.Gate = ident.PoolGate()
-	a.pool.Limit = n.consumeBudget
+	a.pool.Limit = func(ctx context.Context, as public.Charge) (bool, time.Duration) {
+		return n.consumeBudget(ctx, rec.ID, as)
+	}
 	a.pool.AccountID = rec.ID
 	a.ident = ident
 
@@ -591,20 +599,9 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		Invalidate: n.Invalidate,
 		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
 		Chain:      func(ctx context.Context) ([][]byte, error) { return n.idm.Chain(ctx, rec.ID) },
-		// Read per call, like Quota: the rate caps are owner knobs (§12), and a
-		// card must advertise what the gate currently enforces.
-		Limits: func() public.Limits {
-			l := public.DefaultLimits()
-			if rb := n.opts.RateBudget; rb != nil {
-				if b := rb(public.KindContact); b > 0 {
-					l.ContactCallsPerHour = b
-				}
-				if b := rb(public.KindGuest); b > 0 {
-					l.GuestCallsPerHour = b
-				}
-			}
-			return l
-		},
+		// Read per call, like Quota: the contact cap is an owner knob and sizes the
+		// account's budget (§12), and a card must advertise what the gate enforces.
+		Limits: func() public.Limits { return public.LimitsFor(n.contactCap()) },
 		AuditAs: func(kind, action, resource, outcome string) {
 			n.opts.auditAs(kind, action, "account:"+rec.ID+" "+resource, outcome)
 			// A contact ACTED — wake the owner's change feed (§7.7). Messages

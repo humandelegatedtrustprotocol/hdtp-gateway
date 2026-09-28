@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,6 +26,16 @@ import (
 )
 
 var ErrSealRequired = errors.New("seal_required")
+
+// RateLimited is a call this host refused to send because the calling identity's outbound budget
+// is spent (PACT §12's buckets, applied to what an identity sends as well as what it receives).
+// Nothing left the host. RetryAfter is how long until the budget holds a call again.
+type RateLimited struct{ RetryAfter time.Duration }
+
+func (e *RateLimited) Error() string {
+	secs := int(math.Ceil(e.RetryAfter.Seconds()))
+	return fmt.Sprintf("rate_limited: this identity has sent as many calls as its budget allows for now; try again in %d s (retry_after %d)", secs, secs)
+}
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
@@ -74,6 +85,22 @@ type Client struct {
 	// DialContext overrides how the endpoint's host is reached; nil dials it.
 	// A test maps a leaf's endpoint host onto a local listener with it.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Budget, when set, spends one of the calling identity's outbound calls to peer — tool is
+	// the tool called, or "tools/list" — before anything leaves the host, and refuses with how
+	// long until it holds one again. Every call out passes it once: CallTool, ListTools, and
+	// the sealed exchange (Call and SealedCall reach one of them, never two).
+	Budget func(peer Peer, tool string) (bool, time.Duration)
+}
+
+// spend is Budget, as the error a refused call returns.
+func (c *Client) spend(peer Peer, tool string) error {
+	if c.Budget == nil {
+		return nil
+	}
+	if ok, retry := c.Budget(peer, tool); !ok {
+		return &RateLimited{RetryAfter: retry}
+	}
+	return nil
 }
 
 // tlsConfig builds the per-peer TLS client configuration implementing PACT §2's
@@ -162,6 +189,15 @@ func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[
 	if peer.Seal == "required" && opts.Plaintext {
 		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)
 	}
+	if err := c.spend(peer, tool); err != nil {
+		return nil, err
+	}
+	return c.callTool(ctx, peer, tool, args)
+}
+
+// callTool is CallTool without the budget: the wire half of an exchange that has already spent it
+// (the sealed exchange's `sealed_call`, and the `get_card` it asks when a renewal is answered).
+func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[string]any) (*mcp.CallToolResult, error) {
 	hc, err := c.HTTPClient(peer)
 	if err != nil {
 		return nil, err
@@ -181,6 +217,9 @@ func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[
 // one method every node answers at every tier, sealed or not (PACT §13.4), and
 // the list comes back already filtered by the peer's switchboard for us.
 func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) {
+	if err := c.spend(peer, "tools/list"); err != nil {
+		return nil, err
+	}
 	hc, err := c.HTTPClient(peer)
 	if err != nil {
 		return nil, err
@@ -268,6 +307,13 @@ func (c *Client) SealedListTools(ctx context.Context, peer Peer, msgID string) (
 func (c *Client) exchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	if !c.canSeal(peer) {
 		return nil, nil, fmt.Errorf("outbound: no root and leaf are held for %s, so there is nothing to seal to or verify under; add them from their card", peer.name())
+	}
+	tool := method
+	if name, ok := params["name"].(string); ok && method == "tools/call" {
+		tool = name
+	}
+	if err := c.spend(peer, tool); err != nil {
+		return nil, nil, err
 	}
 	return c.sealedExchange(ctx, peer, method, params, msgID)
 }

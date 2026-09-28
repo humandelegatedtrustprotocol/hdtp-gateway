@@ -48,6 +48,9 @@ type ContactsDeps struct {
 	// how a live integration's permission reaches the switchboard; nil offers
 	// only the core rows.
 	ServedPermissions func(accountID string) []string
+	// ContactCap is how many contacts each account may hold (limit.contacts), which an unblock
+	// that restores a contact is held to. Nil is the default.
+	ContactCap func() int
 }
 
 // offered is this contact's switchboard (contacts.Offered): the core permissions, whatever this
@@ -68,7 +71,7 @@ func (d ContactsDeps) offered(accountID string, held []string) []string {
 // owner is the lifecycle both surfaces call (contacts.Owner). Telling a removed contact is
 // the node's one outbound path — the same Call the owner MCP's remove_contact reaches.
 func (d ContactsDeps) owner() contacts.Owner {
-	o := contacts.Owner{Manager: &contacts.Manager{Store: d.Store}, Invalidate: d.Invalidate}
+	o := contacts.Owner{Manager: &contacts.Manager{Store: d.Store, ContactCap: d.ContactCap}, Invalidate: d.Invalidate}
 	if d.Call != nil {
 		o.TellRemoved = func(ctx context.Context, accountID, fpr string) error {
 			_, err := d.Call(ctx, accountID, fpr, "remove_contact", map[string]any{})

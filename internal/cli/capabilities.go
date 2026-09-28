@@ -50,7 +50,7 @@ type capabilityBinder struct {
 
 	// resolved caches the per-account answer. Resolving walks every integration
 	// and reads its exposure set, and `get_status` is a cheap contact-tier call
-	// a peer may make sixty times an hour (PACT §12) — so doing that work per
+	// a peer may make once a second, ten at once (PACT §12) — so doing that work per
 	// call is N+1 queries to usually answer "available". The answer only changes
 	// when an exposure, an availability or an integration does, and that already
 	// has a hook: invalidate() is called from it.
