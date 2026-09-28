@@ -51,7 +51,7 @@ type serveRun struct {
 	background     *sync.WaitGroup
 	cfg            *core.Config
 	stdout, stderr io.Writer
-	// holder names this process to the leases on background work (leading).
+	// holder names this process to the leases on background work (leaseKeeper).
 	holder string
 
 	setup *internalui.SetupTokens
@@ -447,6 +447,11 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 // startBackground starts serve's background loops in the group serveWith joins.
 func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitGroup) {
 	nd := s.nd
+	// The leases on work only one process on the store may run (SPEC §11.1): taken once before
+	// that work first asks, then kept on a clock of their own.
+	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention")
+	leases.renew(bgCtx)
+	background.Go(func() { leases.Run(bgCtx) })
 	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
 	background.Go(func() { s.bus.Run(bgCtx) })
 	// …and what they change about a caller's surface or an account, the live node applies.
@@ -469,7 +474,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	}
 	background.Go(func() {
 		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, archiveTrail, nd.Invalidate,
-			s.leading("retention", 3*retention.SweepInterval))
+			leases.leading("retention"))
 	})
 
 	// ---- outbound retries (PACT §7.1) ----
@@ -478,7 +483,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
 	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted with
 	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
-	background.Go(func() { nd.RunRetries(bgCtx, s.leading("retries", 3*node.RetrySweep)) })
+	background.Go(func() { nd.RunRetries(bgCtx, leases.leading("retries")) })
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
@@ -569,21 +574,6 @@ func (s *serveRun) internalSurface() http.Handler {
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
 		setStatic, setOAuthClient, s.ownerFn,
 		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn)
-}
-
-// leading is the lease on one kind of background work (SPEC §11.1): each time the work would run,
-// this process takes or renews the named lease for ttl, and runs the work only if it holds it. The
-// ttl is three of the work's intervals, so a holder that stops is replaced within three of them and
-// a holder that runs keeps it. A store that cannot answer is not a lease held.
-func (s *serveRun) leading(name string, ttl time.Duration) func(context.Context) bool {
-	return func(ctx context.Context) bool {
-		now := time.Now()
-		held, err := s.st.TakeLease(ctx, name, s.holder, now.Unix(), now.Add(ttl).Unix())
-		if err != nil && ctx.Err() == nil {
-			fmt.Fprintf(s.stderr, "lease %s: %v\n", name, err)
-		}
-		return held
-	}
 }
 
 // spawn runs work a portal request starts in serve's joined background group, with its context:

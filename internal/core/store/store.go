@@ -386,6 +386,8 @@ type LeaseStore interface {
 	// holder has it; it reports false, and changes nothing, while another holder's lease has not
 	// run out by now.
 	TakeLease(ctx context.Context, name, holder string, now, until int64) (bool, error)
+	// ReleaseLease lets holder's lease go, if it holds it.
+	ReleaseLease(ctx context.Context, name, holder string) error
 }
 
 // PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so

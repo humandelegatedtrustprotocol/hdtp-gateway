@@ -9,18 +9,33 @@ import (
 	"context"
 )
 
+const releaseLease = `-- name: ReleaseLease :exec
+UPDATE leases SET expires_at = 0 WHERE name = ? AND holder = ?
+`
+
+type ReleaseLeaseParams struct {
+	Name   string
+	Holder string
+}
+
+// A holder that stops lets its lease go at once, rather than three renewals later.
+func (q *Queries) ReleaseLease(ctx context.Context, arg ReleaseLeaseParams) error {
+	_, err := q.db.ExecContext(ctx, releaseLease, arg.Name, arg.Holder)
+	return err
+}
+
 const takeLease = `-- name: TakeLease :one
-INSERT INTO leases (name, holder, taken_at, expires_at) VALUES (?1, ?2, ?3, ?4)
+INSERT INTO leases (name, holder, taken_at, expires_at) VALUES (?, ?, ?, ?)
 ON CONFLICT (name) DO UPDATE SET holder = excluded.holder, taken_at = excluded.taken_at, expires_at = excluded.expires_at
 WHERE leases.holder = excluded.holder OR leases.expires_at < excluded.taken_at
 RETURNING holder
 `
 
 type TakeLeaseParams struct {
-	Name   string
-	Holder string
-	Now    int64
-	Until  int64
+	Name      string
+	Holder    string
+	TakenAt   int64
+	ExpiresAt int64
 }
 
 // Takes the lease, or renews it for its holder; a lease another holds and has not let expire by
@@ -29,8 +44,8 @@ func (q *Queries) TakeLease(ctx context.Context, arg TakeLeaseParams) (string, e
 	row := q.db.QueryRowContext(ctx, takeLease,
 		arg.Name,
 		arg.Holder,
-		arg.Now,
-		arg.Until,
+		arg.TakenAt,
+		arg.ExpiresAt,
 	)
 	var holder string
 	err := row.Scan(&holder)
