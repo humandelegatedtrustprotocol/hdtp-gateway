@@ -98,7 +98,13 @@ func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peek
 		if err != nil {
 			return none
 		}
-		plaintext, err := pactidentity.Open(header.Suite, priv, []byte(pactidentity.InfoV2), aad, pactidentity.FromB64url(e.Enc), pactidentity.FromB64url(e.Ct))
+		// The recipient's public key as its leaf holds it (pact-identity 0.4.0): the open takes it
+		// rather than deriving it from the private key on every call.
+		leaf, err := pactidentity.Parse(k.Leaf)
+		if err != nil {
+			return none
+		}
+		plaintext, err := pactidentity.Open(header.Suite, priv, leaf.PublicKey, []byte(pactidentity.InfoV2), aad, pactidentity.FromB64url(e.Enc), pactidentity.FromB64url(e.Ct))
 		if err != nil {
 			return none
 		}

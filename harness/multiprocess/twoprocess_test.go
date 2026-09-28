@@ -132,7 +132,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 		t.Fatal(err)
 	}
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public.SPKI},
+		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {
@@ -157,7 +157,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 		t.Fatal(err)
 	}
 	return seeded{accountID: a.ID, slug: a.Slug, leaf: iss.DER,
-		root: pactidentity.Fingerprint(rootKey.Public.SPKI), ownerToken: token, inviteToken: invite}
+		root: pactidentity.Fingerprint(rootKey.Public().SPKI), ownerToken: token, inviteToken: invite}
 }
 
 // proc is one running `serve`.
@@ -578,7 +578,7 @@ func legacySealedSend(t *testing.T, a *peer.Agent, target peer.Target, s seeded)
 		t.Fatal(err)
 	}
 	opened, err := pactidentity.OpenResult(answer, pactidentity.OpenOpts{
-		Recipient: sender, MsgID: "n7-legacy", Now: now,
+		Recipient: sender, RecipientPublic: sender.Public(), MsgID: "n7-legacy", Now: now,
 		Pins:         []pactidentity.Pin{{Root: s.root, Endpoint: target.Endpoint, Leaf: pactidentity.B64url(s.leaf), State: "active"}},
 		ExpectedRoot: s.root, ExpectedEndpoint: target.Endpoint,
 	})

@@ -26,7 +26,7 @@ func TestListContactsNamesWhoseAddressARequestComesFrom(t *testing.T) {
 		status string
 	}{{friend, at, "active"}, {squatter, at, "pending_in"}, {stranger, "https://chen.example/mcp", "pending_in"}} {
 		h := c.w.Issue(t, c.at)
-		if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: c.w.Fpr, SPKI: h.Key.Public.SPKI,
+		if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: c.w.Fpr, SPKI: h.Key.Public().SPKI,
 			Status: c.status, Endpoint: c.at, Leaf: h.LeafDER, DisplayName: c.w.Fpr}); err != nil {
 			t.Fatal(err)
 		}

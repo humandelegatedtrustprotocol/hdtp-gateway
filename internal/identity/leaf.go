@@ -15,7 +15,9 @@ package identity
 
 import (
 	"context"
+	"crypto"
 	"crypto/subtle"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -57,21 +59,47 @@ func ToLib(kp *Keypair) (*pactidentity.PrivateKey, error) {
 	return pactidentity.ParsePKCS8(der)
 }
 
-// FromLib converts a library private key to a keypair: ToLib's inverse.
-//
-// Nothing in this module calls it, and it is not dead. The cloud's conformance battery
-// (../pact-cloud/gateway/conformance) drives this node's own outbound client as its reference
-// peer, and builds that peer's keypair from a library key through here. `make dependents` is the
-// gate that compiles it; a scan of this module alone reads this as unused, and one such scan
-// deleted it on 2026-09-19 before that gate said otherwise.
-func FromLib(k *pactidentity.PrivateKey) (*Keypair, error) {
-	switch k.Alg {
-	case "ed25519":
-		return &Keypair{Algo: AlgoEd25519, Signer: k.Ed, Fingerprint: pactidentity.Fingerprint(k.Public.SPKI)}, nil
-	case "p256":
-		return &Keypair{Algo: AlgoP256, Signer: k.EC, Fingerprint: pactidentity.Fingerprint(k.Public.SPKI)}, nil
+// PublicOf is a keypair's public key as the library reads it, from the key the signer already
+// holds expanded: what an open needs beside the private key since pact-identity 0.4.0, which no
+// longer derives it (for P-256, a scalar multiplication) on every open.
+func PublicOf(kp *Keypair) (*pactidentity.PublicKey, error) {
+	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
 	}
-	return nil, fmt.Errorf("identity: unsupported library key %q", k.Alg)
+	return pactidentity.ParseSPKI(spki)
+}
+
+// FromLib converts a library private key to a keypair: ToLib's inverse. Generate builds every key
+// this node draws through it, and the cloud's conformance battery (../pact-cloud/gateway/conformance)
+// builds its reference peer's keypair through it too (`make dependents` compiles that).
+//
+// Since pact-identity 0.4.1 a library key holds its seed or scalar and nothing derived from it
+// (`Public()` derives on demand; the standard-library key is not exposed), so the crypto.Signer the
+// TLS listener and the card signer need is parsed once here from the key's own PKCS#8 bytes.
+func FromLib(k *pactidentity.PrivateKey) (*Keypair, error) {
+	var algo Algo
+	switch k.Alg {
+	case pactidentity.AlgEd25519:
+		algo = AlgoEd25519
+	case pactidentity.AlgP256:
+		algo = AlgoP256
+	default:
+		return nil, fmt.Errorf("identity: unsupported library key %q", k.Alg)
+	}
+	der, err := k.PKCS8()
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(der)
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	signer, ok := parsed.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("identity: library key %q does not sign", k.Alg)
+	}
+	return &Keypair{Algo: algo, Signer: signer, Fingerprint: pactidentity.Fingerprint(k.Public().SPKI)}, nil
 }
 
 // EndpointFor is the one address an account answers at (SPEC §5.2, PACT §14.1).

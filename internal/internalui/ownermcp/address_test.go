@@ -25,12 +25,12 @@ func movedLeaf(t *testing.T, cn, endpoint string) (root string, leaf []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err = pactidentity.BuildLeaf(pactidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public,
+	leaf, err = pactidentity.BuildLeaf(pactidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public(),
 		Endpoint: endpoint, NotBefore: at, NotAfter: at.Add(24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pactidentity.Fingerprint(rootKey.Public.SPKI), leaf
+	return pactidentity.Fingerprint(rootKey.Public().SPKI), leaf
 }
 
 // N-18: the owner's agent had no way to answer a contact parked at a new address under `ask`

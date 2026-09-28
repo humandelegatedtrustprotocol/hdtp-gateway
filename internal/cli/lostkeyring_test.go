@@ -37,7 +37,7 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s request: %v", purpose, err)
 		}
-		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public.SPKI}, Now: at, ValidDays: 200})
+		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI}, Now: at, ValidDays: 200})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.RootFingerprint != pactidentity.Fingerprint(rootKey.Public.SPKI) {
+	if got.RootFingerprint != pactidentity.Fingerprint(rootKey.Public().SPKI) {
 		t.Fatalf("the identity changed: root %s", got.RootFingerprint)
 	}
 	keys, err := after.ActiveLeafKeypairs(ctx, a.ID, now.Add(2*time.Minute))

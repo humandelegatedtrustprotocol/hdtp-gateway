@@ -105,7 +105,7 @@ func TestDecideIsHandedThePinsTheProofConcerns(t *testing.T) {
 			o.SenderChain = [][]byte{{0x30, 0x00}, {0x30, 0x00}}
 		})},
 		{"sealed to a key this account does not hold", e.sealFrom(t, peers[0], "chain", "get_card", nil, func(o *pactidentity.SealOpts) {
-			o.RecipientKey = peers[1].host.Public
+			o.RecipientKey = peers[1].host.Public()
 		})},
 	}
 	for _, c := range cases {

@@ -47,7 +47,7 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	if card.Endpoint != p.Endpoint {
 		t.Errorf("the address is %q, want the leaf's %q", card.Endpoint, p.Endpoint)
 	}
-	if base64.RawURLEncoding.EncodeToString(spki) != base64.RawURLEncoding.EncodeToString(p.Host.Key.Public.SPKI) {
+	if base64.RawURLEncoding.EncodeToString(spki) != base64.RawURLEncoding.EncodeToString(p.Host.Key.Public().SPKI) {
 		t.Error("the key returned is not the leaf's")
 	}
 	// The ROOT's own certificate comes back too, because the pin keeps it (migration
@@ -107,7 +107,7 @@ func TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries(t *testing.T) {
 	if card.Key != p.Root() {
 		t.Fatalf("the offer names root %s, want %s", card.Key, p.Root())
 	}
-	if !bytes.Equal(spki, p.Host.Key.Public.SPKI) {
+	if !bytes.Equal(spki, p.Host.Key.Public().SPKI) {
 		t.Fatal("the key to seal to must be the validated leaf's own, since nothing else carries it")
 	}
 	if !bytes.Equal(rootCert, p.Wallet.RootDER) {

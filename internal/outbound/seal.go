@@ -205,6 +205,10 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 	if err != nil {
 		return nil, nil, err
 	}
+	senderPublic, err := identity.PublicOf(c.Keypair)
+	if err != nil {
+		return nil, nil, err
+	}
 	pb := json.RawMessage(`{}`)
 	if params != nil {
 		if pb, err = json.Marshal(params); err != nil {
@@ -248,7 +252,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
 	}
 	opened, err := pactidentity.OpenResult(out, pactidentity.OpenOpts{
-		Recipient: sender, MsgID: msgID, Now: now, Pins: []pactidentity.Pin{pinOf(peer)},
+		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []pactidentity.Pin{pinOf(peer)},
 		ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint,
 	})
 	if err != nil {

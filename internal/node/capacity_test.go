@@ -196,7 +196,7 @@ func contactKeypair(t testing.TB, endpoint string) *identity.Keypair {
 		t.Fatal(err)
 	}
 	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: "Contact", RootCN: "Contact", RootKey: rootKey, HostPub: lib.Public, Endpoint: endpoint,
+		CN: "Contact", RootCN: "Contact", RootKey: rootKey, HostPub: lib.Public(), Endpoint: endpoint,
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
 	})
 	if err != nil {

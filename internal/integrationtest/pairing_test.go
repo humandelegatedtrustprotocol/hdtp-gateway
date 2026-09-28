@@ -103,7 +103,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	if err := st.SetAccountKey(ctx, a.ID, kp.Fingerprint, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAccountRoot(ctx, a.ID, pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert); err != nil {
+	if err := st.SetAccountRoot(ctx, a.ID, pactidentity.Fingerprint(rootKey.Public().SPKI), rootCert); err != nil {
 		t.Fatal(err)
 	}
 	if seal != "" {
@@ -114,7 +114,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	a, _ = st.GetAccountByID(ctx, a.ID)
 
 	n := &pactNode{t: t, st: st, acct: a, kp: kp, cert: cert, seal: seal,
-		leafDER: leafDER, rootFpr: pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert: rootCert,
+		leafDER: leafDER, rootFpr: pactidentity.Fingerprint(rootKey.Public().SPKI), rootCert: rootCert,
 		cm:  &contacts.Manager{Store: st},
 		msg: &messaging.Service{Store: st, Bus: messaging.NewBus(st)}}
 
