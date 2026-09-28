@@ -116,6 +116,36 @@ PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench
   if the best of three takes more than 6 times as long for 4 times the threads, in reading or in
   writing (linear is 4); the pre-push hook runs `make scale` last, after every other step.
 
+## More than one process
+
+Several `serve` processes can share one store, each with its own `internal_bind` and `public_bind`
+behind whatever balances between them (SPEC §11.1):
+
+- **SQLite:** on one host, all with the same `data_dir`. Not across hosts, and not on a network
+  filesystem: SQLite's locking does not hold there.
+- **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`.
+
+The first `serve` on an idle data dir migrates; the others check that the schema is the one they
+were built for and refuse to start if it is not. To migrate, stop every process on the data dir
+(on Postgres, every process) and start the new binary. `migrate`, `export`, `import` and the
+`audit` commands refuse to run while any `serve` holds the data dir. One process serves the admin
+socket and `serve` prints `admin: ... is served by another pact-gateway process` on the others;
+the setup URL a first run prints works on the portal of the process that printed it.
+
+What each process still keeps to itself, and so what is not yet shared between them:
+
+- the event bus: a `wait_for_updates` or a portal inbox wakes for what its own process writes;
+- the audit writer's head: two processes appending to one chain collide;
+- accounts, their keys and certificates, loaded at start and adopted by the process that created
+  or installed them; and the cache of composed per-caller servers;
+- the §12 rate buckets (each process grants the whole budget);
+- the background loops (retries, retention), which every process runs;
+- blobs under `data_dir/blobs` and the master key file, local to each host;
+- on SQLite, `Scrub` (the checkpoint that clears the write-ahead log after a leaf key is destroyed)
+  cannot finish while another process is reading; it says so — a warning on an install or a
+  signing request, an error on a retirement or a leave — and the next one that finishes clears
+  the log.
+
 ## Export and import
 
 ```

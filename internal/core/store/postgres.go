@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
 	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
@@ -62,7 +63,15 @@ func (s *Postgres) provider() (*goose.Provider, *sql.DB, error) {
 		return nil, nil, fmt.Errorf("store: %w", err)
 	}
 	db := stdlib.OpenDBFromPool(s.pool)
-	p, err := goose.NewProvider(goose.DialectPostgres, db, sub)
+	// Many node processes, on many hosts, share one Postgres (SPEC §11.1), and each migrates as it
+	// starts: a session-level advisory lock makes them take turns, so one applies the migrations
+	// and the rest find nothing pending.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("store: %w", err)
+	}
+	p, err := goose.NewProvider(goose.DialectPostgres, db, sub, goose.WithSessionLocker(locker))
 	if err != nil {
 		db.Close()
 		return nil, nil, fmt.Errorf("store: %w", err)
@@ -78,6 +87,15 @@ func (s *Postgres) Migrate(ctx context.Context) error {
 	defer db.Close()
 	_, err = p.Up(ctx)
 	return err
+}
+
+func (s *Postgres) SchemaCurrent(ctx context.Context) error {
+	p, db, err := s.provider()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return schemaCurrent(ctx, p)
 }
 
 func (s *Postgres) MigrateDown(ctx context.Context) error {
