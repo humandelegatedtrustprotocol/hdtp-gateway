@@ -198,3 +198,19 @@ func BenchmarkIdlePoll(b *testing.B) {
 		}
 	}
 }
+
+// What another process appends after this process made its bus, and before its reader started,
+// still arrives: the reader starts from the log's newest id when the bus was made. It started from
+// the newest when it began reading, so an event published in that gap — a node already serving,
+// its reader not yet running — was never delivered, and a surface invalidated in it stayed stale.
+func TestAnEventPublishedBeforeTheReaderStartsIsDelivered(t *testing.T) {
+	stores := sharedStores(t, 2)["sqlite"]
+	a, b := NewBus(stores[0]), NewBus(stores[1])
+	ch, stop := b.SubscribeSized("", 8)
+	defer stop()
+	a.Publish(Event{Kind: EventInvalidate, AccountID: "acct-1", ContactFpr: "sha256:x"})
+	runBus(t, b)
+	if e, ok := receive(t, ch, 5*time.Second); !ok || e.Kind != EventInvalidate {
+		t.Fatalf("an event published before the reader started was not delivered: %+v %v", e, ok)
+	}
+}

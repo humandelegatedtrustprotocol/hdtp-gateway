@@ -116,17 +116,31 @@ type Bus struct {
 	// id it has read, so nothing is held for longer than a read.
 	mine    map[int64]struct{}
 	running bool
+	// from is the newest id in the log when the bus was made: Run delivers every change after it,
+	// so what another process appends between the bus's making and its reader's start still
+	// arrives. fromErr says the log could not answer then, and Run reads it when it starts.
+	from    int64
+	fromErr error
 }
 
-// NewBus is a bus over the store's change log.
+// NewBus is a bus over the store's change log, which delivers what other processes append from
+// now on.
 func NewBus(log ChangeLog) *Bus {
-	return &Bus{log: log, now: time.Now, subs: map[*subscriber]struct{}{}, mine: map[int64]struct{}{}}
+	b := &Bus{log: log, now: time.Now, subs: map[*subscriber]struct{}{}, mine: map[int64]struct{}{}}
+	_, b.from, b.fromErr = log.ChangeBounds(context.Background())
+	return b
 }
 
 // Subscribe delivers events for one account ("" for every account); cancel MUST be called when
 // done.
 func (b *Bus) Subscribe(accountID string) (<-chan Event, func()) {
-	s := &subscriber{accountID: accountID, ch: make(chan Event, 32)}
+	return b.SubscribeSized(accountID, 32)
+}
+
+// SubscribeSized is Subscribe with room for size events not yet read: for a subscriber that must
+// not miss one, such as a process applying what the others change.
+func (b *Bus) SubscribeSized(accountID string, size int) (<-chan Event, func()) {
+	s := &subscriber{accountID: accountID, ch: make(chan Event, size)}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
 	b.mu.Unlock()
@@ -197,8 +211,8 @@ func EventOf(c store.Change) Event {
 	return e
 }
 
-// Run delivers what other processes append to the change log, from the newest id when it
-// starts until ctx ends. It is the one reader of the log in a process: serve runs it in its
+// Run delivers what other processes append to the change log, from the newest id when the bus was
+// made until ctx ends. It is the one reader of the log in a process: serve runs it in its
 // joined background group.
 func (b *Bus) Run(ctx context.Context) {
 	b.mu.Lock()
@@ -210,9 +224,12 @@ func (b *Bus) Run(ctx context.Context) {
 		clear(b.mine)
 		b.mu.Unlock()
 	}()
-	_, last, err := b.log.ChangeBounds(ctx)
-	if err != nil && ctx.Err() == nil {
-		b.fail(err)
+	last := b.from
+	if b.fromErr != nil {
+		var err error
+		if _, last, err = b.log.ChangeBounds(ctx); err != nil && ctx.Err() == nil {
+			b.fail(err)
+		}
 	}
 	wake := make(chan struct{}, 1)
 	var watching sync.WaitGroup
