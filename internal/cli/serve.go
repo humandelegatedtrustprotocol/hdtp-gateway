@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,7 +103,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	s := &serveRun{ctx: ctx, stdout: stdout, stderr: stderr, holder: processName()}
+	s := &serveRun{ctx: ctx, stdout: stdout, stderr: stderr, holder: core.ProcessName}
 	fail := func(err error) int {
 		fmt.Fprintln(stderr, "serve:", err)
 		return 1
@@ -195,15 +193,6 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	s.startBackground(bgCtx, s.background)
 
 	return runErr(internalui.Serve(ctx, cfg.InternalBind, internalTLS, s.internalSurface()), stderr)
-}
-
-// processName is a name for this process, unique among the processes that will ever share its
-// store: the host, the pid, and random bytes.
-func processName() string {
-	host, _ := os.Hostname()
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%s/%d/%s", host, os.Getpid(), hex.EncodeToString(b))
 }
 
 // openKeyring migrates the store (alone: only while this process holds the data-dir lock

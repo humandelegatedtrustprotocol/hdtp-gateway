@@ -150,7 +150,11 @@ Several `serve` processes can share one store, each with its own `internal_bind`
 behind whatever balances between them (SPEC §11.1):
 
 - **SQLite:** on one host, all with the same `data_dir`. Not across hosts, and not on a network
-  filesystem: SQLite's locking does not hold there.
+  filesystem: SQLite's locking does not hold there. One limit of this profile: `Scrub`, the
+  checkpoint that clears the write-ahead log after a leaf key is destroyed, cannot finish while
+  another process is reading the file. It says so — a warning on an install or a signing request,
+  an error on a retirement or a leave — and the next scrub that finishes clears the log; until
+  then the destroyed key's bytes may remain in it. Postgres has no scrub at all (SPEC §3.9).
 - **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`. Give
   every host the same master key in `PACT_MASTER_KEY` (a host that generates a `keyring.key` of
   its own cannot open a key another sealed), and point `blob_dir` (`PACT_BLOB_DIR`) at storage
@@ -169,13 +173,9 @@ crashes is replaced within 30 s.
 What each process still keeps to itself, and so what is not yet shared between them:
 
 - the §12 rate buckets (each process grants the whole budget);
-- integrations: every process connects each one itself (a stdio integration runs a child per
-  process), and an OAuth token refreshed by one process may be refused to another that refreshes
-  the same token, which marks the integration for re-authorizing;
-- on SQLite, `Scrub` (the checkpoint that clears the write-ahead log after a leaf key is destroyed)
-  cannot finish while another process is reading; it says so — a warning on an install or a
-  signing request, an error on a retirement or a leave — and the next one that finishes clears
-  the log.
+- integrations: every process connects each one itself, so a stdio integration runs a child per
+  process. An OAuth token is one for them all: the store holds it, and an expired one is refreshed
+  by the one process holding that integration's refresh lease while the others wait for it.
 
 ## Export and import
 
