@@ -153,9 +153,54 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	if _, err := st.GetAccountByID(ctx, alice.ID); err != nil {
 		t.Fatalf("the review erased the account: %v", err)
 	}
+	// L14 (the owner's decision, pending): what the audit trail holds of the identity before the
+	// erase, it holds after it, row for row — the account id, the slug and the contacts'
+	// fingerprints — and the erase adds its own account_leave row and nothing else. That is the
+	// divergence from PACT §9 ("keep nothing beyond what law compels") SPEC §3.11 names.
+	namesAlice := func(e store.AuditRow) bool {
+		return e.AccountID == alice.ID || strings.Contains(e.Resource, alice.ID)
+	}
+	before := map[int64]store.AuditRow{}
+	rowsBefore, err := st.ListAuditEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range rowsBefore {
+		if namesAlice(e) {
+			before[e.Seq] = e
+		}
+	}
 	code, out = run("leave", "-slug", "alice", "-yes")
 	if code != 0 || !strings.Contains(out, "alice has left this node") || !strings.Contains(out, "/a/alice/mcp stays reserved until") {
 		t.Fatalf("leave: %d %s", code, out)
+	}
+	rowsAfter, err := st.ListAuditEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var added []store.AuditRow
+	kept := 0
+	sawSlug, sawContact := false, false
+	for _, e := range rowsAfter {
+		if !namesAlice(e) {
+			continue
+		}
+		if b, ok := before[e.Seq]; ok {
+			if b != e {
+				t.Fatalf("the leave changed an audit row: %+v -> %+v", b, e)
+			}
+			kept++
+		} else {
+			added = append(added, e)
+		}
+		sawSlug = sawSlug || strings.Contains(e.Resource, "slug:alice")
+		sawContact = sawContact || strings.Contains(e.Resource, slowRoot)
+	}
+	if kept != len(before) || len(added) != 1 || added[0].Action != "account_leave" || added[0].Outcome != "ok" {
+		t.Fatalf("after the leave the trail keeps %d of %d rows naming the identity and adds %+v; want all of them and one account_leave ok", kept, len(before), added)
+	}
+	if !sawSlug || !sawContact {
+		t.Fatalf("the rows kept name the slug (%v) and a contact's fingerprint (%v): the prose says they do", sawSlug, sawContact)
 	}
 	if got, want := publicAnswer(t, r.public, "alice", token), publicAnswer(t, r.public, never, neverToken); got != want {
 		t.Fatalf("the vacated address answers unlike one never served:\n%s\n---\n%s", got, want)
