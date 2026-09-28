@@ -103,7 +103,8 @@ of it, and are listed so a reader can tell the two apart.
 | a withdrawn integration tool leaves the next request, repeatedly, and the cache stays within its bound | `TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest`, `TestTheCacheStaysWithinItsBound` |
 | outbound retries are scheduled by attempts made, so uneven sweeps cannot starve a message | `TestRetriesStayOnScheduleWhenSweepsAreUneven`, `TestRetryBackoffWidensWithAge` |
 | a sender-chosen `expires` survives the store on both engines | `MessageExpiryHoldsAFarFutureDeadline` (both engines) |
-| the fallback chain runs at once when no owner agent is attached (§6.8) | `TestAgentAnsweredKnowsAboutPresenceFromConstruction`, `TestOwnerPresenceIsARecentRequest`, `TestPresenceOutlastsTheLongestWait` |
+| the fallback chain runs at once when no owner agent is attached (§6.8) | `TestAgentAnsweredKnowsAboutPresenceFromConstruction`, `TestOwnerPresenceIsARecentRequestOnAnyProcess`, `TestPresenceIsWrittenAtMostOncePerInterval`, `TestPresenceOutlastsTheLongestWait` |
+| an answer given through one node process reaches a call held by another, and is reported relayed only on the holder's word, late otherwise (§6.8) | `TestAnAnswerGivenOnOneProcessReachesACallHeldByAnother` |
 | `audit repair` refuses an archive whose rows were rewritten, rather than deleting the authentic copy | `TestRepairRefusesAnArchiveWhoseRowsWereRewritten`, `TestRepairRefusesWithoutItsArchiveFile` |
 | the owner cannot be locked out by concurrent credential removal | `RemoveCredentialIfNotLastKeepsTheLastOne` (both engines) |
 | a rollback of a POPULATED database does not fail half-way | `MigrateDownAndUpWithDataPresent` (both engines) |

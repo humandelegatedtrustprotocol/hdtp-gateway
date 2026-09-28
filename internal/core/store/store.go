@@ -376,6 +376,15 @@ type Store interface {
 	IntegrationStore
 	AuditStore
 	ChangeStore
+	PresenceStore
+}
+
+// PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so
+// that every node process sharing the store answers "is the agent attached" the same.
+type PresenceStore interface {
+	TouchOwnerPresence(ctx context.Context, at int64) error
+	// OwnerPresenceSeenAt is 0 when the agent has never asked.
+	OwnerPresenceSeenAt(ctx context.Context) (int64, error)
 }
 
 // Change is one row of the change log (SPEC §7.8): something happened that a waiter in any node
