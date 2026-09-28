@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/core/audit"
+	"github.com/pact-cloud/pact-gateway/internal/core/auditstore"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/integrations"
@@ -61,6 +63,9 @@ type serveRun struct {
 	auditFn func(action, resource, outcome string)
 	ownerFn func(action, resource, outcome string)
 	auditAs func(kind, action, resource, outcome string)
+	// auditChecked is auditFn for a writer that must know its row was written (the trail archive).
+	auditChecked func(action, resource, outcome string) error
+	archiveAfter time.Duration
 
 	authSvc *auth.Service
 	tokSvc  *auth.TokenService
@@ -203,6 +208,13 @@ func (s *serveRun) startTunnel() (tunnel.Adapter, error) {
 	s.auditFn = auditLog.System() // the node's own lifecycle and surface events
 	s.ownerFn = auditLog.Owner()  // the portal and the owner MCP act for the owner
 	s.auditAs = auditLog.Kinded()
+	s.auditChecked = auditLog.SystemChecked()
+	// Load refused a value it could not read; this reads the one it accepted.
+	after, err := core.ParseAuditArchiveAfter(s.cfg.AuditArchiveAfter)
+	if err != nil {
+		return nil, err
+	}
+	s.archiveAfter = after
 
 	// Owner-set configuration layers under the environment and re-derives, so a
 	// tunnel chosen in the portal forces the same knobs an env-set one would
@@ -399,8 +411,18 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----
 	// The owner sets the policy; the SYSTEM applies it on a ticker. Attributing
 	// an unattended sweep to the owner would misreport who deleted the data.
+	//
+	// The same tick moves the audit trail of every identity that left more than
+	// audit_archive_after ago to its archive file (SPEC §3.11), through the node's one audit
+	// writer.
+	departed := &audit.Departed{Store: auditstore.Adapter{St: s.st}, Dir: identityArchiveDir(s.cfg.DataDir), After: s.archiveAfter, Append: s.auditChecked}
+	archiveTrail := func(ctx context.Context) {
+		if _, err := departed.Run(ctx); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(s.stderr, "retention: the audit trail of an identity that left: %v\n", err)
+		}
+	}
 	background.Go(func() {
-		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, nd.Invalidate)
+		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, archiveTrail, nd.Invalidate)
 	})
 
 	// ---- outbound retries (PACT §7.1) ----

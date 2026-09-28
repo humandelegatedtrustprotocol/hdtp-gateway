@@ -228,3 +228,36 @@ func TestCallBudgetsAreOwnerSettableKnobs(t *testing.T) {
 		t.Errorf("empty must restore the documented number: %v", err)
 	}
 }
+
+// audit_archive_after (SPEC §3.11): 90 days unless set, days or a Go duration, never negative, and
+// the environment beats the file like every other bootstrap value.
+func TestAuditArchiveAfter(t *testing.T) {
+	read := func(file string, env map[string]string) (string, error) {
+		c, err := load(t, file, env)
+		if err != nil {
+			return "", err
+		}
+		d, err := ParseAuditArchiveAfter(c.AuditArchiveAfter)
+		return d.String(), err
+	}
+	for _, tc := range []struct {
+		file string
+		env  map[string]string
+		want string
+	}{
+		{"", nil, "2160h0m0s"},
+		{`{"audit_archive_after": "30d"}`, nil, "720h0m0s"},
+		{`{"audit_archive_after": "0s"}`, nil, "0s"},
+		{`{"audit_archive_after": "30d"}`, map[string]string{"PACT_AUDIT_ARCHIVE_AFTER": "36h"}, "36h0m0s"},
+	} {
+		if got, err := read(tc.file, tc.env); err != nil || got != tc.want {
+			t.Errorf("%s %v: %s %v, want %s", tc.file, tc.env, got, err, tc.want)
+		}
+	}
+	for _, bad := range []string{"-1h", "-1d", "90", "ninety days", "1.5d", ""} {
+		_, err := load(t, `{"audit_archive_after": "`+bad+`"}`, nil)
+		if err == nil || !strings.Contains(err.Error(), RuleRange) || !strings.Contains(err.Error(), "audit_archive_after") {
+			t.Errorf("audit_archive_after %q: %v, want a %s refusal naming the key", bad, err, RuleRange)
+		}
+	}
+}

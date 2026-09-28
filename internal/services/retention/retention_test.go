@@ -30,7 +30,7 @@ func TestTheSweeperReturnsOnlyWhenItsPassHasAndAStoppingNodeIsNotAFailure(t *tes
 	go func() {
 		defer close(returned)
 		Run(ctx, nil, st, &core.Config{DataDir: dir}, func(string, string, string) {}, &stderr,
-			func(context.Context) { close(entered); <-release }, nil)
+			func(context.Context) { close(entered); <-release }, nil, nil)
 	}()
 
 	<-entered // the startup pass is running, inside the leaf-retirement step
@@ -121,7 +121,7 @@ func TestTheSweepExpiresRequestsNobodyAnswered(t *testing.T) {
 					audited = append(audited, resource)
 					mu.Unlock()
 				}
-			}, io.Discard, nil,
+			}, io.Discard, nil, nil,
 			func(_ context.Context, _, fpr string) error {
 				mu.Lock()
 				dropped = append(dropped, fpr)
@@ -181,7 +181,7 @@ func TestTheSweepDropsAReservationOnlyOnceItsLeafHasExpired(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Run(ctx, settings.New(st, nil, nil, nil), st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard, nil, nil)
+		Run(ctx, settings.New(st, nil, nil, nil), st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard, nil, nil, nil)
 	}()
 	defer func() { cancel(); <-done }()
 	deadline := time.Now().Add(10 * time.Second)
