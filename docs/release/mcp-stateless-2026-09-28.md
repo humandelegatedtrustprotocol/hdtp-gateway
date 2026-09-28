@@ -144,3 +144,16 @@ findings.
 
 - It does not shard one identity across objects (D4).
 - It does not make SQLite multi-HOST (D2): one host, many processes.
+
+## 5. Amendments
+
+**2026-09-28, after N1 was built (the owner):** "no rate limit to be implemented on code level but it
+should be ideally managed on infra level i.e on cloudflare level if not possible then we can add a
+proxy container before server/endpoint which does this management of rules." So:
+
+- **N1** keeps the server's Read, Write and Idle timeouts, the body cap and a cap on open
+  connections beneath TLS; the per-IP and node-wide token buckets are not the node's and were
+  removed (abc85a4). They belong to the edge, or to a proxy container in front of the node.
+- **N3** (rate buckets in the store) is not built.
+- The node's existing in-memory §12 limiter stays until a written plan decides how PACT §12 is
+  handled; each process grants its own budget until then.

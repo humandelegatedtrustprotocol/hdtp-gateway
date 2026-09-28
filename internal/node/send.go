@@ -438,10 +438,15 @@ func (n *Node) RunRetries(ctx context.Context, leading func(context.Context) boo
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if leading == nil || leading(ctx) {
-				n.RetryPending(ctx)
-			}
+			n.retryTick(ctx, leading)
 		}
+	}
+}
+
+// retryTick is one of RunRetries' passes: it retries only while this process leads.
+func (n *Node) retryTick(ctx context.Context, leading func(context.Context) bool) {
+	if leading == nil || leading(ctx) {
+		n.RetryPending(ctx)
 	}
 }
 

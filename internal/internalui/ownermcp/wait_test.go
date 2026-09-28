@@ -115,3 +115,24 @@ func TestACursorOlderThanTheLogIsSaidToBe(t *testing.T) {
 		t.Fatalf("the cursor handed back is still expired: %+v %v", next, err)
 	}
 }
+
+// A cursor past the log's newest change — one this log never issued: a store restored into a fresh
+// log, or a time passed where an id belongs — is said to be, at once, with the newest as the cursor
+// to wait from. Answered as an ordinary cursor, every wait from it waited on nothing, forever.
+func TestACursorPastTheLogIsSaidToBe(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.deps.Bus.Publish(messaging.Event{Kind: messaging.EventRequest, AccountID: e.acctA})
+	_, newest, err := e.st.ChangeBounds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	began := time.Now()
+	text, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since": newest + 1_790_000_000, "timeout_sec": 5})
+	var r waitResult
+	_ = json.Unmarshal([]byte(text), &r)
+	if !r.CursorExpired || r.Cursor != newest || time.Since(began) > 3*time.Second {
+		t.Fatalf("a cursor past the log: %s after %s; want cursor_expired and cursor %d at once", text, time.Since(began), newest)
+	}
+}
