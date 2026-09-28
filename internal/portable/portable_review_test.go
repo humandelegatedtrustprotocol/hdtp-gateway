@@ -217,29 +217,182 @@ func TestAMessageWaitingForItsHumanTravelsQueued(t *testing.T) {
 
 // L12. An export over what PACT Cloud takes back in is written, and says so, naming the limits:
 // other hosts may take it, so it is a warning and never a refusal (SPEC 2.2.1: a host's own import
-// ceilings never refuse an export).
+// ceilings never refuse an export). The seed holds one thread: at the ceiling nothing is said, one
+// over it is.
 func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, sqliteStore)
 	s := seed(t, e)
-	must(t, e.st.Atomically(ctx, func(tx store.Store) error {
-		for i := 0; i < 5000; i++ {
-			if err := tx.InsertThread(ctx, store.Thread{ID: fmt.Sprintf("bulk-%d", i), AccountID: s.accountID, ContactFpr: s.peer.Fpr, CreatedAt: 1790000100, LastAt: 1790000100}); err != nil {
-				return err
+	bulk := func(from, to int) {
+		must(t, e.st.Atomically(ctx, func(tx store.Store) error {
+			for i := from; i < to; i++ {
+				if err := tx.InsertThread(ctx, store.Thread{ID: fmt.Sprintf("bulk-%d", i), AccountID: s.accountID, ContactFpr: s.peer.Fpr, CreatedAt: 1790000100, LastAt: 1790000100}); err != nil {
+					return err
+				}
 			}
-		}
-		return nil
-	}))
+			return nil
+		}))
+	}
+	bulk(0, cloudThreads-1)
 	file, res := exportOf(t, e, "alina")
+	if w := CloudCeilings(zipReader(t, file), uint64(len(file))); len(w) != 0 || res.Threads != cloudThreads {
+		t.Fatalf("an export at the ceiling warned: %v (threads %d)", w, res.Threads)
+	}
+	bulk(cloudThreads-1, cloudThreads)
+	file, res = exportOf(t, e, "alina")
 	warnings := CloudCeilings(zipReader(t, file), uint64(len(file)))
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "5001 threads") || !strings.Contains(warnings[0], "5000") || res.Threads != 5001 {
-		t.Fatalf("the warnings: %v (threads %d)", warnings, res.Threads)
+	want := fmt.Sprintf("%d threads, over PACT Cloud's %d", cloudThreads+1, cloudThreads)
+	if len(warnings) != 1 || warnings[0] != want || res.Threads != cloudThreads+1 {
+		t.Fatalf("the warnings: %v (threads %d), want [%s]", warnings, res.Threads, want)
 	}
 	small := newEnv(t, sqliteStore)
 	seed(t, small)
 	file, _ = exportOf(t, small, "alina")
 	if w := CloudCeilings(zipReader(t, file), uint64(len(file))); len(w) != 0 {
 		t.Fatalf("a small export warned: %v", w)
+	}
+}
+
+// ceilingZip is a zip of the members given, each a name and its bytes; a member whose bytes are nil
+// is written stored and empty with the size stated, since the files are counted by what their
+// directory entries state.
+func ceilingZip(t *testing.T, members []ceilingMember) *zip.Reader {
+	t.Helper()
+	var b bytes.Buffer
+	zw := zip.NewWriter(&b)
+	for _, m := range members {
+		if m.body == nil {
+			_, err := zw.CreateRaw(&zip.FileHeader{Name: m.name, Method: zip.Store, CompressedSize64: 0, UncompressedSize64: m.stated})
+			must(t, err)
+			continue
+		}
+		w, err := zw.Create(m.name)
+		must(t, err)
+		_, err = w.Write(m.body)
+		must(t, err)
+	}
+	must(t, zw.Close())
+	return zipReader(t, b.Bytes())
+}
+
+type ceilingMember struct {
+	name   string
+	body   []byte
+	stated uint64
+}
+
+// csvOf is a CSV member of a header and n rows, padded with a last column to exactly size bytes
+// when size is not 0.
+func csvOf(t *testing.T, rows, size int) []byte {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("a,b\n")
+	for i := 0; i < rows; i++ {
+		fmt.Fprintf(&b, "%d,\n", i)
+	}
+	if size != 0 {
+		if b.Len() > size {
+			t.Fatalf("%d rows do not fit in %d bytes", rows, size)
+		}
+		b.WriteString(strings.Repeat("x", size-b.Len()))
+	}
+	return []byte(b.String())
+}
+
+// messagesOf is messages.jsonl of n lines whose ids (id and msg_id; reply_to on the first line)
+// carry exactly chars characters between them.
+func messagesOf(t *testing.T, lines, chars int) []byte {
+	t.Helper()
+	per := chars / lines
+	var b bytes.Buffer
+	for i := 0; i < lines; i++ {
+		n := per
+		if i == 0 {
+			n += chars - per*lines
+		}
+		id := strings.Repeat("i", n/2)
+		msgID := strings.Repeat("m", n-n/2-1)
+		line, err := json.Marshal(map[string]any{"id": id, "msg_id": msgID, "reply_to": "r"})
+		must(t, err)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	return b.Bytes()
+}
+
+// mediaOf is n media files stating total bytes between them.
+func mediaOf(n int, total uint64) []ceilingMember {
+	out := make([]ceilingMember, n)
+	for i := range out {
+		out[i] = ceilingMember{name: fmt.Sprintf("media/%064x", i), stated: total / uint64(n)}
+	}
+	out[0].stated += total - total/uint64(n)*uint64(n)
+	return out
+}
+
+// Each of PACT Cloud's ceilings, at its limit and one over it: at the limit nothing is said, one
+// over it exactly one warning, naming the number and the limit.
+func TestTheCloudsCeilingsAtTheirBoundaries(t *testing.T) {
+	cases := []struct {
+		name    string
+		members func(n int) []ceilingMember
+		zip     func(n int) uint64
+		limit   int
+		what    string
+	}{
+		{"contacts", func(n int) []ceilingMember { return []ceilingMember{{name: "contacts.csv", body: csvOf(t, n, 0)}} }, nil, cloudContacts, "contacts"},
+		{"contacts.csv bytes", func(n int) []ceilingMember { return []ceilingMember{{name: "contacts.csv", body: csvOf(t, 1, n)}} }, nil, cloudContactsCSVBytes, "bytes of contacts.csv"},
+		{"threads", func(n int) []ceilingMember { return []ceilingMember{{name: "threads.csv", body: csvOf(t, n, 0)}} }, nil, cloudThreads, "threads"},
+		{"threads.csv bytes", func(n int) []ceilingMember { return []ceilingMember{{name: "threads.csv", body: csvOf(t, 1, n)}} }, nil, cloudThreadsCSVBytes, "bytes of threads.csv"},
+		{"message lines", func(n int) []ceilingMember {
+			return []ceilingMember{{name: "messages.jsonl", body: messagesOf(t, n, 3*n)}}
+		}, nil, cloudMessageLines, "message lines"},
+		{"message id characters", func(n int) []ceilingMember {
+			return []ceilingMember{{name: "messages.jsonl", body: messagesOf(t, 1000, n)}}
+		}, nil, cloudIDCharacters, "characters of message ids (id, msg_id, reply_to)"},
+		{"files", func(n int) []ceilingMember { return mediaOf(n, uint64(n)) }, nil, cloudMediaFiles, "files"},
+		{"bytes of files", func(n int) []ceilingMember { return mediaOf(10, uint64(n)) }, nil, cloudMediaBytes, "bytes of files"},
+		{"bytes of zip", func(int) []ceilingMember { return nil }, func(n int) uint64 { return uint64(n) }, cloudZipBytes, "bytes of zip"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, n := range []int{c.limit, c.limit + 1} {
+				var size uint64
+				if c.zip != nil {
+					size = c.zip(n)
+				}
+				got := CloudCeilings(ceilingZip(t, c.members(n)), size)
+				var want []string
+				if n > c.limit {
+					want = []string{fmt.Sprintf("%d %s, over PACT Cloud's %d", n, c.what, c.limit)}
+				}
+				if fmt.Sprint(got) != fmt.Sprint(want) {
+					t.Fatalf("at %d: %q, want %q", n, got, want)
+				}
+			}
+		})
+	}
+}
+
+// A file is counted by its name as the cloud counts it: media/ and 64 lowercase hex. The directory
+// entry media/ and any other name are not files.
+func TestOnlyAMediaNameIsAFile(t *testing.T) {
+	members := mediaOf(cloudMediaFiles, cloudMediaFiles)
+	members = append(members, ceilingMember{name: "media/", stated: 0}, ceilingMember{name: "media/" + strings.Repeat("A", 64), stated: 1}, ceilingMember{name: "media/short", stated: 1})
+	if w := CloudCeilings(ceilingZip(t, members), 0); len(w) != 0 {
+		t.Fatalf("a name that is not a file was counted: %v", w)
+	}
+}
+
+// The cloud derives its central directory bounds from its files (limits.ts DIRECTORY_LIMITS): the
+// files and the five members that are not a file, each record at most 46 bytes, the longest name
+// (media/ and a sha256 in hex) and 32 bytes of extra fields. The node's copies are held to it.
+func TestTheCloudsDirectoryBounds(t *testing.T) {
+	if cloudZipEntries != cloudMediaFiles+5 {
+		t.Fatalf("entries %d, files %d", cloudZipEntries, cloudMediaFiles)
+	}
+	if cloudDirectoryBytes != cloudZipEntries*(46+len("media/")+64+32) {
+		t.Fatalf("directory bytes %d, entries %d", cloudDirectoryBytes, cloudZipEntries)
 	}
 }
 
