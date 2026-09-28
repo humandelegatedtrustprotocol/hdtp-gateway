@@ -6,7 +6,27 @@ import (
 	"fmt"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
+
+// leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries (migration 0046):
+// the fingerprint of the leaf's key, which the row keeps beside it in `spki`. NULL exactly when
+// there is no leaf. Every statement that writes `leaf` writes this with it; PinCandidates finds a
+// small form's pin by it, so a writer that left it out would leave that contact unfindable.
+func leafFingerprint(leaf, spki []byte) sql.NullString {
+	if len(leaf) == 0 {
+		return sql.NullString{}
+	}
+	return keyFingerprint(spki)
+}
+
+// keyFingerprint is pact-identity's fingerprint of a key, as the column holds it; NULL for no key.
+func keyFingerprint(spki []byte) sql.NullString {
+	if len(spki) == 0 {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: pactidentity.Fingerprint(spki), Valid: true}
+}
 
 // A domain value becomes a statement's parameters HERE, once, for both engines, with the defaults
 // a new row takes. The engines' generated parameter types are the same shape (sqlc.yaml's
@@ -33,7 +53,7 @@ func contactInsert(c *Contact) sqlitedb.InsertContactParams {
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions),
 		DisplayName: c.DisplayName, Card: c.Card, CreatedAt: c.CreatedAt, InviteID: c.InviteID,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Endpoint: c.Endpoint, Leaf: c.Leaf, ChainSentKid: c.ChainSentKid,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, LeafFingerprint: leafFingerprint(c.Leaf, c.SPKI), ChainSentKid: c.ChainSentKid,
 		RootCert: c.RootCert, EverActive: everActive(c.Status), RequestedAt: requestedAt(c.Status, c.CreatedAt),
 	}
 }
@@ -65,12 +85,20 @@ func contactImport(c Contact) (sqlitedb.ImportContactParams, error) {
 		TheirPermissions: permsToJSON(c.TheirPermissions), TrustFlag: c.TrustFlag,
 		DisplayName: c.DisplayName, Petname: c.Petname, Card: c.Card, CreatedAt: c.CreatedAt,
 		PinnedAt: sql.NullInt64{Int64: c.PinnedAt, Valid: c.PinnedAt != 0},
-		Endpoint: c.Endpoint, Leaf: c.Leaf, RootCert: c.RootCert,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, LeafFingerprint: leafFingerprint(c.Leaf, c.SPKI), RootCert: c.RootCert,
 		// What the export says (its was_active), and active is always a contact.
 		EverActive:   importedEverActive(c),
 		HandshakeDue: c.HandshakeDueAt,
 		RequestedAt:  requestedAt(c.Status, c.CreatedAt),
 	}, nil
+}
+
+// pinCandidates returns PinCandidates' parameters.
+func pinCandidates(accountID, root, endpoint, leafFingerprint string) sqlitedb.PinCandidatesParams {
+	return sqlitedb.PinCandidatesParams{
+		AccountID: accountID, Fingerprint: root, Endpoint: endpoint,
+		LeafFingerprint: sql.NullString{String: leafFingerprint, Valid: true},
+	}
 }
 
 // contactPin returns ImportContactPin's parameters. A nil root certificate keeps the one the row
@@ -84,7 +112,7 @@ func contactPin(c Contact) (sqlitedb.ImportContactPinParams, error) {
 		rootCert = c.RootCert
 	}
 	return sqlitedb.ImportContactPinParams{
-		Endpoint: c.Endpoint, Leaf: c.Leaf, Spki: c.SPKI, RootCert: rootCert, HandshakeDue: c.HandshakeDueAt,
+		Endpoint: c.Endpoint, Leaf: c.Leaf, LeafFingerprint: leafFingerprint(c.Leaf, c.SPKI), Spki: c.SPKI, RootCert: rootCert, HandshakeDue: c.HandshakeDueAt,
 		AccountID: c.AccountID, Fingerprint: c.Fingerprint,
 	}, nil
 }
@@ -98,7 +126,7 @@ func contactRedeem(c Contact) sqlitedb.RedeemOverPendingContactParams {
 	return sqlitedb.RedeemOverPendingContactParams{
 		Status: c.Status, Preset: c.Preset, Permissions: permsToJSON(c.Permissions), InviteID: c.InviteID,
 		DisplayName: c.DisplayName, Card: c.Card, Spki: c.SPKI, Endpoint: c.Endpoint, Leaf: c.Leaf,
-		RootCert: rootCert, AccountID: c.AccountID, Fingerprint: c.Fingerprint,
+		RootCert: rootCert, AccountID: c.AccountID, Fingerprint: c.Fingerprint, LeafFingerprint: leafFingerprint(c.Leaf, c.SPKI),
 	}
 }
 
