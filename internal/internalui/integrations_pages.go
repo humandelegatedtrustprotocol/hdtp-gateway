@@ -34,6 +34,11 @@ type IntegrationsDeps struct {
 	// SetOAuthClient registers the pre-registered OAuth client §6.3 falls back
 	// to when no Client ID Metadata Document is hosted (escalation E4).
 	SetOAuthClient func(ctx context.Context, integrationID, clientID, clientSecret string) error
+	// Background runs work that outlives the request that starts it — a Connect's dial, which for
+	// an OAuth upstream waits minutes for the owner to sign in — in the node's joined group, with
+	// the group's context (serve's startBackground). Required: a bare goroutine went on writing to
+	// the store after the portal, and the store, had stopped.
+	Background func(work func(ctx context.Context))
 }
 
 // checkIntegration refuses an integration that could never connect. Each
@@ -62,6 +67,9 @@ func checkIntegration(slug, transport, endpoint, command string) error {
 }
 
 func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
+	if d.Background == nil {
+		panic("internalui: MountIntegrationPages needs Background, the node's joined group for work a request starts")
+	}
 	timeout := d.ConnectTimeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -225,8 +233,8 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 			http.NotFound(w, r)
 			return
 		}
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		d.Background(func(bg context.Context) {
+			ctx, cancel := context.WithTimeout(bg, 5*time.Minute)
 			defer cancel()
 			// Reconnect, not Connect: this is the owner's decision, the one thing that re-arms a
 			// supervised child that gave up (SPEC §6.2).
@@ -234,7 +242,7 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 				// The authorize request may be waiting on this; tell it why.
 				d.Connector.Fail(id, err)
 			}
-		}()
+		})
 		// The portal asks for JSON and navigates to the provider itself. A form
 		// POST answered with a redirect to the provider is blocked by the
 		// portal's own CSP: browsers apply `form-action 'self'` to where a form

@@ -272,10 +272,9 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 			updated <- r.Params.URI
 		},
 	})
-	// Under SEP-2575 the server acknowledges a subscription after Subscribe returns, and an update
-	// sent inside that window is lost by the SDK (ownermcp's tests wait it out the same way). This
-	// test recorded at once and failed under load — 3 runs of 3 on 2026-09-28 with the machine at
-	// a load of 27 — while passing alone.
+	// Subscribe returns when subscriptions/listen is SENT; the server holds the subscription once
+	// it has handled it, and says so with subscriptions/acknowledged. A message recorded before
+	// that is signalled to nobody (the cause of this test's "agent never notified" under load).
 	acked := make(chan struct{}, 1)
 	client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -299,7 +298,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	select {
 	case <-acked:
 	case <-time.After(10 * time.Second):
-		t.Fatal("the subscription was never acknowledged")
+		t.Fatal("the inbox subscription was never acknowledged")
 	}
 
 	// 7. Bella's message lands → the agent is notified, reads, and answers.

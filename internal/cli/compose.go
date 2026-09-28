@@ -112,7 +112,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
 	auditFn func(action, resource, outcome string), publicURL string,
 	settings internalui.SettingsDeps, authDeps *internalui.AuthDeps,
-	cfg *core.Config) http.Handler {
+	cfg *core.Config, background func(work func(ctx context.Context))) http.Handler {
 	// Everything below is owner-initiated by construction: it is the internal
 	// surface. auditFn arrives already tagged.
 
@@ -213,6 +213,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				Audit:          auditFn,
 				SetStatic:      setStatic,
 				SetOAuthClient: setOAuthClient,
+				Background:     background,
 			})
 		},
 		func(mux *http.ServeMux) { internalui.MountAuditPages(mux, st) },
