@@ -48,6 +48,9 @@ const (
 	// EventAccount: an account changed what it serves — adopted, a leaf installed or retired, its
 	// seal, or gone (Ref names its slug) — and every other process reloads it from the store.
 	EventAccount EventKind = "account"
+	// EventSettings: the owner saved a setting (Ref names its key); every other process reads it
+	// from the store and applies it as the saving process did.
+	EventSettings EventKind = "settings"
 )
 
 // FeedCalls are the tools whose call means "a contact ACTED": the node publishes an EventCall
@@ -70,7 +73,7 @@ type Event struct {
 	Status string `json:"status,omitempty"`
 	// Ref names what the event is about beyond the thread and the contact: the tool of an
 	// EventCall, the request of an EventPending, EventAnswered or EventRelayed, the scope of an
-	// EventInvalidate, the slug of an EventAccount.
+	// EventInvalidate, the slug of an EventAccount, the key of an EventSettings.
 	Ref string `json:"ref,omitempty"`
 	// Local marks an event this process published, as its own subscribers receive it: a
 	// subscriber that applies other processes' changes to this one passes over it.

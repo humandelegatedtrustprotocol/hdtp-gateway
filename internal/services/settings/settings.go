@@ -25,6 +25,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
 	"github.com/pact-cloud/pact-gateway/internal/public"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
@@ -70,6 +71,7 @@ type Service struct {
 	cfgMu sync.RWMutex
 	cfg   *core.Config
 	node  *node.Node
+	bus   *messaging.Bus
 	audit func(action, resource, outcome string)
 	now   func() time.Time
 }
@@ -83,6 +85,47 @@ func New(st store.Store, kr *core.Keyring, cfg *core.Config, audit func(action, 
 // AttachNode gives the service the running node, so a saved knob that can take effect live does.
 // Until it is attached, a save is stored and applied at the next start.
 func (s *Service) AttachNode(nd *node.Node) { s.node = nd }
+
+// AttachBus gives the service the node's events: a knob saved here is announced to every other
+// node process on the store (SPEC §11.1), and Follow applies what they save.
+func (s *Service) AttachBus(bus *messaging.Bus) { s.bus = bus }
+
+// SealPolicy is the seal the owner set for the node, as this process has it now: what an account
+// is built with (node.Options.SealPolicy).
+func (s *Service) SealPolicy() core.Seal {
+	var seal core.Seal
+	s.readCfg(func(c *core.Config) { seal = c.Seal })
+	return seal
+}
+
+// Follow applies the settings other node processes on the store save, until ctx ends: each is
+// read back from the store and applied as the process that saved it applied it, except for what
+// that process already did for every process — its audit rows, and each account's seal, which
+// every process reloads from the account's row. serve runs it in its joined background group.
+func (s *Service) Follow(ctx context.Context) {
+	if s.bus == nil {
+		return
+	}
+	evs, stop := s.bus.Subscribe("")
+	defer stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-evs:
+			if e.Local || e.Kind != messaging.EventSettings {
+				continue
+			}
+			values, err := s.Values(ctx)
+			if err != nil {
+				continue // the next save, or a restart, applies it
+			}
+			if v, ok := values[e.Ref]; ok {
+				_ = s.apply(ctx, e.Ref, v, false)
+			}
+		}
+	}
+}
 
 // readCfg runs fn under the read lock.
 func (s *Service) readCfg(fn func(c *core.Config)) {
@@ -256,12 +299,20 @@ func (s *Service) save(ctx context.Context, key, value string) error {
 	}); err != nil {
 		return err
 	}
-	return s.applyLive(ctx, key, value)
+	if err := s.apply(ctx, key, value, true); err != nil {
+		return err
+	}
+	if s.bus != nil {
+		s.bus.Publish(messaging.Event{Kind: messaging.EventSettings, Ref: key})
+	}
+	return nil
 }
 
-// applyLive pushes a saved knob into the running node where that is possible.
-// Anything not handled here is restart-scoped, and the page says so.
-func (s *Service) applyLive(ctx context.Context, key, value string) error {
+// apply pushes a saved knob into the running node where that is possible. Anything not handled
+// here is restart-scoped, and the page says so. here says whether this process saved it: one that
+// did audits and re-seals every account; one that learned of it from another process (Follow)
+// takes the value alone, since the saving process did the rest for every process.
+func (s *Service) apply(ctx context.Context, key, value string, here bool) error {
 	if s.node == nil {
 		return nil
 	}
@@ -277,6 +328,9 @@ func (s *Service) applyLive(ctx context.Context, key, value string) error {
 		// its card advertises, so both move together and the card can never
 		// disagree with the gate (SPEC §4.6).
 		s.writeCfg(func(c *core.Config) { c.Seal = core.Seal(value) })
+		if !here {
+			return nil
+		}
 		accounts, err := s.store.ListAccounts(ctx)
 		if err != nil {
 			return err
@@ -289,6 +343,10 @@ func (s *Service) applyLive(ctx context.Context, key, value string) error {
 	case "lan_connections":
 		allow := value == "true"
 		s.writeCfg(func(c *core.Config) { c.LANConnections = allow })
+		if !here {
+			s.node.UseLANConnections(allow)
+			return nil
+		}
 		s.node.SetLANConnections(allow)
 	case "public_url":
 		old := ""
@@ -297,6 +355,10 @@ func (s *Service) applyLive(ctx context.Context, key, value string) error {
 			return nil
 		}
 		s.writeCfg(func(c *core.Config) { c.PublicURL = value })
+		if !here {
+			s.node.UsePublicURL(value)
+			return nil
+		}
 		s.node.SetPublicURL(value)
 		// Nobody is told, because nothing has moved. An address is inside a leaf: every account
 		// still answers at the endpoint its wallet signed, and goes on doing so until the wallet
