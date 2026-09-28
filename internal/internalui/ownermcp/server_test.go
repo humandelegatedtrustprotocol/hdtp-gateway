@@ -354,7 +354,7 @@ func TestChangeFeedCarriesTrustCallsAndAttention(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: e.st, Now: func() time.Time { return time.Unix(since+10, 0) }}
+	w := &audit.Writer{Sink: store.AuditAppender{St: e.st}, Now: func() time.Time { return time.Unix(since+10, 0) }}
 	_ = w.Append(ctx, e.acctA, "contact", "sha256:carol", "book_slot", "caller:sha256:carol booking:bk-1", "ok", "", "")
 	// A refusal must NOT surface as a call, and neither must another account's.
 	_ = w.Append(ctx, e.acctA, "contact", "sha256:carol", "book_slot", "caller:sha256:carol", "permission_denied", "", "")

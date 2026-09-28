@@ -73,6 +73,12 @@ UPDATE tokens SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL;
 INSERT INTO audit_events (seq, ts, account_id, actor_kind, actor_id, action, resource, outcome, request_id, details, prev_hash, hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 
+-- name: LockAuditChain :exec
+-- The chain's one head, taken in the appending transaction and released at its end: every
+-- process that appends to this database takes turns at it (SPEC 11.4). The key is outside
+-- int4, so no hashtext() key (LockSlug) can be it.
+SELECT pg_advisory_xact_lock(7152101200000011);
+
 -- name: LastAuditEvent :one
 SELECT * FROM audit_events ORDER BY seq DESC LIMIT 1;
 

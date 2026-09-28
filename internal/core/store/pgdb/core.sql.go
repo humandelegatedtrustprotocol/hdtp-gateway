@@ -937,6 +937,18 @@ func (q *Queries) LockAccountRow(ctx context.Context, id string) error {
 	return err
 }
 
+const lockAuditChain = `-- name: LockAuditChain :exec
+SELECT pg_advisory_xact_lock(7152101200000011)
+`
+
+// The chain's one head, taken in the appending transaction and released at its end: every
+// process that appends to this database takes turns at it (SPEC 11.4). The key is outside
+// int4, so no hashtext() key (LockSlug) can be it.
+func (q *Queries) LockAuditChain(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockAuditChain)
+	return err
+}
+
 const lockSlug = `-- name: LockSlug :exec
 SELECT pg_advisory_xact_lock(hashtext($1))
 `

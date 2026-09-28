@@ -96,6 +96,7 @@ of it, and are listed so a reader can tell the two apart.
 | a removed head is detected — verification is anchored, not self-rooted | `TestHeadTruncationIsDetected` |
 | archiving prunes only what it captured, re-anchors, and keeps the chain verifiable across archive + live | `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
 | the public surface is stateless: no session is issued or read, no handshake is needed, GET and DELETE are 405 (§5.5) | `TestThePublicSurfaceIsStateless`, `TestStatelessMCPComposesOncePerRequestAndNeverForAGet` |
+| one audit chain, however many writers: appends from several processes on one SQLite file and on one Postgres database make one verifying chain (§11.4) | `TestWritersInSeveralProcessesExtendOneChain` |
 | a flood is refused before its body is read or its chain validated — per source and node-wide, for requests and for connections beneath TLS — and another source, sent last, gets through (§5.7) | `TestAFloodFromOneAddressIsRefusedBeforeItsBodyAndAnotherGetsThrough`, `TestConnectionsAreRefusedBeneathTLSAndAnotherAddressGetsThrough`, `TestTheListenerRefusesAFloodBeforeTheBodyCapAndServesAnotherSource` |
 | a sealed call completes from a 2026-07-28 client and from a handshake-era client, and the outbound client sends two sessionless POSTs (§5.5) | `TestASealedCallCompletesFromEitherMCPEra` |
 | a withdrawn integration tool leaves the next request, repeatedly, and the cache stays within its bound | `TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest`, `TestTheCacheStaysWithinItsBound` |
