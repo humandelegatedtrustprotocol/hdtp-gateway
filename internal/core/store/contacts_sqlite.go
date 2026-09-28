@@ -59,6 +59,10 @@ func (s *SQLite) GetContact(ctx context.Context, accountID, fingerprint string) 
 	return contactFromRow(r), nil
 }
 
+func (s *SQLite) CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error) {
+	return s.q.CountContactsByStatus(ctx, sqlitedb.CountContactsByStatusParams{AccountID: accountID, Status: status})
+}
+
 func (s *SQLite) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
 	rs, err := s.q.ListContacts(ctx, accountID)
 	if err != nil {
