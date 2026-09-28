@@ -43,6 +43,12 @@ type SealedDeps struct {
 	Idem  IdempotencyStore
 	Now   func() time.Time
 	Audit func(action, resource, outcome string)
+	// AuditAs, when set, is used instead of Audit and is told who acted in the store's actor
+	// vocabulary: `guest` for an envelope that did not open or opened at the guest tier,
+	// `contact` for a pending or active contact's. Every row used to be written as the node's
+	// own (`system`), so the trail could not say that a stranger had knocked (the conformance
+	// battery's "a guest is recorded as a guest", run against a node by harness S19).
+	AuditAs func(kind, action, resource, outcome string)
 }
 
 func (d SealedDeps) now() time.Time {
@@ -52,10 +58,23 @@ func (d SealedDeps) now() time.Time {
 	return time.Now()
 }
 
-func (d SealedDeps) audit(action, resource, outcome string) {
+func (d SealedDeps) audit(kind, action, resource, outcome string) {
+	if d.AuditAs != nil {
+		d.AuditAs(kind, action, resource, outcome)
+		return
+	}
 	if d.Audit != nil {
 		d.Audit(action, resource, outcome)
 	}
+}
+
+// actorOf is who a sealed call's facts say acted: a contact at the pending or contact tier, a
+// guest otherwise — the mapping Pool.audit makes for a plaintext call.
+func actorOf(f *EnvelopeFacts) string {
+	if f != nil && (f.Tier == policy.TierContact || f.Tier == policy.TierPending) {
+		return "contact"
+	}
+	return "guest"
 }
 
 // sealedTool is the tool definition; arguments are the four envelope members.
@@ -113,7 +132,7 @@ func spendGuestBudget(ctx context.Context, d SealedDeps) *mcp.CallToolResult {
 	if ok {
 		return nil
 	}
-	d.audit("sealed_call", "account:"+d.AccountID, "rate_limited")
+	d.audit("guest", "sealed_call", "account:"+d.AccountID, "rate_limited")
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
 		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, int(retry.Seconds())+1)},
 	}}
@@ -123,6 +142,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var env pactidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
+			// Not an envelope at all. Refused like any other that does not open, and audited like
+			// one: this answered and wrote nothing.
+			d.audit("guest", "sealed_call", "account:"+d.AccountID, "envelope_invalid")
 			return errEnvelope("envelope_invalid"), nil
 		}
 		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
@@ -139,7 +161,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			case errors.As(err, &renewed):
 				// PACT §14.4: plaintext, carrying the current chain — proof of
 				// nothing by itself; the caller validates it to its own pin.
-				d.audit("sealed_call", "account:"+d.AccountID, "certificate_renewed")
+				d.audit("guest", "sealed_call", "account:"+d.AccountID, "certificate_renewed")
 				chain := make([]string, 0, len(renewed.Chain))
 				for _, c := range renewed.Chain {
 					chain = append(chain, pactidentity.B64url(c))
@@ -147,7 +169,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": map[string]any{"chain": chain}})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
 			}
-			d.audit("sealed_call", "account:"+d.AccountID, Code(err))
+			d.audit("guest", "sealed_call", "account:"+d.AccountID, Code(err))
 			return errEnvelope(Code(err)), nil
 		}
 		if facts.Refusal != "" {
@@ -157,7 +179,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			if limited := spendGuestBudget(ctx, d); limited != nil {
 				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
 			}
-			d.audit("sealed_call", "account:"+d.AccountID, facts.Refusal)
+			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID, facts.Refusal)
 			return d.sealedCode(ctx, facts, facts.Refusal), nil
 		}
 		if facts.Tier == TierPendingAddress {
@@ -168,7 +190,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			if limited := spendGuestBudget(ctx, d); limited != nil {
 				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
 			}
-			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
+			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == "update_contact" {
 				// The same tool result the plaintext gate answers (servers.go), sealed. This sealed
 				// the bare object `{"status":"pending"}` instead — not a tool result at all — so a
@@ -196,7 +218,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// says errors follow the sealing rule once it is: a plaintext error
 			// here would leak the failure shape to whatever carried the call.
 			// Plaintext errors are only for envelopes that could not be opened.
-			d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
+			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
 			if inner, merr := json.Marshal(codeResult("unavailable")); merr == nil {
 				return d.sealBack(ctx, facts, inner)
 			}
@@ -209,7 +231,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				_ = u.UpdateIdempotencyAck(ctx, d.AccountID, facts.From, EnvelopeKey(facts.Header.MsgID), string(inner))
 			}
 		}
-		d.audit("sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "ok")
+		d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "ok")
 		return d.sealBack(ctx, facts, inner)
 	}
 }

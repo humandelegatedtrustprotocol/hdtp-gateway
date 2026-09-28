@@ -192,6 +192,12 @@ func check(n Need) error {
 		key += "|" + os.Getenv(KernelEnv)
 	case CF:
 		key += "|" + os.Getenv(CFEnv)
+	case PactCLI:
+		key += "|" + os.Getenv(PactCLIEnv)
+	case CloudBattery:
+		key += "|" + os.Getenv(CloudBatteryEnv)
+	case LocalCloud:
+		key += "|" + os.Getenv(LocalCloudEnv)
 	}
 	probeMu.Lock()
 	defer probeMu.Unlock()
@@ -236,6 +242,49 @@ func probe(ctx context.Context, n Need) error {
 	case CF:
 		if os.Getenv(CFEnv) == "" {
 			return fmt.Errorf("%s is not set", CFEnv)
+		}
+		return nil
+	case PactCLI:
+		cli := os.Getenv(PactCLIEnv)
+		if cli == "" {
+			return fmt.Errorf("%s is not set", PactCLIEnv)
+		}
+		if out, err := local(ctx, cli, "--version"); err != nil {
+			return fmt.Errorf("%s --version: %v %s", cli, err, firstLine(string(out)))
+		}
+		return nil
+	case LocalCloud:
+		dir := os.Getenv(LocalCloudEnv)
+		if dir == "" {
+			return fmt.Errorf("%s is not set", LocalCloudEnv)
+		}
+		for _, f := range []string{"e2e/local-run.mjs", "public"} {
+			if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+				return fmt.Errorf("%s has no %s: %v", dir, f, err)
+			}
+		}
+		for _, v := range []string{"WORKOS_TEST_CLIENT_ID", "WORKOS_TEST_API_KEY"} {
+			if os.Getenv(v) == "" {
+				return fmt.Errorf("%s is not set: the local cloud's session injection verifies a WorkOS token", v)
+			}
+		}
+		if out, err := local(ctx, "node", "--version"); err != nil {
+			return fmt.Errorf("node --version: %v %s", err, firstLine(string(out)))
+		}
+		return nil
+	case CloudBattery:
+		dir := os.Getenv(CloudBatteryEnv)
+		if dir == "" {
+			return fmt.Errorf("%s is not set", CloudBatteryEnv)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+			return fmt.Errorf("%s names no Go module: %v", CloudBatteryEnv, err)
+		}
+		// A checkout from before the battery took a target can only be aimed at the cloud: aimed
+		// at a node it fails a dozen cases for reasons that are its own. Such a checkout does not
+		// provide the need, and says why.
+		if src, err := os.ReadFile(filepath.Join(dir, "target_test.go")); err != nil || !strings.Contains(string(src), "PACT_LIVE_TARGET") {
+			return fmt.Errorf("%s is a battery that cannot be aimed at a node (no PACT_LIVE_TARGET in its target_test.go): update that pact-cloud checkout", dir)
 		}
 		return nil
 	}

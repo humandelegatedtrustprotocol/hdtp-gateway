@@ -65,6 +65,32 @@ func (c *Client) Tools(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// ToolArgs is every tool's argument names, read from the input schema the server publishes: what
+// a scenario enumerates when a rule holds for every tool that takes a given argument.
+func (c *Client) ToolArgs(ctx context.Context) (map[string][]string, error) {
+	list, err := c.sess.ListTools(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("owner: listing tools: %w", err)
+	}
+	out := map[string][]string{}
+	for _, t := range list.Tools {
+		raw, err := json.Marshal(t.InputSchema)
+		if err != nil {
+			return nil, err
+		}
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		_ = json.Unmarshal(raw, &schema)
+		names := []string{}
+		for k := range schema.Properties {
+			names = append(names, k)
+		}
+		out[t.Name] = names
+	}
+	return out, nil
+}
+
 // Call invokes one owner tool and returns its text content.
 //
 // A tool that answers with isError is returning an ANSWER, not failing at the
