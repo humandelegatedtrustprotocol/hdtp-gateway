@@ -113,34 +113,6 @@ func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(cont
 	return outbound.Peer{Endpoint: vr.Endpoint, Root: vr.RootFingerprint, Leaf: chain[0]}, dial
 }
 
-// callerChain plays another person's wallet: an independent root and a leaf over
-// a fresh host key, presented as a TLS client certificate. Under 2.0 this is the
-// ONLY thing that establishes a transport identity — a lone self-signed
-// certificate names no root and so names nobody (PACT §2, §14.2).
-func callerChain(t testing.TB, endpoint string) (tls.Certificate, string) {
-	t.Helper()
-	rootKey, err := pactidentity.GenerateKey("ed25519")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rc, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Caller", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	host, err := pactidentity.GenerateKey("ed25519")
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: "Caller", RootCN: "Caller", RootKey: rootKey, HostPub: host.Public, Endpoint: endpoint,
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return tls.Certificate{Certificate: [][]byte{leaf, rc}, PrivateKey: host.Ed}, pactidentity.Fingerprint(rootKey.Public.SPKI)
-}
-
 // issueLeaf plays the person's wallet: a root for this account, and a leaf over the
 // key the account already holds, for the endpoint the node advertises.
 func (e *env) issueLeaf(a store.Account) {
@@ -601,37 +573,18 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 	t.Fatal("twelve guest calls all served; the cap is not installed")
 }
 
-// AC (P10-03): SPEC §5.6 binds an MCP session to the identity that created it.
-// The binder was written and tested and never wired, so a session id presented
-// under a different identity kept the surface it was composed for.
-// AC (P11-05): a session id created under one identity is refused when replayed
-// under another, on the shipped handler, over real TLS.
-//
-// The library-level test below passed while the shipped surface had no check at
-// all: the binding lived inside the SDK's getServer callback, which is invoked
-// ONLY for a request carrying no session id. A caller who learned an id was
-// served the surface that session was composed for — with no certificate of
-// their own.
-//
-// This drives two DIFFERENT TLS identities through the real handler and asserts
-// on the HTTP answer, never on the binder. Asserting on the binder is what made
-// the first attempt at this test worthless: it bound the session itself, so it
-// passed whether or not the node did.
-func TestSessionIdCannotBeReplayedByAnotherIdentity(t *testing.T) {
+// The public surface is stateless (SPEC §5.5), on the shipped handler over real TLS: no request
+// is handed an Mcp-Session-Id, a request needs no handshake before it, a presented session id is
+// ignored — the answer is composed for the identity the request itself carries, so an id learned
+// from somebody else is worth nothing (the defect P11-05 found when sessions existed) — and GET
+// and DELETE, which only a session gave a meaning to, are 405 with `Allow: POST`.
+func TestThePublicSurfaceIsStateless(t *testing.T) {
 	e, _ := newEnv(t, "alice")
 	_, base := e.start(e.options())
 
-	chain, _ := callerChain(t, "https://caller.example/a/caller/mcp")
-	withCert := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			Certificates:       []tls.Certificate{chain},
-		},
-	}}
-
-	post := func(c *http.Client, sid, payload string) *http.Response {
+	post := func(method, sid, payload string) *http.Response {
 		t.Helper()
-		req, err := http.NewRequest("POST", base+"/a/alice/mcp", strings.NewReader(payload))
+		req, err := http.NewRequest(method, base+"/a/alice/mcp", strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -640,63 +593,27 @@ func TestSessionIdCannotBeReplayedByAnotherIdentity(t *testing.T) {
 		if sid != "" {
 			req.Header.Set("Mcp-Session-Id", sid)
 		}
-		res, err := c.Do(req)
+		res, err := insecureClient().Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { res.Body.Close() })
 		return res
 	}
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
 		`{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"a","version":"1"}}}`
-
-	// A caller WITH a certificate creates the session.
-	res := post(withCert, "", initialize)
-	sid := res.Header.Get("Mcp-Session-Id")
-	res.Body.Close()
-	if sid == "" {
-		t.Fatalf("no session id was issued (status %d)", res.StatusCode)
+	if res := post("POST", "", initialize); res.StatusCode != http.StatusOK || res.Header.Get("Mcp-Session-Id") != "" {
+		t.Fatalf("initialize: %d, session %q", res.StatusCode, res.Header.Get("Mcp-Session-Id"))
 	}
-
-	// The same id, presented by a caller with NO certificate, must be refused.
-	// This is the reported bypass verbatim.
-	res2 := post(insecureClient(), sid, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
-	defer res2.Body.Close()
-	if res2.StatusCode == http.StatusOK {
-		t.Fatal("a session created under a client certificate was served to a caller presenting none")
+	res := post("POST", "someone-elses-session", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(b), "request_contact") || strings.Contains(string(b), "send_message") {
+		t.Fatalf("a tools/list with no handshake and a stranger's session id was not answered as the guest it is: %d %s", res.StatusCode, b)
 	}
-
-	// …and the identity that created it keeps working, so the guard refuses the
-	// impostor rather than simply breaking sessions.
-	res3 := post(withCert, sid, `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
-	defer res3.Body.Close()
-	if res3.StatusCode != http.StatusOK {
-		t.Fatalf("the session's own creator was locked out: %d", res3.StatusCode)
-	}
-}
-
-func TestSessionIsBoundToTheIdentityThatCreatedIt(t *testing.T) {
-	e, _ := newEnv(t, "alice")
-	n, _ := e.start(e.options())
-
-	if !n.binder.Bind("sess-1", "sha256:alice") {
-		t.Fatal("first use of a session id was refused")
-	}
-	if n.binder.Bind("sess-1", "sha256:mallory") {
-		t.Fatal("a second identity reused another caller's session id")
-	}
-	if !n.binder.Bind("sess-1", "sha256:alice") {
-		t.Fatal("the original identity lost its own session")
-	}
-	// an anonymous caller that later presents a certificate starts fresh
-	if !n.binder.Bind("sess-2", "") {
-		t.Fatal("anonymous session refused")
-	}
-	if n.binder.Bind("sess-2", "sha256:alice") {
-		t.Fatal("a caller that gained an identity kept the anonymous session")
-	}
-	n.binder.Release("sess-2")
-	if !n.binder.Bind("sess-2", "sha256:alice") {
-		t.Fatal("a released session id could not be reused")
+	for _, m := range []string{"GET", "DELETE"} {
+		if res := post(m, "any", ""); res.StatusCode != http.StatusMethodNotAllowed || res.Header.Get("Allow") != "POST" {
+			t.Fatalf("%s: %d Allow %q, want 405 Allow POST", m, res.StatusCode, res.Header.Get("Allow"))
+		}
 	}
 }
 

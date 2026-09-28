@@ -40,8 +40,8 @@ type Exposures struct {
 	Store store.Store
 	Audit func(action, resource, outcome string)
 	// OnChange fires whenever the served surface changes (publish, stale,
-	// reconfirm): the serving layer rebuilds per-caller servers and emits
-	// tools/list_changed (SPEC §6.5, §5).
+	// reconfirm): the serving layer drops the per-caller servers, so each
+	// caller's next request lists the new surface (SPEC §6.5, §5.5).
 	OnChange func(integrationID string)
 }
 

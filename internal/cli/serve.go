@@ -294,7 +294,7 @@ func (s *serveRun) wireSurface() {
 	// Now the node exists, an exposure change or a withhold can actually reach
 	// the served surface (SPEC §6.5, §6.10). Until this was wired, publishing an
 	// exposure set rebuilt nothing and a withheld integration kept its tools
-	// listed for every session already open.
+	// listed for every caller whose server was already composed.
 	// An exposure change rebuilds that integration's served tools, then sweeps
 	// the callers. Before this, the picker wrote a row and no contact ever
 	// gained or lost a tool (§6.5, §6.10).

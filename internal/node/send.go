@@ -539,8 +539,8 @@ func (s statusAt) GetStatus(ctx context.Context) (string, error) {
 }
 
 // SetIntegrationTools replaces the tools one integration serves on an account
-// and rebuilds every affected caller, so the change reaches sessions that are
-// already open (SPEC §6.5, §6.10). Passing no entries withdraws the integration
+// and drops every affected caller's composed server, so the change reaches each
+// caller's next request (SPEC §6.5, §6.10). Passing no entries withdraws the integration
 // — which is what a withhold, or an exposure set the owner emptied, means.
 func (n *Node) SetIntegrationTools(ctx context.Context, accountID, integrationID string, entries []public.Entry) {
 	n.mu.RLock()
