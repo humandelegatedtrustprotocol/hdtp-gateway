@@ -379,6 +379,17 @@ func (s *Postgres) InsertAuditEvent(ctx context.Context, seq int64, ts int64, ac
 	return s.q.InsertAuditEvent(ctx, pgdb.InsertAuditEventParams(auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash)))
 }
 
+func (s *Postgres) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
+	return s.Atomically(ctx, func(tx Store) error {
+		// Read committed would let two processes read one head; the lock makes the second wait
+		// for the first's commit and read the row it wrote.
+		if err := tx.(*Postgres).q.LockAuditChain(ctx); err != nil {
+			return fmt.Errorf("store: audit head: %w", err)
+		}
+		return appendAudit(ctx, tx, seal)
+	})
+}
+
 func (s *Postgres) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	r, err := s.q.LastAuditEvent(ctx)
 	if err != nil {

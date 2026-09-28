@@ -737,6 +737,13 @@ type IntegrationStore interface {
 
 // AuditStore holds the hash-chained audit trail and its archive anchor (SPEC §11).
 type AuditStore interface {
+	// AppendAuditEvent extends the chain by one row (SPEC §11.4). In ONE transaction it reads the
+	// head — the last row's seq and hash, or 0 and "" for an empty chain — hands it to seal, and
+	// inserts the row seal builds on it. The transaction holds the chain's head for its length, so
+	// every process appending to one store takes turns: on SQLite the transaction takes the write
+	// lock at BEGIN, on Postgres it takes an advisory lock (LockAuditChain) before it reads. No
+	// process carries the head in memory between appends.
+	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error
 	InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error
 	LastAuditEvent(ctx context.Context) (seq int64, hash string, err error)
 	ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error)

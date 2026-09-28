@@ -146,7 +146,6 @@ the setup URL a first run prints works on the portal of the process that printed
 What each process still keeps to itself, and so what is not yet shared between them:
 
 - the event bus: a `wait_for_updates` or a portal inbox wakes for what its own process writes;
-- the audit writer's head: two processes appending to one chain collide;
 - accounts, their keys and certificates, loaded at start and adopted by the process that created
   or installed them; and the cache of composed per-caller servers;
 - the §12 rate buckets (each process grants the whole budget);

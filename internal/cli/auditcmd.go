@@ -12,6 +12,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/audit"
 	"github.com/pact-cloud/pact-gateway/internal/core/auditstore"
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 const auditUsage = "usage: pact-gateway audit <verify|export|archive|repair|erase-archive> [flags]"
@@ -149,7 +150,7 @@ func auditCmd(args []string, stdout, stderr io.Writer) int {
 		// When law requires an identity's archived rows to go (SPEC §11.6): their content goes,
 		// the account id with it, and what the chain needs of them — seq, prev_hash, hash — stays,
 		// so `verify` still walks one chain and reports the rows as erased.
-		return eraseArchive(st, idDir, eraseFile, events, stdout, stderr)
+		return eraseArchive(store.AuditAppender{St: st}, idDir, eraseFile, events, stdout, stderr)
 	case "export":
 		if err := audit.ExportJSONL(stdout, events); err != nil {
 			fmt.Fprintln(stderr, "audit:", err)
