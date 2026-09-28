@@ -164,42 +164,52 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 	}
 }
 
-// HandshakesTried counts the owed contacts the campaign of ONE leaf has tried and not reached: what
-// `account announce` resumes, as against those waiting for a leaf. Measured after a real move
-// (pact-cloud's live-local L5): four imported contacts at unreachable addresses were told to wait
-// for a new leaf that was already installed.
-func TestHandshakesTriedCountsWhatThisLeafsCampaignMissed(t *testing.T) {
+// The handshake an import left owed is the CURRENT leaf's to send when the import came before that
+// leaf was requested (Campaign.Owes): `account announce` reports and resumes that walk, and no new
+// leaf is needed for those contacts. Only a contact imported after the current leaf was requested
+// waits for the next leaf. The count used to follow the walk's progress rows instead, so it read
+// "wait for a new leaf" until the walk had tried a contact and "not reached … announce" after: two
+// reads a second apart, on either side of the walk, disagreed (pact-cloud e2e-suite-staging, L5,
+// 2026-09-28), and the first told an owner who had just installed a leaf to have another signed.
+func TestTheCurrentLeafOwesTheHandshakeAnImportLeftBeforeItsRequest(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()
-	for _, fpr := range []string{"sha256:reached", "sha256:missed", "sha256:untried"} {
-		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf"), HandshakeDueAt: 1}); err != nil {
+	w := newWallet(t, "Alina Rao")
+	now := time.Unix(1790000000, 0)
+	for _, fpr := range []string{"sha256:before-1", "sha256:before-2"} {
+		if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", TrustFlag: "messages_only", Endpoint: "https://x.example/mcp", Leaf: []byte("leaf"), HandshakeDueAt: now.Add(-time.Hour).Unix()}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	ann := &Announcer{Manager: m, Now: func() time.Time { return time.Unix(1790000000, 0) }}
-	camp := Campaign{AccountID: a.ID, NewKid: "sha256:this-leaf", Moved: true, RequestedAt: 1 << 40}
-	_, _, _ = ann.Fanout(ctx, camp, "card", func(_ context.Context, c store.Contact, _ string) (string, error) {
-		switch c.Fingerprint {
-		case "sha256:missed":
-			return "", errors.New("offline")
-		case "sha256:untried":
-			return "", errors.New("offline")
-		}
-		return "updated", nil
-	})
-	// One of the two misses is recorded as another leaf's: owed, and not tried by THIS leaf.
-	if err := m.Store.UpsertMoveFanout(ctx, store.MoveFanout{AccountID: a.ID, ContactFpr: "sha256:untried", LeafKid: "sha256:older-leaf", Status: "pending", Attempts: 1}); err != nil {
+	csr, err := m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, now)
+	if err != nil {
 		t.Fatal(err)
 	}
-	owed, err := m.HandshakesOwed(ctx, a.ID)
-	if err != nil || owed != 2 {
-		t.Fatalf("owed %d (%v), want the two not reached", owed, err)
+	res, err := m.InstallLeaf(ctx, a.ID, w.issue(t, csr, now, 365), now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	tried, err := m.HandshakesTried(ctx, a.ID, "sha256:this-leaf")
-	if err != nil || tried != 1 {
-		t.Fatalf("tried by this leaf %d (%v), want the one its campaign missed", tried, err)
+	if err := m.Store.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:after", Status: "active", TrustFlag: "messages_only", Endpoint: "https://y.example/mcp", Leaf: []byte("leaf"), HandshakeDueAt: now.Add(time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
 	}
-	if n, _ := m.HandshakesTried(ctx, a.ID, ""); n != 0 {
-		t.Fatalf("with no leaf nothing is tried: %d", n)
+	info, err := m.Certificate(ctx, a.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.HandshakesOwed != 3 {
+		t.Fatalf("owed %d, want the three imported contacts", info.HandshakesOwed)
+	}
+	// Before the walk has tried anyone, the two imported before the request are this leaf's.
+	if info.HandshakesUnderWay != 2 {
+		t.Fatalf("this leaf's handshake owes %d before its walk, want 2", info.HandshakesUnderWay)
+	}
+	// And after the walk tried them, the same: the walk's progress changes nothing here.
+	for _, fpr := range []string{"sha256:before-1", "sha256:before-2"} {
+		if err := m.Store.UpsertMoveFanout(ctx, store.MoveFanout{AccountID: a.ID, ContactFpr: fpr, LeafKid: res.Kid, Status: "pending", Attempts: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if info, _ = m.Certificate(ctx, a.ID, now); info.HandshakesUnderWay != 2 {
+		t.Fatalf("this leaf's handshake owes %d after its walk tried them, want 2", info.HandshakesUnderWay)
 	}
 }

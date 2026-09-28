@@ -219,32 +219,30 @@ func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact)
 	return false
 }
 
-// HandshakesTried counts, of the contacts HandshakesOwed counts, those the campaign of the leaf
-// whose key is kid has already tried and not reached (their move_fanout row for kid is pending).
-// They wait for `account announce`, which resumes that campaign, not for another leaf: telling the
-// owner to have the wallet sign again for them was wrong (found by pact-cloud's live-local run, L5,
-// after a move installed through the real wallet).
-func (m *Manager) HandshakesTried(ctx context.Context, accountID, kid string) (int, error) {
+// HandshakesUnderWay counts, of the contacts HandshakesOwed counts, those the campaign of the
+// leaf whose key is kid owes the handshake (Campaign.Owes: imported before that leaf was
+// requested). They wait for nothing but that walk, which `account announce` reports and resumes;
+// the rest wait for the identity's next leaf. It reads the ledger, not the walk's progress, so it
+// says the same before the walk has reached anyone and after (pact-cloud e2e-suite-staging, L5,
+// 2026-09-28, read it once each side of the walk and was told two things).
+func (m *Manager) HandshakesUnderWay(ctx context.Context, accountID, kid string) (int, error) {
 	if kid == "" {
 		return 0, nil
+	}
+	camp, err := m.CampaignFor(ctx, accountID, kid)
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
 	}
 	held, err := m.Store.ListContacts(ctx, accountID)
 	if err != nil {
 		return 0, err
 	}
-	rows, err := m.Store.ListMoveFanout(ctx, accountID)
-	if err != nil {
-		return 0, err
-	}
-	tried := map[string]bool{}
-	for _, r := range rows {
-		if r.LeafKid == kid && r.Status == "pending" {
-			tried[r.ContactFpr] = true
-		}
-	}
 	n := 0
 	for _, c := range held {
-		if c.HandshakeDue && c.Status != "blocked" && tried[c.Fingerprint] {
+		if camp.Owes(c) {
 			n++
 		}
 	}
