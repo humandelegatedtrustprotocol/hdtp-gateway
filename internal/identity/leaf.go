@@ -742,11 +742,11 @@ type CertificateInfo struct {
 	// HandshakesOwed counts the imported contacts waiting for this identity's next leaf
 	// (Manager.HandshakesOwed): a renewal, or a first leaf, is what sends them the handshake.
 	HandshakesOwed int
-	// HandshakesTried is how many of those the current leaf's campaign has tried and not reached
-	// (Manager.HandshakesTried): `account announce` resumes it for them.
-	HandshakesTried int
-	Superseded      []string
-	Former          []string
+	// HandshakesUnderWay is how many of those the current leaf's campaign owes (Manager.
+	// HandshakesUnderWay): `account announce` reports and resumes that walk; no new leaf is needed.
+	HandshakesUnderWay int
+	Superseded         []string
+	Former             []string
 }
 
 // Served reports whether this host holds a current leaf for the identity. An identity can hold its
@@ -793,7 +793,7 @@ func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Ti
 	if info.HandshakesOwed, err = m.HandshakesOwed(ctx, accountID); err != nil {
 		return CertificateInfo{}, err
 	}
-	if info.HandshakesTried, err = m.HandshakesTried(ctx, accountID, info.Kid); err != nil {
+	if info.HandshakesUnderWay, err = m.HandshakesUnderWay(ctx, accountID, info.Kid); err != nil {
 		return CertificateInfo{}, err
 	}
 	return info, nil
