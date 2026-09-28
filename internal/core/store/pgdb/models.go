@@ -223,6 +223,11 @@ type Owner struct {
 	CreatedAt   int64
 }
 
+type OwnerPresence struct {
+	ID     int64
+	SeenAt int64
+}
+
 type PendingAddress struct {
 	AccountID string
 	Root      string

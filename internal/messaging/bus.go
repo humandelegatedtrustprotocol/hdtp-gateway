@@ -35,6 +35,12 @@ const (
 	// EventAttention: a condition only the owner can clear arose — an
 	// integration's token died and needs re-authorizing.
 	EventAttention EventKind = "attention"
+	// EventAnswered: the owner's agent answered an agent-answered request (Ref names it); the
+	// call holding it, in whichever process, reads the answer from the store (SPEC §6.8).
+	EventAnswered EventKind = "answered"
+	// EventRelayed: the held call handed that answer to its caller (Ref names the request); the
+	// process that took the answer reports it relayed.
+	EventRelayed EventKind = "relayed"
 )
 
 // FeedCalls are the tools whose call means "a contact ACTED": the node publishes an EventCall
@@ -56,7 +62,7 @@ type Event struct {
 	// Status is the new delivery status on an EventDelivery.
 	Status string `json:"status,omitempty"`
 	// Ref names what the event is about beyond the thread and the contact: the tool of an
-	// EventCall.
+	// EventCall, the request of an EventPending, EventAnswered or EventRelayed.
 	Ref string `json:"ref,omitempty"`
 }
 

@@ -189,21 +189,26 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	select {
-	case <-evs:
-	case <-wctx.Done():
-		// The clock ran out. The cursor stays where the read above left it — the newest change it
-		// saw — and never jumps to a clock, which would pass over a change whose wake was lost.
-		res.TimedOut = true
-		r, err := jsonResult(res)
-		return r, nil, err
+	for {
+		select {
+		case <-evs:
+		case <-wctx.Done():
+			// The clock ran out. The cursor stays where the last read left it — the newest change
+			// it saw — and never jumps to a clock, which would pass over a change whose wake was lost.
+			res.TimedOut = true
+			r, err := jsonResult(res)
+			return r, nil, err
+		}
+		// Every event is a reason to look, and not every one is news for this wait (an answer
+		// relayed, say): what the store holds decides whether to answer or wait on.
+		if res, err = ot.d.changesSince(ctx, a.AccountID, *a.Since); err != nil {
+			return nil, nil, err
+		}
+		if res.news() {
+			r, err := jsonResult(res)
+			return r, nil, err
+		}
 	}
-	after, err := ot.d.changesSince(ctx, a.AccountID, *a.Since)
-	if err != nil {
-		return nil, nil, err
-	}
-	r, err := jsonResult(after)
-	return r, nil, err
 }
 
 // news is whether a wait has something to answer with rather than park on: a thread moved, a
