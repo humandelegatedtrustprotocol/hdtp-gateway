@@ -202,7 +202,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		return nil, fmt.Errorf("node: no invite landing page")
 	}
 	if o.Bus == nil {
-		o.Bus = messaging.NewBus()
+		o.Bus = messaging.NewBus(o.Store)
 	}
 	n := &Node{
 		opts: o, cfg: o.Config,
@@ -598,7 +598,8 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			// wake it through the messaging service; the calendar and media
 			// tools would otherwise be invisible until the next poll.
 			if n.opts.Bus != nil && wakesFeed(action, outcome) {
-				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID})
+				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID,
+					ContactFpr: callerOf(resource), Ref: action})
 			}
 		},
 	})...)
@@ -1344,19 +1345,24 @@ func (n *Node) Stop(ctx context.Context) error {
 	return err
 }
 
+// callerOf reads the caller a tool's audit resource names (`caller:<fpr>`, or `contact:<fpr>`
+// where no caller field is written), for the call it records in the change log.
+func callerOf(resource string) string {
+	fpr := ""
+	for _, f := range strings.Fields(resource) {
+		if v, ok := strings.CutPrefix(f, "caller:"); ok && v != "" {
+			fpr = v
+		}
+		if v, ok := strings.CutPrefix(f, "contact:"); ok && fpr == "" {
+			fpr = v
+		}
+	}
+	return fpr
+}
+
 // wakesFeed reports whether a public-surface audit row is a substantive
-// contact action the change feed should wake for. Mirrors the owner MCP's
-// callActions — messages are excluded because the messaging bus already wakes.
+// contact action the change feed should wake for: one of messaging.FeedCalls,
+// the list the owner MCP's feed reports from, and not a refusal.
 func wakesFeed(action, outcome string) bool {
-	if outcome != "ok" && outcome != "delivered" {
-		return false
-	}
-	// sealed_call is absent on purpose: the wrapper row fires on any opened
-	// envelope, refusals included — the inner tool's own audited action is
-	// what wakes the feed.
-	switch action {
-	case "book_slot", "cancel_booking", "check_availability", "send_media", "get_status":
-		return true
-	}
-	return false
+	return (outcome == "ok" || outcome == "delivered") && messaging.FeedCalls[action]
 }

@@ -27,7 +27,7 @@ func inboxEnv(t *testing.T) (*http.ServeMux, *messaging.Service, *messaging.Bus,
 		t.Fatal(err)
 	}
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
-	bus := messaging.NewBus()
+	bus := messaging.NewBus(st)
 	msg := &messaging.Service{Store: st, Bus: bus}
 	mux := http.NewServeMux()
 	MountInboxPages(mux, InboxDeps{Store: st, Msg: msg, Bus: bus})

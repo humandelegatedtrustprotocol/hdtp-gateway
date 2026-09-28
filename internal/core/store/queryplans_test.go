@@ -242,7 +242,13 @@ func TestEveryQueryHasAPlan(t *testing.T) {
 		})
 
 		found := map[string][]string{}
+		listed := map[string]bool{}
 		for _, q := range generatedQueries(t, "pgdb") {
+			if why, ok := unplannable[q.Name]; ok {
+				listed[q.Name] = true
+				t.Logf("%s is not planned: %s", q.Name, why)
+				continue
+			}
 			// GENERIC_PLAN plans a statement with its placeholders still in it, which is what the node
 			// prepares. It goes down the wire as it is: pgx would otherwise want a value for each.
 			res, err := conn.PgConn().Exec(ctx, "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+q.SQL).ReadAll()
@@ -291,8 +297,19 @@ func TestEveryQueryHasAPlan(t *testing.T) {
 				found[q.Name] = why
 			}
 		}
+		for name := range unplannable {
+			if !listed[name] {
+				t.Errorf("unplannable names %s, which is not a generated statement: remove it", name)
+			}
+		}
 		settle(t, "postgres", found, justified, justifiedPostgres)
 	})
+}
+
+// unplannable are the statements EXPLAIN does not take, each with why it needs no plan. Only a
+// utility statement that reads no table belongs here.
+var unplannable = map[string]string{
+	"ListenChanges": "LISTEN reads no table; EXPLAIN takes no utility statement",
 }
 
 // rowsLike is what both drivers' result sets have in common.

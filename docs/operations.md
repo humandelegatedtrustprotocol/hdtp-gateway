@@ -112,7 +112,7 @@ not a surprise, and so that the one knob that exists is findable.
   `pool_min_conns`, `pool_max_conn_lifetime`) to `postgres_dsn`.
 - **Every hour** the node removes what has outlived its own window, whatever retention an account
   has set: idempotency records of sealed calls, which a node would otherwise keep one of for every
-  call it ever took, and owner sessions nobody came back to. With a retention window set it also
+  call it ever took, owner sessions nobody came back to, and change-log rows older than a week. With a retention window set it also
   removes the messages, threads and media past it.
 - **Every statement the store can run is checked at build time** to have an index on any table
   that grows (`TestEveryQueryHasAPlan`, both engines). To see the numbers on your own hardware:
@@ -145,7 +145,8 @@ the setup URL a first run prints works on the portal of the process that printed
 
 What each process still keeps to itself, and so what is not yet shared between them:
 
-- the event bus: a `wait_for_updates` or a portal inbox wakes for what its own process writes;
+- an agent-answered call's waiter, which only an answer given through its own process's owner
+  MCP reaches, and the owner agent's presence, which is what its own owner MCP last saw;
 - accounts, their keys and certificates, loaded at start and adopted by the process that created
   or installed them; and the cache of composed per-caller servers;
 - the §12 rate buckets (each process grants the whole budget);

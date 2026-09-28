@@ -104,7 +104,7 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bus := messaging.NewBus()
+	bus := messaging.NewBus(st)
 	return &node{
 		st: st, acct: a, kp: kp, spki: spki, card: card,
 		root: w.Fpr, leafDER: h.LeafDER, endpoint: endpoint,
@@ -273,7 +273,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	var start struct {
 		Cursor int64 `json:"cursor"`
 	}
-	if err := json.Unmarshal([]byte(callTool(t, cs, "wait_for_updates", map[string]any{"account_id": alice.acct.ID})), &start); err != nil || start.Cursor == 0 {
+	if err := json.Unmarshal([]byte(callTool(t, cs, "wait_for_updates", map[string]any{"account_id": alice.acct.ID})), &start); err != nil {
 		t.Fatalf("first wait: %v", err)
 	}
 
@@ -282,7 +282,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	woke := make(chan string, 1)
 	go func() {
 		res, err := cs.CallTool(agentCtx, &mcp.CallToolParams{Name: "wait_for_updates",
-			Arguments: map[string]any{"account_id": alice.acct.ID, "since_ts": start.Cursor - 1, "timeout_sec": 25}})
+			Arguments: map[string]any{"account_id": alice.acct.ID, "since": start.Cursor, "timeout_sec": 25}})
 		if err != nil || len(res.Content) == 0 {
 			woke <- ""
 			return

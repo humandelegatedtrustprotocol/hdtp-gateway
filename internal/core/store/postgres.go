@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
-	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -457,12 +456,7 @@ func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]Audi
 	if f.Limit <= 0 {
 		f.Limit = 200
 	}
-	// Postgres types LIMIT as int32, so a page size that cannot fit is clamped
-	// rather than wrapped to a negative one (gosec G115). No real page reaches it.
-	var lim int32 = math.MaxInt32
-	if f.Limit >= 0 && f.Limit <= math.MaxInt32 {
-		lim = int32(f.Limit)
-	}
+	lim := pgLimit(f.Limit)
 	// Two statements, not one with two optional filters; see the sqlite side for why, and for
 	// why the account placeholder keeps sqlc's name.
 	var rs []pgdb.AuditEvent
