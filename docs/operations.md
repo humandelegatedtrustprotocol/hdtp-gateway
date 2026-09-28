@@ -142,9 +142,6 @@ the setup URL a first run prints works on the portal of the process that printed
 
 What each process still keeps to itself, and so what is not yet shared between them:
 
-- the public URL and the LAN flag saved in the portal's settings, which the process that saved them
-  applies at once and the others at their next start (an account's seal, saved the same way,
-  reaches every process);
 - the §12 rate buckets (each process grants the whole budget);
 - the background loops (retries, retention), which every process runs;
 - blobs under `data_dir/blobs` and the master key file, local to each host;

@@ -102,6 +102,11 @@ type Options struct {
 	// default (SPEC §7.4). Read at build time, per account.
 	Quota func(accountID string) int64
 
+	// SealPolicy is the seal the owner set for the node, read when an account is built — at
+	// start and at every adoption — so an account adopted after the owner changed it serves the
+	// new one (SPEC §4.6, §8.2). serve supplies the settings service's; nil is Config.Seal.
+	SealPolicy func() core.Seal
+
 	// Bus is the node-wide event bus (SPEC §7.8). Supplying it lets the portal
 	// and the owner MCP see the same events the public surface publishes; nil
 	// makes one, reachable through Bus().
@@ -408,11 +413,20 @@ var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 var errAwaitingKeyless = fmt.Errorf("%w (it holds no key here)", ErrAwaitingLeaf)
 
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
-	return n.buildAccountSealed(ctx, rec, n.cfg.Seal)
+	return n.buildAccountSealed(ctx, rec, n.sealPolicy())
 }
 
-// buildAccountSealed is buildAccount with the seal policy to serve under: the node's own (boot,
-// adoption) or the account row's (a reload after another process changed it).
+// sealPolicy is the seal the owner set for the node, as it is now.
+func (n *Node) sealPolicy() core.Seal {
+	if n.opts.SealPolicy != nil {
+		return n.opts.SealPolicy()
+	}
+	return n.cfg.Seal
+}
+
+// buildAccountSealed is buildAccount with the seal policy to serve under: the owner's (boot,
+// adoption) or the account row's (a reload after another process changed it, which wrote the
+// row before it said so).
 func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal core.Seal) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
 	if err != nil {
@@ -754,10 +768,16 @@ func (n *Node) PublicURL() string {
 // endpoint it was issued for, and an account changes address when its wallet issues a leaf for
 // the new one (`account csr -purpose move`). The caller names the accounts that now need that.
 func (n *Node) SetPublicURL(url string) {
+	n.UsePublicURL(url)
+	n.opts.auditAs("owner", "settings_public_url", "url:"+url, "ok")
+}
+
+// UsePublicURL is SetPublicURL without its audit row: another node process on the store saved the
+// change, and audited it there.
+func (n *Node) UsePublicURL(url string) {
 	n.liveMu.Lock()
 	n.publicURL = url
 	n.liveMu.Unlock()
-	n.opts.auditAs("owner", "settings_public_url", "url:"+url, "ok")
 }
 
 // LANAllowed reports whether connections from private-range sources are served.
@@ -769,10 +789,16 @@ func (n *Node) LANAllowed() bool {
 
 // SetLANConnections flips the LAN flag for the next connection.
 func (n *Node) SetLANConnections(allow bool) {
+	n.UseLANConnections(allow)
+	n.opts.auditAs("owner", "settings_lan", "", boolWord(allow))
+}
+
+// UseLANConnections is SetLANConnections without its audit row: another node process on the store
+// saved the change, and audited it there.
+func (n *Node) UseLANConnections(allow bool) {
 	n.liveMu.Lock()
 	n.lanAllow = allow
 	n.liveMu.Unlock()
-	n.opts.auditAs("owner", "settings_lan", "", boolWord(allow))
 }
 
 func boolWord(b bool) string {
