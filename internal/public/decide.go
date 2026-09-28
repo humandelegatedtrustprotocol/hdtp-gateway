@@ -64,8 +64,82 @@ func (s *RecipientState) currentKey() *identity.Keypair {
 	return nil
 }
 
-// nodeState builds Decide's input from the store and the supplied state.
-func (id *Identifier) nodeState(ctx context.Context, accountID string, st *RecipientState) (pactidentity.NodeState, error) {
+// peeked is the proof a sealed call's plaintext carries, read before Decide: the chain of the full
+// form, or the leaf fingerprint the small form names. Nothing read here is trusted; it only says
+// which pins Decide is handed (pinsFor), and Decide opens the envelope again and verifies it.
+type peeked struct {
+	Chain []string `json:"chain"`
+	Leaf  string   `json:"leaf"`
+}
+
+// peekProof opens e with the key Decide would pick (the kid's, current or not yet expired) and reads
+// its proof. The zero value when it cannot: an unknown kid, a suite it does not know, a ciphertext
+// that does not open, a plaintext that is not JSON. One extra HPKE open per envelope buys handing
+// Decide a few pins instead of every contact.
+func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peeked {
+	var none peeked
+	var header struct {
+		Kid   string `json:"kid"`
+		Suite string `json:"suite"`
+	}
+	aad := pactidentity.FromB64url(e.Protected)
+	if json.Unmarshal(aad, &header) != nil || !pactidentity.SuiteKnown(header.Suite) {
+		return none
+	}
+	for _, k := range st.Keys {
+		if k.Kid != header.Kid || !(k.Current || !now.After(k.NotAfter)) {
+			continue
+		}
+		der, err := identity.MarshalPKCS8(k.KP)
+		if err != nil {
+			return none
+		}
+		priv, err := pactidentity.ParsePKCS8(der)
+		if err != nil {
+			return none
+		}
+		plaintext, err := pactidentity.Open(header.Suite, priv, []byte(pactidentity.InfoV2), aad, pactidentity.FromB64url(e.Enc), pactidentity.FromB64url(e.Ct))
+		if err != nil {
+			return none
+		}
+		var p peeked
+		if json.Unmarshal(plaintext, &p) != nil {
+			return none
+		}
+		return p
+	}
+	return none
+}
+
+// pinsFor is the contacts Decide needs for an envelope whose proof is p, and no others. Decide reads
+// pins three ways (pact-identity envelope.go): the pin of the root a chain proves (its tier, a
+// renewal, a new address), the pins at the address the chain's leaf names (the address claim of
+// PACT sec. 5.2), and the pin holding the leaf a small form names (pinHolding). Until 2026-09-28 it
+// was handed every contact, so a call cost the node time in proportion to how many the account held
+// (decide_candidates_test.go holds the decisions equal). A proof that cannot be read, or a chain
+// that does not parse, gets no pins: Decide refuses such an envelope whatever it is handed.
+func (id *Identifier) pinsFor(ctx context.Context, accountID string, p peeked) ([]store.Contact, error) {
+	switch {
+	case len(p.Chain) == 2:
+		leaf, errLeaf := pactidentity.Parse(pactidentity.FromB64url(p.Chain[0]))
+		root, errRoot := pactidentity.Parse(pactidentity.FromB64url(p.Chain[1]))
+		if errLeaf != nil || errRoot != nil {
+			return nil, nil
+		}
+		endpoint := ""
+		if len(leaf.URIs) > 0 {
+			endpoint = leaf.URIs[0]
+		}
+		return id.Store.PinCandidates(ctx, accountID, pactidentity.FingerprintOf(root), endpoint, "")
+	case p.Leaf != "":
+		return id.Store.PinCandidates(ctx, accountID, "", "", p.Leaf)
+	}
+	return nil, nil
+}
+
+// nodeState builds Decide's input from the store and the supplied state, with the pins the
+// envelope's proof could concern.
+func (id *Identifier) nodeState(ctx context.Context, accountID string, st *RecipientState, p peeked) (pactidentity.NodeState, error) {
 	ns := pactidentity.NodeState{
 		Endpoint: st.Endpoint, AcceptNewHosts: st.AcceptNewHosts, Former: st.Former, SiblingKids: st.SiblingKids,
 	}
@@ -82,24 +156,11 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *Recip
 		}
 		ns.Keys = append(ns.Keys, pactidentity.HeldKey{Kid: k.Kid, Leaf: pactidentity.B64url(k.Leaf), PKCS8: pactidentity.B64url(der), Current: k.Current})
 	}
-	contacts, err := id.Store.ListContacts(ctx, accountID)
+	contacts, err := id.pinsFor(ctx, accountID, p)
 	if err != nil {
 		return ns, err
 	}
-	for _, c := range contacts {
-		if len(c.Leaf) > 0 {
-			// The pin says which leaf it holds (PACT 2.1.3, CONTRACT §5), so a small-form envelope —
-			// from a sender who has proved nothing yet — is matched on a string and ONE pinned leaf is
-			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
-			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
-			// certificate: a row where the two disagree is unreadable state, and is said.
-			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: c.Status}
-			if len(c.SPKI) > 0 {
-				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
-			}
-			ns.Pins = append(ns.Pins, pin)
-		}
-	}
+	ns.Pins = pinsOf(contacts)
 	tombs, err := id.Store.ListTombstones(ctx, accountID)
 	if err != nil {
 		return ns, err
@@ -117,6 +178,26 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *Recip
 	return ns, nil
 }
 
+// pinsOf is Decide's pins, from contact rows: every row that holds a leaf.
+func pinsOf(contacts []store.Contact) []pactidentity.Pin {
+	var pins []pactidentity.Pin
+	for _, c := range contacts {
+		if len(c.Leaf) > 0 {
+			// The pin says which leaf it holds (PACT 2.1.3, CONTRACT §5), so a small-form envelope —
+			// from a sender who has proved nothing yet — is matched on a string and ONE pinned leaf is
+			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
+			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
+			// certificate: a row where the two disagree is unreadable state, and is said.
+			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: c.Status}
+			if len(c.SPKI) > 0 {
+				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
+			}
+			pins = append(pins, pin)
+		}
+	}
+	return pins
+}
+
 // decideEnvelope is the `v: 2` half of OpenSealed.
 func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
 	if id.RecipientState == nil {
@@ -132,7 +213,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	// The members go to the library exactly as they arrived: it holds each to its one spelling
 	// (PACT §13.1), which a decode and re-encode here would launder.
 	now := id.now()
-	ns, err := id.nodeState(ctx, accountID, st)
+	ns, err := id.nodeState(ctx, accountID, st, peekProof(now, e, st))
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
@@ -306,7 +387,7 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 // checks of PACT §14.3 and §5.3 have run — the same outcomes the sealed path
 // reaches through Decide, so a chain presented at the TLS layer can do nothing
 // an envelope carrying it could not. Fingerprint is the identity the per-caller
-// server is composed for and the session is bound to: the root when the pin
+// server is composed for: the root when the pin
 // stands, "" — an anonymous guest — when the leaf proved nothing for it (a
 // superseded or conflicting leaf, a blocked contact). Refusal names the code
 // every substantive call answers while a new address awaits the owner.
@@ -335,7 +416,7 @@ func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
 // it; another endpoint is §5.3 — re-pinned with the former endpoint and the
 // owner's event under `auto`, parked as a pending address under `ask`, and
 // and under `ask` after a removal within the tombstone window. It runs once per
-// request, before the per-caller server is composed and the session bound,
+// request, before the per-caller server is composed,
 // and its result is what PoolGate enforces on every call.
 func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) TransportCaller {
 	root := tf.ClientCertFingerprint

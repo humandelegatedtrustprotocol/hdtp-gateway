@@ -798,8 +798,14 @@ func TestGetCardAdvertisesTheLimitsInForce(t *testing.T) {
 	if got.Limits != DefaultLimits() {
 		t.Fatalf("defaults not advertised: %+v", got.Limits)
 	}
-	if got.Limits.TextBytes != 16384 || got.Limits.ContactCallsPerHour != 60 || got.Limits.GuestCallsPerHour != 10 {
-		t.Fatalf("documented numbers drifted: %+v", got.Limits)
+	// PACT §12's figures, and the members' wire names: a card that renamed one would pass the
+	// comparison above and still say nothing a peer reads.
+	want := `"contact_calls_per_second":1,"contact_burst":10,"identity_calls_per_second":200,"guest_calls_per_hour":10,"guest_source_calls_per_hour":60`
+	if got.Limits.TextBytes != 16384 || !strings.Contains(body(t, res), want) {
+		t.Fatalf("documented numbers drifted: %s", body(t, res))
+	}
+	if strings.Contains(body(t, res), "contact_calls_per_hour") {
+		t.Fatalf("the hourly contact budget is gone from PACT §12 and is still advertised: %s", body(t, res))
 	}
 }
 

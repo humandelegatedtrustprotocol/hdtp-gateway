@@ -46,6 +46,19 @@ func (q *Queries) CountContactsByStatus(ctx context.Context, arg CountContactsBy
 	return count, err
 }
 
+const countHeldContacts = `-- name: CountHeldContacts :one
+SELECT COUNT(*) FROM contacts WHERE account_id = $1 AND status IN ('active', 'pending_out')
+`
+
+// The contacts an account holds against its contact cap: active rows and the requests it sent
+// (pending_out). pending_in is written by strangers and blocked is a refusal, so neither counts.
+func (q *Queries) CountHeldContacts(ctx context.Context, accountID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countHeldContacts, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteContact = `-- name: DeleteContact :execrows
 DELETE FROM contacts WHERE account_id = $1 AND fingerprint = $2
 `
@@ -123,7 +136,7 @@ func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteEx
 }
 
 const getContact = `-- name: GetContact :one
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at FROM contacts WHERE account_id = $1 AND fingerprint = $2
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at, leaf_fingerprint FROM contacts WHERE account_id = $1 AND fingerprint = $2
 `
 
 type GetContactParams struct {
@@ -157,13 +170,14 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 		&i.EverActive,
 		&i.HandshakeDue,
 		&i.RequestedAt,
+		&i.LeafFingerprint,
 	)
 	return i, err
 }
 
 const importContact = `-- name: ImportContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due, requested_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, leaf_fingerprint, root_cert, ever_active, handshake_due, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 `
 
 type ImportContactParams struct {
@@ -183,6 +197,7 @@ type ImportContactParams struct {
 	PinnedAt         sql.NullInt64
 	Endpoint         string
 	Leaf             []byte
+	LeafFingerprint  sql.NullString
 	RootCert         []byte
 	EverActive       int64
 	HandshakeDue     int64
@@ -213,6 +228,7 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 		arg.PinnedAt,
 		arg.Endpoint,
 		arg.Leaf,
+		arg.LeafFingerprint,
 		arg.RootCert,
 		arg.EverActive,
 		arg.HandshakeDue,
@@ -222,18 +238,19 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 }
 
 const importContactPin = `-- name: ImportContactPin :execrows
-UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, root_cert = COALESCE($4, root_cert), handshake_due = $5
-WHERE account_id = $6 AND fingerprint = $7 AND (leaf IS NULL OR octet_length(leaf) = 0)
+UPDATE contacts SET endpoint = $1, leaf = $2, leaf_fingerprint = $3, spki = $4, root_cert = COALESCE($5, root_cert), handshake_due = $6
+WHERE account_id = $7 AND fingerprint = $8 AND (leaf IS NULL OR octet_length(leaf) = 0)
 `
 
 type ImportContactPinParams struct {
-	Endpoint     string
-	Leaf         []byte
-	Spki         []byte
-	RootCert     []byte
-	HandshakeDue int64
-	AccountID    string
-	Fingerprint  string
+	Endpoint        string
+	Leaf            []byte
+	LeafFingerprint sql.NullString
+	Spki            []byte
+	RootCert        []byte
+	HandshakeDue    int64
+	AccountID       string
+	Fingerprint     string
 }
 
 // An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
@@ -244,6 +261,7 @@ func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinPara
 	result, err := q.db.Exec(ctx, importContactPin,
 		arg.Endpoint,
 		arg.Leaf,
+		arg.LeafFingerprint,
 		arg.Spki,
 		arg.RootCert,
 		arg.HandshakeDue,
@@ -257,29 +275,30 @@ func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinPara
 }
 
 const insertContact = `-- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, requested_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, leaf_fingerprint, chain_sent_kid, root_cert, ever_active, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 `
 
 type InsertContactParams struct {
-	ID           string
-	AccountID    string
-	Fingerprint  string
-	Spki         []byte
-	Status       string
-	Preset       string
-	Permissions  string
-	DisplayName  string
-	Card         string
-	CreatedAt    int64
-	PinnedAt     sql.NullInt64
-	InviteID     string
-	Endpoint     string
-	Leaf         []byte
-	ChainSentKid string
-	RootCert     []byte
-	EverActive   int64
-	RequestedAt  sql.NullInt64
+	ID              string
+	AccountID       string
+	Fingerprint     string
+	Spki            []byte
+	Status          string
+	Preset          string
+	Permissions     string
+	DisplayName     string
+	Card            string
+	CreatedAt       int64
+	PinnedAt        sql.NullInt64
+	InviteID        string
+	Endpoint        string
+	Leaf            []byte
+	LeafFingerprint sql.NullString
+	ChainSentKid    string
+	RootCert        []byte
+	EverActive      int64
+	RequestedAt     sql.NullInt64
 }
 
 // requested_at is the row's created_at when it is inserted as a request (pending_in, pending_out)
@@ -300,6 +319,7 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 		arg.InviteID,
 		arg.Endpoint,
 		arg.Leaf,
+		arg.LeafFingerprint,
 		arg.ChainSentKid,
 		arg.RootCert,
 		arg.EverActive,
@@ -308,8 +328,39 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 	return err
 }
 
+const listContactLeafKeysUnfilled = `-- name: ListContactLeafKeysUnfilled :many
+SELECT id, spki FROM contacts WHERE leaf IS NOT NULL AND octet_length(leaf) > 0 AND leaf_fingerprint IS NULL
+`
+
+type ListContactLeafKeysUnfilledRow struct {
+	ID   string
+	Spki []byte
+}
+
+// The fill after migration 0046 (Store.Migrate, fillLeafFingerprints): every row that holds a leaf
+// and no fingerprint of it, with the key beside the leaf. After the first fill, none.
+func (q *Queries) ListContactLeafKeysUnfilled(ctx context.Context) ([]ListContactLeafKeysUnfilledRow, error) {
+	rows, err := q.db.Query(ctx, listContactLeafKeysUnfilled)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContactLeafKeysUnfilledRow
+	for rows.Next() {
+		var i ListContactLeafKeysUnfilledRow
+		if err := rows.Scan(&i.ID, &i.Spki); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContacts = `-- name: ListContacts :many
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at FROM contacts WHERE account_id = $1 ORDER BY created_at, id
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at, leaf_fingerprint FROM contacts WHERE account_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -344,6 +395,7 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 			&i.EverActive,
 			&i.HandshakeDue,
 			&i.RequestedAt,
+			&i.LeafFingerprint,
 		); err != nil {
 			return nil, err
 		}
@@ -413,28 +465,101 @@ func (q *Queries) MoveContactStatus(ctx context.Context, arg MoveContactStatusPa
 	return result.RowsAffected(), nil
 }
 
+const pinCandidates = `-- name: PinCandidates :many
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at, leaf_fingerprint FROM contacts WHERE id IN (
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.fingerprint = $2 AND $2 <> ''
+    UNION
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.endpoint = $3 AND $3 <> ''
+    UNION
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.leaf_fingerprint = $4 AND $4 <> ''
+)
+ORDER BY created_at, id
+`
+
+type PinCandidatesParams struct {
+	AccountID       string
+	Fingerprint     string
+	Endpoint        string
+	LeafFingerprint sql.NullString
+}
+
+// The contacts a sealed call's proof could concern (PACT sec. 13.3; public/decide.go): the row of
+// the root a chain proves, the rows at the address its leaf names (the address claim of sec. 5.2),
+// and the row whose pinned leaf a small form names. Three index probes, then the rows they found by
+// id, in ListContacts' order,
+// so decide meets them as it met them among every contact. An empty argument matches nothing.
+func (q *Queries) PinCandidates(ctx context.Context, arg PinCandidatesParams) ([]Contact, error) {
+	rows, err := q.db.Query(ctx, pinCandidates,
+		arg.AccountID,
+		arg.Fingerprint,
+		arg.Endpoint,
+		arg.LeafFingerprint,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contact
+	for rows.Next() {
+		var i Contact
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Fingerprint,
+			&i.Spki,
+			&i.Status,
+			&i.Preset,
+			&i.Permissions,
+			&i.TrustFlag,
+			&i.DisplayName,
+			&i.Card,
+			&i.CreatedAt,
+			&i.PinnedAt,
+			&i.TheirPermissions,
+			&i.Petname,
+			&i.InviteID,
+			&i.Endpoint,
+			&i.Leaf,
+			&i.ChainSentKid,
+			&i.RootCert,
+			&i.EverActive,
+			&i.HandshakeDue,
+			&i.RequestedAt,
+			&i.LeafFingerprint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const redeemOverPendingContact = `-- name: RedeemOverPendingContact :execrows
 UPDATE contacts SET status = $1,
     ever_active = CASE WHEN $1 = 'active' THEN 1 ELSE ever_active END,
     preset = $2, permissions = $3, invite_id = $4,
     display_name = $5, card = $6, spki = $7,
-    endpoint = $8, leaf = $9, root_cert = COALESCE($10, root_cert)
+    endpoint = $8, leaf = $9, root_cert = COALESCE($10, root_cert), leaf_fingerprint = $13
 WHERE account_id = $11 AND fingerprint = $12 AND status = 'pending_in'
 `
 
 type RedeemOverPendingContactParams struct {
-	Status      string
-	Preset      string
-	Permissions string
-	InviteID    string
-	DisplayName string
-	Card        string
-	Spki        []byte
-	Endpoint    string
-	Leaf        []byte
-	RootCert    []byte
-	AccountID   string
-	Fingerprint string
+	Status          string
+	Preset          string
+	Permissions     string
+	InviteID        string
+	DisplayName     string
+	Card            string
+	Spki            []byte
+	Endpoint        string
+	Leaf            []byte
+	RootCert        []byte
+	AccountID       string
+	Fingerprint     string
+	LeafFingerprint sql.NullString
 }
 
 // A request still awaiting the owner (pending_in) redeems one of the owner's invites: the row
@@ -455,6 +580,7 @@ func (q *Queries) RedeemOverPendingContact(ctx context.Context, arg RedeemOverPe
 		arg.RootCert,
 		arg.AccountID,
 		arg.Fingerprint,
+		arg.LeafFingerprint,
 	)
 	if err != nil {
 		return 0, err
@@ -487,6 +613,21 @@ func (q *Queries) SetContactAccepted(ctx context.Context, arg SetContactAccepted
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setContactLeafFingerprint = `-- name: SetContactLeafFingerprint :exec
+UPDATE contacts SET leaf_fingerprint = $1 WHERE id = $2
+`
+
+type SetContactLeafFingerprintParams struct {
+	LeafFingerprint sql.NullString
+	ID              string
+}
+
+// The fill after migration 0046: one row's leaf fingerprint.
+func (q *Queries) SetContactLeafFingerprint(ctx context.Context, arg SetContactLeafFingerprintParams) error {
+	_, err := q.db.Exec(ctx, setContactLeafFingerprint, arg.LeafFingerprint, arg.ID)
+	return err
 }
 
 const takeBackContactRequest = `-- name: TakeBackContactRequest :execrows

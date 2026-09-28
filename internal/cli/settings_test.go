@@ -487,7 +487,7 @@ func TestOwnerActionsAreAuditedAsOwner(t *testing.T) {
 	// A knob the config file does NOT pin: seal and client_cert are both in the
 	// file above, and the file wins over the portal (SPEC §12.2), so posting one of
 	// those would be refused and audited as nothing.
-	p.post("/settings", url.Values{"limit.contact_per_hour": {"90"}})
+	p.post("/settings", url.Values{"limit.contacts": {"900"}})
 
 	// …and a peer action
 	kp, cert := peerIdentity(t, "bob")

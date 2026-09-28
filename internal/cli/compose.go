@@ -154,6 +154,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				// plus every live integration's `integration.<slug>` — so the
 				// switchboard can grant what this node can actually serve.
 				ServedPermissions: nd.ServedPermissions,
+				ContactCap:        nd.ContactCap,
 				Store:             st, Invalidate: nd.Invalidate, Audit: auditFn,
 				// One contact's card, re-fetched because somebody pressed the button: the
 				// same function the owner MCP's refresh_contact calls.
@@ -380,7 +381,7 @@ func landingPage(d node.LandingDeps) http.Handler {
 // (SPEC §8.5, §9.1). Nothing produced that event before.
 func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 	return &contacts.Manager{
-		Store: st,
+		Store: st, ContactCap: nd.ContactCap,
 		OnRequest: func(accountID, contactFpr string) {
 			nd.Bus().Publish(messaging.Event{
 				Kind: messaging.EventRequest, AccountID: accountID, ContactFpr: contactFpr,

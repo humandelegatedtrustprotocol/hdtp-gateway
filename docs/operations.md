@@ -56,35 +56,55 @@ On the VPS run the ingress; on the node pair with a one-time token:
 
 ## Call budgets
 
-Every call counts against its caller's hourly budget: PACT §12 sets 60 an hour
-for a contact and 10 for a guest, and a guest is counted per IP *and* key so one
-address cannot exhaust every guest and one key cannot hop addresses. A refusal
-is a `rate_limited` tool error and an audited `rate_limited` row, not a dropped
-connection — the caller's agent can read it and back off.
+Every call counts against a budget of the account it is addressed to, sized by
+how many contacts that account may hold (PACT §12): if it may hold 500, all 500
+may call it at once, one call a second each, and none is refused. Each budget is
+a token bucket — a rate and a burst:
 
-Those numbers are defaults, not a ceiling. Two busy agents can legitimately
-exceed sixty calls an hour, so both are settings:
+| Budget | Rate | Burst | Keyed by |
+|---|---|---|---|
+| a contact | 1 call/second | 10 | account, contact root |
+| every contact together | `limit.contacts` × 1/second, at most 200/second | one second of it | account |
+| a guest (a proven root that is not a contact) | 10 calls/hour | 10 | account, root, address |
+| an address alone (nothing proven) | 60 calls/hour | 60 | account, address |
+| calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | 20 calls/hour | 20 | account |
+
+Calls out to a contact spend that contact's rate and the account's aggregate, in
+buckets of their own. A refusal is a `rate_limited` tool error carrying
+`retry_after` — the whole seconds until the bucket holds a call again — and an
+audited `rate_limited` row, not a dropped connection, so the caller's agent can
+read it and back off. A call out that is refused never leaves the node.
+
+**The 200 is measured, and it is below what 500 contacts ask for.** One node on an Apple M2 Max
+served sealed `send_message` from 500 contacts at up to 280 calls a second in every run, and broke
+between 300 and 450 a second from run to run (`TestMeasureAccountCapacity`, internal/node; the
+numbers and the method are beside `NodeCapacityPerSecond` in internal/public/limits.go). So an
+identity allowed 500 contacts is advertised and held at 200 calls a second, not 500: all 500 may
+call at once only at two-fifths of a call a second each. The figure is the node's, and every
+identity on the node shares it.
+
+The one setting is how many contacts each identity may hold:
 
 | Setting | Environment | Default | Meaning |
 |---|---|---|---|
-| `limit.contact_per_hour` | `PACT_LIMIT_CONTACT_PER_HOUR` | 60 | calls per hour per contact |
-| `limit.guest_per_hour` | `PACT_LIMIT_GUEST_PER_HOUR` | 10 | calls per hour per guest IP+key |
+| `limit.contacts` | `PACT_LIMIT_CONTACTS` | 500 | contacts each identity may hold — active contacts plus the requests it sent — and the size of its call budget |
 
-Both are ordinary knobs: the portal's Settings page edits them under Security,
-the config file carries them as `limit_contact_per_hour` and
-`limit_guest_per_hour`, and the environment pins them above both (SPEC §12.2),
-in which case the page shows them locked and says why.
+It is an ordinary knob: the portal's Settings page edits it under Security, the
+config file carries it as `limit_contacts`, and the environment pins it above
+both (SPEC §12.2), in which case the page shows it locked and says why. It is
+read per use, so a change takes effect with no restart. Empty, zero or
+unparseable restores 500 rather than removing the cap. The cap is enforced
+wherever a contact is added — approving a request, unblocking a contact,
+accepting somebody's invite, sending a request, a peer redeeming an auto-accept
+invite, approving a contact at a new address, and an import — and nothing already
+held is removed when it is lowered.
 
-They are read per call, so a change takes effect immediately with no restart.
-Empty, zero or unparseable restores the documented number rather than removing
-the cap: a bad row must not open the gate.
-
-The counters live in memory. A restart gives every caller a fresh window, which
-is the trade-off for not writing to the database on every call — the budget is
-there to blunt abuse, not to meter usage, and an attacker who can restart your
-node has already won. Memory is bounded: keys whose window has emptied are
-swept once per window, so a caller cycling addresses or fingerprints cannot
-grow the table indefinitely.
+The buckets live in memory. A restart refills every one, which is the trade-off
+for not writing to the database on every call — the budget is there to blunt
+abuse, not to meter usage, and an attacker who can restart your node has already
+won. Memory is bounded: a bucket that has refilled is exactly what a missing one
+starts as, so it is dropped (checked once a minute), and a caller cycling
+addresses or fingerprints cannot grow the table past who called lately.
 
 ## Connection bounds
 

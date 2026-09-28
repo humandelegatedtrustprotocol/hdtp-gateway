@@ -174,58 +174,51 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 	}
 }
 
-// PACT §12's caps are defaults, not a ceiling, so they are knobs — and a knob
-// has to behave like every other one: settable from the portal, overridable by
-// the file, and pinned by the environment above both (SPEC §12.2). A typo must
-// restore the documented number rather than removing the budget.
-func TestCallBudgetsAreOwnerSettableKnobs(t *testing.T) {
+// limit.contacts sizes every account's contact cap and call budget (PACT §12), so it is a knob —
+// and a knob behaves like every other one: settable from the portal, overridable by the file, and
+// pinned by the environment above both (SPEC §12.2). A typo restores the default rather than
+// removing the cap.
+func TestContactCapIsAnOwnerSettableKnob(t *testing.T) {
 	c, err := load(t, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.LimitContactPerHour != 0 || c.LimitGuestPerHour != 0 {
-		t.Fatalf("unset should mean the documented default: %+v", c)
+	if c.LimitContacts != 0 || c.ContactCap() != DefaultLimitContacts || DefaultLimitContacts != 500 {
+		t.Fatalf("unset should mean the default of 500: %d / %d", c.LimitContacts, c.ContactCap())
 	}
-
-	c, err = load(t, `{"limit_contact_per_hour": 200}`, nil)
+	c, err = load(t, `{"limit_contacts": 200}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.LimitContactPerHour != 200 {
-		t.Errorf("file layer ignored: %d", c.LimitContactPerHour)
+	if c.ContactCap() != 200 {
+		t.Errorf("file layer ignored: %d", c.ContactCap())
 	}
-
-	c, err = load(t, `{"limit_contact_per_hour": 200}`, map[string]string{
-		"PACT_LIMIT_CONTACT_PER_HOUR": "500", "PACT_LIMIT_GUEST_PER_HOUR": "25",
-	})
+	c, err = load(t, `{"limit_contacts": 200}`, map[string]string{"PACT_LIMIT_CONTACTS": "2500"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.LimitContactPerHour != 500 || c.LimitGuestPerHour != 25 {
-		t.Errorf("environment does not beat the file: %d/%d", c.LimitContactPerHour, c.LimitGuestPerHour)
+	if c.ContactCap() != 2500 {
+		t.Errorf("environment does not beat the file: %d", c.ContactCap())
 	}
-	if !c.EnvPinned["limit.contact_per_hour"] {
-		t.Error("an environment-set budget is not reported as pinned, so the portal would offer to change it")
+	if !c.EnvPinned["limit.contacts"] {
+		t.Error("an environment-set cap is not reported as pinned, so the portal would offer to change it")
 	}
-
 	// A value nobody can read is not a licence to stop counting.
-	c, err = load(t, "", map[string]string{"PACT_LIMIT_CONTACT_PER_HOUR": "lots"})
+	c, err = load(t, "", map[string]string{"PACT_LIMIT_CONTACTS": "lots"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.LimitContactPerHour != 0 {
-		t.Errorf("an unreadable budget became %d instead of the default", c.LimitContactPerHour)
+	if c.ContactCap() != DefaultLimitContacts {
+		t.Errorf("an unreadable cap became %d instead of the default", c.ContactCap())
 	}
-
-	// And the portal's own validation refuses what it would have to ignore.
-	if err := ValidateSetting("limit.guest_per_hour", "0"); err == nil {
-		t.Error("zero was accepted; it would read as the default, not as no calls")
+	if err := ValidateSetting("limit.contacts", "0"); err == nil {
+		t.Error("zero was accepted; it would read as the default, not as no contacts")
 	}
-	if err := ValidateSetting("limit.guest_per_hour", "25"); err != nil {
+	if err := ValidateSetting("limit.contacts", "2500"); err != nil {
 		t.Errorf("a plain number was refused: %v", err)
 	}
-	if err := ValidateSetting("limit.guest_per_hour", ""); err != nil {
-		t.Errorf("empty must restore the documented number: %v", err)
+	if err := ValidateSetting("limit.contacts", ""); err != nil {
+		t.Errorf("empty must restore the default: %v", err)
 	}
 }
 
