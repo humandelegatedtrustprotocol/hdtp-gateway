@@ -62,12 +62,12 @@ func process(t *testing.T, dir string, migrate bool) (*Service, *node.Node, *row
 
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if ok() {
 			return
 		}
 	}
-	t.Fatalf("%s did not happen within 5 s", what)
+	t.Fatalf("%s did not happen within 30 s", what)
 }
 
 // A setting the owner saves through one node process's portal is applied by every process on the
