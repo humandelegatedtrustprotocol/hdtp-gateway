@@ -339,17 +339,13 @@ func invite(ctx context.Context, o *Owned, label string, maxUses int) (string, e
 	if err != nil {
 		return "", fmt.Errorf("create_invite: %w", err)
 	}
-	var inv struct{ Token, URL string }
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(raw), &inv)
-	if inv.Token == "" {
-		if i := strings.LastIndex(inv.URL, "/i/"); i >= 0 {
-			inv.Token = inv.URL[i+3:]
-		}
+	i := strings.LastIndex(inv.URL, "/i/")
+	if i < 0 || inv.URL[i+3:] == "" {
+		return "", fmt.Errorf("create_invite answered no link: %s", raw)
 	}
-	if inv.Token == "" {
-		return "", fmt.Errorf("create_invite returned no usable token: %s", raw)
-	}
-	return inv.Token, nil
+	return inv.URL[i+3:], nil
 }
 
 // shorten folds whitespace and cuts s to n bytes, for a readable failure message.

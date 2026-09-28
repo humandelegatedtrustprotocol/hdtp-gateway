@@ -36,7 +36,13 @@ func TestListContactsNamesWhoseAddressARequestComesFrom(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	var rows []struct{ Fingerprint, Status, AddressOf string }
+	var rows []struct {
+		Fingerprint  string `json:"fingerprint"`
+		Status       string `json:"status"`
+		AddressClaim *struct {
+			Root string `json:"root"`
+		} `json:"address_claim"`
+	}
 	if err := json.Unmarshal([]byte(text), &rows); err != nil || len(rows) != 3 {
 		t.Fatalf("list_contacts answered %s (%v)", text, err)
 	}
@@ -45,8 +51,12 @@ func TestListContactsNamesWhoseAddressARequestComesFrom(t *testing.T) {
 		if r.Fingerprint == squatter.Fpr {
 			want = friend.Fpr
 		}
-		if r.AddressOf != want {
-			t.Errorf("%s (%s) carries address_of %q, want %q", r.Fingerprint, r.Status, r.AddressOf, want)
+		got := ""
+		if r.AddressClaim != nil {
+			got = r.AddressClaim.Root
+		}
+		if got != want {
+			t.Errorf("%s (%s) carries address_claim %q, want %q", r.Fingerprint, r.Status, got, want)
 		}
 	}
 }

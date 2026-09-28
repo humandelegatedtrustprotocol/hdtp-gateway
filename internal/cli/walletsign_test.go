@@ -178,8 +178,9 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if got := pending(); len(got) != 0 {
 		t.Fatalf("GET minted a request: %+v", got)
 	}
-	if res, _ := (&walletBrowser{t: t, base: base}).do("GET", "/identity/alice/wallet", nil, nil); res.StatusCode != 404 {
-		t.Fatalf("the asking page without a session: %d", res.StatusCode)
+	// Without a session: to sign in, and back to the page after, whether or not the slug exists.
+	if res, _ := (&walletBrowser{t: t, base: base}).do("GET", "/identity/alice/wallet", nil, nil); res.StatusCode != 303 || res.Header.Get("Location") != "/login?next=%2Fidentity%2Falice%2Fwallet" {
+		t.Fatalf("the asking page without a session: %d %q", res.StatusCode, res.Header.Get("Location"))
 	}
 	if res, _ := signedIn.do("GET", "/identity/nobody/wallet", nil, nil); res.StatusCode != 404 {
 		t.Fatalf("a slug this node does not hold: %d", res.StatusCode)
@@ -358,7 +359,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("the answer that must pass: %d %s", res.StatusCode, body)
 	}
-	var out map[string]string
+	var out map[string]any
 	if err := json.Unmarshal([]byte(body), &out); err != nil || out["endpoint"] != identity.EndpointFor(cfg.PublicURL, "alice") || out["notice"] != "" {
 		t.Fatalf("install answered %s", body)
 	}

@@ -13,6 +13,7 @@ package cli
 import (
 	"archive/zip"
 	"context"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/portable"
 	"github.com/pact-cloud/pact-gateway/internal/services/auditsink"
@@ -98,9 +100,9 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 	defer done()
 	ctx := context.Background()
 	auditFn := auditsink.New(ctx, st, io.Discard).Owner()
-	accountID := ""
+	accountID, owner := "", ""
 	if a, err := st.GetAccountBySlug(ctx, slug); err == nil {
-		accountID = a.ID
+		accountID, owner = a.ID, a.RootFingerprint
 	}
 	// Said before the file is written (design §4.5), on every surface that writes one.
 	fmt.Fprintln(stdout, exportNotice)
@@ -110,9 +112,16 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "export:", err)
 		return 1
 	}
-	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, f, slug, "pact-gateway "+version, time.Now())
+	now := time.Now()
+	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, f, slug, "pact-gateway "+version, now)
 	if cerr := f.Close(); err == nil {
 		err = cerr
+	}
+	// The file is read back as an importer reads it before it is reported: a file every importer
+	// refuses is not an export, and is removed rather than left behind with a zero exit.
+	var warnings []string
+	if err == nil {
+		err = checkWritten(out, owner, now, &warnings)
 	}
 	if err != nil {
 		_ = os.Remove(out)
@@ -124,12 +133,39 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "export:", err)
 		return 1
 	}
-	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d", accountID, res.Contacts, res.Threads, res.Messages, res.Media), "ok")
+	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d left_out:%s", accountID, res.Contacts, res.Threads, res.Messages, res.Media, strings.Join(res.LeftOutMessages, ",")), "ok")
 	fmt.Fprintf(stdout, "exported %s to %s: %s\n", slug, out, countsLine(res))
 	for _, s := range res.LeftOut {
 		fmt.Fprintf(stdout, "left out: %s\n", s)
 	}
+	// Over what PACT Cloud takes back in: written all the same (another host may take it), and said.
+	for _, w := range warnings {
+		fmt.Fprintf(stdout, "warning: %s: PACT Cloud's import would refuse this file; another host may take it\n", w)
+	}
 	return 0
+}
+
+// checkWritten reads the file just written back through the importer's check (portable.CheckWritten)
+// and names each of PACT Cloud's import ceilings it is over.
+func checkWritten(path, owner string, now time.Time, warnings *[]string) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("%w: the file written does not open as a zip, so it was not kept: %v", portable.ErrRefused, err)
+	}
+	defer zr.Close()
+	if err := portable.CheckWritten(&zr.Reader, owner, now); err != nil {
+		return err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	var size uint64
+	if n := fi.Size(); n > 0 {
+		size = uint64(n)
+	}
+	*warnings = portable.CloudCeilings(&zr.Reader, size)
+	return nil
 }
 
 // importCmd is `import FILE.zip -slug S [-yes]`. Without -yes it reads and checks the whole file,
@@ -191,32 +227,89 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return refused(err)
 	}
+	// PACT §9.2's step 1: the person sees the contacts, and nothing is written until they agree.
+	// The review is printed on EVERY run, -yes or not, before anything is written; -yes is the
+	// agreement only because the review it agrees to is on the screen above it, in the same run.
 	review(stdout, plan)
 	if !yes {
 		fmt.Fprintf(stdout, "nothing was written. If this is what you expect, run it again with -yes\n")
 		return 0
 	}
-	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")})
+	now := time.Now()
+	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, now)
 	if err != nil {
+		// A failure after the rows committed (a file that could not be written) names the account
+		// the import made; one before names what was there, if anything.
+		if plan.AccountID != "" {
+			accountID = plan.AccountID
+		}
 		auditFn("account_import", "account:"+accountID+" slug:"+slug, "error")
 		fmt.Fprintln(stderr, "import:", err)
 		return 1
 	}
-	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d already:%d new:%t",
-		plan.AccountID, res.Contacts, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New), "ok")
+	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d pins_filled:%d threads:%d messages:%d media:%d already:%d new:%t",
+		plan.AccountID, res.Contacts, res.PinsFilled, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New), "ok")
 	fmt.Fprintf(stdout, "imported %s into %s: %s", from, slug, countsLine(res))
+	if res.PinsFilled > 0 {
+		fmt.Fprintf(stdout, "; %d held contact(s) given the file's pin", res.PinsFilled)
+	}
 	if res.AlreadyHere > 0 {
 		fmt.Fprintf(stdout, "; %d already here, left as they were", res.AlreadyHere)
 	}
 	fmt.Fprintln(stdout)
-	// Every import ends with a NEW leaf from the wallet (standing rule 5), and the handshake to the
-	// imported contacts goes out when it is installed.
-	purpose := "renew"
 	if plan.New {
-		purpose = "move"
 		fmt.Fprintf(stdout, "not served yet: %s holds its root and no key.\n", slug)
 	}
-	fmt.Fprintf(stdout, "next: a new leaf from the wallet — start the node, run `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`. Installing it sends every imported contact this host's handshake\n", slug, purpose, slug)
+	return nextLeaf(ctx, cfg, st, auditFn, plan, stdout, stderr)
+}
+
+// nextLeaf is how every import ends (PACT §9.2 step 4, SPEC §3.10): with a request for a new leaf
+// for the importing endpoint, minted here — `move` for an identity new to this host, `renew` for
+// one it already serves — which the person completes in their wallet. Installing that leaf sends
+// every imported contact this host's handshake. The request goes through the same service
+// `account csr` uses (leafService.Mint), audited account_csr.
+func nextLeaf(ctx context.Context, cfg *core.Config, st store.Store, auditFn func(action, resource, outcome string), plan *portable.Plan, stdout, stderr io.Writer) int {
+	purpose, endpoint := identity.PurposeMove, identity.EndpointFor(cfg.PublicURL, plan.Slug)
+	acct, err := st.GetAccountByID(ctx, plan.AccountID)
+	if err != nil {
+		fmt.Fprintln(stderr, "import: the identity is imported and could not be read back:", err)
+		return 1
+	}
+	if !plan.New {
+		purpose = identity.PurposeRenew
+		// A renewal names the address the identity answers at now: its current leaf's.
+		if leaves, lerr := st.ListLeaves(ctx, acct.ID); lerr == nil {
+			for _, l := range leaves {
+				if l.State == identity.LeafCurrent && l.Endpoint != "" {
+					endpoint = l.Endpoint
+				}
+			}
+		}
+	}
+	by := func(why string) int {
+		fmt.Fprintf(stdout, "next: a new leaf from the wallet. %s Then: `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, and `pact-gateway account install-leaf -slug %s -chain <file>`. Installing it sends every imported contact this host's handshake\n", why, plan.Slug, purpose, plan.Slug)
+		return 0
+	}
+	if endpoint == "" {
+		return by("This node has no public URL yet, so there is no address to ask a leaf for: set public_url.")
+	}
+	kr, err := openKeyringFor(cfg)
+	if err != nil {
+		return by("The request could not be made here (" + err.Error() + ").")
+	}
+	leaves := leafService{idm: &identity.Manager{Store: st, Keyring: kr}, audit: auditFn, endpointFor: func(string) string { return endpoint }}
+	csr, err := leaves.Mint(ctx, acct, purpose, endpoint, "")
+	if err != nil {
+		return by("The request could not be made here (" + err.Error() + ").")
+	}
+	for _, w := range csr.Warnings {
+		fmt.Fprintf(stderr, "warning: %s\n", w.Text)
+	}
+	fmt.Fprintf(stdout, "next: a request for a new leaf is waiting: %s at %s, key %s, under root %s. Complete it in your wallet:\n", csr.Purpose, csr.Endpoint, csr.Kid, acct.RootFingerprint)
+	fmt.Fprintf(stdout, "  - the web wallet: start the node, sign in to its portal and open /identity/%s/wallet (the page asks your wallet for this leaf, replacing this request with one it can send);\n", plan.Slug)
+	fmt.Fprintf(stdout, "  - the CLI wallet: sign the request below (`pact id issue`), then `pact-gateway account install-leaf -slug %s -chain <file>`.\n", plan.Slug)
+	fmt.Fprintf(stdout, "Installing the leaf sends every imported contact this host's handshake.\n")
+	fmt.Fprint(stdout, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr.CSR})))
 	return 0
 }
 
@@ -224,16 +317,24 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 // what this identity already holds and keeps, and where the file disagrees with it.
 func review(w io.Writer, p *portable.Plan) {
 	if p.New {
-		fmt.Fprintf(w, "a new identity %s, root %s (%s)\n", p.Slug, p.Owner, p.OwnerName)
+		fmt.Fprintf(w, "a new identity %s, root %s (%q)\n", p.Slug, p.Owner, p.OwnerName)
 	} else {
 		fmt.Fprintf(w, "into %s, root %s, which is already here\n", p.Slug, p.Owner)
 	}
+	fill := map[string]bool{}
+	for _, root := range p.Fill {
+		fill[root] = true
+	}
 	for _, c := range p.Write {
+		if fill[c.Root] {
+			fmt.Fprintf(w, "  fill  %s, held here with no leaf: the file's pin at %s fills it\n", c.Root, c.Endpoint)
+			continue
+		}
 		pin := "pinned by its root only: its leaf did not travel or did not validate"
 		if c.Leaf != nil {
 			pin = "pinned at " + c.Endpoint
 		}
-		fmt.Fprintf(w, "  write %s %q (%s), %s, %s\n", c.Root, c.DisplayName, c.Name, c.Status, pin)
+		fmt.Fprintf(w, "  write %s %q (%q), %s, %s\n", c.Root, c.DisplayName, c.Name, c.Status, pin)
 	}
 	for _, root := range p.Keep {
 		fmt.Fprintf(w, "  keep  %s as this host holds it\n", root)

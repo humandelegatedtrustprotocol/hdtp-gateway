@@ -8,8 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -390,28 +391,40 @@ func isLoopbackBind(bind string) bool {
 const DefaultWalletURL = "https://ceremony.pact.contact"
 
 // validWalletURL holds wallet_url to an origin a form may be sent to: https, or http to a loopback
-// host (a wallet under test on this machine); a scheme and a host with nothing after them, because
-// it is written into the portal's form-action as an origin.
+// host (a wallet under test on this machine). It is written into the portal's Content-Security-Policy
+// as the signing page's form-action origin, so it is held to a strict grammar and not only to what
+// url.Parse accepts: a lower-case scheme, "://", a host that is a DNS name (letters, digits, hyphens
+// and dots), a dotted quad or a bracketed IPv6 literal, an optional port of 1 to 65535, and at most a
+// trailing slash. Nothing that could end a CSP source or start another (`;`, `'`, a space, `*`)
+// gets through.
 func validWalletURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return err
-	}
-	if u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+	m := walletOrigin.FindStringSubmatch(raw)
+	if m == nil {
 		return fmt.Errorf("want an origin, scheme://host[:port], and nothing after it")
 	}
-	switch u.Scheme {
+	scheme, host, port := m[1], m[2], m[3]
+	if port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 || port[0] == '0' {
+			return fmt.Errorf("the port %q is not 1 to 65535", port)
+		}
+	}
+	if strings.HasPrefix(host, "[") && net.ParseIP(strings.Trim(host, "[]")) == nil {
+		return fmt.Errorf("the host %q is not an IPv6 literal", host)
+	}
+	switch scheme {
 	case "https":
 		return nil
-	case "http":
-		h := u.Hostname()
+	default: // http
+		h := strings.Trim(host, "[]")
 		if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
 			return nil
 		}
 		return fmt.Errorf("http is for a wallet on this machine only; use https")
 	}
-	return fmt.Errorf("want https")
 }
+
+// walletOrigin is the grammar validWalletURL holds wallet_url to: scheme, host, port.
+var walletOrigin = regexp.MustCompile(`^(https|http)://([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-fA-F:.]+\])(?::([0-9]{1,5}))?/?$`)
 
 // WalletOrigin is wallet_url as the origin a browser writes (no trailing slash).
 func (c *Config) WalletOrigin() string { return strings.TrimRight(c.WalletURL, "/") }

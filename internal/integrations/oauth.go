@@ -479,6 +479,22 @@ func clientKey(integrationID string) string {
 	return "integration." + integrationID + ".oauth_client_secret"
 }
 
+// ClientKeys names the OAuth client credentials of every integration an account holds: the
+// settings rows an identity leaving this host erases with it (identity.Manager.Leave). The rows
+// are keyed by the integration's id, which the account's integrations table holds, so they are
+// found through it — read in the leave's own transaction.
+func ClientKeys(ctx context.Context, st store.IntegrationStore, accountID string) ([]string, error) {
+	ins, err := st.ListIntegrations(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(ins))
+	for _, in := range ins {
+		keys = append(keys, clientKey(in.ID))
+	}
+	return keys, nil
+}
+
 type clientCred struct {
 	// Integration binds the credential to the row it was registered for.
 	//

@@ -269,7 +269,7 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 		// Account-agnostic services: every method takes the account id, and the
 		// token identity is what scopes it (SPEC §8.4).
 		srv := ownermcp.NewServerWithExtra(ownermcp.Deps{
-			Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus()},
+			Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus()}, PublicURL: nd.PublicURL,
 			// Without this an approval made by the owner's AGENT writes the store
 			// while the cached per-caller server keeps serving the old tier, so
 			// the contact stays at guest tier until the node restarts (P14-05e).
@@ -296,8 +296,6 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 			},
 			// The switchboard the portal offers, so set_permissions can grant an integration.
 			ServedPermissions: nd.ServedPermissions,
-			// Where an invite lands, so create_invite answers the link to hand out (SPEC §4).
-			PublicURL: nd.PublicURL,
 		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
 		ownermcp.ForwardBus(ctx, srv, nd.Bus())
 		presence.Add(srv)
