@@ -112,8 +112,9 @@ PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench
 
   The first run seeds the file — 10,000 contacts, a million messages, a million audit rows — and
   takes about a minute. `make scale` runs these benchmarks over a scratch file, and times an import
-  of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), failing if reading or writing it
-  grows faster than linearly; the pre-push hook runs `make scale`.
+  of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), three rounds interleaved, failing
+  if the best of three takes more than 6 times as long for 4 times the threads, in reading or in
+  writing (linear is 4); the pre-push hook runs `make scale` last, after every other step.
 
 ## Export and import
 
@@ -144,10 +145,12 @@ file belongs to it merges, keeping every pin this host already holds. The rows g
 transaction, the files after it. An undelivered outbound message arrives as `failed`: delivering
 it was the old host's job, under the old host's leaf.
 
-Every import ends the same way: a new leaf from the wallet. The import names the command — `account
-csr -purpose move` for an identity that arrived, `-purpose renew` for one that was here — and
-installing the leaf sends every imported contact this host's handshake (`account announce` reports
-it).
+Every import ends the same way: a request for a new leaf, which the import mints itself — `move`
+for an identity that arrived, `renew` for one that was here — and prints with how to complete it
+(the portal's `/identity/<slug>/wallet` for the web wallet, or the request itself for the CLI
+wallet). Installing the leaf sends every imported contact this host's handshake (`account announce`
+reports it). With no `public_url` set there is no address to ask for, and it names `account csr`
+instead.
 
 This is not a backup of the node, and the node has none: what a host accumulates beyond contacts
 and chats is rebuilt, not restored. After a lost machine: `import`, the setup wizard for a passkey,
@@ -161,7 +164,7 @@ reconnect integrations, one certificate per identity.
 | `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good: `export -slug` each identity, then `import` each into a fresh data directory — an export never needed the master key, because it never held anything sealed under it. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so |
 | a leaf simply ran out (nobody renewed it) | the account stops being served within the hour and its key is destroyed; contacts keep their pins, and `doctor` warns before it happens | `account csr --slug me -purpose renew`, the wallet signs, `account install-leaf` |
 | one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `pact-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (PACT §14.3) |
-| nothing: the person moved an identity to another host | this node goes on serving it, with its key, until told | `pact-gateway account leave -slug me` once the new host has told the contacts: every record and leaf key of the identity erased, its address reserved until its last leaf expires (SPEC.md §3.11) |
+| nothing: the person moved an identity to another host | this node goes on serving it, with its key, until told | `pact-gateway account leave -slug me -yes` once the new host has told the contacts (without `-yes` it shows what it would erase): every record and leaf key of the identity erased, its address reserved until its last leaf expires (SPEC.md §3.11) |
 | the wallet's root | the identity itself; this node cannot help | the wallet's own recovery, if it has one (PACT §9, §14.5) |
 | the audit chain shows a break | someone altered history | `audit verify` names the first bad row; treat the store as untrusted from there |
 

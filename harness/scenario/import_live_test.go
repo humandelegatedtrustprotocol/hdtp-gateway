@@ -117,10 +117,10 @@ func importedMove(ctx context.Context, t *testing.T, w *World, peerBlocks bool) 
 	if err != nil {
 		t.Fatalf("create_invite: %v", err)
 	}
-	var inv struct{ Token, URL string }
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(inviteRaw), &inv)
 	if inv.URL == "" {
-		inv.URL = "https://" + mover.Node.Name + ":8443/i/" + inv.Token
+		t.Fatalf("create_invite answered no link: %s", shorten(inviteRaw, 200))
 	}
 	raw, err := peerNode.Owner.Call(ctx, "add_contact", map[string]any{"account_id": peerNode.AccountID, "invite_url": inv.URL})
 	if err != nil {

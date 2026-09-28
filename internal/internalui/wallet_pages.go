@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,6 +39,8 @@ type WalletInstalled struct {
 	NotAfter time.Time
 	// Notice is the move notice (identity.MoveNotice), "" when the identity did not move.
 	Notice string
+	// Warnings are what the install did not finish although the leaf is installed.
+	Warnings []string
 }
 
 // WalletDeps is what the web-wallet pages call. Mint and Install are the node's one signing-request
@@ -91,7 +92,7 @@ const walletStyle = `<style>
  dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
  dd{margin:0;word-break:break-all}
  button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid #6b7a74;cursor:pointer}
- .muted{opacity:.7;font-size:14px} .err{color:#b3261e} .ok{color:#1e7a46}
+ .muted{opacity:.7;font-size:14px} .err{color:#b3261e} .ok{color:#1e7a46} .warn{color:#8a5a00}
 </style>`
 
 var walletAskTmpl = template.Must(template.New("ask").Parse(`<!DOCTYPE html>
@@ -185,11 +186,40 @@ func walletPortalOrigin(r *http.Request) (string, error) {
 	if u.Scheme == "https" {
 		return o, nil
 	}
-	h := u.Hostname()
-	if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
+	host := u.Host
+	if u.Port() != "" {
+		host = strings.TrimSuffix(host, ":"+u.Port())
+	}
+	if walletLoopbackHost(host) {
 		return o, nil
 	}
-	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost")
+	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost, 127.x.y.z or [::1]")
+}
+
+// walletLoopbackHost is the wallet's rule for a host it answers over http (pact-identity's
+// loopbackHost, which the wallet applies to the redirect): localhost, a dotted quad in 127.0.0.0/8
+// in the normal form (four decimal octets, no leading zero), or [::1] — and no other spelling of
+// loopback, such as [::ffff:7f00:1], which net.ParseIP calls loopback and the wallet refuses. The
+// core does not export it; TestThePortalsLoopbackRuleIsTheWallets holds this copy to the wallet's
+// answer, host by host.
+func walletLoopbackHost(host string) bool {
+	if host == "localhost" || host == "[::1]" {
+		return true
+	}
+	octets := strings.Split(host, ".")
+	if len(octets) != 4 || octets[0] != "127" {
+		return false
+	}
+	for _, o := range octets {
+		if o == "" || len(o) > 3 || (len(o) > 1 && o[0] == '0') {
+			return false
+		}
+		n, err := strconv.Atoi(o)
+		if err != nil || n < 0 || n > 255 || strings.ContainsAny(o, "+-") {
+			return false
+		}
+	}
+	return true
 }
 
 // ask is what the GET page shows and the start handler checks: the address, the purpose, and a
@@ -240,6 +270,12 @@ func (d WalletDeps) prepare(w http.ResponseWriter, r *http.Request, a store.Acco
 // a request is already waiting. It mints nothing and writes nothing.
 func (d WalletDeps) getWallet(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
+	// Signed out: to sign-in, and back here after (the page is the link an import and a move
+	// notice give). Signed in as somebody who does not administer it stays a 404 (walletAccount).
+	if OwnerFrom(r.Context()) == "" {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
+		return
+	}
 	a, ok := d.walletAccount(w, r)
 	if !ok {
 		return
@@ -282,8 +318,17 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	}
 	origin, _ := walletPortalOrigin(r) // prepare checked it
 	res, err := d.Mint(r, a, ask.purpose, ask.endpoint, d.WalletOrigin)
-	if err != nil {
-		http.Error(w, "could not make the request: "+err.Error(), http.StatusInternalServerError)
+	switch {
+	case errors.Is(err, store.ErrAddressVacated):
+		http.Error(w, "That address was left by an identity whose last certificate has not expired yet; it cannot be asked for until then.", http.StatusConflict)
+		return
+	case errors.Is(err, identity.ErrLeafRefused):
+		http.Error(w, "A web wallet signs a renewal or a move of an identity it already certified; this request is neither.", http.StatusConflict)
+		return
+	case err != nil:
+		// Never the error's text: it can name a database, a path or a key. The audit trail has the
+		// request, as account_csr `error` (cli/leafservice.go).
+		http.Error(w, "The request could not be made; try again. The audit trail records the attempt (account_csr, error).", http.StatusInternalServerError)
 		return
 	}
 	redirect := origin + "/wallet/return?slug=" + url.QueryEscape(a.Slug)
@@ -392,7 +437,12 @@ func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 		walletJSON(w, http.StatusInternalServerError, map[string]string{"error": "the certificate could not be installed"})
 		return
 	}
-	walletJSON(w, http.StatusOK, map[string]string{
+	warnings := res.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	walletJSON(w, http.StatusOK, map[string]any{
 		"endpoint": res.Endpoint, "not_after": res.NotAfter.UTC().Format(time.RFC3339), "notice": res.Notice,
+		"warnings": warnings,
 	})
 }

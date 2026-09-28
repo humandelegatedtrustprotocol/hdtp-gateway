@@ -24,7 +24,7 @@ func importAndMove(t *testing.T, newStore Factory) {
 			if err != nil {
 				return err
 			}
-			if err := tx.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:c1", Status: "active", TrustFlag: "messages_only", CreatedAt: 5}); err != nil {
+			if err := tx.ImportContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:c1", Status: "active", TrustFlag: "messages_only", CreatedAt: 5, HandshakeDueAt: 1}); err != nil {
 				return err
 			}
 			// Visible INSIDE the transaction, or the importer could not check for a collision.
@@ -117,7 +117,7 @@ func importAndMove(t *testing.T, newStore Factory) {
 			AccountID: a.ID, Fingerprint: "sha256:root", SPKI: []byte("spki"), Status: "blocked", Preset: "close",
 			Permissions: []string{"message.send"}, TheirPermissions: []string{"calendar.read"}, TrustFlag: "may_instruct",
 			DisplayName: "Bharat", Petname: "B from the conference", Card: "BEGIN:VCARD", CreatedAt: 11, PinnedAt: 12,
-			Endpoint: "https://b.example/mcp", Leaf: []byte("leaf"), RootCert: []byte("root"),
+			Endpoint: "https://b.example/mcp", Leaf: []byte("leaf"), RootCert: []byte("root"), HandshakeDueAt: 13,
 		}
 		if err := s.ImportContact(ctx, in); err != nil {
 			t.Fatal(err)

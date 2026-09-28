@@ -84,7 +84,7 @@ func (s *Postgres) ListLeaves(ctx context.Context, accountID string) ([]Leaf, er
 	for _, r := range rows {
 		out = append(out, Leaf{AccountID: r.AccountID, Kid: r.Kid, Leaf: r.Leaf, KeySealed: r.KeySealed,
 			NotBefore: r.NotBefore, NotAfter: r.NotAfter, State: r.State, Endpoint: r.Endpoint, CreatedAt: r.CreatedAt,
-			RequestStateHash: r.RequestStateHash, WalletOrigin: r.WalletOrigin})
+			RequestStateHash: r.RequestStateHash, WalletOrigin: r.WalletOrigin, Moved: r.Moved != 0})
 	}
 	return out, nil
 }
@@ -279,4 +279,26 @@ func (s *Postgres) ConsumeLeafRequest(ctx context.Context, accountID, kid string
 		return false, fmt.Errorf("store: %w", err)
 	}
 	return n == 1, nil
+}
+
+func (s *Postgres) SetLeafMoved(ctx context.Context, accountID, kid string, moved bool) error {
+	var m int64
+	if moved {
+		m = 1
+	}
+	n, err := s.q.SetLeafMoved(ctx, pgdb.SetLeafMovedParams{Moved: m, AccountID: accountID, Kid: kid})
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: leaf %s not found", kid)
+	}
+	return nil
+}
+
+func (s *Postgres) LockAccount(ctx context.Context, accountID string) error {
+	if err := s.q.LockAccountRow(ctx, accountID); err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	return nil
 }

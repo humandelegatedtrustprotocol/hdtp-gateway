@@ -2,7 +2,9 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
@@ -70,6 +72,49 @@ func ownersAndAccounts(t *testing.T, newStore Factory) {
 		}
 		if err := s.SetAccountKey(ctx, a.ID, "sha256:other", []byte{1}); err == nil {
 			t.Fatal("re-keying via SetAccountKey must be refused")
+		}
+	})
+
+	// L3 (review 2026-09-28). An identity leaving writes the reserved address and erases the account
+	// in one transaction; a create of the same slug that arrives meanwhile must see the reservation.
+	// On Postgres the create's check ran before the leave committed and its insert then waited on
+	// the slug's unique index, so it went through once the leave committed; a lock on the slug,
+	// taken by both, makes the create wait for the leave and then read what it wrote. SQLite's
+	// transactions run one at a time already.
+	t.Run("ALeaveAndACreateOfItsSlugDoNotRace", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "gone", DisplayName: "G", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inside, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		go func() {
+			done <- s.Atomically(ctx, func(tx store.Store) error {
+				if err := tx.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://n.example/a/gone/mcp", Slug: "gone", UntilAt: time.Now().Add(time.Hour).Unix(), At: time.Now().Unix()}); err != nil {
+					return err
+				}
+				if _, err := tx.DeleteAccount(ctx, a.ID); err != nil {
+					return err
+				}
+				close(inside)
+				<-release
+				return nil
+			})
+		}()
+		<-inside
+		created := make(chan error, 1)
+		go func() {
+			_, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "gone", DisplayName: "Other", Algo: "p256"})
+			created <- err
+		}()
+		time.Sleep(300 * time.Millisecond) // the create is waiting on the leave by now
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if err := <-created; !errors.Is(err, store.ErrAddressVacated) {
+			t.Fatalf("a create racing the leave of its slug: %v, want the address refused as vacated", err)
 		}
 	})
 }
