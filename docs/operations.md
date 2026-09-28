@@ -86,6 +86,17 @@ node has already won. Memory is bounded: keys whose window has emptied are
 swept once per window, so a caller cycling addresses or fingerprints cannot
 grow the table indefinitely.
 
+## Flood limits
+
+Beneath the call budgets, the public listener bounds what it lets in at all (SPEC §5.7): 1,024
+open connections, 1,000 new connections and 1,000 requests a second for the node, and 250 of each
+a second from one source address. A connection over them is closed before its TLS handshake; a
+request over them is answered `429` and `rate_limited` before its body is read. Loopback is exempt
+from the per-address limits (it is your tunnel's connector, or you). The audit trail gets one
+`flood_refused` row a minute while refusals continue, with how many there were. These are not
+settings: they sit at twice what one node was measured to serve, so a flood is refused where a
+refusal costs nothing.
+
 ## The store, when it is large
 
 Nothing here needs setting. It is written down so that what the node does to its database is
