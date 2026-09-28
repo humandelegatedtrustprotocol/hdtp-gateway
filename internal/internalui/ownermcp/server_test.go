@@ -30,6 +30,10 @@ type env struct {
 	// the client sees — the SEP-2575 handshake boundary a subscription test
 	// must wait for before it may expect a ResourceUpdated (see connect).
 	subAck chan struct{}
+	// listenDelay, when set, holds the server's handling of each subscriptions/listen for that
+	// long: a server under load, which registers a subscription well after the client's
+	// Subscribe has returned.
+	listenDelay time.Duration
 }
 
 func newEnv(t *testing.T) *env {
@@ -60,6 +64,16 @@ func connect(t *testing.T, e *env, ident auth.Identity, opts *mcp.ClientOptions)
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := NewServerWithExtra(e.deps, Extra{}, ident)
+	if e.listenDelay > 0 {
+		srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+				if method == "subscriptions/listen" {
+					time.Sleep(e.listenDelay)
+				}
+				return next(mctx, method, req)
+			}
+		})
+	}
 	ForwardBus(ctx, srv, e.deps.Bus)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
@@ -105,8 +119,28 @@ func callJSON(t *testing.T, cs *mcp.ClientSession, tool string, args map[string]
 	return text, res.IsError
 }
 
+// awaitSubscribed waits for n subscriptions/acknowledged notifications. Under SEP-2575 a client's
+// Subscribe sends subscriptions/listen and returns at once; the server registers the subscription
+// when it handles that request, and acknowledges it only then. Until the acknowledgment, the
+// subscription does not exist on the server, and a resource update sent meanwhile reaches nobody.
+func awaitSubscribed(t *testing.T, e *env, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		select {
+		case <-e.subAck:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("subscription %d of %d never acknowledged", i+1, n)
+		}
+	}
+}
+
+// The subscriptions are waited out (awaitSubscribed) before the message that must be signalled.
+// The test used to record the message as soon as Subscribe returned, which is before the server
+// holds the subscription; under load the update went out to nobody and the test timed out after
+// 30 s (it did, once, in a full gate). listenDelay makes that server here, every run.
 func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
 	e := newEnv(t)
+	e.listenDelay = 300 * time.Millisecond
 	updated := make(chan string, 4)
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, &mcp.ClientOptions{
 		ResourceUpdatedHandler: func(_ context.Context, r *mcp.ResourceUpdatedNotificationRequest) {
@@ -123,6 +157,7 @@ func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
 	if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: URIThreadPrefix + threadID}); err != nil {
 		t.Fatal(err)
 	}
+	awaitSubscribed(t, e, 2)
 	// new inbound message → bus → ResourceUpdated(inbox) and (that thread)
 	if _, err := e.deps.Msg.Record(context.Background(), e.acctA, "sha256:alina", messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", ThreadID: threadID, Text: "hi", Sender: messaging.SenderAgent}); err != nil {
@@ -132,7 +167,7 @@ func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
 	// resource. Their delivery order is not guaranteed, so require both rather
 	// than whichever happens to land first.
 	seen := map[string]bool{}
-	deadline := time.After(30 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for len(seen) < 2 {
 		select {
 		case uri := <-updated:
