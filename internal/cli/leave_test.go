@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
 
 // What the public listener answers at an identity's address and at its invite link, as the status
@@ -37,7 +39,7 @@ func publicAnswer(t *testing.T, public, slug, token string) string {
 func TestAccountLeaveOnARunningNode(t *testing.T) {
 	ctx := context.Background()
 	var alice store.Account
-	var slowRoot string
+	var slowRoot, oauthIntegration string
 	// A contact whose host accepts a connection and says nothing for a while: the move campaign's
 	// walk waits on it, which is the one state leave refuses.
 	hold, err := net.Listen("tcp", "127.0.0.1:0")
@@ -74,10 +76,21 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 				alice = a
 			}
 		}
+		// M2 (review 2026-09-28): an integration of alice's with a pre-registered OAuth client, whose
+		// credentials are a settings row keyed by the integration's id.
+		in, err := st.InsertIntegration(ctx, store.Integration{AccountID: alice.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://cal.example/mcp", AuthKind: "oauth", Status: "disabled"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		oauthIntegration = in.ID
+		if err := integrations.SealClient(st, idm.Keyring, core.SettingsAAD(), in.ID, "client-id", "client-secret"); err != nil {
+			t.Fatal(err)
+		}
 		peer := newTestPeer(t, "Slow", "https://"+hold.Addr().String()+"/a/slow/mcp")
 		slowRoot = peer.Root()
-		if _, err := st.InsertContact(ctx, store.Contact{AccountID: alice.ID, Fingerprint: peer.Root(), Status: "active",
-			Endpoint: peer.Endpoint, Leaf: peer.Host.LeafDER, SPKI: []byte{1}, RootCert: peer.Wallet.RootDER}); err != nil {
+		// An imported contact, owed the handshake: the campaign `announce` resumes walks it.
+		if err := st.ImportContact(ctx, store.Contact{AccountID: alice.ID, Fingerprint: peer.Root(), Status: "active", TrustFlag: "messages_only",
+			Endpoint: peer.Endpoint, Leaf: peer.Host.LeafDER, SPKI: []byte{1}, RootCert: peer.Wallet.RootDER, HandshakeDueAt: 1}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -110,7 +123,7 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	if code, out := run("announce", "-slug", "alice"); code != 0 || !strings.Contains(out, "resumed") {
 		t.Fatalf("announce did not start the walk: %d %s", code, out)
 	}
-	if code, out := run("leave", "-slug", "alice"); code == 0 || !strings.Contains(out, "telling its contacts of a move right now") {
+	if code, out := run("leave", "-slug", "alice", "-yes"); code == 0 || !strings.Contains(out, "telling its contacts of a move right now") {
 		t.Fatalf("leave during a walk: %d %s", code, out)
 	}
 	if _, err := st.GetAccountByID(ctx, alice.ID); err != nil {
@@ -132,12 +145,30 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+	// QA 1 (2026-09-28): without -yes, the review of what would go, and nothing erased.
 	code, out := run("leave", "-slug", "alice")
+	if code != 0 || !strings.Contains(out, "leaving would erase alice") || !strings.Contains(out, "1 contact(s)") || !strings.Contains(out, "nothing was erased") {
+		t.Fatalf("leave without -yes: %d %s", code, out)
+	}
+	if _, err := st.GetAccountByID(ctx, alice.ID); err != nil {
+		t.Fatalf("the review erased the account: %v", err)
+	}
+	code, out = run("leave", "-slug", "alice", "-yes")
 	if code != 0 || !strings.Contains(out, "alice has left this node") || !strings.Contains(out, "/a/alice/mcp stays reserved until") {
 		t.Fatalf("leave: %d %s", code, out)
 	}
 	if got, want := publicAnswer(t, r.public, "alice", token), publicAnswer(t, r.public, never, neverToken); got != want {
 		t.Fatalf("the vacated address answers unlike one never served:\n%s\n---\n%s", got, want)
+	}
+	// The OAuth client's credentials went with the identity (M2).
+	settingsLeft, err := st.ListSettings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range settingsLeft {
+		if strings.Contains(row.Key, oauthIntegration) {
+			t.Fatalf("the leave left a settings row of alice's integration: %s", row.Key)
+		}
 	}
 	// Bob, on the same node, is untouched.
 	if _, err := st.GetAccountBySlug(ctx, "bob"); err != nil {
@@ -163,5 +194,30 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	}
 	if strings.Join(seen, ",") != "refused,ok" {
 		t.Fatalf("account_leave rows %v, want one refused then one ok", seen)
+	}
+
+	// QA 1 (2026-09-28): bob's current leaf names this node's own address for him — he is served
+	// here, now (after a move to another address on this node, "delete it at the old host" names
+	// this node). The leave is refused unless the person says they mean the live identity.
+	bob, err := st.GetAccountBySlug(ctx, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range mustLeaves(t, st, bob.ID) {
+		if l.State == identity.LeafCurrent {
+			l.Endpoint = identity.EndpointFor("https://"+r.public, "bob")
+			if err := st.UpdateLeaf(ctx, l); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if code, out := run("leave", "-slug", "bob", "-yes"); code == 0 || !strings.Contains(out, "is served here, now") || !strings.Contains(out, "-force-current") {
+		t.Fatalf("leave of an identity served here at this node's address: %d %s", code, out)
+	}
+	if _, err := st.GetAccountByID(ctx, bob.ID); err != nil {
+		t.Fatalf("a refused leave erased bob: %v", err)
+	}
+	if code, out := run("leave", "-slug", "bob", "-yes", "-force-current"); code != 0 || !strings.Contains(out, "bob has left this node") {
+		t.Fatalf("leave with -force-current: %d %s", code, out)
 	}
 }

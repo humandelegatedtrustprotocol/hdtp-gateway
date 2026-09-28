@@ -29,6 +29,8 @@ func contactFromRow(r sqlitedb.Contact) Contact {
 		RootCert:         r.RootCert,
 		EverActive:       r.EverActive != 0,
 		HandshakeDue:     r.HandshakeDue != 0,
+		HandshakeDueAt:   r.HandshakeDue,
+		RequestedAt:      r.RequestedAt.Int64,
 	}
 }
 

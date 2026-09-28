@@ -302,7 +302,7 @@ func (q *Queries) ListKidsExcept(ctx context.Context, accountID string) ([]ListK
 }
 
 const listLeaves = `-- name: ListLeaves :many
-SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at, request_state_hash, wallet_origin FROM leaves WHERE account_id = ? ORDER BY created_at, kid
+SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at, request_state_hash, wallet_origin, moved FROM leaves WHERE account_id = ? ORDER BY created_at, kid
 `
 
 func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, error) {
@@ -326,6 +326,7 @@ func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, err
 			&i.CreatedAt,
 			&i.RequestStateHash,
 			&i.WalletOrigin,
+			&i.Moved,
 		); err != nil {
 			return nil, err
 		}
@@ -590,6 +591,26 @@ type SetContactRootCertParams struct {
 // cert already stored is the one that was checked when the pin was made.
 func (q *Queries) SetContactRootCert(ctx context.Context, arg SetContactRootCertParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setContactRootCert, arg.RootCert, arg.AccountID, arg.Fingerprint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setLeafMoved = `-- name: SetLeafMoved :execrows
+UPDATE leaves SET moved = ? WHERE account_id = ? AND kid = ?
+`
+
+type SetLeafMovedParams struct {
+	Moved     int64
+	AccountID string
+	Kid       string
+}
+
+// Whether installing this leaf moved the identity, as the install decided it (migration 0043): what
+// a resumed campaign reads to know whom it walks.
+func (q *Queries) SetLeafMoved(ctx context.Context, arg SetLeafMovedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setLeafMoved, arg.Moved, arg.AccountID, arg.Kid)
 	if err != nil {
 		return 0, err
 	}
