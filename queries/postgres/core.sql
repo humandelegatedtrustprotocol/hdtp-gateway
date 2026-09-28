@@ -142,6 +142,29 @@ ON CONFLICT(id) DO UPDATE SET archived_through_seq = excluded.archived_through_s
 -- name: DeleteAuditEventsThrough :execrows
 DELETE FROM audit_events WHERE seq <= $1;
 
+-- name: ListDueLeaves :many
+-- The identities that left this node before a cutoff (SPEC sec. 3.11): the account_leave rows
+-- whose erase went through (ok, or partial when media files were left on disk), oldest first.
+-- A refused or failed leave erased nothing, so it is not a departure. Answered from the partial
+-- index audit_events_leaves.
+SELECT * FROM audit_events
+WHERE action = 'account_leave' AND outcome IN ('ok', 'partial') AND ts <= $1
+ORDER BY seq LIMIT $2;
+
+-- name: InsertAuditArchiveRow :exec
+-- One row an identity's archive wrote and verified: the prune guard lets exactly this seq, with
+-- exactly this hash, be deleted (migration 0045). Only Store.ArchiveAuditRows writes it, inside
+-- the transaction that deletes the row and empties this table again.
+INSERT INTO audit_archive_rows (seq, hash) VALUES ($1, $2);
+
+-- name: DeleteArchivedAuditEvent :execrows
+-- One row an archive holds. The prune guard admits it only while audit_archive_rows lists its seq
+-- with its hash.
+DELETE FROM audit_events WHERE seq = $1;
+
+-- name: ClearAuditArchiveRows :exec
+DELETE FROM audit_archive_rows;
+
 -- DeleteCredentialIfNotLast removes a credential only while another of the same
 -- kind survives - the guard that stops the owner locking themselves out.
 -- FOR UPDATE over the kind's rows makes the guard atomic: an uncorrelated

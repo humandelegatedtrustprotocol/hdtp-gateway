@@ -31,6 +31,11 @@ type AuditAnchor struct {
 	UpdatedAt          int64
 }
 
+type AuditArchiveRow struct {
+	Seq  int64
+	Hash string
+}
+
 type AuditEvent struct {
 	Seq       int64
 	Ts        int64

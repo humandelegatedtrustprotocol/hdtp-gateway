@@ -46,6 +46,8 @@ var layerRank = map[string]int{
 	// the store, over its generated engines
 	"internal/core/store":             1,
 	"internal/core/store/conformance": 2,
+	// the join of the audit chain to the store
+	"internal/core/auditstore": 2,
 	// domain services
 	"internal/services/auditsink": 2,
 	"internal/identity":           2,
