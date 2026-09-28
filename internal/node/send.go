@@ -455,6 +455,11 @@ func (n *Node) FetchMedia(ctx context.Context, accountID, rawURL string) (string
 // account when accountID is "". An exposure change or a withheld integration
 // alters what is served to everybody, not to one caller (SPEC §6.5, §6.10).
 func (n *Node) InvalidateAccount(ctx context.Context, accountID string) {
+	n.invalidateAccountLocal(ctx, accountID)
+	n.publish(messaging.Event{Kind: messaging.EventInvalidate, AccountID: accountID, Ref: invalidateAccount})
+}
+
+func (n *Node) invalidateAccountLocal(ctx context.Context, accountID string) {
 	n.mu.RLock()
 	ids := make([]string, 0, len(n.accounts))
 	for id := range n.accounts {

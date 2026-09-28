@@ -41,6 +41,13 @@ const (
 	// EventRelayed: the held call handed that answer to its caller (Ref names the request); the
 	// process that took the answer reports it relayed.
 	EventRelayed EventKind = "relayed"
+	// EventInvalidate: a caller's composed surface changed (ContactFpr names the caller, "" the
+	// anonymous guests), or every caller's of an account when Ref is "account" — every process
+	// drops what it composed (SPEC §5.5).
+	EventInvalidate EventKind = "invalidate"
+	// EventAccount: an account changed what it serves — adopted, a leaf installed or retired, its
+	// seal, or gone (Ref names its slug) — and every other process reloads it from the store.
+	EventAccount EventKind = "account"
 )
 
 // FeedCalls are the tools whose call means "a contact ACTED": the node publishes an EventCall
@@ -62,8 +69,12 @@ type Event struct {
 	// Status is the new delivery status on an EventDelivery.
 	Status string `json:"status,omitempty"`
 	// Ref names what the event is about beyond the thread and the contact: the tool of an
-	// EventCall, the request of an EventPending, EventAnswered or EventRelayed.
+	// EventCall, the request of an EventPending, EventAnswered or EventRelayed, the scope of an
+	// EventInvalidate, the slug of an EventAccount.
 	Ref string `json:"ref,omitempty"`
+	// Local marks an event this process published, as its own subscribers receive it: a
+	// subscriber that applies other processes' changes to this one passes over it.
+	Local bool `json:"-"`
 }
 
 // ChangeLog is the slice of the store the bus writes and reads.
@@ -141,6 +152,7 @@ func (b *Bus) Publish(e Event) {
 			b.mine[id] = struct{}{}
 		}
 	}
+	e.Local = true
 	b.deliverLocked(e)
 }
 

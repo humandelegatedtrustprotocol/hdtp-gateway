@@ -7,7 +7,7 @@ import (
 )
 
 // An identity that left this host is forgotten everywhere the node lists accounts, including the
-// two lists stopServing leaves it in: awaiting a leaf, and unavailable. A slug still in either is
+// two lists stopServingLocal leaves it in: awaiting a leaf, and unavailable. A slug still in either is
 // named by `serve` and the portal as an account this node holds, which it no longer does.
 func TestForgetAccountLeavesNoTraceInTheLiveNode(t *testing.T) {
 	rec := store.Account{ID: "id-a", Slug: "alice"}
