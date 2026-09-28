@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
@@ -213,7 +214,7 @@ func importFile(t *testing.T, e env, b []byte, slug string, now time.Time) (*Pla
 	if err != nil {
 		return nil, Result{}, err
 	}
-	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now())
+	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now(), 500)
 	return p, res, err
 }
 
@@ -689,5 +690,38 @@ func TestAHeldRequestIsKeptWhenTheFileNamesTheSameRoot(t *testing.T) {
 	must(t, err)
 	if c.Status != "pending_in" || string(c.Leaf) != "request-leaf" || c.Endpoint != "https://asker.example/a/x/mcp" || c.HandshakeDue {
 		t.Fatalf("a held request was changed by a file: %+v", c)
+	}
+}
+
+// The contact cap (limit.contacts) holds an import as it holds every other way a contact is added:
+// refused, with nothing written, when what the import leaves is over the cap AND it added to the
+// count; an identity already over it may still import what it holds.
+func TestAnImportIsHeldToTheContactCap(t *testing.T) {
+	ctx := context.Background()
+	src := newEnv(t, sqliteStore)
+	seed(t, src)
+	file, _ := exportOf(t, src, "alina")
+
+	over := newEnv(t, sqliteStore)
+	p, err := Read(ctx, over.st, zipReader(t, file), "alina", time.Now())
+	must(t, err)
+	if _, err := p.Apply(ctx, over.st, over.blobs, time.Now(), 0); !errors.Is(err, ErrRefused) || !errors.Is(err, core.ErrContactCap) {
+		t.Fatalf("an import past the cap: %v, want a refusal naming the contact cap", err)
+	}
+	if _, err := over.st.GetAccountBySlug(ctx, "alina"); err == nil {
+		t.Fatal("a refused import left the identity it would have made")
+	}
+
+	fits := newEnv(t, sqliteStore)
+	p, err = Read(ctx, fits.st, zipReader(t, file), "alina", time.Now())
+	must(t, err)
+	if res, err := p.Apply(ctx, fits.st, fits.blobs, time.Now(), 1); err != nil || res.Contacts != 1 {
+		t.Fatalf("an import at the cap: %+v %v", res, err)
+	}
+	// The cap lowered below what is held: the same file again adds nothing, and is not refused.
+	p, err = Read(ctx, fits.st, zipReader(t, file), "alina", time.Now())
+	must(t, err)
+	if _, err := p.Apply(ctx, fits.st, fits.blobs, time.Now(), 0); err != nil {
+		t.Fatalf("re-importing what an identity over its cap holds was refused: %v", err)
 	}
 }

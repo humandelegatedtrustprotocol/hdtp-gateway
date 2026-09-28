@@ -51,10 +51,8 @@ func (c *Config) ApplyStoreSettings(values map[string]string) error {
 		case "lan_connections":
 			b := v == "true" || v == "1"
 			c.lanExplicit = &b
-		case "limit.contact_per_hour":
-			c.LimitContactPerHour = atoiOrZero(v)
-		case "limit.guest_per_hour":
-			c.LimitGuestPerHour = atoiOrZero(v)
+		case "limit.contacts":
+			c.LimitContacts = atoiOrZero(v)
 		default:
 			// Adapter settings (`tunnel.<adapter>.<key>`) and anything else are
 			// not config fields; they are read by whoever needs them.
@@ -111,8 +109,7 @@ func (c *Config) EffectiveSettings() []Effective {
 		"inert without an active tunnel adapter: with no tunnel there is no non-tunnel source to refuse (SPEC §5.1)")
 	add("lan_connections", boolStr(c.LANConnections), lanLocked, lanReason)
 
-	add("limit.contact_per_hour", intStr(c.LimitContactPerHour), false, "")
-	add("limit.guest_per_hour", intStr(c.LimitGuestPerHour), false, "")
+	add("limit.contacts", intStr(c.LimitContacts), false, "")
 	return out
 }
 
@@ -174,17 +171,15 @@ func ValidateSetting(key, value string) error {
 		if value != "true" && value != "false" {
 			return fmt.Errorf("%s: %s is true or false", RuleEnum, key)
 		}
-	case "limit.contact_per_hour", "limit.guest_per_hour":
-		// PACT §12's caps are the defaults, not a ceiling: a pair of busy agents
-		// can legitimately exceed 60 calls an hour, and an operator who cannot
-		// raise the number has to choose between recompiling and being throttled.
-		// Empty restores the documented value.
+	case "limit.contacts":
+		// The contact cap sizes every account's call budget (PACT §12), so it is the operator's to
+		// raise for a node that serves people with many contacts. Empty restores the default.
 		if value == "" {
 			return nil
 		}
 		n, err := strconv.Atoi(value)
 		if err != nil || n <= 0 {
-			return fmt.Errorf("%s: %s is a positive number of calls per hour", RuleRange, key)
+			return fmt.Errorf("%s: %s is a positive number of contacts", RuleRange, key)
 		}
 	}
 	return nil

@@ -1,11 +1,16 @@
 -- name: InsertContact :exec
 -- requested_at is the row's created_at when it is inserted as a request (pending_in, pending_out)
 -- and NULL otherwise (migration 0043).
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, requested_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, leaf_fingerprint, chain_sent_kid, root_cert, ever_active, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
 
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = $1 AND fingerprint = $2;
+
+-- name: CountHeldContacts :one
+-- The contacts an account holds against its contact cap: active rows and the requests it sent
+-- (pending_out). pending_in is written by strangers and blocked is a refusal, so neither counts.
+SELECT COUNT(*) FROM contacts WHERE account_id = $1 AND status IN ('active', 'pending_out');
 
 -- name: ListContacts :many
 SELECT * FROM contacts WHERE account_id = $1 ORDER BY created_at, id;
@@ -59,16 +64,16 @@ WHERE account_id = $4 AND fingerprint = $5;
 -- seen - and this host has not been issued one yet. handshake_due is the time of the import: the
 -- contact is owed this host's handshake from the first leaf requested after it (sec. 9.2,
 -- migration 0043). requested_at is created_at for a row the file carries as pending_out.
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due, requested_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20);
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, leaf_fingerprint, root_cert, ever_active, handshake_due, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21);
 
 -- name: ImportContactPin :execrows
 -- An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
 -- a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
 -- validated there - and is owed this host's handshake, from the time of the import. A contact held WITH a leaf is never
 -- written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
-UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, root_cert = COALESCE($4, root_cert), handshake_due = $5
-WHERE account_id = $6 AND fingerprint = $7 AND (leaf IS NULL OR octet_length(leaf) = 0);
+UPDATE contacts SET endpoint = $1, leaf = $2, leaf_fingerprint = $3, spki = $4, root_cert = COALESCE($5, root_cert), handshake_due = $6
+WHERE account_id = $7 AND fingerprint = $8 AND (leaf IS NULL OR octet_length(leaf) = 0);
 
 -- name: ClearContactHandshake :execrows
 -- The campaign has told this contact: it is owed nothing more (sec. 9.2).
@@ -83,7 +88,7 @@ UPDATE contacts SET status = $1,
     ever_active = CASE WHEN $1 = 'active' THEN 1 ELSE ever_active END,
     preset = $2, permissions = $3, invite_id = $4,
     display_name = $5, card = $6, spki = $7,
-    endpoint = $8, leaf = $9, root_cert = COALESCE($10, root_cert)
+    endpoint = $8, leaf = $9, root_cert = COALESCE($10, root_cert), leaf_fingerprint = $13
 WHERE account_id = $11 AND fingerprint = $12 AND status = 'pending_in';
 
 -- name: DeleteExpiredPendingContacts :many
@@ -108,3 +113,28 @@ WHERE account_id = $2 AND fingerprint = $3 AND status = $4;
 -- to the status and the request clock it had. Only while it is still the approach that was marked.
 UPDATE contacts SET status = $1, requested_at = $2
 WHERE account_id = $3 AND fingerprint = $4 AND status = 'pending_out' AND requested_at = $5;
+
+-- name: PinCandidates :many
+-- The contacts a sealed call's proof could concern (PACT sec. 13.3; public/decide.go): the row of
+-- the root a chain proves, the rows at the address its leaf names (the address claim of sec. 5.2),
+-- and the row whose pinned leaf a small form names. Three index probes, then the rows they found by
+-- id, in ListContacts' order,
+-- so decide meets them as it met them among every contact. An empty argument matches nothing.
+SELECT * FROM contacts WHERE id IN (
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.fingerprint = $2 AND $2 <> ''
+    UNION
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.endpoint = $3 AND $3 <> ''
+    UNION
+    SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.leaf_fingerprint = $4 AND $4 <> ''
+)
+ORDER BY created_at, id;
+
+
+-- name: ListContactLeafKeysUnfilled :many
+-- The fill after migration 0046 (Store.Migrate, fillLeafFingerprints): every row that holds a leaf
+-- and no fingerprint of it, with the key beside the leaf. After the first fill, none.
+SELECT id, spki FROM contacts WHERE leaf IS NOT NULL AND octet_length(leaf) > 0 AND leaf_fingerprint IS NULL;
+
+-- name: SetContactLeafFingerprint :exec
+-- The fill after migration 0046: one row's leaf fingerprint.
+UPDATE contacts SET leaf_fingerprint = $1 WHERE id = $2;

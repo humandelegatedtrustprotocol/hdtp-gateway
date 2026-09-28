@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestARefusalPastTheOpenIsSealed(t *testing.T) {
@@ -63,11 +65,29 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 	// The third path out of the same place: the guest budget. It is charged
 	// before the refusal is written, and its answer opened in the clear too.
 	// A carrier reading `rate_limited` learns the recipient is metering THIS
-	// sender, which is the same correlation by another name.
-	s.pool.Limit = func(context.Context) (bool, time.Duration) { return false, time.Minute }
+	// sender, which is the same correlation by another name. It is sealed as a
+	// tool error inside `result`, where the client keeps its `retry_after` (an
+	// `error` member is reduced to its code), as the cloud seals it.
+	var charged []Charge
+	s.pool.Limit = func(_ context.Context, as Charge) (bool, time.Duration) {
+		charged = append(charged, as)
+		return false, time.Minute
+	}
 	res = s.call(t, s.sealFrom(t, moved, "chain", "send_message", map[string]any{"text": "again"}), TransportFacts{})
-	_, errObj = s.opened(t, res, moved, "send_message")
-	if err := json.Unmarshal(errObj, &body); err != nil || body.Code != "rate_limited" {
-		t.Fatalf("a budget refusal past the open must be sealed too: %v (%s)", err, errObj)
+	result, _ := s.opened(t, res, moved, "send_message")
+	var inner mcp.CallToolResult
+	if err := json.Unmarshal(result, &inner); err != nil || !inner.IsError || len(inner.Content) == 0 {
+		t.Fatalf("a budget refusal past the open must be sealed as a tool error: %v (%s)", err, result)
+	}
+	var limited struct {
+		Code       string `json:"code"`
+		RetryAfter int    `json:"retry_after"`
+	}
+	if err := json.Unmarshal([]byte(inner.Content[0].(*mcp.TextContent).Text), &limited); err != nil || limited.Code != "rate_limited" || limited.RetryAfter != 60 {
+		t.Fatalf("sealed refusal = %+v (%v), want rate_limited with retry_after 60", limited, err)
+	}
+	// A pinned root at an address not approved spends the GUEST budget, whatever it is pinned as.
+	if len(charged) != 1 || charged[0] != ChargeGuest {
+		t.Fatalf("charged %v, want one guest charge", charged)
 	}
 }

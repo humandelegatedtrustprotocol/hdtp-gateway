@@ -55,6 +55,18 @@ func (s *Postgres) ListContacts(ctx context.Context, accountID string) ([]Contac
 	return out, nil
 }
 
+func (s *Postgres) PinCandidates(ctx context.Context, accountID, root, endpoint, leafFingerprint string) ([]Contact, error) {
+	rs, err := s.q.PinCandidates(ctx, pgdb.PinCandidatesParams(pinCandidates(accountID, root, endpoint, leafFingerprint)))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Contact, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, contactFromRow(sqlitedb.Contact(r)))
+	}
+	return out, nil
+}
+
 func (s *Postgres) UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error {
 	return contactChanged(s.q.UpdateContactStatus(ctx, pgdb.UpdateContactStatusParams{
 		Status: status, AccountID: accountID, Fingerprint: fingerprint,
@@ -152,4 +164,8 @@ func (s *Postgres) TakeBackContactRequest(ctx context.Context, accountID, finger
 		return false, fmt.Errorf("store: %w", err)
 	}
 	return n > 0, nil
+}
+
+func (s *Postgres) CountHeldContacts(ctx context.Context, accountID string) (int64, error) {
+	return s.q.CountHeldContacts(ctx, accountID)
 }
