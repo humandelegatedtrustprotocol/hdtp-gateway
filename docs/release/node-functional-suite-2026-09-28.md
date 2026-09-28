@@ -154,7 +154,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | An owner's own invite made them their own pending contact, and any redemption the peer refused as a tool error was recorded `pending_out` | S21 | the initiator refuses the identity's own offer, and a tool-error answer is a refusal with nothing recorded |
 | The address claim was not shown to the owner (SPEC §5.2's second half) | reading the first fix | the Requests tab and `list_contacts` name the contact whose address a request comes from, derived at read time |
 | After a move, doctor told the owner to have the wallet sign again for imported contacts the new leaf's campaign had already tried; the install notice said `account announce` | S20 (pact-cloud's live-local L5) | `HandshakesTried`: those contacts are sent to `account announce` |
-| `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | both wait for the SEP-2575 subscription acknowledgement |
+| `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | fixed on main by PR #11 (the tests wait for the server to hold the subscription); this branch's own fixes were dropped at the merge in favour of #11's |
 
 ### 3.2 The v0.3.3 and v0.3.4 corpus (SPEC 2.2.2 and 2.2.3, 44 cases)
 
