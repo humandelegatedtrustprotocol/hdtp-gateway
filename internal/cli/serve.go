@@ -118,7 +118,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fail(err)
 	}
-	lock, err := core.AcquireLock(cfg.DataDir)
+	// Shared with any other `serve` on this data dir, exclusive for the one that finds itself alone
+	// (core.AcquireServeLock): that one migrates and creates what a first run creates, then shares.
+	lock, err := core.AcquireServeLock(cfg.DataDir)
 	if err != nil {
 		return fail(err)
 	}
@@ -131,7 +133,10 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	defer st.Close()
 	s.st = st
-	if err := s.openKeyring(); err != nil {
+	if err := s.openKeyring(lock.Exclusive()); err != nil {
+		return fail(err)
+	}
+	if err := lock.Share(); err != nil {
 		return fail(err)
 	}
 	s.registerAdminHandlers()
@@ -139,6 +144,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return fail(err)
 	}
 	defer s.admin.Close()
+	if !s.admin.Serving() {
+		fmt.Fprintf(stdout, "admin:   %s is served by another pact-gateway process on this data dir\n", core.AdminSocketPath(cfg.DataDir))
+	}
 
 	passkeys, err := st.CountCredentialsByKind(ctx, "passkey")
 	if err != nil {
@@ -184,10 +192,22 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	return runErr(internalui.Serve(ctx, cfg.InternalBind, internalTLS, s.internalSurface()), stderr)
 }
 
-// openKeyring migrates the store, opens the keyring and creates the admin socket's server and the
-// identity manager the admin handlers use.
-func (s *serveRun) openKeyring() error {
-	if err := s.st.Migrate(s.ctx); err != nil {
+// openKeyring migrates the store (alone: only while this process holds the data-dir lock
+// exclusively), checks that the schema is the one this binary serves, opens the keyring and creates
+// the admin socket's server and the identity manager the admin handlers use.
+//
+// On Postgres every process may be alone on its own host's data dir; the migration's own advisory
+// lock makes them take turns (store.Postgres.provider), and each checks the schema after.
+func (s *serveRun) openKeyring(alone bool) error {
+	if alone {
+		if err := s.st.Migrate(s.ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.st.SchemaCurrent(s.ctx); err != nil {
+		if !alone {
+			return fmt.Errorf("%w; another pact-gateway process is serving this data dir, and a migration runs only while one process is alone with it: stop them all and start again", err)
+		}
 		return err
 	}
 	kr, err := openKeyringFor(s.cfg)

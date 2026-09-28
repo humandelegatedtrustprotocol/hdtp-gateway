@@ -1017,6 +1017,15 @@ All persistence goes through a single Go `Store` interface. No SQL exists outsid
 
 A store conformance suite — one test suite exercising the complete `Store` contract — MUST pass against both engines in the gate every push runs (§14).
 
+**More than one process.** Both engines are shared by more than one `serve` process, each with its own listeners:
+
+- **SQLite:** many processes on **one host**, sharing one data dir. The database is opened in WAL mode with `busy_timeout` 5 s, and every transaction takes the write lock at `BEGIN` (`BEGIN IMMEDIATE`), so a writer waits for another process's lock rather than failing and a read-then-write transaction is never refused its upgrade. SQLite's locking is not safe over a network filesystem, so SQLite across hosts is not supported.
+- **PostgreSQL:** many processes on many hosts, each with a data dir of its own.
+
+The data-dir lock (§12.1) is held **shared** by every `serve`. The first to start on an idle data dir holds it alone, migrates, and only then shares it; a `serve` starting beside others does not migrate, and refuses to serve unless the schema is exactly the version it was built for. On Postgres, where every host's process is alone on its own data dir, migrations take turns under a session-level advisory lock, and each process checks the schema after. The admin socket (§12.1) is served by one of the processes on a data dir: the first to hold its lock file.
+
+What each process still keeps to itself — and so what a deployment of more than one does not yet share — is listed in docs/operations.md, *More than one process*.
+
 ### 11.2 Tables
 
 | Table | Holds |
@@ -1104,7 +1113,7 @@ One binary, subcommand-per-concern:
 | `import` | `FILE.zip -slug S [-yes]`: check a whole export, show what it would write, and with `-yes` write it, offline: into a new keyless identity, or merged into the one it belongs to. It then waits for a new leaf from its wallet (§3.10) |
 | `version` | Print the version |
 
-Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate` — MUST run only with the node stopped: they check the store lock and refuse to proceed while the node holds it.
+Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate`, `export`, `import` and the `audit` commands — MUST run only with the node stopped: they take the data-dir lock exclusively and refuse to proceed while any `serve` holds it. `serve` holds it shared, so several may run on one data dir (§11.1).
 
 ### 12.2 Configuration
 

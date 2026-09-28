@@ -147,6 +147,29 @@ func (s *SQLite) Migrate(ctx context.Context) error {
 	return err
 }
 
+func (s *SQLite) SchemaCurrent(ctx context.Context) error {
+	p, err := s.provider()
+	if err != nil {
+		return err
+	}
+	return schemaCurrent(ctx, p)
+}
+
+// schemaCurrent is SchemaCurrent over either engine's migrations.
+func schemaCurrent(ctx context.Context, p *goose.Provider) error {
+	current, target, err := p.GetVersions(ctx)
+	if err != nil {
+		return fmt.Errorf("store: schema version: %w", err)
+	}
+	switch {
+	case current < target:
+		return fmt.Errorf("store: the schema is at version %d and this binary needs %d: it has not been migrated", current, target)
+	case current > target:
+		return fmt.Errorf("store: the schema is at version %d, newer than this binary's %d: a newer pact-gateway migrated it", current, target)
+	}
+	return nil
+}
+
 // MigrateDown rolls back everything; exists for the up/down/up cleanliness check.
 func (s *SQLite) MigrateDown(ctx context.Context) error {
 	p, err := s.provider()
