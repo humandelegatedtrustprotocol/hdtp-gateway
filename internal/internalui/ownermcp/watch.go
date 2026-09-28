@@ -384,12 +384,10 @@ func (d Deps) needsAttention(ctx context.Context, accountID string) []attention 
 }
 
 func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, addresses, pending int64) {
-	if cs, err := d.Store.ListContacts(ctx, accountID); err == nil {
-		for _, c := range cs {
-			if c.Status == "pending_in" {
-				waiting++
-			}
-		}
+	// Counted in the store, reading the rows in that state alone: every wake asks, and reading
+	// every contact to count them made each wake grow with the list.
+	if n, err := d.Store.CountContactsByStatus(ctx, accountID, "pending_in"); err == nil {
+		waiting = n
 	}
 	if ps, err := d.Store.ListPendingAddresses(ctx, accountID); err == nil {
 		addresses = int64(len(ps))

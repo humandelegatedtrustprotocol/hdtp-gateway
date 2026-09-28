@@ -637,6 +637,8 @@ type ContactStore interface {
 	ImportContactPin(ctx context.Context, c Contact) (bool, error)
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
+	// CountContactsByStatus counts one account's contacts in one state, reading those rows alone.
+	CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error)
 
 	// UpdateContactStatus moves a relationship; a move to active also sets EverActive.
 	UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error

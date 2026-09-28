@@ -7,6 +7,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = ? AND fingerprint = ?;
 
+-- name: CountContactsByStatus :one
+-- How many of one account's contacts are in one state: the owner's wait counts the requests
+-- awaiting approval on every wake, and reading every contact to count them grew with the list.
+SELECT COUNT(*) FROM contacts WHERE account_id = ? AND status = ?;
+
 -- name: ListContacts :many
 SELECT * FROM contacts WHERE account_id = ? ORDER BY created_at, id;
 

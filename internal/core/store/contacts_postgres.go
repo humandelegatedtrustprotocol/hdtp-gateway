@@ -43,6 +43,10 @@ func (s *Postgres) GetContact(ctx context.Context, accountID, fingerprint string
 	return contactFromRow(sqlitedb.Contact(r)), nil
 }
 
+func (s *Postgres) CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error) {
+	return s.q.CountContactsByStatus(ctx, pgdb.CountContactsByStatusParams{AccountID: accountID, Status: status})
+}
+
 func (s *Postgres) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
 	rs, err := s.q.ListContacts(ctx, accountID)
 	if err != nil {
