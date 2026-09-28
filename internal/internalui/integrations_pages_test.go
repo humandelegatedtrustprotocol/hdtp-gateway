@@ -34,7 +34,7 @@ func integrationsEnv(t *testing.T) (*http.ServeMux, store.Store, *integrations.C
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
 	conn := &integrations.Connector{}
 	mux := http.NewServeMux()
-	MountIntegrationPages(mux, IntegrationsDeps{
+	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t),
 		Store: st, Manager: &integrations.Manager{Store: st}, Connector: conn,
 		ConnectTimeout: 2 * time.Second,
 	})
@@ -137,7 +137,7 @@ func pickerEnv(t *testing.T) (*http.ServeMux, store.Store, *recAudit, store.Inte
 	seedCatalog(t, st, in.ID)
 	aud := &recAudit{}
 	mux := http.NewServeMux()
-	MountIntegrationPages(mux, IntegrationsDeps{
+	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t),
 		Store: st, Manager: &integrations.Manager{Store: st}, Connector: &integrations.Connector{},
 		Exposures: &integrations.Exposures{Store: st, Audit: aud.fn}, Audit: aud.fn,
 	})
@@ -274,7 +274,7 @@ func TestManualRefreshRouteSnapshotsCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	MountIntegrationPages(mux, IntegrationsDeps{
+	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t),
 		Store: st, Manager: m, Connector: &integrations.Connector{},
 		Exposures: &integrations.Exposures{Store: st},
 		Cataloger: &integrations.Cataloger{Store: st, Manager: m},
@@ -289,7 +289,7 @@ func TestManualRefreshRouteSnapshotsCatalog(t *testing.T) {
 	}
 	// unwired cataloger → 409, never a silent no-op
 	mux2 := http.NewServeMux()
-	MountIntegrationPages(mux2, IntegrationsDeps{Store: st, Manager: m, Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: st}})
+	MountIntegrationPages(mux2, IntegrationsDeps{Background: joined(t), Store: st, Manager: m, Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: st}})
 	if rr := postForm(t, mux2, "/integrations/"+in.ID+"/refresh?account="+a.ID, url.Values{}); rr.Code != http.StatusConflict {
 		t.Fatalf("unwired refresh: %d", rr.Code)
 	}
@@ -507,7 +507,7 @@ func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	MountIntegrationPages(mux, IntegrationsDeps{Store: st, Manager: m, ConnectTimeout: 2 * time.Second})
+	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t), Store: st, Manager: m, ConnectTimeout: 2 * time.Second})
 	if rr := postForm(t, mux, "/integrations/"+in.ID+"/connect?account="+a.ID, url.Values{}); rr.Code >= 400 {
 		t.Fatalf("reconnect: %d %s", rr.Code, rr.Body.String())
 	}
@@ -518,4 +518,16 @@ func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
 	if count() < 2 {
 		t.Fatal("the portal's Reconnect launched nothing: a child that gave up stays given up after the owner asked")
 	}
+}
+
+// joined is a test's joined background group, as serve's: the work a request starts gets the
+// group's context, and the test's cleanup ends that context and waits for the work before the
+// store closes and the temporary directory goes (cleanups run last-registered first, and this
+// one is registered after both).
+func joined(t *testing.T) func(work func(ctx context.Context)) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	t.Cleanup(func() { cancel(); wg.Wait() })
+	return func(work func(ctx context.Context)) { wg.Go(func() { work(ctx) }) }
 }
