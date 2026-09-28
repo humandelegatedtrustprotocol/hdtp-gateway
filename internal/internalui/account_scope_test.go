@@ -49,7 +49,7 @@ func TestPortalRefusesAnAccountTheOwnerDoesNotAdminister(t *testing.T) {
 		var got bool
 		h := accountMiddleware(e.st, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 			got = true
-		}))
+		}), nil)
 		r := httptest.NewRequest(http.MethodGet, "/contacts?account="+account, nil)
 		if owner != "" {
 			r = r.WithContext(context.WithValue(r.Context(), ownerKey{}, owner))
@@ -70,7 +70,7 @@ func TestPortalRefusesAnAccountTheOwnerDoesNotAdminister(t *testing.T) {
 	var viaFallback bool
 	h := accountMiddleware(e.st, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		viaFallback = r.URL.Query().Get("account") == theirs.ID
-	}))
+	}), nil)
 	r := httptest.NewRequest(http.MethodGet, "/contacts", nil)
 	r = r.WithContext(context.WithValue(r.Context(), ownerKey{}, me.ID))
 	h.ServeHTTP(httptest.NewRecorder(), r)
@@ -99,7 +99,7 @@ func TestNoSessionResolvesNoAccountAndIsNotRefused(t *testing.T) {
 	h := accountMiddleware(e.st, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		served = true
 		seen = r.URL.Query().Get("account")
-	}))
+	}), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
