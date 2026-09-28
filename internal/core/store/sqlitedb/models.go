@@ -68,6 +68,16 @@ type Catalog struct {
 	CreatedAt     int64
 }
 
+type Change struct {
+	ID         int64
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	Ref        string
+	At         int64
+}
+
 type Contact struct {
 	ID               string
 	AccountID        string

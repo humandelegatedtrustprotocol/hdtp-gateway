@@ -197,6 +197,8 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 			must(st.PutSetting(ctx, store.Setting{Key: k, Value: "1", UpdatedAt: 1}))
 		}
 		must(st.InsertAuditEvent(ctx, seq, 1, a.ID, "cli", "cli", "seed", "account:"+a.ID, "ok", "", "{}", "", "h-"+slug))
+		_, err = st.AppendChange(ctx, store.Change{AccountID: a.ID, Kind: "message", ThreadID: "th-" + slug, At: 1})
+		must(err)
 		return a, in.ID
 	}
 	leaving, leavingIntegration := seed("leaving")

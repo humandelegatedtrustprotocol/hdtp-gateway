@@ -83,6 +83,7 @@ type serveRun struct {
 	binder    *capabilityBinder
 	agent     *integrations.AgentAnswered
 	presence  *presence.Tracker
+	bus       *messaging.Bus
 	// surfaceChanged is filled in after node.New; the chain's hook reads it when it fires.
 	surfaceChanged func(integrationID string)
 }
@@ -266,7 +267,11 @@ func (s *serveRun) startNode() error {
 	s.connector = &integrations.Connector{}
 	// One wired chain, shared by the node and the portal (SPEC §6). `nd` does
 	// not exist yet, so the surface-change hook is filled in after node.New.
-	bus := messaging.NewBus()
+	// The node's events, and the change log that carries them to every process on this store
+	// (SPEC §7.8). Its reader runs in the background group (startBackground).
+	bus := messaging.NewBus(st)
+	bus.OnError = func(err error) { fmt.Fprintf(s.stderr, "events: %v\n", err) }
+	s.bus = bus
 	s.chain = integrationchain.Build(st, s.kr, s.connector, portalBase(s.cfg), s.auditFn, func(id string) {
 		if s.surfaceChanged != nil {
 			s.surfaceChanged(id)
@@ -426,6 +431,8 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 // startBackground starts serve's background loops in the group serveWith joins.
 func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitGroup) {
 	nd := s.nd
+	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
+	background.Go(func() { s.bus.Run(bgCtx) })
 	background.Go(func() { connectStoredIntegrations(bgCtx, s.chain.Manager, s.st, s.auditFn, s.stderr) })
 
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----

@@ -729,7 +729,7 @@ Every inbound payload handed to the owner's agent — via owner-MCP resources or
 
 ### 7.8 The event bus
 
-Every messaging event (new message, new media, pending request, contact-state change) is published on an in-process event bus. It has two consumers, and each only wakes a waiter, which then re-reads the store — the bus says "look", the store says what, so an event dropped by a full subscriber costs a wake and never a fact:
+Every messaging event (new message, new media, pending request, contact-state change, a contact's substantive call) is published on the event bus. It has two consumers, and each only wakes a waiter, which then re-reads the store — the bus says "look", the store says what, so an event dropped by a full subscriber costs a wake and never a fact:
 
 ```mermaid
 flowchart LR
@@ -741,6 +741,8 @@ flowchart LR
 ```
 
 The audit trail is not a consumer: its writes live in the dispatch paths and the store mutation layer (§11.5).
+
+**The change log.** Every event is also a row of the store's `changes` table, so that every node process sharing the store (§11.1) hears it. Publishing appends the row and wakes this process's waiters at once; each process reads the rows other processes appended every 250 ms, and on PostgreSQL wakes sooner on a notification the appending transaction sends at its commit (`LISTEN`/`NOTIFY`; the poll, not the notification, is what is relied on). A row's id is store-assigned and ids commit in order — on PostgreSQL every append takes one advisory lock first — so a reader past an id never misses a row committed later below it. The id is the cursor `wait_for_updates` answers with (§8.5). Rows are kept for a week; an idle reader's poll costs about 23 µs on SQLite.
 
 ### 7.9 Retention and deletion
 
@@ -818,7 +820,7 @@ pact://inbox        pact://thread/<id>        pact://pending        pact://reque
 
 `pact://inbox` summarizes unread messages per account and `pact://thread/<id>` is one conversation (§7.8); `pact://pending` lists agent-answered `pending_requests` awaiting the owner's agent (§6.8); `pact://requests` lists incoming contact requests awaiting the owner's approval (`pending_in`, §9.1). A contact parked at a new address (§9.1) is read with `list_pending_addresses`, and `wait_for_updates` and `digest` count them as `pending_addresses`.
 
-Nothing is pushed. The server declares `tools` and `resources` with neither `listChanged` nor `subscribe` — a stateless server has no stream to carry them — and has no subscribe method. What an agent waits for, it waits for with `wait_for_updates`: the call holds for up to 25 seconds until something moves, then answers with what moved since the caller's cursor, so a loop is one call per wake and a reconnect loses nothing. `get_inbox`, `read_thread`, `list_pending` and the resources return the same data on demand.
+Nothing is pushed. The server declares `tools` and `resources` with neither `listChanged` nor `subscribe` — a stateless server has no stream to carry them — and has no subscribe method. What an agent waits for, it waits for with `wait_for_updates`: the call holds for up to 25 seconds until something moves, then answers with what moved since the caller's cursor — the threads with new messages and the calls contacts made — so a loop is one call per wake and a reconnect loses nothing. The cursor is an id of the change log (§7.8), the same in every node process on the store; a call without `since` answers at once with the newest. A wait that ends on the clock answers with the newest change it read, never a time, and a cursor older than the log's week is answered at once with `cursor_expired`. `get_inbox`, `read_thread`, `list_pending` and the resources return the same data on demand.
 
 ### 8.6 Passkey registration boundary
 
@@ -1054,6 +1056,7 @@ What each process still keeps to itself — and so what a deployment of more tha
 | `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
 | `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
 | `vacated_addresses` | An address an identity left when it left this node (PACT §9, §3.11): the endpoint, its slug and the last leaf's `notAfter`, and nothing that names the identity. While live it refuses the slug to a new account and the endpoint to a signing request; the hourly sweep drops it once its date has passed |
+| `changes` | The change log (§7.8): one row per event the node publishes — account, kind, thread, contact, a reference (the tool of a call) and when — whose id is the cursor `wait_for_updates` answers with; every node process sharing the store reads it. Kept a week, and erased with an identity that leaves (§3.11) |
 | `pending_addresses` | PACT 2.0 (PACT §5.3): a contact at a new address awaiting the owner under `accept_new_hosts = ask` |
 | `audit_anchor` | The terminal hash of the archived audit segment the retained chain must extend (§11.6) |
 | `audit_archive_rows` | The rows an identity's archive is removing from the chain, by seq and hash, the only rows past the anchor the prune guard lets go; empty outside the one transaction that removes them (§3.11, §11.6) |
