@@ -352,7 +352,7 @@ it. `docs/testing.md` has the needs, the result files and how to add a scenario.
 
 | Tier | Runs | Promises (needs it provides) | Measured 2026-09-27 | How |
 |---|---|---|---|---|
-| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet` | — (runs no scenario) | `make harness` | `pre-push` hook, automatic |
+| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet`, and `multiprocess`: two `serve` processes of the shipped binary behind a round-robin proxy, on one SQLite data dir and on one Postgres (the Postgres half where `PACT_TEST_POSTGRES_DSN` names a server, which the pre-push hook provides) | — (runs no registered scenario) | `make harness`; `multiprocess` took 82 s for both engines (2026-09-28) | `pre-push` hook, automatic |
 | **Fabric** | F1–F5 | docker, node image | 5/5 PASS; the five took 10.4 s | `make harness-live` |
 | **PR** | fabric + S2, S9 | + chrome | 7/7 PASS; the seven took 21.3 s | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
 | **Nightly** | every scenario | + caldav image; kernel only with `PACT_HARNESS_KERNEL`, cf only with `PACT_CF_DOMAIN` | 18 PASS, T7 not promised; the scenario package took 104.8 s | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
