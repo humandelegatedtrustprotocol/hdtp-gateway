@@ -272,6 +272,7 @@ func (s *serveRun) startNode() error {
 	bus := messaging.NewBus(st)
 	bus.OnError = func(err error) { fmt.Fprintf(s.stderr, "events: %v\n", err) }
 	s.bus = bus
+	s.settings.AttachBus(bus)
 	s.chain = integrationchain.Build(st, s.kr, s.connector, portalBase(s.cfg), s.auditFn, func(id string) {
 		if s.surfaceChanged != nil {
 			s.surfaceChanged(id)
@@ -295,6 +296,8 @@ func (s *serveRun) startNode() error {
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
 		RateBudget:         s.settings.RateBudget,
+		// The seal an account is built with is the owner's, as the settings service holds it now.
+		SealPolicy: s.settings.SealPolicy,
 		Quota: func(accountID string) int64 {
 			q, _ := s.settings.StorageFor(ctx, accountID)
 			return q
@@ -435,6 +438,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	background.Go(func() { s.bus.Run(bgCtx) })
 	// …and what they change about a caller's surface or an account, the live node applies.
 	background.Go(func() { nd.Follow(bgCtx) })
+	background.Go(func() { s.settings.Follow(bgCtx) })
 	background.Go(func() { connectStoredIntegrations(bgCtx, s.chain.Manager, s.st, s.auditFn, s.stderr) })
 
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----

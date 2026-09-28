@@ -156,3 +156,50 @@ func contains(ss []string, want string) bool {
 	}
 	return false
 }
+
+// The seal an account is built with is the owner's as it is NOW (Options.SealPolicy): an account
+// adopted after the owner changed the seal serves the new one and its row says so, and so does an
+// account re-leafed (adopted again) after it. It was the node's boot value, so an adoption after a
+// portal change served, and wrote back, the seal the owner had replaced.
+func TestAnAccountAdoptedAfterASealChangeServesTheNewSeal(t *testing.T) {
+	ctx := context.Background()
+	e, accts := newEnv(t, "alice")
+	policy := core.SealOptional
+	o := e.options()
+	o.SealPolicy = func() core.Seal { return policy }
+	n := mustNew(t, o)
+
+	// The owner requires sealing: the settings service writes its config and re-seals each
+	// account, as settings.apply does.
+	policy = core.SealRequired
+	if err := n.SetSeal(ctx, accts[0].ID, policy); err != nil {
+		t.Fatal(err)
+	}
+	served := func(accountID string) core.Seal {
+		n.mu.RLock()
+		defer n.mu.RUnlock()
+		return n.accounts[accountID].sealValue()
+	}
+	// Re-leafed: adopted again.
+	if err := n.AdoptAccount(ctx, accts[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	// A new account.
+	bob, err := e.idm.CreateAccount(ctx, "bob", "BOB", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.issueLeaf(bob)
+	if err := n.AdoptAccount(ctx, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{accts[0].ID, bob.ID} {
+		row, err := e.st.GetAccountByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := served(id); got != core.SealRequired || row.Seal != string(core.SealRequired) {
+			t.Fatalf("an account adopted after the seal became required serves %s and its row says %s", got, row.Seal)
+		}
+	}
+}
