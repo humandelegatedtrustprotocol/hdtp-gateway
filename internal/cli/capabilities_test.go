@@ -93,7 +93,7 @@ func keysOf[V any](m map[string]V) []string {
 // AC (P11-04): resolving an account's capabilities is cached, and the cache is
 // dropped when the exposure state changes.
 //
-// `get_status` is a contact-tier call a peer may make sixty times an hour, and
+// `get_status` is a contact-tier call a peer may make once a second, and
 // resolving walked every integration and read its exposure set — N+1 queries to
 // usually answer "available". Correctness is the harder half: a cache that does
 // not drop would keep answering with an integration the owner has withdrawn.

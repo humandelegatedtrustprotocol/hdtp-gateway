@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -829,16 +830,23 @@ func why(err error) string {
 	return "why:" + m
 }
 
-// DefaultLimits is the untuned node's advertisement: every number from the
-// same constant that enforces it, so the card can never disagree with the gate.
-func DefaultLimits() Limits {
+// DefaultLimits is the untuned node's advertisement (a contact cap of DefaultContactCap).
+func DefaultLimits() Limits { return LimitsFor(DefaultContactCap) }
+
+// LimitsFor is what an account whose contact cap is contactCap advertises: every number from the
+// same constant or function that enforces it (Limiter, Specs), so the card cannot disagree with
+// the gate.
+func LimitsFor(contactCap int) Limits {
 	return Limits{
-		TextBytes:           MaxTextBytes,
-		NoteBytes:           MaxNoteBytes,
-		MediaInlineBytes:    MaxInlineData,
-		AvailabilitySlots:   calendar.MaxSlots,
-		InviteTTLDays:       int(contacts.MaxInviteTTL / (24 * time.Hour)),
-		ContactCallsPerHour: DefaultBudget(KindContact),
-		GuestCallsPerHour:   DefaultBudget(KindGuest),
+		TextBytes:               MaxTextBytes,
+		NoteBytes:               MaxNoteBytes,
+		MediaInlineBytes:        MaxInlineData,
+		AvailabilitySlots:       calendar.MaxSlots,
+		InviteTTLDays:           int(contacts.MaxInviteTTL / (24 * time.Hour)),
+		ContactCallsPerSecond:   int(ContactBucket.Rate),
+		ContactBurst:            int(ContactBucket.Burst),
+		IdentityCallsPerSecond:  int(IdentityBucket(contactCap).Rate),
+		GuestCallsPerHour:       int(math.Round(GuestBucket.Rate * 3600)),
+		GuestSourceCallsPerHour: int(math.Round(SourceBucket.Rate * 3600)),
 	}
 }

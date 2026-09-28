@@ -504,8 +504,13 @@ The limits of PACT §12 are enforced at this boundary, before dispatch, and agai
 | inline media | ≤5 MiB (larger by `url`; inbound URLs are never auto-fetched, §7) |
 | `note` | ≤1 KiB |
 | availability slots | ≤5 per response |
-| per-contact rate | 60 calls/hour |
-| guest rate | 10 calls/hour per IP+key; per IP alone for anonymous callers |
+| per-contact rate | 1 call/second, burst 10, per account called and contact root |
+| per-account rate | every contact together: `limit.contacts` × 1 call/second, burst one second of it, held at 200/second (`NodeCapacityPerSecond`: what one node was measured to serve, with a margin, and below the 500/second the default cap asks for) |
+| guest rate | 10 calls/hour, burst 10, per account, root and IP |
+| source rate | 60 calls/hour, burst 60, per account and IP, for a caller that proved no root (a small form answered `chain_required`, an anonymous or unchained plaintext call) |
+| contacts per account | `limit.contacts`, default 500: active contacts plus sent requests; refused `payment_required` to the owner and `unavailable` to a redeeming peer |
+
+Every budget is a token bucket; `retry_after` is the whole seconds, at least one, until the bucket that refused holds a call again. Every call that reaches dispatch spends — a sealed `tools/list` and a tool that does not exist included — and a replay answered from its record does not. What an account sends is budgeted too: to an active contact at that contact's rate and within the account's aggregate, and to anybody else (`request_contact`, `redeem_invite`, `contact_accepted`, `contact_rejected`, any unpinned address) 20 calls/hour, burst 20; a refused call leaves the node as nothing and returns `rate_limited` to the owner.
 
 The listener MUST cap request bodies before JSON parsing at **8 MiB** — sized to the largest legitimate payload: 5 MiB inline media × 4/3 base64 expansion plus envelope and JSON overhead, rounded up — rejecting larger requests with `too_large`. Rate-limit denials return `rate_limited` with `retry_after`.
 

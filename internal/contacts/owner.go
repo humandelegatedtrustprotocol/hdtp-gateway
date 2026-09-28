@@ -119,6 +119,11 @@ func (o Owner) Approve(ctx context.Context, accountID, fpr, preset string) (Deci
 		bundle = perms
 	}
 	err = o.Manager.Store.Atomically(ctx, func(tx store.Store) error {
+		// A request does not count against the contact cap until it is approved: here. Refused,
+		// it stays pending_in, so making room and approving again works.
+		if err := o.Manager.Room(ctx, tx, accountID); err != nil {
+			return err
+		}
 		ok, err := tx.MoveContactStatus(ctx, accountID, fpr, "pending_in", "active")
 		if err != nil {
 			return err
@@ -225,6 +230,12 @@ func (o Owner) Unblock(ctx context.Context, accountID, fpr string) (Decision, er
 	d := Decision{Status: "active"}
 	var ok bool
 	if c.EverActive {
+		// `blocked` does not count against the contact cap and `active` does: a restore is one
+		// more contact, and at the cap it is refused with the row left blocked. Forgetting a
+		// declined request, below, adds nothing and is never refused.
+		if err := o.Manager.Room(ctx, o.Manager.Store, accountID); err != nil {
+			return Decision{}, err
+		}
 		ok, err = o.Manager.Store.MoveContactStatus(ctx, accountID, fpr, "blocked", "active")
 	} else {
 		d.Status = "none"

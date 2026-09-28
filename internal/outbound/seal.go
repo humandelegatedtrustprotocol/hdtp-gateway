@@ -220,7 +220,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 		return nil, nil, fmt.Errorf("outbound: seal: %w", err)
 	}
 	wire := map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
-	res, err := c.CallTool(ctx, peer, "sealed_call", wire, CallOptions{})
+	res, err := c.callTool(ctx, peer, "sealed_call", wire)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -279,7 +279,11 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 // our client certificate — and returns the leaf of a chain that validates to
 // the pinned root at the dialed address and is not older than the pin.
 func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error) {
-	res, err := c.CallTool(ctx, peer, "get_card", map[string]any{}, CallOptions{Plaintext: true})
+	// Plaintext, and so refused to a peer that requires sealing, as every plaintext call is.
+	if peer.Seal == "required" {
+		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)
+	}
+	res, err := c.callTool(ctx, peer, "get_card", map[string]any{})
 	if err != nil {
 		return nil, err
 	}

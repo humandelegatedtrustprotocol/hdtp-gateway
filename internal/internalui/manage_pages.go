@@ -63,6 +63,8 @@ func lifecycleStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, contacts.ErrBadRequest):
 		return http.StatusBadRequest
+	case errors.Is(err, contacts.ErrContactCap):
+		return http.StatusPaymentRequired
 	}
 	return http.StatusInternalServerError
 }
