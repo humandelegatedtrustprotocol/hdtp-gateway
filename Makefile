@@ -222,10 +222,13 @@ test:
 # The portal's page scripts that no Go test can execute: wallet_return.js reads the web wallet's
 # answer out of the fragment and POSTs it (internalui/wallet_pages.go). `node --test` runs them
 # against a stubbed browser, with no package installed; the Node it needs is the one `make web`
-# already requires, and a machine without it fails here rather than skipping.
+# already requires, and a machine without it fails here rather than skipping. Then the brand, which is
+# JavaScript for the same reason: web/tools/kit.mjs check holds the vendored pact-web-kit (web/kit/,
+# web/public/{brand,fonts}) to its release manifest and the portal's palette to the kit, contrast included.
 test-js:
 	@command -v node >/dev/null || { echo "test-js: node is not installed; it is what make web needs too"; exit 1; }
 	node --test internal/internalui/*_test.mjs
+	node web/tools/kit.mjs check
 
 # The scenario harness (docs/harness-design.md). Separate module, separate command,
 # deliberately not part of `check`.
