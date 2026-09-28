@@ -116,7 +116,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	n := &pactNode{t: t, st: st, acct: a, kp: kp, cert: cert, seal: seal,
 		leafDER: leafDER, rootFpr: pactidentity.Fingerprint(rootKey.Public.SPKI), rootCert: rootCert,
 		cm:  &contacts.Manager{Store: st},
-		msg: &messaging.Service{Store: st, Bus: messaging.NewBus()}}
+		msg: &messaging.Service{Store: st, Bus: messaging.NewBus(st)}}
 
 	reg := &public.Registry{}
 	n.pool = public.NewPool(reg, public.StoreResolver(st), 16)

@@ -126,11 +126,11 @@ try {
     'acks=' + acks6.length + ' reActed=' + reActed)
 
   // T7: an allowed tool call surfaces in the feed with the trust label
-  const preCall = Math.floor(Date.now() / 1000) - 1
+  const preCall = (await alice.call('wait_for_updates', { account_id: aAcct })).cursor
   const mark7 = loopLines.length
   const st7 = must('call', await bob.call('call_contact', { account_id: bAcct, contact_fpr: aliceFpr, tool: 'get_status', arguments: {} }))
   const callLine = await waitLoop(/used get_status \(trust: may_instruct\)/, 25000, mark7)
-  const feed7 = await alice.call('wait_for_updates', { account_id: aAcct, since_ts: preCall, timeout_sec: 2 })
+  const feed7 = await alice.call('wait_for_updates', { account_id: aAcct, since: preCall, timeout_sec: 2 })
   const call7 = (feed7.calls || []).find(c => c.tool === 'get_status' && c.contact_fpr === bobFpr)
   check('T7', 'allowed call surfaces in calls[] with trust label',
     callLine && call7 && call7.trust === 'may_instruct', JSON.stringify(feed7.calls).slice(0, 160))
@@ -138,12 +138,12 @@ try {
   // T8: a denied call does NOT surface
   const trimmed = originalPerms.filter(p => p !== 'status.view')
   must('perm', await alice.call('set_permissions', { account_id: aAcct, contact_fpr: bobFpr, permissions: trimmed, preset: '' }))
-  const preDenied = Math.floor(Date.now() / 1000) - 1
+  const preDenied = (await alice.call('wait_for_updates', { account_id: aAcct })).cursor
   const denied = await bob.call('call_contact', { account_id: bAcct, contact_fpr: aliceFpr, tool: 'get_status', arguments: {} })
   await sleep(3000)
-  const feed8 = await alice.call('wait_for_updates', { account_id: aAcct, since_ts: preDenied, timeout_sec: 2 })
+  const feed8 = await alice.call('wait_for_updates', { account_id: aAcct, since: preDenied, timeout_sec: 2 })
   const wasDenied = JSON.stringify(denied).includes('permission_denied')
-  const leaked = (feed8.calls || []).some(c => c.at >= preDenied)
+  const leaked = (feed8.calls || []).some(c => c.tool === 'get_status' && c.contact_fpr === bobFpr)
   must('perm-restore', await alice.call('set_permissions', { account_id: aAcct, contact_fpr: bobFpr, permissions: originalPerms, preset: bobRow.Preset || '' }))
   let restored = []
   for (let i = 0; i < 4; i++) {
@@ -156,10 +156,10 @@ try {
     'denied=' + wasDenied + ' leaked=' + leaked + ' restored=' + JSON.stringify(restored))
 
   // T9: cursor semantics
-  const w0 = await alice.call('wait_for_updates', { account_id: aAcct, since_ts: 0 })
-  const w1 = await alice.call('wait_for_updates', { account_id: aAcct, since_ts: w0.cursor, timeout_sec: 2 })
-  check('T9', 'since_ts 0 = bare cursor; quiet wait times out clean',
-    w0.cursor > 0 && !w0.threads && w1.timed_out === true && !(w1.calls || []).length,
+  const w0 = await alice.call('wait_for_updates', { account_id: aAcct })
+  const w1 = await alice.call('wait_for_updates', { account_id: aAcct, since: w0.cursor, timeout_sec: 2 })
+  check('T9', 'no since = bare cursor; quiet wait times out clean',
+    typeof w0.cursor === 'number' && !w0.threads && w1.timed_out === true && !(w1.calls || []).length,
     JSON.stringify({ w0, w1 }).slice(0, 160))
 
   // T10: duplicate msg_id lands once

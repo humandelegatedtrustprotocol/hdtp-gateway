@@ -45,6 +45,9 @@ type Windows interface {
 // It BLOCKS until ctx ends, and it never returns while a pass is running. `serve` runs it in its
 // background group and waits for that group before returning, so the store is not closed under a
 // pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
+// ChangeLogKept is how long a change-log row is kept.
+const ChangeLogKept = 7 * 24 * time.Hour
+
 func Run(ctx context.Context, settings Windows, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
 	archiveTrail func(context.Context), invalidate func(ctx context.Context, accountID, fpr string) error) {
@@ -80,6 +83,10 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		// past that the row reserves nothing, and it names the address and nothing else.
 		_, err = st.DeleteExpiredVacatedAddresses(ctx, now)
 		report("vacated addresses", err)
+		// The change log wakes waiters (SPEC §7.8); a change a week old has woken everyone it
+		// ever will, and a cursor older than the log is answered as such (wait_for_updates).
+		_, err = st.DeleteChangesBefore(ctx, now-int64(ChangeLogKept/time.Second))
+		report("change log", err)
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
 			return

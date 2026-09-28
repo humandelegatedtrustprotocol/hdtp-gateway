@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/jackc/pgx/v5"
 
@@ -48,12 +47,7 @@ func (p *Postgres) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int
 }
 
 func (p *Postgres) ListDueLeaves(ctx context.Context, before int64, limit int) ([]AuditRow, error) {
-	// Postgres types LIMIT as int32: a limit that cannot fit is clamped, not wrapped (gosec G115).
-	var lim int32 = math.MaxInt32
-	if limit >= 0 && limit <= math.MaxInt32 {
-		lim = int32(limit)
-	}
-	rs, err := p.q.ListDueLeaves(ctx, pgdb.ListDueLeavesParams{Ts: before, Limit: lim})
+	rs, err := p.q.ListDueLeaves(ctx, pgdb.ListDueLeavesParams{Ts: before, Limit: pgLimit(limit)})
 	if err != nil {
 		return nil, err
 	}

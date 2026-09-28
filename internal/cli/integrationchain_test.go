@@ -202,7 +202,7 @@ func TestAgentAnsweredExposureParksARequest(t *testing.T) {
 
 	chain := integrationchain.Build(st, nil, nil, "", func(string, string, string) {}, nil, nil, nil)
 	agent := &integrations.AgentAnswered{
-		Store: st, Bus: messaging.NewBus(),
+		Store: st, Bus: messaging.NewBus(st),
 		WaitBudget: 50 * time.Millisecond, TTL: time.Hour,
 	}
 	surf := &integrationSurface{

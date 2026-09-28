@@ -375,6 +375,40 @@ type Store interface {
 	MessageStore
 	IntegrationStore
 	AuditStore
+	ChangeStore
+}
+
+// Change is one row of the change log (SPEC §7.8): something happened that a waiter in any node
+// process sharing this store may want to wake for. ID is the cursor, store-assigned and
+// committed in order.
+type Change struct {
+	ID         int64
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	Ref        string
+	At         int64
+}
+
+// ChangeStore is the change log every node process sharing a store reads and writes.
+type ChangeStore interface {
+	// AppendChange records c (its ID is ignored) and returns the id assigned. Ids commit in the
+	// order they are assigned: on Postgres every insert first takes one advisory lock in its
+	// transaction, and sends a notification at its commit; SQLite writes one transaction at a time.
+	AppendChange(ctx context.Context, c Change) (int64, error)
+	// ChangesAfter returns up to limit changes with ids above after, in id order.
+	ChangesAfter(ctx context.Context, after int64, limit int) ([]Change, error)
+	// AccountChangesAfter returns up to limit of one account's changes with ids above after.
+	AccountChangesAfter(ctx context.Context, accountID string, after int64, limit int) ([]Change, error)
+	// ChangeBounds returns the oldest and newest ids held, 0 and 0 for an empty log.
+	ChangeBounds(ctx context.Context) (oldest, newest int64, err error)
+	// DeleteChangesBefore prunes the log of changes written before at (unix seconds).
+	DeleteChangesBefore(ctx context.Context, at int64) (int64, error)
+	// WatchChanges calls wake whenever another process may have appended, until ctx ends. It is a
+	// hint that shortens the wait for the next poll, never the source of truth: Postgres
+	// LISTENs for the notification AppendChange sends; SQLite has none, and returns at once.
+	WatchChanges(ctx context.Context, wake func()) error
 }
 
 // Lifecycle opens, migrates, closes and transacts: what every engine does before it holds anything.
@@ -493,10 +527,12 @@ type AccountStore interface {
 
 	// An identity leaving this host (PACT §9, identity.Manager.Leave). DeleteAccount deletes the
 	// account row and, by ON DELETE CASCADE, every row that names it by a foreign key;
-	// DeleteTokensByAccount and DeleteIdempotencyByAccount are the tables that name it without one.
+	// DeleteTokensByAccount, DeleteIdempotencyByAccount and DeleteChangesByAccount are the tables
+	// that name it without one.
 	DeleteAccount(ctx context.Context, accountID string) (int64, error)
 	DeleteTokensByAccount(ctx context.Context, accountID string) (int64, error)
 	DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error)
+	DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error)
 	// UpsertVacatedAddress records an address left behind; a second record of the same endpoint
 	// keeps the later UntilAt. LiveVacatedSlug and LiveVacatedEndpoint say whether a record is
 	// still reserving it at `now`; DeleteExpiredVacatedAddresses drops the ones that no longer do.

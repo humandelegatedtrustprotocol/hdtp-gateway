@@ -22,7 +22,7 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 	var start struct {
 		Cursor int64 `json:"cursor"`
 	}
-	if err := json.Unmarshal([]byte(first), &start); err != nil || start.Cursor == 0 {
+	if err := json.Unmarshal([]byte(first), &start); err != nil {
 		t.Fatalf("first wait: %s", first)
 	}
 
@@ -35,7 +35,7 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 		done <- res
 	}()
 	// A starvation threshold, not a latency budget: the wait wakes as the request parks.
-	woke, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since_ts": start.Cursor, "timeout_sec": 25})
+	woke, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since": start.Cursor, "timeout_sec": 25})
 	if !strings.Contains(woke, `"pending_requests":1`) {
 		t.Fatalf("the wait did not report the parked request: %s", woke)
 	}
