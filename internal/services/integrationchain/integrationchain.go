@@ -114,8 +114,10 @@ func Build(st store.Store, kr integrations.Sealer,
 			}
 			redirect := strings.TrimSuffix(base, "/") + "/oauth/callback"
 			setup := integrations.OAuthSetup{
-				Store:         st,
-				Keyring:       kr,
+				Store:   st,
+				Keyring: kr,
+				// One node process on the store refreshes an expired token; the others serve it.
+				Leases:        st,
 				RedirectURL:   redirect,
 				Preregistered: pre,
 				Fetch:         connector.Fetcher(in.ID),
