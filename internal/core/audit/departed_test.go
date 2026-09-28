@@ -276,7 +276,7 @@ func TestTheTrailOfAnIdentityThatLeftMovesOnlyAfterItsPeriod(t *testing.T) {
 			// A row as the node wrote it before its sink filled the account column: the id is in
 			// the resource only. Written before the node's writer has loaded the tail, as an older
 			// node's row is.
-			older := &audit.Writer{Sink: n.st}
+			older := &audit.Writer{Sink: store.AuditAppender{St: n.st}}
 			if err := older.Append(context.Background(), "", "owner", "", "contact_add", "account:"+alice.ID+" contact:sha256:old", "ok", "", ""); err != nil {
 				t.Fatal(err)
 			}

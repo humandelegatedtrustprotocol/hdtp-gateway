@@ -29,7 +29,7 @@ func New(ctx context.Context, st store.AuditStore, stderr io.Writer) *Sink {
 	// chain records the KEY of a setting and never its value, fingerprints rather
 	// than names, and content-addressed references rather than bodies. Nothing
 	// leaves the machine — `PACT_LOG=off` silences it for anyone who wants that.
-	return &Sink{w: &audit.Writer{Sink: st}, ctx: ctx, stderr: stderr,
+	return &Sink{w: &audit.Writer{Sink: store.AuditAppender{St: st}}, ctx: ctx, stderr: stderr,
 		mirror: os.Getenv("PACT_LOG") != "off"}
 }
 

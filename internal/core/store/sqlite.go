@@ -456,6 +456,12 @@ func (s *SQLite) InsertAuditEvent(ctx context.Context, seq int64, ts int64, acco
 	return s.q.InsertAuditEvent(ctx, auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash))
 }
 
+func (s *SQLite) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
+	// Atomically's transaction begins IMMEDIATE (_txlock): it holds the write lock from the read
+	// of the head to the commit, against every connection and every process.
+	return s.Atomically(ctx, func(tx Store) error { return appendAudit(ctx, tx, seal) })
+}
+
 func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	r, err := s.q.LastAuditEvent(ctx)
 	if err != nil {

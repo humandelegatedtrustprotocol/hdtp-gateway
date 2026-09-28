@@ -35,7 +35,7 @@ func TestTheOwnersAuditQueryReadsAPageAndNeverTheChain(t *testing.T) {
 	}
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
 	b, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "bharat", DisplayName: "Bharat", Algo: "p256"})
-	w := &audit.Writer{Sink: st}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}}
 	write := func(accountID, actor, action string) {
 		t.Helper()
 		if err := w.Append(ctx, accountID, "owner", actor, action, "r", "ok", "", ""); err != nil {

@@ -32,7 +32,7 @@ func seedAudit(t *testing.T, dir string, n int) string {
 	}
 	defer st.Close()
 	clock := time.Unix(1756000000, 0)
-	w := &audit.Writer{Sink: st, Now: func() time.Time { return clock }}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}, Now: func() time.Time { return clock }}
 	for i := 0; i < n; i++ {
 		if err := w.Append(context.Background(), "acct", "owner", "o1", "settings_update", "account:acct", "ok", "", ""); err != nil {
 			t.Fatal(err)
@@ -121,7 +121,7 @@ func TestAuditArchivePrunesAndKeepsTheChainVerifiable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: st}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}}
 	for i := 0; i < 10; i++ {
 		if err := w.Append(ctx, "", "system", "", "probe", fmt.Sprintf("row:%d", i), "ok", "", ""); err != nil {
 			t.Fatal(err)
@@ -219,7 +219,7 @@ func TestAuditAnchorCannotBeUsedToHideAWipe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: st}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}}
 	for i := 0; i < 6; i++ {
 		if err := w.Append(ctx, "", "system", "", "probe", fmt.Sprintf("r:%d", i), "ok", "", ""); err != nil {
 			t.Fatal(err)
@@ -267,7 +267,7 @@ func TestVerifyFailsWhenTheArchiveIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: st}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}}
 	for i := 0; i < 8; i++ {
 		if err := w.Append(ctx, "", "system", "", "probe", fmt.Sprintf("r:%d", i), "ok", "", ""); err != nil {
 			t.Fatal(err)
@@ -311,7 +311,7 @@ func TestEraseArchiveRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: st}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}}
 	for i := 0; i < 4; i++ {
 		if err := w.Append(ctx, "", "system", "", "probe", fmt.Sprintf("r:%d", i), "ok", "", ""); err != nil {
 			t.Fatal(err)
