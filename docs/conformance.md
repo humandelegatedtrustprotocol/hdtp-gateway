@@ -23,7 +23,7 @@ PACT §12: *"an implementation is a PACT agent server if it…"*
 | implements the guest and pending tools | `internal/public/tools.go` | `TestBuiltinToolSurfacePerTier`, `TestRedeemInvitePinsProvenKeyAndInvalidates`, `TestPendingAnswerTools` |
 | implements `send_message` | `internal/public/tools.go`, `internal/messaging` | `TestSendMessageRecordsAndIsIdempotent`, `TestThreadIDSharedAcrossDirections` |
 | implements `update_contact`, `remove_contact`, `get_card` (always available at contact tier) | `internal/public/tools.go`, `internal/contacts` | `TestAlwaysToolsAtContactTier`, `TestBuiltinToolSurfacePerTier` |
-| filters `tools/list` per caller | `internal/public/servers.go` | `TestToolsListPerTier`, `TestPermissionFlipRebuildsAndNotifies`, `TestCallTimeDenyMidSession`, `TestGuestServersSharedAndCallerServersDistinct` |
+| filters `tools/list` per caller | `internal/public/servers.go` | `TestToolsListPerTier`, `TestPermissionFlipIsServedToTheNextRequest`, `TestCallTimeDenyOnAServerComposedBeforeTheRevocation`, `TestGuestServersSharedAndCallerServersDistinct` |
 | enforces manual approval for unsolicited requests | `internal/contacts/manager.go`, portal | `TestRedeemWithoutAutoAcceptIsPending`, `TestRequestContactNoteCapAndBinding`, `TestApproveAndRejectFlows` |
 | invite issuance with expiry, uses and revocation | `internal/contacts/manager.go`, `internal/internalui` | `TestRedeemAutoAcceptYieldsActiveContact`, `TestRedeemFailures`, `TestInviteLifecyclePages` |
 | the owner's side of the lifecycle (SPEC §9.1) is one implementation behind both surfaces: approval tells the peer the grant the row holds and reports when they could not be told; rejection demotes to blocked and tells the requester (`contact_rejected`); block is silent; unblock restores a row that was ever active and forgets one that never was; removal tells an active contact; each courtesy call is bounded | `internal/contacts/owner.go`, `internal/internalui/{manage,contacts}_pages.go`, `internal/internalui/ownermcp/server.go`, `internal/cli/contactinit.go` | `TestApproveTellsThePeerTheGrantTheRowHolds`, `TestApproveCarriesTheCouldNotBeToldNotice`, `TestApproveTellsThePeerWithinABudget`, `TestRejectTellsTheRequesterWithinABudget`, `TestBlockAndUnblockOnTheContactPage`, `TestApproveContactTellsTheRowsGrantWithinABudget`, `TestTheAgentRunsTheWholeContactLifecycle`, `EverActiveIsSetByEveryActivationAndClearedByNone` (both engines) |
@@ -58,7 +58,7 @@ that cited test names exist and cannot check that the list is complete.
 |---|---|
 | `unknown_contact` | `TestPendingAnswerTools`, `TestAlwaysToolsAtContactTier` |
 | `pending_approval` — plaintext before the envelope opens, **sealed** once it has (§13.2) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestARefusalPastTheOpenIsSealed` |
-| `permission_denied` | `TestCallTimeDenyMidSession`, `TestSealedGuestReachesGuestToolsOnly`, `TestOwnerActionsAreAuditedAsOwner` (audited, per §5.8) |
+| `permission_denied` | `TestCallTimeDenyOnAServerComposedBeforeTheRevocation`, `TestSealedGuestReachesGuestToolsOnly`, `TestOwnerActionsAreAuditedAsOwner` (audited, per §5.8) |
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
@@ -99,12 +99,22 @@ of it, and are listed so a reader can tell the two apart.
 | audit chain is append-only and tamper-evident | `TestVerifyDetectsSingleByteTamper`, `TestVerifyDetectsReorderAndDeletion`, `TestWriterExtendsPersistentChainAcrossRestart`, `TestAuditTamperedExportDetected` |
 | a removed head is detected — verification is anchored, not self-rooted | `TestHeadTruncationIsDetected` |
 | archiving prunes only what it captured, re-anchors, and keeps the chain verifiable across archive + live | `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
-| session identity binding | `TestSessionIdCannotBeReplayedByAnotherIdentity`, `TestSessionBinding`, `TestSessionIsBoundToTheIdentityThatCreatedIt` |
-| a session binding is reclaimed when the session ends without a DELETE, and a live one still cannot be re-bound | `TestAbandonedSessionBindingsAreReclaimed` |
-| a withdrawn integration tool leaves sessions that are already open, repeatedly, and across LRU eviction | `TestWithholdingAnIntegrationWithdrawsItFromALiveSession`, `TestEvictionDoesNotOrphanALiveSession` |
+| the public surface is stateless: no session is issued or read, no handshake is needed, GET and DELETE are 405 (§5.5) | `TestThePublicSurfaceIsStateless`, `TestStatelessMCPComposesOncePerRequestAndNeverForAGet` |
+| an event crosses to every process on the store, a wait on one process wakes for a change another made and answers with the change log's cursor, never a clock; a cursor older than the log is said to be (§7.8, §8.5) | `TestAnEventCrossesToAnotherProcessOnTheStore`, `TestAProcessDoesNotHearItsOwnEventTwice`, `TestPostgresWakesAnotherProcessAtCommit`, `TestAWaitWakesForAChangeAnotherProcessMade`, `TestACursorOlderThanTheLogIsSaidToBe` |
+| a caller's surface dropped, and an account adopted, re-sealed or forgotten, on one process is applied on another sharing the store (§11.1) | `TestAChangeOneProcessMakesToWhatItServesReachesAnother` |
+| an account adopted or re-leafed after the owner changed the seal serves the new seal and stores it; a setting saved on one process is applied by every other and audited once (§8.2, §11.1) | `TestAnAccountAdoptedAfterASealChangeServesTheNewSeal`, `TestASettingSavedOnOneProcessIsAppliedByAnother` |
+| a lease is one holder's at a time, renewed by it and anyone's once it runs out; blobs go where `blob_dir` says (§11.1) | `TestALeaseIsOneHoldersUntilItRunsOut`, `TestBlobsAreUnderTheDataDirUnlessBlobDirSaysOtherwise` |
+| the retries and the retention pass run only on the process that holds their lease; a wait from a cursor past the log's newest change is answered at once with `cursor_expired` (§8.5, §11.1) | `TestARetryPassRunsOnlyWhileItLeads`, `TestTheRetentionPassRunsOnlyWhileItLeads`, `TestACursorPastTheLogIsSaidToBe` |
+| an expired OAuth token is refreshed by one process of two on the store and served by both, with the rotated refresh token spent once (§6.3, §11.1) | `TestAnExpiredTokenIsRefreshedByOneProcessAndServedByAll` |
+| a wake of the owner's wait reads the same rows at 1, 300 and 2000 contacts, and answers what counting every contact answered; the count reads by account and state together (§8.5) | `TestAWakeReadsTheSameRowsAt1And300And2000Contacts`, `TestCountingContactsByStatusReadsThoseRowsAlone` |
+| one audit chain, however many writers: appends from several processes on one SQLite file and on one Postgres database make one verifying chain (§11.4) | `TestWritersInSeveralProcessesExtendOneChain` |
+| the listener closes a connection past its cap before a handshake, audits the refusals once a minute, and admits the next once a slot frees (§5.7) | `TestTheListenerClosesAConnectionPastItsCapAndAdmitsTheNext` |
+| a sealed call completes from a 2026-07-28 client and from a handshake-era client, and the outbound client sends two sessionless POSTs (§5.5) | `TestASealedCallCompletesFromEitherMCPEra` |
+| a withdrawn integration tool leaves the next request, repeatedly, and the cache stays within its bound | `TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest`, `TestTheCacheStaysWithinItsBound` |
 | outbound retries are scheduled by attempts made, so uneven sweeps cannot starve a message | `TestRetriesStayOnScheduleWhenSweepsAreUneven`, `TestRetryBackoffWidensWithAge` |
 | a sender-chosen `expires` survives the store on both engines | `MessageExpiryHoldsAFarFutureDeadline` (both engines) |
-| the fallback chain runs at once when no owner agent is attached (§6.8) | `TestAgentAnsweredKnowsAboutPresenceFromConstruction`, `TestOwnerPresenceTracksLiveSessionsOnly` |
+| the fallback chain runs at once when no owner agent is attached (§6.8) | `TestAgentAnsweredKnowsAboutPresenceFromConstruction`, `TestOwnerPresenceIsARecentRequestOnAnyProcess`, `TestPresenceIsWrittenAtMostOncePerInterval`, `TestPresenceOutlastsTheLongestWait` |
+| an answer given through one node process reaches a call held by another, and is reported relayed only on the holder's word, late otherwise (§6.8) | `TestAnAnswerGivenOnOneProcessReachesACallHeldByAnother` |
 | `audit repair` refuses an archive whose rows were rewritten, rather than deleting the authentic copy | `TestRepairRefusesAnArchiveWhoseRowsWereRewritten`, `TestRepairRefusesWithoutItsArchiveFile` |
 | the owner cannot be locked out by concurrent credential removal | `RemoveCredentialIfNotLastKeepsTheLastOne` (both engines) |
 | a rollback of a POPULATED database does not fail half-way | `MigrateDownAndUpWithDataPresent` (both engines) |
@@ -140,7 +150,7 @@ of it, and are listed so a reader can tell the two apart.
 | every refusal is audited, and an availability failure is not recorded as a denial | `TestEveryRefusalIsAuditedAndAvailabilityIsNotADenial` |
 | an undelivered message retries with backoff until its deadline (§7.1) | `TestOutboundExpiryDefaultsToTwentyFourHours`, `TestRetryBackoffWidensWithAge` |
 | a contact's card cannot aim the send path at plaintext or an unverifiable address | `TestContactSuppliedEndpointsAreRefusedWhenUnsafe` |
-| withholding an integration withdraws its tools from sessions already open (§6.5, §6.10) | `TestWithholdingAnIntegrationWithdrawsItFromALiveSession` |
+| withholding an integration withdraws its tools from the next request (§6.5, §6.10) | `TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest` |
 | a repin keeps the pinned key when the call proved none | `TestSQLiteConformance` |
 | the LAN flag is judged per request, so a live flip takes effect | `TestLANGuardDecidesPerRequestNotAtWiringTime` |
 | ingress pairing works from the portal, and an unpaired ingress adapter cannot be selected | `TestIngressPairingFromThePortal`, `TestSelectingAnIngressAdapterWithoutPairingIsRefused` |
@@ -153,11 +163,11 @@ of it, and are listed so a reader can tell the two apart.
 | `get_status` answers node-local status with no integration (§6.7) | `TestGetStatusAnswersWithoutAnyIntegration` |
 | an agent-answered exposure parks a request naming its caller (§6.8) | `TestAgentAnsweredExposureParksARequest` |
 | the portal consumes the SSE stream it serves (§8.1) | `TestPortalPagesConsumeTheEventStream` |
-| owner-MCP revocation ends a live session (§3.4, §8.4) | `TestOwnerMCPRevocationEndsALiveSession` |
+| the owner MCP is stateless for both MCP eras, and a revoked token is refused on its next request (§3.4, §8.4, §8.5) | `TestTheOwnerMCPIsStateless` |
 | the owner MCP requires a token on every bind (§8.3, §8.4) | `TestOwnerMCPRequiresATokenEvenOnLoopback` |
 | integration management on the owner MCP shows exposure, not the catalog (§8.4) | `TestIntegrationToolsShowExposureNotTheUpstreamCatalog` |
 | every owner-MCP call is audited, reads and refusals included (§8.7) | `TestEveryOwnerMCPCallIsAudited` |
-| `pact://thread/<id>` signals one conversation (§8.5) | `TestSubscribeInboxReceivesResourceUpdated` |
+| the owner surface declares no subscriptions; a message is found with `wait_for_updates` and read through `pact://inbox` and `pact://thread/<id>` (§8.5) | `TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable` |
 | the front door drops rather than blocking when the terminator is gone | `TestFrontDoorDropsWhenTheTerminatorIsNotAccepting` |
 | the messages rebuild preserves history and its constraints | `TestMessageTableRebuildPreservesHistory` |
 | the data-plane vhost is internal, not publicly bound (§10.6) | `TestDataPlaneVhostDefaultsToLoopback` |

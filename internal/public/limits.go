@@ -256,14 +256,11 @@ func RetryAfterSeconds(d time.Duration) int {
 // touched, the outcome is the verdict alone.
 type AuditFn func(action, resource, outcome string)
 
-// LimitMiddleware enforces the rate budget before ANY dispatch work happens.
-// NOTE ON PLACEMENT. An earlier version limited at the HTTP layer. That is the
-// wrong layer: MCP Streamable HTTP makes several requests per logical call
-// (initialize, the POST, an SSE stream), so a single session burned a guest's
-// entire hourly budget before it asked for anything. PACT §12 budgets CALLS, so
-// the limiter is consumed in the dispatch path — see Pool.guarded — and a
-// refusal is a `rate_limited` tool error, which is what a caller's agent can
-// actually act on.
+// WHERE THE BUDGET IS SPENT. PACT §12 budgets CALLS, and a call is not an HTTP request: an MCP
+// client sends `server/discover` or the handshake before it calls, and a limiter at the HTTP layer
+// once spent a guest's whole hourly budget before it asked for anything. So the budget is spent in
+// the dispatch path (Pool.guarded, and the sealed handler for the inner call), and a refusal is a
+// `rate_limited` tool error, which is what a caller's agent can act on.
 
 // CapBody refuses a request body past maxBytes, counted by the bytes that arrive rather than by the
 // length the request declares, with 413 and PACT's `too_large` (SPEC §5.7), before anything parses

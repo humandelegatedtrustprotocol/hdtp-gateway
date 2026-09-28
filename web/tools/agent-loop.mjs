@@ -66,12 +66,17 @@ if (wantDigest) {
 // harmless templated action — an agent wiring a riskier action into the
 // allow-list must persist its dedupe.
 const acked = new Set()
-let cursor = 0
+// The node's change-log cursor: omitted on the first call, which answers with the newest, and
+// passed back as `since` after that (SPEC §8.5).
+let cursor
 say(`listening on ${base} (account ${String(accountId).slice(0, 8)}...)`)
 
 for (;;) {
-  const res = await node.call('wait_for_updates', { account_id: accountId, since_ts: cursor, timeout_sec: 25 })
-  cursor = res.cursor || Math.floor(Date.now() / 1000)
+  const args = { account_id: accountId, timeout_sec: 25 }
+  if (cursor !== undefined) args.since = cursor
+  const res = await node.call('wait_for_updates', args)
+  cursor = res.cursor
+  if (res.cursor_expired) say('the cursor was older than the change log; re-reading the inbox is up to you')
 
   for (const need of res.needs_attention || []) {
     say(`ATTENTION (only you can fix): integration "${need.integration}" is ${need.status} — re-authorize it in the portal`)

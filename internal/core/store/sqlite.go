@@ -151,6 +151,29 @@ func (s *SQLite) Migrate(ctx context.Context) error {
 	})
 }
 
+func (s *SQLite) SchemaCurrent(ctx context.Context) error {
+	p, err := s.provider()
+	if err != nil {
+		return err
+	}
+	return schemaCurrent(ctx, p)
+}
+
+// schemaCurrent is SchemaCurrent over either engine's migrations.
+func schemaCurrent(ctx context.Context, p *goose.Provider) error {
+	current, target, err := p.GetVersions(ctx)
+	if err != nil {
+		return fmt.Errorf("store: schema version: %w", err)
+	}
+	switch {
+	case current < target:
+		return fmt.Errorf("store: the schema is at version %d and this binary needs %d: it has not been migrated", current, target)
+	case current > target:
+		return fmt.Errorf("store: the schema is at version %d, newer than this binary's %d: a newer pact-gateway migrated it", current, target)
+	}
+	return nil
+}
+
 // MigrateDown rolls back everything; exists for the up/down/up cleanliness check.
 func (s *SQLite) MigrateDown(ctx context.Context) error {
 	p, err := s.provider()
@@ -435,6 +458,12 @@ func (s *SQLite) RevokeToken(ctx context.Context, id string, now int64) error {
 
 func (s *SQLite) InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error {
 	return s.q.InsertAuditEvent(ctx, auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash))
+}
+
+func (s *SQLite) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
+	// Atomically's transaction begins IMMEDIATE (_txlock): it holds the write lock from the read
+	// of the head to the commit, against every connection and every process.
+	return s.Atomically(ctx, func(tx Store) error { return appendAudit(ctx, tx, seal) })
 }
 
 func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {

@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -103,6 +102,11 @@ type Options struct {
 	// default (SPEC §7.4). Read at build time, per account.
 	Quota func(accountID string) int64
 
+	// SealPolicy is the seal the owner set for the node, read when an account is built — at
+	// start and at every adoption — so an account adopted after the owner changed it serves the
+	// new one (SPEC §4.6, §8.2). serve supplies the settings service's; nil is Config.Seal.
+	SealPolicy func() core.Seal
+
 	// Bus is the node-wide event bus (SPEC §7.8). Supplying it lets the portal
 	// and the owner MCP see the same events the public surface publishes; nil
 	// makes one, reachable through Bus().
@@ -157,10 +161,12 @@ type Node struct {
 	unavailable map[string]string
 
 	limiter *public.Limiter
-	// binder pins an MCP session id to the identity that created it (SPEC §5.6).
-	// Without it a caller who gains or changes identity mid-connection keeps the
-	// surface the session was composed for.
-	binder *public.SessionBinder
+	// follow is Follow's subscription, made with the node so nothing another process publishes
+	// between the node's making and Follow's start is missed; room for followBuffer events.
+	follow   <-chan messaging.Event
+	unfollow func()
+	// conns caps the connections the listener holds open (SPEC §5.7).
+	conns *public.ConnCap
 
 	lnMu sync.Mutex
 	ln   net.Listener
@@ -201,7 +207,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		return nil, fmt.Errorf("node: no invite landing page")
 	}
 	if o.Bus == nil {
-		o.Bus = messaging.NewBus()
+		o.Bus = messaging.NewBus(o.Store)
 	}
 	n := &Node{
 		opts: o, cfg: o.Config,
@@ -213,6 +219,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		unavailable: map[string]string{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
+	n.follow, n.unfollow = o.Bus.SubscribeSized("", followBuffer)
 	// Before anything is built: a leaf that ran out while the node was down loses its key now, and
 	// its account then boots as what it is — awaiting a leaf — rather than as a broken one.
 	n.RetireExpiredLeaves(ctx)
@@ -301,7 +308,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// nothing downstream.
 	n.limiter = public.NewLimiter(o.Now)
 	n.limiter.ContactCap = func(string) int { return n.contactCap() }
-	n.binder = public.NewSessionBinder()
 	h := n.srv.Handler()
 	h = public.LANGuard{
 		Adapter: o.Adapter, AllowFn: n.LANAllowed,
@@ -310,6 +316,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	}.Middleware(h)
 	h = public.CapBody(h, MaxBodyBytes)
 	n.handler = h
+	n.conns = &public.ConnCap{Max: public.DefaultMaxConns, Audit: o.audit, Now: o.Now}
 	return n, nil
 }
 
@@ -416,6 +423,21 @@ var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 var errAwaitingKeyless = fmt.Errorf("%w (it holds no key here)", ErrAwaitingLeaf)
 
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
+	return n.buildAccountSealed(ctx, rec, n.sealPolicy())
+}
+
+// sealPolicy is the seal the owner set for the node, as it is now.
+func (n *Node) sealPolicy() core.Seal {
+	if n.opts.SealPolicy != nil {
+		return n.opts.SealPolicy()
+	}
+	return n.cfg.Seal
+}
+
+// buildAccountSealed is buildAccount with the seal policy to serve under: the owner's (boot,
+// adoption) or the account row's (a reload after another process changed it, which wrote the
+// row before it said so).
+func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal core.Seal) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("node: account %s has no key: %w", rec.Slug, err)
@@ -491,7 +513,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 
 	blobs := n.opts.BlobDir
 	if blobs == "" {
-		blobs = filepath.Join(n.cfg.DataDir, "blobs")
+		blobs = n.cfg.Blobs()
 	}
 	reg := &public.Registry{}
 	a.reg = reg
@@ -502,7 +524,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 
 	// The account row is the card's source; the node policy is the truth. Mirror
 	// it now so a card can never advertise a policy the gate does not enforce.
-	eff := core.EffectiveSeal(n.cfg.Mode, n.cfg.Seal)
+	eff := core.EffectiveSeal(n.cfg.Mode, seal)
 	a.seal.Store(eff)
 	if rec.Seal != string(eff) {
 		if err := n.opts.Store.UpdateAccountSeal(ctx, rec.ID, string(eff)); err != nil {
@@ -572,7 +594,9 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			sig, err := n.idm.SignCard(ctx, rec.ID, card)
 			return card, sig, err
 		},
-		Invalidate: a.pool.Invalidate,
+		// Through the node, so a redemption or an approval on this process drops the caller's
+		// surface on every process (Invalidate).
+		Invalidate: n.Invalidate,
 		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
 		Chain:      func(ctx context.Context) ([][]byte, error) { return n.idm.Chain(ctx, rec.ID) },
 		// Read per call, like Quota: the contact cap is an owner knob and sizes the
@@ -584,7 +608,8 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			// wake it through the messaging service; the calendar and media
 			// tools would otherwise be invisible until the next poll.
 			if n.opts.Bus != nil && wakesFeed(action, outcome) {
-				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID})
+				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: rec.ID,
+					ContactFpr: callerOf(resource), Ref: action})
 			}
 		},
 	})...)
@@ -744,10 +769,16 @@ func (n *Node) PublicURL() string {
 // endpoint it was issued for, and an account changes address when its wallet issues a leaf for
 // the new one (`account csr -purpose move`). The caller names the accounts that now need that.
 func (n *Node) SetPublicURL(url string) {
+	n.UsePublicURL(url)
+	n.opts.auditAs("owner", "settings_public_url", "url:"+url, "ok")
+}
+
+// UsePublicURL is SetPublicURL without its audit row: another node process on the store saved the
+// change, and audited it there.
+func (n *Node) UsePublicURL(url string) {
 	n.liveMu.Lock()
 	n.publicURL = url
 	n.liveMu.Unlock()
-	n.opts.auditAs("owner", "settings_public_url", "url:"+url, "ok")
 }
 
 // LANAllowed reports whether connections from private-range sources are served.
@@ -759,10 +790,16 @@ func (n *Node) LANAllowed() bool {
 
 // SetLANConnections flips the LAN flag for the next connection.
 func (n *Node) SetLANConnections(allow bool) {
+	n.UseLANConnections(allow)
+	n.opts.auditAs("owner", "settings_lan", "", boolWord(allow))
+}
+
+// UseLANConnections is SetLANConnections without its audit row: another node process on the store
+// saved the change, and audited it there.
+func (n *Node) UseLANConnections(allow bool) {
 	n.liveMu.Lock()
 	n.lanAllow = allow
 	n.liveMu.Unlock()
-	n.opts.auditAs("owner", "settings_lan", "", boolWord(allow))
 }
 
 func boolWord(b bool) string {
@@ -802,8 +839,8 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 	a.seal.Store(eff)
 	// The served surface must move with the policy: at `none` sealed_call
 	// leaves tools/list (PACT §13.4), otherwise it is (re)installed — and the
-	// cached per-caller servers are reconciled so live sessions see
-	// tools/list_changed, the same mechanics integration tools use.
+	// cached per-caller servers are dropped so the next request lists the
+	// change, the same mechanics integration tools use.
 	if a.reg != nil {
 		if eff == core.SealNone {
 			a.reg.Replace(sealedGroup, nil)
@@ -812,6 +849,7 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 		}
 		n.InvalidateAccount(ctx, accountID)
 	}
+	n.accountChanged(accountID, a.rec.Slug)
 	n.opts.auditAs("owner", "settings_seal", "account:"+accountID, string(a.sealValue()))
 	return nil
 }
@@ -855,11 +893,97 @@ func (n *Node) ServedPermissions(accountID string) []string {
 	return nil
 }
 
+// Invalidate drops one caller's composed surface (SPEC §5.5) in this process and, through the
+// change log, in every other process on the store: the caller's next request, wherever it lands,
+// is composed from what the store now says.
 func (n *Node) Invalidate(ctx context.Context, accountID, fpr string) error {
-	if p := n.Pool(accountID); p != nil {
-		return p.Invalidate(ctx, accountID, fpr)
-	}
+	n.invalidateLocal(ctx, accountID, fpr)
+	n.publish(messaging.Event{Kind: messaging.EventInvalidate, AccountID: accountID, ContactFpr: fpr})
 	return nil
+}
+
+func (n *Node) invalidateLocal(ctx context.Context, accountID, fpr string) {
+	if p := n.Pool(accountID); p != nil {
+		_ = p.Invalidate(ctx, accountID, fpr)
+	}
+}
+
+// publish is n.opts.Bus.Publish, for a node built without a bus.
+func (n *Node) publish(e messaging.Event) {
+	if n.opts.Bus != nil {
+		n.opts.Bus.Publish(e)
+	}
+}
+
+// accountChanged tells every other process on the store to reload an account from it.
+func (n *Node) accountChanged(accountID, slug string) {
+	n.publish(messaging.Event{Kind: messaging.EventAccount, AccountID: accountID, Ref: slug})
+}
+
+// Follow applies what other node processes on the store change to this one's live state, until
+// ctx ends (SPEC §11.1): a caller's surface invalidated there is dropped here; an account adopted,
+// re-leafed, retired, re-sealed or gone there is reloaded here from the store. It passes over what
+// this process published itself, which it has already applied. serve runs it in its joined
+// background group.
+func (n *Node) Follow(ctx context.Context) {
+	if n.follow == nil {
+		return
+	}
+	evs := n.follow
+	defer n.unfollow()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-evs:
+			if e.Local {
+				continue
+			}
+			switch e.Kind {
+			case messaging.EventInvalidate:
+				if e.Ref == invalidateAccount {
+					n.invalidateAccountLocal(ctx, e.AccountID)
+				} else {
+					n.invalidateLocal(ctx, e.AccountID, e.ContactFpr)
+				}
+			case messaging.EventAccount:
+				n.reloadAccount(ctx, e.AccountID, e.Ref)
+			}
+		}
+	}
+}
+
+// followBuffer is how many events Follow may fall behind by before one is dropped: every event
+// of every account on the store passes it, and one it drops is a surface or an account this
+// process goes on serving as it was.
+const followBuffer = 4096
+
+// invalidateAccount is the Ref of an EventInvalidate that drops every caller of an account.
+const invalidateAccount = "account"
+
+// reloadAccount brings this process's view of one account to what the store holds, after another
+// process changed it: gone, awaiting a leaf, broken, or served as built from its row now. Its seal
+// is the row's, which the process that changed it wrote (SetSeal), not this process's default.
+func (n *Node) reloadAccount(ctx context.Context, accountID, slug string) {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if errors.Is(err, store.ErrNotFound) {
+		n.forgetLocal(accountID, slug)
+		return
+	}
+	if err != nil {
+		return // the next change, or a restart, reloads it
+	}
+	a, err := n.buildAccountSealed(ctx, rec, core.Seal(rec.Seal))
+	switch {
+	case errors.Is(err, ErrAwaitingLeaf):
+		n.stopServingLocal(rec)
+	case err != nil:
+		n.mu.Lock()
+		n.unavailable[rec.Slug] = err.Error()
+		n.mu.Unlock()
+	default:
+		n.serveAccount(a)
+	}
 }
 
 // SignCard signs an account's card with its identity key (SPEC §9.3).
@@ -985,7 +1109,8 @@ func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
 		// Key material was destroyed, so the chain says so, once per key.
 		n.opts.audit("account_leaf_key_retired", "account:"+rec.ID+" slug:"+rec.Slug+" key:"+r.Kid+" reason:expired", "ok")
 		if r.Current {
-			n.stopServing(rec)
+			n.stopServingLocal(rec)
+			n.accountChanged(rec.ID, rec.Slug)
 		}
 	}
 	if err != nil && ctx.Err() == nil {
@@ -995,11 +1120,11 @@ func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
 	}
 }
 
-// stopServing takes a live account out of every index the listener answers from and marks it as
+// stopServingLocal takes a live account out of every index the listener answers from and marks it as
 // awaiting a leaf. The node had no way to do this: an account, once built, was served until the
 // process ended, so a leaf that expired under a running node went on being presented — to peers
 // who refuse it — and its key went on being held.
-func (n *Node) stopServing(rec store.Account) {
+func (n *Node) stopServingLocal(rec store.Account) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.accounts, rec.ID)
@@ -1015,9 +1140,14 @@ func (n *Node) stopServing(rec store.Account) {
 // ForgetAccount takes an identity that has left this host out of the live node entirely: out of
 // every index the listener answers from, and out of the lists of accounts awaiting a leaf or
 // unavailable. Its address is then answered as an address this node never served (PACT §9).
-// stopServing is the other way out and is not this one: it keeps the slug as awaiting a leaf,
+// stopServingLocal is the other way out and is not this one: it keeps the slug as awaiting a leaf,
 // because that account is still here.
 func (n *Node) ForgetAccount(accountID, slug string) {
+	n.forgetLocal(accountID, slug)
+	n.accountChanged(accountID, slug)
+}
+
+func (n *Node) forgetLocal(accountID, slug string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.accounts, accountID)
@@ -1074,6 +1204,8 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	// Adoption is a write already, so an expired leaf's key is destroyed here too — off the read
 	// path every inbound request takes. (Boot and the hourly sweep are the other two places.)
 	n.retireExpired(ctx, rec)
+	// Every other process on the store reloads it too, whatever became of it here.
+	defer n.accountChanged(rec.ID, rec.Slug)
 	a, err := n.buildAccount(ctx, rec)
 	if err != nil {
 		if errors.Is(err, ErrAwaitingLeaf) {
@@ -1083,15 +1215,26 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 		}
 		return fmt.Errorf("node: adopt %s: %w", rec.Slug, err)
 	}
+	n.serveAccount(a)
+	return nil
+}
+
+// serveAccount puts a built account into every index the listener answers from.
+func (n *Node) serveAccount(a *account) {
 	n.mu.Lock()
-	n.accounts[rec.ID] = a
-	n.bySlug[rec.Slug] = a
+	defer n.mu.Unlock()
+	// A rebuilt account replaces the one it was: its host may have changed with its leaf.
+	for host, old := range n.byHost {
+		if old.rec.ID == a.rec.ID {
+			delete(n.byHost, host)
+		}
+	}
+	n.accounts[a.rec.ID] = a
+	n.bySlug[a.rec.Slug] = a
 	n.indexHost(a)
 	// It has a certificate now, so it is no longer waiting for one — nor broken, if it was.
-	delete(n.awaiting, rec.Slug)
-	delete(n.unavailable, rec.Slug)
-	n.mu.Unlock()
-	return nil
+	delete(n.awaiting, a.rec.Slug)
+	delete(n.unavailable, a.rec.Slug)
 }
 
 // indexHost records the host a 2.0 account's leaf names, for SNI selection.
@@ -1162,9 +1305,10 @@ func indexByte(s string, b byte) int {
 /* -------------------------------- routes -------------------------------- */
 
 // mcpHandler serves /a/{slug}/mcp: the per-caller MCP server for the account
-// the path names and the identity the transport earned.
+// the path names and the identity the transport earned, stateless (public.StatelessMCP): every
+// request resolves its caller afresh, and no session outlives it (SPEC §5.5).
 func (n *Node) mcpHandler() http.Handler {
-	inner := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	inner := public.StatelessMCP(func(r *http.Request) *mcp.Server {
 		slug := r.PathValue("slug")
 		n.mu.RLock()
 		a := n.bySlug[slug]
@@ -1185,10 +1329,10 @@ func (n *Node) mcpHandler() http.Handler {
 			return nil
 		}
 		return srv
-	}, &mcp.StreamableHTTPOptions{
+	}, mcp.StreamableHTTPOptions{
 		// The SDK auto-enables DNS-rebinding protection whenever the accepted
 		// connection's LOCAL address is loopback and Host is not
-		// (mcp/streamable.go:326). That is exactly what EVERY reverse tunnel
+		// (go-sdk v1.8.0 mcp/streamable.go:321). That is exactly what EVERY reverse tunnel
 		// produces — the connector runs on this host and dials this bind — so it
 		// refused every tunnelled MCP call, in direct mode as much as edge.
 		//
@@ -1203,12 +1347,12 @@ func (n *Node) mcpHandler() http.Handler {
 		// send_media was refused by a limit no document named.
 		MaxRequestBodyBytes: MaxBodyBytes,
 	})
-	return n.resolveTransport(n.bindSession(inner))
+	return n.resolveTransport(inner)
 }
 
 // resolveTransport runs the pin checks of PACT §14.3 and §5.3 on a 2.0 client
-// chain ONCE per request, before the per-caller server is composed and the
-// session bound, and puts the outcome in the context. Without it the
+// chain ONCE per request, before the per-caller server is composed, and puts the
+// outcome in the context. Without it the
 // transport path composed the contact's surface for any chain that validated
 // — a former host's still-valid leaf, a stolen and since-renewed one, a leaf
 // for an address the owner has not approved — checks the sealed path always
@@ -1230,85 +1374,6 @@ func (n *Node) resolveTransport(next http.Handler) http.Handler {
 		tc := a.ident.ResolveTransport(r.Context(), f)
 		next.ServeHTTP(w, r.WithContext(public.WithTransportCaller(r.Context(), tc)))
 	})
-}
-
-// bindSession enforces SPEC §5.6 — "a session belongs to the identity that
-// created it" — on EVERY request.
-//
-// This check used to live inside the getServer callback, where it never ran.
-// The go-sdk calls getServer ONLY for a request carrying no session id: one that
-// presents an id goes straight to the cached session, and GET and DELETE never
-// call it at all. So the guard fired only in the case where it did not apply,
-// and a caller who learned a session id was served the surface that session was
-// composed for — holding no certificate of their own. The per-caller server
-// closes over the identity it was composed for, so that is a full tier grant.
-//
-// Binding happens at CREATION, by observing the id the SDK writes into the
-// response, not on the first follow-up request. Binding on the follow-up would
-// be a race worth winning: whoever sent the next request first would claim the
-// session, so an attacker could bind a legitimate caller's session to itself and
-// lock the rightful owner of it out.
-func (n *Node) bindSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fpr := public.FactsFrom(r.Context()).ClientCertFingerprint
-		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
-			// The session belongs to the identity the server was composed
-			// for — the resolved one, not the certificate's root.
-			fpr = tc.Fingerprint
-		}
-		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
-			if !n.binder.Bind(sid, fpr) {
-				n.opts.audit("session_binding", "session:"+sid, "identity_mismatch")
-				// The same answer the SDK gives for a session it does not know.
-				// Session state must never substitute for identity resolution.
-				http.NotFound(w, r)
-				return
-			}
-			if r.Method == http.MethodDelete {
-				// The session is ending; stop tracking it, or the map grows one
-				// entry per session for the life of the process.
-				defer n.binder.Release(sid)
-			}
-			next.ServeHTTP(w, r)
-			return
-		}
-		next.ServeHTTP(&bindingWriter{ResponseWriter: w, bind: func(sid string) {
-			n.binder.Bind(sid, fpr)
-		}}, r)
-	})
-}
-
-// bindingWriter binds a newly minted session to the identity that created it,
-// at the moment the SDK announces the id in the response headers.
-type bindingWriter struct {
-	http.ResponseWriter
-	bind  func(sid string)
-	wrote bool
-}
-
-func (w *bindingWriter) WriteHeader(code int) {
-	if !w.wrote {
-		w.wrote = true
-		if sid := w.Header().Get("Mcp-Session-Id"); sid != "" {
-			w.bind(sid)
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *bindingWriter) Write(b []byte) (int, error) {
-	if !w.wrote {
-		w.WriteHeader(http.StatusOK)
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-// Flush keeps the streaming transport working: the SDK writes SSE through this
-// wrapper, and a response that never flushes is a session that never answers.
-func (w *bindingWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 // LandingDeps is what the node gives the invite landing page (SPEC §9.2): the store, a card signed
@@ -1357,10 +1422,19 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 			return fmt.Errorf("node: listen %s: %w", n.cfg.PublicBind, err)
 		}
 	}
-	tlsLn := tls.NewListener(ln, n.TLSConfig())
+	// The connection cap sits beneath TLS: a connection past it is closed before a handshake.
+	tlsLn := tls.NewListener(n.conns.Listener(ln), n.TLSConfig())
 	srv := &http.Server{
-		Handler:           n.handler,
+		Handler: n.handler,
+		// SPEC §5.7. The headers in 10 s; the whole request in 60 s, which an 8 MiB body
+		// (MaxBodyBytes) needs a link of 140 KB/s to meet; the answer in 75 s, above the 30 s an
+		// agent-answered call is held (integrations.DefaultWaitBudget) with room for the call
+		// around it; an idle keep-alive connection kept 120 s.
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      75 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 	n.ln, n.http = tlsLn, srv
@@ -1399,19 +1473,24 @@ func (n *Node) Stop(ctx context.Context) error {
 	return err
 }
 
+// callerOf reads the caller a tool's audit resource names (`caller:<fpr>`, or `contact:<fpr>`
+// where no caller field is written), for the call it records in the change log.
+func callerOf(resource string) string {
+	fpr := ""
+	for _, f := range strings.Fields(resource) {
+		if v, ok := strings.CutPrefix(f, "caller:"); ok && v != "" {
+			fpr = v
+		}
+		if v, ok := strings.CutPrefix(f, "contact:"); ok && fpr == "" {
+			fpr = v
+		}
+	}
+	return fpr
+}
+
 // wakesFeed reports whether a public-surface audit row is a substantive
-// contact action the change feed should wake for. Mirrors the owner MCP's
-// callActions — messages are excluded because the messaging bus already wakes.
+// contact action the change feed should wake for: one of messaging.FeedCalls,
+// the list the owner MCP's feed reports from, and not a refusal.
 func wakesFeed(action, outcome string) bool {
-	if outcome != "ok" && outcome != "delivered" {
-		return false
-	}
-	// sealed_call is absent on purpose: the wrapper row fires on any opened
-	// envelope, refusals included — the inner tool's own audited action is
-	// what wakes the feed.
-	switch action {
-	case "book_slot", "cancel_booking", "check_availability", "send_media", "get_status":
-		return true
-	}
-	return false
+	return (outcome == "ok" || outcome == "delivered") && messaging.FeedCalls[action]
 }

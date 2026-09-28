@@ -42,7 +42,7 @@ func auditEnv(t *testing.T) (*http.ServeMux, store.Store, store.Account, store.A
 	}
 
 	clock := time.Unix(1756000000, 0)
-	w := &audit.Writer{Sink: st, Now: func() time.Time { return clock }}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}, Now: func() time.Time { return clock }}
 	_ = w.Append(ctx, acctA.ID, "contact", "sha256:alina", "tools/call", "tool:send_message", "ok", "", "")
 	_ = w.Append(ctx, acctB.ID, "contact", "sha256:bharat", "tools/call", "tool:book_slot", "ok", "", "")
 	_ = w.Append(ctx, "", "owner", "o1", "portal_login", "", "ok", "", "")
@@ -118,7 +118,7 @@ func TestAuditPageFiltersByActor(t *testing.T) {
 	mux, st, acctA, _ := auditEnv(t)
 	ctx := context.Background()
 	clock := time.Unix(1756000100, 0)
-	w := &audit.Writer{Sink: st, Now: func() time.Time { return clock }}
+	w := &audit.Writer{Sink: store.AuditAppender{St: st}, Now: func() time.Time { return clock }}
 	_ = w.Append(ctx, acctA.ID, "contact", "sha256:carol", "tools/call", "tool:get_card", "ok", "", "")
 
 	rr := asOwner(t, mux, "owner-a", "/api/audit?actor=sha256:alina")

@@ -427,8 +427,10 @@ func whyFailed(err error) string {
 }
 
 // RunRetries sweeps until ctx ends. This is the piece that makes a failed send
-// recoverable rather than a message the owner has to notice and resend.
-func (n *Node) RunRetries(ctx context.Context) {
+// recoverable rather than a message the owner has to notice and resend. leading says whether
+// this process holds the retries' lease (SPEC §11.1): only the one that does sweeps, so a
+// message is not retried by two processes at once. nil leads always.
+func (n *Node) RunRetries(ctx context.Context, leading func(context.Context) bool) {
 	t := time.NewTicker(RetrySweep)
 	defer t.Stop()
 	for {
@@ -436,8 +438,15 @@ func (n *Node) RunRetries(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n.RetryPending(ctx)
+			n.retryTick(ctx, leading)
 		}
+	}
+}
+
+// retryTick is one of RunRetries' passes: it retries only while this process leads.
+func (n *Node) retryTick(ctx context.Context, leading func(context.Context) bool) {
+	if leading == nil || leading(ctx) {
+		n.RetryPending(ctx)
 	}
 }
 
@@ -455,6 +464,11 @@ func (n *Node) FetchMedia(ctx context.Context, accountID, rawURL string) (string
 // account when accountID is "". An exposure change or a withheld integration
 // alters what is served to everybody, not to one caller (SPEC §6.5, §6.10).
 func (n *Node) InvalidateAccount(ctx context.Context, accountID string) {
+	n.invalidateAccountLocal(ctx, accountID)
+	n.publish(messaging.Event{Kind: messaging.EventInvalidate, AccountID: accountID, Ref: invalidateAccount})
+}
+
+func (n *Node) invalidateAccountLocal(ctx context.Context, accountID string) {
 	n.mu.RLock()
 	ids := make([]string, 0, len(n.accounts))
 	for id := range n.accounts {
@@ -539,8 +553,8 @@ func (s statusAt) GetStatus(ctx context.Context) (string, error) {
 }
 
 // SetIntegrationTools replaces the tools one integration serves on an account
-// and rebuilds every affected caller, so the change reaches sessions that are
-// already open (SPEC §6.5, §6.10). Passing no entries withdraws the integration
+// and drops every affected caller's composed server, so the change reaches each
+// caller's next request (SPEC §6.5, §6.10). Passing no entries withdraws the integration
 // — which is what a withhold, or an exposure set the owner emptied, means.
 func (n *Node) SetIntegrationTools(ctx context.Context, accountID, integrationID string, entries []public.Entry) {
 	n.mu.RLock()

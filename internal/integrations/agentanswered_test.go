@@ -27,7 +27,7 @@ func aaEnv(t *testing.T) (*AgentAnswered, store.Store, *auditRec, string) {
 	}
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
 	aud := &auditRec{}
-	aa := &AgentAnswered{Store: st, Bus: messaging.NewBus(), Audit: aud.fn, WaitBudget: 2 * time.Second}
+	aa := &AgentAnswered{Store: st, Bus: messaging.NewBus(st), Audit: aud.fn, WaitBudget: 2 * time.Second}
 	return aa, st, aud, a.ID
 }
 

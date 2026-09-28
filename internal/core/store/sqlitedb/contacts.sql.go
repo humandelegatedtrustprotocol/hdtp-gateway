@@ -28,6 +28,24 @@ func (q *Queries) ClearContactHandshake(ctx context.Context, arg ClearContactHan
 	return result.RowsAffected()
 }
 
+const countContactsByStatus = `-- name: CountContactsByStatus :one
+SELECT COUNT(*) FROM contacts WHERE account_id = ? AND status = ?
+`
+
+type CountContactsByStatusParams struct {
+	AccountID string
+	Status    string
+}
+
+// How many of one account's contacts are in one state: the owner's wait counts the requests
+// awaiting approval on every wake, and reading every contact to count them grew with the list.
+func (q *Queries) CountContactsByStatus(ctx context.Context, arg CountContactsByStatusParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countContactsByStatus, arg.AccountID, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countHeldContacts = `-- name: CountHeldContacts :one
 SELECT COUNT(*) FROM contacts WHERE account_id = ? AND status IN ('active', 'pending_out')
 `

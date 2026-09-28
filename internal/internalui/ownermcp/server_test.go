@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
@@ -26,19 +24,17 @@ type env struct {
 	owner string
 	acctA string
 	acctB string
-	// subAck receives one tick per notifications/subscriptions/acknowledged
-	// the client sees — the SEP-2575 handshake boundary a subscription test
-	// must wait for before it may expect a ResourceUpdated (see connect).
-	subAck chan struct{}
-	// listenDelay, when set, holds the server's handling of each subscriptions/listen for that
-	// long: a server under load, which registers a subscription well after the client's
-	// Subscribe has returned.
-	listenDelay time.Duration
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "o.db"))
+	return newEnvAt(t, filepath.Join(t.TempDir(), "o.db"))
+}
+
+// newEnvAt is newEnv on the store file at path.
+func newEnvAt(t *testing.T, path string) *env {
+	t.Helper()
+	st, err := store.OpenSQLite(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +48,10 @@ func newEnv(t *testing.T) *env {
 	b, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "home", DisplayName: "Home", Algo: "p256"})
 	_ = st.AddMembership(ctx, o.ID, a.ID, "admin")
 	_ = st.AddMembership(ctx, o.ID, b.ID, "admin")
-	bus := messaging.NewBus()
+	bus := messaging.NewBus(st)
 	msg := &messaging.Service{Store: st, Bus: bus}
 	return &env{
-		st: st, owner: o.ID, acctA: a.ID, acctB: b.ID, subAck: make(chan struct{}, 8),
+		st: st, owner: o.ID, acctA: a.ID, acctB: b.ID,
 		deps: Deps{Store: st, Msg: msg, Bus: bus, Contacts: &contacts.Manager{Store: st}},
 	}
 }
@@ -64,38 +60,11 @@ func connect(t *testing.T, e *env, ident auth.Identity, opts *mcp.ClientOptions)
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := NewServerWithExtra(e.deps, Extra{}, ident)
-	if e.listenDelay > 0 {
-		srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-			return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-				if method == "subscriptions/listen" {
-					time.Sleep(e.listenDelay)
-				}
-				return next(mctx, method, req)
-			}
-		})
-	}
-	ForwardBus(ctx, srv, e.deps.Bus)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, opts)
-	// Record subscription acknowledgments: under SEP-2575 the ResourceUpdated
-	// send RACES the server's subscriptions/acknowledged, and an update sent
-	// inside that window is lost by the SDK (observed under -race load; the
-	// JS agents negotiate 2025-06-18 and take the legacy path). A test that
-	// wants a notification must first wait out the handshake via e.subAck.
-	client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method == "notifications/subscriptions/acknowledged" {
-				select {
-				case e.subAck <- struct{}{}:
-				default:
-				}
-			}
-			return next(mctx, method, req)
-		}
-	})
 	cs, err := client.Connect(ctx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -119,76 +88,36 @@ func callJSON(t *testing.T, cs *mcp.ClientSession, tool string, args map[string]
 	return text, res.IsError
 }
 
-// awaitSubscribed waits for n subscriptions/acknowledged notifications. Under SEP-2575 a client's
-// Subscribe sends subscriptions/listen and returns at once; the server registers the subscription
-// when it handles that request, and acknowledges it only then. Until the acknowledgment, the
-// subscription does not exist on the server, and a resource update sent meanwhile reaches nobody.
-func awaitSubscribed(t *testing.T, e *env, n int) {
-	t.Helper()
-	for i := 0; i < n; i++ {
-		select {
-		case <-e.subAck:
-		case <-time.After(10 * time.Second):
-			t.Fatalf("subscription %d of %d never acknowledged", i+1, n)
-		}
-	}
-}
-
-// The subscriptions are waited out (awaitSubscribed) before the message that must be signalled.
-// The test used to record the message as soon as Subscribe returned, which is before the server
-// holds the subscription; under load the update went out to nobody and the test timed out after
-// 30 s (it did, once, in a full gate). listenDelay makes that server here, every run.
-func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
+// SPEC §8.5: the surface is stateless, so it declares tools and resources and neither list-change
+// notifications nor resource subscriptions — nothing would carry them (a subscribe over the wire is
+// refused: cli's TestTheOwnerMCPIsStateless). A message is found with `wait_for_updates` and read through the inbox resource and
+// the thread's own.
+func TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable(t *testing.T) {
 	e := newEnv(t)
-	e.listenDelay = 300 * time.Millisecond
-	updated := make(chan string, 4)
-	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, &mcp.ClientOptions{
-		ResourceUpdatedHandler: func(_ context.Context, r *mcp.ResourceUpdatedNotificationRequest) {
-			updated <- r.Params.URI
-		},
-	})
-	if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: URIInbox}); err != nil {
-		t.Fatal(err)
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	caps := cs.InitializeResult().Capabilities
+	if caps.Tools == nil || caps.Resources == nil {
+		t.Fatalf("the owner surface does not declare its tools and resources: %+v", caps)
 	}
-	// SPEC §8.5 lists pact://thread/<id> beside the collections, so an agent can
-	// watch ONE conversation. A notification only reaches sessions subscribed to
-	// that exact URI, so the thread is named up front and subscribed to.
-	const threadID = "t-subscribe"
-	if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: URIThreadPrefix + threadID}); err != nil {
-		t.Fatal(err)
+	if caps.Tools.ListChanged || caps.Resources.ListChanged || caps.Resources.Subscribe {
+		t.Fatalf("a stateless surface declared a notification it cannot deliver: tools %+v resources %+v", caps.Tools, caps.Resources)
 	}
-	awaitSubscribed(t, e, 2)
-	// new inbound message → bus → ResourceUpdated(inbox) and (that thread)
+	first, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA})
+	var start struct {
+		Cursor int64 `json:"cursor"`
+	}
+	if err := json.Unmarshal([]byte(first), &start); err != nil {
+		t.Fatalf("first wait: %s", first)
+	}
+	const threadID = "t-readable"
 	if _, err := e.deps.Msg.Record(context.Background(), e.acctA, "sha256:alina", messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", ThreadID: threadID, Text: "hi", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
 	}
-	// SPEC §8.5: message activity signals BOTH pact://inbox and the thread's own
-	// resource. Their delivery order is not guaranteed, so require both rather
-	// than whichever happens to land first.
-	seen := map[string]bool{}
-	deadline := time.After(10 * time.Second)
-	for len(seen) < 2 {
-		select {
-		case uri := <-updated:
-			seen[uri] = true
-		case <-deadline:
-			t.Fatalf("expected pact://inbox and a pact://thread/<id> update, saw %v", seen)
-		}
+	moved, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since": start.Cursor, "timeout_sec": 5})
+	if !strings.Contains(moved, threadID) {
+		t.Fatalf("the wait did not report the thread that moved: %s", moved)
 	}
-	if !seen[URIInbox] {
-		t.Fatalf("no inbox update: %v", seen)
-	}
-	sawThread := false
-	for uri := range seen {
-		if strings.HasPrefix(uri, URIThreadPrefix) {
-			sawThread = true
-		}
-	}
-	if !sawThread {
-		t.Fatalf("no per-thread update: %v", seen)
-	}
-	// the resource read reflects the unread message (poll parity)
 	rr, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: URIInbox})
 	if err != nil {
 		t.Fatal(err)
@@ -197,6 +126,10 @@ func TestSubscribeInboxReceivesResourceUpdated(t *testing.T) {
 	_ = json.Unmarshal([]byte(rr.Contents[0].Text), &summary)
 	if summary[e.acctA] != 1 {
 		t.Fatalf("inbox summary: %v", summary)
+	}
+	th, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: URIThreadPrefix + threadID})
+	if err != nil || !strings.Contains(th.Contents[0].Text, `"hi"`) {
+		t.Fatalf("thread resource: %v", err)
 	}
 }
 
@@ -351,7 +284,7 @@ func TestWaitForUpdatesStartsCleanBlocksAndReportsWhatMoved(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &first); err != nil {
 		t.Fatal(err)
 	}
-	if first.Cursor == 0 || len(first.Threads) != 0 {
+	if !strings.Contains(text, `"cursor":`) || len(first.Threads) != 0 {
 		t.Fatalf("a first call replayed history or gave no cursor: %s", text)
 	}
 
@@ -359,7 +292,7 @@ func TestWaitForUpdatesStartsCleanBlocksAndReportsWhatMoved(t *testing.T) {
 	// and a loop on it would spin; above 25 is refused rather than clamped, as the cloud refuses it.
 	for _, bad := range []int{0, -1, 26, 50} {
 		text, isErr := callJSON(t, cs, "wait_for_updates", map[string]any{
-			"account_id": e.acctA, "since_ts": first.Cursor, "timeout_sec": bad})
+			"account_id": e.acctA, "since": first.Cursor, "timeout_sec": bad})
 		if !isErr || !strings.Contains(text, `"code":"bad_request"`) {
 			t.Fatalf("timeout_sec %d was not refused as bad_request: %s", bad, text)
 		}
@@ -368,7 +301,7 @@ func TestWaitForUpdatesStartsCleanBlocksAndReportsWhatMoved(t *testing.T) {
 	// With nothing happening it waits rather than spinning, and says so.
 	start := time.Now()
 	text, _ = callJSON(t, cs, "wait_for_updates", map[string]any{
-		"account_id": e.acctA, "since_ts": first.Cursor, "timeout_sec": 1})
+		"account_id": e.acctA, "since": first.Cursor, "timeout_sec": 1})
 	if waited := time.Since(start); waited < 900*time.Millisecond {
 		t.Fatalf("returned in %v without waiting: %s", waited, text)
 	}
@@ -382,7 +315,7 @@ func TestWaitForUpdatesStartsCleanBlocksAndReportsWhatMoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, isErr = callJSON(t, cs, "wait_for_updates", map[string]any{
-		"account_id": e.acctA, "since_ts": first.Cursor - 1, "timeout_sec": 2})
+		"account_id": e.acctA, "since": first.Cursor, "timeout_sec": 2})
 	if isErr {
 		t.Fatalf("wait_for_updates: %s", text)
 	}
@@ -417,26 +350,27 @@ func TestChangeFeedCarriesTrustCallsAndAttention(t *testing.T) {
 	if err := e.st.UpdateContactTrust(ctx, e.acctA, "sha256:carol", "may_instruct"); err != nil {
 		t.Fatal(err)
 	}
-	since := int64(1756000000)
+	// Everything below comes after this cursor.
+	_, since, err := e.st.ChangeBounds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	// Carol messaged (a thread) AND booked a slot (an audit row).
+	// Carol messaged (a thread) AND booked a slot (a call the node publishes).
 	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:carol", messaging.DirIn, messaging.Input{
 		MsgID: "m-1", Text: "hello", Sender: "agent", Origin: messaging.OriginPeer,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w := &audit.Writer{Sink: e.st, Now: func() time.Time { return time.Unix(since+10, 0) }}
-	_ = w.Append(ctx, e.acctA, "contact", "sha256:carol", "book_slot", "caller:sha256:carol booking:bk-1", "ok", "", "")
-	// A refusal must NOT surface as a call, and neither must another account's.
-	_ = w.Append(ctx, e.acctA, "contact", "sha256:carol", "book_slot", "caller:sha256:carol", "permission_denied", "", "")
-	_ = w.Append(ctx, e.acctB, "contact", "sha256:dave", "book_slot", "caller:sha256:dave booking:bk-2", "ok", "", "")
-	// Nor the sealed WRAPPER's row (it fires on any opened envelope, refusals
-	// included — the inner tool's own row is the one that counts), nor an
-	// account-less row the per-account page also returns, nor a caller this
-	// account has no contact row for.
-	_ = w.Append(ctx, e.acctA, "contact", "sha256:carol", "sealed_call", "account:"+e.acctA+" contact:sha256:carol", "ok", "", "")
-	_ = w.Append(ctx, "", "contact", "sha256:carol", "book_slot", "caller:sha256:carol booking:bk-3", "ok", "", "")
-	_ = w.Append(ctx, e.acctA, "contact", "sha256:ghost", "book_slot", "caller:sha256:ghost booking:bk-4", "ok", "", "")
+	call := func(account, fpr, tool string) {
+		e.deps.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: account, ContactFpr: fpr, Ref: tool})
+	}
+	call(e.acctA, "sha256:carol", "book_slot")
+	// Not another account's call, nor a tool that is not a feed call (the sealed wrapper), nor a
+	// caller this account has no contact row for.
+	call(e.acctB, "sha256:dave", "book_slot")
+	call(e.acctA, "sha256:carol", "sealed_call")
+	call(e.acctA, "sha256:ghost", "book_slot")
 
 	// An integration whose token died is the owner's to fix.
 	if _, err := e.st.InsertIntegration(ctx, store.Integration{
@@ -462,8 +396,8 @@ func TestChangeFeedCarriesTrustCallsAndAttention(t *testing.T) {
 		t.Fatalf("needs_attention: %+v", res.NeedsAttention)
 	}
 	// The cursor advanced past the call, so the next poll does not replay it.
-	if res.Cursor < since+10 {
-		t.Fatalf("cursor did not advance past the call: %d", res.Cursor)
+	if again, err := e.deps.changesSince(ctx, e.acctA, res.Cursor); err != nil || len(again.Calls) != 0 || len(again.Threads) != 0 {
+		t.Fatalf("the cursor did not advance past what it reported: %+v %v", again, err)
 	}
 }
 
@@ -490,7 +424,7 @@ func TestFeedFailsSafeOnAMissingContactRow(t *testing.T) {
 	if err := e.st.DeleteContact(ctx, e.acctA, "sha256:gone"); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.deps.changesSince(ctx, e.acctA, 1756000000)
+	res, err := e.deps.changesSince(ctx, e.acctA, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 // Package ownermcp is the owner's MCP surface (SPEC §8.4): bearer-token-authed
-// tools mirroring the portal, plus subscribable pact:// resources pushed via
-// Server.ResourceUpdated on bus events. Every authorization decision routes
+// tools mirroring the portal, plus readable pact:// resources; what changes is
+// waited for with `wait_for_updates` (SPEC §8.5). Every authorization decision routes
 // through policy (Cedar): a token narrowed to one account acts on that account
 // alone, and every tool that names an account re-checks AllowOwnerManage.
 package ownermcp
@@ -30,10 +30,9 @@ const (
 	URIInbox    = "pact://inbox"
 	URIRequests = "pact://requests"
 	URIPending  = "pact://pending"
-	// URIThreadPrefix is the per-thread signal SPEC §8.5 lists alongside the
-	// three collection resources. Only the collections existed, so an agent
-	// watching one conversation had to re-read the whole inbox to notice a
-	// reply.
+	// URIThreadPrefix is the per-thread resource SPEC §8.5 lists alongside the
+	// three collection resources: one conversation, read without reading the
+	// whole inbox.
 	URIThreadPrefix = "pact://thread/"
 )
 
@@ -55,7 +54,7 @@ type Deps struct {
 	// ServedPermissions names every contact-tier permission this account's surface gates a tool
 	// with beyond the core five — the portal's switchboard offers the same (contacts.Offered).
 	ServedPermissions func(accountID string) []string
-	// Invalidate reconciles a caller's composed MCP server after the switchboard
+	// Invalidate drops a caller's composed MCP server after the switchboard
 	// changed. Without it an approval writes the store and the CACHED per-caller
 	// server keeps serving the old tier — so the owner's agent approves a contact
 	// and that contact stays at guest tier until the node restarts (P14-05e).
@@ -258,9 +257,11 @@ type ownerTools struct {
 // chain) — each registered only when its dependency is supplied. The token was
 // verified by the transport before this is called; Cedar decides everything else.
 func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
+	// Tools and resources, and neither a list-change notification nor resource subscriptions:
+	// the surface is stateless (SPEC §8.5), so nothing would carry either, and a client told it
+	// might would open `subscriptions/listen` for them.
 	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway-owner", Version: "1"}, &mcp.ServerOptions{
-		SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },
-		UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error { return nil },
+		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}, Resources: &mcp.ResourceCapabilities{}},
 	})
 
 	// SPEC §8.7: every action on this surface is audited. Individual tools
@@ -840,7 +841,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 
 // inboxResource reads the `inbox` resource.
 //
-// Resources: subscribable summaries; content is always re-readable (poll path).
+// Resources: summaries, read on demand (SPEC §8.5).
 func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
@@ -905,8 +906,8 @@ func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadR
 
 // threadResource reads the `thread` resource.
 //
-// pact://thread/<id> (SPEC §8.5): the per-conversation signal. A template,
-// because the id is not known until a thread exists.
+// pact://thread/<id> (SPEC §8.5): one conversation. A template, because the id
+// is not known until a thread exists.
 func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	id := strings.TrimPrefix(req.Params.URI, URIThreadPrefix)
 	if id == "" || id == req.Params.URI {
@@ -932,63 +933,4 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}
 	return nil, fmt.Errorf("ownermcp: no such thread")
-}
-
-// ForwardBus pushes ResourceUpdated to subscribed sessions on bus events; run it
-// once per server, stopped by cancelling ctx (SPEC §8.5).
-func ForwardBus(ctx context.Context, s *mcp.Server, bus *messaging.Bus) {
-	ch, cancel := bus.Subscribe("")
-	go func() {
-		defer cancel()
-		// One forwarder is started per owner-MCP session, with the process-
-		// lifetime context. Without an exit of its own, every reconnect by the
-		// owner's agent left a goroutine and a 32-slot subscriber channel behind
-		// for the life of the node — and Bus.Publish walks every subscriber
-		// under a lock, so message delivery got slower with each one.
-		//
-		// A forwarder exists to push to ITS server's sessions. When that server
-		// has none left, there is nothing to push to and it is done.
-		idle := time.NewTicker(30 * time.Second)
-		defer idle.Stop()
-		started := false
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-idle.C:
-				live := false
-				for range s.Sessions() {
-					live = true
-					break
-				}
-				if live {
-					started = true
-					continue
-				}
-				if started {
-					// It had sessions and now has none: the agent disconnected.
-					return
-				}
-			case e, ok := <-ch:
-				if !ok {
-					return
-				}
-				switch e.Kind {
-				case messaging.EventMessage:
-					_ = s.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: URIInbox})
-					// …and the conversation itself, so an agent watching one
-					// thread does not have to re-read the whole inbox to notice
-					// a reply (SPEC §8.5).
-					if e.ThreadID != "" {
-						_ = s.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{
-							URI: URIThreadPrefix + e.ThreadID})
-					}
-				case messaging.EventRequest:
-					_ = s.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: URIRequests})
-				case messaging.EventPending:
-					_ = s.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: URIPending})
-				}
-			}
-		}
-	}()
 }

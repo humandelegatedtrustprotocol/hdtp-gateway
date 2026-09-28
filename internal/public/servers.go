@@ -3,7 +3,7 @@ package public
 // Per-caller MCP servers (SPEC §2.4, §5.4): every tool lives in a registry as data;
 // the node composes a dedicated server per (account, caller) containing exactly what
 // policy.Allow grants — so tools/list is correct by construction — and re-checks
-// Allow inside a uniform guard at call time, so revocation is instant mid-session.
+// Allow inside a uniform guard at call time, so revocation is instant.
 
 import (
 	"container/list"
@@ -116,8 +116,8 @@ func (r *Registry) snapshot() []Entry {
 
 // InvalidateOnChange is what tools call after they change a caller's tier or
 // permissions (redemption, approval, switchboard edits): the cached per-caller
-// server is dropped so the next call composes the caller's NEW surface, and
-// connected sessions are told to re-list (SPEC §2.4, §5.4).
+// server is dropped so the next request composes the caller's NEW surface
+// (SPEC §2.4, §5.4).
 type InvalidateOnChange func(ctx context.Context, accountID, fpr string) error
 
 // CallerResolver returns the current caller context for a fingerprint — backed by
@@ -189,17 +189,6 @@ func (p *Pool) spend(ctx context.Context) *mcp.CallToolResult {
 type poolEntry struct {
 	key    string
 	server *mcp.Server
-	// recon serializes reconciliation of THIS entry. The tool mutations cannot
-	// run under Pool.mu — RemoveTools/AddTool notify connected sessions, and a
-	// session handler can re-enter the pool — so two invalidations racing on one
-	// caller (a permission edit against an exposure republish) would otherwise
-	// interleave their compute-then-mutate and leave a withdrawn tool installed.
-	recon sync.Mutex
-	// installed is what this server was last given. Reconciling has to remove
-	// tools that are GONE from the registry, and a post-change snapshot cannot
-	// name them — so the only honest source for "what is on this server now" is
-	// what we put there. Guarded by Pool.mu.
-	installed []string
 }
 
 func NewPool(reg *Registry, resolve CallerResolver, maxSize int) *Pool {
@@ -226,7 +215,7 @@ func (p *Pool) ServerFor(ctx context.Context, accountID, fpr string) (*mcp.Serve
 	}
 	p.mu.Unlock()
 
-	s, installed, err := p.compose(ctx, accountID, fpr)
+	s, err := p.compose(ctx, accountID, fpr)
 	if err != nil {
 		return nil, err
 	}
@@ -236,136 +225,65 @@ func (p *Pool) ServerFor(ctx context.Context, accountID, fpr string) (*mcp.Serve
 	if el, ok := p.cache[k]; ok { // raced: keep the existing one
 		return el.Value.(*poolEntry).server, nil
 	}
-	el := p.order.PushFront(&poolEntry{key: k, server: s, installed: installed})
+	el := p.order.PushFront(&poolEntry{key: k, server: s})
 	p.cache[k] = el
 	p.evict()
 	return s, nil
 }
 
-// evict trims the cache to MaxSize, oldest first, but never drops an entry whose
-// server still has a connected session.
-//
-// Eviction is how a live server used to become orphaned a second way: the pool
-// forgot a server a client still held, so the next InvalidateAll found nothing
-// to reconcile and a withdrawn tool stayed callable for the life of that
-// session. A caller who can open MaxSize+1 sessions could arrange it. Keeping
-// live entries means the cache can exceed MaxSize, bounded by the number of
-// concurrent sessions rather than by nothing — which is the bound that matters,
-// since those servers are referenced whether the pool tracks them or not.
+// evict trims the cache to MaxSize, oldest first. Every request composes its own session over a
+// cached server and closes it with the request (StatelessMCP), so no client holds a server past
+// its request, and a dropped entry is only a server the next request composes again.
 // Caller holds p.mu.
 func (p *Pool) evict() {
-	for el := p.order.Back(); el != nil && p.order.Len() > p.MaxSize; {
-		prev := el.Prev()
-		if !hasLiveSession(el.Value.(*poolEntry).server) {
-			p.order.Remove(el)
-			delete(p.cache, el.Value.(*poolEntry).key)
-		}
-		el = prev
+	for p.order.Len() > p.MaxSize {
+		el := p.order.Back()
+		p.order.Remove(el)
+		delete(p.cache, el.Value.(*poolEntry).key)
 	}
 }
 
-func hasLiveSession(s *mcp.Server) bool {
-	for range s.Sessions() {
-		return true
-	}
-	return false
-}
-
-// Invalidate drops a caller's composed server AND live-updates it: the switchboard
-// changed, so the cached server's tools are reconciled to the new grant set — a
-// connected session receives tools/list_changed from the SDK (SPEC §2.4).
+// Invalidate drops a caller's composed server: the switchboard or the tier changed, so the next
+// request composes the caller's new surface (SPEC §2.4). A request already being served finishes
+// on the server it started with, and every tools/call on it re-checks policy.Allow (guarded), so
+// a revoked tool is refused there too.
 func (p *Pool) Invalidate(ctx context.Context, accountID, fpr string) error {
-	k := key(accountID, fpr)
 	p.mu.Lock()
-	el, ok := p.cache[k]
-	p.mu.Unlock()
-	if !ok {
-		return nil
-	}
-	entry := el.Value.(*poolEntry)
-	entry.recon.Lock()
-	defer entry.recon.Unlock()
-
-	caller, err := p.Resolve(ctx, accountID, fpr)
-	if err != nil {
-		// This caller cannot be resolved any more — the contact was removed.
-		// Drop the entry so nothing composes from it again; a call arriving on
-		// a session that still holds the server is refused by guarded().
-		p.mu.Lock()
-		if cur, ok := p.cache[k]; ok && cur == el {
-			p.order.Remove(el)
-			delete(p.cache, k)
-		}
-		p.mu.Unlock()
-		return err
-	}
-
-	allowed := map[string]Entry{}
-	for _, e := range p.Registry.snapshot() {
-		if policy.Allow(caller, e.Rule) {
-			allowed[e.Tool.Name] = e
-		}
-	}
-
-	// Reconcile the still-referenced (possibly connected) server IN PLACE, and
-	// keep it cached. Dropping it here is what used to orphan a live session:
-	// the pool forgot a server a client still held, so the NEXT change found
-	// nothing to reconcile and silently did nothing.
-	p.mu.Lock()
-	var remove []string
-	for _, n := range entry.installed {
-		if _, ok := allowed[n]; !ok {
-			remove = append(remove, n)
-		}
-	}
-	names := make([]string, 0, len(allowed))
-	for n := range allowed {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	entry.installed = names
-	p.order.MoveToFront(el)
-	p.mu.Unlock()
-
-	srv := entry.server
-	srv.RemoveTools(remove...)
-	for _, n := range names {
-		e := allowed[n]
-		srv.AddTool(e.Tool, p.guarded(accountID, fpr, e))
-	}
+	defer p.mu.Unlock()
+	p.drop(key(accountID, fpr))
 	return nil
 }
 
-// InvalidateAll reconciles EVERY cached caller on an account.
+// InvalidateAll drops EVERY cached caller on an account.
 //
 // Invalidate answers "this one caller's permissions changed". An exposure set
 // being published, a stale guard narrowing, or an integration being withheld
-// changes what is served to everybody at once (SPEC §6.5, §6.10), and there was
-// no way to say that — so a withheld integration kept its tools listed for every
-// session already open.
+// changes what is served to everybody at once (SPEC §6.5, §6.10).
 func (p *Pool) InvalidateAll(ctx context.Context, accountID string) {
 	p.mu.Lock()
-	fprs := make([]string, 0, len(p.cache))
+	defer p.mu.Unlock()
 	prefix := accountID + "\x00"
 	for k := range p.cache {
 		if strings.HasPrefix(k, prefix) {
-			fprs = append(fprs, strings.TrimPrefix(k, prefix))
+			p.drop(k)
 		}
-	}
-	p.mu.Unlock()
-	for _, fpr := range fprs {
-		// Best effort per caller: one unresolvable identity must not stop the
-		// rest of the account from being brought up to date.
-		_ = p.Invalidate(ctx, accountID, fpr)
 	}
 }
 
-func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server, []string, error) {
+// drop forgets one cached server. Caller holds p.mu.
+func (p *Pool) drop(k string) {
+	if el, ok := p.cache[k]; ok {
+		p.order.Remove(el)
+		delete(p.cache, k)
+	}
+}
+
+func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server, error) {
 	caller, err := p.Resolve(ctx, accountID, fpr)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, &mcp.ServerOptions{Capabilities: ToolsOnly()})
 	// SPEC §5.8: every deny is audited, "at every stage of the pipeline". A call
 	// for a tool this caller cannot see never reaches a handler — the SDK
 	// refuses it as unknown — so without this the most interesting denials, the
@@ -407,15 +325,12 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 			return res, err
 		}
 	})
-	var installed []string
 	for _, e := range p.Registry.snapshot() {
 		if policy.Allow(caller, e.Rule) {
 			s.AddTool(e.Tool, p.guarded(accountID, fpr, e))
-			installed = append(installed, e.Tool.Name)
 		}
 	}
-	sort.Strings(installed)
-	return s, installed, nil
+	return s, nil
 }
 
 // ErrUnavailable marks a call that failed because something the node depends on
@@ -492,7 +407,7 @@ func fprOrAnonymous(fpr string) string {
 }
 
 // guarded is the ONE wrapper every handler passes through: policy.Allow re-checked
-// at call time so a permission flip denies instantly, even mid-session (SPEC §2.4).
+// at call time so a permission flip denies instantly, even on a server composed before it (SPEC §2.4).
 func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 	run := p.checked(accountID, fpr, e)
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -560,114 +475,4 @@ func WithCaller(ctx context.Context, c policy.Caller) context.Context {
 func CallerFromContext(ctx context.Context) (policy.Caller, bool) {
 	c, ok := ctx.Value(callerKey{}).(policy.Caller)
 	return c, ok
-}
-
-// SessionBinder pins MCP session ids to the identity that created them (SPEC §5.6,
-// §13.1): a session presented under any other fingerprint is refused.
-// SessionTTL is how long a session binding survives with no traffic. A session
-// that ends without a DELETE — a crash, a dropped connection, or a caller who
-// simply never sends one — would otherwise hold its entry for the life of the
-// process, and sessions are created by anyone who can reach the MCP endpoint.
-const SessionTTL = time.Hour
-
-// MaxSessionBindings is the hard ceiling. TTL alone bounds the map at "sessions
-// created per hour", which a determined caller can still make large; past this
-// the least recently seen bindings go early.
-const MaxSessionBindings = 50_000
-
-type binding struct {
-	fpr  string
-	seen time.Time
-}
-
-type SessionBinder struct {
-	// Now is injectable for tests; nil means time.Now.
-	Now func() time.Time
-
-	mu        sync.Mutex
-	sessions  map[string]binding
-	lastSweep time.Time
-}
-
-func NewSessionBinder() *SessionBinder {
-	return &SessionBinder{sessions: map[string]binding{}}
-}
-
-func (b *SessionBinder) now() time.Time {
-	if b.Now != nil {
-		return b.Now()
-	}
-	return time.Now()
-}
-
-// Bind records or checks the session's identity. It returns false when the session
-// is already bound to a DIFFERENT fingerprint.
-func (b *SessionBinder) Bind(sessionID, fpr string) bool {
-	if sessionID == "" {
-		return true // no session layer (e.g. stateless call) — nothing to bind
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	now := b.now()
-	b.sweepLocked(now)
-	bound, ok := b.sessions[sessionID]
-	if !ok {
-		b.sessions[sessionID] = binding{fpr: fpr, seen: now}
-		return true
-	}
-	if bound.fpr != fpr {
-		return false
-	}
-	// Live traffic keeps the binding alive, so an active session is never
-	// reclaimed out from under its caller.
-	bound.seen = now
-	b.sessions[sessionID] = bound
-	return true
-}
-
-// Len reports how many bindings are held. Test and diagnostic use.
-func (b *SessionBinder) Len() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.sessions)
-}
-
-// sweepLocked drops bindings nothing has touched for SessionTTL, and enforces
-// the hard ceiling. Caller holds b.mu.
-func (b *SessionBinder) sweepLocked(now time.Time) {
-	over := len(b.sessions) > MaxSessionBindings
-	// O(n), so not on every call: once per TTL/4 is enough to keep the map
-	// proportional to live sessions rather than to sessions ever created.
-	if !over && now.Sub(b.lastSweep) < SessionTTL/4 {
-		return
-	}
-	b.lastSweep = now
-	for id, bd := range b.sessions {
-		if now.Sub(bd.seen) >= SessionTTL {
-			delete(b.sessions, id)
-		}
-	}
-	if len(b.sessions) <= MaxSessionBindings {
-		return
-	}
-	// Still over the ceiling: drop the least recently seen until it fits.
-	type aged struct {
-		id   string
-		seen time.Time
-	}
-	all := make([]aged, 0, len(b.sessions))
-	for id, bd := range b.sessions {
-		all = append(all, aged{id, bd.seen})
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].seen.Before(all[j].seen) })
-	for _, a := range all[:len(all)-MaxSessionBindings] {
-		delete(b.sessions, a.id)
-	}
-}
-
-// Release forgets a finished session.
-func (b *SessionBinder) Release(sessionID string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.sessions, sessionID)
 }

@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
-	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
 	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
@@ -62,7 +62,15 @@ func (s *Postgres) provider() (*goose.Provider, *sql.DB, error) {
 		return nil, nil, fmt.Errorf("store: %w", err)
 	}
 	db := stdlib.OpenDBFromPool(s.pool)
-	p, err := goose.NewProvider(goose.DialectPostgres, db, sub)
+	// Many node processes, on many hosts, share one Postgres (SPEC §11.1), and each migrates as it
+	// starts: a session-level advisory lock makes them take turns, so one applies the migrations
+	// and the rest find nothing pending.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("store: %w", err)
+	}
+	p, err := goose.NewProvider(goose.DialectPostgres, db, sub, goose.WithSessionLocker(locker))
 	if err != nil {
 		db.Close()
 		return nil, nil, fmt.Errorf("store: %w", err)
@@ -89,6 +97,15 @@ func (s *Postgres) Migrate(ctx context.Context) error {
 	}, func(ctx context.Context, fpr sql.NullString, id string) error {
 		return s.q.SetContactLeafFingerprint(ctx, pgdb.SetContactLeafFingerprintParams{LeafFingerprint: fpr, ID: id})
 	})
+}
+
+func (s *Postgres) SchemaCurrent(ctx context.Context) error {
+	p, db, err := s.provider()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return schemaCurrent(ctx, p)
 }
 
 func (s *Postgres) MigrateDown(ctx context.Context) error {
@@ -372,6 +389,17 @@ func (s *Postgres) InsertAuditEvent(ctx context.Context, seq int64, ts int64, ac
 	return s.q.InsertAuditEvent(ctx, pgdb.InsertAuditEventParams(auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash)))
 }
 
+func (s *Postgres) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
+	return s.Atomically(ctx, func(tx Store) error {
+		// Read committed would let two processes read one head; the lock makes the second wait
+		// for the first's commit and read the row it wrote.
+		if err := tx.(*Postgres).q.LockAuditChain(ctx); err != nil {
+			return fmt.Errorf("store: audit head: %w", err)
+		}
+		return appendAudit(ctx, tx, seal)
+	})
+}
+
 func (s *Postgres) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	r, err := s.q.LastAuditEvent(ctx)
 	if err != nil {
@@ -439,12 +467,7 @@ func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]Audi
 	if f.Limit <= 0 {
 		f.Limit = 200
 	}
-	// Postgres types LIMIT as int32, so a page size that cannot fit is clamped
-	// rather than wrapped to a negative one (gosec G115). No real page reaches it.
-	var lim int32 = math.MaxInt32
-	if f.Limit >= 0 && f.Limit <= math.MaxInt32 {
-		lim = int32(f.Limit)
-	}
+	lim := pgLimit(f.Limit)
 	// Two statements, not one with two optional filters; see the sqlite side for why, and for
 	// why the account placeholder keeps sqlc's name.
 	var rs []pgdb.AuditEvent

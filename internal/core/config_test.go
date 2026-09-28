@@ -254,3 +254,23 @@ func TestAuditArchiveAfter(t *testing.T) {
 		}
 	}
 }
+
+// Inline media lives under <data_dir>/blobs unless blob_dir (or PACT_BLOB_DIR) names storage of its
+// own — what node processes on different hosts sharing one Postgres point at a mount they share
+// (SPEC §11.1).
+func TestBlobsAreUnderTheDataDirUnlessBlobDirSaysOtherwise(t *testing.T) {
+	c, err := load(t, `{"data_dir": "/srv/pact"}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Blobs(); got != filepath.Join("/srv/pact", "blobs") {
+		t.Fatalf("default blobs at %q", got)
+	}
+	c, err = load(t, `{"data_dir": "/srv/pact", "blob_dir": "/mnt/shared/blobs"}`, map[string]string{"PACT_BLOB_DIR": "/mnt/other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Blobs(); got != "/mnt/other" {
+		t.Fatalf("PACT_BLOB_DIR over blob_dir: blobs at %q", got)
+	}
+}
