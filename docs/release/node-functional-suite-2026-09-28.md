@@ -174,11 +174,34 @@ measured count.) The node's move to v0.3.3 (in progress on `fix/review-2026-09-2
 the harness moves with it by `make identity-bump`, and S22 is re-run then. Until then a v0.3.3
 export — from a cloud on v0.3.3 — cannot be imported into a node on main.
 
+### 3.2a The cloud, locally (pact-cloud `test/local-cloud-target`, PR #93)
+
+`make -C pact-cloud e2e-local` stands the real gateway Worker up under workerd and runs L1–L7 against
+it: 7 of 7 PASS on its run of record. What each measured, and what it did not:
+
+- L3, the changed battery against the cloud: 78 passed, 0 failed, two skips excused by name (the
+  stale kid, which no cloud journey can produce; the calendar, which a new identity has none of).
+  It needed two battery fixes, on #93: an extra trusted root, and `rate_limited` outside the budget
+  case read as UNREACHED.
+- L4, `pact vectors intrude`: 28 of 28 blocked, the control through.
+- L2, the relay, the vault store and `POST /sign` through their real routes: every cross-site form
+  refused, each group's control through.
+- L7, the v0.3.4 corpus through the cloud's HTTP import door: all 44 refused and nothing changed,
+  but **17 reached the check they exist for and 27 did not**: those 27 were refused as another
+  identity's export, at the owner gate, because the corpus is built under one fixed root (a
+  labelled seed in pact-identity's `exportcorpus`) and a cloud identity's root comes only from a
+  passkey. They are UNREACHED for their own checks, and held there only by the Worker's own tests.
+- S19 with #93's battery against the node: 78 of 78, nothing skipped.
+
 ### 3.3 Open, and tracked
 
 - **MCP 2026-07-28 on the node's public surface.** The node answers `server/discover` in the 2026-07-28 shape but offers up to 2025-11-25, because the go-sdk offers 2026-07-28 only over a stateless Streamable HTTP transport and the public surface is stateful (per-session transport facts). The battery lists it as divergent for a node. Whether to move the public surface to a stateless transport is the owner's decision; it is not taken here.
-- **The changed battery has not run against a cloud.** Its session handshake, Accept header, event-stream reading, discover headers and server-certificate rule were exercised against a node only. It must run against staging (`make -C pact-cloud conformance`, or `ship-staging`) before the cloud PR merges; the plan below stands a local cloud up for it.
-- **The node PR merges after the cloud PR**: S19 needs the battery that takes a target, and the need refuses a checkout without one.
+- **The changed battery has run against a local cloud (3.2a), not staging.** Staging, after the owner's ship: the battery (`make -C pact-cloud conformance` with a token), `pact vectors intrude --against` the staging identity, `make e2e-pair`, and node ↔ cloud moves.
+- **Merge order**: pact-cloud #92, then #93 (which stacks on it and carries two battery fixes), then this node PR. This PR and #9 (door attacks) both touch `internal/public`: whichever merges second is rebased and runs the nightly tier again.
+- **Interop hazard**: a v0.3.3+ export (media no longer in the manifest's `files`) cannot enter a node on v0.3.2. If the cloud's identity bump reaches production before the node's, a cloud → node move fails at import. After the node moves to v0.3.4 (`make identity-bump VERSION=0.3.4`, which moves the harness too), `cd harness && go run ./cmd/harness run -id S22` runs the v0.3.4 corpus through the image.
+- **pact-identity**: `pact vectors intrude` scores a `rate_limited` answer as REPRODUCES, or the control's as CONTROL REFUSED, where it never reached the layer under test (found by the local cloud's L4 under the edge's limit). It belongs with UNREACHED; not fixed here (pact-identity is not in this change).
+- **Owner decisions**: a stateless public surface for MCP 2026-07-28; `permission_denied` versus a not-found answer on the owner MCP for another identity's account (PR #9 kept `permission_denied`, identical for both, so it leaks nothing); the `node_admin` flag of SPEC §3.3 for non-admin owners.
+- **DNS rebinding proper** (a name answering public, then private): the fetch guard vets every resolved address and pins the dial to it (`messaging.MediaService.Fetch`); S3 holds the name-that-resolves-private case and the IPv4-mapped literal, not a resolver that changes its answer between two lookups.
 
 Needs staging (the owner deploys): the battery and intrusion against `stg`, node ↔ cloud export and
 import, the cloud's journeys through `make e2e-pair`.
