@@ -377,6 +377,15 @@ type Store interface {
 	AuditStore
 	ChangeStore
 	PresenceStore
+	LeaseStore
+}
+
+// LeaseStore hands background work to one node process at a time (SPEC §11.1).
+type LeaseStore interface {
+	// TakeLease takes the named lease for holder until the unix second until, or renews it if
+	// holder has it; it reports false, and changes nothing, while another holder's lease has not
+	// run out by now.
+	TakeLease(ctx context.Context, name, holder string, now, until int64) (bool, error)
 }
 
 // PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so

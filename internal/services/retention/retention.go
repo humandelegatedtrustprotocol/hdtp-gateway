@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
@@ -50,9 +49,10 @@ const ChangeLogKept = 7 * 24 * time.Hour
 
 func Run(ctx context.Context, settings Windows, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
-	archiveTrail func(context.Context), invalidate func(ctx context.Context, accountID, fpr string) error) {
+	archiveTrail func(context.Context), invalidate func(ctx context.Context, accountID, fpr string) error,
+	leading func(context.Context) bool) {
 
-	blobs := messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}
+	blobs := messaging.BlobDir{Root: cfg.Blobs()}
 	requests := contacts.Owner{Manager: &contacts.Manager{Store: st}, Invalidate: invalidate}
 	sweeper := &messaging.Sweeper{Store: st, Blobs: blobs, Audit: auditFn}
 
@@ -65,6 +65,11 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		}
 	}
 	sweep := func() {
+		// One node process on the store sweeps (SPEC §11.1); the others, not holding the lease,
+		// leave the pass to it. nil leads always: one process, or a test.
+		if leading != nil && !leading(ctx) {
+			return
+		}
 		if retireLeaves != nil {
 			retireLeaves(ctx)
 		}
