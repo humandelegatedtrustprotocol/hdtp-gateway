@@ -40,7 +40,11 @@ func serve(args []string, stdout, stderr io.Writer) int {
 // are still nil and run only after both are set, so every handler reads them through this pointer
 // when it RUNS, never as a copy taken when it was registered.
 type serveRun struct {
-	ctx            context.Context
+	ctx context.Context
+	// bgCtx and background are serve's joined group: what serve starts, and what a portal request
+	// starts (spawn), it waits for before the store closes.
+	bgCtx          context.Context
+	background     *sync.WaitGroup
 	cfg            *core.Config
 	stdout, stderr io.Writer
 
@@ -168,9 +172,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// context so that it also joins on the paths that return before ctx has ended.
 	// TestNoGoroutineInThisPackageIsStartedAndAbandoned keeps a fourth from being added the old way.
 	bgCtx, stopBackground := context.WithCancel(ctx)
-	var background sync.WaitGroup
-	defer func() { stopBackground(); background.Wait() }()
-	s.startBackground(bgCtx, &background)
+	s.bgCtx, s.background = bgCtx, &sync.WaitGroup{}
+	defer func() { stopBackground(); s.background.Wait() }()
+	s.startBackground(bgCtx, s.background)
 
 	return runErr(internalui.Serve(ctx, cfg.InternalBind, internalTLS, s.internalSurface()), stderr)
 }
@@ -495,7 +499,13 @@ func (s *serveRun) internalSurface() http.Handler {
 	}
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
 		setStatic, setOAuthClient, s.ownerFn,
-		cfg.PublicURL, s.settings.Deps(), authDeps, cfg)
+		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn)
+}
+
+// spawn runs work a portal request starts in serve's joined background group, with its context:
+// serve waits for it before it closes the store (startBackground's group).
+func (s *serveRun) spawn(work func(ctx context.Context)) {
+	s.background.Go(func() { work(s.bgCtx) })
 }
 
 // openKeyringFor opens the node's keyring as `serve` does: the configured master key file, or
