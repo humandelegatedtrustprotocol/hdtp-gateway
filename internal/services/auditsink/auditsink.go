@@ -64,17 +64,35 @@ func (a *Sink) as(kind string) func(action, resource, outcome string) {
 // wherever the account is known.
 func (a *Sink) forAccount(accountID, kind string) func(action, resource, outcome string) {
 	return func(action, resource, outcome string) {
-		if err := a.w.Append(a.ctx, accountID, kind, "", action, resource, outcome, "", ""); err != nil {
+		if err := a.write(accountID, kind, action, resource, outcome); err != nil {
 			fmt.Fprintf(a.stderr, "audit: %s %s %s: %v\n", action, resource, outcome, err)
-			return
 		}
-		if a.mirror {
-			if resource == "" {
-				fmt.Fprintf(a.stderr, "%s %s %s\n", kind, action, outcome)
-				return
-			}
-			fmt.Fprintf(a.stderr, "%s %s %s %s\n", kind, action, resource, outcome)
+	}
+}
+
+// write appends one row and mirrors it to the log.
+func (a *Sink) write(accountID, kind, action, resource, outcome string) error {
+	if err := a.w.Append(a.ctx, accountID, kind, "", action, resource, outcome, "", ""); err != nil {
+		return err
+	}
+	if a.mirror {
+		if resource == "" {
+			fmt.Fprintf(a.stderr, "%s %s %s\n", kind, action, outcome)
+			return nil
 		}
+		fmt.Fprintf(a.stderr, "%s %s %s %s\n", kind, action, resource, outcome)
+	}
+	return nil
+}
+
+// SystemChecked is System for a writer that must know whether its row was written: the sweep
+// that archives the trail of an identity that left appends its `audit_archive` row before it
+// removes the rows, and resumes from that row after a crash, so a row that was not written must
+// stop it rather than be reported and forgotten (SPEC §3.11). The row goes through the same
+// writer as every other, so the chain has one tail.
+func (a *Sink) SystemChecked() func(action, resource, outcome string) error {
+	return func(action, resource, outcome string) error {
+		return a.write(accountFromResource(resource), "system", action, resource, outcome)
 	}
 }
 

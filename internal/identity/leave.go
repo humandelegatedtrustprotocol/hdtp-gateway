@@ -85,7 +85,9 @@ func (m *Manager) PreviewLeave(ctx context.Context, accountID string) (LeavePrev
 // to remove after) — is read INSIDE the transaction, so a leaf installed or a file received a
 // moment before cannot be missed by the reservation or left behind on disk.
 //
-// The audit trail is append-only and is not erased: its rows keep the account id.
+// The audit trail is append-only and is not erased here: its rows naming the account stay in the
+// live trail for audit_archive_after, and the hourly sweep then moves them to the identity's own
+// archive file (audit.Departed, SPEC §3.11).
 func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(ctx context.Context, tx store.Store) ([]string, error), removeBlob func(hash string) error, now time.Time) (LeaveResult, error) {
 	var res LeaveResult
 	var held []store.Blob

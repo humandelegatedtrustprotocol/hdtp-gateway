@@ -33,4 +33,6 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
   with a `doctor` that derives the deployment mode and probes the endpoint.
 - **Storage** — SQLite by default, PostgreSQL when wanted, with backup and restore.
 - **Audit** — an append-only hash-chained trail over every public call and every
-  configuration change.
+  configuration change. The rows naming an identity that left the node move to an
+  archive file of its own after `audit_archive_after` (90 days by default), and verify
+  with the rest of the chain (SPEC §3.11).
