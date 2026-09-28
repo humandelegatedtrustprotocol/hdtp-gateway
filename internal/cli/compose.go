@@ -13,7 +13,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -194,7 +193,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 		},
 		func(mux *http.ServeMux) {
 			internalui.MountMediaPages(mux, internalui.MediaDeps{
-				Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")},
+				Store: st, Blobs: messaging.BlobDir{Root: cfg.Blobs()},
 				Fetch: nd.FetchMedia, Audit: auditFn,
 			})
 			internalui.MountInboxPages(mux, internalui.InboxDeps{

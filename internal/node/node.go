@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -503,7 +502,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 
 	blobs := n.opts.BlobDir
 	if blobs == "" {
-		blobs = filepath.Join(n.cfg.DataDir, "blobs")
+		blobs = n.cfg.Blobs()
 	}
 	reg := &public.Registry{}
 	a.reg = reg

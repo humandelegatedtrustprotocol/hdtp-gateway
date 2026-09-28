@@ -131,20 +131,26 @@ behind whatever balances between them (SPEC §11.1):
 
 - **SQLite:** on one host, all with the same `data_dir`. Not across hosts, and not on a network
   filesystem: SQLite's locking does not hold there.
-- **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`.
+- **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`. Give
+  every host the same master key in `PACT_MASTER_KEY` (a host that generates a `keyring.key` of
+  its own cannot open a key another sealed), and point `blob_dir` (`PACT_BLOB_DIR`) at storage
+  every host mounts, or media stored through one host is missing on the others.
 
 The first `serve` on an idle data dir migrates; the others check that the schema is the one they
 were built for and refuse to start if it is not. To migrate, stop every process on the data dir
 (on Postgres, every process) and start the new binary. `migrate`, `export`, `import` and the
 `audit` commands refuse to run while any `serve` holds the data dir. One process serves the admin
 socket and `serve` prints `admin: ... is served by another pact-gateway process` on the others;
-the setup URL a first run prints works on the portal of the process that printed it.
+the setup URL a first run prints works on the portal of the process that printed it. The outbound
+retries and the hourly retention pass run on one process at a time: the one holding the work's
+lease in the store, renewed at each run and anyone's three intervals after its holder stops.
 
 What each process still keeps to itself, and so what is not yet shared between them:
 
 - the §12 rate buckets (each process grants the whole budget);
-- the background loops (retries, retention), which every process runs;
-- blobs under `data_dir/blobs` and the master key file, local to each host;
+- integrations: every process connects each one itself (a stdio integration runs a child per
+  process), and an OAuth token refreshed by one process may be refused to another that refreshes
+  the same token, which marks the integration for re-authorizing;
 - on SQLite, `Scrub` (the checkpoint that clears the write-ahead log after a leaf key is destroyed)
   cannot finish while another process is reading; it says so — a warning on an install or a
   signing request, an error on a retirement or a leave — and the next one that finishes clears

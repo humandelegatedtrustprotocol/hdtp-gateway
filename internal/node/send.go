@@ -427,8 +427,10 @@ func whyFailed(err error) string {
 }
 
 // RunRetries sweeps until ctx ends. This is the piece that makes a failed send
-// recoverable rather than a message the owner has to notice and resend.
-func (n *Node) RunRetries(ctx context.Context) {
+// recoverable rather than a message the owner has to notice and resend. leading says whether
+// this process holds the retries' lease (SPEC §11.1): only the one that does sweeps, so a
+// message is not retried by two processes at once. nil leads always.
+func (n *Node) RunRetries(ctx context.Context, leading func(context.Context) bool) {
 	t := time.NewTicker(RetrySweep)
 	defer t.Stop()
 	for {
@@ -436,7 +438,9 @@ func (n *Node) RunRetries(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n.RetryPending(ctx)
+			if leading == nil || leading(ctx) {
+				n.RetryPending(ctx)
+			}
 		}
 	}
 }

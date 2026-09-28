@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -110,6 +111,10 @@ type Config struct {
 	StoreEngine   string `json:"store_engine"`
 	PostgresDSN   string `json:"postgres_dsn"`
 	MasterKeyFile string `json:"master_key_file"`
+	// BlobDir is where inline media is stored (SPEC §7.4): <data_dir>/blobs when unset. Node
+	// processes that share a Postgres store from different hosts point it at storage every host
+	// mounts (SPEC §11.1); processes sharing one data dir share its blobs already.
+	BlobDir string `json:"blob_dir"`
 
 	// AuditArchiveAfter is how long the audit rows that name an identity that left this node stay
 	// in the live trail before the hourly sweep moves them to the identity's archive file (SPEC
@@ -241,6 +246,7 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("PACT_STORE_ENGINE", &c.StoreEngine)
 	envStr("PACT_POSTGRES_DSN", &c.PostgresDSN)
 	envStr("PACT_MASTER_KEY_FILE", &c.MasterKeyFile)
+	envStr("PACT_BLOB_DIR", &c.BlobDir)
 	envStr("PACT_TUNNEL", &c.Tunnel)
 	envStr("PACT_WALLET_URL", &c.WalletURL)
 	envStr("PACT_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
@@ -469,3 +475,11 @@ var walletOrigin = regexp.MustCompile(`^(https|http)://([a-z0-9](?:[a-z0-9.-]*[a
 
 // WalletOrigin is wallet_url as the origin a browser writes (no trailing slash).
 func (c *Config) WalletOrigin() string { return strings.TrimRight(c.WalletURL, "/") }
+
+// Blobs is the directory inline media is stored in: BlobDir, or <data_dir>/blobs.
+func (c *Config) Blobs() string {
+	if c.BlobDir != "" {
+		return c.BlobDir
+	}
+	return filepath.Join(c.DataDir, "blobs")
+}

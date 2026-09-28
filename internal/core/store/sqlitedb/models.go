@@ -182,6 +182,13 @@ type Leaf struct {
 	Moved            int64
 }
 
+type Lease struct {
+	Name      string
+	Holder    string
+	TakenAt   int64
+	ExpiresAt int64
+}
+
 type Membership struct {
 	OwnerID   string
 	AccountID string
