@@ -1,0 +1,97 @@
+/* PACT's brand in the app: pact-web-kit's palette, type and motion, for the node's portal AND PACT Cloud's.
+ *
+ * ONE file. The cloud's portal takes it verbatim (gateway/scripts/harvest.sh); an edit made to one copy
+ * and not the other is a drift `tools/kit.mjs check` sees in both, because each copy is held to the same
+ * vendored stylesheet, kit/styles.css (pact-web-kit, pinned by release in kit/kit.lock):
+ *   - every token this file shares with the kit carries the kit's value (light);
+ *   - the dark palette is the kit's own on-dark colours (its dark band: ink, panel, text, muted, the light
+ *     orange), not a second brand — the kit itself is light-only;
+ *   - `rise` and `pop` are the kit's keyframes, character for character;
+ *   - the kit's contrast rules (test/contrast.test.mjs) hold in both themes and for the app's own pairs.
+ *
+ * The orange (--accent, #F38020) is 2.65 : 1 on white, so it NEVER carries text or state: --accent-ink
+ * carries text, --accent-ui carries state (switches, focus rings, ticked boxes). This file is loaded
+ * before style.css, which lays the app out on these tokens. */
+
+@font-face{font-family:'Inter';src:url(/fonts/inter-latin-wght.woff2) format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url(/fonts/jbmono-latin-400.woff2) format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url(/fonts/jbmono-latin-500.woff2) format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Bricolage Grotesque';src:url(/fonts/bricolage-grotesque-latin-wght.woff2) format('woff2');font-weight:200 800;font-style:normal;font-display:swap}
+
+/* palette:light */
+:root {
+  --bg:#FFFFFF; --bg-2:#FAF8F4; --bg-3:#F4F1EA;
+  --ink:#15181E; --ink-2:#262A32; --text:#2B2F36; --muted:#5E6168; --faint:#696C73;
+  --line:#ECE8E0; --line-2:#DDD8CE;
+  --accent:#F38020; --accent-2:#FFA552; --accent-soft:#FDF0E4; --accent-ink:#AB5309; --accent-ui:#D9690C;
+  --accent-rgb:243 128 32; --glow-rgb:255 165 82;
+  --amber:#7A5A00; --amber-soft:#FBF3D9; --red:#B3261E; --red-soft:#FBECEA;
+  /* text on a coloured fill (a count, a danger button); an accent link on the ink fill (an own message) */
+  --on-fill:#FFFFFF; --accent-on-ink:var(--accent-2);
+  --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --display:'Bricolage Grotesque',var(--sans);
+  --ease-out:cubic-bezier(.2,.75,.2,1);
+  --r:10px; --r-lg:14px; --side:248px; --ctl-h:36px; --raise:var(--bg);
+  --shadow-sm:0 1px 2px rgb(21 24 30 / .05),0 1px 1px rgb(21 24 30 / .03);
+  --shadow:0 24px 64px -24px rgb(21 24 30 / .28),0 8px 24px -12px rgb(21 24 30 / .14);
+  --scrim:rgb(21 24 30 / .35);
+  /* legacy aliases used by older views */
+  --soft:var(--bg-2); --warn-bg:var(--amber-soft); --warn-line:var(--amber);
+  --ok-bg:var(--accent-soft); --ok-line:var(--accent); --err-bg:var(--red-soft); --err-line:var(--red);
+}
+/* palette:dark */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#15181E; --bg-2:#1D2027; --bg-3:#262A32;
+    --ink:#F4F1EA; --ink-2:#E6E1D7; --text:#D6D2CA; --muted:#B3AEA5; --faint:#9A958C;
+    --line:#2A2E36; --line-2:#373C46;
+    --accent:#F38020; --accent-2:#FFA552; --accent-soft:#33261A; --accent-ink:#FFA552; --accent-ui:#F38020;
+    --amber:#E9B949; --amber-soft:#2E2714; --red:#FF9C8A; --red-soft:#3A211D;
+    --on-fill:#15181E; --accent-on-ink:#AB5309;
+    --raise:var(--bg-3);
+    --shadow-sm:0 1px 2px rgb(0 0 0 / .3); --shadow:0 16px 40px -20px rgb(0 0 0 / .7);
+    --scrim:rgb(0 0 0 / .5);
+    --soft:var(--bg-2); --warn-bg:var(--amber-soft); --warn-line:var(--amber);
+    --ok-bg:var(--accent-soft); --ok-line:var(--accent); --err-bg:var(--red-soft); --err-line:var(--red);
+  }
+}
+
+/* ---------------------------------------------------------------- type: the kit's display face on headings */
+h1,h2,h3{font-family:var(--display);font-optical-sizing:auto}
+h1{font-weight:700;letter-spacing:-.03em}
+
+/* ---------------------------------------------------------------- the logo */
+/* The product's wordmark from the kit's brand set (the mark and the name, outlined paths, so it needs no
+   font), in a <picture> that swaps in the dark variant on a dark ground. In the collapsed sidebar the
+   same image is cropped to its first square, which is the mark. */
+.logo{display:block;height:28px;width:auto}
+.side-min .side-brand .logo{width:24px;object-fit:cover;object-position:left center}
+@media (max-width:900px){.side-min .side-brand .logo{width:auto}}
+
+/* ---------------------------------------------------------------- motion
+   The kit's: one easing, `rise` for what arrives, `pop` for the mark. CSS alone, so nothing waits on a
+   script; short, so a hand or a test that acts at once never meets something still arriving; and never
+   under reduced motion. A block that IS or HOLDS a form is never hidden, not even for the length of an
+   entrance (the kit's 0.1.10 and 0.1.14): it moves into place at full opacity (`lift`). */
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.35)}70%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:none}}
+@keyframes lift{from{transform:translateY(10px)}to{transform:none}}
+/* A view's blocks, in order, as the view mounts and as its data arrives (a card mounts when it has
+   something to show); the sign-in and first-run pages' blocks the same way. The header first, each
+   block after it 45 ms later, capped at the sixth. */
+:is(.content > main,main.center) > *{animation:rise .38s var(--ease-out) both}
+:is(.content > main,main.center) > :nth-child(2){animation-delay:45ms}
+:is(.content > main,main.center) > :nth-child(3){animation-delay:90ms}
+:is(.content > main,main.center) > :nth-child(4){animation-delay:135ms}
+:is(.content > main,main.center) > :nth-child(5){animation-delay:180ms}
+:is(.content > main,main.center) > :nth-child(n+6){animation-delay:225ms}
+:is(.content > main,main.center) > :is(form,:has(form,input,select,textarea,button)){animation-name:lift}
+/* A panel that opens: a menu, a confirmation. */
+.menu{animation:lift .16s var(--ease-out) both}
+dialog[open]{animation:rise .2s var(--ease-out) both}
+/* The mark, once, where the app first shows it. */
+.side-brand .logo,.brandline .logo{animation:pop .5s cubic-bezier(.3,1.3,.5,1) .05s both}
+@media (prefers-reduced-motion:reduce){
+  :is(.content > main,main.center) > *,.menu,dialog[open],.side-brand .logo,.brandline .logo{animation:none}
+}

@@ -57,18 +57,19 @@ func TestEveryStandalonePortalPageIsThemed(t *testing.T) {
 
 // The shared palette must define both halves. A token defined only inside the
 // media query is the classic unreadable-page bug: it never applies in light
-// mode. The palette lives in the SPA's stylesheet now; the property is the same.
+// mode. The palette lives in the SPA's brand layer (web/src/brand.css, loaded
+// before style.css); the property is the same.
 func TestPortalStyleDefinesBothThemes(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "style.css"))
+	b, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "brand.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	css := string(b)
 	if !strings.Contains(css, ":root {") {
-		t.Fatal("style.css has no base :root palette, so light mode has no tokens")
+		t.Fatal("brand.css has no base :root palette, so light mode has no tokens")
 	}
 	if !strings.Contains(css, "prefers-color-scheme: dark") {
-		t.Fatal("style.css has no dark block")
+		t.Fatal("brand.css has no dark block")
 	}
 	base := css[strings.Index(css, ":root {"):strings.Index(css, "@media")]
 	dark := css[strings.Index(css, "@media"):]
@@ -83,8 +84,59 @@ func TestPortalStyleDefinesBothThemes(t *testing.T) {
 	}
 	// body must paint its own background: a transparent body borrows whatever the
 	// browser chose, which is exactly how a themed page still ends up unreadable.
-	if !strings.Contains(css, "background: var(--bg)") {
+	layout, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "style.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(layout), "background: var(--bg)") {
 		t.Error("body does not paint an explicit background from the palette")
+	}
+}
+
+// paletteOf reads `--name:value` pairs out of one CSS block.
+func paletteOf(block string) map[string]string {
+	out := map[string]string{}
+	for _, m := range regexp.MustCompile(`--([\w-]+)\s*:\s*([^;}]+)`).FindAllStringSubmatch(block, -1) {
+		out[m[1]] = strings.TrimSpace(m[2])
+	}
+	return out
+}
+
+// The server-rendered pages (style.go) carry the SPA's palette inline, because they cannot load the
+// SPA's stylesheet. Two copies of one palette drift the day they are written, so every token the
+// pages use is held to web/src/brand.css's value, light and dark.
+func TestServerPagesCarryTheBrandPalette(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "brand.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	light := regexp.MustCompile(`/\* palette:light \*/\s*:root\s*\{([^}]*)\}`).FindStringSubmatch(css)
+	dark := regexp.MustCompile(`/\* palette:dark \*/\s*@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}`).FindStringSubmatch(css)
+	if light == nil || dark == nil {
+		t.Fatal("brand.css has lost its palette:light or palette:dark block")
+	}
+	wantLight, wantDark := paletteOf(light[1]), paletteOf(dark[1])
+	at := strings.Index(brandPalette, "@media")
+	gotLight, gotDark := paletteOf(brandPalette[:at]), paletteOf(brandPalette[at:])
+	if len(gotLight) < 10 || len(gotDark) < 10 {
+		t.Fatalf("brandPalette parsed to %d light and %d dark tokens; the scan is broken", len(gotLight), len(gotDark))
+	}
+	for tok, v := range gotLight {
+		if wantLight[tok] != v {
+			t.Errorf("light --%s is %q in style.go, %q in brand.css", tok, v, wantLight[tok])
+		}
+	}
+	for tok, v := range gotDark {
+		if wantDark[tok] != v {
+			t.Errorf("dark --%s is %q in style.go, %q in brand.css", tok, v, wantDark[tok])
+		}
+	}
+	// Every token a page reads is one the palette defines, in both themes.
+	for _, m := range regexp.MustCompile(`var\(--([\w-]+)\)`).FindAllStringSubmatch(pageBase+landingStyle+walletStyle, -1) {
+		if _, ok := gotLight[m[1]]; !ok {
+			t.Errorf("a server page reads --%s, which brandPalette does not define", m[1])
+		}
 	}
 }
 

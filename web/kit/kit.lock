@@ -1,0 +1,74 @@
+{
+  "version": "0.1.14",
+  "manifest_sha256": "6de3ff4d256ca648a29d30ad6c8ae24d570da19c961c823490e29a8e583582ad",
+  "files": {
+    "kit/brand/apple-touch-icon.png": {
+      "to": "public/brand/apple-touch-icon.png",
+      "sha256": "e7f151c67b1705712e7ffb1146b1fbdc52dce9992c6f5d5230f05a58bcefc248"
+    },
+    "kit/brand/favicon.svg": {
+      "to": "public/brand/favicon.svg",
+      "sha256": "cb73e840f4ba26b72122123f1027230460646fe32af885873a30bd9684518ef4"
+    },
+    "kit/brand/mark.svg": {
+      "to": "public/brand/mark.svg",
+      "sha256": "7b4a690d4602ed37ed5f3fa536a5c2dde6468a8815a86e89cbc428574c37f064"
+    },
+    "kit/brand/pact-cloud-inline-dark.svg": {
+      "to": "public/brand/pact-cloud-inline-dark.svg",
+      "sha256": "48675a92dd187138d87e881613f81eed52ce10a077ff7d3414ab3e3751147c0a"
+    },
+    "kit/brand/pact-cloud-inline.svg": {
+      "to": "public/brand/pact-cloud-inline.svg",
+      "sha256": "5a400e0d651a5960cd57a7c3172996fee6305447aff0ddfeaee025bca9ba1a03"
+    },
+    "kit/brand/pact-gateway-inline-dark.svg": {
+      "to": "public/brand/pact-gateway-inline-dark.svg",
+      "sha256": "b166c792a92ba1afee966d10921d106fcb2a9a5a51ee00d79593e775c2df704c"
+    },
+    "kit/brand/pact-gateway-inline.svg": {
+      "to": "public/brand/pact-gateway-inline.svg",
+      "sha256": "d8d238444a85458dc65339cb42273eb5e9a724f1517b8a68fa58d6b73dc9b329"
+    },
+    "kit/brand/pact-identity-inline-dark.svg": {
+      "to": "public/brand/pact-identity-inline-dark.svg",
+      "sha256": "cd796512b561113992b9f9dbcaac5f12f53ac4ab5fe04dd2420582e562fdd63d"
+    },
+    "kit/brand/pact-identity-inline.svg": {
+      "to": "public/brand/pact-identity-inline.svg",
+      "sha256": "a49cabf4955b465fbb34eccd0c4d84c9603463e0f5b83599850b8ff696973432"
+    },
+    "kit/brand/pact-protocol-inline-dark.svg": {
+      "to": "public/brand/pact-protocol-inline-dark.svg",
+      "sha256": "5d62fb5b6b8e9093b4759dbd77058136cc107f20d4a8da47ddd3883f5ada51fc"
+    },
+    "kit/brand/pact-protocol-inline.svg": {
+      "to": "public/brand/pact-protocol-inline.svg",
+      "sha256": "c28a5c2b4af10281fe62cc71a6fcf7b386fa607dfe4556f5dad42dece98ac2c1"
+    },
+    "kit/fonts/OFL-bricolage-grotesque.txt": {
+      "to": "public/fonts/OFL-bricolage-grotesque.txt",
+      "sha256": "923f4ddf0fd39f9b7794ab0df7332f3d95dc43e8ad7ec2289d6d9e8491177f51"
+    },
+    "kit/fonts/bricolage-grotesque-latin-wght.woff2": {
+      "to": "public/fonts/bricolage-grotesque-latin-wght.woff2",
+      "sha256": "a97804dc9fbe5fc972a08018c5eda4dab7ef2346f64c57e61419d05e6de4ea1c"
+    },
+    "kit/fonts/inter-latin-wght.woff2": {
+      "to": "public/fonts/inter-latin-wght.woff2",
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62"
+    },
+    "kit/fonts/jbmono-latin-400.woff2": {
+      "to": "public/fonts/jbmono-latin-400.woff2",
+      "sha256": "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb"
+    },
+    "kit/fonts/jbmono-latin-500.woff2": {
+      "to": "public/fonts/jbmono-latin-500.woff2",
+      "sha256": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a"
+    },
+    "kit/styles.css": {
+      "to": "kit/styles.css",
+      "sha256": "32ffeb2d3351cc8c65e3028900c50baef6d5cd04be2743db14eebb6c88d35027"
+    }
+  }
+}

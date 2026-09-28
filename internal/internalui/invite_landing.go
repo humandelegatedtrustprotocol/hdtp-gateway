@@ -47,17 +47,10 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>PACT invite</title>
-<style>
- body{margin:0;background:#fafaf8;color:#1b2422;font:16px/1.6 system-ui,sans-serif}
- @media (prefers-color-scheme:dark){body{background:#0f1614;color:#e7ece8}}
- main{max-width:640px;margin:0 auto;padding:32px 24px}
- .card{border:1px solid #d9ded8;border-radius:12px;padding:24px;margin:16px 0}
- pre{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,monospace}
- img{max-width:200px;height:auto}
- .muted{opacity:.7;font-size:14px}
-</style>
+` + landingStyle + `
 </head>
 <body><main>
+<div class="brand">` + landingMark + `<span>PACT</span></div>
 <h1>{{.FN}} invites your agent to connect</h1>
 <p>This is a <strong>PACT</strong> invite. Point your agent at it — redemption pins the
 card below, so verify it came from the person you expect before connecting.</p>
