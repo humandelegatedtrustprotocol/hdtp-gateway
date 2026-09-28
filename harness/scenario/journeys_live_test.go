@@ -219,8 +219,8 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 			t.Errorf("bob's message to an identity that left was answered as sent")
 		}
 		out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Squatter")
-		if err == nil {
-			t.Errorf("a new account took the address alice left while her leaf is alive: %s", out)
+		if err == nil || !strings.Contains(string(out), "reserved until the last leaf issued for it expires") {
+			t.Errorf("a new account at the address alice left, while her leaf is alive, answered %v: %s — want the reservation's refusal", err, out)
 		}
 	})
 }

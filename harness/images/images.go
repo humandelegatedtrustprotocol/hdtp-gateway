@@ -23,10 +23,13 @@ import (
 // other's binary, and what lets a mutation check run a deliberately broken build beside the real one.
 var Node = cmp.Or(os.Getenv("PACT_HARNESS_IMAGE"), "pact-gateway:harness")
 
+// Caldav is the -full image plus a pinned caldav-mcp, built by `make harness-image-caldav` under the
+// tag PACT_HARNESS_CALDAV_IMAGE names (the Makefile's HARNESS_CALDAV_IMAGE), for the reason Node's is
+// a variable: S4 must run the binary of the tree under test.
+var Caldav = cmp.Or(os.Getenv("PACT_HARNESS_CALDAV_IMAGE"), "pact-gateway:harness-caldav")
+
 // Built locally by the Makefile.
 const (
-	// Caldav is the -full image plus a pinned caldav-mcp, built by `make harness-image-caldav`.
-	Caldav = "pact-gateway:harness-caldav"
 	// Shaper is Alpine with iproute2 (tc) already installed; fabric builds it on demand from
 	// ShaperDockerfile, and `make harness-shaper` builds it ahead of a run.
 	Shaper = "pact-harness-shaper:1"
