@@ -48,12 +48,14 @@ var justified = map[string]string{
 	"ListAuditEventsPage":   "a bounded walk of the chain from its newest end; the node's own rows match every account filter, so it stops within a page or so whatever the account",
 	"LastAuditEvent":        "one row, from the end of the primary key",
 	"DeleteExpiredSessions": "reads the owner sessions, which this statement is what keeps few: one per sign-in, gone within the hour of expiring",
+	"PinCandidates":         "sorts the few rows three index probes found (one root's, those at one address, the one holding one leaf), never the account's contacts",
 }
 
 // SQLite only.
 var justifiedSQLite = map[string]string{
-	"DeleteOwner":             "the foreign-key check on removing an owner, which a person does by hand; sessions are bounded by the hourly sweep",
-	"ListOpenPendingRequests": "sorts the OPEN requests of one account, found through an index; an open request expires within minutes",
+	"DeleteOwner":                 "the foreign-key check on removing an owner, which a person does by hand; sessions are bounded by the hourly sweep",
+	"ListOpenPendingRequests":     "sorts the OPEN requests of one account, found through an index; an open request expires within minutes",
+	"ListContactLeafKeysUnfilled": "the fill Migrate runs at start (migration 0046): one pass over the pins to find the few without a fingerprint, and after the first fill there are none",
 }
 
 // Postgres only.

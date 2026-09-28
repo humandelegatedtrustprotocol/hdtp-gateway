@@ -71,6 +71,18 @@ func (s *SQLite) ListContacts(ctx context.Context, accountID string) ([]Contact,
 	return out, nil
 }
 
+func (s *SQLite) PinCandidates(ctx context.Context, accountID, root, endpoint, leafFingerprint string) ([]Contact, error) {
+	rs, err := s.q.PinCandidates(ctx, pinCandidates(accountID, root, endpoint, leafFingerprint))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Contact, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, contactFromRow(r))
+	}
+	return out, nil
+}
+
 func (s *SQLite) UpdateContactStatus(ctx context.Context, accountID, fingerprint, status string) error {
 	return contactChanged(s.q.UpdateContactStatus(ctx, sqlitedb.UpdateContactStatusParams{
 		Status: status, AccountID: accountID, Fingerprint: fingerprint,

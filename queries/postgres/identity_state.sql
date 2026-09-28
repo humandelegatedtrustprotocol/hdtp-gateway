@@ -89,7 +89,7 @@ DELETE FROM pending_addresses WHERE account_id = $1 AND root = $2;
 -- The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
 -- address replaces the leaf, its key and the endpoint; the root (the
 -- fingerprint column) never moves (PACT sec. 14.3, sec. 5.3).
-UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, pinned_at = $4 WHERE account_id = $5 AND fingerprint = $6;
+UPDATE contacts SET endpoint = $1, leaf = $2, leaf_fingerprint = $3, spki = $4, pinned_at = $5 WHERE account_id = $6 AND fingerprint = $7;
 
 -- name: SetContactChainSentKid :execrows
 UPDATE contacts SET chain_sent_kid = $1 WHERE account_id = $2 AND fingerprint = $3;

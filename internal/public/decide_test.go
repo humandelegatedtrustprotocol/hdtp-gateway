@@ -262,20 +262,20 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 // A pin this node cannot read is the node's problem, and it is said. The Go port used to step over
 // the row and answer `chain_required` as if nothing were wrong, and nothing anywhere recorded that a
 // row of the contact book had gone bad — so the contact whose row it was became a stranger for good.
+// Decide is handed only the pins a call's proof concerns (pinsFor), so the bad row here is one the
+// call names: its fingerprint is the sender's leaf's, and its leaf bytes are not a certificate.
 func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 	e := newRecvEnv(t)
 	var rows []string
 	e.id.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) }
+	p := newPeer(t, fixedNow)
+	named, _ := pactidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: "sha256:a-row-gone-bad", Status: "active", Permissions: []string{"message.text"},
-		Endpoint: "https://ghost.example/mcp", Leaf: []byte{0x30, 0x03, 0x01, 0x02, 0x03},
+		Endpoint: "https://ghost.example/mcp", Leaf: []byte{0x30, 0x03, 0x01, 0x02, 0x03}, SPKI: named.SPKI,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// A sender naming a leaf NO pin holds: the scan that looks for it reads every pin, in whatever
-	// order the store lists them, so it meets the bad row wherever that row sorts. (A contact whose
-	// own pin happens to come first is matched before the bad row is reached — in the core too.)
-	p := newPeer(t, fixedNow)
 
 	_, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
 	if err == nil || Code(err) != "envelope_invalid" || !strings.Contains(err.Error(), "recipient state unavailable") {

@@ -17,8 +17,8 @@ package node
 //
 //   PACT_MEASURE_CAPACITY=1 GOWORK=off go test ./internal/node -run TestMeasureAccountCapacity -v -timeout 30m
 //
-// PACT_MEASURE_RATES="200,220,240" replaces the rising steps, and PACT_MEASURE_TOOL=get_card
-// measures the read path instead of send_message.
+// PACT_MEASURE_RATES="200,220,240" replaces the rising steps, PACT_MEASURE_CONTACTS=2000 the 500
+// contacts, and PACT_MEASURE_TOOL=get_card measures the read path instead of send_message.
 //
 // Without the variable the same machinery runs one small step and holds that every call completed
 // (it is the hermetic guard of the measurement: tooling that only runs on demand goes stale silently
@@ -58,6 +58,13 @@ func TestMeasureAccountCapacity(t *testing.T) {
 	contactsN, rates, stepFor := 20, []int{40}, time.Second
 	if full {
 		contactsN, rates, stepFor = 500, []int{50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200}, 5*time.Second
+		if v := os.Getenv("PACT_MEASURE_CONTACTS"); v != "" {
+			c, err := strconv.Atoi(v)
+			if err != nil || c <= 0 {
+				t.Fatalf("PACT_MEASURE_CONTACTS: %q is not a count", v)
+			}
+			contactsN = c
+		}
 		if v := os.Getenv("PACT_MEASURE_RATES"); v != "" {
 			rates = nil
 			for _, f := range strings.Split(v, ",") {
