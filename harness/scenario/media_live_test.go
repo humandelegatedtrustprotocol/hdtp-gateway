@@ -197,6 +197,29 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 		}
 	})
 
+	// The same guard reached two other ways: a NAME that resolves to the private address (the
+	// canary's container name, which the node's resolver answers on the home network — the
+	// rebinding shape, a name that looks like anybody's), and the address written as an
+	// IPv4-mapped IPv6 literal. Each is refused before anything is sent, and audited.
+	for _, c := range []struct{ how, url, path string }{
+		{"a name that resolves to it", "http://" + canary.Name + "/named", "/named"},
+		{"its IPv4-mapped IPv6 form", "http://[::ffff:" + canaryIP + "]/mapped", "/mapped"},
+	} {
+		t.Run("the private address by "+c.how+" is refused too", func(t *testing.T) {
+			before := countAudit(ctx, t, alice, "media_fetch_refused")
+			_, refusal := fetch(t, c.url)
+			if !strings.Contains(refusal, "private address") {
+				t.Errorf("a fetch of %s answered %q, want a refusal naming the private address", c.url, refusal)
+			}
+			if n := hits(ctx, t, w, canary, c.path); n != 0 {
+				t.Errorf("the canary was reached %d time(s) through %s", n, c.url)
+			}
+			if after := countAudit(ctx, t, alice, "media_fetch_refused"); after != before+1 {
+				t.Errorf("media_fetch_refused rows went %d -> %d, want one more", before, after)
+			}
+		})
+	}
+
 	t.Run("a redirect is refused, and its target is never reached", func(t *testing.T) {
 		_, refusal := fetch(t, "http://"+redirIP+"/hop")
 		n := hits(ctx, t, w, redirector, "/hop")

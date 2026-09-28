@@ -6,6 +6,7 @@
 package ownermcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -537,7 +538,22 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	}
 	out := make([]contactView, 0, len(list))
 	for _, c := range list {
-		out = append(out, contactOf(c))
+		v := contactOf(c)
+		// A request from an address that belongs, or lately belonged, to another contact names
+		// that contact (PACT §5.2), in the cloud's shape: {root, name}, the owner's name for them
+		// first. Derived when read, by the rule the redemption applied.
+		if c.Status == "pending_in" && ot.d.Contacts != nil {
+			if claim, err := ot.d.Contacts.AddressClaim(ctx, a.AccountID, c.Endpoint, c.Fingerprint); err == nil && claim != "" {
+				name := claim
+				for _, h := range list {
+					if h.Fingerprint == claim {
+						name = cmp.Or(h.Petname, h.DisplayName, claim)
+					}
+				}
+				v.AddressClaim = &addressClaim{Root: claim, Name: name}
+			}
+		}
+		out = append(out, v)
 	}
 	r, err := jsonResult(out)
 	return r, nil, err
@@ -546,8 +562,8 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 // contactView is a contact as the owner MCP answers it (building rule 10: project, never spread):
 // the cloud's names for what this node holds (pact-cloud api/v1/routes/shared.ts `Contact`), and
 // the grant the contact made us. Not the row id, the account id, the pinned key, the card, the
-// invite or the chain mark. The cloud's last_seen_at, address_claim and acceptance_unheard_since
-// are not here: this node keeps none of them.
+// invite or the chain mark. The cloud's last_seen_at and acceptance_unheard_since are not here:
+// this node keeps neither. address_claim is derived when read (PACT §5.2).
 type contactView struct {
 	Fingerprint      string   `json:"fingerprint"`
 	DisplayName      string   `json:"display_name"`
@@ -561,6 +577,14 @@ type contactView struct {
 	Endpoint         string   `json:"endpoint"`
 	Leaf             string   `json:"leaf,omitempty"`
 	RootCert         string   `json:"root_cert,omitempty"`
+	// AddressClaim is, on a waiting request, the contact whose address it comes from (PACT §5.2);
+	// null otherwise, as the cloud answers it.
+	AddressClaim *addressClaim `json:"address_claim"`
+}
+
+type addressClaim struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
 }
 
 func contactOf(c store.Contact) contactView {

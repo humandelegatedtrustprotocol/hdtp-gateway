@@ -37,7 +37,7 @@ func TestListContactsAnswersNamedFieldsOnly(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	want := "created_at display_name endpoint fingerprint leaf permissions petname preset root_cert status their_permissions trust_flag"
+	want := "address_claim created_at display_name endpoint fingerprint leaf permissions petname preset root_cert status their_permissions trust_flag"
 	if got := strings.Join(keys, " "); got != want {
 		t.Fatalf("list_contacts answers %q, want exactly %q", got, want)
 	}

@@ -45,12 +45,13 @@ func TestEveryImageConstantIsListed(t *testing.T) {
 	seen := 0
 	for _, d := range f.Decls {
 		g, ok := d.(*ast.GenDecl)
-		if !ok || g.Tok != token.CONST {
+		// Node is a var (its tag may be chosen per worktree); the rest are constants.
+		if !ok || (g.Tok != token.CONST && g.Tok != token.VAR) {
 			continue
 		}
 		for _, s := range g.Specs {
 			for _, n := range s.(*ast.ValueSpec).Names {
-				if n.Name == "ShaperDockerfile" {
+				if n.Name == "ShaperDockerfile" || n.Name == "Local" || n.Name == "Pulled" {
 					continue
 				}
 				seen++
@@ -134,9 +135,24 @@ func TestTheMakefileAgreesWithTheConstants(t *testing.T) {
 		t.Fatal(err)
 	}
 	mk := string(b)
-	for _, ref := range []string{Node, Caldav} {
-		if !strings.Contains(mk, "-t "+ref+" ") && !strings.Contains(mk, "-t "+ref+"\n") {
-			t.Errorf("the Makefile does not build %s", ref)
+	// The node image's tag is the Makefile's HARNESS_IMAGE, handed to the harness as
+	// PACT_HARNESS_IMAGE; both default to the one tag images.go falls back to.
+	const nodeDefault = "pact-gateway:harness"
+	if os.Getenv("PACT_HARNESS_IMAGE") == "" && Node != nodeDefault {
+		t.Errorf("with PACT_HARNESS_IMAGE unset the node image is %s, not %s", Node, nodeDefault)
+	}
+	for _, want := range []string{"HARNESS_IMAGE ?= " + nodeDefault + "\n", "export PACT_HARNESS_IMAGE := $(HARNESS_IMAGE)\n", "-t $(HARNESS_IMAGE) "} {
+		if !strings.Contains(mk, want) {
+			t.Errorf("the Makefile has no %q: the node image it builds is not the one the harness runs", strings.TrimSpace(want))
+		}
+	}
+	const caldavDefault = "pact-gateway:harness-caldav"
+	if os.Getenv("PACT_HARNESS_CALDAV_IMAGE") == "" && Caldav != caldavDefault {
+		t.Errorf("with PACT_HARNESS_CALDAV_IMAGE unset the calendar image is %s, not %s", Caldav, caldavDefault)
+	}
+	for _, want := range []string{"HARNESS_CALDAV_IMAGE ?= " + caldavDefault + "\n", "export PACT_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)\n", "-t $(HARNESS_CALDAV_IMAGE) "} {
+		if !strings.Contains(mk, want) {
+			t.Errorf("the Makefile has no %q: the calendar image it builds is not the one the harness runs", strings.TrimSpace(want))
 		}
 	}
 	for _, m := range regexp.MustCompile(`alpine:[^\s'"]+`).FindAllString(mk, -1) {

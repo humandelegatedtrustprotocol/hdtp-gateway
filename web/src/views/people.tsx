@@ -13,7 +13,7 @@ import { Avatar, Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHe
 type Contact = { fingerprint: string; label: string; status: string };
 type ContactsData = { contacts: Contact[] | null; presets: string[]; can_add: boolean };
 
-type Pending = { fingerprint: string; display_name: string; via_invite?: boolean; invite_label?: string };
+type Pending = { fingerprint: string; display_name: string; via_invite?: boolean; invite_label?: string; address_claim?: { root: string; name: string } | null };
 // A contact waiting at a new address for the owner's answer (PACT §5.3, under `ask`).
 type Address = { root: string; name?: string; pinned_endpoint?: string; endpoint: string; why: string; at: number };
 type RequestsData = { pending: Pending[] | null; addresses: Address[] | null; presets: string[] };
@@ -211,6 +211,7 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
             <td>
               {p.display_name || <span className="muted">—</span>}
               {p.via_invite && <Badge>via invite{p.invite_label ? `: ${p.invite_label}` : ""}</Badge>}
+              {p.address_claim && <Badge tone="warn" title={p.address_claim.root}>at the address of {p.address_claim.name}: not them unless they say so</Badge>}
             </td>
             <td><Readout value={p.fingerprint} /></td>
             <td>

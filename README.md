@@ -352,7 +352,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every push. [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 17 live scenarios stand the real binary up
+**A harness that builds the world.** 22 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
@@ -364,6 +364,11 @@ in containers and drive it as a person would:
 | Approval | The owner approves over the owner MCP, and both nodes then say active | `TestApprovingAContactReachesThePeer` |
 | Rejection | The requester's own node learns it was rejected; an unblock lets them ask again | `TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain` |
 | Adversarial probes | A stranger, an over-reaching contact, and the audit chain intact through every refusal — over a real socket | `TestAdversarialProbesAreRefused` |
+| The intrusion battery | pact-identity's live battery (`pact vectors intrude`): forged, tampered, replayed and expired envelopes and every chain shape, from an attacker with new keys each run, with one call that must get through; each refusal on the audit trail | `TestTheIntrusionBatteryIsRefusedByANode` |
+| The conformance battery | The cloud's Go battery of the wire, aimed at a node through its owner MCP: the guest tier, the per-root budget, envelopes, invites, a key past its leaf's life answered `certificate_renewed`, the audit rows hashed as the reference hashes them | `TestTheConformanceBatteryPassesAgainstANode` |
+| Journeys between two nodes | An owner's own invite refused, a revoked invite refused, every contact-naming owner tool refusing a contact nobody holds, block and unblock, a removal that reaches the peer, a token scoped to one identity, and an identity that leaves | `TestTheJourneysTheNodeHadNoScenarioFor` |
+| The hostile export corpus | Every file of pact-identity's shared corpus handed to the shipped image's `import`, each over a data directory of its own: refused in the corpus's words with nothing written, the valid files reviewed and then taken whole | `TestTheHostileCorpusIsRefusedByTheShippedImage` |
+| The real wallet page | pact-cloud's local cloud (the real Worker under workerd): an identity certified through the real wallet page, imported into a node, its move signed on the node's portal through the real `POST /sign` with the same passkey, replayed and forged returns refused, and back into the cloud | `TestTheRealWalletSignsANodesMove` |
 | Portal affordances | Every action an owner needs, found on the page Chrome draws for a signed-in owner | `TestPortalOffersEveryAffordanceAnOwnerNeeds` |
 | Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |
 | Impairment | Latency and loss, and a partition that severs the node and then heals | `TestResilienceUnderImpairment` |

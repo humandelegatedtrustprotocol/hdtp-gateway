@@ -124,6 +124,10 @@ type Proof struct {
 	Endpoint     string
 	Leaf         []byte
 	SelfEndpoint string
+	// AddressClaim is the root of another identity that holds this endpoint, or held it within
+	// the claim window (PACT §5.2: "an address that belongs to someone"). Such a caller is never
+	// auto-accepted: an invite's auto_accept does not apply, and the owner decides.
+	AddressClaim string
 	// RootCert is the root's DER when the proof came with a full chain. Empty
 	// for a sealed call, where the chain is inside the ciphertext and only the
 	// library's Decide sees it - such a pin gets its certificate the first time
@@ -197,7 +201,11 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	}
 	status := "pending_in"
 	result := RedeemResult{Status: "pending"}
-	if inv.AutoAccept {
+	// PACT §5.2: a stranger at an address that belongs, or lately belonged, to a pinned contact
+	// is never auto-accepted. The core computed the claim (Decide's address_claim) and this
+	// ignored it, so a new root at a friend's address redeemed an auto-accept link and was
+	// admitted as a contact — found by the conformance battery aimed at a node (S19).
+	if inv.AutoAccept && p.AddressClaim == "" {
 		status = "active"
 		result = RedeemResult{Status: "accepted", Permissions: inv.Permissions}
 	}
@@ -245,6 +253,36 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 		m.notifyRequest(accountID, callerFpr)
 	}
 	return result, nil
+}
+
+// AddressClaim is the root of a contact of accountID, other than root, whose pin is at endpoint
+// or was within pactidentity.ClaimWindow (PACT §5.2) — the rule the core's Decide applies to a
+// sealed guest (its `address_claim`), for a guest proven by its client certificate instead, which
+// Decide never sees. internal/public TestTheTwoAddressClaimsAgree holds the two to each other.
+func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root string) (string, error) {
+	if endpoint == "" {
+		return "", nil
+	}
+	held, err := m.Store.ListContacts(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range held {
+		if c.Fingerprint != root && len(c.Leaf) > 0 && c.Endpoint == endpoint {
+			return c.Fingerprint, nil
+		}
+	}
+	formers, err := m.Store.ListFormerEndpoints(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	now := m.now()
+	for _, f := range formers {
+		if f.Endpoint == endpoint && f.Root != root && now.Sub(time.Unix(f.At, 0)) < pactidentity.ClaimWindow {
+			return f.Root, nil
+		}
+	}
+	return "", nil
 }
 
 // RequestContact is the unsolicited guest path (PACT §6.2): lands pending_in for

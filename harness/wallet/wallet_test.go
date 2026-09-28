@@ -20,7 +20,7 @@ func TestEveryAccountAScenarioCreatesIsCertified(t *testing.T) {
 		"vm/live_test.go": "boots a guest to read its clock: it creates an account so a row is stamped, and dials nothing",
 	}
 	creates := regexp.MustCompile(`"account",\s*"create"|account create --slug`)
-	certifies := regexp.MustCompile(`\.Certify\(`)
+	certifies := regexp.MustCompile(`\.Certify(Until)?\(`)
 	root := ".."
 	seen := map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
