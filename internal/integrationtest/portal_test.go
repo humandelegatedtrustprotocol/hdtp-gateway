@@ -272,6 +272,21 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 			updated <- r.Params.URI
 		},
 	})
+	// Subscribe returns when subscriptions/listen is SENT; the server holds the subscription once
+	// it has handled it, and says so with subscriptions/acknowledged. A message recorded before
+	// that is signalled to nobody (the cause of this test's "agent never notified" under load).
+	acked := make(chan struct{}, 1)
+	client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "notifications/subscriptions/acknowledged" {
+				select {
+				case acked <- struct{}{}:
+				default:
+				}
+			}
+			return next(mctx, method, req)
+		}
+	})
 	cs, err := client.Connect(agentCtx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +294,11 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	defer cs.Close()
 	if err := cs.Subscribe(ctx, &mcp.SubscribeParams{URI: ownermcp.URIInbox}); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-acked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the inbox subscription was never acknowledged")
 	}
 
 	// 7. Bella's message lands → the agent is notified, reads, and answers.
