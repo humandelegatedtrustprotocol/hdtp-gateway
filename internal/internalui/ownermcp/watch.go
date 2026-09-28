@@ -95,8 +95,9 @@ type waitResult struct {
 	// change log, never a clock. It advances even when nothing changed for this account, so a
 	// quiet loop does not re-read the same tail forever.
 	Cursor int64 `json:"cursor"`
-	// CursorExpired says the cursor is older than the change log, which keeps a week: what moved
-	// before its oldest change is not listed here. Re-read the inbox (get_inbox) once.
+	// CursorExpired says the cursor is not one this change log can answer from: older than its
+	// oldest change (it keeps a week), or past its newest (one it never issued). What moved before
+	// is not listed here. Re-read the inbox (get_inbox) once, and wait from the cursor answered.
 	CursorExpired bool `json:"cursor_expired,omitempty"`
 	// Threads that moved since the cursor.
 	Threads []changed `json:"threads"`
@@ -304,7 +305,10 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 	if err != nil {
 		return waitResult{}, err
 	}
-	res := waitResult{Cursor: max(since, newest), CursorExpired: oldest > 0 && since < oldest-1}
+	// A cursor this log never issued — older than its oldest change, or past its newest (a store
+	// restored into a fresh log, another engine's, a time where an id belongs) — is said to be, at
+	// once, with the log's newest: waiting from past the newest would wait on nothing, forever.
+	res := waitResult{Cursor: newest, CursorExpired: (oldest > 0 && since < oldest-1) || since > newest}
 	rows, err := d.Store.AccountChangesAfter(ctx, accountID, since, waitPage)
 	if err != nil {
 		return waitResult{}, err
