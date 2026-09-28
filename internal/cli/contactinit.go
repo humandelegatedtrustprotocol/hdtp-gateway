@@ -302,6 +302,13 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "own_invite")
 		return out, fmt.Errorf("that is this identity's own invite")
 	}
+	// The contact cap, before their invite is spent: whatever they answer, the row this writes is
+	// active or pending_out, and both count. Checked once, here, as the cloud checks it; a row they
+	// accepted is never refused afterwards, which would leave them holding a contact we do not.
+	if err := ci.manager.Room(ctx, ci.manager.Store, accountID); err != nil {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "contact_cap")
+		return out, err
+	}
 	client, err := ci.outbound(accountID)
 	if err != nil {
 		return out, err
@@ -427,6 +434,11 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	// this call went out in plain text and the key was bound on first contact. A 2.0 card carries
 	// the certificate, so the key is here — and the request is sealed to it, which is the only way
 	// to reach a peer whose card says `X-PACT-SEAL:required`.
+	// The contact cap: the pending_out row this writes counts, so it is checked before the call.
+	if err := ci.manager.Room(ctx, ci.manager.Store, accountID); err != nil {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "contact_cap")
+		return out, err
+	}
 	if err := ci.request(ctx, accountID, peerOfCard(peerCard), note, newCallID()); err != nil {
 		outcome := "unreachable"
 		var refused node.ErrRequestRefused

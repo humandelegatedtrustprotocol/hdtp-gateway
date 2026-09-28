@@ -588,7 +588,8 @@ existence oracle difference; page has zero external asset references.
 
 ### P1-14 Rate limits + size caps
 **Files:** `internal/public/limits.go` + tests.
-PACT §12 defaults: per-contact 60 calls/h, guest 10/h per IP+key, text ≤16 KiB, media
+PACT §12 defaults (2.2.4, token buckets): per-contact 1 call/s burst 10, per account
+contacts × 1/s, guest 10/h per root+IP, source 60/h per IP, text ≤16 KiB, media
 ≤5 MiB; audited when tripped.
 **AC:** limit trip returns the PACT rate-limit error + audit row; caps enforced before
 handler dispatch.

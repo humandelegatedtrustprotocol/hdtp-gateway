@@ -100,19 +100,6 @@ func SealedEntries(d SealedDeps) []Entry {
 // errEnvelope is the wire failure of the WRAPPER itself: a call that never got
 // far enough to have a sealed answer (bad envelope, refused policy). The code
 // travels as a plain tool error — there is no key to seal it to yet.
-// bodyOf reads the JSON body a plaintext refusal carries, so the same refusal
-// can be re-emitted sealed without rebuilding it.
-func bodyOf(res *mcp.CallToolResult) json.RawMessage {
-	if res == nil || len(res.Content) == 0 {
-		return json.RawMessage(`{"code":"unavailable"}`)
-	}
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	if !ok {
-		return json.RawMessage(`{"code":"unavailable"}`)
-	}
-	return json.RawMessage(tc.Text)
-}
-
 func errEnvelope(code string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"` + code + `"}`}}}
@@ -124,18 +111,22 @@ func errEnvelope(code string) *mcp.CallToolResult {
 // caller something must charge it here — a guessed fingerprint (§14.5), and
 // equally a caller hammering an address the owner has not approved, which
 // writes a row and wakes the owner for every attempt.
-func spendGuestBudget(ctx context.Context, d SealedDeps) *mcp.CallToolResult {
+//
+// `as` is which guest budget: ChargeSource for a small form answered chain_required, which proves
+// no root, so its source address alone pays (PACT §12); ChargeGuest for a root the envelope did
+// prove but that is not served as a contact here — at an address the owner has not approved, or
+// at the pending tier — which pays the guest budget of that root at that address, whatever it is
+// pinned as.
+func spendGuestBudget(ctx context.Context, d SealedDeps, as Charge) *mcp.CallToolResult {
 	if d.Pool == nil || d.Pool.Limit == nil {
 		return nil
 	}
-	ok, retry := d.Pool.Limit(ctx)
+	ok, retry := d.Pool.Limit(ctx, as)
 	if ok {
 		return nil
 	}
 	d.audit("guest", "sealed_call", "account:"+d.AccountID, "rate_limited")
-	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
-		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, int(retry.Seconds())+1)},
-	}}
+	return rateLimited(retry)
 }
 
 func sealedHandler(d SealedDeps) mcp.ToolHandler {
@@ -155,7 +146,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				// PACT §14.5: a guessed fingerprint spends the source's guest
 				// budget. The wrapper is exempt from the per-call budget (see
 				// guarded), so this answer charges it here, as a guest.
-				if limited := spendGuestBudget(ctx, d); limited != nil {
+				if limited := spendGuestBudget(ctx, d, ChargeSource); limited != nil {
 					return limited, nil
 				}
 			case errors.As(err, &renewed):
@@ -176,8 +167,8 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// A pinned root at an address the owner has not approved (PACT
 			// §5.3): the seed's plain code, nothing dispatched — and charged, so
 			// a host calling from an unapproved address cannot do it for free.
-			if limited := spendGuestBudget(ctx, d); limited != nil {
-				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
+			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
+				return d.sealLimited(ctx, facts, limited)
 			}
 			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID, facts.Refusal)
 			return d.sealedCode(ctx, facts, facts.Refusal), nil
@@ -187,8 +178,8 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// update_contact that brought the new address answers pending, and
 			// every other call from that address, until the owner decides,
 			// answers pending_approval — nothing runs either way.
-			if limited := spendGuestBudget(ctx, d); limited != nil {
-				return d.sealBackErr(ctx, facts, bodyOf(limited)), nil
+			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
+				return d.sealLimited(ctx, facts, limited)
 			}
 			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == "update_contact" {
@@ -209,6 +200,18 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		// with its recorded result, never re-executed.
 		if ack, replayed, err := d.Identifier.Replay(ctx, d.Idem, d.AccountID, facts); err == nil && replayed {
 			return d.sealBack(ctx, facts, json.RawMessage(ack))
+		}
+		// The budget, after the replay (a replay spends nothing) and before the dispatch looks for
+		// anything: every inner call spends — `tools/list`, and a tool the caller may not see or
+		// that does not exist, as much as one it may call (PACT §12; the cloud's surface spends at
+		// the same point). A refusal is sealed back and NOT recorded as the envelope's answer: the
+		// reservation Replay made stays empty, so the same envelope sent again once the budget
+		// holds a call is served rather than answered rate_limited from the record. It is sealed as
+		// a tool error inside `result`, where a guarded refusal has always been and where the
+		// client keeps `retry_after` (an `error` member is reduced to its code), as the cloud seals it.
+		if limited := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); limited != nil {
+			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "rate_limited")
+			return d.sealLimited(ctx, facts, limited)
 		}
 		// Handlers see the envelope's facts exactly as they see transport facts,
 		// so a guest tool can pin the key the envelope proved (§5.3).
@@ -234,6 +237,16 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "ok")
 		return d.sealBack(ctx, facts, inner)
 	}
+}
+
+// sealLimited seals a budget's refusal as a tool error inside `result`, where the client keeps its
+// `retry_after`; an `error` member is reduced to its code (PACT §12, as the cloud seals it).
+func (d SealedDeps) sealLimited(ctx context.Context, facts *EnvelopeFacts, limited *mcp.CallToolResult) (*mcp.CallToolResult, error) {
+	body, err := json.Marshal(limited)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	return d.sealBack(ctx, facts, body)
 }
 
 // sealBack seals the inner result to the caller (PACT §13.2: a sealed request
@@ -326,6 +339,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 // Dispatch runs one inner request against the caller's composed surface. It is
 // the sealed path's equivalent of an MCP request arriving directly: the same
 // registry, the same policy.Allow, the same call-time re-check (SPEC §4.5).
+// The caller's budget is spent before this is called (sealedHandler), not here.
 func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload) (json.RawMessage, error) {
 	caller, err := p.resolveCaller(ctx, accountID, fpr)
 	if err != nil {
@@ -352,9 +366,9 @@ func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload)
 			if e.Tool.Name != call.Name {
 				continue
 			}
-			// guarded() re-checks policy.Allow at call time — a sealed call gets
-			// no weaker gate than a direct one.
-			res, err := p.guarded(accountID, fpr, e)(ctx, &mcp.CallToolRequest{
+			// checked() re-checks policy.Allow at call time — a sealed call gets
+			// no weaker gate than a direct one. The budget was spent before Dispatch.
+			res, err := p.checked(accountID, fpr, e)(ctx, &mcp.CallToolRequest{
 				Params: &mcp.CallToolParamsRaw{Name: call.Name, Arguments: call.Arguments},
 			})
 			if err != nil {

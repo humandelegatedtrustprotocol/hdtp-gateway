@@ -101,6 +101,7 @@ type Contact struct {
 	EverActive       int64
 	HandshakeDue     int64
 	RequestedAt      sql.NullInt64
+	LeafFingerprint  sql.NullString
 }
 
 type Credential struct {

@@ -308,7 +308,7 @@ func (s *serveRun) startNode() error {
 		// forwards raw TLS and never presents a certificate of its own.
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
-		RateBudget:         s.settings.RateBudget,
+		ContactCap:         s.settings.ContactCap,
 		// The seal an account is built with is the owner's, as the settings service holds it now.
 		SealPolicy: s.settings.SealPolicy,
 		Quota: func(accountID string) int64 {
