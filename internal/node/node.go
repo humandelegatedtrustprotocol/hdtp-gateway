@@ -408,6 +408,12 @@ var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 var errAwaitingKeyless = fmt.Errorf("%w (it holds no key here)", ErrAwaitingLeaf)
 
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
+	return n.buildAccountSealed(ctx, rec, n.cfg.Seal)
+}
+
+// buildAccountSealed is buildAccount with the seal policy to serve under: the node's own (boot,
+// adoption) or the account row's (a reload after another process changed it).
+func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal core.Seal) (*account, error) {
 	sealed, err := n.opts.Store.GetAccountSealedKey(ctx, rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("node: account %s has no key: %w", rec.Slug, err)
@@ -494,7 +500,7 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 
 	// The account row is the card's source; the node policy is the truth. Mirror
 	// it now so a card can never advertise a policy the gate does not enforce.
-	eff := core.EffectiveSeal(n.cfg.Mode, n.cfg.Seal)
+	eff := core.EffectiveSeal(n.cfg.Mode, seal)
 	a.seal.Store(eff)
 	if rec.Seal != string(eff) {
 		if err := n.opts.Store.UpdateAccountSeal(ctx, rec.ID, string(eff)); err != nil {
@@ -562,7 +568,9 @@ func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, e
 			sig, err := n.idm.SignCard(ctx, rec.ID, card)
 			return card, sig, err
 		},
-		Invalidate: a.pool.Invalidate,
+		// Through the node, so a redemption or an approval on this process drops the caller's
+		// surface on every process (Invalidate).
+		Invalidate: n.Invalidate,
 		Endpoint:   func() string { return identity.EndpointFor(n.PublicURL(), rec.Slug) },
 		Chain:      func(ctx context.Context) ([][]byte, error) { return n.idm.Chain(ctx, rec.ID) },
 		// Read per call, like Quota: the rate caps are owner knobs (§12), and a
@@ -814,6 +822,7 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 		}
 		n.InvalidateAccount(ctx, accountID)
 	}
+	n.accountChanged(accountID, a.rec.Slug)
 	n.opts.auditAs("owner", "settings_seal", "account:"+accountID, string(a.sealValue()))
 	return nil
 }
@@ -857,11 +866,92 @@ func (n *Node) ServedPermissions(accountID string) []string {
 	return nil
 }
 
+// Invalidate drops one caller's composed surface (SPEC §5.5) in this process and, through the
+// change log, in every other process on the store: the caller's next request, wherever it lands,
+// is composed from what the store now says.
 func (n *Node) Invalidate(ctx context.Context, accountID, fpr string) error {
-	if p := n.Pool(accountID); p != nil {
-		return p.Invalidate(ctx, accountID, fpr)
-	}
+	n.invalidateLocal(ctx, accountID, fpr)
+	n.publish(messaging.Event{Kind: messaging.EventInvalidate, AccountID: accountID, ContactFpr: fpr})
 	return nil
+}
+
+func (n *Node) invalidateLocal(ctx context.Context, accountID, fpr string) {
+	if p := n.Pool(accountID); p != nil {
+		_ = p.Invalidate(ctx, accountID, fpr)
+	}
+}
+
+// publish is n.opts.Bus.Publish, for a node built without a bus.
+func (n *Node) publish(e messaging.Event) {
+	if n.opts.Bus != nil {
+		n.opts.Bus.Publish(e)
+	}
+}
+
+// accountChanged tells every other process on the store to reload an account from it.
+func (n *Node) accountChanged(accountID, slug string) {
+	n.publish(messaging.Event{Kind: messaging.EventAccount, AccountID: accountID, Ref: slug})
+}
+
+// Follow applies what other node processes on the store change to this one's live state, until
+// ctx ends (SPEC §11.1): a caller's surface invalidated there is dropped here; an account adopted,
+// re-leafed, retired, re-sealed or gone there is reloaded here from the store. It passes over what
+// this process published itself, which it has already applied. serve runs it in its joined
+// background group.
+func (n *Node) Follow(ctx context.Context) {
+	if n.opts.Bus == nil {
+		return
+	}
+	evs, stop := n.opts.Bus.Subscribe("")
+	defer stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-evs:
+			if e.Local {
+				continue
+			}
+			switch e.Kind {
+			case messaging.EventInvalidate:
+				if e.Ref == invalidateAccount {
+					n.invalidateAccountLocal(ctx, e.AccountID)
+				} else {
+					n.invalidateLocal(ctx, e.AccountID, e.ContactFpr)
+				}
+			case messaging.EventAccount:
+				n.reloadAccount(ctx, e.AccountID, e.Ref)
+			}
+		}
+	}
+}
+
+// invalidateAccount is the Ref of an EventInvalidate that drops every caller of an account.
+const invalidateAccount = "account"
+
+// reloadAccount brings this process's view of one account to what the store holds, after another
+// process changed it: gone, awaiting a leaf, broken, or served as built from its row now. Its seal
+// is the row's, which the process that changed it wrote (SetSeal), not this process's default.
+func (n *Node) reloadAccount(ctx context.Context, accountID, slug string) {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if errors.Is(err, store.ErrNotFound) {
+		n.forgetLocal(accountID, slug)
+		return
+	}
+	if err != nil {
+		return // the next change, or a restart, reloads it
+	}
+	a, err := n.buildAccountSealed(ctx, rec, core.Seal(rec.Seal))
+	switch {
+	case errors.Is(err, ErrAwaitingLeaf):
+		n.stopServingLocal(rec)
+	case err != nil:
+		n.mu.Lock()
+		n.unavailable[rec.Slug] = err.Error()
+		n.mu.Unlock()
+	default:
+		n.serveAccount(a)
+	}
 }
 
 // SignCard signs an account's card with its identity key (SPEC §9.3).
@@ -987,7 +1077,8 @@ func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
 		// Key material was destroyed, so the chain says so, once per key.
 		n.opts.audit("account_leaf_key_retired", "account:"+rec.ID+" slug:"+rec.Slug+" key:"+r.Kid+" reason:expired", "ok")
 		if r.Current {
-			n.stopServing(rec)
+			n.stopServingLocal(rec)
+			n.accountChanged(rec.ID, rec.Slug)
 		}
 	}
 	if err != nil && ctx.Err() == nil {
@@ -997,11 +1088,11 @@ func (n *Node) retireExpired(ctx context.Context, rec store.Account) {
 	}
 }
 
-// stopServing takes a live account out of every index the listener answers from and marks it as
+// stopServingLocal takes a live account out of every index the listener answers from and marks it as
 // awaiting a leaf. The node had no way to do this: an account, once built, was served until the
 // process ended, so a leaf that expired under a running node went on being presented — to peers
 // who refuse it — and its key went on being held.
-func (n *Node) stopServing(rec store.Account) {
+func (n *Node) stopServingLocal(rec store.Account) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.accounts, rec.ID)
@@ -1017,9 +1108,14 @@ func (n *Node) stopServing(rec store.Account) {
 // ForgetAccount takes an identity that has left this host out of the live node entirely: out of
 // every index the listener answers from, and out of the lists of accounts awaiting a leaf or
 // unavailable. Its address is then answered as an address this node never served (PACT §9).
-// stopServing is the other way out and is not this one: it keeps the slug as awaiting a leaf,
+// stopServingLocal is the other way out and is not this one: it keeps the slug as awaiting a leaf,
 // because that account is still here.
 func (n *Node) ForgetAccount(accountID, slug string) {
+	n.forgetLocal(accountID, slug)
+	n.accountChanged(accountID, slug)
+}
+
+func (n *Node) forgetLocal(accountID, slug string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.accounts, accountID)
@@ -1076,6 +1172,8 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 	// Adoption is a write already, so an expired leaf's key is destroyed here too — off the read
 	// path every inbound request takes. (Boot and the hourly sweep are the other two places.)
 	n.retireExpired(ctx, rec)
+	// Every other process on the store reloads it too, whatever became of it here.
+	defer n.accountChanged(rec.ID, rec.Slug)
 	a, err := n.buildAccount(ctx, rec)
 	if err != nil {
 		if errors.Is(err, ErrAwaitingLeaf) {
@@ -1085,15 +1183,26 @@ func (n *Node) AdoptAccount(ctx context.Context, accountID string) error {
 		}
 		return fmt.Errorf("node: adopt %s: %w", rec.Slug, err)
 	}
+	n.serveAccount(a)
+	return nil
+}
+
+// serveAccount puts a built account into every index the listener answers from.
+func (n *Node) serveAccount(a *account) {
 	n.mu.Lock()
-	n.accounts[rec.ID] = a
-	n.bySlug[rec.Slug] = a
+	defer n.mu.Unlock()
+	// A rebuilt account replaces the one it was: its host may have changed with its leaf.
+	for host, old := range n.byHost {
+		if old.rec.ID == a.rec.ID {
+			delete(n.byHost, host)
+		}
+	}
+	n.accounts[a.rec.ID] = a
+	n.bySlug[a.rec.Slug] = a
 	n.indexHost(a)
 	// It has a certificate now, so it is no longer waiting for one — nor broken, if it was.
-	delete(n.awaiting, rec.Slug)
-	delete(n.unavailable, rec.Slug)
-	n.mu.Unlock()
-	return nil
+	delete(n.awaiting, a.rec.Slug)
+	delete(n.unavailable, a.rec.Slug)
 }
 
 // indexHost records the host a 2.0 account's leaf names, for SNI selection.
