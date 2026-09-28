@@ -253,7 +253,9 @@ you add `-force-current`.
 It erases every record of the identity at once: its contacts, chats, media no other identity here
 uses, invites, integrations and their OAuth client credentials, tokens scoped to it, its settings,
 and every leaf key this node held for it. The live node stops answering for it straight away, as for an address it never served. The
-audit trail is append-only and keeps its rows, which name the account by its id.
+audit trail is append-only (by trigger) and keeps its rows, which name the account by its id, its
+slug and its contacts' fingerprints. That is a named divergence from PACT §9, which asks a host to
+"keep nothing beyond what law compels"; what to do about it is the owner's decision (SPEC §3.11).
 
 On SQLite the leaf keys are destroyed, not only deleted: the node zeroes deleted rows
 (`secure_delete`) and truncates its write-ahead log after the leave. On Postgres it cannot: a
