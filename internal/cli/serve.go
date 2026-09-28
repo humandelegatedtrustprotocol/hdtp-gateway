@@ -433,6 +433,8 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	nd := s.nd
 	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
 	background.Go(func() { s.bus.Run(bgCtx) })
+	// …and what they change about a caller's surface or an account, the live node applies.
+	background.Go(func() { nd.Follow(bgCtx) })
 	background.Go(func() { connectStoredIntegrations(bgCtx, s.chain.Manager, s.st, s.auditFn, s.stderr) })
 
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----

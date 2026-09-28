@@ -1028,7 +1028,7 @@ A store conformance suite — one test suite exercising the complete `Store` con
 
 The data-dir lock (§12.1) is held **shared** by every `serve`. The first to start on an idle data dir holds it alone, migrates, and only then shares it; a `serve` starting beside others does not migrate, and refuses to serve unless the schema is exactly the version it was built for. On Postgres, where every host's process is alone on its own data dir, migrations take turns under a session-level advisory lock, and each process checks the schema after. The admin socket (§12.1) is served by one of the processes on a data dir: the first to hold its lock file.
 
-What each process still keeps to itself — and so what a deployment of more than one does not yet share — is listed in docs/operations.md, *More than one process*.
+What one process changes about what it serves, every other applies from the change log (§7.8): a caller's composed surface dropped (an approval, a redemption, a switchboard or exposure change) is dropped on every process, and an account adopted, re-leafed, retired, re-sealed or gone is reloaded from the store by every process — its seal as the row says, which the process that changed it wrote. What each process still keeps to itself is listed in docs/operations.md, *More than one process*.
 
 ### 11.2 Tables
 
