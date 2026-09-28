@@ -493,16 +493,13 @@ func TestOwnerMCPRequiresATokenEvenOnLoopback(t *testing.T) {
 	}
 }
 
-// AC (P11-11): revoking an owner-MCP token ends an ESTABLISHED session, and a
-// session id alone is not authority.
-//
-// The bearer check ran only inside the SDK's getServer callback, which fires
-// solely for a request carrying no session id — so an established session was
-// never re-checked. SPEC §3.4 says revocation "takes effect immediately"; it did
-// not, and anyone holding the session id could drive the owner MCP with no
-// Authorization header at all. That endpoint is mounted outside the portal's
-// session and CSRF layers, so the bearer check is the only gate there is.
-func TestOwnerMCPRevocationEndsALiveSession(t *testing.T) {
+// The owner MCP is stateless (SPEC §8.5): every request carries its bearer token and is answered
+// on its own, so a client of the 2026-07-28 revision (server/discover, per-request _meta) and a
+// client of the handshake revisions both work, nothing hands out an Mcp-Session-Id, GET and DELETE
+// have no meaning, and there is nothing to subscribe to. And revocation takes effect on the next
+// request (AC P11-11: it used to be checked only when a session began, so a session outlived its
+// token).
+func TestTheOwnerMCPIsStateless(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	internal, public := freePort(t), freePort(t)
@@ -527,44 +524,88 @@ func TestOwnerMCPRevocationEndsALiveSession(t *testing.T) {
 	r := startServeAt(t, dir, cfgPath, internal, public)
 	token := mintOwnerToken(t, dir, r)
 
-	post := func(bearer, sid, payload string) *http.Response {
+	endpoint := "http://" + r.internal + "/owner/mcp"
+
+	var sessionHeaders []string
+	var mu sync.Mutex
+	rt := roundTrip(func(req *http.Request) (*http.Response, error) {
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultTransport.RoundTrip(req)
+		if err == nil && res.Header.Get("Mcp-Session-Id") != "" {
+			mu.Lock()
+			sessionHeaders = append(sessionHeaders, req.Method)
+			mu.Unlock()
+		}
+		return res, err
+	})
+	for _, era := range []struct{ asked, want string }{
+		{"", "2026-07-28"},           // the SDK's latest: server/discover, no handshake
+		{"2025-11-25", "2025-11-25"}, // the handshake revisions
+	} {
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "1"}, nil).Connect(ctx,
+			&mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: &http.Client{Transport: rt}},
+			&mcp.ClientSessionOptions{ProtocolVersion: era.asked})
+		if err != nil {
+			t.Fatalf("%s: connect: %v", era.want, err)
+		}
+		if got := cs.InitializeResult().ProtocolVersion; got != era.want {
+			t.Fatalf("asked %q and negotiated %q, want %q", era.asked, got, era.want)
+		}
+		caps := cs.InitializeResult().Capabilities
+		if caps.Tools == nil || caps.Tools.ListChanged || caps.Resources == nil || caps.Resources.ListChanged || caps.Resources.Subscribe {
+			t.Fatalf("%s: capabilities promise a notification nothing carries: %+v", era.want, caps)
+		}
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_accounts", Arguments: map[string]any{}})
+		if err != nil || res.IsError {
+			t.Fatalf("%s: list_accounts: %v %+v", era.want, err, res)
+		}
+		if tc, ok := res.Content[0].(*mcp.TextContent); !ok || !strings.Contains(tc.Text, acct.ID) {
+			t.Fatalf("%s: list_accounts did not name the account", era.want)
+		}
+		_ = cs.Close()
+	}
+	if len(sessionHeaders) != 0 {
+		t.Fatalf("the owner MCP issued an Mcp-Session-Id, to %v", sessionHeaders)
+	}
+
+	post := func(method, bearer, payload string) *http.Response {
 		t.Helper()
-		req, err := http.NewRequest("POST", "http://"+r.internal+"/owner/mcp", strings.NewReader(payload))
+		req, err := http.NewRequest(method, endpoint, strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Mcp-Session-Id", "made-up")
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)
-		}
-		if sid != "" {
-			req.Header.Set("Mcp-Session-Id", sid)
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { res.Body.Close() })
 		return res
 	}
-	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
-		`{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"a","version":"1"}}}`
-
-	res := post(token, "", initialize)
-	sid := res.Header.Get("Mcp-Session-Id")
-	res.Body.Close()
-	if sid == "" {
-		t.Fatalf("no owner-MCP session was established (%d)", res.StatusCode)
+	const list = `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`
+	// No handshake is needed, and a presented session id is ignored rather than looked up.
+	if res := post("POST", token, list); res.StatusCode != http.StatusOK || res.Header.Get("Mcp-Session-Id") != "" {
+		t.Fatalf("a tools/list with no handshake: %d, session %q", res.StatusCode, res.Header.Get("Mcp-Session-Id"))
+	}
+	for _, m := range []string{"GET", "DELETE"} {
+		if res := post(m, token, ""); res.StatusCode != http.StatusMethodNotAllowed || res.Header.Get("Allow") != "POST" {
+			t.Fatalf("%s: %d Allow %q, want 405 Allow POST", m, res.StatusCode, res.Header.Get("Allow"))
+		}
+	}
+	sub := post("POST", token, `{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"pact://inbox"}}`)
+	if b, _ := io.ReadAll(sub.Body); !strings.Contains(string(b), `"error"`) {
+		t.Fatalf("a resource subscription was accepted: %s", b)
+	}
+	if res := post("POST", "", list); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a request with no token: %d", res.StatusCode)
 	}
 
-	// The session id without a token is not authority.
-	res2 := post("", sid, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
-	defer res2.Body.Close()
-	if res2.StatusCode == http.StatusOK {
-		t.Fatal("an established owner-MCP session was driven with no Authorization header")
-	}
-
-	// Revoke, then use the SAME live session: it must stop working at once.
+	// Revoke: the next request with that token is refused.
 	p := newPortal(t, "http://"+r.internal)
 	st := openStoreAt(t, dir)
 	toks, err := st.ListTokens(ctx)
@@ -572,12 +613,15 @@ func TestOwnerMCPRevocationEndsALiveSession(t *testing.T) {
 		t.Fatalf("no token rows: %v", err)
 	}
 	p.post("/owners/tokens/"+toks[0].ID+"/revoke", url.Values{})
-	res3 := post(token, sid, `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`)
-	defer res3.Body.Close()
-	if res3.StatusCode == http.StatusOK {
-		t.Fatal("a revoked token kept driving its established session")
+	if res := post("POST", token, list); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a revoked token was served: %d", res.StatusCode)
 	}
 }
+
+// roundTrip is an http.RoundTripper made of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // AC (F-rig, 2026-09-18): a node holding accounts it cannot serve SAYS so on the
 // banner, naming each slug and the two commands that end the wait.

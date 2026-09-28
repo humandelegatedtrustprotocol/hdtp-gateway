@@ -2,8 +2,8 @@ package internalui
 
 // Contact pages (SPEC §8.2): list, and the per-contact switchboard — permission
 // toggles, preset apply, and the message-vs-instruction trust flag. Every mutation
-// persists, audits, and invalidates the caller's composed server so a live session
-// hears tools/list_changed (SPEC §2.4).
+// persists, audits, and invalidates the caller's composed server so the caller's next
+// request is composed from the new grant (SPEC §2.4).
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
-// Invalidator drops + reconciles a caller's composed server (public.Pool.Invalidate).
+// Invalidator drops a caller's composed server (public.Pool.Invalidate).
 type Invalidator func(ctx context.Context, accountID, fpr string) error
 
 type ContactsDeps struct {

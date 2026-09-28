@@ -17,22 +17,16 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 	e := newEnv(t)
 	aa := &integrations.AgentAnswered{Store: e.st, Bus: e.deps.Bus, WaitBudget: 3 * time.Second}
 	e.deps.Pending = aa
-	updated := make(chan string, 4)
-	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, &mcp.ClientOptions{
-		ResourceUpdatedHandler: func(_ context.Context, r *mcp.ResourceUpdatedNotificationRequest) {
-			updated <- r.Params.URI
-		},
-	})
-	if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: URIPending}); err != nil {
-		t.Fatal(err)
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	first, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA})
+	var start struct {
+		Cursor int64 `json:"cursor"`
 	}
-	// Subscribe returning is NOT the end of the SEP-2575 handshake: the server
-	// still sends subscriptions/acknowledged, and a ResourceUpdated that races
-	// into that window is lost by the SDK. Wait the handshake out — the JS
-	// agents speak 2025-06-18 (legacy notifications) and never see this race.
-	awaitSubscribed(t, e, 1)
+	if err := json.Unmarshal([]byte(first), &start); err != nil || start.Cursor == 0 {
+		t.Fatalf("first wait: %s", first)
+	}
 
-	// a contact's agent-answered call parks and signals pact://pending
+	// a contact's agent-answered call parks, and the agent's wait wakes for it
 	entry := integrations.ExposureEntry{Tool: "ask", Mode: integrations.ModeAgent, ExposedName: "ask_me"}
 	done := make(chan *mcp.CallToolResult, 1)
 	go func() {
@@ -40,17 +34,10 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 			&mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "ask_me", Arguments: json.RawMessage(`{"q":"lunch?"}`)}})
 		done <- res
 	}()
-	select {
-	case uri := <-updated:
-		if uri != URIPending {
-			t.Fatalf("uri: %s", uri)
-		}
-	case <-time.After(30 * time.Second):
-		// A starvation threshold, not a latency budget. Three seconds passed
-		// alone and failed inside `make check`, where the whole suite runs
-		// under -race: the signal is prompt when the machine is not saturated,
-		// and a longer wait costs nothing when it is.
-		t.Fatal("no ResourceUpdated for pact://pending")
+	// A starvation threshold, not a latency budget: the wait wakes as the request parks.
+	woke, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since_ts": start.Cursor, "timeout_sec": 25})
+	if !strings.Contains(woke, `"pending_requests":1`) {
+		t.Fatalf("the wait did not report the parked request: %s", woke)
 	}
 
 	// the agent lists it (poll parity with the resource), then answers it

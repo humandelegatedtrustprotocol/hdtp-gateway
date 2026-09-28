@@ -149,9 +149,15 @@ type CallOptions struct {
 	Plaintext bool
 }
 
-// CallTool connects an MCP client session to the peer and invokes one tool.
-// Sealing of the call itself rides the sealed_call wrapper wired in P1-08/P1-11;
-// the outbound seal DECISION lives here so policy has exactly one home.
+// CallTool invokes one tool on the peer. Sealing of the call itself rides the sealed_call wrapper
+// wired in P1-08/P1-11; the outbound seal DECISION lives here so policy has exactly one home.
+//
+// The go-sdk client speaks MCP 2026-07-28 first: against a stateless peer — a node, PACT Cloud —
+// the exchange is two POSTs, `server/discover` and the call, with no session, no standalone GET
+// and no DELETE (node TestASealedCallCompletesFromEitherMCPEra). The discover is the SDK's:
+// Client.Connect sends it (or `initialize`) before anything else, and go-sdk v1.8.0 has no way to
+// call a tool without Connect. A peer that answers only the handshake revisions is served the
+// handshake the SDK falls back to.
 func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[string]any, opts CallOptions) (*mcp.CallToolResult, error) {
 	if peer.Seal == "required" && opts.Plaintext {
 		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)

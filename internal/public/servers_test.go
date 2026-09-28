@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -128,25 +127,16 @@ func TestToolsListPerTier(t *testing.T) {
 	}
 }
 
-func TestPermissionFlipRebuildsAndNotifies(t *testing.T) {
+// A switchboard change reaches the caller's next request: Invalidate drops the composed server,
+// and the next request composes the new surface (SPEC §2.4). Every request is its own session
+// (StatelessMCP), so there is no open session to notify.
+func TestPermissionFlipIsServedToTheNextRequest(t *testing.T) {
 	dir := &fakeDirectory{
 		tiers: map[string]policy.Tier{"sha256:alina": policy.TierContact},
 		perms: map[string]map[string]bool{"sha256:alina": {"message.text": true, "calendar.book": true}},
 	}
 	pool := newTestPool(dir)
-
-	changed := make(chan struct{}, 4)
-	opts := &mcp.ClientOptions{
-		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
-			select {
-			case changed <- struct{}{}:
-			default:
-			}
-		},
-	}
-	cs, done := connect(t, pool, "acct", "sha256:alina", opts)
-	defer done()
-	if got := toolNames(t, cs); !contains(got, "book_slot") {
+	if got := requestTools(t, pool, "acct", "sha256:alina"); !contains(got, "book_slot") {
 		t.Fatalf("precondition: %v", got)
 	}
 
@@ -157,13 +147,23 @@ func TestPermissionFlipRebuildsAndNotifies(t *testing.T) {
 	if err := pool.Invalidate(context.Background(), "acct", "sha256:alina"); err != nil {
 		t.Fatal(err)
 	}
-	<-changed // live session hears tools/list_changed
-	if got := toolNames(t, cs); contains(got, "book_slot") {
+	if got := requestTools(t, pool, "acct", "sha256:alina"); contains(got, "book_slot") {
 		t.Fatalf("book_slot still listed after revocation: %v", got)
 	}
 }
 
-func TestCallTimeDenyMidSession(t *testing.T) {
+// requestTools is one stateless request's tools/list: a session of its own over the server the
+// pool gives this caller now, closed with the request.
+func requestTools(t *testing.T, pool *Pool, account, fpr string) []string {
+	t.Helper()
+	cs, done := connect(t, pool, account, fpr, nil)
+	defer done()
+	return toolNames(t, cs)
+}
+
+// A server composed before a revocation still refuses the revoked tool: the guard re-checks at
+// call time (SPEC §2.4).
+func TestCallTimeDenyOnAServerComposedBeforeTheRevocation(t *testing.T) {
 	dir := &fakeDirectory{
 		tiers: map[string]policy.Tier{"sha256:alina": policy.TierContact},
 		perms: map[string]map[string]bool{"sha256:alina": {"message.text": true}},
@@ -206,23 +206,6 @@ func TestGuestServersSharedAndCallerServersDistinct(t *testing.T) {
 	other, _ := pool.ServerFor(ctx, "acct2", "")
 	if other == g1 {
 		t.Fatal("guest servers must be per-account")
-	}
-}
-
-func TestSessionBinding(t *testing.T) {
-	b := NewSessionBinder()
-	if !b.Bind("s1", "sha256:a") {
-		t.Fatal("first bind refused")
-	}
-	if !b.Bind("s1", "sha256:a") {
-		t.Fatal("same identity refused")
-	}
-	if b.Bind("s1", "sha256:EVIL") {
-		t.Fatal("session reuse under a different identity accepted")
-	}
-	b.Release("s1")
-	if !b.Bind("s1", "sha256:EVIL") {
-		t.Fatal("released session id not reusable")
 	}
 }
 
@@ -369,21 +352,9 @@ func entryNames(es []Entry) []string {
 	return out
 }
 
-// AC (P12-02): withholding an integration must withdraw its tools from a session
-// that is ALREADY OPEN, and must keep working the second time.
-//
-// Two defects lived here, both invisible to any test that reconnects between
-// changes — and every existing test reconnected:
-//
-//  1. `remove` was derived from the post-change Registry snapshot, so a tool
-//     that had been DELETED from the registry was never in the candidate list
-//     and therefore never removed. Withholding an integration left its tools
-//     listed, and callable, for every open session.
-//  2. Invalidate dropped the cache entry, so the pool stopped tracking a server
-//     that a live session still held. The SECOND permission change found
-//     `ok == false` and returned, silently reconciling nothing — a caller whose
-//     grant was narrowed twice kept the first narrowing's surface forever.
-func TestWithholdingAnIntegrationWithdrawsItFromALiveSession(t *testing.T) {
+// AC (P12-02): withholding an integration withdraws its tools from the next request of a caller
+// whose server was composed before it, and keeps working the second time (SPEC §6.5, §6.10).
+func TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest(t *testing.T) {
 	ctx := context.Background()
 	dir := &fakeDirectory{
 		perms: map[string]map[string]bool{"peer": {"message.text": true, "integration.cal": true}},
@@ -403,10 +374,7 @@ func TestWithholdingAnIntegrationWithdrawsItFromALiveSession(t *testing.T) {
 	reg.Replace("integration:cal", []Entry{calEntry("cal_find_slots"), calEntry("cal_create_event")})
 
 	pool := NewPool(reg, dir.resolve, 8)
-	cs, done := connect(t, pool, "acct", "peer", nil)
-	defer done()
-
-	if !hasTool(toolNames(t, cs), "cal_find_slots") {
+	if !hasTool(requestTools(t, pool, "acct", "peer"), "cal_find_slots") {
 		t.Fatal("setup: the published exposure was never served")
 	}
 
@@ -414,24 +382,24 @@ func TestWithholdingAnIntegrationWithdrawsItFromALiveSession(t *testing.T) {
 	reg.Replace("integration:cal", []Entry{calEntry("cal_find_slots")})
 	pool.InvalidateAll(ctx, "acct")
 
-	names := toolNames(t, cs)
+	names := requestTools(t, pool, "acct", "peer")
 	if hasTool(names, "cal_create_event") {
-		t.Fatalf("a withdrawn tool is still served to an open session: %v", names)
+		t.Fatalf("a withdrawn tool is still served: %v", names)
 	}
 	if !hasTool(names, "cal_find_slots") {
 		t.Fatalf("narrowing an exposure removed a tool that is still published: %v", names)
 	}
 
-	// ...and again. The second change is the one the pool used to lose.
+	// ...and again.
 	reg.Replace("integration:cal", nil)
 	pool.InvalidateAll(ctx, "acct")
 
-	names = toolNames(t, cs)
+	names = requestTools(t, pool, "acct", "peer")
 	if hasTool(names, "cal_find_slots") {
-		t.Fatalf("withholding an integration left its tools on an open session: %v", names)
+		t.Fatalf("withholding an integration left its tools served: %v", names)
 	}
 	if !hasTool(names, "send_message") {
-		t.Fatalf("reconciling took away a built-in tool the caller still holds: %v", names)
+		t.Fatalf("rebuilding took away a built-in tool the caller still holds: %v", names)
 	}
 }
 
@@ -444,92 +412,25 @@ func hasTool(names []string, want string) bool {
 	return false
 }
 
-// AC (P12-05): LRU eviction must not orphan a server a session is still using.
-//
-// P12-02 stopped Invalidate from dropping a live entry, but the eviction loop in
-// ServerFor did the same thing by another route: once a busy account pushed a
-// live caller past MaxSize, the pool forgot a server a client still held, and
-// the next InvalidateAll found nothing to reconcile. The withdrawn tool stayed
-// callable for as long as that session lasted — exactly the defect P12-02 fixed,
-// reachable by anyone who can open MaxSize+1 sessions.
-func TestEvictionDoesNotOrphanALiveSession(t *testing.T) {
+// The cache holds at most MaxSize servers, whoever asks: eviction drops the least recently used,
+// and a caller whose server was dropped is composed again by its next request.
+func TestTheCacheStaysWithinItsBound(t *testing.T) {
 	ctx := context.Background()
 	dir := &fakeDirectory{perms: map[string]map[string]bool{}, tiers: map[string]policy.Tier{}}
-	obj := &jsonSchemaObj
-	calEntry := Entry{
-		Tool: &mcp.Tool{Name: "cal_find_slots", InputSchema: obj},
-		Rule: policy.Rule{Tier: policy.TierContact, Permission: "integration.cal"},
-		Handler: func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return textResult("cal_find_slots"), nil
-		},
-	}
-	reg := testRegistry()
-	reg.Replace("integration:cal", []Entry{calEntry})
-
-	// The live caller, plus enough others to overrun a small cache.
-	dir.perms["live"] = map[string]bool{"message.text": true, "integration.cal": true}
-	dir.tiers["live"] = policy.TierContact
 	const maxSize = 2
-	pool := NewPool(reg, dir.resolve, maxSize)
-
-	cs, done := connect(t, pool, "acct", "live", nil)
-	defer done()
-	if !hasTool(toolNames(t, cs), "cal_find_slots") {
-		t.Fatal("setup: the exposure was never served")
-	}
-
-	for i := 0; i < maxSize+2; i++ {
-		other := "other" + string(rune('a'+i))
-		dir.perms[other] = map[string]bool{"message.text": true}
-		dir.tiers[other] = policy.TierContact
-		if _, err := pool.ServerFor(ctx, "acct", other); err != nil {
+	pool := NewPool(testRegistry(), dir.resolve, maxSize)
+	for i := 0; i < maxSize+5; i++ {
+		if _, err := pool.ServerFor(ctx, "acct", fmt.Sprintf("caller-%d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	// The owner withholds the integration (SPEC §6.10).
-	reg.Replace("integration:cal", nil)
-	pool.InvalidateAll(ctx, "acct")
-
-	if names := toolNames(t, cs); hasTool(names, "cal_find_slots") {
-		t.Fatalf("a session evicted from the LRU kept a withdrawn tool: %v", names)
+	pool.mu.Lock()
+	held, listed := len(pool.cache), pool.order.Len()
+	pool.mu.Unlock()
+	if held != maxSize || listed != maxSize {
+		t.Fatalf("the cache holds %d servers (%d in its order) with a bound of %d", held, listed, maxSize)
 	}
-}
-
-// AC (P12-10): a session that ends without a DELETE must not leak its binding.
-//
-// Release fired only on an explicit DELETE. A client that opens a session and
-// simply disconnects — a crash, a dropped connection, or a caller who never
-// sends DELETE because nothing obliges them to — left its entry in the map for
-// the life of the process. Sessions are created by anyone who can reach the MCP
-// endpoint, guest tier included, so the map grew without bound at a remote
-// caller's discretion.
-func TestAbandonedSessionBindingsAreReclaimed(t *testing.T) {
-	clock := time.Unix(1_700_000_000, 0)
-	b := NewSessionBinder()
-	b.Now = func() time.Time { return clock }
-
-	for i := 0; i < 500; i++ {
-		if !b.Bind(fmt.Sprintf("abandoned-%d", i), "sha256:drive-by") {
-			t.Fatal("binding a fresh session id was refused")
-		}
-	}
-	if n := b.Len(); n != 500 {
-		t.Fatalf("bound %d sessions, want 500", n)
-	}
-
-	// Long after every one of them went quiet, one live caller keeps working.
-	clock = clock.Add(SessionTTL + time.Minute)
-	if !b.Bind("live", "sha256:real") {
-		t.Fatal("binding a session after the sweep interval was refused")
-	}
-	if n := b.Len(); n > 1 {
-		t.Fatalf("%d bindings survived their TTL; abandoned sessions are never released", n)
-	}
-
-	// The live one is still bound to its identity — reclaiming must not turn
-	// into "anyone may now claim that session id".
-	if b.Bind("live", "sha256:someone-else") {
-		t.Fatal("a live session id was re-bound to a different identity")
+	if got := requestTools(t, pool, "acct", "caller-0"); !contains(got, "redeem_invite") {
+		t.Fatalf("an evicted caller was not composed again: %v", got)
 	}
 }
