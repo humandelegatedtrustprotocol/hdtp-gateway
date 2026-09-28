@@ -165,13 +165,13 @@ type Target struct {
 	Leaf []byte
 }
 
-// peer is the outbound view of a target.
+// Peer is the outbound view of a target.
 //
 // This set a `Protocol: 2` when the root was known and passed the node's key beside the call; the
 // node dropped both on 2026-09-19 (a pin is a root and a leaf, and the key is the leaf's). This
 // module is compiled by no gate of the node's, so it went on not compiling for the rest of that
 // day, until the pre-push hook — the only thing that builds it — refused the push.
-func (t Target) peer() outbound.Peer {
+func (t Target) Peer() outbound.Peer {
 	return outbound.Peer{Endpoint: t.Endpoint, Seal: t.Seal, Root: t.Root, Leaf: t.Leaf}
 }
 
@@ -181,7 +181,7 @@ func (t Target) peer() outbound.Peer {
 // be reused across retries, which is what makes a retry safe.
 func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
 	a.route(t)
-	p := t.peer()
+	p := t.Peer()
 	res, err := a.Client.Call(ctx, p, tool, args, msgID)
 	if err != nil {
 		return "", fmt.Errorf("peer: calling %s: %w", tool, err)
@@ -197,7 +197,7 @@ func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string
 // tier resolution ran — no pairing required.
 func (a *Agent) ListTools(ctx context.Context, t Target) ([]string, error) {
 	a.route(t)
-	p := t.peer()
+	p := t.Peer()
 	hc, err := a.Client.HTTPClient(p)
 	if err != nil {
 		return nil, fmt.Errorf("peer: building mTLS client: %w", err)

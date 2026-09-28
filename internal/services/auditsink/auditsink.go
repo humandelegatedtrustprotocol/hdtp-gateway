@@ -29,7 +29,10 @@ func New(ctx context.Context, st store.AuditStore, stderr io.Writer) *Sink {
 	// chain records the KEY of a setting and never its value, fingerprints rather
 	// than names, and content-addressed references rather than bodies. Nothing
 	// leaves the machine — `PACT_LOG=off` silences it for anyone who wants that.
-	return &Sink{w: &audit.Writer{Sink: store.AuditAppender{St: st}}, ctx: ctx, stderr: stderr,
+	// The rows are written with the serving context's values and never its cancellation: the
+	// node's last rows — its listener stopping — are written after `serve` was told to stop, and
+	// a cancelled context lost them, each reported as `audit: … context canceled`.
+	return &Sink{w: &audit.Writer{Sink: store.AuditAppender{St: st}}, ctx: context.WithoutCancel(ctx), stderr: stderr,
 		mirror: os.Getenv("PACT_LOG") != "off"}
 }
 
