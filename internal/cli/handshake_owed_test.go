@@ -84,13 +84,28 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 
 // A served identity asks for a renewal; one with no leaf here yet asks for a move.
 func TestTheOwedHandshakeLineAsksForTheRightLeaf(t *testing.T) {
-	if got := handshakesOwedLine("work", 2, true); !strings.Contains(got, "2 imported contact(s)") || !strings.Contains(got, "-purpose renew") {
+	if got := handshakesOwedLine("work", 2, 0, true); !strings.Contains(got, "2 imported contact(s)") || !strings.Contains(got, "-purpose renew") {
 		t.Fatalf("a served identity: %q", got)
 	}
-	if got := handshakesOwedLine("work", float64(1), false); !strings.Contains(got, "-purpose move") {
+	if got := handshakesOwedLine("work", float64(1), float64(0), false); !strings.Contains(got, "-purpose move") {
 		t.Fatalf("an identity with no leaf, over JSON: %q", got)
 	}
-	if got := handshakesOwedLine("work", 0, true); got != "" {
+	if got := handshakesOwedLine("work", 0, 0, true); got != "" {
 		t.Fatalf("nothing owed must say nothing: %q", got)
+	}
+}
+
+// Contacts the current leaf's campaign already tried and did not reach wait for `account
+// announce`, not for another leaf: after a move through the real wallet (pact-cloud's live-local
+// L5) doctor told the owner to have the wallet sign again, while the install's own notice named
+// `account announce`. Owed and untried contacts beside them still ask for a leaf.
+func TestTheOwedHandshakeLineSendsTriedContactsToAnnounce(t *testing.T) {
+	got := handshakesOwedLine("work", 4, 4, true)
+	if !strings.Contains(got, "account announce -slug work") || strings.Contains(got, "account csr") {
+		t.Fatalf("four tried by this leaf: %q", got)
+	}
+	got = handshakesOwedLine("work", float64(3), float64(1), true)
+	if !strings.Contains(got, "1 imported contact(s) of work were not reached") || !strings.Contains(got, "2 imported contact(s) of work wait for a new leaf") {
+		t.Fatalf("one tried, two not: %q", got)
 	}
 }

@@ -108,6 +108,8 @@ type ToolDeps struct {
 	// Invalidate drops a caller's cached MCP server after its tier changes.
 	Invalidate func(ctx context.Context, accountID, fpr string) error
 	Audit      AuditFn
+	// AuditAs, when set, is used instead of Audit and is told who acted (see audit).
+	AuditAs func(kind, action, resource, outcome string)
 	// Limits reports the boundary caps in force, for get_card's metadata; nil
 	// means the compiled-in defaults. A function, not a snapshot, because the
 	// rate budgets are owner knobs that change while the node serves.
@@ -135,7 +137,7 @@ func (d ToolDeps) holdsLeaf(ctx context.Context) bool {
 // generation in which a bare key is one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Refusal == "" {
-		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf}
+		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf, AddressClaim: f.AddressClaim}
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}
@@ -147,6 +149,14 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 		if d.Endpoint != nil {
 			p.SelfEndpoint = d.Endpoint()
 		}
+		// A sealed guest's claim comes from the core's Decide (above); one proven by its client
+		// certificate never reaches Decide, so the same rule is asked of the store here. A claim
+		// that cannot be read is treated as one: the owner decides.
+		claim, err := d.Contacts.AddressClaim(ctx, d.AccountID, p.Endpoint, p.Fingerprint)
+		if err != nil {
+			claim = "unreadable"
+		}
+		p.AddressClaim = claim
 		return p
 	}
 	return contacts.Proof{}
@@ -156,10 +166,31 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 // it is what the portal colours, counts and filters by, so a caller fingerprint
 // or a failure sentence in that column turns every row into its own category.
 // Those belong in the resource, which is the free-text locator (SPEC §11.5).
+//
+// With AuditAs set the row names who acted, in the store's actor vocabulary: the two guest tools
+// are a guest's, every other tool here is reached only at the pending or contact tier (the
+// switchboard serves nothing else), which the store calls `contact` — Pool.audit's mapping.
 func (d ToolDeps) audit(action, resource, outcome string) {
+	if d.AuditAs != nil {
+		kind := "contact"
+		if action == "redeem_invite" || action == "request_contact" {
+			kind = "guest"
+		}
+		d.AuditAs(kind, action, resource, outcome)
+		return
+	}
 	if d.Audit != nil {
 		d.Audit(action, resource, outcome)
 	}
+}
+
+// refuse audits a refusal a handler decides before it knows anything else — an argument that does
+// not decode, a field past its cap, a value outside its vocabulary — and returns it. Every refusal
+// is on the trail (build rule 7): these used to answer the caller and write nothing, so a peer
+// probing a node with malformed calls left no trace.
+func (d ToolDeps) refuse(ctx context.Context, action, code string) *mcp.CallToolResult {
+	d.audit(action, "caller:"+callerFpr(ctx), code)
+	return toolErr(code)
 }
 
 func (d ToolDeps) invalidate(ctx context.Context, fpr string) {
@@ -277,7 +308,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			Card  string `json:"card"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "redeem_invite", "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) || !capped(a.Token, MaxFieldBytes) {
 			d.audit("redeem_invite", "caller:"+callerFpr(ctx), "too_large")
@@ -300,20 +331,25 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		}
 		card, sig, cerr := d.card(ctx)
 		if cerr != nil {
-			return toolErr("unavailable"), nil
+			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
 		}
 		// PACT §6.1: the result carries the issuer's CHAIN, so the redeemer pins a root it can
 		// verify. It used to carry `spki` instead — 1.2's key-beside-the-card — and no chain.
 		chain, cerr := d.chainB64(ctx)
 		if cerr != nil {
-			return toolErr("unavailable"), nil
+			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
 		}
 		outcome := res.Status
 		if res.Silent {
 			// SPEC §9.1: answered as a stranger; only the audit log knows.
 			outcome = "blocked_silent"
 		}
-		d.audit("redeem_invite", "caller:"+fpr, outcome)
+		resource := "caller:" + fpr
+		if proof.AddressClaim != "" {
+			// PACT §5.2: the owner sees whose address this is; the audit row is where it is kept.
+			resource += " address_of:" + proof.AddressClaim
+		}
+		d.audit("redeem_invite", resource, outcome)
 		return toolOK(map[string]any{
 			"status": res.Status, "permissions": res.Permissions,
 			"card": card, "card_sig": sig, "chain": chain,
@@ -328,7 +364,7 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 			Note string `json:"note"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "request_contact", "bad_request"), nil
 		}
 		if !capped(a.Note, MaxNoteBytes) || !capped(a.Card, MaxTextBytes) {
 			d.audit("request_contact", "caller:"+callerFpr(ctx), "too_large")
@@ -384,14 +420,14 @@ func (d ToolDeps) contactAccepted() mcp.ToolHandler {
 			Permissions []string `json:"permissions"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "contact_accepted", "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) || len(a.Permissions) > 64 {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "contact_accepted", "too_large"), nil
 		}
 		for _, p := range a.Permissions {
 			if !capped(p, MaxFieldBytes) {
-				return toolErr("too_large"), nil
+				return d.refuse(ctx, "contact_accepted", "too_large"), nil
 			}
 		}
 		fpr := callerFpr(ctx)
@@ -411,10 +447,10 @@ func (d ToolDeps) contactRejected() mcp.ToolHandler {
 			Reason string `json:"reason"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "contact_rejected", "bad_request"), nil
 		}
 		if !capped(a.Reason, MaxNoteBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "contact_rejected", "too_large"), nil
 		}
 		fpr := callerFpr(ctx)
 		if err := d.Contacts.ContactRejected(ctx, d.AccountID, fpr); err != nil {
@@ -457,13 +493,13 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 	return func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		card, sig, err := d.card(ctx)
 		if err != nil {
-			return toolErr("unavailable"), nil
+			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
 		// "always the chain" (PACT §6.1): this is where a caller that cannot verify a result
 		// comes to ask, so an answer without one would be no answer.
 		chain, err := d.chainB64(ctx)
 		if err != nil {
-			return toolErr("unavailable"), nil
+			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
 		limits := DefaultLimits()
 		if d.Limits != nil {
@@ -484,10 +520,10 @@ func (d ToolDeps) updateContact() mcp.ToolHandler {
 			Card string `json:"card"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "update_contact", "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "update_contact", "too_large"), nil
 		}
 		fpr := callerFpr(ctx)
 		// The chain that carried this call already decided the pin (PACT §5.3,
@@ -548,7 +584,7 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 			Sender   string `json:"sender"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "send_message", "bad_request"), nil
 		}
 		if !capped(a.Text, MaxTextBytes) {
 			d.audit("send_message", "caller:"+callerFpr(ctx), "too_large")
@@ -556,11 +592,11 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 		}
 		if !capped(a.Topic, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) ||
 			!capped(a.ThreadID, MaxFieldBytes) || !capped(a.ReplyTo, MaxFieldBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "send_message", "too_large"), nil
 		}
 		sender, ok := senderLabel(a.Sender)
 		if !ok {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "send_message", "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		res, err := d.Messages.Record(ctx, d.AccountID, fpr, messaging.DirIn, messaging.Input{
@@ -592,11 +628,11 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 			Sender   string `json:"sender"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "send_media", "bad_request"), nil
 		}
 		if !capped(a.Filename, MaxFieldBytes) || !capped(a.MIME, MaxFieldBytes) ||
 			!capped(a.URL, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "send_media", "too_large"), nil
 		}
 		// Cap the ENCODED form first: refuse before allocating the decode.
 		if len(a.Data) > base64.StdEncoding.EncodedLen(MaxInlineData) {
@@ -605,7 +641,7 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 		}
 		sender, ok := senderLabel(a.Sender)
 		if !ok {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "send_media", "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		in := messaging.Input{MsgID: a.MsgID, ThreadID: a.ThreadID, Origin: messaging.OriginPeer, Sender: sender}
@@ -617,7 +653,7 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 		case a.Data != "":
 			raw, derr := base64.StdEncoding.DecodeString(a.Data)
 			if derr != nil {
-				return toolErr("bad_request"), nil
+				return d.refuse(ctx, "send_media", "bad_request"), nil
 			}
 			if len(raw) > MaxInlineData {
 				d.audit("send_media", "caller:"+fpr, "too_large")
@@ -629,7 +665,7 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 			// owner decides.
 			res, err = d.Media.ReceiveURL(ctx, d.Messages, d.AccountID, fpr, in, a.Filename, a.MIME, a.URL)
 		default:
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "send_media", "bad_request"), nil
 		}
 		if err != nil {
 			d.audit("send_media", "caller:"+fpr+" "+why(err), domainCode(err))
@@ -686,12 +722,12 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 			DurationMin int `json:"duration_min"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "check_availability", "bad_request"), nil
 		}
 		from, err1 := time.Parse(time.RFC3339, a.Window.From)
 		to, err2 := time.Parse(time.RFC3339, a.Window.To)
 		if err1 != nil || err2 != nil || !to.After(from) || a.DurationMin <= 0 {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "check_availability", "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		slots, err := d.Calendar.CheckAvailability(ctx, from, to, time.Duration(a.DurationMin)*time.Minute)
@@ -723,18 +759,18 @@ func (d ToolDeps) bookSlot() mcp.ToolHandler {
 			ThreadID string `json:"thread_id"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "book_slot", "bad_request"), nil
 		}
 		if !capped(a.Subject, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "book_slot", "too_large"), nil
 		}
 		if a.MsgID == "" {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "book_slot", "bad_request"), nil
 		}
 		start, err1 := time.Parse(time.RFC3339, a.Slot.Start)
 		end, err2 := time.Parse(time.RFC3339, a.Slot.End)
 		if err1 != nil || err2 != nil || !end.After(start) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "book_slot", "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		ack, err := d.Calendar.BookSlot(ctx, fpr, a.MsgID, calendar.Slot{Start: start, End: end}, a.Subject)
@@ -758,13 +794,13 @@ func (d ToolDeps) cancelBooking() mcp.ToolHandler {
 			Reason    string `json:"reason"`
 		}
 		if !decode(req, &a) {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "cancel_booking", "bad_request"), nil
 		}
 		if !capped(a.BookingID, MaxFieldBytes) || !capped(a.Reason, MaxNoteBytes) {
-			return toolErr("too_large"), nil
+			return d.refuse(ctx, "cancel_booking", "too_large"), nil
 		}
 		if a.BookingID == "" {
-			return toolErr("bad_request"), nil
+			return d.refuse(ctx, "cancel_booking", "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		if err := d.Calendar.CancelBooking(ctx, a.BookingID); err != nil {

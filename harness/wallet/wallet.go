@@ -74,6 +74,18 @@ type Node interface {
 // node's own default (signup before the first leaf, renew after) or "move"; `endpoint` is "" for
 // the node's public URL.
 func (w *Wallet) Certify(ctx context.Context, n Node, slug, purpose, endpoint string) (Pin, error) {
+	return w.certify(ctx, n, slug, purpose, endpoint, time.Time{})
+}
+
+// CertifyUntil is Certify with a leaf that expires at notAfter — within a day of now — as a
+// person may choose a short life for one (a leaf's lifetime is the person's choice). A scenario
+// uses it to watch a leaf expire: what a host does with the key of a leaf past its notAfter
+// (PACT §14.4) cannot be seen otherwise without moving a clock.
+func (w *Wallet) CertifyUntil(ctx context.Context, n Node, slug, purpose, endpoint string, notAfter time.Time) (Pin, error) {
+	return w.certify(ctx, n, slug, purpose, endpoint, notAfter)
+}
+
+func (w *Wallet) certify(ctx context.Context, n Node, slug, purpose, endpoint string, notAfter time.Time) (Pin, error) {
 	args := []string{"account", "csr", "-slug", slug}
 	if purpose != "" {
 		args = append(args, "-purpose", purpose)
@@ -97,9 +109,16 @@ func (w *Wallet) Certify(ctx context.Context, n Node, slug, purpose, endpoint st
 		t := time.Now().Add(-time.Hour)
 		previous = &t
 	}
+	now, days := time.Now(), 365
+	if !notAfter.IsZero() {
+		// One day's validity, ending at notAfter. The core starts a leaf an hour before the
+		// wallet's clock and ends it a day after that start (pactidentity issuePlan), so the clock
+		// is set 23 hours before notAfter.
+		now, days = notAfter.Add(-23*time.Hour), 1
+	}
 	issued, err := pactidentity.IssueFromCSR(block.Bytes, pactidentity.IssueOpts{
 		RootCN: w.CN, RootKey: w.Key, RootSPKIs: [][]byte{w.Key.Public.SPKI},
-		Now: time.Now(), PreviousNotBefore: previous, ValidDays: 365,
+		Now: now, PreviousNotBefore: previous, ValidDays: days,
 	})
 	if err != nil {
 		return Pin{}, fmt.Errorf("wallet: issuing %s's leaf: %w", slug, err)

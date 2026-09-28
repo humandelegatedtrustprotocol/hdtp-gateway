@@ -94,6 +94,8 @@ type NodeOpts struct {
 	Aliases []string
 	// DNS replaces the resolvers the container forwards to (fabric.Spec.DNS).
 	DNS []string
+	// LeafUntil is when the account's first leaf expires; zero is a year.
+	LeafUntil time.Time
 }
 
 // Owned is one node whose owner surface is reachable.
@@ -152,7 +154,7 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	if err := topology.WaitHealthy(ctx, w.Fab, out.Node); err != nil {
 		return out, err
 	}
-	if out.Wallet, out.Pin, err = topology.Certify(ctx, w.Fab, out.Node, o.Slug); err != nil {
+	if out.Wallet, out.Pin, err = topology.CertifyUntil(ctx, w.Fab, out.Node, o.Slug, o.LeafUntil); err != nil {
 		return out, err
 	}
 	out.Fpr = out.Pin.Root
@@ -241,25 +243,31 @@ func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Containe
 	if session.csrf() == "" {
 		return nil, nil, fmt.Errorf("the browser holds no pact_csrf cookie for %s after registering a passkey: %d cookie(s)", base, len(cookies))
 	}
-	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
-	if ownerID == "" {
-		return nil, nil, fmt.Errorf("no owner id after registering a passkey")
-	}
-	token := ""
-	for _, l := range strings.Split(execS(ctx, f, node,
-		"/pact-gateway", "token", "create", "-owner", ownerID, "-label", "harness"), "\n") {
-		if strings.Contains(l, "shown once") {
-			token = strings.TrimSpace(l[strings.LastIndex(l, ":")+1:])
-		}
-	}
-	if token == "" {
-		return nil, nil, fmt.Errorf("no owner token")
+	token, err := OwnerToken(ctx, f, node, "harness")
+	if err != nil {
+		return nil, nil, err
 	}
 	oc, err := owner.Connect(ctx, "http://127.0.0.1:"+ownerPort+"/owner/mcp", token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("owner mcp: %w", err)
 	}
 	return oc, session, nil
+}
+
+// OwnerToken mints a bearer token for the node's owner (`token create`), as the owner's agent is
+// given one, and returns it. The owner is the one whose passkey the wizard registered.
+func OwnerToken(ctx context.Context, f *fabric.Fabric, node *fabric.Container, label string) (string, error) {
+	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
+	if ownerID == "" {
+		return "", fmt.Errorf("no owner id: no passkey is registered on %s", node.Name)
+	}
+	for _, l := range strings.Split(execS(ctx, f, node,
+		"/pact-gateway", "token", "create", "-owner", ownerID, "-label", label), "\n") {
+		if strings.Contains(l, "shown once") {
+			return strings.TrimSpace(l[strings.LastIndex(l, ":")+1:]), nil
+		}
+	}
+	return "", fmt.Errorf("no owner token from %s", node.Name)
 }
 
 // Paired is a standing node with one approved contact: the node's owner, and a contact's agent

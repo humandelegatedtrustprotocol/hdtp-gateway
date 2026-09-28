@@ -293,6 +293,15 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err != nil {
 		return out, err
 	}
+	// Our own invite: the offer's root is this identity's. A person does not become their own
+	// contact (the cloud refuses the same redemption); the receiving side refuses it too (a guest's
+	// endpoint never equals the receiver's own, §14.5), but that refusal came back as a tool error
+	// the answer below used to read as "pending", and the owner was left holding themselves
+	// pending_out (harness S21).
+	if ours, err := contacts.ValidateInbound(ourCard); err == nil && ours.Key == peerCard.Key {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "own_invite")
+		return out, fmt.Errorf("that is this identity's own invite")
+	}
 	client, err := ci.outbound(accountID)
 	if err != nil {
 		return out, err
@@ -303,6 +312,14 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
 		return out, fmt.Errorf("the peer refused the redemption: %w", err)
+	}
+	// A refusal is an answer with isError and its code (PACT §12): nothing was redeemed, so
+	// nothing is recorded. It used to fall through to decodeRedeemAnswer, whose empty status
+	// recorded the peer pending_out.
+	if res.IsError {
+		code := refusalCodeOf(res)
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "refused")
+		return out, fmt.Errorf("the peer refused the redemption: %s", code)
 	}
 	answer := decodeRedeemAnswer(res)
 	// Record only AFTER the peer accepted the redemption: a contact row written
@@ -340,6 +357,21 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		Fingerprint: peerCard.Key, DisplayName: peerCard.FN,
 		Status: status, Permissions: answer.Permissions,
 	}, nil
+}
+
+// refusalCodeOf is a tool error's code, or "refused" when its text carries none.
+func refusalCodeOf(res *mcp.CallToolResult) string {
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok && len(tc.Text) <= maxOfferBytes {
+			var body struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal([]byte(tc.Text), &body) == nil && body.Code != "" {
+				return body.Code
+			}
+		}
+	}
+	return "refused"
 }
 
 // redeemAnswer is `redeem_invite`'s reply (PACT §6.2).
