@@ -20,8 +20,9 @@ package node
 // PACT_MEASURE_RATES="200,220,240" replaces the rising steps, and PACT_MEASURE_TOOL=get_card
 // measures the read path instead of send_message.
 //
-// Without the variable the same machinery runs one small step (it is the hermetic guard of the
-// measurement: tooling that only runs on demand goes stale silently otherwise).
+// Without the variable the same machinery runs one small step and holds that every call completed
+// (it is the hermetic guard of the measurement: tooling that only runs on demand goes stale silently
+// otherwise). Only the measurement judges latency.
 
 import (
 	"context"
@@ -108,8 +109,17 @@ func TestMeasureAccountCapacity(t *testing.T) {
 			break
 		}
 	}
-	if !results[0].served() {
-		t.Fatalf("the first step was not served: %+v", results[0])
+	if full {
+		if !results[0].served() {
+			t.Fatalf("the first step was not served: %+v", results[0])
+		}
+		return
+	}
+	// The hermetic step holds the machinery, not a latency: it runs inside `make check` beside every
+	// other package, where a p99 says what else the machine was doing (it read 2.1 s there on
+	// 2026-09-28). Every call offered completed and none failed, or the measurement is broken.
+	if s := results[0]; s.Failed != 0 || s.Done != s.Offered {
+		t.Fatalf("the hermetic step did not complete every call: %+v", s)
 	}
 }
 
