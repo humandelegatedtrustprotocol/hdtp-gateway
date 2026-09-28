@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto"
 	"crypto/tls"
 	"encoding/json"
 	"net"
@@ -48,7 +47,7 @@ func issueLeafFor(t *testing.T, idm *identity.Manager, a store.Account, publicUR
 		t.Fatalf("issueLeafFor: the node would not ask for a leaf: %v", err)
 	}
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: a.DisplayName, RootKey: key, RootSPKIs: [][]byte{key.Public.SPKI},
+		RootCN: a.DisplayName, RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {
@@ -106,18 +105,13 @@ func newTestPeer(t testing.TB, cn, endpoint string) *testPeer {
 	t.Helper()
 	w := testid.NewWallet(t, cn)
 	h := w.Issue(t, endpoint)
-	var signer crypto.Signer
-	switch {
-	case h.Key.Ed != nil:
-		signer = h.Key.Ed
-	case h.Key.EC != nil:
-		signer = h.Key.EC
-	default:
-		t.Fatal("newTestPeer: the host key does not sign")
+	kp, err := identity.FromLib(h.Key)
+	if err != nil {
+		t.Fatalf("newTestPeer: %v", err)
 	}
 	return &testPeer{
-		Fingerprint: w.Fpr, Wallet: w, Host: h, KP: &identity.Keypair{Signer: signer, Fingerprint: h.Kid},
-		Cert:     tls.Certificate{Certificate: [][]byte{h.LeafDER, w.RootDER}, PrivateKey: signer},
+		Fingerprint: w.Fpr, Wallet: w, Host: h, KP: kp,
+		Cert:     tls.Certificate{Certificate: [][]byte{h.LeafDER, w.RootDER}, PrivateKey: kp.Signer},
 		Endpoint: endpoint,
 	}
 }
@@ -135,7 +129,7 @@ func peerIdentity(t *testing.T, cn string) (*testPeer, tls.Certificate) {
 // envelope is sealed to.
 func mustSPKI(t *testing.T, p *testPeer) []byte {
 	t.Helper()
-	return p.Host.Key.Public.SPKI
+	return p.Host.Key.Public().SPKI
 }
 
 // textOf is the text payload of a tool result, or "".

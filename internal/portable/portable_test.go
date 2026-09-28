@@ -138,7 +138,7 @@ func seed(t *testing.T, e env) seeded {
 	inv, err := e.st.InsertInvite(ctx, store.Invite{AccountID: a.ID, TokenHash: []byte("invite-hash"), ExpiresAt: 99, MaxUses: 1, Label: secretInviteLabel, CreatedAt: 3})
 	must(t, err)
 	_, err = e.st.InsertContact(ctx, store.Contact{
-		AccountID: a.ID, Fingerprint: s.peer.Fpr, SPKI: s.host.Key.Public.SPKI, Status: "active", Preset: "friend",
+		AccountID: a.ID, Fingerprint: s.peer.Fpr, SPKI: s.host.Key.Public().SPKI, Status: "active", Preset: "friend",
 		Permissions: []string{"message.text", "message.media"}, DisplayName: "Bharat Mehta", Card: s.host.Card("Bharat Mehta", "required"),
 		CreatedAt: 1790000000, PinnedAt: 1790000001, InviteID: inv.ID, Endpoint: s.host.Endpoint, Leaf: s.host.LeafDER,
 		ChainSentKid: "sha256:leaf-kid", RootCert: s.peer.RootDER,
@@ -168,7 +168,7 @@ func seed(t *testing.T, e env) seeded {
 	// A stranger's request, and the note that came with it: this host's business, not a contact.
 	stranger := testid.NewWallet(t, "Somebody")
 	sh := stranger.Issue(t, "https://somebody.example/a/s/mcp")
-	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: stranger.Fpr, SPKI: sh.Key.Public.SPKI, Status: "pending_in",
+	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: stranger.Fpr, SPKI: sh.Key.Public().SPKI, Status: "pending_in",
 		Endpoint: sh.Endpoint, Leaf: sh.LeafDER, CreatedAt: 1790000030, PinnedAt: 1790000030})
 	must(t, err)
 	s.strangerID = stranger.Fpr
@@ -543,7 +543,7 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 			c, err := dst.st.GetContact(ctx, a.ID, s.peer.Fpr)
 			must(t, err)
 			if c.Status != "active" || !c.EverActive || c.Petname != "B, from the conference" || c.DisplayName != "Bharat Mehta" ||
-				c.Endpoint != s.host.Endpoint || !bytes.Equal(c.Leaf, s.host.LeafDER) || !bytes.Equal(c.SPKI, s.host.Key.Public.SPKI) ||
+				c.Endpoint != s.host.Endpoint || !bytes.Equal(c.Leaf, s.host.LeafDER) || !bytes.Equal(c.SPKI, s.host.Key.Public().SPKI) ||
 				!bytes.Equal(c.RootCert, s.peer.RootDER) || strings.Join(c.Permissions, " ") != "message.media message.text" {
 				t.Fatalf("the contact arrived as %+v", c)
 			}

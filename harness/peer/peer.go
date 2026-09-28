@@ -119,7 +119,7 @@ func NewAgent(name string) (*Agent, error) {
 	kp.Leaf, kp.Root = leaf, rootCert
 	cert := tls.Certificate{Certificate: [][]byte{leaf, rootCert}, PrivateKey: kp.Signer}
 	a := &Agent{
-		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public.SPKI),
+		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public().SPKI),
 		Leaf: leaf, Endpoint: endpoint, rootCert: rootCert, name: name,
 		routes: map[string]string{},
 	}

@@ -62,7 +62,7 @@ func TestAnInstallWhoseNodeCannotReloadIsInstalledWithAWarning(t *testing.T) {
 	key, _ := pactidentity.GenerateKey("ed25519")
 	now := time.Now()
 	root, _ := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alina Rao", Key: key, NotBefore: now.Add(-time.Hour)})
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: key, RootSPKIs: [][]byte{key.Public.SPKI}, Now: now, ValidDays: 365})
+	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 	if err != nil {
 		t.Fatal(err)
 	}

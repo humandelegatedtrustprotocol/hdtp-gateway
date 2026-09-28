@@ -29,13 +29,13 @@ func newWallet(t *testing.T, cn string) *wallet {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &wallet{key: key, root: root, fpr: pactidentity.Fingerprint(key.Public.SPKI)}
+	return &wallet{key: key, root: root, fpr: pactidentity.Fingerprint(key.Public().SPKI)}
 }
 
 func (w *wallet) issue(t *testing.T, csr CSRResult, now time.Time, days int) [][]byte {
 	t.Helper()
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public.SPKI}, Now: now,
+		RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
 	if err != nil {
@@ -238,7 +238,7 @@ func TestInstallLeafRefusals(t *testing.T) {
 	}
 	// Longer than 398 days: rule 4.
 	csr4, _ := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now.Add(2*time.Hour))
-	if _, err := pactidentity.IssueFromCSR(csr4.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public.SPKI}, Now: now, ValidDays: 400}); err == nil {
+	if _, err := pactidentity.IssueFromCSR(csr4.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now, ValidDays: 400}); err == nil {
 		t.Fatal("the wallet issued a 400-day leaf")
 	}
 }

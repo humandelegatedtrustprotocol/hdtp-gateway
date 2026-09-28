@@ -81,7 +81,7 @@ type demoNode struct {
 func (d *demoNode) onAudit(f func(line string)) { d.hookMu.Lock(); d.hook = f; d.hookMu.Unlock() }
 
 func (d *demoNode) endpoint() string { return identity.EndpointFor("https://"+d.host, d.slug) }
-func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public.SPKI) }
+func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public().SPKI) }
 
 // leaf is the current leaf; leafKey its key.
 func (d *demoNode) leaf() []byte {
@@ -122,7 +122,7 @@ func (d *demoNode) contact(fpr string) store.Contact {
 func (d *demoNode) issue(csr identity.CSRResult, days int, now time.Time) [][]byte {
 	d.t.Helper()
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public.SPKI},
+		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
 	if err != nil {

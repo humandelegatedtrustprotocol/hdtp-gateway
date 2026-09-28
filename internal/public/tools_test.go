@@ -182,7 +182,7 @@ func (e *toolEnv) callAs(guest *testid.Host, fpr, tool string, args map[string]a
 	}
 	if guest != nil {
 		ctx = WithEnvelopeFacts(ctx, &EnvelopeFacts{
-			From: guest.RootFpr, SPKI: guest.Key.Public.SPKI,
+			From: guest.RootFpr, SPKI: guest.Key.Public().SPKI,
 			Endpoint: guest.Endpoint, Leaf: guest.LeafDER, Guest: fpr == "",
 		})
 	}
@@ -364,7 +364,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	peerCard, _, peerHost := testid.Card(t, "Peer", "https://p.example/a/p/mcp", "")
-	peerSPKI := peerHost.Key.Public.SPKI
+	peerSPKI := peerHost.Key.Public().SPKI
 
 	res, err := e.callAs(peerHost, "", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
 	if err != nil || res.IsError {
@@ -606,7 +606,7 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 	// blockedKP's fingerprint and call as blHost, a root nobody had blocked — so it compared a
 	// stranger with a stranger and passed whatever the blocked branch did.
 	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public.SPKI,
+		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public().SPKI,
 		Status: "blocked", Endpoint: blHost.Endpoint, Leaf: blHost.LeafDER, PinnedAt: 1,
 	}); err != nil {
 		t.Fatal(err)
@@ -821,15 +821,15 @@ func TestRedeemByABlockedRootReadsAsAStrangersRedemption(t *testing.T) {
 		t.Fatal(err)
 	}
 	blCard, _, blHost := testid.Card(t, "Blocked", "https://b.example/a/b/mcp", "")
-	blSPKI := blHost.Key.Public.SPKI
+	blSPKI := blHost.Key.Public().SPKI
 	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public.SPKI,
+		AccountID: e.acct.ID, Fingerprint: blHost.RootFpr, SPKI: blHost.Key.Public().SPKI,
 		Status: "blocked", Endpoint: blHost.Endpoint, Leaf: blHost.LeafDER, PinnedAt: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	strCard, _, strHost := testid.Card(t, "Stranger", "https://s.example/a/s/mcp", "")
-	strSPKI := strHost.Key.Public.SPKI
+	strSPKI := strHost.Key.Public().SPKI
 
 	blRes, err := e.callAs(blHost, "", "redeem_invite", map[string]any{"token": token, "card": blCard}, blSPKI)
 	if err != nil {

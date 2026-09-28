@@ -109,7 +109,7 @@ func (s *sealedEnv) opened(t testing.TB, res *mcp.CallToolResult, p *peer, tool 
 		t.Fatal(err)
 	}
 	out, err := pactidentity.OpenResult(wire, pactidentity.OpenOpts{
-		Recipient: p.host, MsgID: msgIDFor(tool, "chain"), Now: s.nowAt,
+		Recipient: p.host, RecipientPublic: p.host.Public(), MsgID: msgIDFor(tool, "chain"), Now: s.nowAt,
 		Pins: []pactidentity.Pin{{
 			Root: s.root.fpr, Endpoint: endpointMe,
 			Leaf: pactidentity.B64url(st.Chain[0]), State: "active",
