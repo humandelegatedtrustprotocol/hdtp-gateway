@@ -142,8 +142,6 @@ the setup URL a first run prints works on the portal of the process that printed
 
 What each process still keeps to itself, and so what is not yet shared between them:
 
-- an agent-answered call's waiter, which only an answer given through its own process's owner
-  MCP reaches, and the owner agent's presence, which is what its own owner MCP last saw;
 - accounts, their keys and certificates, loaded at start and adopted by the process that created
   or installed them; and the cache of composed per-caller servers;
 - the §12 rate buckets (each process grants the whole budget);
