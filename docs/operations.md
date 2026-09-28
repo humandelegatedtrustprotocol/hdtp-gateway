@@ -143,7 +143,8 @@ were built for and refuse to start if it is not. To migrate, stop every process 
 socket and `serve` prints `admin: ... is served by another pact-gateway process` on the others;
 the setup URL a first run prints works on the portal of the process that printed it. The outbound
 retries and the hourly retention pass run on one process at a time: the one holding the work's
-lease in the store, renewed at each run and anyone's three intervals after its holder stops.
+lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
+crashes is replaced within 30 s.
 
 What each process still keeps to itself, and so what is not yet shared between them:
 

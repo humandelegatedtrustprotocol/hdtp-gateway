@@ -74,12 +74,12 @@ func toolsFor(t *testing.T, n *Node, accountID, fpr string) []string {
 
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if ok() {
 			return
 		}
 	}
-	t.Fatalf("%s did not happen within 5 s", what)
+	t.Fatalf("%s did not happen within 30 s", what)
 }
 
 // A change one node process makes to what it serves reaches another process on the same store
