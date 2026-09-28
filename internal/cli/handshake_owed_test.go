@@ -95,17 +95,17 @@ func TestTheOwedHandshakeLineAsksForTheRightLeaf(t *testing.T) {
 	}
 }
 
-// Contacts the current leaf's campaign already tried and did not reach wait for `account
-// announce`, not for another leaf: after a move through the real wallet (pact-cloud's live-local
-// L5) doctor told the owner to have the wallet sign again, while the install's own notice named
-// `account announce`. Owed and untried contacts beside them still ask for a leaf.
-func TestTheOwedHandshakeLineSendsTriedContactsToAnnounce(t *testing.T) {
+// Contacts the current leaf's campaign owes wait for `account announce`, not for another leaf:
+// after a move through the real wallet (pact-cloud's live-local L5, then e2e-suite-staging) doctor
+// told the owner to have the wallet sign again while the install's own notice named `account
+// announce`. Contacts imported after that leaf was requested still ask for a leaf.
+func TestTheOwedHandshakeLineSendsThisLeafsContactsToAnnounce(t *testing.T) {
 	got := handshakesOwedLine("work", 4, 4, true)
 	if !strings.Contains(got, "account announce -slug work") || strings.Contains(got, "account csr") {
-		t.Fatalf("four tried by this leaf: %q", got)
+		t.Fatalf("four owed by this leaf: %q", got)
 	}
 	got = handshakesOwedLine("work", float64(3), float64(1), true)
-	if !strings.Contains(got, "1 imported contact(s) of work were not reached") || !strings.Contains(got, "2 imported contact(s) of work wait for a new leaf") {
-		t.Fatalf("one tried, two not: %q", got)
+	if !strings.Contains(got, "1 imported contact(s) of work are owed this leaf's handshake") || !strings.Contains(got, "2 imported contact(s) of work wait for a new leaf") {
+		t.Fatalf("one this leaf's, two not: %q", got)
 	}
 }

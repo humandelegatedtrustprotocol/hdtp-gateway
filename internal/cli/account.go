@@ -163,7 +163,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		// Owed handshakes are said first, whatever the leaf's state: an import leaves them waiting
 		// for the next leaf, and this is where the owner looks (PACT §9.2).
-		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], out["HandshakesTried"], fmt.Sprint(out["Kid"]) != ""); line != "" {
+		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], out["HandshakesUnderWay"], fmt.Sprint(out["Kid"]) != ""); line != "" {
 			fmt.Fprintln(stdout, line)
 		}
 		if certified, _ := out["Certified"].(bool); !certified {
@@ -278,16 +278,16 @@ func addressDriftLine(publicURL, slug, leafEndpoint string) string {
 // handshakesOwedLine is what `account certificate` and `doctor` say of contacts an import left
 // owed this host's handshake, or "" when there are none. The counts arrive as whatever the caller
 // holds: ints from the manager, JSON numbers over the admin socket. Contacts the current leaf's
-// campaign has tried and not reached wait for `account announce`, which resumes it; the rest wait
-// for a leaf: an identity with no leaf here yet (it arrived in an import) asks for a move, one that
-// is served asks for a renewal.
-func handshakesOwedLine(slug string, owed, tried any, hasLeaf bool) string {
-	count, retry := asCount(owed), asCount(tried)
+// campaign owes (imported before it was requested) are that walk's, which `account announce`
+// reports and resumes; the rest wait for a leaf: an identity with no leaf here yet (it arrived in
+// an import) asks for a move, one that is served asks for a renewal.
+func handshakesOwedLine(slug string, owed, underWay any, hasLeaf bool) string {
+	count, walking := asCount(owed), asCount(underWay)
 	var parts []string
-	if retry > 0 {
-		parts = append(parts, fmt.Sprintf("%d imported contact(s) of %s were not reached by this leaf's handshake yet: run `account announce -slug %s` to try them again", retry, slug, slug))
+	if walking > 0 {
+		parts = append(parts, fmt.Sprintf("%d imported contact(s) of %s are owed this leaf's handshake: `account announce -slug %s` reports and resumes it", walking, slug, slug))
 	}
-	if waiting := count - retry; waiting > 0 {
+	if waiting := count - walking; waiting > 0 {
 		purpose := "renew"
 		if !hasLeaf {
 			purpose = "move"
