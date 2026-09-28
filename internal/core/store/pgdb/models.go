@@ -85,6 +85,7 @@ type Contact struct {
 	RootCert         []byte
 	EverActive       int64
 	HandshakeDue     int64
+	RequestedAt      sql.NullInt64
 }
 
 type Credential struct {
@@ -163,6 +164,7 @@ type Leaf struct {
 	CreatedAt        int64
 	RequestStateHash []byte
 	WalletOrigin     string
+	Moved            int64
 }
 
 type Membership struct {

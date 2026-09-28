@@ -1034,10 +1034,19 @@ func (n *Node) ForgetAccount(accountID, slug string) {
 	delete(n.unavailable, slug)
 }
 
-// MoveWalking reports whether the identity's move campaign is walking right now (campaign.go).
-func (n *Node) MoveWalking(accountID string) bool {
-	_, walking := n.campaigns.Load(accountID)
-	return walking
+// ErrCampaignWalking is WithoutCampaign's refusal: the identity's campaign is walking now.
+var ErrCampaignWalking = errors.New("node: the identity's campaign is walking")
+
+// WithoutCampaign runs fn with no campaign for the account walking, and none able to start until fn
+// returns: it takes the account's one campaign slot (the one ResumeMove takes) for fn's duration, or
+// refuses with ErrCampaignWalking when a walk holds it. A check followed by the work would leave a
+// gap in which `account announce`, or an install, starts a walk over rows the work is erasing.
+func (n *Node) WithoutCampaign(accountID string, fn func() error) error {
+	if _, walking := n.campaigns.LoadOrStore(accountID, struct{}{}); walking {
+		return ErrCampaignWalking
+	}
+	defer n.campaigns.Delete(accountID)
+	return fn()
 }
 
 // AdoptAccount brings an account created while the node is RUNNING into the live

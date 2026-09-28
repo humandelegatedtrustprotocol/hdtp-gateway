@@ -95,6 +95,14 @@ func (s *Postgres) Close() error {
 	return nil
 }
 
+// Scrub does nothing on Postgres, because nothing the node can do from a connection destroys a
+// deleted row's bytes there: the old row version stays in its page as a dead tuple until VACUUM
+// reclaims the space (and reclaiming does not overwrite it), the write-ahead log keeps it until
+// the segment is recycled, and any base backup or WAL archive keeps it for as long as that is
+// kept. SPEC §3.9 names this as a divergence from PACT §9's "destroy"; what remains is ciphertext
+// sealed under the node's keyring.
+func (s *Postgres) Scrub(context.Context) error { return nil }
+
 func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()
@@ -159,6 +167,12 @@ func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Ac
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
 		t := tx.(*Postgres)
+		// Wait for a leave of this slug that has not committed yet, then read what it reserved.
+		// Without the lock the check below ran before such a leave committed and the insert, held
+		// on the slug's unique index, went through after it.
+		if err := t.q.LockSlug(ctx, p.Slug); err != nil {
+			return err
+		}
 		at := now()
 		vacated, err := t.LiveVacatedSlug(ctx, p.Slug, at)
 		if err != nil {

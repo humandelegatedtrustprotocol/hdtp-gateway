@@ -96,14 +96,8 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_invite: %v", err)
 	}
-	var inv struct {
-		Token string `json:"token"`
-		URL   string `json:"url"`
-	}
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(inviteRaw), &inv)
-	if inv.URL == "" && inv.Token != "" {
-		inv.URL = "https://alice." + domain + "/i/" + inv.Token
-	}
 	if inv.URL == "" {
 		t.Fatalf("no invite token in %s", shorten(inviteRaw, 200))
 	}

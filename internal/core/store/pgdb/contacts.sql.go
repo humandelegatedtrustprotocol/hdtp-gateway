@@ -66,13 +66,13 @@ func (q *Queries) DeleteContactInStatus(ctx context.Context, arg DeleteContactIn
 
 const deleteExpiredPendingContacts = `-- name: DeleteExpiredPendingContacts :many
 DELETE FROM contacts
-WHERE account_id = $1 AND status IN ('pending_in', 'pending_out') AND created_at < $2
+WHERE account_id = $1 AND status IN ('pending_in', 'pending_out') AND requested_at < $2
 RETURNING fingerprint, status
 `
 
 type DeleteExpiredPendingContactsParams struct {
-	AccountID string
-	CreatedAt int64
+	AccountID   string
+	RequestedAt sql.NullInt64
 }
 
 type DeleteExpiredPendingContactsRow struct {
@@ -82,9 +82,10 @@ type DeleteExpiredPendingContactsRow struct {
 
 // An unanswered request, ours or theirs, expires (SPEC sec. 9.1): the relationship returns to
 // none. The status is in the statement, so a request approved between a read and this delete
-// is not the one removed.
+// is not the one removed. The window runs from requested_at, when the request was made (migration
+// 0043), not from when the contact was first known.
 func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteExpiredPendingContactsParams) ([]DeleteExpiredPendingContactsRow, error) {
-	rows, err := q.db.Query(ctx, deleteExpiredPendingContacts, arg.AccountID, arg.CreatedAt)
+	rows, err := q.db.Query(ctx, deleteExpiredPendingContacts, arg.AccountID, arg.RequestedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +105,7 @@ func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteEx
 }
 
 const getContact = `-- name: GetContact :one
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due FROM contacts WHERE account_id = $1 AND fingerprint = $2
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at FROM contacts WHERE account_id = $1 AND fingerprint = $2
 `
 
 type GetContactParams struct {
@@ -137,13 +138,14 @@ func (q *Queries) GetContact(ctx context.Context, arg GetContactParams) (Contact
 		&i.RootCert,
 		&i.EverActive,
 		&i.HandshakeDue,
+		&i.RequestedAt,
 	)
 	return i, err
 }
 
 const importContact = `-- name: ImportContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 1)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, root_cert, ever_active, handshake_due, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 `
 
 type ImportContactParams struct {
@@ -165,13 +167,16 @@ type ImportContactParams struct {
 	Leaf             []byte
 	RootCert         []byte
 	EverActive       int64
+	HandshakeDue     int64
+	RequestedAt      sql.NullInt64
 }
 
 // A contact arriving in an export (SPEC sec. 3.10): every column an export carries, in one
 // statement, and none it does not. invite_id stays empty because invites do not travel, and
 // chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
-// seen - and this host has not been issued one yet. handshake_due is set: the contact is owed
-// this host's handshake once its next leaf is installed (sec. 9.2).
+// seen - and this host has not been issued one yet. handshake_due is the time of the import: the
+// contact is owed this host's handshake from the first leaf requested after it (sec. 9.2,
+// migration 0043). requested_at is created_at for a row the file carries as pending_out.
 func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) error {
 	_, err := q.db.Exec(ctx, importContact,
 		arg.ID,
@@ -192,27 +197,30 @@ func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) er
 		arg.Leaf,
 		arg.RootCert,
 		arg.EverActive,
+		arg.HandshakeDue,
+		arg.RequestedAt,
 	)
 	return err
 }
 
 const importContactPin = `-- name: ImportContactPin :execrows
-UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, root_cert = COALESCE($4, root_cert), handshake_due = 1
-WHERE account_id = $5 AND fingerprint = $6 AND (leaf IS NULL OR octet_length(leaf) = 0)
+UPDATE contacts SET endpoint = $1, leaf = $2, spki = $3, root_cert = COALESCE($4, root_cert), handshake_due = $5
+WHERE account_id = $6 AND fingerprint = $7 AND (leaf IS NULL OR octet_length(leaf) = 0)
 `
 
 type ImportContactPinParams struct {
-	Endpoint    string
-	Leaf        []byte
-	Spki        []byte
-	RootCert    []byte
-	AccountID   string
-	Fingerprint string
+	Endpoint     string
+	Leaf         []byte
+	Spki         []byte
+	RootCert     []byte
+	HandshakeDue int64
+	AccountID    string
+	Fingerprint  string
 }
 
 // An import merging into an identity this host already holds (SPEC sec. 3.10, PACT sec. 9.2):
 // a contact held with no leaf takes the pin a file carries - the endpoint, and the leaf that
-// validated there - and is owed this host's handshake. A contact held WITH a leaf is never
+// validated there - and is owed this host's handshake, from the time of the import. A contact held WITH a leaf is never
 // written: a pin this host validated itself is not replaced by one from a file (sec. 14.5).
 func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinParams) (int64, error) {
 	result, err := q.db.Exec(ctx, importContactPin,
@@ -220,6 +228,7 @@ func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinPara
 		arg.Leaf,
 		arg.Spki,
 		arg.RootCert,
+		arg.HandshakeDue,
 		arg.AccountID,
 		arg.Fingerprint,
 	)
@@ -230,8 +239,8 @@ func (q *Queries) ImportContactPin(ctx context.Context, arg ImportContactPinPara
 }
 
 const insertContact = `-- name: InsertContact :exec
-INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, requested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 `
 
 type InsertContactParams struct {
@@ -252,8 +261,11 @@ type InsertContactParams struct {
 	ChainSentKid string
 	RootCert     []byte
 	EverActive   int64
+	RequestedAt  sql.NullInt64
 }
 
+// requested_at is the row's created_at when it is inserted as a request (pending_in, pending_out)
+// and NULL otherwise (migration 0043).
 func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) error {
 	_, err := q.db.Exec(ctx, insertContact,
 		arg.ID,
@@ -273,12 +285,13 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 		arg.ChainSentKid,
 		arg.RootCert,
 		arg.EverActive,
+		arg.RequestedAt,
 	)
 	return err
 }
 
 const listContacts = `-- name: ListContacts :many
-SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due FROM contacts WHERE account_id = $1 ORDER BY created_at, id
+SELECT id, account_id, fingerprint, spki, status, preset, permissions, trust_flag, display_name, card, created_at, pinned_at, their_permissions, petname, invite_id, endpoint, leaf, chain_sent_kid, root_cert, ever_active, handshake_due, requested_at FROM contacts WHERE account_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact, error) {
@@ -312,6 +325,7 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 			&i.RootCert,
 			&i.EverActive,
 			&i.HandshakeDue,
+			&i.RequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -321,6 +335,35 @@ func (q *Queries) ListContacts(ctx context.Context, accountID string) ([]Contact
 		return nil, err
 	}
 	return items, nil
+}
+
+const markContactRequested = `-- name: MarkContactRequested :execrows
+UPDATE contacts SET status = 'pending_out', requested_at = $1
+WHERE account_id = $2 AND fingerprint = $3 AND status = $4
+`
+
+type MarkContactRequestedParams struct {
+	RequestedAt sql.NullInt64
+	AccountID   string
+	Fingerprint string
+	Status      string
+}
+
+// The handshake after an import falls back to request_contact (PACT sec. 9.2): the contact becomes
+// an approach of ours BEFORE the request is sent, so a peer that answers at once finds the
+// pending_out its contact_accepted answers. Guarded by the status the campaign read. The request
+// clock starts now; ever_active is left as it was.
+func (q *Queries) MarkContactRequested(ctx context.Context, arg MarkContactRequestedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markContactRequested,
+		arg.RequestedAt,
+		arg.AccountID,
+		arg.Fingerprint,
+		arg.Status,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const moveContactStatus = `-- name: MoveContactStatus :execrows
@@ -421,6 +464,35 @@ func (q *Queries) SetContactAccepted(ctx context.Context, arg SetContactAccepted
 		arg.PinnedAt,
 		arg.AccountID,
 		arg.Fingerprint,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const takeBackContactRequest = `-- name: TakeBackContactRequest :execrows
+UPDATE contacts SET status = $1, requested_at = $2
+WHERE account_id = $3 AND fingerprint = $4 AND status = 'pending_out' AND requested_at = $5
+`
+
+type TakeBackContactRequestParams struct {
+	Status        string
+	RequestedAt   sql.NullInt64
+	AccountID     string
+	Fingerprint   string
+	RequestedAt_2 sql.NullInt64
+}
+
+// A request that did not reach the peer, or that the peer refused, is taken back: the row returns
+// to the status and the request clock it had. Only while it is still the approach that was marked.
+func (q *Queries) TakeBackContactRequest(ctx context.Context, arg TakeBackContactRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, takeBackContactRequest,
+		arg.Status,
+		arg.RequestedAt,
+		arg.AccountID,
+		arg.Fingerprint,
+		arg.RequestedAt_2,
 	)
 	if err != nil {
 		return 0, err

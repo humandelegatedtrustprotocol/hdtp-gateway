@@ -29,6 +29,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: UpdateLeaf :execrows
 UPDATE leaves SET leaf = ?, not_before = ?, not_after = ?, state = ?, endpoint = ? WHERE account_id = ? AND kid = ?;
 
+-- name: SetLeafMoved :execrows
+-- Whether installing this leaf moved the identity, as the install decided it (migration 0043): what
+-- a resumed campaign reads to know whom it walks.
+UPDATE leaves SET moved = ? WHERE account_id = ? AND kid = ?;
+
 -- name: ListLeaves :many
 SELECT * FROM leaves WHERE account_id = ? ORDER BY created_at, kid;
 

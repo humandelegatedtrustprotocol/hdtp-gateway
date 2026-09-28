@@ -49,9 +49,11 @@ func TestTheRequestsTabNamesTheContactWhoseAddressARequestComesFrom(t *testing.T
 	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/requests?account="+a.ID, nil))
 	var got struct {
 		Pending []struct {
-			Fingerprint   string `json:"fingerprint"`
-			AddressOf     string `json:"address_of"`
-			AddressOfName string `json:"address_of_name"`
+			Fingerprint  string `json:"fingerprint"`
+			AddressClaim *struct {
+				Root string `json:"root"`
+				Name string `json:"name"`
+			} `json:"address_claim"`
 		} `json:"pending"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || len(got.Pending) != 2 {
@@ -60,12 +62,12 @@ func TestTheRequestsTabNamesTheContactWhoseAddressARequestComesFrom(t *testing.T
 	for _, p := range got.Pending {
 		switch p.Fingerprint {
 		case squatter:
-			if p.AddressOf != friend || p.AddressOfName != "Bharat from school" {
-				t.Errorf("the request at bharat's address names %q (%q), want bharat by the owner's name for him", p.AddressOf, p.AddressOfName)
+			if p.AddressClaim == nil || p.AddressClaim.Root != friend || p.AddressClaim.Name != "Bharat from school" {
+				t.Errorf("the request at bharat's address names %+v, want bharat by the owner's name for him", p.AddressClaim)
 			}
 		case stranger:
-			if p.AddressOf != "" || p.AddressOfName != "" {
-				t.Errorf("a request from an address nobody holds names %q", p.AddressOfName)
+			if p.AddressClaim != nil {
+				t.Errorf("a request from an address nobody holds names %+v", p.AddressClaim)
 			}
 		}
 	}

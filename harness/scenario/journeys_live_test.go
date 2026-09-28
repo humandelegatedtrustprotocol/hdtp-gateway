@@ -212,7 +212,15 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 			t.Fatalf("bob's redemption before the leave refused: %s %s", code, detail)
 		}
 		waitStatus(ctx, t, bob, alice.Fpr, "active")
+		// The review writes nothing; the identity still answers.
 		if out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "leave", "-slug", "alice"); err != nil {
+			t.Fatalf("account leave (the review): %v\n%s", err, out)
+		}
+		if err := send(ctx, bob, alice.Fpr, "after the review"); err != nil {
+			t.Fatalf("a leave's review erased something: bob's message after it: %v", err)
+		}
+		// Alice is served at this node's own address for her, so erasing her takes -force-current.
+		if out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "leave", "-slug", "alice", "-yes", "-force-current"); err != nil {
 			t.Fatalf("account leave: %v\n%s", err, out)
 		}
 		if err := send(ctx, bob, alice.Fpr, "after alice left"); err == nil {
@@ -229,7 +237,7 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 type inviteAnswer struct {
 	Token    string `json:"token"`
 	URL      string `json:"url"`
-	InviteID string `json:"invite_id"`
+	InviteID string `json:"id"`
 }
 
 func inviteLink(ctx context.Context, t *testing.T, o *Owned, auto bool) inviteAnswer {
