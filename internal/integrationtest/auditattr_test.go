@@ -35,6 +35,7 @@ var nodeLevelActions = map[string]string{
 	"passkey_register":         "an owner's credential on the node, not on an account",
 	"passkey_remove":           "an owner's credential on the node, not on an account",
 	"lan_refused":              "a private-range source refused at the listener",
+	"flood_refused":            "connections and requests the listener refused before any account was resolved",
 	"leaf_retirement_pass":     "the pass that destroys expired leaf keys could not list accounts; per-key rows name theirs",
 	"settings_public_url":      "the node's own address",
 	"settings_lan":             "the node's own listener policy",
