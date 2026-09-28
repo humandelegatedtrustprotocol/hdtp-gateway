@@ -85,20 +85,20 @@ var walletSubmitJS []byte
 //go:embed wallet_return.js
 var walletReturnJS []byte
 
-const walletStyle = `<style>
- body{margin:0;background:#fafaf8;color:#1b2422;font:16px/1.6 system-ui,sans-serif}
- @media (prefers-color-scheme:dark){body{background:#0f1614;color:#e7ece8}}
- main{max-width:640px;margin:0 auto;padding:32px 24px}
+// walletStyle is portalStyle (style.go: the brand's palette, type and motion) and the wallet pages' own
+// few rules: the facts as a two-column list, and a line's state by the brand's text colours.
+const walletStyle = portalStyle + `<style>
  dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
+ dt{color:var(--muted)}
  dd{margin:0;word-break:break-all}
- button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid #6b7a74;cursor:pointer}
- .muted{opacity:.7;font-size:14px} .err{color:#b3261e} .ok{color:#1e7a46} .warn{color:#8a5a00}
+ .err{color:var(--red)} .ok{color:var(--accent-ink)} .warn{color:var(--amber)}
 </style>`
 
 var walletAskTmpl = template.Must(template.New("ask").Parse(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Sign with my web wallet</title>` + walletStyle + `</head>
 <body><main>
+` + portalBrand + `
 <h1>Sign with my web wallet</h1>
 <p>This node asks your wallet for a certificate for <strong>{{.Name}}</strong>. The wallet shows what it
 names and asks for your passkey before it signs; nothing is signed from here.</p>
@@ -117,6 +117,7 @@ var walletSubmitTmpl = template.Must(template.New("submit").Parse(`<!DOCTYPE htm
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Opening your wallet</title>` + walletStyle + `</head>
 <body><main>
+` + portalBrand + `
 <h1>Opening your wallet…</h1>
 <form id="wallet-form" method="post" action="{{.Action}}">
 {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}"/>
@@ -130,6 +131,7 @@ var walletReturnTmpl = template.Must(template.New("return").Parse(`<!DOCTYPE htm
 <meta name="pact-csrf-cookie" content="{{.Cookie}}"/>
 <title>Your wallet's answer</title>` + walletStyle + `</head>
 <body><main>
+` + portalBrand + `
 <h1>Your wallet's answer</h1>
 <p id="out">Installing…</p>
 <noscript><p class="err">Installing the certificate needs this page's script.</p></noscript>
