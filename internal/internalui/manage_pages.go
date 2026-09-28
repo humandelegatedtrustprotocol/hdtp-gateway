@@ -19,7 +19,7 @@ type ManageDeps struct {
 	Store    store.Store
 	Contacts *contacts.Manager
 	Audit    func(action, resource, outcome string)
-	// Invalidate drops and recomposes a caller's live tool surface. Approving a
+	// Invalidate drops a caller's composed tool surface, so their next request is composed anew. Approving a
 	// request changes their tier; without this the pool keeps serving the
 	// surface it composed when they first called — the guest one — and an
 	// approved contact is refused every tool they were just granted. The owner

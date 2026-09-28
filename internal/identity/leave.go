@@ -131,6 +131,9 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(
 		if _, err := tx.DeleteIdempotencyByAccount(ctx, accountID); err != nil {
 			return err
 		}
+		if _, err := tx.DeleteChangesByAccount(ctx, accountID); err != nil {
+			return err
+		}
 		if settingKeys != nil {
 			keys, err := settingKeys(ctx, tx)
 			if err != nil {

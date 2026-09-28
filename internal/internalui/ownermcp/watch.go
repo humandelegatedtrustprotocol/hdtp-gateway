@@ -1,10 +1,8 @@
-// The owner's agent is not always connected, and a notification it can miss is
-// not a notification. SPEC §7.8's bus already pushes `ResourceUpdated` to
-// SUBSCRIBED sessions, which serves an agent that happens to be attached and
-// nothing else: an agent that reconnects has no way to ask what changed while
-// it was away, and the bus is explicitly "a hint, not the ledger".
+// The owner's agent is not always connected, and the owner MCP pushes nothing
+// (SPEC §8.5): it is stateless, so there is no stream to push on, and the bus
+// is explicitly "a hint, not the ledger" (§7.8).
 //
-// These two tools are the agent's side of that. `wait_for_updates` blocks until
+// These two tools are how the agent finds out instead. `wait_for_updates` blocks until
 // something happens (or the timeout elapses) and answers with what changed since
 // the caller's cursor, so a loop is one call and a restart loses nothing.
 // `digest` answers the end-of-day question — what arrived, from whom, and what
@@ -20,21 +18,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/messaging"
 )
 
 // WaitArgs is a resumable cursor and a bound on how long to hold the call.
 type WaitArgs struct {
 	AccountID string `json:"account_id"`
-	// SinceTS is the cursor from a previous answer. Omit it to start watching
-	// from now: the first call returns immediately with a cursor and no
-	// backlog, so an agent can begin a loop without replaying its history.
-	SinceTS int64 `json:"since_ts,omitempty" jsonschema:"cursor from a previous wait_for_updates; omit to start from now"`
+	// Since is the cursor from a previous answer: an id of the store's change log (SPEC §7.8),
+	// the same in every node process sharing the store. Omit it to start watching from now: the
+	// first call returns immediately with a cursor and no backlog, so an agent can begin a loop
+	// without replaying its history. A pointer, because 0 is a cursor like any other (the answer
+	// on a store whose change log is empty) and must not read as "omitted".
+	Since *int64 `json:"since,omitempty" jsonschema:"cursor from a previous wait_for_updates; omit to start from now"`
 	// TimeoutSec bounds the wait: whole seconds from 1 to WaitMaxSec, WaitMaxSec
 	// when omitted. A pointer, so an omitted bound (the default) and an explicit 0
 	// (refused: it would answer at once, and a loop on it spins) are told apart.
@@ -91,9 +91,14 @@ type attention struct {
 }
 
 type waitResult struct {
-	// Cursor to pass as since_ts next time. It advances even when nothing
-	// changed, so a quiet loop does not re-read the same tail forever.
+	// Cursor to pass as since next time: the newest change this answer read, from the store's
+	// change log, never a clock. It advances even when nothing changed for this account, so a
+	// quiet loop does not re-read the same tail forever.
 	Cursor int64 `json:"cursor"`
+	// CursorExpired says the cursor is not one this change log can answer from: older than its
+	// oldest change (it keeps a week), or past its newest (one it never issued). What moved before
+	// is not listed here. Re-read the inbox (get_inbox) once, and wait from the cursor answered.
+	CursorExpired bool `json:"cursor_expired,omitempty"`
 	// Threads that moved since the cursor.
 	Threads []changed `json:"threads"`
 	// Waiting is the count of contact requests awaiting the owner's approval,
@@ -113,9 +118,9 @@ type waitResult struct {
 	// NeedsAttention: conditions only the owner can clear — today, an
 	// integration whose token died (auth_error) and needs re-authorizing.
 	NeedsAttention []attention `json:"needs_attention,omitempty"`
-	// CallsTruncated says the audit window scrolled past this cursor: there
-	// were more rows since since_ts than one read returns, so Calls may be
-	// missing older events. The full trail is audit_query's job.
+	// CallsTruncated says more changed since the cursor than one read returns: Threads and Calls
+	// hold the oldest of it, and the cursor stops where the read did, so the next wait continues
+	// from there. The full trail is audit_query's job.
 	CallsTruncated bool `json:"calls_truncated,omitempty"`
 	// TimedOut says the wait ended on the clock rather than on an event: the
 	// difference between "nothing happened" and "here is what happened".
@@ -129,7 +134,7 @@ func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accoun
 		Name: "wait_for_updates",
 		Description: "Block until something changes for this account — a message arrives, a contact asks to connect, " +
 			"a request needs answering — then return what moved since your cursor. Call it in a loop with the cursor " +
-			"it returns. Omitting since_ts starts from now with no backlog.",
+			"it returns as since. Omitting since starts from now with no backlog.",
 	}, ot.waitForUpdatesTool)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -159,51 +164,58 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 	// A first call has nothing to say: hand back a cursor and let the next
 	// call do the waiting. Replaying every thread on connect would make the
 	// agent's first act a re-read of its whole history.
-	if a.SinceTS == 0 {
-		r, err := jsonResult(waitResult{Cursor: time.Now().Unix()})
+	if a.Since == nil {
+		_, newest, err := ot.d.Store.ChangeBounds(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		r, err := jsonResult(waitResult{Cursor: newest})
 		return r, nil, err
 	}
-	res, err := ot.d.changesSince(ctx, a.AccountID, a.SinceTS)
+	// Listening before the first read: a change written between the read and the wait still
+	// wakes it. The event only says "look"; the store says what (§7.8).
+	var evs <-chan messaging.Event
+	if ot.d.Bus != nil {
+		ch, stop := ot.d.Bus.Subscribe(a.AccountID)
+		defer stop()
+		evs = ch
+	}
+	res, err := ot.d.changesSince(ctx, a.AccountID, *a.Since)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(res.Threads) > 0 || res.Waiting > 0 || res.Pending > 0 {
+	if res.news() {
 		r, err := jsonResult(res)
 		return r, nil, err
 	}
-	// Nothing yet: wait for the bus to say otherwise. The store, not the
-	// event, is what answers — an event can be dropped when a subscriber is
-	// full (§7.8), and re-reading is always correct.
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var ch <-chan any
-	if ot.d.Bus != nil {
-		evs, stop := ot.d.Bus.Subscribe(a.AccountID)
-		defer stop()
-		c := make(chan any, 1)
-		go func() {
-			select {
-			case <-evs:
-				c <- struct{}{}
-			case <-wctx.Done():
-			}
-		}()
-		ch = c
+	for {
+		select {
+		case <-evs:
+		case <-wctx.Done():
+			// The clock ran out. The cursor stays where the last read left it — the newest change
+			// it saw — and never jumps to a clock, which would pass over a change whose wake was lost.
+			res.TimedOut = true
+			r, err := jsonResult(res)
+			return r, nil, err
+		}
+		// Every event is a reason to look, and not every one is news for this wait (an answer
+		// relayed, say): what the store holds decides whether to answer or wait on.
+		if res, err = ot.d.changesSince(ctx, a.AccountID, *a.Since); err != nil {
+			return nil, nil, err
+		}
+		if res.news() {
+			r, err := jsonResult(res)
+			return r, nil, err
+		}
 	}
-	select {
-	case <-ch:
-	case <-wctx.Done():
-		res.Cursor = time.Now().Unix()
-		res.TimedOut = true
-		r, err := jsonResult(res)
-		return r, nil, err
-	}
-	after, err := ot.d.changesSince(ctx, a.AccountID, a.SinceTS)
-	if err != nil {
-		return nil, nil, err
-	}
-	r, err := jsonResult(after)
-	return r, nil, err
+}
+
+// news is whether a wait has something to answer with rather than park on: a thread moved, a
+// contact acted, or one of the queues only the owner clears holds something.
+func (r waitResult) news() bool {
+	return len(r.Threads) > 0 || len(r.Calls) > 0 || r.Waiting > 0 || r.Pending > 0 || r.CursorExpired
 }
 
 // digestTool is the `digest` tool.
@@ -280,115 +292,85 @@ func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a
 	return r, nil, err
 }
 
-// changesSince is the shared read behind the wait: threads that moved, and the
-// two queues only a person can clear.
+// waitPage is how many of one account's changes a wait reads at once.
+const waitPage = 500
+
+// changesSince is the shared read behind the wait: the account's changes after the cursor in the
+// store's change log — the threads that moved, the calls contacts made — and the queues only a
+// person can clear.
 func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (waitResult, error) {
-	threads, err := d.Store.ListThreadsByAccount(ctx, accountID)
+	// The newest id first: every change at or below it is committed (ids commit in order), so a
+	// cursor of it passes over nothing.
+	oldest, newest, err := d.Store.ChangeBounds(ctx)
 	if err != nil {
 		return waitResult{}, err
 	}
-	res := waitResult{Cursor: since}
-	for _, th := range threads {
-		if th.LastAt <= since {
-			continue
+	// A cursor this log never issued — older than its oldest change, or past its newest (a store
+	// restored into a fresh log, another engine's, a time where an id belongs) — is said to be, at
+	// once, with the log's newest: waiting from past the newest would wait on nothing, forever.
+	res := waitResult{Cursor: newest, CursorExpired: (oldest > 0 && since < oldest-1) || since > newest}
+	rows, err := d.Store.AccountChangesAfter(ctx, accountID, since, waitPage)
+	if err != nil {
+		return waitResult{}, err
+	}
+	var kept []store.Change
+	for _, c := range rows {
+		if c.ID <= newest {
+			kept = append(kept, c)
 		}
-		c := changed{ThreadID: th.ID, ContactFpr: th.ContactFpr, LastAt: th.LastAt}
-		if n, err := d.Store.UnreadCount(ctx, accountID, th.ID); err == nil {
-			c.Unread = n
-		}
-		// Fail SAFE on the label: a thread whose contact row cannot be read
-		// (removed since, store hiccup) is reported at the lowest grant, the
-		// same default read_thread resolves to — never unlabeled, never up.
-		c.Trust = "messages_only"
-		if ct, err := d.Store.GetContact(ctx, accountID, th.ContactFpr); err == nil {
-			c.Contact = displayName(ct)
-			c.Trust = ct.TrustFlag
-		}
-		res.Threads = append(res.Threads, c)
-		if th.LastAt > res.Cursor {
-			res.Cursor = th.LastAt
+	}
+	if len(rows) == waitPage && len(kept) > 0 {
+		// More than a page moved: answer with this much, and let the next wait read on from it.
+		res.Cursor, res.CallsTruncated = kept[len(kept)-1].ID, true
+	}
+	seen := map[string]bool{}
+	trustOf := map[string]string{}
+	for _, c := range kept {
+		switch messaging.EventKind(c.Kind) {
+		case messaging.EventMessage:
+			if c.ThreadID == "" || seen[c.ThreadID] {
+				continue
+			}
+			seen[c.ThreadID] = true
+			th, err := d.Store.GetThread(ctx, accountID, c.ThreadID)
+			if err != nil {
+				continue // gone since: nothing to read
+			}
+			ch := changed{ThreadID: th.ID, ContactFpr: th.ContactFpr, LastAt: th.LastAt}
+			if n, err := d.Store.UnreadCount(ctx, accountID, th.ID); err == nil {
+				ch.Unread = n
+			}
+			// Fail SAFE on the label: a thread whose contact row cannot be read
+			// (removed since, store hiccup) is reported at the lowest grant, the
+			// same default read_thread resolves to — never unlabeled, never up.
+			ch.Trust = "messages_only"
+			if ct, err := d.Store.GetContact(ctx, accountID, th.ContactFpr); err == nil {
+				ch.Contact = displayName(ct)
+				ch.Trust = ct.TrustFlag
+			}
+			res.Threads = append(res.Threads, ch)
+		case messaging.EventCall:
+			if !messaging.FeedCalls[c.Ref] || c.ContactFpr == "" {
+				continue
+			}
+			trust, cached := trustOf[c.ContactFpr]
+			if !cached {
+				if ct, err := d.Store.GetContact(ctx, accountID, c.ContactFpr); err == nil {
+					trust = ct.TrustFlag
+				}
+				trustOf[c.ContactFpr] = trust
+			}
+			if trust == "" {
+				// Not a contact this account knows (removed since): there is no owner grant to
+				// report under, so the call is not this feed's news. It stays in audit_query.
+				continue
+			}
+			res.Calls = append(res.Calls, callEvent{ContactFpr: c.ContactFpr, Tool: c.Ref, Trust: trust, At: c.At})
 		}
 	}
 	res.Waiting, res.Addresses, res.Pending = d.openCounts(ctx, accountID)
-	res.Calls, res.CallsTruncated = d.callsSince(ctx, accountID, since)
-	for _, c := range res.Calls {
-		if c.At > res.Cursor {
-			res.Cursor = c.At
-		}
-	}
 	res.NeedsAttention = d.needsAttention(ctx, accountID)
 	return res, nil
-}
-
-// callActions are the peer-tool audit actions that mean "a contact ACTED", as
-// opposed to messages (threads carry those) and plumbing reads. The sealed
-// wrapper's own row (`sealed_call`) is deliberately NOT here: it says only
-// that an envelope opened — the INNER tool writes its own attributed row, and
-// that row is the one that counts. Trusting the wrapper surfaced denied inner
-// calls as actions, promoted sealed messages into "calls", and counted every
-// sealed booking twice.
-var callActions = map[string]bool{
-	"book_slot": true, "cancel_booking": true, "check_availability": true,
-	"send_media": true, "get_status": true,
-}
-
-func (d Deps) callsSince(ctx context.Context, accountID string, since int64) ([]callEvent, bool) {
-	const page = 500
-	rows, err := d.Store.ListAuditEventsPage(ctx, store.AuditPage{Account: accountID, Limit: page})
-	if err != nil {
-		return nil, false
-	}
-	// A full page whose oldest row is still newer than the cursor means the
-	// window has scrolled past events this read cannot see. Say so instead of
-	// silently advancing the cursor over them — the full trail stays in
-	// audit_query.
-	truncated := len(rows) == page && rows[len(rows)-1].TS > since
-	trustOf := map[string]string{}
-	var out []callEvent
-	for _, r := range rows { // newest first
-		if r.TS <= since {
-			break
-		}
-		if !callActions[r.Action] || (r.Outcome != "ok" && r.Outcome != "delivered") {
-			continue
-		}
-		// The per-account audit page carries the node's own unattributed rows
-		// too; a call event must belong to THIS account to be its feed's news.
-		if r.AccountID != accountID {
-			continue
-		}
-		fpr := ""
-		for _, f := range strings.Fields(r.Resource) {
-			if v, found := strings.CutPrefix(f, "caller:"); found && v != "" {
-				fpr = v
-			}
-			if v, found := strings.CutPrefix(f, "contact:"); found && fpr == "" {
-				fpr = v
-			}
-		}
-		if fpr == "" {
-			continue
-		}
-		trust, cached := trustOf[fpr]
-		if !cached {
-			if c, err := d.Store.GetContact(ctx, accountID, fpr); err == nil {
-				trust = c.TrustFlag
-			}
-			trustOf[fpr] = trust
-		}
-		if trust == "" {
-			// Not a contact this account knows (removed since, or a row that
-			// slipped attribution): there is no owner grant to report under,
-			// so the event is not this feed's news. It stays in audit_query.
-			continue
-		}
-		out = append(out, callEvent{ContactFpr: fpr, Tool: r.Action, Trust: trust, At: r.TS})
-	}
-	// oldest first, the order an agent replays in
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out, truncated
 }
 
 func (d Deps) needsAttention(ctx context.Context, accountID string) []attention {
@@ -406,12 +388,10 @@ func (d Deps) needsAttention(ctx context.Context, accountID string) []attention 
 }
 
 func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, addresses, pending int64) {
-	if cs, err := d.Store.ListContacts(ctx, accountID); err == nil {
-		for _, c := range cs {
-			if c.Status == "pending_in" {
-				waiting++
-			}
-		}
+	// Counted in the store, reading the rows in that state alone: every wake asks, and reading
+	// every contact to count them made each wake grow with the list.
+	if n, err := d.Store.CountContactsByStatus(ctx, accountID, "pending_in"); err == nil {
+		waiting = n
 	}
 	if ps, err := d.Store.ListPendingAddresses(ctx, accountID); err == nil {
 		addresses = int64(len(ps))

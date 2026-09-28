@@ -112,8 +112,7 @@ each node is stopped and `audit verify` must report the chain intact). S9 makes 
 same check on its own node after its probes. It is not run after every scenario.
 
 Designed and never built, and removed from the code on 2026-09-27 rather than kept as
-checks that report nothing: no session-binding growth (P12-10, unit-pinned in the node),
-nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
+checks that report nothing: nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
 after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
 PACT 1.x.
 
@@ -193,7 +192,7 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
 - Within the suites that do exist, these cases were listed and are not exercised: S7's `kill -9`
   mid-send and the retry schedule (P12-03); S8's message expiry, queue retention, invite expiry
   and setup-token expiry (S8 proves only that the guest clock travels and the node runs at it);
-  S9's session-id replay (P11-05), envelope tampering and audit tamper → `repair` refuses
+  S9's envelope tampering and audit tamper → `repair` refuses
   (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
   each page's light and dark renders with each other).
 - **S6** was relay semantics, withdrawn with PACT 1.x on 2026-09-18; its number is not reused.
@@ -353,7 +352,7 @@ it. `docs/testing.md` has the needs, the result files and how to add a scenario.
 
 | Tier | Runs | Promises (needs it provides) | Measured 2026-09-27 | How |
 |---|---|---|---|---|
-| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet` | — (runs no scenario) | `make harness` | `pre-push` hook, automatic |
+| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet`, and `multiprocess`: two `serve` processes of the shipped binary behind a round-robin proxy, on one SQLite data dir and on one Postgres (the Postgres half where `PACT_TEST_POSTGRES_DSN` names a server, which the pre-push hook provides) | — (runs no registered scenario) | `make harness`; `multiprocess` took 82 s for both engines (2026-09-28) | `pre-push` hook, automatic |
 | **Fabric** | F1–F5 | docker, node image | 5/5 PASS; the five took 10.4 s | `make harness-live` |
 | **PR** | fabric + S2, S9 | + chrome | 7/7 PASS; the seven took 21.3 s | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
 | **Nightly** | every scenario | + caldav image; kernel only with `PACT_HARNESS_KERNEL`, cf only with `PACT_CF_DOMAIN` | 18 PASS, T7 not promised; the scenario package took 104.8 s | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |

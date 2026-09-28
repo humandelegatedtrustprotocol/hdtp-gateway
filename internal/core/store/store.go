@@ -375,11 +375,70 @@ type Store interface {
 	MessageStore
 	IntegrationStore
 	AuditStore
+	ChangeStore
+	PresenceStore
+	LeaseStore
+}
+
+// LeaseStore hands background work to one node process at a time (SPEC §11.1).
+type LeaseStore interface {
+	// TakeLease takes the named lease for holder until the unix second until, or renews it if
+	// holder has it; it reports false, and changes nothing, while another holder's lease has not
+	// run out by now.
+	TakeLease(ctx context.Context, name, holder string, now, until int64) (bool, error)
+	// ReleaseLease lets holder's lease go, if it holds it.
+	ReleaseLease(ctx context.Context, name, holder string) error
+}
+
+// PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so
+// that every node process sharing the store answers "is the agent attached" the same.
+type PresenceStore interface {
+	TouchOwnerPresence(ctx context.Context, at int64) error
+	// OwnerPresenceSeenAt is 0 when the agent has never asked.
+	OwnerPresenceSeenAt(ctx context.Context) (int64, error)
+}
+
+// Change is one row of the change log (SPEC §7.8): something happened that a waiter in any node
+// process sharing this store may want to wake for. ID is the cursor, store-assigned and
+// committed in order.
+type Change struct {
+	ID         int64
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	Ref        string
+	At         int64
+}
+
+// ChangeStore is the change log every node process sharing a store reads and writes.
+type ChangeStore interface {
+	// AppendChange records c (its ID is ignored) and returns the id assigned. Ids commit in the
+	// order they are assigned: on Postgres every insert first takes one advisory lock in its
+	// transaction, and sends a notification at its commit; SQLite writes one transaction at a time.
+	AppendChange(ctx context.Context, c Change) (int64, error)
+	// ChangesAfter returns up to limit changes with ids above after, in id order.
+	ChangesAfter(ctx context.Context, after int64, limit int) ([]Change, error)
+	// AccountChangesAfter returns up to limit of one account's changes with ids above after.
+	AccountChangesAfter(ctx context.Context, accountID string, after int64, limit int) ([]Change, error)
+	// ChangeBounds returns the oldest and newest ids held, 0 and 0 for an empty log.
+	ChangeBounds(ctx context.Context) (oldest, newest int64, err error)
+	// DeleteChangesBefore prunes the log of changes written before at (unix seconds).
+	DeleteChangesBefore(ctx context.Context, at int64) (int64, error)
+	// WatchChanges calls wake whenever another process may have appended, until ctx ends. It is a
+	// hint that shortens the wait for the next poll, never the source of truth: Postgres
+	// LISTENs for the notification AppendChange sends; SQLite has none, and returns at once.
+	WatchChanges(ctx context.Context, wake func()) error
 }
 
 // Lifecycle opens, migrates, closes and transacts: what every engine does before it holds anything.
 type Lifecycle interface {
 	Migrate(ctx context.Context) error
+	// SchemaCurrent reports whether the store's schema is exactly the one this binary migrates
+	// to: an error names the two versions when it is behind (a migration has not run) or ahead (a
+	// newer binary migrated it). A `serve` that shares the data dir and did not migrate checks it
+	// before serving (SPEC §11.1).
+	SchemaCurrent(ctx context.Context) error
 	Close() error
 
 	// Atomically runs fn against a Store whose every write is ONE transaction: all of it lands,
@@ -488,10 +547,12 @@ type AccountStore interface {
 
 	// An identity leaving this host (PACT §9, identity.Manager.Leave). DeleteAccount deletes the
 	// account row and, by ON DELETE CASCADE, every row that names it by a foreign key;
-	// DeleteTokensByAccount and DeleteIdempotencyByAccount are the tables that name it without one.
+	// DeleteTokensByAccount, DeleteIdempotencyByAccount and DeleteChangesByAccount are the tables
+	// that name it without one.
 	DeleteAccount(ctx context.Context, accountID string) (int64, error)
 	DeleteTokensByAccount(ctx context.Context, accountID string) (int64, error)
 	DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error)
+	DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error)
 	// UpsertVacatedAddress records an address left behind; a second record of the same endpoint
 	// keeps the later UntilAt. LiveVacatedSlug and LiveVacatedEndpoint say whether a record is
 	// still reserving it at `now`; DeleteExpiredVacatedAddresses drops the ones that no longer do.
@@ -576,6 +637,8 @@ type ContactStore interface {
 	ImportContactPin(ctx context.Context, c Contact) (bool, error)
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
+	// CountContactsByStatus counts one account's contacts in one state, reading those rows alone.
+	CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error)
 	// PinCandidates is the contacts a sealed call's proof could concern, in ListContacts' order: the
 	// row of `root`, the rows at `endpoint`, and the row whose pinned leaf's key has the fingerprint
 	// `leafFingerprint` (migration 0046). An empty argument matches nothing. public/decide.go hands
@@ -740,6 +803,13 @@ type IntegrationStore interface {
 
 // AuditStore holds the hash-chained audit trail and its archive anchor (SPEC §11).
 type AuditStore interface {
+	// AppendAuditEvent extends the chain by one row (SPEC §11.4). In ONE transaction it reads the
+	// head — the last row's seq and hash, or 0 and "" for an empty chain — hands it to seal, and
+	// inserts the row seal builds on it. The transaction holds the chain's head for its length, so
+	// every process appending to one store takes turns: on SQLite the transaction takes the write
+	// lock at BEGIN, on Postgres it takes an advisory lock (LockAuditChain) before it reads. No
+	// process carries the head in memory between appends.
+	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error
 	InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error
 	LastAuditEvent(ctx context.Context) (seq int64, hash string, err error)
 	ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error)

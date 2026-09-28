@@ -123,9 +123,9 @@ The node never exposes one static MCP server. Every tool it can serve — guest 
 
 - **Keyed by (account, caller fingerprint).** Built on first use and LRU-cached.
 - **Composed through `policy.Allow`.** Composition asks the single Cedar call site (§3) which registry entries this caller may see; the composition result *is* what `tools/list` returns. There is no second, parallel filtering path to drift out of sync.
-- **Rebuilt on change.** Flipping a switch on a contact's switchboard invalidates the cached server, and live sessions receive `notifications/tools/list_changed` — the node runs its streamable transport stateful so the notification reaches every open session (§5). Upstream catalog changes propagate the same way once the owner re-confirms the affected exposures (§6).
+- **Rebuilt on change.** Flipping a switch on a contact's switchboard drops the cached server, so the caller's next request is composed from the new grant. The transport is stateless (§5.5): there is no open session to notify, and a server announces no `listChanged`; a client re-lists. Upstream catalog changes propagate the same way once the owner re-confirms the affected exposures (§6).
 - **Re-checked at call time.** The cache is a listing optimization, never an authorization cache: every `tools/call` passes `policy.Allow` again, so revocation is effective on the very next call even against a stale cached server.
-- **Sessions bound to the creating identity.** An MCP session is bound to the caller identity that created it; a session presented under any other identity MUST be rejected.
+- **No sessions.** Every request carries its own caller and is composed for it alone; nothing a request presents — an `Mcp-Session-Id` included — stands in for identity (§5.5).
 - **Guests share one server.** All unknown callers of an account share a single guest server exposing exactly the guest tier of PACT §6.1 (`redeem_invite`, `request_contact`) plus the `sealed_call` wrapper (§4); nothing about it is caller-specific, so there is nothing to build per caller.
 
 ### 2.5 Deployment modes (summary)
@@ -224,8 +224,8 @@ The resolved root is looked up in the account's contact list and maps to a tier 
 pending, contact, blocked — per PACT §6.1, and the pin checks of §14.3 and §5.3 run
 first: a leaf older than the pinned one proves nothing, and a leaf naming a different
 endpoint is a request to move, not a call. Blocking is silent guest demotion: a blocked
-caller is indistinguishable from a stranger. MCP sessions are bound to the identity that
-created them; a session resumed under any other identity MUST be rejected (§5).
+caller is indistinguishable from a stranger. There are no MCP sessions to resume: every
+request is resolved on its own (§5.5).
 
 ```mermaid
 flowchart TD
@@ -477,13 +477,13 @@ The resolved identity is looked up in the account's contact list and mapped to a
 
 A blocked caller MUST be served indistinguishably from an unknown one; the guest-tier catch-all error is `blocked_or_unknown`, indistinguishable by design (PACT §12). A caller whose own request is still awaiting the owner's approval (`pending_in` on our side) resolves to guest, and a duplicate request returns `pending_approval` (PACT §12). A pending-tier caller invoking anything beyond `contact_accepted`, `contact_rejected`, and `sealed_call` is refused `permission_denied` — the caller is known, so the guest catch-all does not apply (§5.8).
 
-### 5.5 Per-caller servers and sessions
+### 5.5 Per-caller servers, and no sessions
 
-The node holds every exposable tool — built-in and integration-backed — as data in a registry, and composes an MCP server per caller: for each `(account, caller-fingerprint)` pair it evaluates `policy.Allow` (Cedar — static policies, dynamic entities, §3) over the registry and materializes a server exposing exactly the allowed set. Composed servers are LRU-cached per `(account, caller-fingerprint)`. All guest-tier callers of an account share one cached server exposing the two guest tools plus `sealed_call`.
+The node holds every exposable tool — built-in and integration-backed — as data in a registry, and composes an MCP server per caller: for each `(account, caller-fingerprint)` pair it evaluates `policy.Allow` (Cedar — static policies, dynamic entities, §3) over the registry and materializes a server exposing exactly the allowed set. Composed servers are LRU-cached per `(account, caller-fingerprint)`, 256 per account. All guest-tier callers of an account share one cached server exposing the two guest tools plus `sealed_call`.
 
-A cached server MUST be rebuilt when the contact's switchboard changes, when an exposure set vM or catalog snapshot vN backing one of its tools changes (§6), or when the contact's tier changes; live sessions then receive `tools/list_changed`. The public streamable transport runs **stateful** so the notification reaches every open session (§2.4). The cache is a performance layer only, never the authority: every `tools/call` MUST re-evaluate `policy.Allow` at call time, so revocation is instant — the flipped switch removes the tool from `tools/list` and any in-flight or stale-cache call returns `permission_denied` (PACT §8).
+**Stateless transport.** The public surface serves MCP Streamable HTTP **statelessly** (go-sdk `StreamableHTTPOptions.Stateless`): every POST is the whole of its exchange, runs the full pipeline of §5.3, and is answered by a session that exists for that request alone. The node issues no `Mcp-Session-Id` and reads none — a presented one is ignored, so it can never stand in for identity — and needs no `initialize` before a call. GET and DELETE, which only a session gave a meaning to, are answered `405` with `Allow: POST`. Both MCP eras are served: a client of the 2026-07-28 revision (`server/discover`, the per-request `_meta`) and a client of the handshake revisions (`initialize`, up to 2025-11-25), which the SDK serves with a temporary session of default parameters per request. For a 2026-07-28 client the handler's context ends with the request's, so a caller that hangs up stops holding the work it started. The server declares `tools` without `listChanged`: nothing carries a list-change notification to a stateless client, and a client re-lists.
 
-**Session-to-identity binding.** An MCP session is bound to the identity (or the anonymity) that created it. A request presenting an existing session id under a different resolved identity MUST be treated as if the session did not exist; a caller that gains identity (e.g., moves from anonymous to certificate-bearing) starts a new session. Session state never substitutes for per-call identity resolution — every request runs the full pipeline of §5.3.
+A cached server MUST be dropped when the contact's switchboard changes, when an exposure set vM or catalog snapshot vN backing one of its tools changes (§6), or when the contact's tier changes; the caller's next request composes the new surface. The cache is a performance layer only, never the authority: every `tools/call` MUST re-evaluate `policy.Allow` at call time, so revocation is instant — the flipped switch removes the tool from `tools/list` and any in-flight or stale-cache call returns `permission_denied` (PACT §8).
 
 ### 5.6 Dispatch: built-in versus integration-backed
 
@@ -514,6 +514,8 @@ Every budget is a token bucket; `retry_after` is the whole seconds, at least one
 
 The listener MUST cap request bodies before JSON parsing at **8 MiB** — sized to the largest legitimate payload: 5 MiB inline media × 4/3 base64 expansion plus envelope and JSON overhead, rounded up — rejecting larger requests with `too_large`. Rate-limit denials return `rate_limited` with `retry_after`.
 
+**Connection bounds.** The listener holds at most 1,024 connections open; one more is closed as it is accepted, beneath TLS, before a handshake is begun, and the refusals are audited as one `listener_full` row a minute at most, counting them. It reads a request's headers within 10 s and the whole request within 60 s (an 8 MiB body at 140 KB/s), answers within 75 s (above the 30 s an agent-answered call is held, §6.8), keeps an idle connection 120 s, and takes 64 KiB of headers. Rate limits per source address and for the node as a whole are not the node's: they belong to what stands in front of it — the edge, or a proxy before the node (the owner's decision of 2026-09-28).
+
 **Source IP behind a terminating edge.** Per-IP limits need a source address the node can trust. On a `TerminatesAtEdge` adapter (§10.2) every connection reaches the node from the tunnel connector's address, so the node MUST take the client IP from that adapter's specific trusted header on the tunnel-only listener — `CF-Connecting-IP` for the `cloudflare` adapter — and MUST NOT honor generic `X-Forwarded-For` anywhere; direct listeners never honor forwarded-IP headers at all. Where an edge adapter provides no trusted header, per-IP limiting of anonymous callers degrades to a single per-node aggregate cap.
 
 ### 5.8 Denials and audit
@@ -543,7 +545,7 @@ Every deny on this surface maps to a PACT §12 error code, including `seal_requi
 
 ## 6. Integrations
 
-An integration is an upstream MCP server the owner connects to their node: a calendar, a task tracker, anything speaking MCP. The node is an MCP **client** to these upstreams (official Go SDK, go-sdk v1.7.0) and re-serves a curated subset of their capabilities to contacts through the public surface (§5). Two rules govern everything in this section: **nothing an upstream offers is ever exposed to a caller by default**, and a contact gains access to passthrough and agent-answered capabilities only through the per-integration permission `integration.<slug>` — PACT §8's `integration.<name>`, with the name fixed to the integration's slug. Mapped-mode capabilities are the exception: they serve PACT's own core vocabulary and are gated by the corresponding PACT §8 core permission (§6.6). Authorization is evaluated at the single Cedar call site `policy.Allow` (static policies, dynamic entities — §3); the store tables involved are `integrations`, `catalogs`, `exposures`, and `pending_requests` (§11).
+An integration is an upstream MCP server the owner connects to their node: a calendar, a task tracker, anything speaking MCP. The node is an MCP **client** to these upstreams (official Go SDK, go-sdk v1.8.0) and re-serves a curated subset of their capabilities to contacts through the public surface (§5). Two rules govern everything in this section: **nothing an upstream offers is ever exposed to a caller by default**, and a contact gains access to passthrough and agent-answered capabilities only through the per-integration permission `integration.<slug>` — PACT §8's `integration.<name>`, with the name fixed to the integration's slug. Mapped-mode capabilities are the exception: they serve PACT's own core vocabulary and are gated by the corresponding PACT §8 core permission (§6.6). Authorization is evaluated at the single Cedar call site `policy.Allow` (static policies, dynamic entities — §3); the store tables involved are `integrations`, `catalogs`, `exposures`, and `pending_requests` (§11).
 
 ### 6.1 The integration object
 
@@ -662,9 +664,9 @@ sequenceDiagram
 Mechanics, in order:
 
 1. After `policy.Allow`, the call becomes a `pending_requests` row (caller fingerprint, exposed capability, arguments, creation time, TTL) and the caller's request is held open. Arguments are peer-supplied untrusted content and are handed to the owner's agent labeled with the contact's message-vs-instruction trust flag (§7).
-2. The node signals the owner's agent through the **subscribable resource `pact://pending`**: `Server.ResourceUpdated` to subscribed owner-MCP sessions, with both `Subscribe` and `Unsubscribe` handlers registered (the SDK requires the pair), stateful Streamable HTTP plus an `EventStore` so a briefly disconnected agent resumes missed notifications, and the `list_pending` poll tool as the fallback for clients that do not subscribe. There are no custom server→client notifications in MCP; the resource is the signal.
-3. The agent answers via the owner-MCP tool `answer_request(id, result)` (§8); the node relays the result to the waiting caller, closes the row, and audits the exchange.
-4. If the synchronous wait budget expires with no answer — or no agent session is connected — the **fallback chain** runs: the exposure's configured `fallback` serving mode (§6.5) if one is set, otherwise the call fails `unavailable`. Messaging never enters this path: `send_message` and `send_media` are built-ins that execute against the store (§5.6), so a message is always stored and answered `delivered | queued_for_human` (PACT §6.2, §7) regardless of whether the owner's agent is online — the fallback chain applies only to integration-backed capabilities.
+2. The owner's agent learns of it by asking: `wait_for_updates` (§8.4) wakes as the row is written and counts it as `pending_requests`, and `list_pending` and the `pact://pending` resource read the rows. The owner MCP is stateless (§8.5), so nothing is pushed; an agent that is attached is one that keeps asking.
+3. The agent answers via the owner-MCP tool `answer_request(id, result)` (§8); the node relays the result to the waiting caller, closes the row, and audits the exchange. The call and the answer may reach different node processes sharing the store (§11.1): the answer is written to the row, the held call re-reads its row on every event for its account (§7.8) and, having handed the answer on, says so with an event of its own, and `answer_request` reports `relayed` only on that word, waiting up to 3 s for it — past that the answer is recorded and reported late.
+4. If the synchronous wait budget expires with no answer — or no agent is attached, meaning no owner-MCP request has arrived, at any node process on the store, for a minute, longer than a `wait_for_updates` may hold one call (the time of the last request is kept in the store, written at most once per 5 s per process; one host's write is compared with another host's clock) — the **fallback chain** runs: the exposure's configured `fallback` serving mode (§6.5) if one is set, otherwise the call fails `unavailable`. Messaging never enters this path: `send_message` and `send_media` are built-ins that execute against the store (§5.6), so a message is always stored and answered `delivered | queued_for_human` (PACT §6.2, §7) regardless of whether the owner's agent is online — the fallback chain applies only to integration-backed capabilities.
 
 Defaults, each configurable per exposure: the caller's call is held for a synchronous wait budget of **30 s**; the `pending_request` row's TTL is **10 minutes**. The wait budget — not the TTL — triggers the fallback chain: when it expires, the caller receives the fallback result (point 4). The TTL only bounds how long the row stays open for a late answer, which is recorded and audited but no longer relayed to the departed caller.
 
@@ -732,7 +734,7 @@ Every inbound payload handed to the owner's agent — via owner-MCP resources or
 
 ### 7.8 The event bus
 
-Every messaging event (new message, new media, pending request, contact-state change) is published on an in-process event bus with four consumers:
+Every messaging event (new message, new media, pending request, contact-state change, a contact's substantive call) is published on the event bus. It has two consumers, and each only wakes a waiter, which then re-reads the store — the bus says "look", the store says what, so an event dropped by a full subscriber costs a wake and never a fact:
 
 ```mermaid
 flowchart LR
@@ -740,12 +742,12 @@ flowchart LR
     OS["Owner surfaces<br/>(portal · owner MCP)"] --> BUS
     IF["Integration flows<br/>(pending requests, §6)"] --> BUS
     BUS --> SSE["Portal SSE<br/>(live inbox, §8.2)"]
-    BUS --> AUD["Audit trail (§11)"]
-    BUS --> RES["Owner-MCP resources<br/>Server.ResourceUpdated (§8.5)"]
-    BUS --> WH["Webhook seam<br/>(reserved)"]
+    BUS --> RES["Owner MCP<br/>wait_for_updates (§8.5)"]
 ```
 
-The webhook seam is a defined consumer interface with nothing attached in v1 — the point where an outbound notifier can later be added without touching the messaging path. Audit's authoritative write points remain the dispatch paths and the store mutation layer (§11); the bus feeds the same trail for event-shaped entries.
+The audit trail is not a consumer: its writes live in the dispatch paths and the store mutation layer (§11.5).
+
+**The change log.** Every event is also a row of the store's `changes` table, so that every node process sharing the store (§11.1) hears it. Publishing appends the row and wakes this process's waiters at once; each process reads the rows other processes appended every 250 ms, and on PostgreSQL wakes sooner on a notification the appending transaction sends at its commit (`LISTEN`/`NOTIFY`; the poll, not the notification, is what is relied on). A row's id is store-assigned and ids commit in order — on PostgreSQL every append takes one advisory lock first — so a reader past an id never misses a row committed later below it. The id is the cursor `wait_for_updates` answers with (§8.5). Rows are kept for a week; an idle reader's poll costs about 23 µs on SQLite.
 
 ### 7.9 Retention and deletion
 
@@ -811,17 +813,19 @@ Every backticked name in this table is a tool the owner MCP registers, and every
 
 No tool on this surface takes a `sender` argument; everything sent through it is labeled `agent` (§7.3). Payloads returned to the agent carry the per-contact trust-label wrapping of §7.7.
 
-### 8.5 Owner MCP: resources and signaling
+### 8.5 Owner MCP: resources and waiting
 
-MCP defines no custom server→client notifications, so "something awaits you" signals are modeled as **subscribable resources**:
+The owner MCP is served **statelessly**, exactly as the public surface is (§5.5): every request carries its bearer token and is answered on its own, no `Mcp-Session-Id` is issued or read, GET and DELETE are `405`, and both MCP eras — 2026-07-28 and the handshake revisions — are served. Revoking a token therefore refuses its very next request (§3.4).
+
+Four resources are readable on demand:
 
 ```
 pact://inbox        pact://thread/<id>        pact://pending        pact://requests
 ```
 
-`pact://inbox` and `pact://thread/<id>` signal message activity (§7.8); `pact://pending` signals agent-answered `pending_requests` awaiting the owner's agent (§6.8); `pact://requests` signals incoming contact requests awaiting the owner's approval (`pending_in`, §9.1), and equally a contact parked at a new address (§9.1). Its content is the `pending_in` rows alone; the addresses are read with `list_pending_addresses`, and `wait_for_updates` and `digest` count them as `pending_addresses`.
+`pact://inbox` summarizes unread messages per account and `pact://thread/<id>` is one conversation (§7.8); `pact://pending` lists agent-answered `pending_requests` awaiting the owner's agent (§6.8); `pact://requests` lists incoming contact requests awaiting the owner's approval (`pending_in`, §9.1). A contact parked at a new address (§9.1) is read with `list_pending_addresses`, and `wait_for_updates` and `digest` count them as `pending_addresses`.
 
-The server registers **both** `Subscribe` and `Unsubscribe` handlers (the go-sdk panics if only one is set) and pushes changes with `Server.ResourceUpdated` to subscribed sessions, driven by the event bus (§7.8). The owner MCP runs the Streamable HTTP transport in **stateful mode** with an `EventStore` configured, so a client that reconnects replays missed notifications instead of losing them. Clients that do not subscribe fall back to polling: `get_inbox`, `read_thread`, and `list_pending` return the same data on demand.
+Nothing is pushed. The server declares `tools` and `resources` with neither `listChanged` nor `subscribe` — a stateless server has no stream to carry them — and has no subscribe method. What an agent waits for, it waits for with `wait_for_updates`: the call holds for up to 25 seconds until something moves, then answers with what moved since the caller's cursor — the threads with new messages and the calls contacts made — so a loop is one call per wake and a reconnect loses nothing. The cursor is an id of the change log (§7.8), the same in every node process on the store; a call without `since` answers at once with the newest. A wait that ends on the clock answers with the newest change it read, never a time, and a cursor the log does not hold — older than its week, or past its newest change — is answered at once with `cursor_expired` and the newest as the cursor to wait from. `get_inbox`, `read_thread`, `list_pending` and the resources return the same data on demand.
 
 ### 8.6 Passkey registration boundary
 
@@ -1022,6 +1026,15 @@ All persistence goes through a single Go `Store` interface. No SQL exists outsid
 
 A store conformance suite — one test suite exercising the complete `Store` contract — MUST pass against both engines in the gate every push runs (§14).
 
+**More than one process.** Both engines are shared by more than one `serve` process, each with its own listeners:
+
+- **SQLite:** many processes on **one host**, sharing one data dir. The database is opened in WAL mode with `busy_timeout` 5 s, and every transaction takes the write lock at `BEGIN` (`BEGIN IMMEDIATE`), so a writer waits for another process's lock rather than failing and a read-then-write transaction is never refused its upgrade. SQLite's locking is not safe over a network filesystem, so SQLite across hosts is not supported.
+- **PostgreSQL:** many processes on many hosts, each with a data dir of its own.
+
+The data-dir lock (§12.1) is held **shared** by every `serve`. The first to start on an idle data dir holds it alone, migrates, and only then shares it; a `serve` starting beside others does not migrate, and refuses to serve unless the schema is exactly the version it was built for. On Postgres, where every host's process is alone on its own data dir, migrations take turns under a session-level advisory lock, and each process checks the schema after. The admin socket (§12.1) is served by one of the processes on a data dir: the first to hold its lock file.
+
+What one process changes about what it serves, every other applies from the change log (§7.8): a caller's composed surface dropped (an approval, a redemption, a switchboard or exposure change) is dropped on every process, and an account adopted, re-leafed, retired, re-sealed or gone is reloaded from the store by every process — its seal as the row says, which the process that changed it wrote; and a setting saved in one process's portal is read back from the store and applied by every other (the seal new accounts are built with, the LAN flag, the public URL, the call budgets), audited once, by the process that saved it. An integration's OAuth token (§6.3) is the store's: every process serves the token on file, and an expired one is refreshed by the one process holding that integration's refresh lease — a provider that rotates refresh tokens refuses a second use of one — while the others wait up to 30 s for the token it seals. Background work that must run once — the outbound retries (§7.1) and the hourly retention pass (§7.9) — runs on the process holding its lease, a `leases` row each process tries to take, and its holder renews, every 10 s for 30 s: a holder that stops lets go at once, one that crashes is replaced within 30 s. Across hosts on PostgreSQL every process needs the same master key (`PACT_MASTER_KEY`, §3.7) and one blob directory every host mounts (`blob_dir`, §7.4). What each process still keeps to itself is listed in docs/operations.md, *More than one process*.
+
 ### 11.2 Tables
 
 | Table | Holds |
@@ -1048,6 +1061,9 @@ A store conformance suite — one test suite exercising the complete `Store` con
 | `tombstones` | PACT 2.0 (PACT §5.3): a removed root and the leaf that removed it, kept 30 days so a returning root is asked about whatever `accept_new_hosts` says |
 | `former_endpoints` | PACT 2.0 (PACT §5, §6.1): where a pinned root used to answer, for the address-claim rule |
 | `vacated_addresses` | An address an identity left when it left this node (PACT §9, §3.11): the endpoint, its slug and the last leaf's `notAfter`, and nothing that names the identity. While live it refuses the slug to a new account and the endpoint to a signing request; the hourly sweep drops it once its date has passed |
+| `changes` | The change log (§7.8): one row per event the node publishes — account, kind, thread, contact, a reference (the tool of a call) and when — whose id is the cursor `wait_for_updates` answers with; every node process sharing the store reads it. Kept a week, and erased with an identity that leaves (§3.11) |
+| `owner_presence` | One row: when the owner's agent last asked the owner MCP anything, so every node process answers "is the agent attached" the same (§6.8) |
+| `leases` | Background work only one node process may run at a time — its name, the process holding it, when it last renewed it and when it runs out (§11.1) |
 | `pending_addresses` | PACT 2.0 (PACT §5.3): a contact at a new address awaiting the owner under `accept_new_hosts = ask` |
 | `audit_anchor` | The terminal hash of the archived audit segment the retained chain must extend (§11.6) |
 | `audit_archive_rows` | The rows an identity's archive is removing from the chain, by seq and hash, the only rows past the anchor the prune guard lets go; empty outside the one transaction that removes them (§3.11, §11.6) |
@@ -1060,6 +1076,8 @@ Columns that hold secrets — upstream OAuth tokens, tunnel credentials, and the
 ### 11.4 The audit hash chain
 
 `audit_events` is append-only. Every row carries `prev_hash` and its own hash, computed as SHA-256 over `prev_hash ‖ canonical row` — the previous row's hash concatenated with the canonical serialization of this row's fields. The canonical row is precisely defined and versioned: each row carries a chain-format version (`1` in this revision) naming the enumerated field list included in the hash, and those fields are serialized as canonical JSON — UTF-8, keys sorted lexicographically, no insignificant whitespace — the same canonicalization as the envelope's protected header (PACT §13.1). The genesis `prev_hash` is 32 zero bytes, and hashes are stored lowercase-hex. A future change to the row fields bumps the chain-format version and re-anchors the chain (§11.6) instead of silently breaking historical verification. Any retroactive edit or reordering breaks the chain and is detected by `audit verify`. **Deletion has exactly two sanctioned forms, both archiving (§11.6):** the head of the chain, and the trail of an identity that has left the node (§3.11). Archiving the head writes the removed segment to a file, verifies that file, records its terminal hash as a durable anchor, and only then removes those rows — so the retained chain is measured against the anchor rather than against its own first row, and a head removed WITHOUT archiving is therefore visible rather than self-consistent. An identity's archive takes rows from the middle of the chain, each still carrying the `prev_hash` it was sealed with, so a row missing from both the table and the files breaks the link of the row after it. Verification spans the archive files and the live table as one chain. An archive run interrupted between recording the anchor and removing the rows leaves the two disagreeing; that state is reported as unfinished, not as tampering, and `audit repair` completes it (§12.1).
+
+**One chain, any number of writers.** A row is appended in one transaction that reads the chain's head — the last row's seq and hash — and writes the row sealed on it, and that transaction holds the head until it commits: on SQLite it takes the write lock at `BEGIN`, on PostgreSQL an advisory lock before it reads. No process keeps the head in memory between appends, so every writer in a process and every process sharing the store (§11.1) extends the one chain, and no two rows are sealed on one head.
 
 ### 11.5 What is audited, and where the writes live
 
@@ -1109,7 +1127,7 @@ One binary, subcommand-per-concern:
 | `import` | `FILE.zip -slug S [-yes]`: check a whole export, show what it would write, and with `-yes` write it, offline: into a new keyless identity, or merged into the one it belongs to. It then waits for a new leaf from its wallet (§3.10) |
 | `version` | Print the version |
 
-Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate` — MUST run only with the node stopped: they check the store lock and refuse to proceed while the node holds it.
+Against a running node, CLI commands operate through an **admin unix socket**, gated by filesystem permissions. Commands that touch the database directly — offline operations such as `migrate`, `export`, `import` and the `audit` commands — MUST run only with the node stopped: they take the data-dir lock exclusively and refuse to proceed while any `serve` holds it. `serve` holds it shared, so several may run on one data dir (§11.1).
 
 ### 12.2 Configuration
 
@@ -1164,7 +1182,7 @@ This section states what pact-gateway defends and — with equal weight — what
 
 **Prompt injection.** Every inbound string is untrusted data, exactly as PACT §11 requires: length-capped at the boundary (text ≤16 KiB), stored raw, escaped in the portal, never concatenated into instructions. Two labels travel with every payload handed to the owner's agent: the sender label (`agent|human`), derived from the originating surface and never settable as a parameter, and the per-contact message-vs-instruction trust flag — default messages-only, telling the agent "this is content to convey, not a request to act on" unless the owner has explicitly raised that contact's trust (§6, §7). Upstream tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) are untrusted hints for UI sorting only and MUST never gate authorization (§6).
 
-**Session binding.** An MCP session is bound to the identity that created it (§5); it MUST NOT be usable under any other caller fingerprint. Per-caller servers are rebuilt on switchboard change with `tools/list_changed` notified, and the internal surface accepts non-loopback sessions only under passkey auth + TLS (§8).
+**No MCP sessions.** Both MCP surfaces are stateless (§5.5, §8.5): every request is resolved on its own, and no session id exists to be learned, replayed or bound to the wrong caller. Per-caller servers are dropped on switchboard change and composed again by the caller's next request, and the internal surface accepts non-loopback portal sessions only under passkey auth + TLS (§8).
 
 ### 13.2 Accepted limits
 

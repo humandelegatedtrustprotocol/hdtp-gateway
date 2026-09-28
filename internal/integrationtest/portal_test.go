@@ -104,7 +104,7 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bus := messaging.NewBus()
+	bus := messaging.NewBus(st)
 	return &node{
 		st: st, acct: a, kp: kp, spki: spki, card: card,
 		root: w.Fpr, leafDER: h.LeafDER, endpoint: endpoint,
@@ -255,64 +255,46 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 		t.Fatalf("approved contact: %+v %v", c, err)
 	}
 
-	// 6. Fake owner-agent connects over MCP and subscribes to the inbox.
+	// 6. Fake owner-agent connects over MCP and starts waiting: its first wait hands back a cursor.
 	agentCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	updated := make(chan string, 4)
 	srv := ownermcp.NewServerWithExtra(ownermcp.Deps{
 		Store: alice.st, Msg: alice.msg, Bus: alice.bus, Contacts: alice.cm,
 	}, ownermcp.Extra{}, auth.Identity{OwnerID: alice.owner.ID})
-	ownermcp.ForwardBus(agentCtx, srv, alice.bus)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(agentCtx, st, nil); err != nil {
 		t.Fatal(err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "owner-agent", Version: "0"}, &mcp.ClientOptions{
-		ResourceUpdatedHandler: func(_ context.Context, r *mcp.ResourceUpdatedNotificationRequest) {
-			updated <- r.Params.URI
-		},
-	})
-	// Subscribe returns when subscriptions/listen is SENT; the server holds the subscription once
-	// it has handled it, and says so with subscriptions/acknowledged. A message recorded before
-	// that is signalled to nobody (the cause of this test's "agent never notified" under load).
-	acked := make(chan struct{}, 1)
-	client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(mctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method == "notifications/subscriptions/acknowledged" {
-				select {
-				case acked <- struct{}{}:
-				default:
-				}
-			}
-			return next(mctx, method, req)
-		}
-	})
-	cs, err := client.Connect(agentCtx, ct, nil)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "owner-agent", Version: "0"}, nil).Connect(agentCtx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cs.Close()
-	if err := cs.Subscribe(ctx, &mcp.SubscribeParams{URI: ownermcp.URIInbox}); err != nil {
-		t.Fatal(err)
+	var start struct {
+		Cursor int64 `json:"cursor"`
 	}
-	select {
-	case <-acked:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the inbox subscription was never acknowledged")
+	if err := json.Unmarshal([]byte(callTool(t, cs, "wait_for_updates", map[string]any{"account_id": alice.acct.ID})), &start); err != nil {
+		t.Fatalf("first wait: %v", err)
 	}
 
-	// 7. Bella's message lands → the agent is notified, reads, and answers.
+	// 7. Bella's message lands while the agent waits → the wait answers with it; the agent reads
+	// and answers.
+	woke := make(chan string, 1)
+	go func() {
+		res, err := cs.CallTool(agentCtx, &mcp.CallToolParams{Name: "wait_for_updates",
+			Arguments: map[string]any{"account_id": alice.acct.ID, "since": start.Cursor, "timeout_sec": 25}})
+		if err != nil || len(res.Content) == 0 {
+			woke <- ""
+			return
+		}
+		woke <- res.Content[0].(*mcp.TextContent).Text
+	}()
 	if _, err := alice.msg.Record(ctx, alice.acct.ID, bella.kp.Fingerprint, messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "b1", Text: "hi alice, dinner friday?", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case uri := <-updated:
-		if uri != ownermcp.URIInbox {
-			t.Fatalf("updated uri: %s", uri)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("agent never notified of the new message")
+	if got := <-woke; !strings.Contains(got, `"threads"`) || strings.Contains(got, `"timed_out":true`) {
+		t.Fatalf("the agent's wait did not answer with the new message: %s", got)
 	}
 	text := callTool(t, cs, "get_inbox", map[string]any{"account_id": alice.acct.ID})
 	if !strings.Contains(text, `"unread":1`) {

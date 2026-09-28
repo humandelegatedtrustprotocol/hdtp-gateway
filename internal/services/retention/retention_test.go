@@ -30,7 +30,7 @@ func TestTheSweeperReturnsOnlyWhenItsPassHasAndAStoppingNodeIsNotAFailure(t *tes
 	go func() {
 		defer close(returned)
 		Run(ctx, nil, st, &core.Config{DataDir: dir}, func(string, string, string) {}, &stderr,
-			func(context.Context) { close(entered); <-release }, nil, nil)
+			func(context.Context) { close(entered); <-release }, nil, nil, nil)
 	}()
 
 	<-entered // the startup pass is running, inside the leaf-retirement step
@@ -127,7 +127,7 @@ func TestTheSweepExpiresRequestsNobodyAnswered(t *testing.T) {
 				dropped = append(dropped, fpr)
 				mu.Unlock()
 				return nil
-			})
+			}, nil)
 	}()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -181,7 +181,7 @@ func TestTheSweepDropsAReservationOnlyOnceItsLeafHasExpired(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		Run(ctx, settings.New(st, nil, nil, nil), st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard, nil, nil, nil)
+		Run(ctx, settings.New(st, nil, nil, nil), st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard, nil, nil, nil, nil)
 	}()
 	defer func() { cancel(); <-done }()
 	deadline := time.Now().Add(10 * time.Second)
@@ -197,5 +197,34 @@ func TestTheSweepDropsAReservationOnlyOnceItsLeafHasExpired(t *testing.T) {
 			t.Fatalf("after the sweep the reservations are %+v, want only the live one", left)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The retention pass runs only on the process that holds its lease (SPEC §11.1): at start, a
+// process that does not lead sweeps nothing, and one that leads sweeps.
+func TestTheRetentionPassRunsOnlyWhileItLeads(t *testing.T) {
+	dir := t.TempDir()
+	st := migrated(t, dir)
+	defer st.Close()
+	for _, lead := range []bool{false, true} {
+		var swept sync.WaitGroup
+		ran := make(chan struct{}, 1)
+		ctx, cancel := context.WithCancel(context.Background())
+		swept.Go(func() {
+			Run(ctx, nil, st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard,
+				func(context.Context) { ran <- struct{}{} }, nil, nil,
+				func(context.Context) bool { return lead })
+		})
+		var did bool
+		select {
+		case <-ran:
+			did = true
+		case <-time.After(time.Second):
+		}
+		cancel()
+		swept.Wait()
+		if did != lead {
+			t.Fatalf("leading %v, the pass at start ran %v", lead, did)
+		}
 	}
 }

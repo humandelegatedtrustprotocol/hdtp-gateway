@@ -69,38 +69,37 @@ func switchboardEnv(t *testing.T) (*http.ServeMux, *store.SQLite, *public.Pool, 
 	return mux, st, pool, aud, a.ID
 }
 
-func TestToggleFlipPersistsAuditsAndNotifiesLiveSession(t *testing.T) {
+// A switchboard flip persists, is audited, and reaches the contact's next request: the portal
+// invalidates the composed server, so the next request composes the narrowed surface.
+func TestToggleFlipPersistsAuditsAndReachesTheNextRequest(t *testing.T) {
 	mux, st, pool, aud, acct := switchboardEnv(t)
 	ctx := context.Background()
 
-	// live MCP session for alina
-	srv, err := pool.ServerFor(ctx, acct, "sha256:alina")
-	if err != nil {
-		t.Fatal(err)
+	// one request's tools/list: a session of its own over the server composed for alina now
+	listTools := func() []*mcp.Tool {
+		t.Helper()
+		srv, err := pool.ServerFor(ctx, acct, "sha256:alina")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ct, stt := mcp.NewInMemoryTransports()
+		srvSession, err := srv.Connect(ctx, stt, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx, ct, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { cs.Close(); srvSession.Wait() }()
+		res, err := cs.ListTools(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Tools
 	}
-	ct, stt := mcp.NewInMemoryTransports()
-	srvSession, err := srv.Connect(ctx, stt, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer srvSession.Wait()
-	changed := make(chan struct{}, 2)
-	client := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, &mcp.ClientOptions{
-		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
-			select {
-			case changed <- struct{}{}:
-			default:
-			}
-		},
-	})
-	cs, err := client.Connect(ctx, ct, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cs.Close()
-	res, _ := cs.ListTools(ctx, nil)
-	if len(res.Tools) != 2 {
-		t.Fatalf("precondition: %d tools", len(res.Tools))
+	if n := len(listTools()); n != 2 {
+		t.Fatalf("precondition: %d tools", n)
 	}
 
 	// flip the switchboard: revoke calendar.book via form POST
@@ -138,11 +137,9 @@ func TestToggleFlipPersistsAuditsAndNotifiesLiveSession(t *testing.T) {
 		!strings.HasSuffix(rows[0], " ok") {
 		t.Fatalf("audit rows: %v", rows)
 	}
-	// live session notified and sees the narrowed surface
-	<-changed
-	res2, _ := cs.ListTools(ctx, nil)
-	if len(res2.Tools) != 1 || res2.Tools[0].Name != "send_message" {
-		t.Fatalf("live session still sees: %+v", res2.Tools)
+	// the next request sees the narrowed surface
+	if tools := listTools(); len(tools) != 1 || tools[0].Name != "send_message" {
+		t.Fatalf("the next request still sees: %+v", tools)
 	}
 }
 

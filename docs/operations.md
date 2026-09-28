@@ -106,6 +106,14 @@ won. Memory is bounded: a bucket that has refilled is exactly what a missing one
 starts as, so it is dropped (checked once a minute), and a caller cycling
 addresses or fingerprints cannot grow the table past who called lately.
 
+## Connection bounds
+
+The public listener holds at most 1,024 connections open (SPEC §5.7); one more is closed before
+its TLS handshake, and the audit trail gets one `listener_full` row a minute while that continues,
+with how many there were. Requests have 10 s for their headers, 60 s in all, 75 s for the answer,
+and an idle connection is kept 120 s. Rate limits per address or for the whole node are not the
+node's: put them where the traffic arrives — the edge, or a proxy in front of the node.
+
 ## The store, when it is large
 
 Nothing here needs setting. It is written down so that what the node does to its database is
@@ -121,7 +129,7 @@ not a surprise, and so that the one knob that exists is findable.
   `pool_min_conns`, `pool_max_conn_lifetime`) to `postgres_dsn`.
 - **Every hour** the node removes what has outlived its own window, whatever retention an account
   has set: idempotency records of sealed calls, which a node would otherwise keep one of for every
-  call it ever took, and owner sessions nobody came back to. With a retention window set it also
+  call it ever took, owner sessions nobody came back to, and change-log rows older than a week. With a retention window set it also
   removes the messages, threads and media past it.
 - **Every statement the store can run is checked at build time** to have an index on any table
   that grows (`TestEveryQueryHasAPlan`, both engines). To see the numbers on your own hardware:
@@ -135,6 +143,39 @@ PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench
   of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), three rounds interleaved, failing
   if the best of three takes more than 6 times as long for 4 times the threads, in reading or in
   writing (linear is 4); the pre-push hook runs `make scale` last, after every other step.
+
+## More than one process
+
+Several `serve` processes can share one store, each with its own `internal_bind` and `public_bind`
+behind whatever balances between them (SPEC §11.1):
+
+- **SQLite:** on one host, all with the same `data_dir`. Not across hosts, and not on a network
+  filesystem: SQLite's locking does not hold there. One limit of this profile: `Scrub`, the
+  checkpoint that clears the write-ahead log after a leaf key is destroyed, cannot finish while
+  another process is reading the file. It says so — a warning on an install or a signing request,
+  an error on a retirement or a leave — and the next scrub that finishes clears the log; until
+  then the destroyed key's bytes may remain in it. Postgres has no scrub at all (SPEC §3.9).
+- **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`. Give
+  every host the same master key in `PACT_MASTER_KEY` (a host that generates a `keyring.key` of
+  its own cannot open a key another sealed), and point `blob_dir` (`PACT_BLOB_DIR`) at storage
+  every host mounts, or media stored through one host is missing on the others.
+
+The first `serve` on an idle data dir migrates; the others check that the schema is the one they
+were built for and refuse to start if it is not. To migrate, stop every process on the data dir
+(on Postgres, every process) and start the new binary. `migrate`, `export`, `import` and the
+`audit` commands refuse to run while any `serve` holds the data dir. One process serves the admin
+socket and `serve` prints `admin: ... is served by another pact-gateway process` on the others;
+the setup URL a first run prints works on the portal of the process that printed it. The outbound
+retries and the hourly retention pass run on one process at a time: the one holding the work's
+lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
+crashes is replaced within 30 s.
+
+What each process still keeps to itself, and so what is not yet shared between them:
+
+- the §12 rate buckets (each process grants the whole budget);
+- integrations: every process connects each one itself, so a stdio integration runs a child per
+  process. An OAuth token is one for them all: the store holds it, and an expired one is refreshed
+  by the one process holding that integration's refresh lease while the others wait for it.
 
 ## Export and import
 
