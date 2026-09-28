@@ -1201,6 +1201,10 @@ func (n *Node) mcpHandler() http.Handler {
 		// attacker's name and never reaches a Host check. The owner MCP is plain
 		// HTTP on loopback and KEEPS the protection (§8.3, §8.4).
 		DisableLocalhostProtection: true,
+		// The body cap is CapBody's (New), and SPEC §5.7's number. Left at zero the SDK imposes its
+		// own default (4 MiB), under the 8 MiB §5.7 sizes for 5 MiB of inline media, and a legitimate
+		// send_media was refused by a limit no document named.
+		MaxRequestBodyBytes: MaxBodyBytes,
 	})
 	return n.resolveTransport(n.bindSession(inner))
 }
