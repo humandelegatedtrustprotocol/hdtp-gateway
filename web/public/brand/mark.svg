@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="PACT">
-  <defs><clipPath id="pa"><rect x="6" y="6" width="34" height="34" rx="11"/></clipPath></defs>
-  <rect x="6" y="6" width="34" height="34" rx="11" fill="#0B100E"/>
-  <rect x="24" y="24" width="34" height="34" rx="11" fill="#0B100E"/>
-  <rect x="24" y="24" width="34" height="34" rx="11" fill="#2BD4A4" clip-path="url(#pa)"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><defs><mask id="pact-protocol-m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120"><rect width="120" height="120" fill="white"/><path d="M34 33 Q60 80 86 33" fill="none" stroke="black" stroke-width="7" stroke-linecap="round"/><path d="M34 33 C34 56 27 70 14 78 M86 33 C86 56 93 70 106 78" fill="none" stroke="black" stroke-width="6.5" stroke-linecap="round"/><path d="M34 27 V90 M86 27 V90" stroke="black" stroke-width="9" stroke-linecap="round"/><path d="M14 78 H106" stroke="black" stroke-width="7" stroke-linecap="round"/></mask></defs><rect x="8" y="8" width="104" height="104" rx="26" fill="#F38020" mask="url(#pact-protocol-m)"/></svg>
