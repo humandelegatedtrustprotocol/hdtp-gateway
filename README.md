@@ -261,7 +261,8 @@ them — stay in the live trail for `audit_archive_after` (90 days unless you se
 `PACT_AUDIT_ARCHIVE_AFTER=30d`, or `audit_archive_after` in the config file), long enough to review
 the leave on the portal's audit page. Then the hourly sweep moves every one of them to
 `<data_dir>/audit-archive/<account-id>-<first>-<last>.jsonl` (mode 0600) and writes one
-`audit_archive` row that names the segment and its hashes, not the identity. `pact-gateway audit
+`audit_archive` row that names the segment and its hashes, not the identity. (Rows you had
+already moved to the head archive with `audit archive -through N` stay in that file.) `pact-gateway audit
 verify` (node stopped) checks the table and the archives as one chain and reports a changed or
 missing archive as broken. The archive is kept. If law requires its rows to go,
 `pact-gateway audit erase-archive -file <name>` keeps only each row's seq and hashes, so the chain

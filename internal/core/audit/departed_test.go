@@ -694,6 +694,27 @@ func TestHeadAndIdentityArchivesVerifyTogether(t *testing.T) {
 				if got := naming(n.live(), alice.ID); len(got) != 0 {
 					t.Fatalf("alice's rows are still live: %+v", got)
 				}
+				// What SPEC §3.11 says of the head archive: a row it took before the period ended
+				// stays in it; the identity's archive takes only what was still in the table.
+				var inHead []audit.Event
+				for _, f := range files {
+					raw, err := os.Open(f)
+					if err != nil {
+						t.Fatal(err)
+					}
+					ev, err := audit.ImportJSONL(raw)
+					raw.Close()
+					if err != nil {
+						t.Fatal(err)
+					}
+					inHead = append(inHead, naming(ev, alice.ID)...)
+				}
+				if order == "head first" && len(inHead) == 0 {
+					t.Fatal("the head archive took none of alice's rows: this case proves nothing")
+				}
+				if order == "identity first" && len(inHead) != 0 {
+					t.Fatalf("the head archive holds %d of alice's rows after her own archive took them", len(inHead))
+				}
 			})
 		}
 	}
