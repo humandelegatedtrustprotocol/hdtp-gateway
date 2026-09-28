@@ -380,6 +380,11 @@ type Store interface {
 // Lifecycle opens, migrates, closes and transacts: what every engine does before it holds anything.
 type Lifecycle interface {
 	Migrate(ctx context.Context) error
+	// SchemaCurrent reports whether the store's schema is exactly the one this binary migrates
+	// to: an error names the two versions when it is behind (a migration has not run) or ahead (a
+	// newer binary migrated it). A `serve` that shares the data dir and did not migrate checks it
+	// before serving (SPEC §11.1).
+	SchemaCurrent(ctx context.Context) error
 	Close() error
 
 	// Atomically runs fn against a Store whose every write is ONE transaction: all of it lands,
