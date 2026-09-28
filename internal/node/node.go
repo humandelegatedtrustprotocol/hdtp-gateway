@@ -102,10 +102,6 @@ type Options struct {
 	// default (SPEC §7.4). Read at build time, per account.
 	Quota func(accountID string) int64
 
-	// Flood overrides the public listener's flood limits (SPEC §5.7); nil runs
-	// public.DefaultFloodLimits.
-	Flood *public.FloodLimits
-
 	// Bus is the node-wide event bus (SPEC §7.8). Supplying it lets the portal
 	// and the owner MCP see the same events the public surface publishes; nil
 	// makes one, reachable through Bus().
@@ -160,8 +156,8 @@ type Node struct {
 	unavailable map[string]string
 
 	limiter *public.Limiter
-	// flood bounds the listener before a request costs anything (SPEC §5.7).
-	flood *public.Flood
+	// conns caps the connections the listener holds open (SPEC §5.7).
+	conns *public.ConnCap
 
 	lnMu sync.Mutex
 	ln   net.Listener
@@ -311,17 +307,8 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		Audit:         o.audit,
 	}.Middleware(h)
 	h = public.CapBody(h, MaxBodyBytes)
-	// Outermost: a request over the flood limits is refused before its body is read or its
-	// client chain validated (withFacts, inside).
-	limits := public.DefaultFloodLimits
-	if o.Flood != nil {
-		limits = *o.Flood
-	}
-	n.flood = &public.Flood{
-		Limits: limits, PerIPConns: o.Adapter == "" || o.Adapter == "direct",
-		SourceIP: n.srv.SourceIP, Audit: o.audit, Now: o.Now,
-	}
-	n.handler = n.flood.Handler(h)
+	n.handler = h
+	n.conns = &public.ConnCap{Max: public.DefaultMaxConns, Audit: o.audit, Now: o.Now}
 	return n, nil
 }
 
@@ -1294,8 +1281,8 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 			return fmt.Errorf("node: listen %s: %w", n.cfg.PublicBind, err)
 		}
 	}
-	// The flood limits sit beneath TLS: a connection they refuse is closed before a handshake.
-	tlsLn := tls.NewListener(n.flood.Listener(ln), n.TLSConfig())
+	// The connection cap sits beneath TLS: a connection past it is closed before a handshake.
+	tlsLn := tls.NewListener(n.conns.Listener(ln), n.TLSConfig())
 	srv := &http.Server{
 		Handler: n.handler,
 		// SPEC §5.7. The headers in 10 s; the whole request in 60 s, which an 8 MiB body
