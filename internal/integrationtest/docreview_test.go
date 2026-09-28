@@ -113,3 +113,16 @@ func TestOperationsStatesTheBoundTheScaleGateHolds(t *testing.T) {
 		t.Fatalf("docs/operations.md does not say %q", want)
 	}
 }
+
+// L14, until the owner decides it. A leave keeps the audit trail's rows of the identity that left
+// (TestAccountLeaveOnARunningNode holds which), and that is a divergence from PACT §9's "keep
+// nothing beyond what law compels". The three documents a reader goes to name it, with its reason.
+func TestTheAuditTrailKeptAtALeaveIsNamedAsADivergence(t *testing.T) {
+	root := repoRoot(t)
+	for _, doc := range []string{"SPEC.md", "README.md", "docs/conformance.md"} {
+		text := readDoc(t, root, doc)
+		if !strings.Contains(text, "keep nothing beyond what law compels") || !strings.Contains(text, "append-only") || !strings.Contains(text, "divergence") {
+			t.Errorf("%s does not name the audit trail a leave keeps as a divergence from PACT §9, with its reason", doc)
+		}
+	}
+}
