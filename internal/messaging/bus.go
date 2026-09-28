@@ -1,9 +1,9 @@
 package messaging
 
-// Bus is the internal event fan-out (SPEC §7.6): messages, contact requests, and
-// pending agent-answered calls flow to the portal's SSE streams, the owner MCP's
-// resource subscriptions, and the audit trail. Publishing never blocks: a slow
-// subscriber drops events rather than stalling dispatch.
+// Bus is the internal event fan-out (SPEC §7.8): messages, contact requests, and
+// pending agent-answered calls wake the portal's SSE streams and the owner MCP's
+// `wait_for_updates`, each of which re-reads the store. Publishing never blocks: a
+// slow subscriber drops events rather than stalling dispatch.
 
 import "sync"
 

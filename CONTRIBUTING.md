@@ -179,5 +179,5 @@ make screenshots
   failing has not been shown to test anything; where it is practical, break the fix
   and watch the test fail before you submit.
 - If you touch a security path — `policy.Allow`, tier resolution, envelope validation
-  order, session binding, the SSRF guard, audit writes, input caps — say so explicitly
+  order, the SSRF guard, audit writes, input caps — say so explicitly
   in the description. Those get read closely.

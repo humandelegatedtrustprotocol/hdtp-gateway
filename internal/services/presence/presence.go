@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/integrations"
 )
@@ -33,33 +31,23 @@ func NewAgentAnswered(st store.Store, audit func(action, resource, outcome strin
 
 // Tracker answers "is the owner's agent attached right now?" (SPEC §6.8).
 //
-// The owner MCP is account-agnostic — the token identity scopes each call, not
-// the server — so this is deliberately a node-wide answer and the account id is
-// ignored. Servers are registered as they are created and pruned once they hold
-// no sessions, so a reconnecting agent does not accumulate entries.
+// The owner MCP is stateless (SPEC §8.5): there is no session to be attached by, only requests.
+// An agent that is attached is one that keeps asking — `wait_for_updates` in a loop holds each
+// call for at most its timeout — so the agent counts as present while its last request is less
+// than Window old. The owner MCP is account-agnostic — the token identity scopes each call, not
+// the server — so this is deliberately a node-wide answer and the account id is ignored.
 type Tracker struct {
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 
-	mu      sync.Mutex
-	entries []*presenceEntry
+	mu   sync.Mutex
+	last time.Time
 }
 
-type presenceEntry struct {
-	srv *mcp.Server
-	// added is when the server was registered. A server is created by getServer
-	// BEFORE the SDK attaches its session, so pruning on "has no sessions" alone
-	// would discard a live agent in the gap between the two — and that agent
-	// would then never count. Give a new server a grace period to acquire one.
-	added time.Time
-	// saw records that this server HAS held a session. Once true, "no sessions"
-	// means the agent left rather than has not arrived, and it can go at once.
-	saw bool
-}
-
-// presenceGrace is how long a newly created server may hold no session before it
-// is treated as abandoned.
-const presenceGrace = time.Minute
+// Window is how long after its last owner-MCP request the agent still counts as attached. It is
+// longer than the longest a `wait_for_updates` may hold one call (ownermcp.WaitMaxSec, held to
+// this by a test), so an agent waiting in a loop never drops out between two of its calls.
+const Window = time.Minute
 
 func (p *Tracker) now() time.Time {
 	if p.Now != nil {
@@ -68,33 +56,16 @@ func (p *Tracker) now() time.Time {
 	return time.Now()
 }
 
-func (p *Tracker) Add(s *mcp.Server) {
+// Seen records an authenticated owner-MCP request.
+func (p *Tracker) Seen() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.entries = append(p.entries, &presenceEntry{srv: s, added: p.now()})
+	p.last = p.now()
 }
 
+// Any reports whether an owner-MCP request arrived within Window.
 func (p *Tracker) Any() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	now := p.now()
-	live := p.entries[:0]
-	found := false
-	for _, e := range p.entries {
-		has := false
-		for range e.srv.Sessions() {
-			has = true
-			break
-		}
-		switch {
-		case has:
-			e.saw = true
-			live = append(live, e)
-			found = true
-		case !e.saw && now.Sub(e.added) < presenceGrace:
-			live = append(live, e) // still arriving
-		}
-	}
-	p.entries = live
-	return found
+	return !p.last.IsZero() && p.now().Sub(p.last) < Window
 }

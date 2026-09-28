@@ -1,10 +1,8 @@
-// The owner's agent is not always connected, and a notification it can miss is
-// not a notification. SPEC §7.8's bus already pushes `ResourceUpdated` to
-// SUBSCRIBED sessions, which serves an agent that happens to be attached and
-// nothing else: an agent that reconnects has no way to ask what changed while
-// it was away, and the bus is explicitly "a hint, not the ledger".
+// The owner's agent is not always connected, and the owner MCP pushes nothing
+// (SPEC §8.5): it is stateless, so there is no stream to push on, and the bus
+// is explicitly "a hint, not the ledger" (§7.8).
 //
-// These two tools are the agent's side of that. `wait_for_updates` blocks until
+// These two tools are how the agent finds out instead. `wait_for_updates` blocks until
 // something happens (or the timeout elapses) and answers with what changed since
 // the caller's cursor, so a loop is one call and a restart loses nothing.
 // `digest` answers the end-of-day question — what arrived, from whom, and what

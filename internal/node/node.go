@@ -156,10 +156,6 @@ type Node struct {
 	unavailable map[string]string
 
 	limiter *public.Limiter
-	// binder pins an MCP session id to the identity that created it (SPEC §5.6).
-	// Without it a caller who gains or changes identity mid-connection keeps the
-	// surface the session was composed for.
-	binder *public.SessionBinder
 
 	lnMu sync.Mutex
 	ln   net.Listener
@@ -302,7 +298,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	if o.RateBudget != nil {
 		n.limiter.Budget = func(k public.LimitKey) int { return o.RateBudget(k.Kind) }
 	}
-	n.binder = public.NewSessionBinder()
 	h := n.srv.Handler()
 	h = public.LANGuard{
 		Adapter: o.Adapter, AllowFn: n.LANAllowed,
@@ -805,8 +800,8 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 	a.seal.Store(eff)
 	// The served surface must move with the policy: at `none` sealed_call
 	// leaves tools/list (PACT §13.4), otherwise it is (re)installed — and the
-	// cached per-caller servers are reconciled so live sessions see
-	// tools/list_changed, the same mechanics integration tools use.
+	// cached per-caller servers are dropped so the next request lists the
+	// change, the same mechanics integration tools use.
 	if a.reg != nil {
 		if eff == core.SealNone {
 			a.reg.Replace(sealedGroup, nil)
@@ -1165,9 +1160,10 @@ func indexByte(s string, b byte) int {
 /* -------------------------------- routes -------------------------------- */
 
 // mcpHandler serves /a/{slug}/mcp: the per-caller MCP server for the account
-// the path names and the identity the transport earned.
+// the path names and the identity the transport earned, stateless (public.StatelessMCP): every
+// request resolves its caller afresh, and no session outlives it (SPEC §5.5).
 func (n *Node) mcpHandler() http.Handler {
-	inner := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	inner := public.StatelessMCP(func(r *http.Request) *mcp.Server {
 		slug := r.PathValue("slug")
 		n.mu.RLock()
 		a := n.bySlug[slug]
@@ -1188,10 +1184,10 @@ func (n *Node) mcpHandler() http.Handler {
 			return nil
 		}
 		return srv
-	}, &mcp.StreamableHTTPOptions{
+	}, mcp.StreamableHTTPOptions{
 		// The SDK auto-enables DNS-rebinding protection whenever the accepted
 		// connection's LOCAL address is loopback and Host is not
-		// (mcp/streamable.go:326). That is exactly what EVERY reverse tunnel
+		// (go-sdk v1.8.0 mcp/streamable.go:321). That is exactly what EVERY reverse tunnel
 		// produces — the connector runs on this host and dials this bind — so it
 		// refused every tunnelled MCP call, in direct mode as much as edge.
 		//
@@ -1206,12 +1202,12 @@ func (n *Node) mcpHandler() http.Handler {
 		// send_media was refused by a limit no document named.
 		MaxRequestBodyBytes: MaxBodyBytes,
 	})
-	return n.resolveTransport(n.bindSession(inner))
+	return n.resolveTransport(inner)
 }
 
 // resolveTransport runs the pin checks of PACT §14.3 and §5.3 on a 2.0 client
-// chain ONCE per request, before the per-caller server is composed and the
-// session bound, and puts the outcome in the context. Without it the
+// chain ONCE per request, before the per-caller server is composed, and puts the
+// outcome in the context. Without it the
 // transport path composed the contact's surface for any chain that validated
 // — a former host's still-valid leaf, a stolen and since-renewed one, a leaf
 // for an address the owner has not approved — checks the sealed path always
@@ -1233,85 +1229,6 @@ func (n *Node) resolveTransport(next http.Handler) http.Handler {
 		tc := a.ident.ResolveTransport(r.Context(), f)
 		next.ServeHTTP(w, r.WithContext(public.WithTransportCaller(r.Context(), tc)))
 	})
-}
-
-// bindSession enforces SPEC §5.6 — "a session belongs to the identity that
-// created it" — on EVERY request.
-//
-// This check used to live inside the getServer callback, where it never ran.
-// The go-sdk calls getServer ONLY for a request carrying no session id: one that
-// presents an id goes straight to the cached session, and GET and DELETE never
-// call it at all. So the guard fired only in the case where it did not apply,
-// and a caller who learned a session id was served the surface that session was
-// composed for — holding no certificate of their own. The per-caller server
-// closes over the identity it was composed for, so that is a full tier grant.
-//
-// Binding happens at CREATION, by observing the id the SDK writes into the
-// response, not on the first follow-up request. Binding on the follow-up would
-// be a race worth winning: whoever sent the next request first would claim the
-// session, so an attacker could bind a legitimate caller's session to itself and
-// lock the rightful owner of it out.
-func (n *Node) bindSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fpr := public.FactsFrom(r.Context()).ClientCertFingerprint
-		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
-			// The session belongs to the identity the server was composed
-			// for — the resolved one, not the certificate's root.
-			fpr = tc.Fingerprint
-		}
-		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
-			if !n.binder.Bind(sid, fpr) {
-				n.opts.audit("session_binding", "session:"+sid, "identity_mismatch")
-				// The same answer the SDK gives for a session it does not know.
-				// Session state must never substitute for identity resolution.
-				http.NotFound(w, r)
-				return
-			}
-			if r.Method == http.MethodDelete {
-				// The session is ending; stop tracking it, or the map grows one
-				// entry per session for the life of the process.
-				defer n.binder.Release(sid)
-			}
-			next.ServeHTTP(w, r)
-			return
-		}
-		next.ServeHTTP(&bindingWriter{ResponseWriter: w, bind: func(sid string) {
-			n.binder.Bind(sid, fpr)
-		}}, r)
-	})
-}
-
-// bindingWriter binds a newly minted session to the identity that created it,
-// at the moment the SDK announces the id in the response headers.
-type bindingWriter struct {
-	http.ResponseWriter
-	bind  func(sid string)
-	wrote bool
-}
-
-func (w *bindingWriter) WriteHeader(code int) {
-	if !w.wrote {
-		w.wrote = true
-		if sid := w.Header().Get("Mcp-Session-Id"); sid != "" {
-			w.bind(sid)
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *bindingWriter) Write(b []byte) (int, error) {
-	if !w.wrote {
-		w.WriteHeader(http.StatusOK)
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-// Flush keeps the streaming transport working: the SDK writes SSE through this
-// wrapper, and a response that never flushes is a session that never answers.
-func (w *bindingWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 // LandingDeps is what the node gives the invite landing page (SPEC §9.2): the store, a card signed

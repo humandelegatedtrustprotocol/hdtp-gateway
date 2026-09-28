@@ -112,8 +112,7 @@ each node is stopped and `audit verify` must report the chain intact). S9 makes 
 same check on its own node after its probes. It is not run after every scenario.
 
 Designed and never built, and removed from the code on 2026-09-27 rather than kept as
-checks that report nothing: no session-binding growth (P12-10, unit-pinned in the node),
-nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
+checks that report nothing: nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
 after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
 PACT 1.x.
 
@@ -193,7 +192,7 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
 - Within the suites that do exist, these cases were listed and are not exercised: S7's `kill -9`
   mid-send and the retry schedule (P12-03); S8's message expiry, queue retention, invite expiry
   and setup-token expiry (S8 proves only that the guest clock travels and the node runs at it);
-  S9's session-id replay (P11-05), envelope tampering and audit tamper → `repair` refuses
+  S9's envelope tampering and audit tamper → `repair` refuses
   (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
   each page's light and dark renders with each other).
 - **S6** was relay semantics, withdrawn with PACT 1.x on 2026-09-18; its number is not reused.

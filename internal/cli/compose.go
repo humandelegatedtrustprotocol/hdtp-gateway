@@ -251,23 +251,27 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/owner/mcp", ownerMCPHandler(ctx, nd, st, tokens, authSvc, chain, agent, presence, auditFn))
+	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, tokens, authSvc, chain, agent, presence, auditFn))
 	mux.Handle("/", internalui.HandlerWithAuth(st, setup, authDeps, mounts...))
 	return mux
 }
 
-// ownerMCPHandler serves the owner's agent surface: one MCP server per bearer
-// identity, so a token scoped to one account can never reach another (SPEC §8.4).
-func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
+// ownerMCPHandler serves the owner's agent surface: one MCP server per request, composed for the
+// bearer identity that request carries, so a token scoped to one account can never reach another
+// (SPEC §8.4). Stateless like the public surface (public.StatelessMCP, SPEC §8.5): what an agent
+// waits for, it asks for with `wait_for_updates`.
+func ownerMCPHandler(nd *node.Node, st store.Store,
 	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationchain.Chain,
 	agent *integrations.AgentAnswered, presence *presence.Tracker,
 	auditFn func(action, resource, outcome string)) http.Handler {
 
-	inner := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	inner := public.StatelessMCP(func(r *http.Request) *mcp.Server {
 		ident, ok := ownerIdentity(r, tokens)
 		if !ok {
 			return nil
 		}
+		// The agent is attached for as long as it keeps asking (SPEC §6.8).
+		presence.Seen()
 		// Account-agnostic services: every method takes the account id, and the
 		// token identity is what scopes it (SPEC §8.4).
 		srv := ownermcp.NewServerWithExtra(ownermcp.Deps{
@@ -299,17 +303,8 @@ func ownerMCPHandler(ctx context.Context, nd *node.Node, st store.Store,
 			// The switchboard the portal offers, so set_permissions can grant an integration.
 			ServedPermissions: nd.ServedPermissions,
 		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
-		ownermcp.ForwardBus(ctx, srv, nd.Bus())
-		presence.Add(srv)
-		auditFn("owner_mcp", "owner:"+ident.OwnerID, "connected")
 		return srv
-	}, &mcp.StreamableHTTPOptions{
-		// SPEC §8.5: stateful, with an EventStore, "so a client that reconnects
-		// replays missed notifications instead of losing them". Without one, an
-		// owner's agent that dropped its connection silently missed every
-		// resource notification sent while it was away — the exact case
-		// subscriptions exist for.
-		EventStore: mcp.NewMemoryEventStore(nil),
+	}, mcp.StreamableHTTPOptions{
 		// Bounded by CapBody below; the SDK's own limit is set to the same number so there is one.
 		MaxRequestBodyBytes: OwnerMCPMaxBodyBytes,
 	})
@@ -337,15 +332,14 @@ func ownerIdentity(r *http.Request, tokens *auth.TokenService) (auth.Identity, b
 	return ident, true
 }
 
-// requireOwnerToken validates the bearer token on EVERY request.
+// requireOwnerToken validates the bearer token on EVERY request, before the MCP handler runs.
 //
-// The check used to live only in the SDK's getServer callback, which runs solely
-// for a request carrying no session id. So an established session was never
-// re-checked: `token revoke` did not end it, though SPEC §3.4 says revocation
-// "takes effect immediately", and anyone holding the session id could drive the
-// owner MCP with no Authorization header at all. This endpoint is deliberately
-// mounted outside the portal's session and CSRF layers, so the bearer check is
-// the only gate there is — and a gate that runs once is not a gate.
+// The check used to live only where a session began, so an established session was never
+// re-checked: `token revoke` did not end it, though SPEC §3.4 says revocation "takes effect
+// immediately" (P11-11). The surface is stateless now (SPEC §8.5), and the check stays here, ahead
+// of the SDK, so a request without a valid token is refused before any server is composed. This
+// endpoint is deliberately mounted outside the portal's session and CSRF layers, so the bearer
+// check is the only gate there is.
 func requireOwnerToken(tokens *auth.TokenService, auditFn func(action, resource, outcome string), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		presented := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer"))
