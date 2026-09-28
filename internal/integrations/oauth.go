@@ -24,6 +24,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
@@ -98,36 +99,98 @@ func openStored(st store.IntegrationStore, kr Sealer, integrationID string) (*st
 	return &blob, nil
 }
 
-// persistingSource wraps a TokenSource and seals every newly minted token —
-// this is where refresh rotation lands in the store.
+// persistingSource is an integration's token as every node process sharing the store sees it
+// (SPEC §6.3, §11.1). The store holds the one current token: a valid one is served as it is, and an
+// expired one is refreshed by exactly one process — the one holding the integration's refresh
+// lease — which seals the new token; the others wait for it and serve what it sealed. A provider
+// that rotates refresh tokens refuses the second use of one (invalid_grant), so two processes
+// refreshing the same token would leave one of them, and then the integration, needing a new
+// sign-in. Without a config (an older blob) the token serves until it expires, and the 401 then
+// starts an ordinary authorization.
 type persistingSource struct {
-	inner         oauth2.TokenSource
 	st            store.IntegrationStore
 	kr            Sealer
 	integrationID string
 	cfg           *oauth2.Config
+	// ctx carries the HTTP client a refresh uses.
+	ctx context.Context
+	// leases takes the integration's refresh lease; nil refreshes without one (one process).
+	leases store.LeaseStore
+	// holder names this process to the lease (core.ProcessName).
+	holder string
 
-	mu   sync.Mutex
-	last string // last persisted access token, to avoid rewrites
+	mu sync.Mutex
 }
 
-func (p *persistingSource) Token() (*oauth2.Token, error) {
-	tok, err := p.inner.Token()
+// RefreshLeaseTTL bounds how long one process may take to refresh an integration's token before
+// another may try; RefreshWait is how long a process waits for another's refresh to land.
+const (
+	RefreshLeaseTTL = 30 * time.Second
+	RefreshWait     = 30 * time.Second
+	refreshPoll     = 100 * time.Millisecond
+)
+
+func (p *persistingSource) stored() (*oauth2.Token, error) {
+	blob, err := openStored(p.st, p.kr, p.integrationID)
 	if err != nil {
 		return nil, err
 	}
-	p.mu.Lock()
-	changed := tok.AccessToken != p.last
-	if changed {
-		p.last = tok.AccessToken
+	if blob == nil || blob.Token == nil || blob.Token.AccessToken == "" {
+		return nil, fmt.Errorf("integrations: %s has no token on file", p.integrationID)
 	}
-	p.mu.Unlock()
-	if changed {
-		if err := SealOAuth(p.st, p.kr, p.integrationID, tok, p.cfg); err != nil {
-			return nil, err
+	return blob.Token, nil
+}
+
+func (p *persistingSource) Token() (*oauth2.Token, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tok, err := p.stored()
+	if err != nil || tok.Valid() || p.cfg == nil {
+		return tok, err
+	}
+	name := "oauth-refresh:" + p.integrationID
+	deadline := time.Now().Add(RefreshWait)
+	for {
+		held := true
+		if p.leases != nil {
+			now := time.Now()
+			if held, err = p.leases.TakeLease(p.ctx, name, p.holder, now.Unix(), now.Add(RefreshLeaseTTL).Unix()); err != nil {
+				return nil, err
+			}
+		}
+		if held {
+			return p.refresh(name)
+		}
+		// Another process is refreshing: serve what it seals.
+		time.Sleep(refreshPoll)
+		if tok, err = p.stored(); err != nil || tok.Valid() {
+			return tok, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("integrations: another node process has been refreshing %s's token for %s", p.integrationID, RefreshWait)
 		}
 	}
-	return tok, nil
+}
+
+// refresh runs while this process holds the refresh lease: it reads the token again (another
+// process may have refreshed it between the first read and the lease), refreshes it if it is
+// still expired, seals the new one, and lets the lease go.
+func (p *persistingSource) refresh(name string) (*oauth2.Token, error) {
+	if p.leases != nil {
+		defer func() { _ = p.leases.ReleaseLease(context.WithoutCancel(p.ctx), name, p.holder) }()
+	}
+	tok, err := p.stored()
+	if err != nil || tok.Valid() {
+		return tok, err
+	}
+	fresh, err := p.cfg.TokenSource(p.ctx, tok).Token()
+	if err != nil {
+		return nil, err
+	}
+	if err := SealOAuth(p.st, p.kr, p.integrationID, fresh, p.cfg); err != nil {
+		return nil, err
+	}
+	return fresh, nil
 }
 
 // resumable is the stored token a handler can start from, or nil: nothing on
@@ -147,6 +210,11 @@ func resumable(s OAuthSetup, integrationID string) (*storedOAuth, error) {
 type OAuthSetup struct {
 	Store   store.IntegrationStore
 	Keyring Sealer
+	// Leases hands an expired token's refresh to one node process on the store at a time
+	// (persistingSource); nil refreshes without asking, which is right for one process alone.
+	Leases store.LeaseStore
+	// Holder names this process to those leases; "" is core.ProcessName.
+	Holder string
 	// RedirectURL is the portal callback route. It carries nothing that names
 	// the integration: it must match, byte for byte, what was registered with
 	// the provider, so the callback finds its flow by the OAuth state instead.
@@ -173,6 +241,16 @@ type OAuthSetup struct {
 	OnRegistered func(clientID, clientSecret string)
 }
 
+// source is the integration's token as every process on the store sees it (persistingSource).
+func (s OAuthSetup) source(ctx context.Context, integrationID string, oc *oauth2.Config) *persistingSource {
+	holder := s.Holder
+	if holder == "" {
+		holder = core.ProcessName
+	}
+	return &persistingSource{st: s.Store, kr: s.Keyring, integrationID: integrationID, cfg: oc,
+		ctx: ctx, leases: s.Leases, holder: holder}
+}
+
 // NewOAuthHandler builds the code-flow handler for one integration. Client
 // identity follows SPEC §6.3's order: a Client ID Metadata Document, else a
 // pre-registered client, else — deprecated but kept as the last resort — RFC
@@ -196,10 +274,7 @@ func NewOAuthHandler(integrationID string, s OAuthSetup) (auth.OAuthHandler, err
 			if err := SealOAuth(s.Store, s.Keyring, integrationID, tok, oc); err != nil {
 				return nil, err
 			}
-			return &persistingSource{
-				inner: oc.TokenSource(ctx, tok), st: s.Store, kr: s.Keyring,
-				integrationID: integrationID, last: tok.AccessToken, cfg: oc,
-			}, nil
+			return s.source(ctx, integrationID, oc), nil
 		},
 	}
 	// Resume from what is on file: a stored token is the initial source, so a
@@ -207,19 +282,11 @@ func NewOAuthHandler(integrationID string, s OAuthSetup) (auth.OAuthHandler, err
 	// With its config it refreshes itself; without (an older blob) it serves
 	// until it expires, and the 401 then starts an ordinary authorization.
 	if stored, err := resumable(s, integrationID); err == nil && stored != nil {
-		var inner oauth2.TokenSource = oauth2.StaticTokenSource(stored.Token)
-		oc := stored.config()
-		if oc != nil {
-			rctx := context.Background()
-			if s.HTTPClient != nil {
-				rctx = context.WithValue(rctx, oauth2.HTTPClient, s.HTTPClient)
-			}
-			inner = oc.TokenSource(rctx, stored.Token)
+		rctx := context.Background()
+		if s.HTTPClient != nil {
+			rctx = context.WithValue(rctx, oauth2.HTTPClient, s.HTTPClient)
 		}
-		cfg.InitialTokenSource = &persistingSource{
-			inner: inner, st: s.Store, kr: s.Keyring,
-			integrationID: integrationID, last: stored.Token.AccessToken, cfg: oc,
-		}
+		cfg.InitialTokenSource = s.source(rctx, integrationID, stored.config())
 	}
 	if s.ClientIDMetadataURL != "" {
 		cfg.ClientIDMetadataDocumentConfig = &auth.ClientIDMetadataDocumentConfig{URL: s.ClientIDMetadataURL}

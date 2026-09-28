@@ -95,7 +95,7 @@ func newToolEnv(t *testing.T) *toolEnv {
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
 		Contacts:  &contacts.Manager{Store: st},
-		Messages:  &messaging.Service{Store: st, Bus: messaging.NewBus()},
+		Messages:  &messaging.Service{Store: st, Bus: messaging.NewBus(st)},
 		Media:     &messaging.MediaService{Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}},
 		Calendar:  e.cal,
 		Status:    e.status,

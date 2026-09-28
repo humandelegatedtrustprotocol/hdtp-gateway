@@ -68,6 +68,16 @@ type Catalog struct {
 	CreatedAt     int64
 }
 
+type Change struct {
+	ID         int64
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	Ref        string
+	At         int64
+}
+
 type Contact struct {
 	ID               string
 	AccountID        string
@@ -173,6 +183,13 @@ type Leaf struct {
 	Moved            int64
 }
 
+type Lease struct {
+	Name      string
+	Holder    string
+	TakenAt   int64
+	ExpiresAt int64
+}
+
 type Membership struct {
 	OwnerID   string
 	AccountID string
@@ -212,6 +229,11 @@ type Owner struct {
 	ID          string
 	DisplayName string
 	CreatedAt   int64
+}
+
+type OwnerPresence struct {
+	ID     int64
+	SeenAt int64
 }
 
 type PendingAddress struct {

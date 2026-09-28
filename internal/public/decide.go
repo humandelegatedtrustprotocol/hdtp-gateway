@@ -387,7 +387,7 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 // checks of PACT §14.3 and §5.3 have run — the same outcomes the sealed path
 // reaches through Decide, so a chain presented at the TLS layer can do nothing
 // an envelope carrying it could not. Fingerprint is the identity the per-caller
-// server is composed for and the session is bound to: the root when the pin
+// server is composed for: the root when the pin
 // stands, "" — an anonymous guest — when the leaf proved nothing for it (a
 // superseded or conflicting leaf, a blocked contact). Refusal names the code
 // every substantive call answers while a new address awaits the owner.
@@ -416,7 +416,7 @@ func TransportCallerFrom(ctx context.Context) (TransportCaller, bool) {
 // it; another endpoint is §5.3 — re-pinned with the former endpoint and the
 // owner's event under `auto`, parked as a pending address under `ask`, and
 // and under `ask` after a removal within the tombstone window. It runs once per
-// request, before the per-caller server is composed and the session bound,
+// request, before the per-caller server is composed,
 // and its result is what PoolGate enforces on every call.
 func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) TransportCaller {
 	root := tf.ClientCertFingerprint

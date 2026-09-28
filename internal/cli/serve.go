@@ -49,6 +49,8 @@ type serveRun struct {
 	background     *sync.WaitGroup
 	cfg            *core.Config
 	stdout, stderr io.Writer
+	// holder names this process to the leases on background work (leaseKeeper).
+	holder string
 
 	setup *internalui.SetupTokens
 	st    store.Store
@@ -83,6 +85,7 @@ type serveRun struct {
 	binder    *capabilityBinder
 	agent     *integrations.AgentAnswered
 	presence  *presence.Tracker
+	bus       *messaging.Bus
 	// surfaceChanged is filled in after node.New; the chain's hook reads it when it fires.
 	surfaceChanged func(integrationID string)
 }
@@ -100,7 +103,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	s := &serveRun{ctx: ctx, stdout: stdout, stderr: stderr}
+	s := &serveRun{ctx: ctx, stdout: stdout, stderr: stderr, holder: core.ProcessName}
 	fail := func(err error) int {
 		fmt.Fprintln(stderr, "serve:", err)
 		return 1
@@ -118,7 +121,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fail(err)
 	}
-	lock, err := core.AcquireLock(cfg.DataDir)
+	// Shared with any other `serve` on this data dir, exclusive for the one that finds itself alone
+	// (core.AcquireServeLock): that one migrates and creates what a first run creates, then shares.
+	lock, err := core.AcquireServeLock(cfg.DataDir)
 	if err != nil {
 		return fail(err)
 	}
@@ -131,7 +136,10 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	defer st.Close()
 	s.st = st
-	if err := s.openKeyring(); err != nil {
+	if err := s.openKeyring(lock.Exclusive()); err != nil {
+		return fail(err)
+	}
+	if err := lock.Share(); err != nil {
 		return fail(err)
 	}
 	s.registerAdminHandlers()
@@ -139,6 +147,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return fail(err)
 	}
 	defer s.admin.Close()
+	if !s.admin.Serving() {
+		fmt.Fprintf(stdout, "admin:   %s is served by another pact-gateway process on this data dir\n", core.AdminSocketPath(cfg.DataDir))
+	}
 
 	passkeys, err := st.CountCredentialsByKind(ctx, "passkey")
 	if err != nil {
@@ -184,10 +195,22 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	return runErr(internalui.Serve(ctx, cfg.InternalBind, internalTLS, s.internalSurface()), stderr)
 }
 
-// openKeyring migrates the store, opens the keyring and creates the admin socket's server and the
-// identity manager the admin handlers use.
-func (s *serveRun) openKeyring() error {
-	if err := s.st.Migrate(s.ctx); err != nil {
+// openKeyring migrates the store (alone: only while this process holds the data-dir lock
+// exclusively), checks that the schema is the one this binary serves, opens the keyring and creates
+// the admin socket's server and the identity manager the admin handlers use.
+//
+// On Postgres every process may be alone on its own host's data dir; the migration's own advisory
+// lock makes them take turns (store.Postgres.provider), and each checks the schema after.
+func (s *serveRun) openKeyring(alone bool) error {
+	if alone {
+		if err := s.st.Migrate(s.ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.st.SchemaCurrent(s.ctx); err != nil {
+		if !alone {
+			return fmt.Errorf("%w; another pact-gateway process is serving this data dir, and a migration runs only while one process is alone with it: stop them all and start again", err)
+		}
 		return err
 	}
 	kr, err := openKeyringFor(s.cfg)
@@ -246,7 +269,12 @@ func (s *serveRun) startNode() error {
 	s.connector = &integrations.Connector{}
 	// One wired chain, shared by the node and the portal (SPEC §6). `nd` does
 	// not exist yet, so the surface-change hook is filled in after node.New.
-	bus := messaging.NewBus()
+	// The node's events, and the change log that carries them to every process on this store
+	// (SPEC §7.8). Its reader runs in the background group (startBackground).
+	bus := messaging.NewBus(st)
+	bus.OnError = func(err error) { fmt.Fprintf(s.stderr, "events: %v\n", err) }
+	s.bus = bus
+	s.settings.AttachBus(bus)
 	s.chain = integrationchain.Build(st, s.kr, s.connector, portalBase(s.cfg), s.auditFn, func(id string) {
 		if s.surfaceChanged != nil {
 			s.surfaceChanged(id)
@@ -270,6 +298,8 @@ func (s *serveRun) startNode() error {
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
 		ContactCap:         s.settings.ContactCap,
+		// The seal an account is built with is the owner's, as the settings service holds it now.
+		SealPolicy: s.settings.SealPolicy,
 		Quota: func(accountID string) int64 {
 			q, _ := s.settings.StorageFor(ctx, accountID)
 			return q
@@ -294,7 +324,7 @@ func (s *serveRun) wireSurface() {
 	// Now the node exists, an exposure change or a withhold can actually reach
 	// the served surface (SPEC §6.5, §6.10). Until this was wired, publishing an
 	// exposure set rebuilt nothing and a withheld integration kept its tools
-	// listed for every session already open.
+	// listed for every caller whose server was already composed.
 	// An exposure change rebuilds that integration's served tools, then sweeps
 	// the callers. Before this, the picker wrote a row and no contact ever
 	// gained or lost a tool (§6.5, §6.10).
@@ -406,6 +436,16 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 // startBackground starts serve's background loops in the group serveWith joins.
 func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitGroup) {
 	nd := s.nd
+	// The leases on work only one process on the store may run (SPEC §11.1): taken once before
+	// that work first asks, then kept on a clock of their own.
+	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention")
+	leases.renew(bgCtx)
+	background.Go(func() { leases.Run(bgCtx) })
+	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
+	background.Go(func() { s.bus.Run(bgCtx) })
+	// …and what they change about a caller's surface or an account, the live node applies.
+	background.Go(func() { nd.Follow(bgCtx) })
+	background.Go(func() { s.settings.Follow(bgCtx) })
 	background.Go(func() { connectStoredIntegrations(bgCtx, s.chain.Manager, s.st, s.auditFn, s.stderr) })
 
 	// ---- retention: delete what the owner's window says to (SPEC §7.9) ----
@@ -422,7 +462,8 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 		}
 	}
 	background.Go(func() {
-		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, archiveTrail, nd.Invalidate)
+		retention.Run(bgCtx, s.settings, s.st, s.cfg, s.auditFn, s.stderr, nd.RetireExpiredLeaves, archiveTrail, nd.Invalidate,
+			leases.leading("retention"))
 	})
 
 	// ---- outbound retries (PACT §7.1) ----
@@ -431,7 +472,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
 	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted with
 	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
-	background.Go(func() { nd.RunRetries(bgCtx) })
+	background.Go(func() { nd.RunRetries(bgCtx, leases.leading("retries")) })
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that

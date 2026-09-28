@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -37,6 +38,14 @@ type AdminServer struct {
 	mu       sync.RWMutex
 	handlers map[string]AdminHandler
 	ln       net.Listener
+	lock     *os.File // held while this process serves the socket
+}
+
+func (s *AdminServer) releaseLock() {
+	if s.lock != nil {
+		_ = s.lock.Close() // closing the descriptor releases the flock
+		s.lock = nil
+	}
 }
 
 func NewAdminServer(path string) *AdminServer {
@@ -50,16 +59,34 @@ func (s *AdminServer) Handle(cmd string, h AdminHandler) {
 }
 
 func (s *AdminServer) Start(ctx context.Context) error {
-	_ = os.Remove(s.path) // stale socket from an unclean shutdown
+	// Several `serve` processes may share a data dir (core.AcquireServeLock), and they share its
+	// socket path. The one holding the socket's own lock (<socket>.lock, flock, released when the
+	// process dies) serves it; the others serve none (Serving reports false), and the admin
+	// commands reach the holder. A socket file left without a holder is stale, from an unclean
+	// shutdown, and the new holder replaces it.
+	lf, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("admin socket: %w", err)
+	}
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lf.Close()
+		return nil
+	}
+	s.lock = lf
+	_ = os.Remove(s.path)
 	ln, err := net.Listen("unix", s.path)
 	if err != nil {
+		s.releaseLock()
 		return fmt.Errorf("admin socket: %w", err)
 	}
 	if err := os.Chmod(s.path, 0o600); err != nil {
 		ln.Close()
+		s.releaseLock()
 		return fmt.Errorf("admin socket: %w", err)
 	}
+	s.mu.Lock()
 	s.ln = ln
+	s.mu.Unlock()
 	go func() {
 		<-ctx.Done()
 		s.Close()
@@ -76,13 +103,29 @@ func (s *AdminServer) Start(ctx context.Context) error {
 	return nil
 }
 
+// Serving reports whether this process serves the admin socket; false when another process on the
+// same data dir already did when Start ran.
+func (s *AdminServer) Serving() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ln != nil
+}
+
+// Close stops serving the socket. It runs twice in `serve` (when the context ends, and deferred),
+// and only the first does anything: by the second, another process may hold the socket, and its
+// file is not this process's to remove.
 func (s *AdminServer) Close() error {
-	if s.ln != nil {
-		err := s.ln.Close()
-		_ = os.Remove(s.path)
-		return err
+	s.mu.Lock()
+	ln := s.ln
+	s.ln = nil
+	s.mu.Unlock()
+	if ln == nil {
+		return nil
 	}
-	return nil
+	err := ln.Close()
+	_ = os.Remove(s.path)
+	s.releaseLock()
+	return err
 }
 
 type adminRequest struct {

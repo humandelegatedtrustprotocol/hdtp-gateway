@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -78,5 +79,48 @@ func TestAdminSocketPathFallsBackForLongDirs(t *testing.T) {
 	}
 	if got != AdminSocketPath(long) {
 		t.Fatal("fallback path must be deterministic")
+	}
+}
+
+// Two serves on one data dir share its socket path. The first to start serves the socket; the
+// second serves none and leaves the first's alone (it used to remove whatever was at the path and
+// bind its own, so the first went on running with no admin socket). The first's two Closes — the
+// context's and the deferred one — do not remove a socket a later holder bound.
+func TestTwoServesDoNotTakeEachOthersAdminSocket(t *testing.T) {
+	sock := AdminSocketPath(t.TempDir())
+	t.Cleanup(func() { _ = os.Remove(sock + ".lock") })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first, second := NewAdminServer(sock), NewAdminServer(sock)
+	first.Handle("who", func(map[string]string) (any, error) { return "first", nil })
+	second.Handle("who", func(map[string]string) (any, error) { return "second", nil })
+	if err := first.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !first.Serving() || second.Serving() {
+		t.Fatalf("serving: first %v, second %v; want the first alone", first.Serving(), second.Serving())
+	}
+	var who string
+	if err := AdminCall(sock, "who", nil, &who); err != nil || who != "first" {
+		t.Fatalf("the socket answered %q (%v), want the first serve", who, err)
+	}
+	second.Close()
+	if err := AdminCall(sock, "who", nil, &who); err != nil || who != "first" {
+		t.Fatalf("closing the serve that holds no socket took the other's: %q %v", who, err)
+	}
+
+	first.Close()
+	third := NewAdminServer(sock)
+	third.Handle("who", func(map[string]string) (any, error) { return "third", nil })
+	if err := third.Start(ctx); err != nil || !third.Serving() {
+		t.Fatalf("a serve could not take the socket once its holder left: %v", err)
+	}
+	defer third.Close()
+	first.Close()
+	if err := AdminCall(sock, "who", nil, &who); err != nil || who != "third" {
+		t.Fatalf("a second Close of the first holder removed the new holder's socket: %q %v", who, err)
 	}
 }
