@@ -72,8 +72,12 @@ type Service struct {
 	cfg   *core.Config
 	node  *node.Node
 	bus   *messaging.Bus
-	audit func(action, resource, outcome string)
-	now   func() time.Time
+	// follow is Follow's subscription, made when the bus is attached so a setting saved elsewhere
+	// before Follow starts is not missed.
+	follow   <-chan messaging.Event
+	unfollow func()
+	audit    func(action, resource, outcome string)
+	now      func() time.Time
 }
 
 // New is the settings service over the store, sealing secret rows with kr, sharing cfg with the
@@ -88,7 +92,10 @@ func (s *Service) AttachNode(nd *node.Node) { s.node = nd }
 
 // AttachBus gives the service the node's events: a knob saved here is announced to every other
 // node process on the store (SPEC §11.1), and Follow applies what they save.
-func (s *Service) AttachBus(bus *messaging.Bus) { s.bus = bus }
+func (s *Service) AttachBus(bus *messaging.Bus) {
+	s.bus = bus
+	s.follow, s.unfollow = bus.SubscribeSized("", 256)
+}
 
 // SealPolicy is the seal the owner set for the node, as this process has it now: what an account
 // is built with (node.Options.SealPolicy).
@@ -103,11 +110,11 @@ func (s *Service) SealPolicy() core.Seal {
 // that process already did for every process — its audit rows, and each account's seal, which
 // every process reloads from the account's row. serve runs it in its joined background group.
 func (s *Service) Follow(ctx context.Context) {
-	if s.bus == nil {
+	if s.follow == nil {
 		return
 	}
-	evs, stop := s.bus.Subscribe("")
-	defer stop()
+	evs := s.follow
+	defer s.unfollow()
 	for {
 		select {
 		case <-ctx.Done():

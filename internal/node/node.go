@@ -160,6 +160,10 @@ type Node struct {
 	unavailable map[string]string
 
 	limiter *public.Limiter
+	// follow is Follow's subscription, made with the node so nothing another process publishes
+	// between the node's making and Follow's start is missed; room for followBuffer events.
+	follow   <-chan messaging.Event
+	unfollow func()
 	// conns caps the connections the listener holds open (SPEC §5.7).
 	conns *public.ConnCap
 
@@ -214,6 +218,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		unavailable: map[string]string{},
 	}
 	n.publicURL, n.lanAllow = o.Config.PublicURL, o.Config.LANConnections
+	n.follow, n.unfollow = o.Bus.SubscribeSized("", followBuffer)
 	// Before anything is built: a leaf that ran out while the node was down loses its key now, and
 	// its account then boots as what it is — awaiting a leaf — rather than as a broken one.
 	n.RetireExpiredLeaves(ctx)
@@ -924,11 +929,11 @@ func (n *Node) accountChanged(accountID, slug string) {
 // this process published itself, which it has already applied. serve runs it in its joined
 // background group.
 func (n *Node) Follow(ctx context.Context) {
-	if n.opts.Bus == nil {
+	if n.follow == nil {
 		return
 	}
-	evs, stop := n.opts.Bus.Subscribe("")
-	defer stop()
+	evs := n.follow
+	defer n.unfollow()
 	for {
 		select {
 		case <-ctx.Done():
@@ -950,6 +955,11 @@ func (n *Node) Follow(ctx context.Context) {
 		}
 	}
 }
+
+// followBuffer is how many events Follow may fall behind by before one is dropped: every event
+// of every account on the store passes it, and one it drops is a surface or an account this
+// process goes on serving as it was.
+const followBuffer = 4096
 
 // invalidateAccount is the Ref of an EventInvalidate that drops every caller of an account.
 const invalidateAccount = "account"
