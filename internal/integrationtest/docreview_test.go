@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/pact-cloud/pact-gateway/internal/core"
 )
 
 // The review of 2026-09-28's drift (D1, D2, D4): claims in the documents that no test held.
@@ -114,15 +116,28 @@ func TestOperationsStatesTheBoundTheScaleGateHolds(t *testing.T) {
 	}
 }
 
-// L14, until the owner decides it. A leave keeps the audit trail's rows of the identity that left
-// (TestAccountLeaveOnARunningNode holds which), and that is a divergence from PACT §9's "keep
-// nothing beyond what law compels". The three documents a reader goes to name it, with its reason.
-func TestTheAuditTrailKeptAtALeaveIsNamedAsADivergence(t *testing.T) {
+// L14, decided (2026-09-28: "audit trail goes to archive eventually"). After a leave the rows that
+// name the identity stay in the live trail for audit_archive_after and then move to an archive
+// file of its own (internal/core/audit/departed_test.go holds the lifecycle). The three documents a
+// reader goes to say so with the default the code has — read from the code, not from here — and
+// with the way out when law requires, and none of them still calls the kept trail a divergence.
+func TestTheAuditTrailOfALeaveIsArchivedAfterItsPeriod(t *testing.T) {
 	root := repoRoot(t)
+	days, ok := strings.CutSuffix(core.DefaultAuditArchiveAfter, "d")
+	if !ok {
+		t.Fatalf("the default %q is not in days; say it in the documents the way it is", core.DefaultAuditArchiveAfter)
+	}
 	for _, doc := range []string{"SPEC.md", "README.md", "docs/conformance.md"} {
 		text := readDoc(t, root, doc)
-		if !strings.Contains(text, "keep nothing beyond what law compels") || !strings.Contains(text, "append-only") || !strings.Contains(text, "divergence") {
-			t.Errorf("%s does not name the audit trail a leave keeps as a divergence from PACT §9, with its reason", doc)
+		for _, want := range []string{"keep nothing beyond what law compels", "audit_archive_after", days + " days", "audit-archive/", "audit_archive", "erase-archive"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s does not say %q of the audit trail after a leave", doc, want)
+			}
+		}
+		for _, stale := range []string{"named until the owner decides", "pending the owner's decision", "what to do about it is the owner's decision"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q of the audit trail after a leave", doc, stale)
+			}
 		}
 	}
 }

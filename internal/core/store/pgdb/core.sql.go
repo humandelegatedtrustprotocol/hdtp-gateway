@@ -10,6 +10,15 @@ import (
 	"database/sql"
 )
 
+const clearAuditArchiveRows = `-- name: ClearAuditArchiveRows :exec
+DELETE FROM audit_archive_rows
+`
+
+func (q *Queries) ClearAuditArchiveRows(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, clearAuditArchiveRows)
+	return err
+}
+
 const countCredentialsByKind = `-- name: CountCredentialsByKind :one
 SELECT COUNT(*) FROM credentials WHERE kind = $1
 `
@@ -30,6 +39,20 @@ DELETE FROM accounts WHERE id = $1
 // the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
 func (q *Queries) DeleteAccount(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteAccount, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteArchivedAuditEvent = `-- name: DeleteArchivedAuditEvent :execrows
+DELETE FROM audit_events WHERE seq = $1
+`
+
+// One row an archive holds. The prune guard admits it only while audit_archive_rows lists its seq
+// with its hash.
+func (q *Queries) DeleteArchivedAuditEvent(ctx context.Context, seq int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteArchivedAuditEvent, seq)
 	if err != nil {
 		return 0, err
 	}
@@ -284,6 +307,23 @@ func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) er
 		arg.Algo,
 		arg.CreatedAt,
 	)
+	return err
+}
+
+const insertAuditArchiveRow = `-- name: InsertAuditArchiveRow :exec
+INSERT INTO audit_archive_rows (seq, hash) VALUES ($1, $2)
+`
+
+type InsertAuditArchiveRowParams struct {
+	Seq  int64
+	Hash string
+}
+
+// One row an identity's archive wrote and verified: the prune guard lets exactly this seq, with
+// exactly this hash, be deleted (migration 0045). Only Store.ArchiveAuditRows writes it, inside
+// the transaction that deletes the row and empties this table again.
+func (q *Queries) InsertAuditArchiveRow(ctx context.Context, arg InsertAuditArchiveRowParams) error {
+	_, err := q.db.Exec(ctx, insertAuditArchiveRow, arg.Seq, arg.Hash)
 	return err
 }
 
@@ -685,6 +725,54 @@ func (q *Queries) ListCredentialsByKind(ctx context.Context, kind string) ([]Cre
 			&i.Data,
 			&i.CreatedAt,
 			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDueLeaves = `-- name: ListDueLeaves :many
+SELECT seq, ts, account_id, actor_kind, actor_id, action, resource, outcome, request_id, details, prev_hash, hash FROM audit_events
+WHERE action = 'account_leave' AND outcome IN ('ok', 'partial') AND ts <= $1
+ORDER BY seq LIMIT $2
+`
+
+type ListDueLeavesParams struct {
+	Ts    int64
+	Limit int32
+}
+
+// The identities that left this node before a cutoff (SPEC sec. 3.11): the account_leave rows
+// whose erase went through (ok, or partial when media files were left on disk), oldest first.
+// A refused or failed leave erased nothing, so it is not a departure. Answered from the partial
+// index audit_events_leaves.
+func (q *Queries) ListDueLeaves(ctx context.Context, arg ListDueLeavesParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listDueLeaves, arg.Ts, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditEvent
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.Seq,
+			&i.Ts,
+			&i.AccountID,
+			&i.ActorKind,
+			&i.ActorID,
+			&i.Action,
+			&i.Resource,
+			&i.Outcome,
+			&i.RequestID,
+			&i.Details,
+			&i.PrevHash,
+			&i.Hash,
 		); err != nil {
 			return nil, err
 		}

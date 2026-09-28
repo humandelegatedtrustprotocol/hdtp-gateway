@@ -37,6 +37,11 @@ type Event struct {
 	Details   string `json:"details"`
 	PrevHash  string `json:"prev_hash"`
 	Hash      string `json:"hash"`
+	// Erased marks a row whose content was erased from an identity's archive by
+	// `audit erase-archive` (SPEC §11.6): only its seq, prev_hash and hash remain, so
+	// verification checks that it links and cannot recompute its hash. Never set on a
+	// live row, and never part of the hashed fields.
+	Erased bool `json:"erased,omitempty"`
 }
 
 // canonicalRow serializes the hashed field list as canonical JSON: UTF-8, keys
@@ -125,6 +130,13 @@ func VerifyFrom(anchor string, events []Event) (int, error) {
 		if e.PrevHash != prev {
 			return i, fmt.Errorf("audit: row %d (seq %d) prev_hash %q does not extend %q — "+
 				"the chain is broken, reordered, or its head was removed", i, e.Seq, e.PrevHash, prev)
+		}
+		if e.Erased {
+			// Its content was erased on purpose (SPEC §11.6): it links, and its own hash is
+			// taken as written because there is nothing left to recompute it from. The next
+			// row's prev_hash is still held to it.
+			prev = e.Hash
+			continue
 		}
 		want, err := HashEvent(e)
 		if err != nil {

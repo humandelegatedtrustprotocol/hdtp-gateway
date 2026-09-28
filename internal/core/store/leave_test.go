@@ -29,7 +29,8 @@ type tieColumn struct{ table, column string }
 // below writes a row into it, because a table the test never filled proves nothing.
 //
 // Two identities are seeded alike. The leaving one must be gone from every table but the audit
-// trail (append-only by trigger: its rows keep the account id, and that is reported, not hidden);
+// trail (append-only by trigger: the leave does not reach it, and its rows go to the identity's
+// archive later, once audit_archive_after has passed — internal/core/audit/departed_test.go);
 // the one staying must keep every row it had — the control, without which a leave that erased
 // everything would pass.
 func TestSQLiteLeaveErasesEveryRowThatNamesTheIdentity(t *testing.T) {
@@ -233,7 +234,7 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		kept := count(t, c.table, c.column, value(staying, stayingIntegration, c))
 		if c.table == "audit_events" {
 			if gone == 0 {
-				t.Errorf("the audit trail lost the leaving identity's row: it is append-only, and a leave must not reach it")
+				t.Errorf("the audit trail lost the leaving identity's row: the leave must not reach it, only the archive does, after its period")
 			}
 		} else if gone != 0 {
 			t.Errorf("%s still holds %d row(s) of the identity that left", c.table, gone)

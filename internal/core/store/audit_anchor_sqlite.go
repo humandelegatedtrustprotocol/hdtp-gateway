@@ -46,3 +46,45 @@ func (s *SQLite) setAuditAnchor(ctx context.Context, a AuditAnchorRow) error {
 func (s *SQLite) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error) {
 	return s.q.DeleteAuditEventsThrough(ctx, seq)
 }
+
+func (s *SQLite) ListDueLeaves(ctx context.Context, before int64, limit int) ([]AuditRow, error) {
+	rs, err := s.q.ListDueLeaves(ctx, sqlitedb.ListDueLeavesParams{Ts: before, Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AuditRow, 0, len(rs))
+	for _, row := range rs {
+		out = append(out, auditFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *SQLite) ArchiveAuditRows(ctx context.Context, rows []AuditArchiveRow) (int64, error) {
+	var n int64
+	err := s.Atomically(ctx, func(tx Store) error {
+		q := tx.(*SQLite).q
+		if err := q.ClearAuditArchiveRows(ctx); err != nil {
+			return err
+		}
+		for _, a := range rows {
+			if err := q.InsertAuditArchiveRow(ctx, sqlitedb.InsertAuditArchiveRowParams{Seq: a.Seq, Hash: a.Hash}); err != nil {
+				return err
+			}
+		}
+		for _, a := range rows {
+			d, err := q.DeleteArchivedAuditEvent(ctx, a.Seq)
+			if err != nil {
+				return err
+			}
+			n += d
+		}
+		if n != int64(len(rows)) {
+			return fmt.Errorf("store: an archive named %d audit row(s) and %d of them are in the chain as named", len(rows), n)
+		}
+		return q.ClearAuditArchiveRows(ctx)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
