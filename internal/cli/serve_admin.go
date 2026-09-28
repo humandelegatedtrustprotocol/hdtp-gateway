@@ -5,7 +5,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -306,7 +305,7 @@ func (s *serveRun) registerAdminHandlers() {
 			res, err = idm.Leave(ctx, acct.ID, func(ctx context.Context, tx store.Store) ([]string, error) {
 				keys, err := integrations.ClientKeys(ctx, tx, acct.ID)
 				return append(settings.AccountKeys(acct.ID), keys...), err
-			}, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}.Remove, time.Now())
+			}, messaging.BlobDir{Root: cfg.Blobs()}.Remove, time.Now())
 			return err
 		}
 		if s.nd != nil {

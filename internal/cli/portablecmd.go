@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,7 +112,7 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	now := time.Now()
-	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, f, slug, "pact-gateway "+version, now)
+	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: cfg.Blobs()}, f, slug, "pact-gateway "+version, now)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -236,7 +235,7 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	now := time.Now()
-	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}, now)
+	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: cfg.Blobs()}, now)
 	if err != nil {
 		// A failure after the rows committed (a file that could not be written) names the account
 		// the import made; one before names what was there, if anything.
