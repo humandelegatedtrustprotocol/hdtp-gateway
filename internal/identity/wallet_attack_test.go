@@ -60,7 +60,7 @@ func TestAWalletAnswerCannotCrossIdentitiesOrEndpoints(t *testing.T) {
 	}
 
 	// The request's own key, under the right root, naming an address that is not the request's.
-	info := pactidentity.CSRCheck(reqA.CSR, [][]byte{wa.key.Public.SPKI})
+	info := pactidentity.CSRCheck(reqA.CSR, [][]byte{wa.key.Public().SPKI})
 	if !info.OK {
 		t.Fatalf("the request does not read: %s", info.Why)
 	}

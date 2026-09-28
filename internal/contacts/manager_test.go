@@ -56,7 +56,7 @@ type guestID struct {
 // so a proof without the flag skipped both and came out as an active contact with no leaf. No
 // production path built such a proof. Nothing stopped one either, and eleven tests depended on it.
 func (g *guestID) proof() Proof {
-	return Proof{Fingerprint: g.Fingerprint, SPKI: g.Host.Key.Public.SPKI, Endpoint: g.Host.Endpoint, Leaf: g.Host.LeafDER}
+	return Proof{Fingerprint: g.Fingerprint, SPKI: g.Host.Key.Public().SPKI, Endpoint: g.Host.Endpoint, Leaf: g.Host.LeafDER}
 }
 
 // cardRoot is the root a card's leaf names: the identity its contact row is keyed by.
@@ -78,7 +78,7 @@ func guest(t *testing.T, name string) (*guestID, string, []byte) {
 	// Lowercased: a leaf names its endpoint in RFC 3986 normal form (PACT §14.1), and the address
 	// guard — which these tests never reached while their proofs skipped it — refuses any other.
 	h := w.Issue(t, "https://"+strings.ToLower(name)+".example/mcp")
-	return &guestID{Fingerprint: w.Fpr, Host: h}, h.Card(name, ""), h.Key.Public.SPKI
+	return &guestID{Fingerprint: w.Fpr, Host: h}, h.Card(name, ""), h.Key.Public().SPKI
 }
 
 func TestRedeemAutoAcceptYieldsActiveContact(t *testing.T) {
@@ -268,7 +268,7 @@ func TestACardThatDisagreesWithTheProofIsABadRequest(t *testing.T) {
 	stranger := w.Issue(t, "https://bharat.example/mcp") // same root, a leaf this call did not prove
 	card := pinned.Card("Bharat", "")
 	if _, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: e.account, Fingerprint: w.Fpr, SPKI: pinned.Key.Public.SPKI, Status: "active",
+		AccountID: e.account, Fingerprint: w.Fpr, SPKI: pinned.Key.Public().SPKI, Status: "active",
 		Card: card, Leaf: pinned.LeafDER, Endpoint: pinned.Endpoint,
 	}); err != nil {
 		t.Fatal(err)

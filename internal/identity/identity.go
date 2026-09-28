@@ -61,11 +61,7 @@ func Generate(algo Algo) (*Keypair, error) {
 	if err != nil {
 		return nil, fmt.Errorf("identity: %w", err)
 	}
-	var signer crypto.Signer = k.EC
-	if k.EC == nil {
-		signer = k.Ed
-	}
-	return &Keypair{Algo: algo, Signer: signer, Fingerprint: pactidentity.Fingerprint(k.Public.SPKI)}, nil
+	return FromLib(k)
 }
 
 // SelfSignedCert issues the account's long-lived self-signed certificate

@@ -34,7 +34,7 @@ func TestVerifyRefreshedCard(t *testing.T) {
 		return base64.RawURLEncoding.EncodeToString(sig)
 	}
 	pin := store.Contact{
-		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
+		Fingerprint: w.Fpr, SPKI: h.Key.Public().SPKI,
 		Endpoint: h.Endpoint, Leaf: h.LeafDER,
 	}
 
@@ -117,7 +117,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 		return base64.RawURLEncoding.EncodeToString(sig)
 	}
 	pin := store.Contact{
-		Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
+		Fingerprint: w.Fpr, SPKI: h.Key.Public().SPKI,
 		Endpoint: h.Endpoint, Leaf: h.LeafDER,
 	}
 	// A renewal: the same root, the same address, a fresh key, a later notBefore.
@@ -126,7 +126,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	renewLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public,
+		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{h.Endpoint}, NotBefore: now.Add(time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
 	if err != nil {
@@ -143,7 +143,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	if got == nil {
 		t.Fatal("a renewal was accepted but not reported, so the pin would never move")
 	}
-	if !bytes.Equal(got.Leaf, renewLeaf) || !bytes.Equal(got.SPKI, fresh.Public.SPKI) {
+	if !bytes.Equal(got.Leaf, renewLeaf) || !bytes.Equal(got.SPKI, fresh.Public().SPKI) {
 		t.Fatal("the renewal reported a leaf or key that is not the one that validated")
 	}
 
@@ -165,7 +165,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	// The SAME chain at another address: valid, signed by the pinned root, and refused,
 	// because where a contact answers is §5.3's decision and not a refresh's.
 	elsewhereLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public,
+		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{"https://moved.example/mcp"}, NotBefore: now.Add(time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 
 	// An OLDER leaf proves nothing (§14.3), even under the right root at the right address.
 	oldLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public,
+		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{h.Endpoint}, NotBefore: now.Add(-48 * time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
 	if err != nil {
@@ -222,7 +222,7 @@ func TestFillRootCertTakesOnlyThePinnedRoot(t *testing.T) {
 
 	// The pin as a sealed pairing leaves it: the root's name, and no certificate.
 	pin, err := st.InsertContact(ctx, store.Contact{AccountID: acct.ID, Fingerprint: peer.Fpr,
-		SPKI: host.Key.Public.SPKI, Status: "active", Endpoint: host.Endpoint, Leaf: host.LeafDER})
+		SPKI: host.Key.Public().SPKI, Status: "active", Endpoint: host.Endpoint, Leaf: host.LeafDER})
 	if err != nil {
 		t.Fatal(err)
 	}

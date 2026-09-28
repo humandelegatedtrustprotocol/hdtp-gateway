@@ -69,7 +69,7 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 	peer := testid.NewWallet(t, "Peer")
 	ph := peer.Issue(t, "https://"+ln.Addr().String()+"/mcp")
 	if _, err := st.InsertContact(ctx, store.Contact{
-		AccountID: alice.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public.SPKI,
+		AccountID: alice.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public().SPKI,
 		Status: "active", Endpoint: ph.Endpoint, Leaf: ph.LeafDER, Card: ph.Card("Peer", "optional"),
 	}); err != nil {
 		t.Fatal(err)

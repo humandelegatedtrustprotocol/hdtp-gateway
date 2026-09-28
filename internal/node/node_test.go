@@ -135,7 +135,7 @@ func (e *env) issueLeaf(a store.Account) {
 		e.t.Fatal(err)
 	}
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: "Test Owner", RootKey: e.root, RootSPKIs: [][]byte{e.root.Public.SPKI},
+		RootCN: "Test Owner", RootKey: e.root, RootSPKIs: [][]byte{e.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {

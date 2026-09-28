@@ -102,7 +102,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	issue := func(csr []byte, prev *time.Time, k *pactidentity.PrivateKey, root []byte) string {
-		iss, err := pactidentity.IssueFromCSR(csr, pactidentity.IssueOpts{RootCN: "Alice", RootKey: k, RootSPKIs: [][]byte{k.Public.SPKI},
+		iss, err := pactidentity.IssueFromCSR(csr, pactidentity.IssueOpts{RootCN: "Alice", RootKey: k, RootSPKIs: [][]byte{k.Public().SPKI},
 			Now: time.Now(), PreviousNotBefore: prev, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
@@ -134,7 +134,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: key, RootSPKIs: [][]byte{key.Public.SPKI}, Now: now, ValidDays: 365})
+		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,7 +266,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	for _, f := range fields {
 		request[f[0]] = f[1]
 	}
-	if _, err := pactidentity.SigningRequestCheck(request, base, time.Now(), [][]byte{key.Public.SPKI}); err != nil {
+	if _, err := pactidentity.SigningRequestCheck(request, base, time.Now(), [][]byte{key.Public().SPKI}); err != nil {
 		t.Fatalf("the wallet refuses the request this node sends: %v", err)
 	}
 	sort.Strings(names)
