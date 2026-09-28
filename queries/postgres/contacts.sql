@@ -7,6 +7,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = $1 AND fingerprint = $2;
 
+-- name: CountContactsByStatus :one
+-- How many of one account's contacts are in one state: the owner's wait counts the requests
+-- awaiting approval on every wake, and reading every contact to count them grew with the list.
+SELECT COUNT(*) FROM contacts WHERE account_id = $1 AND status = $2;
+
 -- name: ListContacts :many
 SELECT * FROM contacts WHERE account_id = $1 ORDER BY created_at, id;
 
