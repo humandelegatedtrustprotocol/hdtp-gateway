@@ -146,9 +146,13 @@ func TestTheMakefileAgreesWithTheConstants(t *testing.T) {
 			t.Errorf("the Makefile has no %q: the node image it builds is not the one the harness runs", strings.TrimSpace(want))
 		}
 	}
-	for _, ref := range []string{Caldav} {
-		if !strings.Contains(mk, "-t "+ref+" ") && !strings.Contains(mk, "-t "+ref+"\n") {
-			t.Errorf("the Makefile does not build %s", ref)
+	const caldavDefault = "pact-gateway:harness-caldav"
+	if os.Getenv("PACT_HARNESS_CALDAV_IMAGE") == "" && Caldav != caldavDefault {
+		t.Errorf("with PACT_HARNESS_CALDAV_IMAGE unset the calendar image is %s, not %s", Caldav, caldavDefault)
+	}
+	for _, want := range []string{"HARNESS_CALDAV_IMAGE ?= " + caldavDefault + "\n", "export PACT_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)\n", "-t $(HARNESS_CALDAV_IMAGE) "} {
+		if !strings.Contains(mk, want) {
+			t.Errorf("the Makefile has no %q: the calendar image it builds is not the one the harness runs", strings.TrimSpace(want))
 		}
 	}
 	for _, m := range regexp.MustCompile(`alpine:[^\s'"]+`).FindAllString(mk, -1) {

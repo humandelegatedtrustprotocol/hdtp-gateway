@@ -306,10 +306,15 @@ LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_C
 # already installed. Installed at build time rather than fetched by `npx` at run
 # time so the scenario does not depend on reaching a package registry mid-test,
 # and so what it exercises is a pinned version.
+# Its tags follow HARNESS_IMAGE's reason: HARNESS_FULL_IMAGE and HARNESS_CALDAV_IMAGE (exported to
+# the harness as PACT_HARNESS_CALDAV_IMAGE), so S4 runs the binary of the tree under test.
+HARNESS_FULL_IMAGE ?= pact-gateway:harness-full
+HARNESS_CALDAV_IMAGE ?= pact-gateway:harness-caldav
+export PACT_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)
 harness-image-caldav: identity-proxy
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) -f Dockerfile.full -t pact-gateway:harness-full .
-	printf 'FROM pact-gateway:harness-full\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
-	  | docker build -t pact-gateway:harness-caldav -
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
+	printf 'FROM $(HARNESS_FULL_IMAGE)\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
+	  | docker build -t $(HARNESS_CALDAV_IMAGE) -
 
 # The shaper image: iproute2 preinstalled. It must ship tc rather than install it,
 # because the shaper runs inside the target's network namespace and cannot reach a
