@@ -16,6 +16,10 @@ package audit
 //
 // Verification then spans the archive files plus the live table as one chain,
 // and a head that was removed without archiving shows up as exactly what it is.
+//
+// The chain has a second kind of archive: an identity's (departed.go). Its rows
+// come from the MIDDLE of the chain, so every check here takes them as `archived`
+// and walks the live rows with those rows put back in their places (Merge).
 
 import (
 	"context"
@@ -59,7 +63,11 @@ type Anchor struct {
 	UpdatedAt          int64
 }
 
-func (r Row) event() Event { return Event(r) }
+func (r Row) event() Event {
+	return Event{Seq: r.Seq, TS: r.TS, AccountID: r.AccountID, ActorKind: r.ActorKind,
+		ActorID: r.ActorID, Action: r.Action, Resource: r.Resource, Outcome: r.Outcome,
+		RequestID: r.RequestID, Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash}
+}
 
 // Events converts stored rows.
 func Events(rows []Row) []Event {
@@ -73,7 +81,9 @@ func Events(rows []Row) []Event {
 // VerifyChain checks the live rows against the durable anchor: genesis when
 // nothing has been archived, the archived segment's terminal hash afterwards.
 // This is what `audit verify` calls, and the reason a removed head is visible.
-func VerifyChain(ctx context.Context, st Store) (int, error) {
+// `archived` is every row the identity archives hold (ReadArchives): the ones
+// past the anchor are put back in their places before the walk.
+func VerifyChain(ctx context.Context, st Store, archived []Event) (int, error) {
 	anchor, err := st.AuditAnchor(ctx)
 	if err != nil {
 		return 0, err
@@ -108,41 +118,61 @@ func VerifyChain(ctx context.Context, st Store) (int, error) {
 			"history through seq %d — every row was removed, which archiving never does",
 			anchor.ArchivedThroughSeq)
 	}
-	return VerifyFrom(expect, Events(rows))
+	merged, _, err := Merge(Events(rows), after(archived, anchor.ArchivedThroughSeq))
+	if err != nil {
+		return 0, err
+	}
+	return VerifyFrom(expect, merged)
 }
 
-// VerifyWithArchives walks the archive files and then the live rows as ONE
-// chain, which is what SPEC §11.6 promises. Files are read in the order given;
-// each must continue where the previous ended.
-func VerifyWithArchives(ctx context.Context, st Store, archives []string) (int, error) {
-	prev := GenesisHash
-	seen := 0
+// VerifyWithArchives walks the head archive files, the identity archives and the
+// live rows as ONE chain from genesis, which is what SPEC §11.6 promises. Every
+// row is put in its place by seq (Merge); each must extend the one before it.
+func VerifyWithArchives(ctx context.Context, st Store, archives []string, archived []Event) (int, error) {
+	var heads []Event
 	for _, path := range archives {
 		f, err := os.Open(path)
 		if err != nil {
-			return seen, fmt.Errorf("audit: opening archive %s: %w", path, err)
+			return 0, fmt.Errorf("audit: opening archive %s: %w", path, err)
 		}
 		events, err := ImportJSONL(f)
 		f.Close()
 		if err != nil {
-			return seen, fmt.Errorf("audit: reading archive %s: %w", path, err)
+			return 0, fmt.Errorf("audit: reading archive %s: %w", path, err)
 		}
-		if bad, err := VerifyFrom(prev, events); err != nil {
-			return seen + bad, fmt.Errorf("audit: archive %s: %w", path, err)
-		}
-		if len(events) > 0 {
-			prev = events[len(events)-1].Hash
-		}
-		seen += len(events)
+		heads = append(heads, events...)
 	}
 	rows, err := st.ListAuditEvents(ctx, "")
 	if err != nil {
-		return seen, err
+		return 0, err
 	}
-	if bad, err := VerifyFrom(prev, Events(rows)); err != nil {
-		return seen + bad, err
+	merged, _, err := Merge(append(heads, Events(rows)...), archived)
+	if err != nil {
+		return 0, err
 	}
-	return -1, nil
+	return VerifyFrom(GenesisHash, merged)
+}
+
+// after is the rows past seq.
+func after(events []Event, seq int64) []Event {
+	var out []Event
+	for _, e := range events {
+		if e.Seq > seq {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// within is the rows in (from, through].
+func within(events []Event, from, through int64) []Event {
+	var out []Event
+	for _, e := range events {
+		if e.Seq > from && e.Seq <= through {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // ArchiveResult reports what an archive run moved.
@@ -157,7 +187,11 @@ type ArchiveResult struct {
 // verifies the file it just wrote, records the new anchor, and only then removes
 // those rows. The order is the safety property: a failure at any step leaves the
 // database holding rows that are still verifiable.
-func Archive(ctx context.Context, st Store, dir string, throughSeq int64, now func() time.Time) (ArchiveResult, error) {
+//
+// `archived` is every row the identity archives hold (ReadArchives). The file
+// holds the LIVE rows at or before `throughSeq`; the identity archives keep the
+// rest of that stretch, and the file is verified with them put back.
+func Archive(ctx context.Context, st Store, dir string, throughSeq int64, archived []Event, now func() time.Time) (ArchiveResult, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -167,7 +201,7 @@ func Archive(ctx context.Context, st Store, dir string, throughSeq int64, now fu
 	}
 	// Finish any run that died mid-commit before starting a new one; otherwise
 	// the verify below would refuse on a state that is merely unfinished.
-	if _, err := Repair(ctx, st); err != nil {
+	if _, err := Repair(ctx, st, archived); err != nil {
 		return ArchiveResult{}, err
 	}
 	if anchor, err = st.AuditAnchor(ctx); err != nil {
@@ -175,7 +209,7 @@ func Archive(ctx context.Context, st Store, dir string, throughSeq int64, now fu
 	}
 	// Refuse to run on a chain that does not verify — archiving a broken chain
 	// would bake the break into an archive nobody can re-check.
-	if bad, err := VerifyChain(ctx, st); err != nil {
+	if bad, err := VerifyChain(ctx, st, archived); err != nil {
 		return ArchiveResult{}, fmt.Errorf("audit: refusing to archive a chain that does not verify (row %d): %w", bad, err)
 	}
 	rows, err := st.ListAuditEvents(ctx, "")
@@ -220,7 +254,7 @@ func Archive(ctx context.Context, st Store, dir string, throughSeq int64, now fu
 	}
 
 	// Read back what was written and verify it BEFORE deleting anything.
-	if err := verifyArchiveFile(path, expectedAnchor(anchor), last.Hash); err != nil {
+	if err := verifyArchiveFile(path, expectedAnchor(anchor), last.Hash, within(archived, anchor.ArchivedThroughSeq, last.Seq)); err != nil {
 		return ArchiveResult{}, err
 	}
 
@@ -263,7 +297,10 @@ func rowsAtOrBefore(rows []Row, seq int64) int {
 // It re-checks that proof rather than trusting it. If the archive file is
 // missing or no longer ends where the anchor says, the live rows are the only
 // copy left and Repair refuses — losing history is worse than staying broken.
-func Repair(ctx context.Context, st Store) (int64, error) {
+//
+// `archived` is every row the identity archives hold: the ones inside the head
+// segment are put back before the head file is checked.
+func Repair(ctx context.Context, st Store, archived []Event) (int64, error) {
 	anchor, err := st.AuditAnchor(ctx)
 	if err != nil {
 		return 0, err
@@ -282,10 +319,11 @@ func Repair(ctx context.Context, st Store) (int64, error) {
 		return 0, fmt.Errorf("%w: the anchor names no archive file, so the rows in the "+
 			"table are the only copy", ErrArchiveInterrupted)
 	}
-	if err := verifyArchiveFile(anchor.ArchivePath, GenesisHash, anchor.TerminalHash); err != nil {
+	fill := within(archived, 0, anchor.ArchivedThroughSeq)
+	if err := verifyArchiveFile(anchor.ArchivePath, GenesisHash, anchor.TerminalHash, fill); err != nil {
 		// The segment may be a continuation rather than rooted at genesis; a
 		// terminal-hash match is what actually proves these rows are held.
-		if terr := archiveEndsAt(anchor.ArchivePath, anchor.TerminalHash, anchor.ArchivedThroughSeq); terr != nil {
+		if terr := archiveEndsAt(anchor.ArchivePath, anchor.TerminalHash, anchor.ArchivedThroughSeq, fill); terr != nil {
 			return 0, fmt.Errorf("%w: refusing to delete rows whose archive cannot be "+
 				"confirmed (%v)", ErrArchiveInterrupted, terr)
 		}
@@ -309,7 +347,7 @@ func Repair(ctx context.Context, st Store) (int64, error) {
 // cannot prove where the segment begins — only the genesis-rooted path can — but
 // it does prove these rows are the rows that hash to this terminal, which is
 // exactly the claim deletion rests on.
-func archiveEndsAt(path, terminal string, through int64) error {
+func archiveEndsAt(path, terminal string, through int64, fill []Event) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -321,6 +359,9 @@ func archiveEndsAt(path, terminal string, through int64) error {
 	}
 	if len(events) == 0 {
 		return fmt.Errorf("archive %s holds no rows", path)
+	}
+	if events, _, err = Merge(events, within(fill, events[0].Seq, events[len(events)-1].Seq)); err != nil {
+		return err
 	}
 	if bad, err := Verify(events); err != nil {
 		return fmt.Errorf("archive %s does not verify at row %d: %w", path, bad, err)
@@ -347,7 +388,8 @@ func expectedAnchor(a Anchor) string {
 
 // verifyArchiveFile re-reads an archive and checks it links where it should and
 // ends where the caller believes it ends.
-func verifyArchiveFile(path, anchor, terminal string) error {
+// `fill` is the identity-archived rows inside the segment, put back before the walk.
+func verifyArchiveFile(path, anchor, terminal string, fill []Event) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -356,6 +398,9 @@ func verifyArchiveFile(path, anchor, terminal string) error {
 	events, err := ImportJSONL(io.Reader(f))
 	if err != nil {
 		return fmt.Errorf("audit: archive %s is unreadable: %w", path, err)
+	}
+	if events, _, err = Merge(events, fill); err != nil {
+		return fmt.Errorf("audit: archive %s: %w", path, err)
 	}
 	if bad, err := VerifyFrom(anchor, events); err != nil {
 		return fmt.Errorf("audit: archive %s does not verify at row %d: %w", path, bad, err)

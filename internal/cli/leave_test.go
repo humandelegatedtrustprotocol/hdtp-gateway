@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,10 +155,11 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	if _, err := st.GetAccountByID(ctx, alice.ID); err != nil {
 		t.Fatalf("the review erased the account: %v", err)
 	}
-	// L14 (the owner's decision, pending): what the audit trail holds of the identity before the
-	// erase, it holds after it, row for row — the account id, the slug and the contacts'
-	// fingerprints — and the erase adds its own account_leave row and nothing else. That is the
-	// divergence from PACT §9 ("keep nothing beyond what law compels") SPEC §3.11 names.
+	// The erase does not reach the audit trail (SPEC §3.11): what it holds of the identity before
+	// the leave, it holds after it, row for row — the account id, the slug and the contacts'
+	// fingerprints — and the leave adds its own account_leave row and nothing else. They stay in
+	// the live trail for audit_archive_after (90 days by default, this node's setting), and the
+	// end of this test restarts the node with a period of nothing to see them moved.
 	namesAlice := func(e store.AuditRow) bool {
 		return e.AccountID == alice.ID || strings.Contains(e.Resource, alice.ID)
 	}
@@ -264,5 +267,151 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	}
 	if code, out := run("leave", "-slug", "bob", "-yes", "-force-current"); code != 0 || !strings.Contains(out, "bob has left this node") {
 		t.Fatalf("leave with -force-current: %d %s", code, out)
+	}
+	// Within the period nothing has moved: the trail still names both, and there is no archive.
+	live, err := st.ListAuditEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{alice.ID, bob.ID} {
+		if n := countNaming(live, id); n == 0 {
+			t.Fatalf("within the period the live trail lost the rows of %s", id)
+		}
+	}
+	archiveDir := filepath.Join(r.dir, "audit-archive")
+	if files, _ := filepath.Glob(filepath.Join(archiveDir, "*.jsonl")); len(files) != 0 {
+		t.Fatalf("within the period the node archived %v", files)
+	}
+
+	// L14 (the owner's decision, 2026-09-28: "audit trail goes to archive eventually"). The node
+	// restarts with a period of nothing; its sweep runs at start, and moves every row that names
+	// either identity by its account id to a file of that identity's own.
+	if code := r.stop(); code != 0 {
+		t.Fatalf("serve exited %d: %s", code, r.out.String())
+	}
+	setConfig(t, cfg, "audit_archive_after", "0s")
+	r = startServeAt(t, r.dir, cfg, r.internal, r.public)
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		if live, err = st.ListAuditEvents(ctx, ""); err != nil {
+			t.Fatal(err)
+		}
+		if countNaming(live, alice.ID)+countNaming(live, bob.ID) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the sweep never archived the trail: %s", r.out.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// What the live trail holds of them now: nothing by their ids, and nothing by the slugs or the
+	// contact's fingerprint either — every row this test's node wrote that names a slug or a
+	// fingerprint of theirs names the account id too.
+	for _, e := range live {
+		for _, what := range []string{"slug:alice", "slug:bob", slowRoot} {
+			if strings.Contains(e.Resource, what) || strings.Contains(e.Details, what) {
+				t.Errorf("after the archive a live row still names %s: %+v", what, e)
+			}
+		}
+	}
+	var marks []store.AuditRow
+	for _, e := range live {
+		if e.Action == "audit_archive" {
+			marks = append(marks, e)
+		}
+	}
+	if len(marks) != 2 || marks[0].AccountID != "" || marks[1].AccountID != "" {
+		t.Fatalf("audit_archive rows %+v, want one per identity, naming neither", marks)
+	}
+	files, _ := filepath.Glob(filepath.Join(archiveDir, "*.jsonl"))
+	if len(files) != 2 {
+		t.Fatalf("archives %v, want alice's and bob's", files)
+	}
+	for _, f := range files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Fatalf("%s is mode %v, want 0600", f, fi.Mode().Perm())
+		}
+	}
+	// The chain verifies across the table and the archives, offline, as the owner would check it.
+	if code := r.stop(); code != 0 {
+		t.Fatalf("serve exited %d: %s", code, r.out.String())
+	}
+	verify := func() (int, string) {
+		var out, errb bytes.Buffer
+		code := auditCmd([]string{"verify", "-config", cfg}, &out, &errb)
+		return code, out.String() + errb.String()
+	}
+	if code, out := verify(); code != 0 || !strings.Contains(out, "2 identity archive file(s)") || !strings.Contains(out, "intact") {
+		t.Fatalf("audit verify after the archive: %d %s", code, out)
+	}
+	aliceFile := ""
+	for _, f := range files {
+		if strings.HasPrefix(filepath.Base(f), alice.ID+"-") {
+			aliceFile = f
+		}
+	}
+	raw, err := os.ReadFile(aliceFile)
+	if err != nil {
+		t.Fatalf("no archive of alice's: %v (%v)", err, files)
+	}
+	if err := os.WriteFile(aliceFile, []byte(strings.Replace(string(raw), "slug:alice", "slug:alicf", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := verify(); code == 0 || !strings.Contains(out, "BROKEN") {
+		t.Fatalf("a tampered archive verified: %d %s", code, out)
+	}
+	if err := os.WriteFile(aliceFile, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Law requires alice's archive to go: its rows' content goes, the chain still verifies, and
+	// the erase is audited.
+	var eraseOut bytes.Buffer
+	if code := auditCmd([]string{"erase-archive", "-config", cfg, "-file", filepath.Base(aliceFile)}, &eraseOut, &eraseOut); code != 0 {
+		t.Fatalf("erase-archive: %d %s", code, eraseOut.String())
+	}
+	if code, out := verify(); code != 0 || !strings.Contains(out, "erased") || !strings.Contains(out, "intact") {
+		t.Fatalf("audit verify after an erase: %d %s", code, out)
+	}
+	if live, err = st.ListAuditEvents(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if last := live[len(live)-1]; last.Action != "audit_archive_erase" || last.ActorKind != "cli" || strings.Contains(last.Resource, alice.ID) {
+		t.Fatalf("the erase's audit row is %+v", last)
+	}
+}
+
+// countNaming counts the rows that name an account by its id, where the archive looks for it
+// (audit.Names): the account column and the resource.
+func countNaming(rows []store.AuditRow, id string) int {
+	n := 0
+	for _, e := range rows {
+		if e.AccountID == id || strings.Contains(e.Resource, id) {
+			n++
+		}
+	}
+	return n
+}
+
+// setConfig sets one key of a JSON config file.
+func setConfig(t *testing.T, path, key string, value any) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]any{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	m[key] = value
+	if b, err = json.Marshal(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

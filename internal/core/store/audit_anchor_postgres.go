@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
 )
 
 func (p *Postgres) AuditAnchor(ctx context.Context) (AuditAnchorRow, error) {
@@ -43,4 +45,51 @@ func (p *Postgres) setAuditAnchor(ctx context.Context, a AuditAnchorRow) error {
 
 func (p *Postgres) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error) {
 	return p.q.DeleteAuditEventsThrough(ctx, seq)
+}
+
+func (p *Postgres) ListDueLeaves(ctx context.Context, before int64, limit int) ([]AuditRow, error) {
+	// Postgres types LIMIT as int32: a limit that cannot fit is clamped, not wrapped (gosec G115).
+	var lim int32 = math.MaxInt32
+	if limit >= 0 && limit <= math.MaxInt32 {
+		lim = int32(limit)
+	}
+	rs, err := p.q.ListDueLeaves(ctx, pgdb.ListDueLeavesParams{Ts: before, Limit: lim})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AuditRow, 0, len(rs))
+	for _, row := range rs {
+		out = append(out, auditFromRow(sqlitedb.AuditEvent(row)))
+	}
+	return out, nil
+}
+
+func (p *Postgres) ArchiveAuditRows(ctx context.Context, rows []AuditArchiveRow) (int64, error) {
+	var n int64
+	err := p.Atomically(ctx, func(tx Store) error {
+		q := tx.(*Postgres).q
+		if err := q.ClearAuditArchiveRows(ctx); err != nil {
+			return err
+		}
+		for _, a := range rows {
+			if err := q.InsertAuditArchiveRow(ctx, pgdb.InsertAuditArchiveRowParams{Seq: a.Seq, Hash: a.Hash}); err != nil {
+				return err
+			}
+		}
+		for _, a := range rows {
+			d, err := q.DeleteArchivedAuditEvent(ctx, a.Seq)
+			if err != nil {
+				return err
+			}
+			n += d
+		}
+		if n != int64(len(rows)) {
+			return fmt.Errorf("store: an archive named %d audit row(s) and %d of them are in the chain as named", len(rows), n)
+		}
+		return q.ClearAuditArchiveRows(ctx)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
