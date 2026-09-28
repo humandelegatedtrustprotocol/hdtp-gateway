@@ -141,9 +141,12 @@ type Pool struct {
 	// column is what scopes a narrowed token's reads (SPEC §11.6) and the
 	// portal's audit page, and a row with no account is readable by everyone.
 	AccountID string
-	// Limit, when set, consumes one unit of the caller's PACT §12 budget and
-	// reports how long until it refills. It runs per CALL, not per request.
-	Limit func(ctx context.Context) (ok bool, retryAfter time.Duration)
+	// Limit, when set, consumes one unit of a PACT §12 budget and reports how long until it
+	// holds one again. It runs per CALL, not per request. `as` says which budget: the caller's
+	// own (ChargeCaller: a contact's, or a guest's), a guest's whatever the caller is
+	// (ChargeGuest: a pinned root at an address not approved, the pending tier), or the source
+	// address alone (ChargeSource: nothing proven).
+	Limit func(ctx context.Context, as Charge) (ok bool, retryAfter time.Duration)
 	// Gate, when set, is the per-call transport-policy check that runs before
 	// authorization: the seal and client_cert knobs of SPEC §5.1. It sees the
 	// call's context, so it can tell a sealed call (envelope facts present)
@@ -154,6 +157,33 @@ type Pool struct {
 	mu    sync.Mutex
 	cache map[string]*list.Element
 	order *list.List // front = most recent; values are *poolEntry
+}
+
+// Charge is which budget a call spends (Pool.Limit).
+type Charge int
+
+const (
+	ChargeCaller Charge = iota
+	ChargeGuest
+	ChargeSource
+)
+
+// rateLimited is PACT §12's refusal for a spent budget.
+func rateLimited(retry time.Duration) *mcp.CallToolResult {
+	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
+		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, RetryAfterSeconds(retry))},
+	}}
+}
+
+// spend charges one call to the caller's budget; a refusal is the answer to give.
+func (p *Pool) spend(ctx context.Context) *mcp.CallToolResult {
+	if p.Limit == nil {
+		return nil
+	}
+	if ok, retry := p.Limit(ctx, ChargeCaller); !ok {
+		return rateLimited(retry)
+	}
+	return nil
 }
 
 type poolEntry struct {
@@ -464,6 +494,7 @@ func fprOrAnonymous(fpr string) string {
 // guarded is the ONE wrapper every handler passes through: policy.Allow re-checked
 // at call time so a permission flip denies instantly, even mid-session (SPEC §2.4).
 func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
+	run := p.checked(accountID, fpr, e)
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Transport policy precedes authorization (§4.11, §5.3): a call that
 		// must be sealed is refused as `seal_required` before anything looks at
@@ -473,18 +504,24 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		// exempt HERE and only here: at this point the envelope is unopened, so
 		// the caller classifies by transport — behind a terminating edge that is
 		// an anonymous guest, and every sealed contact was burning the shared
-		// per-IP guest budget (10/hour) on the wrapper before spending their own
-		// contact unit on the inner dispatch, which consumes through this same
-		// path with the envelope facts attached. One call, one unit, correctly
-		// classified — the inner dispatch is where that happens.
-		if p.Limit != nil && e.Tool.Name != SealedToolName {
-			if ok, retry := p.Limit(ctx); !ok {
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`,
-						int(retry.Seconds())+1)},
-				}}, nil
+		// per-IP guest budget on the wrapper before spending their own contact
+		// unit on the inner call. One call, one unit, correctly classified — the
+		// inner call is where that happens: the sealed handler spends once, after
+		// the replay and before Dispatch looks for the tool (so tools/list and a
+		// tool that is not there spend as well), and Dispatch runs `checked`.
+		if e.Tool.Name != SealedToolName {
+			if limited := p.spend(ctx); limited != nil {
+				return limited, nil
 			}
 		}
+		return run(ctx, req)
+	}
+}
+
+// checked is guarded without the budget: the transport gate, the call-time policy check, and
+// the handler. Dispatch runs it after spending for the inner call itself.
+func (p *Pool) checked(accountID, fpr string, e Entry) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if p.Gate != nil {
 			if err := p.Gate(ctx, e.Tool.Name); err != nil {
 				if errors.Is(err, ErrPendingStatus) {

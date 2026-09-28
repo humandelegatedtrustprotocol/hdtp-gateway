@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
@@ -215,7 +216,12 @@ func merge(held, rows []pactidentity.ContactRow, p *Plan) error {
 // Apply writes a plan: the rows under one transaction, then the files. Every contact written is
 // owed this host's handshake from `now` (PACT §9.2), which the campaign of the identity's next leaf
 // — the first one requested after the import — sends.
-func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir, now time.Time) (Result, error) {
+//
+// contactCap is how many contacts the identity may hold (limit.contacts): the import is refused,
+// with nothing written, when what it leaves held is over the cap AND it added to the count. An
+// identity already over it (the cap lowered since) may still re-import what it holds. As the cloud
+// holds its import (pact-cloud src/identity/identity.ts, checkContactCap).
+func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir, now time.Time, contactCap int) (Result, error) {
 	var res Result
 	newFiles := map[string]bool{} // by hash: whether this import wrote the file's record
 	err := st.Atomically(ctx, func(tx store.Store) error {
@@ -241,6 +247,10 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			}
 			accountID = a.ID
 		}
+		before, err := tx.CountHeldContacts(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("import: %w", err)
+		}
 		for _, r := range p.Write {
 			c, err := storeContact(accountID, r)
 			if err != nil {
@@ -263,6 +273,13 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 				return fmt.Errorf("import: contact %s: %w", r.Root, err)
 			}
 			res.Contacts++
+		}
+		after, err := tx.CountHeldContacts(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("import: %w", err)
+		}
+		if after > int64(contactCap) && after > before {
+			return fmt.Errorf("%w: %w", ErrRefused, core.ContactCapRefusal(after, contactCap))
 		}
 		for _, t := range p.Contents.Threads {
 			wrote, err := tx.ImportThread(ctx, store.Thread{ID: t.ID, AccountID: accountID, ContactFpr: t.Contact, Topic: t.Topic, CreatedAt: unixOf(t.CreatedAt), LastAt: unixOf(t.LastAt)})

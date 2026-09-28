@@ -153,3 +153,7 @@ func (s *Postgres) TakeBackContactRequest(ctx context.Context, accountID, finger
 	}
 	return n > 0, nil
 }
+
+func (s *Postgres) CountHeldContacts(ctx context.Context, accountID string) (int64, error) {
+	return s.q.CountHeldContacts(ctx, accountID)
+}

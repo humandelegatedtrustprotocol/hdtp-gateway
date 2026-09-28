@@ -110,7 +110,7 @@ address not be reassigned until the last leaf for it has expired.
 | A blocked contact learns nothing a stranger would not | `TestBlockedCallerIsIndistinguishableFromAStranger` |
 | A replayed envelope is acknowledged, never re-executed | `TestSealedReplayReturnsRecordedResult` |
 | Tier and permission gate every tool | `TestAllowExactTierAndPermission`, `TestBuiltinToolSurfacePerTier` |
-| Rate limits apply on the real listener, not just in unit tests | `TestGuestRateLimitIsEnforcedOnTheRealListener`, `TestContactRateLimit60PerHour` |
+| Rate limits apply on the real listener, not just in unit tests | `TestGuestRateLimitIsEnforcedOnTheRealListener`, `TestBucketArithmetic` |
 | The audit chain detects tampering and survives pruning | `TestAuditTamperedExportDetected`, `TestAuditArchivePrunesAndKeepsTheChainVerifiable` |
 | Parsers on untrusted input do not crash | Four fuzz targets, run by `make fuzz` in the pre-push gate, kept honest by `TestEveryFuzzTargetRunsUnderMakeFuzz` |
 | Only a chain that validates names a caller; a lone certificate names nobody | `TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain`, `TestClientCertRequiredTakesAChainAndNothingElse` |

@@ -134,6 +134,8 @@ func refused(err error) (*mcp.CallToolResult, error) {
 		code = "conflict"
 	case errors.Is(err, contacts.ErrBadRequest):
 		code = "bad_request"
+	case errors.Is(err, contacts.ErrContactCap):
+		code = "payment_required"
 	}
 	b, jerr := json.Marshal(map[string]string{"code": code, "detail": err.Error()})
 	if jerr != nil {

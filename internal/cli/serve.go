@@ -269,7 +269,7 @@ func (s *serveRun) startNode() error {
 		// forwards raw TLS and never presents a certificate of its own.
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
-		RateBudget:         s.settings.RateBudget,
+		ContactCap:         s.settings.ContactCap,
 		Quota: func(accountID string) int64 {
 			q, _ := s.settings.StorageFor(ctx, accountID)
 			return q

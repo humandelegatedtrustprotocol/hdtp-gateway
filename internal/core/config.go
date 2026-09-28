@@ -6,6 +6,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -49,12 +50,33 @@ const (
 	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, PACT §9.1
 )
 
+// DefaultLimitContacts is the contact cap of an account on a node nobody configured.
+const DefaultLimitContacts = 500
+
+// ErrContactCap: adding the contact would take the account past the number it may hold
+// (limit.contacts). The owner's doors answer it `payment_required`, the code the cloud gives the
+// same refusal; a peer is answered `unavailable`, bare (contacts.Manager.RedeemAs).
+var ErrContactCap = errors.New("payment_required")
+
+// ContactCapRefusal is the owner's refusal, with the count and the cap: for the owner, never a peer.
+func ContactCapRefusal(held int64, cap int) error {
+	return fmt.Errorf("%w: this identity holds %d contacts and sent requests, and this node allows %d (limit.contacts). Remove one, or raise the limit", ErrContactCap, held, cap)
+}
+
+// ContactCap is the number of contacts each account may hold: LimitContacts, or the default.
+func (c *Config) ContactCap() int {
+	if c.LimitContacts > 0 {
+		return c.LimitContacts
+	}
+	return DefaultLimitContacts
+}
+
 type Config struct {
-	// LimitContactPerHour and LimitGuestPerHour raise or lower PACT §12's call
-	// budgets. Zero means the documented numbers (60 and 10); they are read per
-	// call, so a change takes effect without a restart.
-	LimitContactPerHour int `json:"limit_contact_per_hour,omitempty"`
-	LimitGuestPerHour   int `json:"limit_guest_per_hour,omitempty"`
+	// LimitContacts is how many contacts each account on this node may hold: active contacts plus
+	// the requests it sent. It is enforced wherever a contact is added, and it sizes the account's
+	// call budget — every contact calling at once, one call a second each (PACT §12). Zero means
+	// DefaultLimitContacts. Read per call, so a change takes effect without a restart.
+	LimitContacts int `json:"limit_contacts,omitempty"`
 
 	DataDir    string `json:"data_dir"`
 	PublicBind string `json:"public_bind"`
@@ -256,11 +278,8 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	if v, ok := lookup("PACT_INTERNAL_AUTH_ENABLED"); ok {
 		c.InternalAuthEnabled = v == "true" || v == "1"
 	}
-	if v, ok := lookup("PACT_LIMIT_CONTACT_PER_HOUR"); ok {
-		c.LimitContactPerHour = atoiOrZero(v)
-	}
-	if v, ok := lookup("PACT_LIMIT_GUEST_PER_HOUR"); ok {
-		c.LimitGuestPerHour = atoiOrZero(v)
+	if v, ok := lookup("PACT_LIMIT_CONTACTS"); ok {
+		c.LimitContacts = atoiOrZero(v)
 	}
 	if v, ok := lookup("PACT_LAN_CONNECTIONS"); ok {
 		b := v == "true" || v == "1"
@@ -296,8 +315,7 @@ var ownerSettableEnv = []struct{ key, env string }{
 	{"seal", "PACT_SEAL"},
 	{"client_cert", "PACT_CLIENT_CERT"},
 	{"lan_connections", "PACT_LAN_CONNECTIONS"},
-	{"limit.contact_per_hour", "PACT_LIMIT_CONTACT_PER_HOUR"},
-	{"limit.guest_per_hour", "PACT_LIMIT_GUEST_PER_HOUR"},
+	{"limit.contacts", "PACT_LIMIT_CONTACTS"},
 }
 
 // OwnerSettableKeys are the knobs the portal may write (SPEC §8.2). Everything
