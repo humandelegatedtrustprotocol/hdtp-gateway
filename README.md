@@ -7,7 +7,7 @@ One static Go binary that runs a personal, permission-gated
 else's assistant can message you, ask when you are free, and book time with you,
 with no platform in the middle deciding who may talk to whom.
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](../LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
 [![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
@@ -242,13 +242,24 @@ expires.
 When you have moved an identity to another host, tell this one to forget it:
 
 ```
-pact-gateway account leave -slug me
+pact-gateway account leave -slug me          # shows what it would erase, erases nothing
+pact-gateway account leave -slug me -yes     # erases it
 ```
 
+It refuses an identity this node serves at its own address for it right now — which is what
+"delete it at the old host" would name after a move to another address on this same node — unless
+you add `-force-current`.
+
 It erases every record of the identity at once: its contacts, chats, media no other identity here
-uses, invites, integrations, tokens scoped to it, its settings, and every leaf key this node held
-for it. The live node stops answering for it straight away, as for an address it never served. The
+uses, invites, integrations and their OAuth client credentials, tokens scoped to it, its settings,
+and every leaf key this node held for it. The live node stops answering for it straight away, as for an address it never served. The
 audit trail is append-only and keeps its rows, which name the account by its id.
+
+On SQLite the leaf keys are destroyed, not only deleted: the node zeroes deleted rows
+(`secure_delete`) and truncates its write-ahead log after the leave. On Postgres it cannot: a
+deleted row stays as a dead tuple until VACUUM reuses its space, in the write-ahead log until the
+segment is recycled, and in every backup — sealed under the node's keyring, but not destroyed. SPEC
+§3.9 names this divergence.
 
 The address stays **reserved** until the last leaf issued for it expires (PACT §9): until then no
 identity can be created under that slug here, and no signing request can name that address. The
@@ -281,9 +292,11 @@ Keep it where you keep private documents, and delete it once it has been importe
 **An import checks the whole file before it writes anything,** and refuses it whole at the first
 fault. Into a slug that is not here, the identity arrives with its root and nothing more — **not
 served** until your wallet issues this host a leaf; into the identity it belongs to, it merges,
-and every pin this host already holds stands. Either way it ends with a new leaf from your wallet
-(the import names the command, and `account certificate` and `doctor` keep naming it until it is
-done), and installing that leaf tells the imported contacts where you are now.
+and every pin this host already holds stands. Either way it ends with a request for a new leaf that
+the import makes itself (complete it in your web wallet from the portal, or with the CLI wallet from
+the request it prints; `account certificate` and `doctor` keep naming it until it is done), and
+installing that leaf tells the imported contacts where you are now. An export reads its own file
+back before it reports it, and warns when the file is more than PACT Cloud takes back in.
 
 ### Be reachable
 
@@ -334,7 +347,7 @@ with the store's conformance suite run on **both** storage engines, and a fuzz
 target, run under `-fuzz` by `make fuzz` in the pre-push gate, on everything this code parses from untrusted
 input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 `FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
-every push. [SECURITY.md](../SECURITY.md) states plainly what is and
+every push. [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) states plainly what is and
 is not hardened yet.
 
 **A harness that builds the world.** 22 live scenarios stand the real binary up
@@ -395,7 +408,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | [`docs/harness-design.md`](docs/harness-design.md) | The scenario harness and what each topology proves |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and what a change must carry |
 | [`RELEASING.md`](RELEASING.md) | Cutting a release, and how to verify one you downloaded |
-| [`SECURITY.md`](../SECURITY.md) | Report a vulnerability privately — never as an issue |
+| [`SECURITY.md`](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) | Report a vulnerability privately — never as an issue |
 
 ## Honest trade-offs
 
@@ -414,4 +427,4 @@ Written down because they do not disappear by going unmentioned:
 
 ## License
 
-[Apache-2.0](../LICENSE).
+[Apache-2.0](LICENSE).

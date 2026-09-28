@@ -49,11 +49,12 @@ func TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain(t *testing.T)
 		if err != nil {
 			t.Fatalf("create_invite: %v", err)
 		}
-		var inv struct {
-			Token string `json:"token"`
-		}
+		var inv struct{ URL string }
 		_ = json.Unmarshal([]byte(raw), &inv)
-		url := "https://" + alice.Node.Name + ":8443/i/" + inv.Token
+		if inv.URL == "" {
+			t.Fatalf("create_invite answered no link: %s", shorten(raw, 200))
+		}
+		url := inv.URL
 		out, err := bob.Owner.Call(ctx, "add_contact", map[string]any{"account_id": bob.AccountID, "invite_url": url})
 		if err != nil {
 			t.Fatalf("add_contact (%s): %v", label, err)

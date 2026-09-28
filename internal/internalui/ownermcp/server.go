@@ -6,6 +6,7 @@
 package ownermcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/integrations"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 const (
@@ -37,6 +39,9 @@ const (
 
 type Deps struct {
 	Store store.Store
+	// PublicURL is this node's public address, read live (it changes from Settings): where an
+	// invite's link lands (`/i/<token>`). "" is no address, and create_invite then mints nothing.
+	PublicURL func() string
 	// Approved tells the peer their request was accepted (`contact_accepted`).
 	// The portal's approve path calls the SAME function: approving on one surface
 	// and not the other would leave the peer stranded depending on which button
@@ -71,11 +76,6 @@ type Deps struct {
 	// same function behind the button on the portal's contact page. There is no tool that
 	// refreshes more than the contact it is given. nil hides the tool.
 	RefreshContact func(ctx context.Context, accountID, contactFpr string) (outcome, why string, err error)
-	// PublicURL is the node's public origin, where an invite lands (`/i/<token>`, SPEC §4): with
-	// it, create_invite answers the URL the owner hands out, as the landing page's own QR does.
-	// Without it an owner's agent was handed a bare token and no way to say where it is redeemed.
-	// nil (tests) answers the token alone.
-	PublicURL func() string
 	// Audit records owner-agent actions that change security posture. The trust
 	// flip is the one that matters most: it decides whether a contact's words
 	// may INSTRUCT the owner's agent, and an unaudited flip is exactly the kind
@@ -536,24 +536,75 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	// A request from an address that belongs, or lately belonged, to another contact carries that
-	// contact's root (PACT §5.2), as the portal's Requests list does.
-	type row struct {
-		store.Contact
-		AddressOf string `json:",omitempty"`
-	}
-	out := make([]row, 0, len(list))
+	out := make([]contactView, 0, len(list))
 	for _, c := range list {
-		rw := row{Contact: c}
+		v := contactOf(c)
+		// A request from an address that belongs, or lately belonged, to another contact names
+		// that contact (PACT §5.2), in the cloud's shape: {root, name}, the owner's name for them
+		// first. Derived when read, by the rule the redemption applied.
 		if c.Status == "pending_in" && ot.d.Contacts != nil {
-			if claim, err := ot.d.Contacts.AddressClaim(ctx, a.AccountID, c.Endpoint, c.Fingerprint); err == nil {
-				rw.AddressOf = claim
+			if claim, err := ot.d.Contacts.AddressClaim(ctx, a.AccountID, c.Endpoint, c.Fingerprint); err == nil && claim != "" {
+				name := claim
+				for _, h := range list {
+					if h.Fingerprint == claim {
+						name = cmp.Or(h.Petname, h.DisplayName, claim)
+					}
+				}
+				v.AddressClaim = &addressClaim{Root: claim, Name: name}
 			}
 		}
-		out = append(out, rw)
+		out = append(out, v)
 	}
 	r, err := jsonResult(out)
 	return r, nil, err
+}
+
+// contactView is a contact as the owner MCP answers it (building rule 10: project, never spread):
+// the cloud's names for what this node holds (pact-cloud api/v1/routes/shared.ts `Contact`), and
+// the grant the contact made us. Not the row id, the account id, the pinned key, the card, the
+// invite or the chain mark. The cloud's last_seen_at and acceptance_unheard_since are not here:
+// this node keeps neither. address_claim is derived when read (PACT §5.2).
+type contactView struct {
+	Fingerprint      string   `json:"fingerprint"`
+	DisplayName      string   `json:"display_name"`
+	Status           string   `json:"status"`
+	Preset           string   `json:"preset"`
+	Permissions      []string `json:"permissions"`
+	TheirPermissions []string `json:"their_permissions"`
+	TrustFlag        string   `json:"trust_flag"`
+	Petname          string   `json:"petname"`
+	CreatedAt        int64    `json:"created_at"`
+	Endpoint         string   `json:"endpoint"`
+	Leaf             string   `json:"leaf,omitempty"`
+	RootCert         string   `json:"root_cert,omitempty"`
+	// AddressClaim is, on a waiting request, the contact whose address it comes from (PACT §5.2);
+	// null otherwise, as the cloud answers it.
+	AddressClaim *addressClaim `json:"address_claim"`
+}
+
+type addressClaim struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
+}
+
+func contactOf(c store.Contact) contactView {
+	v := contactView{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, Status: c.Status, Preset: c.Preset,
+		Permissions: nonNil(c.Permissions), TheirPermissions: nonNil(c.TheirPermissions), TrustFlag: c.TrustFlag,
+		Petname: c.Petname, CreatedAt: c.CreatedAt, Endpoint: c.Endpoint}
+	if len(c.Leaf) > 0 {
+		v.Leaf = pactidentity.B64url(c.Leaf)
+	}
+	if len(c.RootCert) > 0 {
+		v.RootCert = pactidentity.B64url(c.RootCert)
+	}
+	return v
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // listPendingAddressesTool is the `list_pending_addresses` tool.
@@ -673,6 +724,19 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 		r, err := deny()
 		return r, nil, err
 	}
+	// The link lands at this node's public address; with none there is nowhere for it to land,
+	// and nothing is minted (the cloud refuses the same way when an identity has no address).
+	base := ""
+	if ot.d.PublicURL != nil {
+		base = strings.TrimRight(ot.d.PublicURL(), "/")
+	}
+	if base == "" {
+		b, err := json.Marshal(map[string]string{"code": "unavailable", "detail": "this node has no public address yet, so an invite has nowhere to land: set public_url"})
+		if err != nil {
+			return nil, nil, err
+		}
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+	}
 	token, inv, err := ot.d.Contacts.CreateInvite(ctx, a.AccountID, contacts.InviteOptions{
 		Label: a.Label, MaxUses: a.MaxUses, AutoAccept: a.AutoAccept,
 		Preset: a.Preset, Permissions: a.Perms,
@@ -680,13 +744,9 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	out := map[string]any{"token": token, "invite_id": inv.ID, "expires_at": inv.ExpiresAt}
-	if ot.d.PublicURL != nil {
-		if base := strings.TrimRight(ot.d.PublicURL(), "/"); base != "" {
-			out["url"] = base + "/i/" + token
-		}
-	}
-	r, err := jsonResult(out)
+	// The cloud's answer (createInvite: id, url, expires_at). The token is in the link and nowhere
+	// else: the link is what a person sends.
+	r, err := jsonResult(map[string]any{"id": inv.ID, "url": base + "/i/" + token, "expires_at": inv.ExpiresAt})
 	return r, nil, err
 }
 

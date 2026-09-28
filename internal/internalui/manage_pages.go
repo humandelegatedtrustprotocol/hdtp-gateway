@@ -138,6 +138,12 @@ func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 	mux.HandleFunc("GET /card.vcf", d.getCardVCF)
 }
 
+// addressClaim is a request's claim on another contact's address, {root, name}.
+type addressClaim struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
+}
+
 // getAPIRequests serves `GET /api/requests`.
 func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
@@ -155,11 +161,10 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 		// it is the more trustworthy of the two.
 		ViaInvite   bool   `json:"via_invite"`
 		InviteLabel string `json:"invite_label,omitempty"`
-		// AddressOf is the root of the contact whose address this request comes from, now or
-		// within the claim window, and AddressOfName that contact's name: PACT §5.2, "shown to the
-		// owner beside the name of the contact who holds or held that address".
-		AddressOf     string `json:"address_of,omitempty"`
-		AddressOfName string `json:"address_of_name,omitempty"`
+		// AddressClaim is the contact whose address this request comes from, now or within the
+		// claim window: PACT §5.2, "shown to the owner beside the name of the contact who holds or
+		// held that address". The owner MCP's list_contacts and the cloud answer the same shape.
+		AddressClaim *addressClaim `json:"address_claim,omitempty"`
 	}
 	var labels map[string]string
 	pending := []row{}
@@ -170,12 +175,13 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 		rw := row{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, ViaInvite: c.InviteID != ""}
 		if d.Contacts != nil {
 			if claim, err := d.Contacts.AddressClaim(r.Context(), account, c.Endpoint, c.Fingerprint); err == nil && claim != "" {
-				rw.AddressOf, rw.AddressOfName = claim, claim
+				ac := &addressClaim{Root: claim, Name: claim}
 				for _, held := range list {
 					if held.Fingerprint == claim {
-						rw.AddressOfName = cmp.Or(held.Petname, held.DisplayName, claim)
+						ac.Name = cmp.Or(held.Petname, held.DisplayName, claim)
 					}
 				}
+				rw.AddressClaim = ac
 			}
 		}
 		if c.InviteID != "" {

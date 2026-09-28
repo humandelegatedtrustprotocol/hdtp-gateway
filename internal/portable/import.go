@@ -37,8 +37,10 @@ type Plan struct {
 	AccountID string
 	Contents  *pactidentity.ExportContents
 	// Write are the contacts Apply writes: every row not held, and every row held with no leaf
-	// that the file gives one. Keep are the roots held already, left as they are.
+	// that the file gives one. Fill names the second kind: held here, with no leaf, and the file's
+	// pin fills it. Keep are the roots held already, left as they are.
 	Write     []pactidentity.ContactRow
+	Fill      []string
 	Keep      []string
 	Conflicts []Conflict
 	zr        *zip.Reader
@@ -51,6 +53,11 @@ type Plan struct {
 //   - A slug that is here must be that same root, and the file's contacts are merged with the
 //     ones it holds: a pin this host holds is never replaced by one from a file.
 //   - A root that is here under ANOTHER slug is refused: one identity, one slug on a host.
+//   - A slug reserved after an identity left this node (PACT §9) is refused here, in the review,
+//     and not first by the write.
+//   - Into a slug that is here, a file thread whose id this identity already holds for another
+//     contact is refused: thread ids are the account's own, and the file's messages would be
+//     written into the other contact's conversation.
 func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now time.Time) (*Plan, error) {
 	p := &Plan{Slug: slug, New: true, zr: zr}
 	accounts, err := st.ListAccounts(ctx)
@@ -75,6 +82,20 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 				return nil, refuse("the identity %s is already on this node as %q; import into that slug", p.Owner, a.Slug)
 			}
 		}
+		// The store refuses the account too (CreateAccount); this says so before the review, not
+		// after the person has agreed to it. It does not say whose the address was: it may be this
+		// very identity, returning.
+		if reserved, err := st.LiveVacatedSlug(ctx, slug, now.Unix()); err != nil {
+			return nil, fmt.Errorf("import: %w", err)
+		} else if reserved {
+			return nil, refuse("%q is reserved: an identity left this node from that address, and a leaf issued for it has not yet expired; choose another slug", slug)
+		}
+	}
+	// What is read into memory is bounded before it is read (ImportMessagesCeiling).
+	for _, f := range zr.File {
+		if f.Name == "messages.jsonl" && f.UncompressedSize64 > ImportMessagesCeiling {
+			return nil, refuse("messages.jsonl: %d bytes, over the %d this host reads into memory for one import", f.UncompressedSize64, ImportMessagesCeiling)
+		}
 	}
 	// An existing slug's own root is what the file must be (the core's owner rule, in its words).
 	p.Contents, err = pactidentity.ReadExportZip(zr, p.Owner, now, ImportCeiling)
@@ -82,9 +103,15 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 		return nil, refuse("%v", err)
 	}
 	if p.New {
+		// The one rule every door holds a display name to (identity.ValidDisplayName): the new
+		// account takes this as its name, and a name is one line of its card.
 		p.OwnerName = ownerName(zr)
+		if err := identity.ValidDisplayName(p.OwnerName); err != nil {
+			return nil, refuse("manifest.json: owner_name: %v", err)
+		}
 	}
 	held := []pactidentity.ContactRow{}
+	heldRoots := map[string]bool{}
 	if !p.New {
 		cs, err := st.ListContacts(ctx, p.AccountID)
 		if err != nil {
@@ -92,12 +119,38 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 		}
 		for _, c := range cs {
 			held = append(held, contactRow(c))
+			heldRoots[c.Fingerprint] = true
+		}
+		for _, t := range p.Contents.Threads {
+			if err := threadFits(ctx, st, p.AccountID, t); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := merge(held, p.Contents.Contacts, p); err != nil {
 		return nil, err
 	}
+	for _, r := range p.Write {
+		if heldRoots[r.Root] {
+			p.Fill = append(p.Fill, r.Root)
+		}
+	}
 	return p, nil
+}
+
+// threadFits refuses a file thread whose id this identity already holds for another contact.
+func threadFits(ctx context.Context, st store.Store, accountID string, t pactidentity.ThreadRow) error {
+	h, err := st.GetThread(ctx, accountID, t.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("import: thread %s: %w", t.ID, err)
+	}
+	if h.ContactFpr != t.Contact {
+		return refuse("thread %s: this identity already holds a conversation of that id with %s, and the file's is with %s; it cannot be merged into it", t.ID, h.ContactFpr, t.Contact)
+	}
+	return nil
 }
 
 // manifestOwner reads whose a file says it is, for a slug that is not here yet: the one thing read
@@ -160,18 +213,21 @@ func merge(held, rows []pactidentity.ContactRow, p *Plan) error {
 }
 
 // Apply writes a plan: the rows under one transaction, then the files. Every contact written is
-// owed this host's handshake (PACT §9.2), which the campaign after the identity's next leaf sends.
-func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir) (Result, error) {
+// owed this host's handshake from `now` (PACT §9.2), which the campaign of the identity's next leaf
+// — the first one requested after the import — sends.
+func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir, now time.Time) (Result, error) {
 	var res Result
+	newFiles := map[string]bool{} // by hash: whether this import wrote the file's record
 	err := st.Atomically(ctx, func(tx store.Store) error {
 		res = Result{}
+		clear(newFiles)
 		accountID := p.AccountID
 		if p.New {
 			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: p.Slug, DisplayName: p.OwnerName, Algo: string(identity.AlgoP256)})
 			if errors.Is(err, store.ErrAddressVacated) {
 				// An identity left this node from that address, and a leaf issued for it is still
 				// live (PACT §9): the store's one guard, said as a refusal of this import.
-				return refuse("%q was left by another identity, whose last leaf has not yet expired; choose another slug", p.Slug)
+				return refuse("%q is reserved: an identity left this node from that address, and a leaf issued for it has not yet expired; choose another slug", p.Slug)
 			}
 			if err != nil {
 				return fmt.Errorf("import: %w", err)
@@ -190,6 +246,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			if err != nil {
 				return err
 			}
+			c.HandshakeDueAt = now.Unix()
 			if _, gerr := tx.GetContact(ctx, accountID, r.Root); gerr == nil {
 				// Held with no leaf (export_merge wrote it only so): the file's pin fills it.
 				wrote, err := tx.ImportContactPin(ctx, c)
@@ -199,7 +256,10 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 				if !wrote {
 					return fmt.Errorf("import: contact %s gained a leaf while the file was read", r.Root)
 				}
-			} else if err := tx.ImportContact(ctx, c); err != nil {
+				res.PinsFilled++
+				continue
+			}
+			if err := tx.ImportContact(ctx, c); err != nil {
 				return fmt.Errorf("import: contact %s: %w", r.Root, err)
 			}
 			res.Contacts++
@@ -209,18 +269,35 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			if err != nil {
 				return fmt.Errorf("import: thread %s: %w", t.ID, err)
 			}
+			if !wrote {
+				// Here already: the same conversation, or another contact's under that id (checked
+				// by the review too; again here, in the transaction that writes).
+				if err := threadFits(ctx, tx, accountID, t); err != nil {
+					return err
+				}
+			}
 			res.count(&res.Threads, wrote)
 		}
 		for _, m := range p.Contents.Messages {
 			sm, blob := storeMessage(accountID, m)
 			if blob != nil {
-				if _, err := tx.ImportBlob(ctx, *blob); err != nil {
+				wrote, err := tx.ImportBlob(ctx, *blob)
+				if err != nil {
 					return fmt.Errorf("import: file %s: %w", blob.Hash, err)
 				}
+				newFiles[blob.Hash] = newFiles[blob.Hash] || wrote
 			}
 			wrote, err := tx.ImportMessage(ctx, sm)
 			if err != nil {
 				return fmt.Errorf("import: message %s: %w", m.ID, err)
+			}
+			if !wrote {
+				// A message's id is unique on the node and its msg_id per contact and direction:
+				// "already here" is THIS message, in this conversation, and nothing else is.
+				h, gerr := tx.GetMessageByMsgID(ctx, accountID, sm.ContactFpr, sm.Direction, sm.MsgID)
+				if gerr != nil || h.ID != sm.ID || h.ThreadID != sm.ThreadID {
+					return refuse("message %s: its id, or its msg_id with that contact, is another message's on this node", m.ID)
+				}
 			}
 			res.count(&res.Messages, wrote)
 		}
@@ -247,7 +324,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		if got != m.Hash {
 			return res, fmt.Errorf("import: the rows are in and file %s changed since it was checked", m.Hash)
 		}
-		res.Media++
+		res.count(&res.Media, newFiles[m.Hash])
 	}
 	return res, nil
 }
@@ -306,11 +383,14 @@ func storeContact(accountID string, r pactidentity.ContactRow) (store.Contact, e
 
 // storeMessage is a messages.jsonl line as the store holds it, with the file row it needs. An
 // undelivered outbound message was the old host's to deliver, under the old host's leaf; this host
-// has not been asked to, so it arrives failed, with no retry schedule.
+// has not been asked to, so it arrives failed, with no retry schedule. An inbound message reached
+// the host that exported it, whatever the file says of it (a message that was waiting for its
+// human travels `queued`), and arrives delivered.
 func storeMessage(accountID string, m pactidentity.MessageRow) (store.Message, *store.Blob) {
 	status := "delivered"
-	switch m.Status {
-	case "queued", "failed":
+	switch {
+	case m.Direction == "in":
+	case m.Status == "queued", m.Status == "failed":
 		status = "failed"
 	}
 	out := store.Message{

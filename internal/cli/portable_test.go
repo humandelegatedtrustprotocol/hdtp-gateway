@@ -112,7 +112,7 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 	}
 	// The same file into the same identity merges: nothing new, and it ends with a renewal.
 	code, out, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice", "-yes")
-	if code != 0 || !strings.Contains(out, "keep  "+peer.Fpr) || !strings.Contains(out, "0 contact(s)") || !strings.Contains(out, "-purpose renew") {
+	if code != 0 || !strings.Contains(out, "keep  "+peer.Fpr) || !strings.Contains(out, "0 contact(s)") || !strings.Contains(out, "a request for a new leaf is waiting: renew at "+endpoint) {
 		t.Fatalf("a second import into the same identity: code=%d out=%q err=%q", code, out, errb)
 	}
 	// Into a slug that is somebody else: refused, audited, nothing written.
