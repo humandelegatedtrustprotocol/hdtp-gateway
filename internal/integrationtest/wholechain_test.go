@@ -20,9 +20,10 @@ import (
 func TestOnlyWhatVerifiesTheChainReadsAllOfIt(t *testing.T) {
 	root := repoRoot(t)
 	allowed := map[string]string{
-		"internal/core/audit/archive.go": "verify, export, archive and repair: each walks the chain link by link",
-		"internal/cli/auditstore.go":     "the adapter that hands the store to internal/core/audit",
-		"internal/cli/auditcmd.go":       "`pact-gateway audit`, the offline commands over the whole chain",
+		"internal/core/audit/archive.go":         "verify, export, archive and repair: each walks the chain link by link",
+		"internal/core/auditstore/auditstore.go": "the adapter that hands the store to internal/core/audit",
+		"internal/core/audit/departed.go":        "an identity's archive verifies the chain before it moves rows out of it, and finds the rows that name the identity",
+		"internal/cli/auditcmd.go":               "`pact-gateway audit`, the offline commands over the whole chain",
 	}
 	found := map[string]bool{}
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
@@ -70,5 +71,57 @@ func TestOnlyWhatVerifiesTheChainReadsAllOfIt(t *testing.T) {
 	}
 	if len(found) == 0 {
 		t.Fatal("found no reader of the chain at all: the walk is broken, not the code")
+	}
+}
+
+// The two deletes on the audit chain (SPEC §11.4) are safe only behind the archive that writes the
+// rows out first, and the prune guard cannot see a file: it admits a row the head anchor covers, or
+// one listed with its hash. So the store's two delete methods are reached only through the archive
+// code (internal/core/audit, through its Store interface) and the adapter that joins it to the
+// store, and a caller anywhere else fails here.
+func TestOnlyTheArchiveDeletesFromTheChain(t *testing.T) {
+	root := repoRoot(t)
+	deletes := map[string]bool{"ArchiveAuditRows": true, "ArchiveRows": true, "DeleteAuditEventsThrough": true}
+	allowed := map[string]bool{
+		"internal/core/auditstore/auditstore.go": true, // the join
+		"internal/core/audit/archive.go":         true, // the head archive and its repair
+		"internal/core/audit/departed.go":        true, // an identity's archive
+	}
+	found := map[string]bool{}
+	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if strings.HasPrefix(rel, "internal/core/store/") {
+			return nil // the methods' own bodies
+		}
+		file, perr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && deletes[sel.Sel.Name] {
+					found[rel] = true
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel := range found {
+		if !allowed[rel] {
+			t.Errorf("%s deletes from the audit chain; only the archive code may, which writes the rows out first", rel)
+		}
+	}
+	for rel := range allowed {
+		if !found[rel] {
+			t.Errorf("%s no longer calls a delete on the chain: the list is stale", rel)
+		}
 	}
 }

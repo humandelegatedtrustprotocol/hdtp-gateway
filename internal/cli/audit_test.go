@@ -291,3 +291,65 @@ func TestVerifyFailsWhenTheArchiveIsGone(t *testing.T) {
 		t.Fatalf("verify reported success with the archived history gone: %q", out)
 	}
 }
+
+// `audit erase-archive` refuses what it cannot erase: no -file, a name that is no identity archive
+// in <data_dir>/audit-archive, and an archive whose rows are still in the table (a run that has
+// not finished — its skeleton would contradict the live rows). The control, a finished archive,
+// is erased, and the chain still verifies (TestAccountLeaveOnARunningNode drives that end).
+func TestEraseArchiveRefusals(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	dataDir := filepath.Join(dir, "d")
+	if err := os.WriteFile(cfgPath, []byte(`{"data_dir": "`+dataDir+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errb := runQuiet("migrate", "-config", cfgPath); code != 0 {
+		t.Fatalf("migrate: %s", errb)
+	}
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &audit.Writer{Sink: st}
+	for i := 0; i < 4; i++ {
+		if err := w.Append(ctx, "", "system", "", "probe", fmt.Sprintf("r:%d", i), "ok", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := st.ListAuditEvents(ctx, "")
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath); code != 2 || !strings.Contains(errb, "needs -file") {
+		t.Fatalf("erase-archive without -file: %d %q", code, errb)
+	}
+	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath, "-file", "../pact.db"); code != 1 || !strings.Contains(errb, "is not an identity archive") {
+		t.Fatalf("erase-archive of a file outside the archive directory: %d %q", code, errb)
+	}
+	// A copy of a live row in an archive: what a run leaves before its transaction.
+	r := rows[1]
+	var b strings.Builder
+	if err := audit.ExportJSONL(&b, []audit.Event{{Seq: r.Seq, TS: r.TS, AccountID: r.AccountID, ActorKind: r.ActorKind, ActorID: r.ActorID,
+		Action: r.Action, Resource: r.Resource, Outcome: r.Outcome, RequestID: r.RequestID, Details: r.Details, PrevHash: r.PrevHash, Hash: r.Hash}}); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dataDir, "audit-archive")
+	if err := os.MkdirAll(archive, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "0123456789abcdef0123456789abcdef-00000000000000000002-00000000000000000002.jsonl"
+	if err := os.WriteFile(filepath.Join(archive, name), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errb := runQuiet("audit", "verify", "-config", cfgPath); code != 0 || !strings.Contains(out, "has not finished") {
+		t.Fatalf("verify of an unfinished archive: %d %q %q", code, out, errb)
+	}
+	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath, "-file", name); code != 1 || !strings.Contains(errb, "has not finished") {
+		t.Fatalf("erase-archive of an unfinished archive: %d %q", code, errb)
+	}
+	if raw, err := os.ReadFile(filepath.Join(archive, name)); err != nil || string(raw) != b.String() {
+		t.Fatalf("a refused erase changed the archive: %v", err)
+	}
+}

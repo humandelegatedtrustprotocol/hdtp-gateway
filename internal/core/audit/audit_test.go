@@ -277,7 +277,7 @@ func TestInterruptedArchiveIsRepairableNotTampered(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := Archive(ctx, st, dir, 3, nil); err == nil {
+	if _, err := Archive(ctx, st, dir, 3, nil, nil); err == nil {
 		t.Fatal("the injected crash did not surface")
 	}
 	st.failAt = nil
@@ -288,25 +288,25 @@ func TestInterruptedArchiveIsRepairableNotTampered(t *testing.T) {
 	}
 
 	// This must be reported as interrupted, NOT as a broken chain.
-	if _, err := VerifyChain(ctx, st); err == nil || !errors.Is(err, ErrArchiveInterrupted) {
+	if _, err := VerifyChain(ctx, st, nil); err == nil || !errors.Is(err, ErrArchiveInterrupted) {
 		t.Fatalf("an interrupted archive was not distinguished from tampering: %v", err)
 	}
 
 	// And it must be repairable, because the archive file was verified before
 	// the anchor was ever written: rows through seq 3 are provably preserved.
-	n, err := Repair(ctx, st)
+	n, err := Repair(ctx, st, nil)
 	if err != nil {
 		t.Fatalf("repair: %v", err)
 	}
 	if n != 3 {
 		t.Fatalf("repair removed %d rows, want 3", n)
 	}
-	if _, err := VerifyChain(ctx, st); err != nil {
+	if _, err := VerifyChain(ctx, st, nil); err != nil {
 		t.Fatalf("chain still not verifying after repair: %v", err)
 	}
 
 	// Repair on a healthy chain is a no-op.
-	if n, err := Repair(ctx, st); err != nil || n != 0 {
+	if n, err := Repair(ctx, st, nil); err != nil || n != 0 {
 		t.Fatalf("repair touched a healthy chain: %d %v", n, err)
 	}
 }
@@ -323,14 +323,14 @@ func TestRepairRefusesWithoutItsArchiveFile(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := Archive(ctx, st, dir, 3, nil); err == nil {
+	if _, err := Archive(ctx, st, dir, 3, nil, nil); err == nil {
 		t.Fatal("the injected crash did not surface")
 	}
 	st.failAt = nil
 	if err := os.Remove(st.anchor.ArchivePath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Repair(ctx, st); err == nil {
+	if _, err := Repair(ctx, st, nil); err == nil {
 		t.Fatal("repair deleted rows whose archive no longer exists")
 	}
 	if len(st.rows) != 6 {
@@ -361,7 +361,7 @@ func TestRepairRefusesAnArchiveWhoseRowsWereRewritten(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := Archive(ctx, st, dir, 3, nil); err == nil {
+	if _, err := Archive(ctx, st, dir, 3, nil, nil); err == nil {
 		t.Fatal("the injected crash did not surface")
 	}
 	st.failAt = nil
@@ -390,7 +390,7 @@ func TestRepairRefusesAnArchiveWhoseRowsWereRewritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Repair(ctx, st); err == nil {
+	if _, err := Repair(ctx, st, nil); err == nil {
 		t.Fatal("repair deleted rows on the strength of a rewritten archive's last line")
 	}
 	if len(st.rows) != 6 {

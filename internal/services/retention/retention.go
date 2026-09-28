@@ -39,12 +39,15 @@ type Windows interface {
 // not at its next restart. It rides this ticker rather than having one of its own because it is
 // the same kind of work — a policy about age — and it is nil-safe for callers with no node.
 //
+// The same tick archives the audit trail of the identities that left long enough ago
+// (`archiveTrail`, audit.Departed via serve): a policy about age as well, nil-safe likewise.
+//
 // It BLOCKS until ctx ends, and it never returns while a pass is running. `serve` runs it in its
 // background group and waits for that group before returning, so the store is not closed under a
 // pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
 func Run(ctx context.Context, settings Windows, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
-	invalidate func(ctx context.Context, accountID, fpr string) error) {
+	archiveTrail func(context.Context), invalidate func(ctx context.Context, accountID, fpr string) error) {
 
 	blobs := messaging.BlobDir{Root: filepath.Join(cfg.DataDir, "blobs")}
 	requests := contacts.Owner{Manager: &contacts.Manager{Store: st}, Invalidate: invalidate}
@@ -61,6 +64,9 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 	sweep := func() {
 		if retireLeaves != nil {
 			retireLeaves(ctx)
+		}
+		if archiveTrail != nil {
+			archiveTrail(ctx)
 		}
 		// Whatever any account's window is: the records whose OWN window has closed. A sealed call
 		// writes an idempotency record every time, and one past its window protects nothing (PACT

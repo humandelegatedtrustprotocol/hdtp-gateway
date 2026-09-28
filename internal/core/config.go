@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Knob and mode values (SPEC §2.5, §4.6, §5.1).
@@ -109,6 +110,39 @@ type Config struct {
 	StoreEngine   string `json:"store_engine"`
 	PostgresDSN   string `json:"postgres_dsn"`
 	MasterKeyFile string `json:"master_key_file"`
+
+	// AuditArchiveAfter is how long the audit rows that name an identity that left this node stay
+	// in the live trail before the hourly sweep moves them to the identity's archive file (SPEC
+	// §3.11, §11.6): a whole number of days ("90d"), or a Go duration ("36h", "0s"). Bootstrap,
+	// never owner-settable: it decides what the node keeps of a person who has gone.
+	AuditArchiveAfter string `json:"audit_archive_after"`
+}
+
+// DefaultAuditArchiveAfter is the period the node keeps a departed identity's audit rows live
+// (SPEC §3.11): a quarter, long enough for the owner to review the leave and whatever led to it
+// in the portal, and short against PACT §9's "keep nothing beyond what law compels".
+const DefaultAuditArchiveAfter = "90d"
+
+// ParseAuditArchiveAfter reads AuditArchiveAfter: a whole number of days with a `d`, or a Go
+// duration, never negative.
+func ParseAuditArchiveAfter(v string) (time.Duration, error) {
+	var d time.Duration
+	if days, ok := strings.CutSuffix(v, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n < 0 || n > 100000 {
+			return 0, fmt.Errorf("%q is not a whole number of days", v)
+		}
+		d = time.Duration(n) * 24 * time.Hour
+	} else {
+		var err error
+		if d, err = time.ParseDuration(v); err != nil {
+			return 0, fmt.Errorf("%q is neither a number of days (90d) nor a duration (36h)", v)
+		}
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("%q is negative", v)
+	}
+	return d, nil
 }
 
 // Tunnel adapter registry (filled by internal/tunnel at init): name → whether
@@ -152,6 +186,8 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 		ClientCert:   ClientCertPreferred,
 		StoreEngine:  "sqlite",
 		WalletURL:    DefaultWalletURL,
+
+		AuditArchiveAfter: DefaultAuditArchiveAfter,
 	}
 	var lanOpt *bool
 	var filePinned map[string]bool
@@ -207,6 +243,7 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("PACT_MASTER_KEY_FILE", &c.MasterKeyFile)
 	envStr("PACT_TUNNEL", &c.Tunnel)
 	envStr("PACT_WALLET_URL", &c.WalletURL)
+	envStr("PACT_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
 	if v, ok := lookup("PACT_MODE"); ok {
 		c.Mode = Mode(v)
 	}
@@ -334,6 +371,10 @@ func (c *Config) validate() error {
 			return fmt.Errorf("%s: internal bind %q is not loopback; it requires internal_auth_enabled plus internal_tls_cert and internal_tls_key",
 				RuleInternalBindAuth, c.InternalBind)
 		}
+	}
+
+	if _, err := ParseAuditArchiveAfter(c.AuditArchiveAfter); err != nil {
+		return fmt.Errorf("%s: audit_archive_after: %v", RuleRange, err)
 	}
 
 	if err := validWalletURL(c.WalletURL); err != nil {

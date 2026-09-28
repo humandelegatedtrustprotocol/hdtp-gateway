@@ -750,7 +750,28 @@ type AuditStore interface {
 	// SetAuditAnchor records an archive's terminal hash.
 	SetAuditAnchor(ctx context.Context, a AuditAnchorRow) error
 
-	// DeleteAuditEventsThrough prunes archived rows. It is the ONLY delete on
-	// the chain, and is safe only once the anchor above records what was removed.
+	// DeleteAuditEventsThrough prunes the head of the chain once the anchor above records what
+	// was removed (SPEC §11.6). It is one of the two deletes on the chain; ArchiveAuditRows is
+	// the other.
 	DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error)
+
+	// ListDueLeaves lists the account_leave rows of the identities whose leave went through (ok,
+	// or partial) at or before `before` (unix seconds), oldest first, at most `limit` of them:
+	// the identities whose trail is due to be archived (SPEC §3.11).
+	ListDueLeaves(ctx context.Context, before int64, limit int) ([]AuditRow, error)
+
+	// ArchiveAuditRows removes exactly these rows, each named by its seq AND its hash, from the
+	// chain, in one transaction: it lists them in audit_archive_rows (the only thing the prune
+	// guard admits for a row the head anchor does not cover), deletes them, and empties the list
+	// again. A row whose hash differs from the one named is not deleted, and then nothing is: the
+	// count must be every row named, or the transaction is rolled back. It is the second of the
+	// two deletes on the chain, and its caller has written the rows to an archive and read them
+	// back first (audit.ArchiveDeparted).
+	ArchiveAuditRows(ctx context.Context, rows []AuditArchiveRow) (int64, error)
+}
+
+// AuditArchiveRow names one audit row an archive holds: its seq and the hash it was written with.
+type AuditArchiveRow struct {
+	Seq  int64
+	Hash string
 }
