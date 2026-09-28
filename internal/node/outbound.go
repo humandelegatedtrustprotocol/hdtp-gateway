@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
@@ -49,6 +50,25 @@ func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 
 // wireClient attaches to a client what it must be able to write back about the
 // contacts it reaches (PACT §13.2, §14.3).
+// strangerTools are what an identity sends to somebody who is not, or not yet, its contact: the
+// two ways in (PACT §5.1) and the two answers to a request (§6.2). They spend the identity's
+// stranger budget whatever the row says — an approval's `contact_accepted` goes to a row the
+// approval has just made active — so a flood of approvals or requests is held to one number.
+var strangerTools = map[string]bool{
+	"request_contact": true, "redeem_invite": true, "contact_accepted": true, "contact_rejected": true,
+}
+
+// outboundToContact says whether a call out is charged as to a contact (the per-contact bucket and
+// the account's aggregate) or as to a stranger (the account's stranger budget): to a contact when
+// the account holds the peer's root as an active contact and the tool is not one of strangerTools.
+func (n *Node) outboundToContact(accountID string, peer outbound.Peer, tool string) bool {
+	if strangerTools[tool] || peer.Root == "" {
+		return false
+	}
+	c, err := n.opts.Store.GetContact(context.Background(), accountID, peer.Root)
+	return err == nil && c.Status == "active"
+}
+
 func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.Client {
 	client.Now = n.opts.Now
 	client.DialContext = n.opts.DialContext
@@ -60,6 +80,9 @@ func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.C
 			return
 		}
 		_ = n.opts.Store.SetContactChainSentKid(context.Background(), accountID, peer.Root, a.kp.Fingerprint)
+	}
+	client.Budget = func(peer outbound.Peer, tool string) (bool, time.Duration) {
+		return n.limiter.AllowOut(accountID, peer.Root, n.outboundToContact(accountID, peer, tool))
 	}
 	client.OnRepin = func(peer outbound.Peer, leaf, spki []byte) {
 		if !peer.Known() {

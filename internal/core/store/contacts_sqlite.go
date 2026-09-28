@@ -186,3 +186,7 @@ func (s *SQLite) TakeBackContactRequest(ctx context.Context, accountID, fingerpr
 	}
 	return n > 0, nil
 }
+
+func (s *SQLite) CountHeldContacts(ctx context.Context, accountID string) (int64, error) {
+	return s.q.CountHeldContacts(ctx, accountID)
+}

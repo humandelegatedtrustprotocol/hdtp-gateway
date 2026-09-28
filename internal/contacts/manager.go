@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
@@ -26,6 +27,9 @@ var (
 	ErrUnknownContact   = errors.New("unknown_contact")
 	ErrBadRequest       = errors.New("bad_request")
 )
+
+// ErrContactCap is core.ErrContactCap, where every package that adds a contact can reach it.
+var ErrContactCap = core.ErrContactCap
 
 // MaxInviteTTL is PACT §12's cap on expires_at; exported so the limits the
 // node advertises (get_card) come from the same authority that enforces them.
@@ -40,6 +44,36 @@ type Manager struct {
 	// there is something to look at (SPEC §8.5, §9.1); nothing produced that
 	// event, so the resource an agent could subscribe to never fired.
 	OnRequest func(accountID, contactFpr string)
+	// ContactCap reports how many contacts each account may hold: active contacts plus the
+	// requests it sent (pending_out). nil or 0 means core.DefaultLimitContacts. pending_in rows
+	// do not count — strangers write them, and counting them would let anybody fill the cap and
+	// lock the owner out of approving the people they want — and neither do blocked ones.
+	// Nothing already held is ever revoked by it; only the next act that would add one is refused.
+	ContactCap func() int
+}
+
+// Cap is the number of contacts each account may hold.
+func (m *Manager) Cap() int {
+	if m.ContactCap != nil {
+		if c := m.ContactCap(); c > 0 {
+			return c
+		}
+	}
+	return core.DefaultLimitContacts
+}
+
+// Room refuses with ErrContactCap when accountID already holds as many contacts as it may, which
+// is the check before any act that turns a row active or writes a pending_out one. It reads the
+// store it is given, so a check inside a transaction counts what that transaction sees.
+func (m *Manager) Room(ctx context.Context, st store.ContactStore, accountID string) error {
+	held, err := st.CountHeldContacts(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if cap := m.Cap(); held >= int64(cap) {
+		return core.ContactCapRefusal(held, cap)
+	}
+	return nil
 }
 
 func (m *Manager) notifyRequest(accountID, contactFpr string) {
@@ -208,6 +242,17 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	if inv.AutoAccept && p.AddressClaim == "" {
 		status = "active"
 		result = RedeemResult{Status: "accepted", Permissions: inv.Permissions}
+	}
+	// The contact cap, for a redemption that would ADD a contact: before the use is spent, so the
+	// link still works once the owner makes room; before a held row is looked at, so everybody who
+	// would have been accepted hears the same answer — a caller this account blocked included
+	// (PACT §12: blocked is indistinguishable from never-met). The peer is told `unavailable`,
+	// bare: no count and no cap, and not `rate_limited`, since no number of seconds is true of a
+	// full contact list. As the cloud answers it (pact-cloud src/identity/tools.ts).
+	if status == "active" {
+		if err := m.Room(ctx, m.Store, accountID); err != nil {
+			return RedeemResult{}, err
+		}
 	}
 	held, err := m.Store.GetContact(ctx, accountID, callerFpr)
 	known := err == nil
@@ -429,7 +474,11 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 	if err != nil {
 		// A root that returned after a removal has no pin: it is re-added as an
 		// active contact at the address it asked from, the way approving a
-		// request would, with its former permissions gone.
+		// request would, with its former permissions gone — so the contact cap
+		// applies to it. Re-pinning a row already held adds nothing.
+		if err := m.Room(ctx, m.Store, accountID); err != nil {
+			return p, err
+		}
 		_, err = m.Store.InsertContact(ctx, store.Contact{AccountID: accountID, Fingerprint: root, SPKI: leaf.SPKI, Status: "active",
 			Endpoint: p.Endpoint, Leaf: p.Leaf, PinnedAt: now, DisplayName: leaf.Subject, RootCert: p.RootCert})
 		if err != nil {
