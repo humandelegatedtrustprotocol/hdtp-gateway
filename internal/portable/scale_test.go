@@ -56,7 +56,7 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 		t.Fatalf("reading %d threads: %v", threads, err)
 	}
 	started = time.Now()
-	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now())
+	res, err := p.Apply(context.Background(), e.st, e.blobs, time.Now(), 500)
 	apply = time.Since(started)
 	if err != nil {
 		t.Fatalf("applying %d threads: %v", threads, err)

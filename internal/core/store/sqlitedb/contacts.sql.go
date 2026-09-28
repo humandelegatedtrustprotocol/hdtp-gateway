@@ -28,6 +28,19 @@ func (q *Queries) ClearContactHandshake(ctx context.Context, arg ClearContactHan
 	return result.RowsAffected()
 }
 
+const countHeldContacts = `-- name: CountHeldContacts :one
+SELECT COUNT(*) FROM contacts WHERE account_id = ? AND status IN ('active', 'pending_out')
+`
+
+// The contacts an account holds against its contact cap: active rows and the requests it sent
+// (pending_out). pending_in is written by strangers and blocked is a refusal, so neither counts.
+func (q *Queries) CountHeldContacts(ctx context.Context, accountID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countHeldContacts, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteContact = `-- name: DeleteContact :execrows
 DELETE FROM contacts WHERE account_id = ? AND fingerprint = ?
 `

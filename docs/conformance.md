@@ -62,7 +62,7 @@ that cited test names exist and cannot check that the list is complete.
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
-| `rate_limited` (+ `retry_after`) | `TestContactRateLimit60PerHour`, `TestGuestRateLimit10PerHourPerIPAndKey`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| `rate_limited` (+ `retry_after`) | `TestBucketArithmetic`, `TestTheAggregateHolds`, `TestGuestAndSourceBudgets`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
@@ -81,8 +81,12 @@ that cited test names exist and cannot check that the list is complete.
 | `note` | ≤1 KiB | `TestRequestContactNoteCapAndBinding`, `TestBoundaryCapsRejectOversizedInput` |
 | availability slots | ≤5 per response | `TestCalendarToolsRespectSlotCapAndBookIdempotently`, `TestP3ExitContactBooksCalendarSlot` |
 | invite `expires_at` | ≤90 days | `TestRedeemFailures` |
-| per-contact rate | 60 calls/hour | `TestContactRateLimit60PerHour` |
-| guest rate | 10/hour per IP+key | `TestGuestRateLimit10PerHourPerIPAndKey` |
+| per-contact rate | 1/s, burst 10 | `TestBucketArithmetic` |
+| per-account rate | contacts × 1/s, burst one second, held at the measured capacity | `TestEveryContactAtItsRateIsServed`, `TestTheAggregateHolds` |
+| guest rate | 10/hour, burst 10, per root and address | `TestGuestAndSourceBudgets` |
+| source rate (no root proven) | 60/hour, burst 60, per address | `TestGuestAndSourceBudgets`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| what spends | every inner call that reaches dispatch; a replay does not | `TestEveryInnerCallSpendsAndAReplayDoesNot`, `TestARefusedCallIsNotRecordedAsTheAnswer` |
+| advertised `limits` | the enforced figures, derived | `TestLimitsAreTheEnforcedOnes`, `TestGetCardAdvertisesTheLimitsInForce` |
 | request body (pre-parse) | 8 MiB, refused `too_large` by the bytes that arrive | `TestBodyCap`; on the running listener `TestBodiesPastTheCapAreRefusedByTheBytesThatArrive` (a body of exactly 8 MiB answered, one byte more refused) |
 
 ## Beyond the checklist

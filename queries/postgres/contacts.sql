@@ -7,6 +7,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = $1 AND fingerprint = $2;
 
+-- name: CountHeldContacts :one
+-- The contacts an account holds against its contact cap: active rows and the requests it sent
+-- (pending_out). pending_in is written by strangers and blocked is a refusal, so neither counts.
+SELECT COUNT(*) FROM contacts WHERE account_id = $1 AND status IN ('active', 'pending_out');
+
 -- name: ListContacts :many
 SELECT * FROM contacts WHERE account_id = $1 ORDER BY created_at, id;
 

@@ -225,7 +225,7 @@ func (s *serveRun) registerAdminHandlers() {
 			return nil, err
 		}
 		// The one decision the portal and the owner MCP also make (contacts.Owner.DecideAddress).
-		o := contacts.Owner{Manager: &contacts.Manager{Store: st}, Invalidate: func(ctx context.Context, accountID, fpr string) error {
+		o := contacts.Owner{Manager: &contacts.Manager{Store: st, ContactCap: s.settings.ContactCap}, Invalidate: func(ctx context.Context, accountID, fpr string) error {
 			if s.nd == nil {
 				return nil
 			}

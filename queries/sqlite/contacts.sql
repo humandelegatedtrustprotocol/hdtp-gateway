@@ -7,6 +7,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: GetContact :one
 SELECT * FROM contacts WHERE account_id = ? AND fingerprint = ?;
 
+-- name: CountHeldContacts :one
+-- The contacts an account holds against its contact cap: active rows and the requests it sent
+-- (pending_out). pending_in is written by strangers and blocked is a refusal, so neither counts.
+SELECT COUNT(*) FROM contacts WHERE account_id = ? AND status IN ('active', 'pending_out');
+
 -- name: ListContacts :many
 SELECT * FROM contacts WHERE account_id = ? ORDER BY created_at, id;
 
