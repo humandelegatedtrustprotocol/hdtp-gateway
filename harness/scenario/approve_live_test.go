@@ -50,13 +50,10 @@ func TestApprovingAContactReachesThePeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create_invite: %v", err)
 	}
-	var inv struct {
-		Token string `json:"token"`
-		URL   string `json:"url"`
-	}
+	var inv struct{ URL string }
 	_ = json.Unmarshal([]byte(inviteRaw), &inv)
 	if inv.URL == "" {
-		inv.URL = "https://" + alice.Node.Name + ":8443/i/" + inv.Token
+		t.Fatalf("create_invite answered no link: %s", shorten(inviteRaw, 200))
 	}
 
 	addRaw, err := bob.Owner.Call(ctx, "add_contact", map[string]any{

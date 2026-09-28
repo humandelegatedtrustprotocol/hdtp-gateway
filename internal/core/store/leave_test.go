@@ -223,7 +223,7 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		t.Fatal(err)
 	}
 	idm := &identity.Manager{Store: st, Keyring: kr}
-	res, err := idm.Leave(ctx, leaving.ID, settings.AccountKeys(leaving.ID), blobs.Remove, now)
+	res, err := idm.Leave(ctx, leaving.ID, func(context.Context, store.Store) ([]string, error) { return settings.AccountKeys(leaving.ID), nil }, blobs.Remove, now)
 	if err != nil {
 		t.Fatalf("leave: %v", err)
 	}

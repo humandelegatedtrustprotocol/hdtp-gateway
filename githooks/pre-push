@@ -14,6 +14,7 @@
 #   make sqlc-check   the committed generated store code matches its sources
 #   make fuzz         every Fuzz target under -fuzz, 30 s each
 #   make harness      the scenario harness's hermetic tier (no Docker)
+#   make scale        last: the store's benchmarks and the import's growth, best of three rounds
 #   make web          and web/dist must be unchanged by it — only when the push touches web/
 #
 # The LIVE harness tiers need Docker and Chrome, so they are opt-in. Each builds what it
@@ -114,7 +115,6 @@ step check
 step analyze
 step sqlc-check
 step fuzz
-step scale
 step harness
 
 case "${PACT_PREPUSH_LIVE:-}" in
@@ -122,3 +122,7 @@ case "${PACT_PREPUSH_LIVE:-}" in
   full) step harness-nightly ;;
   *) step harness-pr ;;
 esac
+
+# Last: its wall-clock ratios are the gate's one measurement a busy machine can move, so it runs
+# when every other step, and the containers they start, have finished.
+step scale

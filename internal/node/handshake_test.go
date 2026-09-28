@@ -43,7 +43,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 		if err := alina.st.ImportContact(ctx, store.Contact{
 			AccountID: alina.acct.ID, Fingerprint: peer.rootFpr(), SPKI: peer.leafSPKI(), Status: "active",
 			TrustFlag: "messages_only", DisplayName: peer.acct.DisplayName, Endpoint: peer.endpoint(),
-			Leaf: peer.leaf(), RootCert: peer.rc, EverActive: true,
+			Leaf: peer.leaf(), RootCert: peer.rc, EverActive: true, HandshakeDueAt: clock.now().Unix(),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	erin := startDemoNode(t, clock, dn, "erin", "Erin Walsh", 365)
 	if err := alina.st.ImportContact(ctx, store.Contact{
 		AccountID: alina.acct.ID, Fingerprint: erin.rootFpr(), Status: "active", TrustFlag: "messages_only",
-		DisplayName: erin.acct.DisplayName, Endpoint: erin.endpoint(), RootCert: erin.rc, EverActive: true,
+		DisplayName: erin.acct.DisplayName, Endpoint: erin.endpoint(), RootCert: erin.rc, EverActive: true, HandshakeDueAt: clock.now().Unix(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,13 +88,15 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	if c := alina.contact(chitra.rootFpr()); c.Status != "pending_out" {
 		t.Fatalf("alina must hold chitra as an approach awaiting her answer: %q", c.Status)
 	}
-	// `account announce` reads this: Bharat told; Erin counted apart, never waiting, never retried.
+	// `account announce` reads this: three told; Erin counted apart, never waiting, never retried.
 	prog, err := alina.n.MoveProgress(ctx, alina.acct.ID, res.Kid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prog.Told != 1 || prog.Waiting != 0 || prog.NoLeaf != 1 {
-		t.Fatalf("the campaign's ledger: told=%d waiting=%d no_leaf=%d, want 1, 0, 1", prog.Told, prog.Waiting, prog.NoLeaf)
+	// Told is every contact the ledger records reached for this leaf: Bharat updated, Chitra and
+	// Dmitri asked (request_contact landed).
+	if prog.Told != 3 || prog.Waiting != 0 || prog.NoLeaf != 1 {
+		t.Fatalf("the campaign's ledger: told=%d waiting=%d no_leaf=%d, want 3, 0, 1", prog.Told, prog.Waiting, prog.NoLeaf)
 	}
 	if c := alina.contact(erin.rootFpr()); c.Status != "active" || c.Fingerprint != erin.rootFpr() {
 		t.Fatalf("erin must stay pinned by her root: %+v", c)

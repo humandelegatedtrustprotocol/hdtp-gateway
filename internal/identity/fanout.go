@@ -20,12 +20,54 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
-// Campaign is what a fan-out needs: whose contacts, and which leaf is being announced. The
-// leaf's kid is what the durable progress rows are matched on (`move_fanout.leaf_kid`), so a
-// second move is a second campaign and cannot be mistaken for the tail of the first.
+// Campaign is what a fan-out needs: whose contacts, which leaf is being announced, and what that
+// leaf's install did. The leaf's kid is what the durable progress rows are matched on
+// (`move_fanout.leaf_kid`), so a second move is a second campaign and cannot be mistaken for the
+// tail of the first.
 type Campaign struct {
 	AccountID string
 	NewKid    string
+	// Moved is the install's decision that this leaf moved the identity (store.Leaf.Moved): a
+	// move is news to every active contact. Any other leaf is news to nobody — a renewal reaches a
+	// contact in the chain of the next envelope — and its campaign is only the handshake an import
+	// left owed.
+	Moved bool
+	// RequestedAt is when this leaf was requested (store.Leaf.CreatedAt). A contact an import
+	// wrote after that is owed the handshake by the identity's NEXT leaf, not by this one.
+	RequestedAt int64
+}
+
+// CampaignFor is the campaign of one of the account's leaves, read from its ledger row: what a
+// resumed walk needs to walk the same contacts the install's walk did.
+func (m *Manager) CampaignFor(ctx context.Context, accountID, kid string) (Campaign, error) {
+	leaves, err := m.Store.ListLeaves(ctx, accountID)
+	if err != nil {
+		return Campaign{}, err
+	}
+	for _, l := range leaves {
+		if l.Kid == kid && len(l.Leaf) > 0 {
+			return Campaign{AccountID: accountID, NewKid: kid, Moved: l.Moved, RequestedAt: l.CreatedAt}, nil
+		}
+	}
+	return Campaign{}, fmt.Errorf("identity: no installed leaf %s: %w", kid, store.ErrNotFound)
+}
+
+// Owes says this campaign is the handshake a contact is owed (PACT §9.2): an import wrote it
+// before this leaf was requested, it is not blocked, and it has not been told.
+func (c Campaign) Owes(ct store.Contact) bool {
+	return ct.Status != "blocked" && ct.HandshakeDue && ct.HandshakeDueAt <= c.RequestedAt
+}
+
+// Walks says whether the campaign reaches a contact: every one it owes the handshake, and, when
+// the leaf moved the identity, every active contact, which pins this identity's root and is owed
+// its new address (PACT §5.3, §9). A blocked contact is never called, whatever brought it. It is
+// the one rule the walk, `account announce`'s ledger (node.MoveProgress) and the install's count
+// all read.
+func (c Campaign) Walks(ct store.Contact) bool {
+	if ct.Status == "blocked" {
+		return false
+	}
+	return c.Owes(ct) || (c.Moved && ct.Status == "active")
 }
 
 // ErrFanoutIncomplete says some contacts were not reached. It is the ordinary outcome of a walk
@@ -53,22 +95,16 @@ func (a *Announcer) audit(action, resource, outcome string) {
 }
 
 // FanoutCall delivers the campaign to one contact, and names what became of it: the literal
-// outcome the audit row records (`updated`, `awaiting_approval`, `requested`). An error is a
-// contact not told.
+// outcome the audit row records (`updated`, `awaiting_approval`, `requested`, or FanoutRefused
+// when the contact answered the handshake with a refusal). An error is a contact not told.
 type FanoutCall func(ctx context.Context, contact store.Contact, card string) (outcome string, err error)
 
-// InCampaign says whether a contact is walked by the campaign: every active contact, which pins
-// this identity's root and is owed its new address (PACT §5.3, §9), and every contact an import
-// brought that is not blocked and has not heard from this host yet (PACT §9.2). A blocked contact
-// is never called, whatever brought it.
-func InCampaign(c store.Contact) bool {
-	if c.Status == "blocked" {
-		return false
-	}
-	return c.Status == "active" || c.HandshakeDue
-}
+// FanoutRefused is the outcome, and the move_fanout status, of a contact that refused the
+// handshake — update_contact and then request_contact — with an answer rather than a failure to
+// arrive. It has answered: its mark is cleared and no run asks it again for this leaf.
+const FanoutRefused = "refused"
 
-// Fanout walks the contacts InCampaign names, recording per-contact outcome
+// Fanout walks the contacts the campaign Walks, recording per-contact outcome
 // durably; contacts already marked done for this campaign are skipped, so a
 // re-run after an interruption resumes exactly where it stopped. A contact an
 // import brought is told once: its mark is cleared when it has been.
@@ -86,7 +122,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 		}
 	}
 	for _, ct := range contacts {
-		if !InCampaign(ct) {
+		if !c.Walks(ct) {
 			continue
 		}
 		if len(ct.Leaf) == 0 {
@@ -96,7 +132,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 			// contact-tier). It stays pinned by its root and is reached when it next calls this
 			// identity. The campaign records it as `unreached` once and does not call it
 			// (PACT §9.2).
-			if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == FanoutUnreached && !ct.HandshakeDue {
+			if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == FanoutUnreached && !c.Owes(ct) {
 				continue // already recorded for this leaf
 			}
 			if a.unreached(ctx, c, ct) {
@@ -104,17 +140,23 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 			}
 			continue
 		}
-		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" && !ct.HandshakeDue {
+		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == "done" && !c.Owes(ct) {
 			done++
 			continue
+		}
+		if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == FanoutRefused {
+			continue // it answered this leaf's handshake with a refusal: never asked again
 		}
 		attempts := progress[ct.Fingerprint].Attempts + 1
 		outcome, callErr := call(ctx, ct, card)
 		status, lastErr := "done", ""
-		if callErr != nil {
+		switch {
+		case callErr != nil:
 			status, lastErr, outcome = "pending", callErr.Error(), "pending"
 			failed++
-		} else {
+		case outcome == FanoutRefused:
+			status, lastErr = FanoutRefused, "the handshake was refused"
+		default:
 			done++
 		}
 		// This write IS the campaign's durability: "re-run to resume" means read these rows. Its
@@ -130,9 +172,10 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 			a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:progress not recorded", "error")
 			continue
 		}
-		if status == "done" && ct.HandshakeDue {
-			// Told, so owed nothing more. A mark that will not clear means the next campaign
-			// tells this contact again, which costs a call and harms nothing; it is said.
+		if status != "pending" && c.Owes(ct) {
+			// Told, or answered with a refusal, so owed nothing more. A mark that will not clear
+			// means the next campaign tells this contact again, which costs a call and harms
+			// nothing; it is said.
 			if cerr := st.ClearContactHandshake(ctx, c.AccountID, ct.Fingerprint); cerr != nil {
 				unrecorded++
 				a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:handshake mark not cleared", "error")
@@ -155,7 +198,8 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 const FanoutUnreached = "unreached"
 
 // unreached records one contact whose leaf is not held: its progress row, its handshake mark
-// cleared (a no-op for a contact that had none), and its audit row. It reports whether the record could not be written.
+// cleared when this campaign owed it one, and its audit row. It reports whether the record could
+// not be written.
 func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact) (failed bool) {
 	st := a.Manager.Store
 	if err := st.UpsertMoveFanout(ctx, store.MoveFanout{
@@ -165,17 +209,20 @@ func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact)
 		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:progress not recorded", "error")
 		return true
 	}
-	if err := st.ClearContactHandshake(ctx, c.AccountID, ct.Fingerprint); err != nil {
-		a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:handshake mark not cleared", "error")
-		return true
+	if c.Owes(ct) {
+		if err := st.ClearContactHandshake(ctx, c.AccountID, ct.Fingerprint); err != nil {
+			a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:handshake mark not cleared", "error")
+			return true
+		}
 	}
 	a.audit("account_move_fanout", "account:"+c.AccountID+" contact:"+ct.Fingerprint+" why:no leaf held", FanoutUnreached)
 	return false
 }
 
 // HandshakesOwed counts the contacts an import brought that are owed this host's handshake and
-// not blocked (PACT §9.2): what the next leaf's campaign will walk. It is the one count the
-// install, `account certificate` and `doctor` all read, so an owed handshake is never unseen.
+// not blocked (PACT §9.2): what the campaign of the identity's next leaf will walk as the
+// handshake. It is the one count `account certificate` and `doctor` read, so an owed handshake
+// is never unseen; the install counts what its own leaf's campaign owes (Campaign.Owes).
 func (m *Manager) HandshakesOwed(ctx context.Context, accountID string) (int, error) {
 	held, err := m.Store.ListContacts(ctx, accountID)
 	if err != nil {
@@ -183,7 +230,7 @@ func (m *Manager) HandshakesOwed(ctx context.Context, accountID string) (int, er
 	}
 	n := 0
 	for _, c := range held {
-		if c.HandshakeDue && InCampaign(c) {
+		if c.HandshakeDue && c.Status != "blocked" {
 			n++
 		}
 	}
