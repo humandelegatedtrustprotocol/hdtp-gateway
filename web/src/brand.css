@@ -6,7 +6,7 @@
  *   - every token this file shares with the kit carries the kit's value (light);
  *   - the dark palette is the kit's own on-dark colours (its dark band: ink, panel, text, muted, the light
  *     orange), not a second brand — the kit itself is light-only;
- *   - `rise` and `pop` are the kit's keyframes, character for character;
+ *   - `rise` is the kit's keyframe, character for character; the logo does not move (the owner, 2026-09-29);
  *   - the kit's contrast rules (test/contrast.test.mjs) hold in both themes and for the app's own pairs.
  *
  * The orange (--accent, #F38020) is 2.65 : 1 on white, so it NEVER carries text or state: --accent-ink
@@ -66,16 +66,17 @@ h1{font-weight:700;letter-spacing:-.03em}
    font), in a <picture> that swaps in the dark variant on a dark ground. In the collapsed sidebar the
    same image is cropped to its first square, which is the mark. */
 .logo{display:block;height:28px;width:auto}
-.side-min .side-brand .logo{width:24px;object-fit:cover;object-position:left center}
+/* In the rail the wordmark is cropped to the mark: the mark is 76.8 of the file's 84 units high, so at 34px
+   it is 31px wide. */
+.side-min .side-brand .logo{width:31px;object-fit:cover;object-position:left center}
 @media (max-width:900px){.side-min .side-brand .logo{width:auto}}
 
 /* ---------------------------------------------------------------- motion
-   The kit's: one easing, `rise` for what arrives, `pop` for the mark. CSS alone, so nothing waits on a
+   The kit's: one easing, `rise` for what arrives. The logo stays still (the owner, 2026-09-29). CSS alone, so nothing waits on a
    script; short, so a hand or a test that acts at once never meets something still arriving; and never
    under reduced motion. A block that IS or HOLDS a form is never hidden, not even for the length of an
    entrance (the kit's 0.1.10 and 0.1.14): it moves into place at full opacity (`lift`). */
 @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-@keyframes pop{0%{opacity:0;transform:scale(.35)}70%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:none}}
 @keyframes lift{from{transform:translateY(10px)}to{transform:none}}
 /* A view's blocks, in order, as the view mounts and as its data arrives (a card mounts when it has
    something to show); the sign-in and first-run pages' blocks the same way. The header first, each
@@ -90,8 +91,6 @@ h1{font-weight:700;letter-spacing:-.03em}
 /* A panel that opens: a menu, a confirmation. */
 .menu{animation:lift .16s var(--ease-out) both}
 dialog[open]{animation:rise .2s var(--ease-out) both}
-/* The mark, once, where the app first shows it. */
-.side-brand .logo,.brandline .logo{animation:pop .5s cubic-bezier(.3,1.3,.5,1) .05s both}
 @media (prefers-reduced-motion:reduce){
-  :is(.content > main,main.center) > *,.menu,dialog[open],.side-brand .logo,.brandline .logo{animation:none}
+  :is(.content > main,main.center) > *,.menu,dialog[open]{animation:none}
 }
