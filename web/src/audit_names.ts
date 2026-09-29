@@ -108,6 +108,17 @@ export function resolved(n: Named): boolean {
 }
 
 /**
+ * Whether a name says its own kind already, so a quiet "owner" or "key" after it would say it twice.
+ * Every name the page makes up says it ("deleted key", "removed owner", "not in your contacts", "an
+ * owner"), and so do the kinds whose names are the kind ("the system", "PACT Cloud · …"); only a
+ * name somebody chose ("Priya", "CI runner") leaves the kind unsaid.
+ */
+export function kindSaid(n: Named): boolean {
+  if (n.state !== "named" && n.state !== "revoked") return true;
+  return ["system", "cli", "anonymous", "operator", "agent"].includes(n.kind);
+}
+
+/**
  * The actor of a chain row: its kind, its id, and — where the row carries no id but its locator
  * names the caller (the node writes `caller:<fpr>` and an empty actor id) — the caller from there.
  *
@@ -196,7 +207,14 @@ const OPAQUE = new Set(["invite", "media", "thread", "request", "msg", "segment"
 export function resourceParts(resource: string, dir: Directory): Part[] {
   if (!resource) return [];
   const out: Part[] = [];
-  for (const token of resource.split(/\s+/).filter(Boolean)) {
+  // `why:` is free text — an error's message, a reason — and every emitter writes it last
+  // (internal/public/tools.go why, internal/node/send.go whyFailed, decide.go's
+  // identity_state_unreadable and contact_new_address, refresh.go, node.go, agentanswered.go): the
+  // rest of the locator is its one value, never a run of tokens.
+  const whyAt = resource.search(/(^|\s)why:/);
+  const head = whyAt < 0 ? resource : resource.slice(0, whyAt);
+  const why = whyAt < 0 ? null : resource.slice(whyAt).trim().slice("why:".length).trim();
+  for (const token of head.split(/\s+/).filter(Boolean)) {
     const at = token.indexOf(":");
     const prefix = at > 0 ? token.slice(0, at) : "";
     const value = at > 0 ? token.slice(at + 1) : "";
@@ -212,11 +230,19 @@ export function resourceParts(resource: string, dir: Directory): Part[] {
       out.push({ text: "no identity" });
       continue;
     }
+    // `key:` is two things. The cloud's account_leaf_key_retired writes the retired leaf's key by its
+    // fingerprint (`sha256:…`, what the core names every key by); the node's settings_save writes the
+    // name of the setting it changed (`key:tunnel`, `key:preset:…`).
+    if (prefix === "key") {
+      out.push(value.startsWith("sha256:") ? { key: "leaf key", text: value, id: true } : { key: "setting", text: value });
+      continue;
+    }
     const kind = LOCATORS[prefix];
     if (kind) out.push({ named: nameOf(kind, value, dir), label: prefix });
     else if (/^https?:\/\//.test(value)) out.push({ key: prefix, url: value });
     else out.push({ key: prefix, text: value, ...(OPAQUE.has(prefix) ? { id: true } : {}) });
   }
+  if (why !== null) out.push(why ? { key: "why", text: why } : { text: "why:" });
   return out;
 }
 
@@ -250,7 +276,7 @@ const DETAIL_IDS: Record<string, Kind> = {
 const DETAIL_LABELS: Record<string, string> = {
   owner_id: "owner", account_id: "identity", grant_id: "app", client_id: "app", client_name: "app",
   identity_ids: "identities", kek_version: "key version", slug: "identity",
-  account: "identity", token: "key", peer: "contact",
+  account: "identity", token: "key", peer: "contact", why: "reason",
 };
 
 /** A details key or a locator prefix as a label: its own word where it has one, else with spaces. */
@@ -364,6 +390,13 @@ export function detailParts(json: string, dir: Directory, kind = "", webhooks: R
       out.push({ key, named: idKind === "identity" && n.state === "gone" && slug ? { ...n, name: `${slug} (removed)` } : n });
       continue;
     }
+    // Any other id the directory cannot name — an operator's note, a promo, a hostname's Cloudflare
+    // id, an invitation, the confirmation an act was approved under — is said short with a copy
+    // button, never as a whole uuid; one short enough to read whole (a plan's id, `team`) is text.
+    if (typeof v === "string" && (key === "confirmation" || key.endsWith("_id"))) {
+      out.push(v.length > ID_WHOLE ? { key, text: v, id: true } : { key, text: v });
+      continue;
+    }
     out.push({ key, text: typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v) : String(v) });
   }
   // Said once: a value that is the name of something the same row already names.
@@ -424,6 +457,28 @@ export function namedIn(parts: Array<Part | Detail>): Named[] {
  */
 export function shortId(id: string): string {
   const bare = id.startsWith("sha256:") ? id.slice("sha256:".length) : id;
-  if (bare.length <= 16) return bare;
+  if (bare.length <= ID_WHOLE) return bare;
   return `${bare.slice(0, 8)}…${bare.slice(-6)}`;
+}
+
+/** The longest id said whole: `shortId` leaves one this long as it is. */
+const ID_WHOLE = 16;
+
+/** A piece of a name longer than this cannot sit on a line of its own in a table's column; only such a piece breaks anywhere. */
+const LONGEST_PIECE = 20;
+
+/**
+ * A name as the runs of it a line may break between, each run a list of pieces: a name with spaces
+ * breaks between its words (and, as a browser does, after a hyphen); an address only after its `@`
+ * (never inside `priya.raman` or `shailka.com`); a handle or a snake_case name after its underscores
+ * and dots. A piece with a stretch longer than any column gives it is marked `long`, and only that
+ * piece may break anywhere — so one 60-letter name neither breaks an ordinary name mid-word nor
+ * pushes its column off the page. Whitespace runs come back as they are.
+ */
+export function nameBreaks(name: string): Array<Array<{ text: string; long: boolean }>> {
+  return name.split(/(\s+)/).filter((r) => r !== "").map((run) => {
+    const pieces = /\s/.test(run) ? [run] : run.includes("@") ? run.split(/(?<=@)(?=.)/) : run.split(/(?<=[._])(?=.)/);
+    // A hyphen is a place a line breaks already, so the length that matters is between hyphens.
+    return pieces.map((text) => ({ text, long: !/\s/.test(text) && text.split(/(?<=-)/).some((x) => x.length > LONGEST_PIECE) }));
+  });
 }

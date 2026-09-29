@@ -485,35 +485,40 @@ a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
 .gl-id .who{flex:1;min-width:0;line-height:1.3}
 .gl-id .who b{display:block;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gl-id .who small{display:flex;align-items:center;gap:.3rem;color:var(--muted);font-family:var(--mono);font-size:.74rem;white-space:nowrap;overflow:hidden;min-width:0}
+.gl-id .who small > .gl-slug{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.gl-id .who small > .nm-idt{flex:none}
 .gl-id .addr{font-size:.86rem;min-width:0;overflow:hidden}
 .gl-id .addr .readout{font-size:.84rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gl-cert{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;font-size:.86rem}
 .gl-cert.muted{color:var(--muted)}
-.gl-id .counts{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:.4rem;border-top:1px solid var(--line);padding-top:.65rem}
-.gl-id .counts > *{display:flex;flex-direction:column;gap:.05rem;padding:.35rem .5rem;border-radius:8px;color:var(--text);text-decoration:none!important;min-width:0}
+.gl-id .counts{display:flex;flex-wrap:wrap;gap:.4rem;border-top:1px solid var(--line);padding-top:.65rem}
+.gl-id .counts > *{flex:1 0 auto;display:flex;flex-direction:column;gap:.05rem;padding:.35rem .5rem;border-radius:8px;color:var(--text);text-decoration:none!important}
 .gl-id .counts > a:hover{background:var(--bg-2)}
 .gl-id .counts b{font-family:var(--display);font-size:1.3rem;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.15}
 .gl-id .counts b small{font-family:var(--sans);font-size:.8rem;font-weight:500;color:var(--muted)}
-.gl-id .counts span{font-size:.78rem;color:var(--muted)}
+.gl-id .counts span{font-size:.78rem;color:var(--muted);white-space:nowrap}
 .gl-id .counts .gl-warn b{color:var(--amber)}
 .gl-id .counts .gl-bad b,.gl-id .counts .gl-bad span{color:var(--red)}
 .gl-id .foot{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:-.2rem}
 .gl-needs{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);padding:.8rem 1rem .9rem;margin:0 0 1.2rem}
 .gl-needs h2{font-size:.95rem;margin:0 0 .6rem}
-.gl-needs ul{list-style:none;margin:0;padding:0;display:grid;gap:.55rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
-.gl-needs li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem .8rem;padding:.55rem .6rem .55rem .75rem;border-radius:var(--r);background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--line-2);font-size:.88rem}
+.gl-needs ul{list-style:none;margin:0;padding:0;display:grid;gap:.55rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,23rem),1fr))}
+.gl-needs li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.45rem .8rem;padding:.55rem .6rem .55rem .75rem;border-radius:var(--r);background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--line-2);font-size:.88rem}
 .gl-needs li.gl-warn{border-left-color:var(--amber)}
 .gl-needs li.gl-bad{border-left-color:var(--red)}
-.gl-needs li .t{flex:1 1 12rem;min-width:0;color:var(--text);line-height:1.4}
+.gl-needs li .t{min-width:0;color:var(--text);line-height:1.4;overflow-wrap:break-word}
 .gl-quiet{margin:-.5rem 0 1.2rem;color:var(--muted);font-size:.88rem}
 .gl-skel{background:var(--bg-3);border-radius:var(--r-lg);min-height:5.6rem}
 .gl-skel.strip{min-height:2.7rem;margin:0 0 1rem}
 .gl-skel.card{min-height:12.5rem}
-@container (max-width:40rem){.gl-tile .v{font-size:1.6rem}.gl-strip{gap:.35rem 1rem}.gl-flow > .gl-strip{order:9;margin-top:.2rem}main.glance .page-h .actions{flex:1 1 100%}main.glance .page-h .actions > *{flex:1 1 auto}}
+main.glance .page-h .sub code{display:inline-block;max-width:100%;vertical-align:bottom;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@container (max-width:40rem){.gl-tile .v{font-size:1.6rem}.gl-strip{gap:.35rem 1rem}.gl-flow > .gl-strip{order:9;margin-top:.2rem}main.glance .page-h .actions{flex:1 1 100%}main.glance .page-h .actions > *{flex:1 1 auto}.gl-needs li{grid-template-columns:minmax(0,1fr)}.gl-needs li > :not(.t){justify-self:start}}
 .nm{display:inline-flex;align-items:baseline;gap:.25rem;min-width:0;max-width:100%;vertical-align:baseline;white-space:normal}
 .nm-t{min-width:0;overflow-wrap:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
 .nm-name{color:var(--ink);font-weight:500}
+.nm-t.quiet,.nm-t.whole{-webkit-line-clamp:none;line-clamp:none;overflow:visible}
 .nm-t.quiet .nm-name{color:var(--muted);font-style:italic}
+.nm-long{overflow-wrap:anywhere}
 .nm-note{margin-left:.35rem;font-size:.74rem;color:var(--faint)}
 .nm-id,.nm-idt{font:400 .74rem/1.3 var(--mono);color:var(--faint);white-space:nowrap}
 .nm-t .nm-id{margin-left:.35rem}
@@ -551,11 +556,12 @@ button.nm-more{height:auto;min-height:0;padding:0;border:0;background:none;color
 .audit-t .hashes .nm-k{align-self:baseline}
 .audit-t .hashes code{font:400 .76rem/1.4 var(--mono);background:none;padding:0;border-radius:0;color:var(--text);overflow-wrap:anywhere}
 /* Narrower than the whole table (the Audit page beside the sidebar at 1100): each entry is two lines,
-   the outcome still beside the time, what it was about under who did it. No sideways scroll. */
+   the outcome still beside the time, what it was about under who did it. No sideways scroll. The outcome's
+   track is 10.5rem: at 9.5rem "idempotency mismatch" stood 8px into the next column. */
 @container (max-width:62rem){
 .audit-t table,.audit-t tbody{display:block}
 .audit-t thead{display:none}
-.audit-t tbody tr{display:grid;grid-template-columns:3.4rem 6.6rem 9.5rem minmax(0,1fr) auto;gap:.3rem .9rem;align-items:baseline;padding:.6rem .85rem;border-bottom:1px solid var(--line)}
+.audit-t tbody tr{display:grid;grid-template-columns:3.4rem 6.6rem 10.5rem minmax(0,1fr) auto;gap:.3rem .9rem;align-items:baseline;padding:.6rem .85rem;border-bottom:1px solid var(--line)}
 .audit-t tbody tr:last-child{border-bottom:0}
 .audit-t tbody td,.audit-t tbody td:is(.c-seq,.c-when,.c-out,.c-act,.c-kind,.c-about,.c-det){display:block;padding:0;border:0;min-width:0;width:auto;white-space:normal;background:none}
 .audit-t tbody tr:hover{background:var(--bg-2)}

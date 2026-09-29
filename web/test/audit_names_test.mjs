@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  aboutParts, actorOf, credentialOf, detailLabel, detailParts, eventActorOf, nameOf, namedIn, resolved, resourceParts, searchText, shortId, webhookHosts,
+  aboutParts, actorOf, credentialOf, detailLabel, detailParts, eventActorOf, kindSaid, nameBreaks, nameOf, namedIn, resolved, resourceParts, searchText, shortId, webhookHosts,
 } from "../src/audit_names.ts";
 
 const dir = {
@@ -108,7 +108,7 @@ test("a locator's ids become names; the rest stays as written", () => {
   assert.deepEqual(resourceParts("url:https://agent.example.com/pact", dir), [{ key: "url", url: "https://agent.example.com/pact" }]);
   // What says something already is said in words; a node settings key is a value, not a credential.
   assert.deepEqual(resourceParts("account:none caller:anonymous key:seal", dir), [
-    { text: "no identity" }, { text: "an anonymous caller" }, { key: "key", text: "seal" },
+    { text: "no identity" }, { text: "an anonymous caller" }, { key: "setting", text: "seal" },
   ]);
   assert.equal(resourceParts("token:key-1 owner:U-gone", dir)[1].named.name, "removed owner");
   assert.deepEqual(resourceParts("", dir), []);
@@ -213,4 +213,73 @@ test("a long id is shortened to its head and tail; a fingerprint loses its schem
   assert.equal(shortId("sha256:QTWqncG4QqZT3qhGkD3blb-4xaEMUEp_oW4QvDHR_fA"), "QTWqncG4…DHR_fA");
   assert.equal(shortId("sha256:short"), "short");
   assert.equal(shortId("key-1"), "key-1");
+});
+
+test("a locator's `why:` is one value, the rest of the locator, as every emitter writes it last", () => {
+  // internal/public/decide.go, identity_state_unreadable: an error's message, spaces and all.
+  assert.deepEqual(resourceParts("account:acct-1 why:store: read identity: sql: database is locked (5) (SQLITE_BUSY)", dir), [
+    { named: { kind: "identity", id: "acct-1", name: "sumit", state: "named" }, label: "account" },
+    { key: "why", text: "store: read identity: sql: database is locked (5) (SQLITE_BUSY)" },
+  ]);
+  // decide.go, contact_new_address: a contact, an address, then why.
+  assert.deepEqual(resourceParts("account:acct-1 contact:sha256:alina endpoint:https://alina.example/pact why:returned after removal", dir).slice(1), [
+    { named: { kind: "contact", id: "sha256:alina", name: "Alina", state: "named" }, label: "contact" },
+    { key: "endpoint", url: "https://alina.example/pact" },
+    { key: "why", text: "returned after removal" },
+  ]);
+  // tools.go why(nil) and send.go whyFailed(nil).
+  assert.deepEqual(resourceParts("caller:sha256:alina why:unknown", dir)[1], { key: "why", text: "unknown" });
+  assert.equal(detailLabel("why"), "reason");
+  // A `why` inside another value is not the token.
+  assert.deepEqual(resourceParts("tool:somewhy:x", dir), [{ key: "tool", text: "somewhy:x" }]);
+});
+
+test("a locator's `key:` is a leaf key by its fingerprint, and otherwise the node's setting", () => {
+  // The cloud's account_leaf_key_retired writes `account:<id> key:<kid>`, the kid being the core's fingerprint.
+  const kid = "sha256:QTWqncG4QqZT3qhGkD3blb-4xaEMUEp_oW4QvDHR_fA";
+  assert.deepEqual(resourceParts(`account:acct-1 key:${kid}`, dir)[1], { key: "leaf key", text: kid, id: true });
+  // The node's settings_save: `key:tunnel value:<it>`, `key:preset:<name> perms:<list>`.
+  assert.deepEqual(resourceParts("key:tunnel value:https://t.example", dir), [{ key: "setting", text: "tunnel" }, { key: "value", url: "https://t.example" }]);
+  assert.deepEqual(resourceParts("key:preset:work perms:a,b", dir)[0], { key: "setting", text: "preset:work" });
+});
+
+test("details: an id the directory cannot name is short with a copy, never a whole uuid; a short one is text", () => {
+  // Real emitters: admin/routes.ts (operator.note_added), billing/promo.ts, hostnames/saas.ts, teams/invitations.ts.
+  for (const [key, v] of [["note_id", "on_d6089d6c-1295-ad5f-b7d7-ae771c0ad821"], ["promo_id", "pc_51b6076e-8f0c-4c1e-9a3b-7d2e1f408359"],
+    ["saas_id", "0f8d3b2a-6c1e-4f7a-9b5d-2e4c6a8f1b3d"], ["invitation_id", "invitation_01J8ZK4Q7M2X9V3B6N5C1D0E8F"]]) {
+    assert.deepEqual(detailParts(JSON.stringify({ [key]: v }), dir).parts, [{ key, text: v, id: true }], key);
+  }
+  // The confirmation an owner-MCP act was approved under (api/v1/record.ts provenanceOf).
+  assert.equal(detailParts(JSON.stringify({ confirmation: "Zm9vYmFyYmF6cXV4cXV1eGNvcmdl" }), dir).parts[0].id, true);
+  // billing.checkout_opened's plan: its id is its name.
+  assert.deepEqual(detailParts(JSON.stringify({ plan_id: "team" }), dir).parts, [{ key: "plan_id", text: "team" }]);
+  // The ids the directory names stay named.
+  assert.equal(detailParts(JSON.stringify({ owner_id: "U-a5a64ea5-1b10-418f-853f-194929a91438" }), dir).parts[0].named.name, "Sumit Agrawal");
+});
+
+test("a name the page made up says its kind; only a chosen name takes the quiet kind note", () => {
+  assert.equal(kindSaid(nameOf("owner", "U-a5a64ea5-1b10-418f-853f-194929a91438", dir)), false);
+  assert.equal(kindSaid(nameOf("key", "key-2", dir)), false); // revoked, still its chosen name
+  // "deleted key", "not in your contacts", "a key" (withheld), "an owner" (unrecorded): the kind is in the name.
+  assert.equal(kindSaid(nameOf("key", "key-gone", dir)), true);
+  assert.equal(kindSaid(nameOf("contact", "sha256:gone", dir)), true);
+  assert.equal(kindSaid(nameOf("key", "key-1", { ...dir, keys: null })), true);
+  assert.equal(kindSaid(nameOf("owner", "", dir)), true);
+  assert.equal(kindSaid(actorOf({ kind: "system", id: "expiry" }, dir)), true);
+});
+
+test("a name breaks between words, after an address's @, after a handle's underscores; only a piece too long for a column anywhere", () => {
+  const pieces = (n) => nameBreaks(n).map((run) => run.map((p) => p.text));
+  // The owner's own example: 'priya.raman@shailka.c' / 'om' was a break inside the domain.
+  assert.deepEqual(pieces("priya.raman@shailka.com"), [["priya.raman@", "shailka.com"]]);
+  assert.deepEqual(pieces("deepwiki_research_assistant_eu_west_production"), [["deepwiki_", "research_", "assistant_", "eu_", "west_", "production"]]);
+  assert.deepEqual(pieces("Research Agent (EU)"), [["Research"], [" "], ["Agent"], [" "], ["(EU)"]]);
+  assert.deepEqual(pieces("Dr. Konstantin"), [["Dr."], [" "], ["Konstantin"]]);
+  // Every piece put back together is the name, whatever it is.
+  for (const n of ["priya.raman@shailka.com", "a  b", "x_", "@", "Maximiliano Alessandro Bartholomew-Featherstonehaugh"]) {
+    assert.equal(nameBreaks(n).flat().map((p) => p.text).join(""), n);
+  }
+  assert.ok(nameBreaks("Maximiliano Bartholomew-Featherstonehaugh").flat().every((p) => !p.long));
+  const long = nameBreaks("Wolfeschlegelsteinhausenbergerdorff").flat();
+  assert.deepEqual(long.map((p) => p.long), [true]);
 });
