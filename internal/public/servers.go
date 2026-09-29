@@ -148,6 +148,10 @@ type Pool struct {
 	// a guest's whatever the caller is (ChargeGuest: a pinned root at an address not approved, the
 	// pending tier), or the source address alone (ChargeSource: nothing proven).
 	Limit func(ctx context.Context, as Charge) *Refusal
+	// PreOpen, when set, is the check BEFORE a sealed call is opened (the owner's decision of
+	// 2026-09-29 on the guest total): nil when it may go on to the open. It spends nothing, and it
+	// runs before a key is read.
+	PreOpen func(ctx context.Context) *Refusal
 	// Gate, when set, is the per-call transport-policy check that runs before
 	// authorization: the seal and client_cert knobs of SPEC §5.1. It sees the
 	// call's context, so it can tell a sealed call (envelope facts present)
@@ -167,6 +171,10 @@ const (
 	ChargeCaller Charge = iota
 	ChargeGuest
 	ChargeSource
+	// ChargeOpened is a call the open found and answered with a refusal that spends nothing else
+	// (an envelope_invalid, a certificate_renewed, a client certificate that is not the envelope's
+	// leaf): one call of the guest total, so a flood the open cannot place drains it.
+	ChargeOpened
 )
 
 // Refusal is a budget's answer to a call that may not proceed: `rate_limited`, with the whole
@@ -199,6 +207,14 @@ func (r *Refusal) Result() *mcp.CallToolResult {
 }
 
 // spend charges one call to the caller's budget; nil when the call may proceed.
+// preOpen is Pool.PreOpen, or nil (the call may go on) when none is set.
+func (p *Pool) preOpen(ctx context.Context) *Refusal {
+	if p == nil || p.PreOpen == nil {
+		return nil
+	}
+	return p.PreOpen(ctx)
+}
+
 func (p *Pool) spend(ctx context.Context) *Refusal {
 	if p.Limit == nil {
 		return nil

@@ -364,15 +364,38 @@ func (n *Node) contactCap() int {
 // not answer refuses the call `unavailable`: a budget nobody can enforce is not one the node guesses
 // at (docs/release/two-layer-limits-2026-09-28.md §6).
 func (n *Node) consumeBudget(ctx context.Context, accountID string, as public.Charge) *public.Refusal {
-	return n.decide(ctx, accountID, n.chargeOf(ctx, accountID, as))
+	charges, known := n.chargeOf(ctx, accountID, as)
+	return n.decide(ctx, accountID, charges, known)
 }
 
-// decide asks the sidecar for one charge of accountID's and audits a refusal: `rate_limited` names
-// the bucket that refused, `limits_unavailable` the sidecar that did not answer.
-func (n *Node) decide(ctx context.Context, accountID string, charge limits.Charge) *public.Refusal {
-	d, err := n.opts.Limits.Decide(ctx, accountID, charge, n.now())
+// admit is the check BEFORE the open (the owner's decision of 2026-09-29 on the guest total): a
+// sealed call to accountID goes on to the open while the account's guest total holds a call, or
+// from a source that carried an active or pending contact's call in the last hour, which the
+// sidecar remembers (`known` on a decision). Everything else is refused `rate_limited` with the
+// total's wait, before a key is read; nothing is spent. A sidecar that does not answer refuses it
+// `unavailable`, as every decision it would make.
+func (n *Node) admit(ctx context.Context, accountID string) *public.Refusal {
+	d, err := n.opts.Limits.Admit(ctx, accountID, public.FactsFrom(ctx).RemoteIP, n.now())
+	return n.refusalOf(accountID, "admit", d, err)
+}
+
+// decide asks the sidecar for one call of accountID's budgets, charged to every one of charges or to
+// none, remembering known (the source of a call the open proved a contact's) when it is set, and
+// audits a refusal: `rate_limited` names the bucket that refused, `limits_unavailable` the sidecar
+// that did not answer.
+func (n *Node) decide(ctx context.Context, accountID string, charges []limits.Charge, known string) *public.Refusal {
+	d, err := n.opts.Limits.Decide(ctx, accountID, charges, known, n.now())
+	kinds := make([]string, 0, len(charges))
+	for _, c := range charges {
+		kinds = append(kinds, c.Kind())
+	}
+	return n.refusalOf(accountID, strings.Join(kinds, ","), d, err)
+}
+
+// refusalOf is a sidecar's answer as the node answers it, audited: nil when the call may go on.
+func (n *Node) refusalOf(accountID, asked string, d limits.Decision, err error) *public.Refusal {
 	if err != nil {
-		n.opts.audit("limits_unavailable", "account:"+accountID+" charge:"+charge.Kind(), "refused")
+		n.opts.audit("limits_unavailable", "account:"+accountID+" charge:"+asked, "refused")
 		return &public.Refusal{Unavailable: true}
 	}
 	if d.Allowed {
@@ -386,9 +409,10 @@ func (n *Node) decide(ctx context.Context, accountID string, charge limits.Charg
 	return &public.Refusal{RetryAfter: d.RetryAfter}
 }
 
-// chargeOf decides which of accountID's budgets a call counts against (PACT §12). Every budget
-// is the account's the call is ADDRESSED to: being a contact of another account on this node earns
-// nothing here, and a contact's calls to one account never spend another's.
+// chargeOf decides which of accountID's budgets a call counts against (PACT §12), and the source
+// to remember as known when the open proved the caller a contact. Every budget is the account's the
+// call is ADDRESSED to: being a contact of another account on this node earns nothing here, and a
+// contact's calls to one account never spend another's.
 //
 // WHO is calling: the envelope's proven sender when the call was sealed, the client certificate
 // when it was not. Reading only the certificate made this unusable in edge mode, which forces
@@ -398,15 +422,26 @@ func (n *Node) decide(ctx context.Context, accountID string, charge limits.Charg
 //     the account's aggregate;
 //   - any other proven root (a stranger, the pending tier, a blocked or superseded root, a pinned
 //     root at an address not approved — ChargeGuest): the guest budget of that root at its source;
-//   - nothing proven (ChargeSource, or no identity at all): the source address alone.
+//   - nothing proven (ChargeSource, or no identity at all): the source address alone;
+//   - an opened call answered with a refusal that spends nothing else (ChargeOpened): nothing but
+//     the guest total.
 //
-// The source comes from the adapter's trusted header behind a terminating edge and from the
-// socket otherwise — never a generic forwarded-for header.
-func (n *Node) chargeOf(ctx context.Context, accountID string, as public.Charge) limits.Charge {
+// And the guest total (the owner's decision of 2026-09-29): every call that was OPENED — it
+// carries envelope facts, or it is ChargeSource or ChargeOpened, which only an opened call is
+// charged as — and did not prove an active or pending_out contact spends one call of the account's
+// guest total, all or none with the rest. A proven contact never spends it, and its source is
+// remembered (known). A plaintext call opens nothing and never spends it.
+//
+// The source comes from the adapter's trusted header behind a terminating edge, the proxy's
+// (proxy_address) behind Envoy, and the socket otherwise — never a generic forwarded-for header.
+func (n *Node) chargeOf(ctx context.Context, accountID string, as public.Charge) ([]limits.Charge, string) {
 	ip := public.FactsFrom(ctx).RemoteIP
 	source := limits.GuestIn("", ip, ip != "")
-	if as == public.ChargeSource {
-		return source
+	switch as {
+	case public.ChargeSource:
+		return []limits.Charge{source, limits.GuestTotal()}, ""
+	case public.ChargeOpened:
+		return []limits.Charge{limits.GuestTotal()}, ""
 	}
 	caller := public.FactsFrom(ctx).ClientCertFingerprint
 	e := public.EnvelopeFactsFrom(ctx)
@@ -415,16 +450,29 @@ func (n *Node) chargeOf(ctx context.Context, accountID string, as public.Charge)
 		caller = e.From
 	}
 	if caller == "" {
-		return source
+		if e != nil {
+			return []limits.Charge{source, limits.GuestTotal()}, ""
+		}
+		return []limits.Charge{source}, ""
+	}
+	status := ""
+	if c, err := n.opts.Store.GetContact(ctx, accountID, caller); err == nil {
+		status = c.Status
+	}
+	proven := e != nil && e.From != "" && !e.Demote && !e.Guest && (status == "active" || status == "pending_out")
+	known := ""
+	if proven {
+		known = ip
 	}
 	guest := limits.GuestIn(caller, ip, ip != "")
-	if as == public.ChargeGuest || (e != nil && (e.Demote || e.Guest)) {
-		return guest
+	switch {
+	case as != public.ChargeGuest && !(e != nil && (e.Demote || e.Guest)) && status == "active":
+		return []limits.Charge{limits.ContactIn(caller, n.contactCap())}, known
+	case proven || e == nil:
+		return []limits.Charge{guest}, known
+	default:
+		return []limits.Charge{guest, limits.GuestTotal()}, known
 	}
-	if c, err := n.opts.Store.GetContact(ctx, accountID, caller); err == nil && c.Status == "active" {
-		return limits.ContactIn(caller, n.contactCap())
-	}
-	return guest
 }
 
 // probeHandler defers the public URL to call time; the owner can change it while
@@ -527,7 +575,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 			// The pending-request cap, decided by the sidecar; `decide` audits which refused it (the
 			// cap, or a sidecar that did not answer), and the peer hears `unavailable` either way.
 			AdmitRequest: func(ctx context.Context, accountID string, held int64) error {
-				if n.decide(ctx, accountID, limits.PendingIn(held)) != nil {
+				if n.decide(ctx, accountID, []limits.Charge{limits.PendingIn(held)}, "") != nil {
 					return contacts.ErrRequestsFull
 				}
 				return nil
@@ -596,6 +644,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 	a.pool.Limit = func(ctx context.Context, as public.Charge) *public.Refusal {
 		return n.consumeBudget(ctx, rec.ID, as)
 	}
+	a.pool.PreOpen = func(ctx context.Context) *public.Refusal { return n.admit(ctx, rec.ID) }
 	a.pool.AccountID = rec.ID
 	a.ident = ident
 

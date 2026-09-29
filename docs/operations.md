@@ -78,10 +78,25 @@ contract, shipped as `deploy/limitd/limits.json` (in the image at
 | `stranger_calls_out_per_hour` | calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | account |
 | `integration_calls_per_hour` | one integration's tools, per contact | account, integration, contact |
 | `pending_in_cap` | requests waiting on the owner that strangers may write | account |
-| `guest_total_calls_per_hour` | every guest together | account |
+| `guest_total_calls_per_hour` | every caller the open does not prove a contact, together (below) | account |
 
-`guest_total_calls_per_hour` is read and checked with the rest; what the node charges to it is
-the next change of docs/release/two-layer-limits-2026-09-28.md, and until then nothing does.
+**`guest_total_calls_per_hour` is checked before the envelope is opened** (the owner's decision of
+2026-09-29). Nothing unopened says who sent a sealed call, so the node asks the sidecar first,
+before it reads a key: while the account's total holds a call, every sealed call goes on to be
+opened; once it holds none, only a call from a known address does — one that carried an active or
+pending_out contact's call to the account in the last hour, which the sidecar remembers — and
+everything else is refused `rate_limited`, in the clear, with the total's `retry_after`. Asking
+spends nothing. The total is spent after the open by every call that is opened and does not prove
+an active or pending_out contact: a guest, a blocked or superseded root, a root whose only row is
+the request it left, a small form naming a leaf nobody pinned, and an `envelope_invalid` or
+`certificate_renewed` the open found. A proven contact never spends it; a plaintext call opens
+nothing and never spends it.
+
+The known cost: during a flood, a contact calling from an address it has not used in the last hour
+is refused before the open, as a stranger is, with `retry_after`, until the total refills. The known
+addresses live in the sidecar's memory beside the counters, an hour each and a bounded number an
+account (the oldest going first: `KNOWN_SOURCE_TTL_MS` and `KNOWN_SOURCES_CAP`,
+cmd/pact-limitd/src/lib.rs), so a sidecar restart forgets them too.
 
 Calls out to a contact spend that contact's rate and the account's aggregate, in
 buckets of their own. A refusal is a `rate_limited` tool error carrying

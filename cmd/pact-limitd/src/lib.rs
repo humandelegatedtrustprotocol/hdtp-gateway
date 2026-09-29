@@ -8,15 +8,27 @@
 //! the node, and one account's contacts never spend another's.
 //!
 //! ```text
-//! {"op":"decide","identity":"acc-1","charge":{"kind":"contact_in","root":"sha256:…","contact_cap":500},"now":1790000000123}
+//! {"op":"decide","identity":"acc-1","charges":[{"kind":"contact_in","root":"sha256:…","contact_cap":500}],"known":"203.0.113.9","now":1790000000123}
 //! {"allowed":true,"retry_after":0,"refused_by":null}
+//! {"op":"admit","identity":"acc-1","source":"198.51.100.4","now":1790000000123}
+//! {"allowed":false,"retry_after":412,"refused_by":"guest-total"}
 //! {"op":"rules"}
 //! {"rules":{"contact_calls_per_second":1,…}}
 //! {"op":"card","contact_cap":500}
 //! {"limits":{"contact_calls_per_second":1,"contact_burst":10,"identity_calls_per_second":200,…}}
 //! {"op":"nonsense"}
-//! {"error":"op is one of decide, rules, card"}
+//! {"error":"op is one of decide, admit, rules, card"}
 //! ```
+//!
+//! `decide` charges one call to every one of `charges`, in order, all or none: a guest's call after
+//! the open is its guest buckets and the identity's guest total (`guest_total`). `known`, when the
+//! node sends it, is the source of a call the open proved an active or pending contact's: it is
+//! remembered for the identity, whatever the budgets answer, for [`KNOWN_SOURCE_TTL_MS`].
+//!
+//! `admit` is the check BEFORE the open (the owner's decision of 2026-09-29 on the guest total): a
+//! sealed call from `source` may go on to the open when the source is known, or while the
+//! identity's guest total has a call left; it spends nothing, and the refusal is the total's. No
+//! source is ever known.
 //!
 //! `card` is what `get_card` advertises of the call budgets (PACT §12's `limits` members about
 //! calls) for an identity allowed `contact_cap` contacts: the rules' numbers, and the identity's
@@ -31,6 +43,12 @@ use pact_limits::{decide, Charge, Decision, Level, Rules, StateStore, IDLE_MS, R
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+
+/// How long a source stays known after the last proven contact's call it carried.
+pub const KNOWN_SOURCE_TTL_MS: i64 = 3_600_000;
+
+/// The most sources one identity remembers; past it the oldest goes.
+pub const KNOWN_SOURCES_CAP: usize = 4096;
 
 /// The configuration file: where to listen, and the rules.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +101,8 @@ pub fn read_rules(doc: &Map<String, Value>) -> Result<Rules, String> {
 #[derive(Debug, Default)]
 pub struct Store {
     rows: HashMap<String, Level>,
+    /// Per identity, the sources a proven contact's call came from, and when it last did.
+    known: HashMap<String, HashMap<String, i64>>,
     last_sweep: i64,
 }
 
@@ -98,32 +118,88 @@ impl Store {
         self.rows.is_empty()
     }
 
+    /// How many sources `identity` remembers.
+    pub fn known_len(&self, identity: &str) -> usize {
+        self.known.get(identity).map_or(0, HashMap::len)
+    }
+
     fn sweep(&mut self, now: i64) {
         if now - self.last_sweep < SWEEP_EVERY_MS {
             return;
         }
         self.last_sweep = now;
         self.rows.retain(|_, l| l.updated_at >= now - IDLE_MS);
+        for sources in self.known.values_mut() {
+            sources.retain(|_, seen| *seen >= now - KNOWN_SOURCE_TTL_MS);
+        }
+        self.known.retain(|_, sources| !sources.is_empty());
+    }
+
+    /// Remembers that `source` carried a proven contact's call to `identity` at `now`; past the cap,
+    /// the source seen longest ago goes. No source is never remembered.
+    fn remember(&mut self, identity: &str, source: &str, now: i64) {
+        if source.is_empty() {
+            return;
+        }
+        let sources = self.known.entry(identity.to_string()).or_default();
+        let seen = sources.entry(source.to_string()).or_insert(now);
+        *seen = (*seen).max(now);
+        if sources.len() > KNOWN_SOURCES_CAP {
+            let oldest = sources.iter().min_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0))).map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                sources.remove(&k);
+            }
+        }
+    }
+
+    /// Whether `source` carried a proven contact's call to `identity` within the last
+    /// [`KNOWN_SOURCE_TTL_MS`]. No source is never known.
+    fn knows(&self, identity: &str, source: &str, now: i64) -> bool {
+        !source.is_empty() && self.known.get(identity).and_then(|s| s.get(source)).is_some_and(|seen| *seen >= now - KNOWN_SOURCE_TTL_MS)
     }
 }
 
-/// One identity's view of the store: the crate sees bucket keys, the map holds them under the
-/// identity.
-struct Scoped<'a> {
-    store: &'a mut Store,
-    identity: &'a str,
+fn row_key(identity: &str, bucket: &str) -> String {
+    format!("{identity}\u{0}{bucket}")
 }
 
-impl StateStore for Scoped<'_> {
+/// One identity's view of the store, with its writes held back: the crate sees bucket keys and
+/// reads what the charges before it wrote, and nothing reaches the store until [`Overlay::commit`].
+struct Overlay<'a> {
+    store: &'a Store,
+    identity: &'a str,
+    writes: HashMap<String, Level>,
+}
+
+impl Overlay<'_> {
+    fn into_writes(self) -> Vec<(String, Level)> {
+        let identity = self.identity;
+        self.writes.into_iter().map(|(k, l)| (row_key(identity, &k), l)).collect()
+    }
+}
+
+impl StateStore for Overlay<'_> {
     fn get(&self, key: &str) -> Option<Level> {
-        self.store.rows.get(&format!("{}\u{0}{}", self.identity, key)).copied()
+        self.writes.get(key).copied().or_else(|| self.store.rows.get(&row_key(self.identity, key)).copied())
     }
     fn put(&mut self, key: &str, level: Level) {
-        self.store.rows.insert(format!("{}\u{0}{}", self.identity, key), level);
+        self.writes.insert(key.to_string(), level);
     }
 }
 
-/// The answer to `decide` and `check`: the contract's `limits_decide` result without `writes`.
+/// Decides `charges` for `identity` over the store as it stands, in order: the first refusal is the
+/// answer, and the writes of an allowed set, which the caller commits or drops.
+fn decide_all(rules: &Rules, store: &Store, identity: &str, charges: &[Charge], now: i64) -> (Answer, Vec<(String, Level)>) {
+    let mut overlay = Overlay { store, identity, writes: HashMap::new() };
+    for charge in charges {
+        if let Decision::Refuse { retry_after, which } = decide(rules, charge, now, &mut overlay) {
+            return (Answer { allowed: false, retry_after, refused_by: Some(which) }, Vec::new());
+        }
+    }
+    (Answer { allowed: true, retry_after: Some(0), refused_by: None }, overlay.into_writes())
+}
+
+/// The answer to `decide` and `admit`: the contract's `limits_decide` result without `writes`.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct Answer {
     pub allowed: bool,
@@ -131,8 +207,13 @@ pub struct Answer {
     pub refused_by: Option<String>,
 }
 
-fn read_charge(v: Option<&Value>) -> Result<Charge, String> {
-    let o = v.and_then(Value::as_object).ok_or("charge is required")?;
+fn read_charges(v: Option<&Value>) -> Result<Vec<Charge>, String> {
+    let list = v.and_then(Value::as_array).filter(|l| !l.is_empty()).ok_or("charges is a list of one or more charges")?;
+    list.iter().map(read_charge).collect()
+}
+
+fn read_charge(v: &Value) -> Result<Charge, String> {
+    let o = v.as_object().ok_or("a charge is an object")?;
     let kind = o.get("kind").and_then(Value::as_str).ok_or("charge.kind is required")?;
     let members: &[&str] = match kind {
         "contact_in" | "contact_out" => &["kind", "root", "contact_cap"],
@@ -197,7 +278,7 @@ fn handle_inner(rules: &Rules, rules_doc: &Map<String, Value>, store: &mut Store
     let o = req.as_object().ok_or("a request is a JSON object")?;
     let op = o.get("op").and_then(Value::as_str).ok_or("op is required")?;
     match op {
-        "decide" => {}
+        "decide" | "admit" => {}
         "rules" => return Ok(serde_json::json!({ "rules": Value::Object(rules_doc.clone()) })),
         "card" => {
             let cap = o
@@ -214,16 +295,33 @@ fn handle_inner(rules: &Rules, rules_doc: &Map<String, Value>, store: &mut Store
                 "guest_source_calls_per_hour": member("guest_source_calls_per_hour"),
             } }));
         }
-        _ => return Err("op is one of decide, rules, card".into()),
+        _ => return Err("op is one of decide, admit, rules, card".into()),
     }
     let identity = o.get("identity").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or("identity is required")?;
     let now = o.get("now").and_then(Value::as_i64).filter(|n| *n >= 0).ok_or("now is a time in milliseconds")?;
-    let charge = read_charge(o.get("charge"))?;
-    store.sweep(now);
-    let mut scoped = Scoped { store, identity };
-    let answer = match decide(rules, &charge, now, &mut scoped) {
-        Decision::Allow => Answer { allowed: true, retry_after: Some(0), refused_by: None },
-        Decision::Refuse { retry_after, which } => Answer { allowed: false, retry_after, refused_by: Some(which) },
+    let answer = if op == "admit" {
+        let source = o.get("source").and_then(Value::as_str).ok_or("source is a string")?;
+        store.sweep(now);
+        if store.knows(identity, source, now) {
+            Answer { allowed: true, retry_after: Some(0), refused_by: None }
+        } else {
+            // The guest total, asked and not spent: the writes of the decision are dropped.
+            decide_all(rules, store, identity, &[Charge::GuestTotal], now).0
+        }
+    } else {
+        let charges = read_charges(o.get("charges"))?;
+        let known = match o.get("known") {
+            None => None,
+            Some(Value::String(k)) => Some(k.as_str()),
+            Some(_) => return Err("known is a string".into()),
+        };
+        store.sweep(now);
+        if let Some(k) = known {
+            store.remember(identity, k, now);
+        }
+        let (answer, writes) = decide_all(rules, store, identity, &charges, now);
+        store.rows.extend(writes);
+        answer
     };
     Ok(serde_json::to_value(answer).expect("an answer serialises"))
 }
@@ -278,23 +376,23 @@ mod tests {
         ];
         for (charge, burst, bucket) in charges {
             for i in 0..burst {
-                let a = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charge":{charge},"now":{now}}}"#));
+                let a = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{charge}],"now":{now}}}"#));
                 assert_eq!(a["allowed"], true, "{charge} call {}", i + 1);
             }
-            let a = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charge":{charge},"now":{now}}}"#));
+            let a = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{charge}],"now":{now}}}"#));
             assert_eq!(a["allowed"], false, "{charge} past its burst");
             assert_eq!(a["refused_by"], bucket);
             assert!(a["retry_after"].as_u64().unwrap() >= 1);
             // Another identity's same bucket is untouched: the counter is per identity.
-            let b = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-2","charge":{charge},"now":{now}}}"#));
+            let b = ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-2","charges":[{charge}],"now":{now}}}"#));
             assert_eq!(b["allowed"], true, "{charge} for another identity");
         }
         // The pending cap is a count, refused with no wait.
         let a =
-            ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charge":{{"kind":"pending_in","held":499}},"now":{now}}}"#));
+            ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"pending_in","held":499}}],"now":{now}}}"#));
         assert_eq!(a["allowed"], true);
         let a =
-            ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charge":{{"kind":"pending_in","held":500}},"now":{now}}}"#));
+            ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"pending_in","held":500}}],"now":{now}}}"#));
         assert_eq!(a, serde_json::json!({ "allowed": false, "retry_after": null, "refused_by": "pending_in" }));
     }
 
@@ -308,7 +406,7 @@ mod tests {
                 &c,
                 &mut s,
                 &format!(
-                    r#"{{"op":"decide","identity":"acc-1","charge":{{"kind":"guest_in","root":"sha256:r{i}","source":"s","addressed":true}},"now":{now}}}"#
+                    r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"guest_in","root":"sha256:r{i}","source":"s","addressed":true}}],"now":{now}}}"#
                 ),
             );
         }
@@ -320,7 +418,7 @@ mod tests {
             &c,
             &mut s,
             &format!(
-                r#"{{"op":"decide","identity":"acc-1","charge":{{"kind":"guest_in","root":"sha256:r0","source":"s","addressed":true}},"now":{later}}}"#
+                r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"guest_in","root":"sha256:r0","source":"s","addressed":true}}],"now":{later}}}"#
             ),
         );
         assert_eq!(a["allowed"], true);
@@ -356,40 +454,159 @@ mod tests {
         for (line, why) in [
             ("nope", "a request is one JSON object a line"),
             ("[1]", "a request is a JSON object"),
-            (r#"{"charge":{}}"#, "op is required"),
-            (r#"{"op":"sweep"}"#, "op is one of decide, rules, card"),
-            (r#"{"op":"check"}"#, "op is one of decide, rules, card"),
+            (r#"{"charges":[]}"#, "op is required"),
+            (r#"{"op":"sweep"}"#, "op is one of decide, admit, rules, card"),
+            (r#"{"op":"check"}"#, "op is one of decide, admit, rules, card"),
             (r#"{"op":"card"}"#, "contact_cap is a whole number"),
             (r#"{"op":"card","contact_cap":-1}"#, "contact_cap is a whole number"),
-            (r#"{"op":"decide","charge":{"kind":"guest_total"},"now":1}"#, "identity is required"),
-            (r#"{"op":"decide","identity":"a","charge":{"kind":"guest_total"}}"#, "now is a time in milliseconds"),
-            (r#"{"op":"decide","identity":"a","charge":{"kind":"guest_total"},"now":-1}"#, "now is a time in milliseconds"),
-            (r#"{"op":"decide","identity":"a","now":1}"#, "charge is required"),
+            (r#"{"op":"decide","charges":[{"kind":"guest_total"}],"now":1}"#, "identity is required"),
+            (r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_total"}]}"#, "now is a time in milliseconds"),
+            (r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_total"}],"now":-1}"#, "now is a time in milliseconds"),
+            (r#"{"op":"decide","identity":"a","now":1}"#, "charges is a list of one or more charges"),
+            (r#"{"op":"decide","identity":"a","charges":[],"now":1}"#, "charges is a list of one or more charges"),
+            (r#"{"op":"decide","identity":"a","charges":{"kind":"guest_total"},"now":1}"#, "charges is a list of one or more charges"),
+            (r#"{"op":"decide","identity":"a","charges":[1],"now":1}"#, "a charge is an object"),
+            (r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_total"}],"known":7,"now":1}"#, "known is a string"),
+            (r#"{"op":"admit","identity":"a","now":1}"#, "source is a string"),
+            (r#"{"op":"admit","source":"s","now":1}"#, "identity is required"),
             (
-                r#"{"op":"decide","identity":"a","charge":{"kind":"tea"},"now":1}"#,
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"tea"}],"now":1}"#,
                 "charge.kind is one of contact_in, guest_in, guest_total, contact_out, stranger_out, integration, pending_in",
             ),
             (
-                r#"{"op":"decide","identity":"a","charge":{"kind":"contact_in","root":"x","contact_cap":1,"extra":1},"now":1}"#,
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"contact_in","root":"x","contact_cap":1,"extra":1}],"now":1}"#,
                 "a contact_in charge holds kind, root, contact_cap, and nothing else: extra",
             ),
             (
-                r#"{"op":"decide","identity":"a","charge":{"kind":"contact_in","root":"","contact_cap":1},"now":1}"#,
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"contact_in","root":"","contact_cap":1}],"now":1}"#,
                 "charge.root is required",
             ),
             (
-                r#"{"op":"decide","identity":"a","charge":{"kind":"contact_in","root":"x","contact_cap":1.5},"now":1}"#,
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"contact_in","root":"x","contact_cap":1.5}],"now":1}"#,
                 "charge.contact_cap is a whole number",
             ),
             (
-                r#"{"op":"decide","identity":"a","charge":{"kind":"guest_in","root":5,"source":"s","addressed":true},"now":1}"#,
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_in","root":5,"source":"s","addressed":true}],"now":1}"#,
                 "charge.root is a string or null",
             ),
-            (r#"{"op":"decide","identity":"a","charge":{"kind":"guest_in","source":"s"},"now":1}"#, "charge.addressed is required"),
-            (r#"{"op":"decide","identity":"a","charge":{"kind":"pending_in"},"now":1}"#, "charge.held is a whole number"),
+            (r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_in","source":"s"}],"now":1}"#, "charge.addressed is required"),
+            (r#"{"op":"decide","identity":"a","charges":[{"kind":"pending_in"}],"now":1}"#, "charge.held is a whole number"),
+            // One bad charge of several refuses the request, and the good ones before it spend nothing.
+            (
+                r#"{"op":"decide","identity":"a","charges":[{"kind":"guest_total"},{"kind":"tea"}],"now":1}"#,
+                "charge.kind is one of contact_in, guest_in, guest_total, contact_out, stranger_out, integration, pending_in",
+            ),
         ] {
             assert_eq!(ask(&c, &mut s, line), serde_json::json!({ "error": why }), "{line}");
         }
         assert!(s.is_empty());
+        assert_eq!(s.known_len("a"), 0);
+    }
+
+    const NOW: i64 = 1_790_000_000_000;
+
+    fn spend_total(c: &Config, s: &mut Store, identity: &str) {
+        for i in 0..c.rules.guest_total_calls_per_hour as u64 {
+            let a = ask(c, s, &format!(r#"{{"op":"decide","identity":"{identity}","charges":[{{"kind":"guest_total"}}],"now":{NOW}}}"#));
+            assert_eq!(a["allowed"], true, "total call {}", i + 1);
+        }
+    }
+
+    #[test]
+    fn several_charges_are_spent_together_or_not_at_all() {
+        let c = cfg();
+        let mut s = Store::default();
+        spend_total(&c, &mut s, "acc-1");
+        let rows = s.len();
+        let a = ask(
+            &c,
+            &mut s,
+            &format!(
+                r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"guest_in","root":"sha256:G","source":"s","addressed":true}},{{"kind":"guest_total"}}],"now":{NOW}}}"#
+            ),
+        );
+        assert_eq!(a["allowed"], false);
+        assert_eq!(a["refused_by"], "guest-total");
+        assert!(a["retry_after"].as_u64().unwrap() >= 1);
+        assert_eq!(s.len(), rows, "the guest bucket of a call the total refused was written");
+        // Both allowed: both written.
+        let a = ask(
+            &c,
+            &mut s,
+            &format!(
+                r#"{{"op":"decide","identity":"acc-2","charges":[{{"kind":"guest_in","root":"sha256:G","source":"s","addressed":true}},{{"kind":"guest_total"}}],"now":{NOW}}}"#
+            ),
+        );
+        assert_eq!(a["allowed"], true);
+        assert_eq!(s.len(), rows + 2);
+    }
+
+    #[test]
+    fn admit_lets_a_call_to_the_open_while_the_total_holds_one_or_from_a_known_source_and_spends_nothing() {
+        let c = cfg();
+        let mut s = Store::default();
+        let admit = |s: &mut Store, identity: &str, source: &str, now: i64| {
+            ask(&c, s, &format!(r#"{{"op":"admit","identity":"{identity}","source":"{source}","now":{now}}}"#))
+        };
+        // A fresh identity: let through, and nothing written.
+        assert_eq!(
+            admit(&mut s, "acc-1", "203.0.113.1", NOW),
+            serde_json::json!({ "allowed": true, "retry_after": 0, "refused_by": null })
+        );
+        assert!(s.is_empty(), "admit wrote a row");
+        // A contact's call proves its source, whatever the budgets answer.
+        ask(
+            &c,
+            &mut s,
+            &format!(
+                r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"contact_in","root":"sha256:C","contact_cap":500}}],"known":"198.51.100.1","now":{NOW}}}"#
+            ),
+        );
+        spend_total(&c, &mut s, "acc-1");
+        let rows = s.len();
+        // Spent: an unknown source is refused, with the total's wait and name, and nothing written.
+        let refused = admit(&mut s, "acc-1", "203.0.113.2", NOW);
+        assert_eq!(refused["allowed"], false);
+        assert_eq!(refused["refused_by"], "guest-total");
+        assert!(refused["retry_after"].as_u64().unwrap() >= 1);
+        assert_eq!(s.len(), rows);
+        // The known source is let through, for this identity alone, and for the hour.
+        assert_eq!(admit(&mut s, "acc-1", "198.51.100.1", NOW)["allowed"], true);
+        spend_total(&c, &mut s, "acc-2");
+        assert_eq!(admit(&mut s, "acc-2", "198.51.100.1", NOW)["allowed"], false, "known to another identity");
+        assert_eq!(admit(&mut s, "acc-1", "198.51.100.1", NOW + KNOWN_SOURCE_TTL_MS - 1)["allowed"], true);
+        // Past the hour it is forgotten; by then the total has refilled too, so ask with it spent again.
+        let later = NOW + KNOWN_SOURCE_TTL_MS + SWEEP_EVERY_MS;
+        for _ in 0..c.rules.guest_total_calls_per_hour as u64 {
+            ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"guest_total"}}],"now":{later}}}"#));
+        }
+        assert_eq!(admit(&mut s, "acc-1", "198.51.100.1", later)["allowed"], false, "known past the hour");
+        assert_eq!(s.known_len("acc-1"), 0, "the sweep kept an expired source");
+    }
+
+    #[test]
+    fn no_source_is_ever_known_and_the_cap_forgets_the_oldest() {
+        let c = cfg();
+        let mut s = Store::default();
+        ask(&c, &mut s, &format!(r#"{{"op":"decide","identity":"acc-1","charges":[{{"kind":"stranger_out"}}],"known":"","now":{NOW}}}"#));
+        assert_eq!(s.known_len("acc-1"), 0, "no source was remembered");
+        spend_total(&c, &mut s, "acc-1");
+        assert_eq!(ask(&c, &mut s, &format!(r#"{{"op":"admit","identity":"acc-1","source":"","now":{NOW}}}"#))["allowed"], false);
+        // A row for no source, however it came to be, makes no source known.
+        s.known.entry("acc-2".into()).or_default().insert(String::new(), NOW);
+        assert!(!s.knows("acc-2", "", NOW));
+        // And a source past the hour is not known, whether or not a sweep has run since.
+        s.remember("acc-3", "src-old", NOW);
+        assert!(s.knows("acc-3", "src-old", NOW + KNOWN_SOURCE_TTL_MS));
+        assert!(!s.knows("acc-3", "src-old", NOW + KNOWN_SOURCE_TTL_MS + 1));
+        for i in 0..KNOWN_SOURCES_CAP + 3 {
+            s.remember("acc-1", &format!("src-{i}"), NOW + i as i64);
+        }
+        assert_eq!(s.known_len("acc-1"), KNOWN_SOURCES_CAP);
+        let now = NOW + KNOWN_SOURCES_CAP as i64 + 3;
+        for i in 0..3 {
+            assert!(!s.knows("acc-1", &format!("src-{i}"), now), "src-{i}, among the oldest, is still known");
+        }
+        assert!(s.knows("acc-1", &format!("src-{}", KNOWN_SOURCES_CAP + 2), now));
     }
 }

@@ -143,7 +143,7 @@ func (n *Node) spendOutbound(accountID string, peer outbound.Peer, tool string) 
 	if n.outboundToContact(accountID, peer, tool) {
 		charge = limits.ContactOut(peer.Root, n.contactCap())
 	}
-	r := n.decide(context.Background(), accountID, charge)
+	r := n.decide(context.Background(), accountID, []limits.Charge{charge}, "")
 	switch {
 	case r == nil:
 		return nil
@@ -164,7 +164,7 @@ func (n *Node) IntegrationBudget(accountID, integrationID string, next mcp.ToolH
 		if !ok || c.Fingerprint == "" {
 			return (&public.Refusal{Unavailable: true}).Result(), nil
 		}
-		if r := n.decide(ctx, accountID, limits.Integration(integrationID, c.Fingerprint)); r != nil {
+		if r := n.decide(ctx, accountID, []limits.Charge{limits.Integration(integrationID, c.Fingerprint)}, ""); r != nil {
 			return r.Result(), nil
 		}
 		return next(ctx, req)
