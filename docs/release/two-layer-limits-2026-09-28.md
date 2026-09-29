@@ -169,3 +169,28 @@ recipient's public key as an argument ("since the calling entity is the platform
 trusted"); the core never derives it from the private key on a call. Shipped in pact-identity 0.4.0
 (Rust) and 0.4.1 (the Go port, which 0.4.0's commit had wrongly claimed).
 
+
+**2026-09-29, the owner's decision on the guest total before the open** (asked directly, relayed by
+the coordinator; option (2), "let known addresses through"). Before the open nothing says who sent
+a sealed call, so a total checked there alone would refuse contacts with strangers:
+
+- **Before the open**, when the identity's guest-total bucket is empty, a sealed call is refused
+  only if its source — the cloud's salted source key; the node's address — has not carried a proven
+  CONTACT's call to this identity within the last hour. A source that has is let through to the
+  open. Nothing is spent before the open.
+- **After the open**, a guest spends the guest total (and its per-root and per-source guest buckets,
+  as today); a contact spends only its contact and identity buckets. A guest from a known source is
+  still refused after the open once the total is empty.
+- **Known sources** are state the middleware keeps: recorded when a call opens and proves an active
+  or pending contact, keyed by the salted source, with a one-hour expiry through a clock tests can
+  move, and a bounded size, the oldest evicted first. The same on the node (its limits sidecar).
+- **Every call that is OPENED and does not prove an active or pending contact spends the guest
+  total** (the coordinator's reading of the small form, the same day): `chain_required` after the
+  open, an `envelope_invalid` the open found, a guest, and a blocked root, which answers exactly as
+  an unknown one (SPEC §13.3). Only a proven contact is exempt. Otherwise small forms naming
+  invented fingerprints from rotating sources would cost an HPKE open each and never trip the check.
+- **M-C4's flood run**: fresh roots from many sources past the total are refused BEFORE the open (the
+  object's timing block shows no HPKE on them); the controls that must get through are a contact's
+  call from a source that carried that contact within the hour, and a guest's call before the total
+  is spent. The documented negative, and the known cost, said in the docs: a contact from a new
+  source during a flood is refused with `retry_after`.

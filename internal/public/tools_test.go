@@ -104,7 +104,7 @@ func newToolEnv(t *testing.T) *toolEnv {
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
 		Contacts: &contacts.Manager{Store: st, AdmitRequest: func(ctx context.Context, accountID string, held int64) error {
-			d, err := side.Decide(ctx, accountID, limits.PendingIn(held), time.Now())
+			d, err := side.Decide(ctx, accountID, []limits.Charge{limits.PendingIn(held)}, "", time.Now())
 			if err != nil || !d.Allowed {
 				return contacts.ErrRequestsFull
 			}
