@@ -781,7 +781,7 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Page | What it does |
 |---|---|
 | Setup wizard | First-run flow; auto-shows while the node has zero passkeys; reachable only from loopback or with a one-time setup URL minted by `passkey reset-wizard` (§12) |
-| Dashboard | At-a-glance node state, for the identities the signed-in owner administers: reachability and posture in one strip; the identities, their contacts, the people waiting and the certificates that need a wallet as four counts; what needs the owner; and a card per identity with its address, its certificate's days left (the renewal flag is the reader's) and its counts. A read that fails is shown as failed, never as zero (the trail is Audit's) |
+| Dashboard | At-a-glance node state, for the identities the signed-in owner administers: what needs the owner first (people waiting, certificates to renew or sign), each with the button that does it; the identities, their active contacts, the people waiting and the certificates that need a wallet as four counts; a card per identity with its address, its certificate's state and days left (the renewal flag is the reader's) and, with more than one identity, its counts; and reachability and posture in one strip. A read that fails is shown as failed, never as zero (the trail is Audit's) |
 | Inbox | Threads and messages, live over SSE; composer (sends labeled `human`, §7.3); click-to-fetch for `url` media (§7.5) |
 | Contacts | Accept an invite link, or connect from a card (§9.3); per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier; block, unblock and remove on each contact's page, approve and reject on the Requests tab (§9.1, PACT §8) |
 | Invites | Issue, label, revoke; expiry / max_uses / auto_accept / preset (§9) |
@@ -793,7 +793,7 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Settings · ingress | Ingress pairing via one-time token (§10) |
 | Settings · owners | Owners, tagged passkeys, named owner-MCP bearer tokens (§3) |
 | Settings · storage | Blob quota and per-account retention (§7) |
-| Settings · audit | Audit trail browser (§11): each id a row carries — an owner, an identity, a contact, a token, a passkey — shown by its name, with the id under it and copyable; an id whose owner, token or contact has gone is shown as such, with its id |
+| Settings · audit | Audit trail browser (§11): each id a row carries — an owner, an identity, a contact, a token, a passkey — shown by its name, with the id in its tooltip and a copy button; an id whose owner, token or contact has gone, or whose list the reader may not see, is shown as such, with its id shortened beside it |
 
 ### 8.3 Portal authentication
 

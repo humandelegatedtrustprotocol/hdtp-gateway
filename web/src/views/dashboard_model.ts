@@ -12,7 +12,10 @@ export type Account = {
   slug: string;
   display_name: string;
   fingerprint: string;
-  /** Active contacts. */
+  /**
+   * Contacts in the `active` state: the people who can reach this identity now. The Contacts tab it
+   * links to lists every state, each row with its pill, so the page says "active" beside the number.
+   */
   contacts: number;
   /** What the Requests tab holds: contact requests and contacts waiting at a new address. */
   pending: number;
@@ -42,11 +45,6 @@ export function needsAttention(v: CertificateView): boolean {
   return v.tone === "warn" || v.tone === "bad";
 }
 
-/** The first identity with somebody waiting, which the header's "Review" button opens. */
-export function firstWaiting(d: Dashboard): Account | null {
-  return (d.accounts ?? []).find((a) => a.pending > 0) ?? null;
-}
-
 /** One thing that wants the owner, from the answer: people waiting on an identity, or its certificate. */
 export type Need = { key: string; tone: "warn" | "bad"; kind: "waiting" | "certificate"; account: Account; text: string };
 
@@ -60,9 +58,20 @@ export function needsOf(d: Dashboard, now: number): Need[] {
   for (const a of d.accounts ?? []) {
     const name = a.display_name || a.slug;
     const v = certificateView(a.certificate, now);
-    if (needsAttention(v)) out.push({ key: `cert-${a.id}`, tone: v.tone === "bad" ? "bad" : "warn", kind: "certificate", account: a, text: `${name}: ${v.text}` });
+    if (needsAttention(v)) out.push({ key: `cert-${a.id}`, tone: v.tone === "bad" ? "bad" : "warn", kind: "certificate", account: a, text: `${name}: ${v.text}${v.detail ? ` (${v.detail})` : ""}` });
     if (a.pending > 0) out.push({ key: `wait-${a.id}`, tone: "warn", kind: "waiting", account: a, text: `${plural(a.pending, "person", "people")} waiting for ${name}` });
   }
   const rank = (n: Need) => (n.tone === "bad" ? 0 : n.kind === "waiting" ? 1 : 2);
   return out.sort((x, y) => rank(x) - rank(y));
+}
+
+/**
+ * Where a card says its identity is reached. The node's public address is the strip's; a card that
+ * repeated it would say it once per identity, so a card says only what follows it (`/alex`). An
+ * endpoint on another host (a tunnel, an older address) is said whole.
+ */
+export function addressOf(endpoint: string, publicUrl: string): string {
+  const base = publicUrl.replace(/\/+$/, "");
+  if (base && endpoint.startsWith(base + "/")) return endpoint.slice(base.length);
+  return endpoint;
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
@@ -93,8 +94,10 @@ func dashEnv(t *testing.T) (store.Store, store.Account, store.Account) {
 }
 
 // The overview answers, for each identity the owner administers and no other, the numbers its links
-// explain — the People page's contacts, the Requests tab's waiting — and the certificate the identity
-// page shows, from the same reader. A read that fails is a failed answer, never a zero.
+// lead to, each read through that tab's own route: the Contacts tab's rows in the `active` state (the
+// tab lists every state, each row with its pill, so the overview labels its number "active"), and
+// every row the Requests tab lists as "waiting" — and the certificate the identity page shows, from
+// the same reader. A read that fails is a failed answer, never a zero.
 func TestTheOverviewCountsWhatItsLinksShow(t *testing.T) {
 	st, a, b := dashEnv(t)
 	notAfter := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
@@ -122,6 +125,40 @@ func TestTheOverviewCountsWhatItsLinksShow(t *testing.T) {
 	if row.Contacts != 2 || row.Pending != 2 {
 		t.Errorf("counted %d contacts and %d waiting, want 2 and 2", row.Contacts, row.Pending)
 	}
+	// Held to the tabs themselves, not to this test's fixture: the Contacts tab's active rows, and
+	// the Requests tab's requests and addresses.
+	tabs := http.NewServeMux()
+	MountContactPages(tabs, ContactsDeps{Store: st})
+	MountManagePages(tabs, ManageDeps{Store: st, Contacts: &contacts.Manager{Store: st}})
+	var listed struct {
+		Contacts []struct {
+			Status string `json:"status"`
+		} `json:"contacts"`
+	}
+	if rr := asOwner(t, tabs, "owner-a", "/api/contacts?account="+a.ID); rr.Code != 200 || json.Unmarshal(rr.Body.Bytes(), &listed) != nil {
+		t.Fatalf("the Contacts tab's read: %d %s", rr.Code, rr.Body.String())
+	}
+	active := 0
+	for _, c := range listed.Contacts {
+		if c.Status == "active" {
+			active++
+		}
+	}
+	if len(listed.Contacts) == active {
+		t.Fatal("the fixture must hold contacts in other states, or the tab and the count cannot differ")
+	}
+	var requests struct {
+		Pending   []json.RawMessage `json:"pending"`
+		Addresses []json.RawMessage `json:"addresses"`
+	}
+	if rr := asOwner(t, tabs, "owner-a", "/api/requests?account="+a.ID); rr.Code != 200 || json.Unmarshal(rr.Body.Bytes(), &requests) != nil {
+		t.Fatalf("the Requests tab's read: %d %s", rr.Code, rr.Body.String())
+	}
+	if row.Contacts != active || row.Pending != len(requests.Pending)+len(requests.Addresses) {
+		t.Errorf("the overview says %d active and %d waiting; the tabs hold %d active and %d waiting",
+			row.Contacts, row.Pending, active, len(requests.Pending)+len(requests.Addresses))
+	}
+
 	want := dashCert{Certified: true, Served: true, Endpoint: "https://node.example/a", NotAfter: "2026-10-20T12:00:00Z", RenewalDue: true}
 	if row.Certificate == nil || *row.Certificate != want {
 		t.Errorf("certificate %+v, want %+v", row.Certificate, want)

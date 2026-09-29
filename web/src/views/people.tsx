@@ -210,8 +210,11 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
           <tr key={p.fingerprint}>
             <td>
               {p.display_name || <span className="muted">—</span>}
-              {p.via_invite && <Badge>via invite{p.invite_label ? `: ${p.invite_label}` : ""}</Badge>}
-              {p.address_claim && <Badge tone="warn" title={p.address_claim.root}>at the address of {p.address_claim.name}: not them unless they say so</Badge>}
+              {/* A pill says what kind of request it is, in a word or two; the words after it are a line of their own. */}
+              {p.via_invite && <> <Badge>via invite</Badge></>}
+              {p.address_claim && <> <Badge tone="warn" title={p.address_claim.root}>address claim</Badge></>}
+              {p.via_invite && p.invite_label && <span className="cell-note">Invite: {p.invite_label}</span>}
+              {p.address_claim && <span className="cell-note">At the address of {p.address_claim.name}: not them unless they say so.</span>}
             </td>
             <td><Readout value={p.fingerprint} /></td>
             <td>
