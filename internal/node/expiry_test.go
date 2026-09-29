@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 )
 
 // "Until one date" has to be true of the KEY, not only of the certificate. A leaf that runs out
@@ -74,6 +75,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	again, err := New(ctx, Options{
 		Config: core.Config{DataDir: t.TempDir(), PublicURL: "https://" + bharat2.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true},
 		Store:  bharat2.st, Keyring: bharat2.idm.Keyring, Now: clock.now, Landing: testLanding,
+		Limits: limitstest.StartDefault(t).Client,
 	})
 	if err != nil {
 		t.Fatalf("a node whose only leaf ran out while it was down must still start: %v", err)

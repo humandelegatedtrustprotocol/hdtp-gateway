@@ -1,0 +1,89 @@
+# The node behind Envoy (docs/release/two-layer-limits-2026-09-28.md, M-N1; SPEC §5.1, §5.7): the
+# two layers of its rate limits in one deployment.
+#
+#   layer 1 — envoy:  the caller's TLS ends here; per-address limits and connection limits before
+#                     any cryptography (deploy/envoy/envoy.yaml), the caller's chain forwarded;
+#   layer 2 — limitd: PACT §12's per-caller budgets, asked by the node after it opens an envelope
+#                     (deploy/limitd/limits.json);
+#   node:             the node, trusting the forwarded chain and address from envoy's address alone
+#                     (PACT_PROXY_ADDRESS), and refusing every sealed call while limitd is down.
+#
+# Before `docker compose -f deploy/envoy/compose.yaml up -d`: `make identity-proxy limitd-vendor`
+# (the image build), a certificate for the node's public name at deploy/envoy/tls/cert.pem and
+# key.pem (WebPKI: a peer that dials the node sees it), and PACT_PUBLIC_URL, that name, in the
+# environment. Only envoy publishes a port; the node's own listener is reached through it alone.
+# The portal stays on the node's loopback, as in ../../compose.yaml.
+#
+# internal/integrationtest/envoy_test.go holds this file to envoy.yaml (the proxy's address, the
+# node's name and port, only envoy published); harness/images holds its envoy image to the one the
+# harness's scenario S23 runs the same three with (images.Envoy).
+
+services:
+  init-data:
+    image: alpine:3.20
+    command: ["chown", "65532:65532", "/data"]
+    volumes:
+      - pact-data:/data
+    restart: "no"
+
+  node:
+    build:
+      context: ../..
+      additional_contexts:
+        identityproxy: ../../.build/identity-proxy
+        limitdvendor: ../../.build/limitd-vendor
+    restart: unless-stopped
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    environment:
+      PACT_PUBLIC_BIND: 0.0.0.0:8443
+      PACT_PUBLIC_URL: ${PACT_PUBLIC_URL:?the public https URL envoy answers at}
+      # The one address whose X-Forwarded-Client-Cert and X-Pact-Client-Address the node reads.
+      PACT_PROXY_ADDRESS: 172.30.40.10
+    volumes:
+      - pact-data:/data
+    networks:
+      edge:
+        ipv4_address: 172.30.40.20
+
+  limitd:
+    build:
+      context: ../..
+      additional_contexts:
+        identityproxy: ../../.build/identity-proxy
+        limitdvendor: ../../.build/limitd-vendor
+    restart: unless-stopped
+    entrypoint: ["/pact-limitd"]
+    command: ["-config", "/etc/pact-limitd/limits.json"]
+    network_mode: none
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    volumes:
+      - pact-data:/data
+
+  envoy:
+    # Envoy 1.35.13, pinned by digest: the harness's S23 runs this same reference (images.Envoy).
+    image: envoyproxy/envoy@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e
+    restart: unless-stopped
+    command: ["-c", "/etc/envoy/envoy.yaml"]
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./tls:/etc/envoy/tls:ro
+    ports:
+      - "443:8443"
+    depends_on:
+      - node
+    networks:
+      edge:
+        ipv4_address: 172.30.40.10
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
+
+volumes:
+  pact-data:

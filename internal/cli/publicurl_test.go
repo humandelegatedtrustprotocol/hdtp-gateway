@@ -12,6 +12,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/node"
 	"github.com/pact-cloud/pact-gateway/internal/services/settings"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
@@ -69,7 +70,7 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 	peer := testid.NewWallet(t, "Peer")
 	ph := peer.Issue(t, "https://"+ln.Addr().String()+"/mcp")
 	if _, err := st.InsertContact(ctx, store.Contact{
-		AccountID: alice.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public.SPKI,
+		AccountID: alice.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public().SPKI,
 		Status: "active", Endpoint: ph.Endpoint, Leaf: ph.LeafDER, Card: ph.Card("Peer", "optional"),
 	}); err != nil {
 		t.Fatal(err)
@@ -83,7 +84,7 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 		rows = append(rows, action+" "+resource+" → "+outcome)
 	}
 	cfg := &core.Config{DataDir: n.dir, PublicURL: oldURL, Mode: core.ModeDirect, Seal: core.SealOptional, ClientCert: core.ClientCertPreferred, LANConnections: true}
-	nd, err := node.New(ctx, node.Options{Config: *cfg, Store: st, Keyring: kr, Audit: audit, Landing: landingPage})
+	nd, err := node.New(ctx, node.Options{Config: *cfg, Store: st, Keyring: kr, Audit: audit, Landing: landingPage, Limits: limitstest.StartDefault(t).Client})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/integrations"
 	"github.com/pact-cloud/pact-gateway/internal/internalui"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
 	"github.com/pact-cloud/pact-gateway/internal/services/auditsink"
@@ -298,6 +299,8 @@ func (s *serveRun) startNode() error {
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
 		ContactCap:         s.settings.ContactCap,
+		// Every PACT §12 budget is the limits sidecar's to decide (SPEC §5.7).
+		Limits: limits.New(s.cfg.LimitsSocketPath()),
 		// The seal an account is built with is the owner's, as the settings service holds it now.
 		SealPolicy: s.settings.SealPolicy,
 		Quota: func(accountID string) int64 {
@@ -367,6 +370,13 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	}
 	if tst := adapter.Status(); tst.Detail != "" {
 		fmt.Fprintf(stdout, "tunnel:  %s\n", tst.Detail)
+	}
+	// The limits sidecar is a process of its own (cmd/pact-limitd), started beside the node; until it
+	// answers every sealed call is refused, and an operator who reads only this banner must know why.
+	if err := nd.LimitsAnswer(ctx); err != nil {
+		fmt.Fprintf(stdout, "limits:  NOT ANSWERING — %v\n", err)
+	} else {
+		fmt.Fprintf(stdout, "limits:  %s answering\n", cfg.LimitsSocketPath())
 	}
 	// An account that is broken rather than waiting, first. A leaf's key that will not unseal is the
 	// usual reason, and a renewal is the usual cure: it needs no old key, and the install retires

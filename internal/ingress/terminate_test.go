@@ -173,12 +173,12 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 					fmt.Fprintf(c, "key: %v", perr)
 					return
 				}
-				suite, serr := pactidentity.SuiteForKey(nodePriv.Public)
+				suite, serr := pactidentity.SuiteForKey(nodePriv.Public())
 				if serr != nil {
 					fmt.Fprintf(c, "suite: %v", serr)
 					return
 				}
-				plain, err := pactidentity.Open(suite, nodePriv,
+				plain, err := pactidentity.Open(suite, nodePriv, nodePriv.Public(),
 					[]byte(pactidentity.InfoV2), pactidentity.FromB64url(env.Protected), pactidentity.FromB64url(env.Enc), pactidentity.FromB64url(env.Ct))
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
@@ -275,7 +275,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 // Every real client offers ALPN. certmagic's TLSConfig sets NextProtos to
 // acme-tls/1 ALONE — its own comment says the field is there "for TLS-ALPN
 // challenge", i.e. it is meant to be MERGED into a server config, not served as
-// one — and ACME.TLSConfig handed it straight through to Terminator.Public and
+// one — and ACME.TLSConfig handed it straight through to Terminator.Public() and
 // tls.Server. So the terminate listener advertised only the challenge protocol
 // and answered every browser, curl and Go client with no_application_protocol.
 // SPEC §10.6 says a terminate-mode node is reachable at plain

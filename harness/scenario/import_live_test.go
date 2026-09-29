@@ -145,7 +145,7 @@ func importedMove(ctx context.Context, t *testing.T, w *World, peerBlocks bool) 
 	// The new host: a node that has never held the identity.
 	destName := f.Name("dest")
 	m.newEndpoint = fmt.Sprintf("https://%s:%d/a/mover/mcp", destName, topology.PublicPort)
-	if m.dest, err = f.Container(ctx, fabric.Spec{Name: "dest", Image: images.Node, Network: net, Cmd: []string{"serve"},
+	if m.dest, err = topology.Serve(ctx, f, fabric.Spec{Name: "dest", Image: images.Node, Network: net, Cmd: []string{"serve"},
 		Env: mergeEnv(topology.NodeEnv(fmt.Sprintf("https://%s:%d", destName, topology.PublicPort)), env)}); err != nil {
 		t.Fatalf("dest: %v", err)
 	}

@@ -140,7 +140,11 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 
 	// A chain that validates: the caller is the ROOT it proves, not the leaf.
 	p := newPeer(t, time.Now())
-	chain := &tls.Certificate{Certificate: p.chain(), PrivateKey: p.host.Ed}
+	hostKP, err := identity.FromLib(p.host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := &tls.Certificate{Certificate: p.chain(), PrivateKey: hostKP.Signer}
 	code, body, _ = get(t, addr, "work.example", "/a/work/mcp", chain)
 	if code != 200 {
 		t.Fatalf("chain: %d", code)

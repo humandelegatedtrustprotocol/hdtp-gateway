@@ -50,6 +50,30 @@ type Manager struct {
 	// lock the owner out of approving the people they want — and neither do blocked ones.
 	// Nothing already held is ever revoked by it; only the next act that would add one is refused.
 	ContactCap func() int
+	// AdmitRequest decides whether accountID, which holds `held` requests awaiting its owner
+	// (pending_in rows), may be written one more: the pending-request cap (PACT §12's limits, the
+	// node's limits sidecar). Asked by every path that writes a pending_in row a stranger caused —
+	// a request, and a redemption the owner must approve — and by nothing else. A refusal is
+	// ErrRequestsFull, or the error of a sidecar that did not answer; nil AdmitRequest refuses
+	// every such write, so a manager built without the cap writes no request at all.
+	AdmitRequest func(ctx context.Context, accountID string, held int64) error
+}
+
+// ErrRequestsFull: accountID holds as many requests awaiting its owner as it may (pending_in_cap).
+// A peer is answered `unavailable`, bare, as it is for a full contact list: no number of seconds is
+// true of a list the owner has to empty.
+var ErrRequestsFull = errors.New("unavailable: this identity holds as many contact requests as it may")
+
+// admitRequest asks AdmitRequest about one more request for accountID, counting what it holds.
+func (m *Manager) admitRequest(ctx context.Context, accountID string) error {
+	if m.AdmitRequest == nil {
+		return fmt.Errorf("%w: no request cap is wired", ErrRequestsFull)
+	}
+	held, err := m.Store.CountContactsByStatus(ctx, accountID, "pending_in")
+	if err != nil {
+		return err
+	}
+	return m.AdmitRequest(ctx, accountID, held)
 }
 
 // Cap is the number of contacts each account may hold.
@@ -256,6 +280,15 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	}
 	held, err := m.Store.GetContact(ctx, accountID, callerFpr)
 	known := err == nil
+	// The pending-request cap, for a redemption that would ADD a request: one already waiting is
+	// re-pinned, not added. Before the answer a known caller gets, for the reason the contact cap
+	// is: everybody who would have been written hears the same `unavailable`, a caller this
+	// account blocked included; before the use is spent.
+	if status == "pending_in" && !(known && held.Status == "pending_in") {
+		if err := m.admitRequest(ctx, accountID); err != nil {
+			return RedeemResult{}, err
+		}
+	}
 	if known && held.Status != "pending_in" {
 		result.Silent = true
 		return result, nil
@@ -338,6 +371,11 @@ func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note st
 	}
 	if len(note) > 1024 { // PACT §6.2: note ≤1 KiB
 		return fmt.Errorf("%w: note over 1 KiB", ErrBadRequest)
+	}
+	// The pending-request cap, before the insert that is refused for a caller already known: at a
+	// full list a blocked caller hears what a stranger hears.
+	if err := m.admitRequest(ctx, accountID); err != nil {
+		return err
 	}
 	_, err := m.Store.InsertContact(ctx, p.pin(store.Contact{
 		AccountID: accountID, Status: "pending_in",

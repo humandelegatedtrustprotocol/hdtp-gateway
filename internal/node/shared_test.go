@@ -35,7 +35,7 @@ func (e *env) secondProcess(t *testing.T) (*Node, store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	n, err := New(context.Background(), Options{Config: e.cfg, Store: st, Keyring: e.kr, Landing: testLanding})
+	n, err := New(context.Background(), Options{Config: e.cfg, Store: st, Keyring: e.kr, Landing: testLanding, Limits: e.limits.Client})
 	if err != nil {
 		t.Fatal(err)
 	}

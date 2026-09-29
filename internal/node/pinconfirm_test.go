@@ -44,7 +44,7 @@ func TestAnUnansweredConfirmationChangesNoPin(t *testing.T) {
 	peer := testid.NewWallet(t, "Peer")
 	host := peer.Issue(t, "https://"+dead+"/mcp")
 	before, err := e.st.InsertContact(ctx, store.Contact{
-		AccountID: acct.ID, Fingerprint: peer.Fpr, SPKI: host.Key.Public.SPKI,
+		AccountID: acct.ID, Fingerprint: peer.Fpr, SPKI: host.Key.Public().SPKI,
 		Status: "active", Endpoint: host.Endpoint,
 		Leaf: host.LeafDER, RootCert: peer.RootDER, Card: host.Card("Peer", "optional"),
 	})
@@ -139,7 +139,7 @@ func TestARefreshReachesOnlyTheContactThatWasNamed(t *testing.T) {
 		w := testid.NewWallet(t, name)
 		h := w.Issue(t, "https://"+addr+"/mcp")
 		if _, err := e.st.InsertContact(ctx, store.Contact{
-			AccountID: accountID, Fingerprint: w.Fpr, SPKI: h.Key.Public.SPKI,
+			AccountID: accountID, Fingerprint: w.Fpr, SPKI: h.Key.Public().SPKI,
 			Status: status, Endpoint: h.Endpoint, Leaf: h.LeafDER, Card: h.Card(name, "optional"),
 		}); err != nil {
 			t.Fatal(err)

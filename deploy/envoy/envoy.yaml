@@ -1,0 +1,155 @@
+# Layer 1 of the node's rate limits (docs/release/two-layer-limits-2026-09-28.md, M-N1; SPEC §5.1,
+# §5.7): Envoy in front of the node's public listener, before any cryptography, keyed on what is in
+# clear. Its numbers are here and nowhere in the node's code. Layer 2 — the per-caller budgets of
+# PACT §12, after the envelope is opened — is the limits sidecar the node asks (deploy/limitd).
+#
+# What it does, top to bottom:
+#   - terminates the caller's TLS with the certificate an operator mounts at /etc/envoy/tls (WebPKI
+#     for the node's hostname: a peer that dials the node sees it, as it sees a terminating edge's);
+#   - REQUESTS the caller's certificate chain and accepts any (there is no authority above the
+#     person, SPEC §5.1), and forwards it to the node in X-Forwarded-Client-Cert, having removed any
+#     the caller sent (SANITIZE_SET); the node reads it only from this proxy's address
+#     (proxy_address);
+#   - puts the caller's address, as its own socket saw it (use_remote_address: never a caller's
+#     X-Forwarded-For), in X-Pact-Client-Address, replacing any the caller sent; the node reads it
+#     from this proxy alone. Not X-Envoy-External-Address: Envoy passes a caller's own value of
+#     that through when it counts the caller as internal (internal_address_config);
+#   - holds at most 1024 connections, and each request to the timeouts SPEC §5.7 gives the node;
+#   - per source address and per path: the MCP endpoints at 300 requests in 10 s, the invite
+#     landing and anything else at 60 a minute; past it, 429 before the node sees the request. Each
+#     address has a bucket of its own (the remote_address descriptor), and the route's own bucket,
+#     which Envoy requires, is spent by no request that has an address
+#     (always_consume_default_token_bucket: false) — left at Envoy's default, it would be one
+#     bucket every source shares, and one flood would refuse everybody;
+#   - carries each request to the node over TLS (the node's listener speaks nothing else).
+#
+# internal/integrationtest/envoy_test.go holds these properties to this file and to
+# deploy/envoy/compose.yaml; the harness's scenario S23 runs it in front of a node and floods it.
+
+static_resources:
+  listeners:
+  - name: public
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8443 }
+    per_connection_buffer_limit_bytes: 1048576
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: false
+          common_tls_context:
+            tls_params: { tls_minimum_protocol_version: TLSv1_2 }
+            tls_certificates:
+            - certificate_chain: { filename: /etc/envoy/tls/cert.pem }
+              private_key: { filename: /etc/envoy/tls/key.pem }
+            validation_context:
+              trust_chain_verification: ACCEPT_UNTRUSTED
+      filters:
+      - name: envoy.filters.network.connection_limit
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.connection_limit.v3.ConnectionLimit
+          stat_prefix: public_connections
+          max_connections: 1024
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: public
+          use_remote_address: true
+          forward_client_cert_details: SANITIZE_SET
+          set_current_client_cert_details: { cert: true, chain: true }
+          request_headers_timeout: 10s
+          request_timeout: 60s
+          stream_idle_timeout: 120s
+          max_request_headers_kb: 64
+          common_http_protocol_options:
+            idle_timeout: 120s
+            headers_with_underscores_action: REJECT_REQUEST
+          route_config:
+            name: node
+            request_headers_to_add:
+            - header: { key: x-pact-client-address, value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%" }
+              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+            virtual_hosts:
+            - name: node
+              domains: ["*"]
+              routes:
+              - match: { safe_regex: { regex: "^/a/[^/]+/mcp$" } }
+                route: { cluster: node, timeout: 75s }
+                typed_per_filter_config:
+                  envoy.filters.http.local_ratelimit:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                    stat_prefix: mcp_per_source
+                    token_bucket: { max_tokens: 300, tokens_per_fill: 300, fill_interval: 10s }
+                    filter_enabled: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    filter_enforced: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    descriptors:
+                    - entries: [{ key: remote_address }]
+                      token_bucket: { max_tokens: 300, tokens_per_fill: 300, fill_interval: 10s }
+                    max_dynamic_descriptors: 20000
+                    always_consume_default_token_bucket: false
+                    rate_limits:
+                    - actions: [{ remote_address: {} }]
+              - match: { prefix: "/i/" }
+                route: { cluster: node, timeout: 75s }
+                typed_per_filter_config:
+                  envoy.filters.http.local_ratelimit:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                    stat_prefix: invite_per_source
+                    token_bucket: { max_tokens: 60, tokens_per_fill: 60, fill_interval: 60s }
+                    filter_enabled: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    filter_enforced: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    descriptors:
+                    - entries: [{ key: remote_address }]
+                      token_bucket: { max_tokens: 60, tokens_per_fill: 60, fill_interval: 60s }
+                    max_dynamic_descriptors: 20000
+                    always_consume_default_token_bucket: false
+                    rate_limits:
+                    - actions: [{ remote_address: {} }]
+              - match: { prefix: "/" }
+                route: { cluster: node, timeout: 75s }
+                typed_per_filter_config:
+                  envoy.filters.http.local_ratelimit:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                    stat_prefix: other_per_source
+                    token_bucket: { max_tokens: 60, tokens_per_fill: 60, fill_interval: 60s }
+                    filter_enabled: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    filter_enforced: { default_value: { numerator: 100, denominator: HUNDRED } }
+                    descriptors:
+                    - entries: [{ key: remote_address }]
+                      token_bucket: { max_tokens: 60, tokens_per_fill: 60, fill_interval: 60s }
+                    max_dynamic_descriptors: 20000
+                    always_consume_default_token_bucket: false
+                    rate_limits:
+                    - actions: [{ remote_address: {} }]
+          http_filters:
+          - name: envoy.filters.http.local_ratelimit
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+              stat_prefix: per_source
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: node
+    type: STRICT_DNS
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: node
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: node, port_value: 8443 }
+    # The node's listener speaks TLS and presents its accounts' chains, which a proxy on the node's
+    # own host has no pin for; the hop stays inside the deployment's private network.
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: node
+
+admin:
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }

@@ -78,12 +78,13 @@ the whole address book.
 
 ## Quickstart
 
-Five minutes from nothing to a working node. You need Docker with Compose, Go, and SSH
-access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
+Five minutes from nothing to a working node. You need Docker with Compose, Go, Rust (cargo), and
+SSH access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
 
 ```
 make identity-proxy     # fetch the identity module on this machine, for the image build
-docker compose up -d
+make limitd-vendor      # and the limits sidecar's crates, which include the identity's pact-limits
+docker compose up -d    # the node and its limits sidecar (SPEC §5.7)
 docker compose logs pact-gateway | grep -A2 "setup"
 ```
 
@@ -363,7 +364,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 every push. [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) states plainly what is and
 is not hardened yet.
 
-**A harness that builds the world.** 22 live scenarios stand the real binary up
+**A harness that builds the world.** 23 live scenarios stand the real binary up
 in containers and drive it as a person would:
 
 | Scenario | What is real about it | Test |
@@ -379,6 +380,7 @@ in containers and drive it as a person would:
 | The conformance battery | The cloud's Go battery of the wire, aimed at a node through its owner MCP: the guest tier, the per-root budget, envelopes, invites, a key past its leaf's life answered `certificate_renewed`, the audit rows hashed as the reference hashes them | `TestTheConformanceBatteryPassesAgainstANode` |
 | Journeys between two nodes | An owner's own invite refused, a revoked invite refused, every contact-naming owner tool refusing a contact nobody holds, block and unblock, a removal that reaches the peer, a token scoped to one identity, and an identity that leaves | `TestTheJourneysTheNodeHadNoScenarioFor` |
 | The hostile export corpus | Every file of pact-identity's shared corpus handed to the shipped image's `import`, each over a data directory of its own: refused in the corpus's words with nothing written, the valid files reviewed and then taken whole | `TestTheHostileCorpusIsRefusedByTheShippedImage` |
+| Behind Envoy | The node, its limits sidecar and Envoy running `deploy/envoy`: one address flooding the MCP endpoint and the rest refused 429 at the edge and past its budget `rate_limited` behind it — a forged address header changes nothing — while a second address is let through both; a chain presented to Envoy proven at the node, the same chain forged as a header through Envoy or straight to the node proving nothing; and a sealed call answered end to end | `TestTheNodeBehindEnvoyIsLimitedPerCallerAtBothLayers` |
 | The real wallet page | pact-cloud's local cloud (the real Worker under workerd): an identity certified through the real wallet page, imported into a node, its move signed on the node's portal through the real `POST /sign` with the same passkey, replayed and forged returns refused, and back into the cloud | `TestTheRealWalletSignsANodesMove` |
 | Portal affordances | Every action an owner needs, found on the page Chrome draws for a signed-in owner | `TestPortalOffersEveryAffordanceAnOwnerNeeds` |
 | Portal themes | Every portal page rendered in Chrome, light and dark | `TestEveryPortalPageRendersInBothThemes` |

@@ -54,7 +54,7 @@ func newTestRoot(t testing.TB, cn string, at time.Time) *testRoot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testRoot{key: key, cert: cert, fpr: pactidentity.Fingerprint(key.Public.SPKI)}
+	return &testRoot{key: key, cert: cert, fpr: pactidentity.Fingerprint(key.Public().SPKI)}
 }
 
 // peer is a 2.0 identity elsewhere: a root and the host key of its current leaf.
@@ -71,7 +71,7 @@ func (p *peer) fpr() string     { return p.root.fpr }
 func (p *peer) leafFor(t testing.TB, endpoint string, at time.Time) []byte {
 	t.Helper()
 	der, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: "Alina Rao", RootCN: "Alina Rao", RootKey: p.root.key, HostPub: p.host.Public, Endpoint: endpoint,
+		CN: "Alina Rao", RootCN: "Alina Rao", RootKey: p.root.key, HostPub: p.host.Public(), Endpoint: endpoint,
 		NotBefore: at, NotAfter: at.Add(365 * 24 * time.Hour),
 	})
 	if err != nil {
@@ -133,7 +133,7 @@ func (e *recvEnv) install(t testing.TB, purpose, endpoint string) {
 		t.Fatal(err)
 	}
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: "Me", RootKey: e.root.key, RootSPKIs: [][]byte{e.root.key.Public.SPKI}, Now: e.nowAt,
+		RootCN: "Me", RootKey: e.root.key, RootSPKIs: [][]byte{e.root.key.Public().SPKI}, Now: e.nowAt,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {

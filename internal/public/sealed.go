@@ -121,16 +121,23 @@ func spendGuestBudget(ctx context.Context, d SealedDeps, as Charge) *mcp.CallToo
 	if d.Pool == nil || d.Pool.Limit == nil {
 		return nil
 	}
-	ok, retry := d.Pool.Limit(ctx, as)
-	if ok {
+	r := d.Pool.Limit(ctx, as)
+	if r == nil {
 		return nil
 	}
-	d.audit("guest", "sealed_call", "account:"+d.AccountID, "rate_limited")
-	return rateLimited(retry)
+	d.audit("guest", "sealed_call", "account:"+d.AccountID, r.Code())
+	return r.Result()
 }
 
 func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// The guest total, BEFORE the open (the owner's decision of 2026-09-29): from a source no
+		// proven contact has used in the last hour, and with the account's total spent, the call is
+		// refused here, in the clear, with nothing read and nothing opened.
+		if r := d.Pool.preOpen(ctx); r != nil {
+			d.audit("guest", "sealed_call", "account:"+d.AccountID, r.Code())
+			return r.Result(), nil
+		}
 		var env pactidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
 			// Not an envelope at all. Refused like any other that does not open, and audited like
@@ -140,6 +147,12 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
 		if err != nil {
+			// Opened, and answered with a refusal that proves nobody: one call of the guest total,
+			// whatever the total answers — the open is done, and the refusal below is the answer, and
+			// the one row this call writes to the audit trail beside the budget's own.
+			if errors.Is(err, errOpened) && d.Pool != nil && d.Pool.Limit != nil {
+				_ = d.Pool.Limit(ctx, ChargeOpened)
+			}
 			var renewed *CertificateRenewed
 			switch {
 			case errors.Is(err, ErrChainRequired):
@@ -209,9 +222,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		// holds a call is served rather than answered rate_limited from the record. It is sealed as
 		// a tool error inside `result`, where a guarded refusal has always been and where the
 		// client keeps `retry_after` (an `error` member is reduced to its code), as the cloud seals it.
-		if limited := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); limited != nil {
-			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "rate_limited")
-			return d.sealLimited(ctx, facts, limited)
+		if r := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); r != nil {
+			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, r.Code())
+			return d.sealLimited(ctx, facts, r.Result())
 		}
 		// Handlers see the envelope's facts exactly as they see transport facts,
 		// so a guest tool can pin the key the envelope proved (§5.3).

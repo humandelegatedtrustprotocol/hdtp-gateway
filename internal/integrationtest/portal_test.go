@@ -109,7 +109,9 @@ func newNode(t *testing.T, st store.Store, slug, fn string) *node {
 		st: st, acct: a, kp: kp, spki: spki, card: card,
 		root: w.Fpr, leafDER: h.LeafDER, endpoint: endpoint,
 		msg: &messaging.Service{Store: st, Bus: bus}, bus: bus,
-		cm: &contacts.Manager{Store: st}, owner: o,
+		// Every request is admitted: the pending cap is not what this scenario is about, and the
+		// node's own manager asks the sidecar for it (TestAStrangersRequestIsHeldToTheSidecarsPendingCap).
+		cm: &contacts.Manager{Store: st, AdmitRequest: func(context.Context, string, int64) error { return nil }}, owner: o,
 	}
 }
 

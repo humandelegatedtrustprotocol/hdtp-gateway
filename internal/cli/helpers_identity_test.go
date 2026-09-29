@@ -57,7 +57,7 @@ func newTestWallet(t *testing.T, cn string) *testWallet {
 	return &testWallet{key: key, cert: cert}
 }
 
-func (w *testWallet) fingerprint() string { return pactidentity.Fingerprint(w.key.Public.SPKI) }
+func (w *testWallet) fingerprint() string { return pactidentity.Fingerprint(w.key.Public().SPKI) }
 
 // certifyUnder has the node ask for a leaf and the wallet issue it. `at` orders the leaves: a
 // second leaf for one identity must be newer than the first (PACT §14.3).
@@ -75,7 +75,7 @@ func (w *testWallet) certifyUnder(t *testing.T, n idNode, slug, purpose, endpoin
 	if err != nil {
 		t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: a.DisplayName, RootKey: w.key, RootSPKIs: [][]byte{w.key.Public.SPKI}, Now: at, ValidDays: 200})
+	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: a.DisplayName, RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: at, ValidDays: 200})
 	if err != nil {
 		t.Fatal(err)
 	}
