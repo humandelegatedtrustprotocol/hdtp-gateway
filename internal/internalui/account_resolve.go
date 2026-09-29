@@ -160,16 +160,34 @@ func ownerAdmins(r *http.Request, st store.OwnerStore, accountID string) bool {
 		// account — or a bug. Both fail closed.
 		return false
 	}
-	ms, err := st.ListMembershipsByOwner(r.Context(), owner)
+	admins, err := administered(r.Context(), st, owner)
 	if err != nil {
 		return false // fail closed: an unreadable membership list is not a grant
 	}
+	return admins[accountID]
+}
+
+// administered is the set of accounts an owner administers, by id: the membership rule above, read
+// once for the pages that span accounts — the session's switcher, the audit trail's scope and the
+// overview — which each held a copy of this loop, and one of which (the overview) had none and
+// listed every account on the node. An owner with no session administers nothing. An unreadable
+// membership list is an error, never an empty set: "you hold nothing" is a claim the page would
+// then make on the store's behalf.
+func administered(ctx context.Context, st store.OwnerStore, owner string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if owner == "" {
+		return out, nil
+	}
+	ms, err := st.ListMembershipsByOwner(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
 	for _, m := range ms {
-		if m.AccountID == accountID && m.Role == "admin" {
-			return true
+		if m.Role == "admin" {
+			out[m.AccountID] = true
 		}
 	}
-	return false
+	return out, nil
 }
 
 // accountParam is the account a request names in its `account` query parameter, "" when it

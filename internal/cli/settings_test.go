@@ -1061,8 +1061,8 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	}
 }
 
-// AC (P9-02): `/` shows the resolved posture, the identities and recent
-// activity — and still routes to the wizard while no passkey exists, because
+// AC (P9-02): `/` shows the resolved posture and the identities the owner
+// administers — and still routes to the wizard while no passkey exists, because
 // that gate is what stops a node being claimed by whoever finds it first.
 func TestDashboardShowsStateAndKeepsTheWizardGate(t *testing.T) {
 	ctx := context.Background()

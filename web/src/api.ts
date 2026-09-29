@@ -51,6 +51,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A failed read, said for a person: the status and the error code the node answered
+ * (`{"error":"store"}` is the store failing), never the raw body.
+ */
+export function failureOf(e: unknown): string {
+  if (!(e instanceof ApiError)) return e instanceof Error && e.message ? e.message : String(e);
+  let code = "";
+  try {
+    const body: unknown = JSON.parse(e.message);
+    if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") code = (body as { error: string }).error;
+  } catch {
+    code = e.message.trim().slice(0, 120);
+  }
+  return `The node answered ${e.status}${code ? ` (${code})` : ""}.`;
+}
+
 export async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T> {
   const q = new URLSearchParams(params);
   if (account && !q.has("account")) q.set("account", account);
