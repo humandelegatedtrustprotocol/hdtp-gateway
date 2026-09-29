@@ -98,6 +98,14 @@ addresses live in the sidecar's memory beside the counters, an hour each and a b
 account (the oldest going first: `KNOWN_SOURCE_TTL_MS` and `KNOWN_SOURCES_CAP`,
 cmd/pact-limitd/src/lib.rs), so a sidecar restart forgets them too.
 
+A known address is an address: every caller arriving from it shares its standing. Behind a carrier
+that delivers every caller from one address of its own — `frp`, `ngrok` and `tailscale` from the
+node's host, a terminate-mode ingress from its own, none of which names the client's address — one
+contact's call makes that one address known, and the check before the open lets every stranger
+through to be opened (and refused after it). The check does its work where each caller arrives with
+an address of its own: behind Envoy (below), or the `cloudflare` adapter. (`TestAStrangerFloodDrainsTheTotalThenIsRefusedBeforeTheOpenAndAKnownContactGetsThrough`
+shows a stranger at the contact's known address opened and refused.)
+
 Calls out to a contact spend that contact's rate and the account's aggregate, in
 buckets of their own. A refusal is a `rate_limited` tool error carrying
 `retry_after` — the whole seconds until the bucket holds a call again — and an
