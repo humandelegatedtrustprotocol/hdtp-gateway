@@ -6,6 +6,8 @@ export const PRODUCT = {
   name: "PACT gateway",
   /** The wordmark's file in public/brand/ (pact-web-kit's brand set): `<logo>-inline.svg` and `-inline-dark.svg`. */
   logo: "pact-gateway",
-  /** Its width at the 28px height it is drawn at (the file is 84 high), so the layout holds before it loads. */
-  width: 139,
+  /** The height the sidebar draws it at, and its width at that height (the file is 84 high), so the layout
+   *  holds before it loads. */
+  height: 34,
+  width: 169,
 } as const;

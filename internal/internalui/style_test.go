@@ -182,3 +182,29 @@ func TestAPillInATableNeverBreaksInsideAWord(t *testing.T) {
 		t.Errorf("td .pill neither keeps words whole nor refuses to wrap: %s", rule[1])
 	}
 }
+
+// The logo stays still (the owner, 2026-09-29: "dont need animation for PACT logo"). No rule that names the
+// wordmark or the mark declares an animation, and the kit's `pop` keyframes that did are gone, in the portal's
+// stylesheets and in the server pages' inline styles. The cloud's check-brand.mjs holds the same for its pages.
+func TestTheLogoDoesNotMove(t *testing.T) {
+	root := repoRootUI(t)
+	files := []string{"web/src/brand.css", "web/src/style.css", "internal/internalui/style.go"}
+	rule := regexp.MustCompile(`([^{}]+)\{([^{}]*)\}`)
+	logo := regexp.MustCompile(`(^|[\s,>])(\.logo|\.mark|\.brand svg)\b`)
+	moves := regexp.MustCompile(`animation(-name)?\s*:\s*[^n;}]`)
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(root, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if regexp.MustCompile(`@keyframes\s+pop\b`).MatchString(text) {
+			t.Errorf("%s: @keyframes pop is back; the logo does not move", f)
+		}
+		for _, m := range rule.FindAllStringSubmatch(text, -1) {
+			if logo.MatchString(m[1]) && moves.MatchString(m[2]) {
+				t.Errorf("%s: %q animates the logo", f, strings.TrimSpace(m[1]))
+			}
+		}
+	}
+}
