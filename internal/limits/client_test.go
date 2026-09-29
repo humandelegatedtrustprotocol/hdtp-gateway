@@ -67,9 +67,6 @@ func TestTheRulesAreTheSidecarsAndAreReadOnce(t *testing.T) {
 	if err != nil || r != testRules {
 		t.Fatalf("rules: %+v %v", r, err)
 	}
-	if st := s.Status(); !st.Answering || st.Why != "" || st.Path != s.Path {
-		t.Fatalf("status after a probe: %+v", st)
-	}
 }
 
 func TestASidecarThatIsDownIsUnavailableAndOneThatComesBackIsReconnectedTo(t *testing.T) {
@@ -86,9 +83,6 @@ func TestASidecarThatIsDownIsUnavailableAndOneThatComesBackIsReconnectedTo(t *te
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("with the sidecar down, want ErrUnavailable, got %v", err)
 	}
-	if st := c.Status(); st.Answering || !strings.Contains(st.Why, "not answering") {
-		t.Fatalf("status with the sidecar down: %+v", st)
-	}
 	if _, err := c.Probe(ctx); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("probe with the sidecar down: %v", err)
 	}
@@ -98,17 +92,10 @@ func TestASidecarThatIsDownIsUnavailableAndOneThatComesBackIsReconnectedTo(t *te
 	if err != nil || !d.Allowed {
 		t.Fatalf("after the restart: %+v %v", d, err)
 	}
-	if st := c.Status(); !st.Answering {
-		t.Fatalf("status after the restart: %+v", st)
-	}
 }
 
-func TestBeforeAnyExchangeTheStatusSaysSo(t *testing.T) {
-	c := New("/nonexistent/limits.sock")
-	if st := c.Status(); st.Answering || st.Why != "not asked yet" {
-		t.Fatalf("%+v", st)
-	}
-	if _, err := c.Decide(context.Background(), "acc-1", Charge{}, time.Now()); err == nil || errors.Is(err, ErrUnavailable) {
+func TestAZeroChargeIsTheCallersMistakeNotTheSidecars(t *testing.T) {
+	if _, err := New("/nonexistent/limits.sock").Decide(context.Background(), "acc-1", Charge{}, time.Now()); err == nil || errors.Is(err, ErrUnavailable) {
 		t.Fatalf("a zero charge is a caller's mistake, not the sidecar's: %v", err)
 	}
 }

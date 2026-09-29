@@ -153,7 +153,7 @@ func (s *Sidecar) run() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(bin, "-config", s.Config)
+	cmd := exec.Command(bin, "-config", s.Config) // #nosec G204 -- the sidecar `make limitd` built, or the one PACT_LIMITD names; test support only
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the limits sidecar: %w", err)
