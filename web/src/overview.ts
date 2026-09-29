@@ -40,23 +40,35 @@ export type Certificate = {
   expired?: boolean;
 };
 
-export type CertificateView = { tone: Tone; text: string; days: number | null; until: string | null };
+/**
+ * What the overview says of a certificate: a tone, the state in a word or two (`text`, what a pill
+ * holds), and how long, where that matters (`detail`, the muted line beside it).
+ */
+export type CertificateView = { tone: Tone; text: string; detail: string | null; days: number | null; until: string | null };
 
-/** What the overview says of an identity's certificate. `null` is a certificate this page was not given. */
+/**
+ * What the overview says of an identity's certificate. `null` is a certificate this page was not
+ * given. A leaf past its `not_after` is expired whatever the flags say: the node keeps it `served`
+ * until its hourly retire sweep, and in that hour peers already refuse it — "renewal due" there
+ * would understate an outage.
+ */
 export function certificateView(c: Certificate | null | undefined, now: number): CertificateView {
-  if (!c) return { tone: "neutral", text: "certificate not known", days: null, until: null };
-  if (!c.certified) return { tone: "warn", text: "not signed by a wallet yet", days: null, until: null };
-  const served = c.served ?? (!c.expired && Boolean(c.not_after));
-  if (c.expired || !served || !c.not_after) return { tone: "bad", text: c.expired ? "certificate expired" : "no current certificate", days: null, until: null };
+  const none = { detail: null, days: null, until: null };
+  if (!c) return { tone: "neutral", text: "certificate not known", ...none };
+  if (!c.certified) return { tone: "warn", text: "not signed yet", ...none };
+  const lapsed = c.not_after ? Date.parse(c.not_after) <= now : false;
+  if (c.expired || lapsed) return { tone: "bad", text: "certificate expired", ...none };
+  const served = c.served ?? Boolean(c.not_after);
+  if (!served || !c.not_after) return { tone: "bad", text: "no current certificate", ...none };
   const days = daysUntil(c.not_after, now);
   const left = days <= 0 ? "expires today" : days === 1 ? "1 day left" : `${days} days left`;
-  if (c.renewal_due) return { tone: "warn", text: `renewal due · ${left}`, days, until: c.not_after };
-  return { tone: "ok", text: `valid · ${left}`, days, until: c.not_after };
+  if (c.renewal_due) return { tone: "warn", text: "renewal due", detail: left, days, until: c.not_after };
+  return { tone: "ok", text: "valid", detail: left, days, until: c.not_after };
 }
 
-/** "3" for a count, "—" for a read that failed. */
+/** "1,284" for a count, in the reader's own grouping; "—" for a read that failed. */
 export function shown(n: Count): string {
-  return n === null ? "—" : String(n);
+  return n === null ? "—" : n.toLocaleString();
 }
 
 /** A plural said plainly: `plural(1, "request")` is "1 request", `plural(2, …)` "2 requests". */
