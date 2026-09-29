@@ -27,8 +27,8 @@ strong{color:var(--ink);font-weight:600}
 /* ---------------------------------------------------------------- shell */
 .shell{display:grid;grid-template-columns:var(--side) 1fr;height:100vh;height:100dvh}
 .side{display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--bg-2);min-width:0}
-.side-brand{display:flex;align-items:center;gap:.55rem;padding:0 .2rem;color:var(--ink);text-decoration:none!important;min-width:0}
-.side-brand .logo{height:30px}
+.side-brand{display:flex;align-items:center;gap:.55rem;padding:0 0 0 calc(.55rem + 1px);color:var(--ink);text-decoration:none!important;min-width:0}
+.side-brand .logo{height:34px}
 .side-nav{display:flex;flex-direction:column;gap:2px;padding:.2rem .6rem}
 .side-nav .grp{font-size:.7rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:.85rem .55rem .3rem}
 .side-nav .grp:first-child{padding-top:.35rem}
