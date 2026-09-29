@@ -234,11 +234,6 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 						PublicURL: nd.PublicURL(),
 					}
 				},
-				// The newest rows, newest first, as a PAGE. This read the whole chain on every render of
-				// the dashboard and kept the last few.
-				Recent: func(ctx context.Context, limit int) ([]store.AuditRow, error) {
-					return st.ListAuditEventsPage(ctx, store.AuditPage{Limit: limit})
-				},
 			})
 		},
 		func(mux *http.ServeMux) { internalui.MountSettingsPages(mux, settings) },
