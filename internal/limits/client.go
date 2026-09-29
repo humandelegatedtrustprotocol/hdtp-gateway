@@ -119,15 +119,6 @@ type Advertised struct {
 	GuestSourceCallsPerHour float64 `json:"guest_source_calls_per_hour"`
 }
 
-// Status is what the health check, doctor and the serve banner say about the sidecar.
-type Status struct {
-	Path string
-	// Answering is whether the last exchange with the sidecar succeeded.
-	Answering bool
-	// Why is the last failure, when not answering.
-	Why string
-}
-
 // Client asks one sidecar over one kept-open connection. Safe for concurrent use: requests are
 // serialised on the connection, which is what the sidecar's line protocol expects.
 type Client struct {
@@ -136,13 +127,15 @@ type Client struct {
 	// Timeout bounds one exchange, dial included; zero is DefaultTimeout.
 	Timeout time.Duration
 
-	mu      sync.Mutex
-	conn    net.Conn
-	reader  *bufio.Reader
-	rules   *Rules
-	lastErr error
-	ever    bool // whether any exchange has been attempted
+	mu     sync.Mutex
+	conn   net.Conn
+	reader *bufio.Reader
+	rules  *Rules
 }
+
+// maxRetryAfter bounds a wait the sidecar may name: a day, far past any bucket a rules document the
+// core accepts can need (the slowest refills from empty within the hour an idle row is kept).
+const maxRetryAfter = 86_400
 
 // DefaultTimeout is how long one exchange may take: a local socket answers in microseconds, and
 // a sidecar that takes longer than this is one that is not answering.
@@ -158,7 +151,7 @@ func (c *Client) Decide(ctx context.Context, identity string, charge Charge, now
 
 type answer struct {
 	Allowed    bool        `json:"allowed"`
-	RetryAfter *uint64     `json:"retry_after"`
+	RetryAfter *int64      `json:"retry_after"`
 	RefusedBy  *string     `json:"refused_by"`
 	Rules      *Rules      `json:"rules"`
 	Limits     *Advertised `json:"limits"`
@@ -179,6 +172,11 @@ func (c *Client) ask(ctx context.Context, op, identity string, charge Charge, no
 		d.RefusedBy = *a.RefusedBy
 	}
 	if a.RetryAfter != nil {
+		// Whole seconds, at least one on a refusal (CONTRACT §6.3): anything else is not the
+		// sidecar's protocol, and a refusal with a wait nothing measured is not one to pass on.
+		if *a.RetryAfter < 0 || *a.RetryAfter > maxRetryAfter {
+			return Decision{}, fmt.Errorf("%w: it answered a wait of %d s", ErrUnavailable, *a.RetryAfter)
+		}
 		d.Countable = true
 		d.RetryAfter = time.Duration(*a.RetryAfter) * time.Second
 	}
@@ -193,7 +191,7 @@ func (c *Client) Advertise(ctx context.Context, contactCap int) (Advertised, err
 		return Advertised{}, err
 	}
 	if a.Limits == nil {
-		return Advertised{}, c.failed(fmt.Errorf("%w: it answered no limits", ErrUnavailable))
+		return Advertised{}, fmt.Errorf("%w: it answered no limits", ErrUnavailable)
 	}
 	return *a.Limits, nil
 }
@@ -211,48 +209,19 @@ func (c *Client) Rules(ctx context.Context) (Rules, error) {
 }
 
 // Probe asks the sidecar for its rules, which is the one exchange that spends nothing and proves
-// the sidecar answers: the health check, doctor and serve's banner make it.
+// the sidecar answers: /healthz, doctor and serve's banner make it (node.LimitsAnswer).
 func (c *Client) Probe(ctx context.Context) (Rules, error) {
 	a, err := c.exchange(ctx, map[string]any{"op": "rules"})
 	if err != nil {
 		return Rules{}, err
 	}
 	if a.Rules == nil {
-		return Rules{}, c.failed(fmt.Errorf("%w: it answered no rules", ErrUnavailable))
+		return Rules{}, fmt.Errorf("%w: it answered no rules", ErrUnavailable)
 	}
 	c.mu.Lock()
 	c.rules = a.Rules
 	c.mu.Unlock()
 	return *a.Rules, nil
-}
-
-// Status reports the last exchange's outcome. Before any exchange it is not answering, with why:
-// nothing has been asked of it.
-func (c *Client) Status() Status {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	s := Status{Path: c.Path, Answering: c.ever && c.lastErr == nil}
-	switch {
-	case !c.ever:
-		s.Why = "not asked yet"
-	case c.lastErr != nil:
-		s.Why = c.lastErr.Error()
-	}
-	return s
-}
-
-// Close drops the connection; the next exchange dials again.
-func (c *Client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.dropLocked()
-}
-
-func (c *Client) failed(err error) error {
-	c.mu.Lock()
-	c.lastErr = err
-	c.mu.Unlock()
-	return err
 }
 
 // exchange sends one request and reads one answer, on the kept connection when it has one and on
@@ -267,7 +236,6 @@ func (c *Client) exchange(ctx context.Context, req map[string]any) (answer, erro
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ever = true
 	var a answer
 	var last error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -283,14 +251,11 @@ func (c *Client) exchange(ctx context.Context, req map[string]any) (answer, erro
 		_ = c.dropLocked()
 	}
 	if last != nil {
-		c.lastErr = fmt.Errorf("%w: %v", ErrUnavailable, last)
-		return answer{}, c.lastErr
+		return answer{}, fmt.Errorf("%w: %v", ErrUnavailable, last)
 	}
 	if a.Error != nil {
-		c.lastErr = fmt.Errorf("%w: the sidecar refused the request: %s", ErrUnavailable, *a.Error)
-		return answer{}, c.lastErr
+		return answer{}, fmt.Errorf("%w: the sidecar refused the request: %s", ErrUnavailable, *a.Error)
 	}
-	c.lastErr = nil
 	return a, nil
 }
 
