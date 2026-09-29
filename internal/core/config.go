@@ -49,6 +49,7 @@ const (
 	RuleEnum               = "invalid_enum_value"
 	RuleRange              = "value_out_of_range"
 	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, PACT §9.1
+	RuleProxyAddress       = "proxy_address_is_an_ip"        // SPEC §5.1, §12.2
 )
 
 // DefaultLimitContacts is the contact cap of an account on a node nobody configured.
@@ -137,6 +138,15 @@ type Config struct {
 	// processes that share a Postgres store from different hosts point it at storage every host
 	// mounts (SPEC §11.1); processes sharing one data dir share its blobs already.
 	BlobDir string `json:"blob_dir"`
+
+	// ProxyAddress is the IP address of the proxy in front of the public listener, Envoy
+	// (deploy/envoy, SPEC §5.1): it terminates the caller's TLS, asks for the caller's certificate
+	// chain and forwards it in X-Forwarded-Client-Cert, and the caller's address in
+	// X-Pact-Client-Address. The node reads those two headers from a connection whose source
+	// is this address and from no other; "" is no proxy, and neither header is ever read.
+	// Bootstrap: it decides who may assert a caller's identity, so it cannot come from data the
+	// authenticated surface writes.
+	ProxyAddress string `json:"proxy_address"`
 
 	// LimitsSocket is the unix socket of the limits sidecar (cmd/pact-limitd), which decides every
 	// PACT §12 budget (SPEC §5.7); "" is <data_dir>/limits.sock. Bootstrap, never owner-settable: it
@@ -287,6 +297,7 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("PACT_WALLET_URL", &c.WalletURL)
 	envStr("PACT_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
 	envStr("PACT_LIMITS_SOCKET", &c.LimitsSocket)
+	envStr("PACT_PROXY_ADDRESS", &c.ProxyAddress)
 	if v, ok := lookup("PACT_MODE"); ok {
 		c.Mode = Mode(v)
 	}
@@ -418,6 +429,10 @@ func (c *Config) validate() error {
 
 	if err := validWalletURL(c.WalletURL); err != nil {
 		return fmt.Errorf("%s: wallet_url %q: %v", RuleWalletURL, c.WalletURL, err)
+	}
+
+	if c.ProxyAddress != "" && net.ParseIP(c.ProxyAddress) == nil {
+		return fmt.Errorf("%s: proxy_address %q is not an IP address", RuleProxyAddress, c.ProxyAddress)
 	}
 
 	if c.StoreEngine == "postgres" && c.PostgresDSN == "" {

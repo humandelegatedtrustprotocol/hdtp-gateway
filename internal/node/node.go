@@ -304,6 +304,9 @@ func New(ctx context.Context, o Options) (*Node, error) {
 		// leg. It is checked at the handshake and must go no further: caller
 		// identity in terminate mode comes from the sealed envelope (§10.1).
 		IgnoreClientCert: func() bool { return o.IngressFingerprint != "" },
+		// The proxy in front (deploy/envoy, SPEC §5.1), whose forwarded chain and address are read
+		// from its connections and no other's.
+		ProxyAddress: o.Config.ProxyAddress,
 	}
 
 	// Order matters, outermost first: cap the body before anything parses it,
@@ -1440,6 +1443,19 @@ func (n *Node) inviteHandler() http.Handler {
 	})
 }
 
+// The public listener's bounds (SPEC §5.7): the headers in 10 s; the whole request in 60 s, which
+// an 8 MiB body (MaxBodyBytes) needs a link of 140 KB/s to meet; the answer in 75 s, above the 30 s
+// an agent-answered call is held (integrations.DefaultWaitBudget) with room for the call around it;
+// an idle keep-alive connection kept 120 s; 64 KiB of headers. A proxy in front of the node holds
+// requests to the same (deploy/envoy/envoy.yaml; internal/integrationtest/envoy_test.go).
+const (
+	PublicHeaderTimeout  = 10 * time.Second
+	PublicRequestTimeout = 60 * time.Second
+	PublicAnswerTimeout  = 75 * time.Second
+	PublicIdleTimeout    = 120 * time.Second
+	PublicMaxHeaderBytes = 64 << 10
+)
+
 // Addr is the listening address, or "" before Start.
 // Start listens and serves. A nil listener means "dial the configured bind";
 // a tunnel adapter supplies its own.
@@ -1459,16 +1475,12 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 	// The connection cap sits beneath TLS: a connection past it is closed before a handshake.
 	tlsLn := tls.NewListener(n.conns.Listener(ln), n.TLSConfig())
 	srv := &http.Server{
-		Handler: n.handler,
-		// SPEC §5.7. The headers in 10 s; the whole request in 60 s, which an 8 MiB body
-		// (MaxBodyBytes) needs a link of 140 KB/s to meet; the answer in 75 s, above the 30 s an
-		// agent-answered call is held (integrations.DefaultWaitBudget) with room for the call
-		// around it; an idle keep-alive connection kept 120 s.
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      75 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    64 << 10,
+		Handler:           n.handler,
+		ReadHeaderTimeout: PublicHeaderTimeout,
+		ReadTimeout:       PublicRequestTimeout,
+		WriteTimeout:      PublicAnswerTimeout,
+		IdleTimeout:       PublicIdleTimeout,
+		MaxHeaderBytes:    PublicMaxHeaderBytes,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 	n.ln, n.http = tlsLn, srv
