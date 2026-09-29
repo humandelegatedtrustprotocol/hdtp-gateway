@@ -107,7 +107,8 @@ export function Dashboard() {
               return (
                 <IdentityCard key={a.id}
                   name={a.display_name || a.slug}
-                  handle={a.fingerprint ? <>{a.slug} · <IdText id={a.fingerprint} /></> : a.slug}
+                  // A long slug gives way (an ellipsis, the whole of it in the tooltip); the fingerprint and its copy button do not.
+                  handle={a.fingerprint ? <><span className="gl-slug" title={a.slug}>{a.slug} ·</span><IdText id={a.fingerprint} /></> : <span className="gl-slug" title={a.slug}>{a.slug}</span>}
                   // No address line for an identity with no current certificate: its pill says why.
                   address={endpoint ? <span title={endpoint}><Readout value={addressOf(endpoint, d.posture.public_url)} /></span> : undefined}
                   certificate={certificateView(a.certificate, now)}

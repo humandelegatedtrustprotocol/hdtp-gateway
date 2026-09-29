@@ -79,6 +79,11 @@ test("what needs the owner: people waiting and certificates, each with how long 
   assert.deepEqual(needsOf(d, NOW).map((n) => n.text), ["2 people waiting for Bea", "Alex: renewal due (10 days left)"]);
   assert.equal(plural(1, "request"), "1 request");
   assert.equal(plural(2, "request"), "2 requests");
+  // Grouped as the tile under it is: never "12345 people" over a tile that reads "12,345".
+  assert.equal(plural(12345, "person", "people"), `${shown(12345)} people`);
+  assert.notEqual(shown(12345), "12345");
+  const many = { posture, accounts: [acct({ display_name: "Bea", pending: 12345 })] };
+  assert.deepEqual(needsOf(many, NOW).map((n) => n.text), [`${shown(12345)} people waiting for Bea`]);
 });
 
 test("a card says where its identity is reached after the node's own address, which the strip carries", () => {

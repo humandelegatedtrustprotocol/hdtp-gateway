@@ -71,7 +71,11 @@ export function shown(n: Count): string {
   return n === null ? "—" : n.toLocaleString();
 }
 
-/** A plural said plainly: `plural(1, "request")` is "1 request", `plural(2, …)` "2 requests". */
+/**
+ * A plural said plainly: `plural(1, "request")` is "1 request", `plural(2, …)` "2 requests". The
+ * number is grouped the way `shown` groups it, so a line of "Needs you" says "12,345 people" over a
+ * tile that says "12,345", never "12345".
+ */
 export function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
+  return `${shown(n)} ${n === 1 ? one : many}`;
 }
