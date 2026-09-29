@@ -1,6 +1,6 @@
 package internalui
 
-// The dashboard (SPEC §8.2): at-a-glance node state and recent activity.
+// The dashboard (SPEC §8.2): at-a-glance node state. The audit trail is the Audit page's.
 //
 // What it shows is chosen to answer the questions an owner actually has when
 // they open the portal: is this node reachable, what is it enforcing, who can
@@ -14,7 +14,6 @@ package internalui
 // the §8.3 gate and skipping it would leave a node anyone could claim.
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
@@ -25,8 +24,6 @@ type DashboardDeps struct {
 	Store store.Store
 	// Posture is the resolved deployment state — what is in effect now.
 	Posture func() DashboardPosture
-	// Recent returns the newest audit rows, most recent first.
-	Recent func(ctx context.Context, limit int) ([]store.AuditRow, error)
 	// Setup gates the first-run wizard this page auto-shows at zero passkeys.
 	Setup *SetupTokens
 	// SignedIn reports whether this request carries a portal session. Nil means
@@ -90,13 +87,9 @@ func (d DashboardDeps) getAPIDashboard(w http.ResponseWriter, r *http.Request) {
 			Contacts: active, Pending: pending,
 		})
 	}
-	var recent []store.AuditRow
-	if d.Recent != nil {
-		recent, _ = d.Recent(r.Context(), 10)
-	}
 	posture := DashboardPosture{}
 	if d.Posture != nil {
 		posture = d.Posture()
 	}
-	apiJSON(w, map[string]any{"posture": posture, "accounts": rows, "recent": recent})
+	apiJSON(w, map[string]any{"posture": posture, "accounts": rows})
 }
