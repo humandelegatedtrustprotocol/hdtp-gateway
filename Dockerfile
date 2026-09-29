@@ -1,6 +1,18 @@
 # pact-gateway slim image (SPEC §12.3): one static binary on distroless, non-root,
 # state on /data. Supervised stdio integrations need runtimes — use the -full image
 # (Dockerfile.full) or mount your own.
+# The limits sidecar (cmd/pact-limitd, SPEC §5.7), a static binary beside the node's. Its crates are
+# `make limitd-vendor`'s, received as the named context `limitdvendor` (the Makefile's
+# --build-context, compose.yaml's additional_contexts), so this build fetches nothing and holds no
+# credential: pact-identity's pact-limits crate is private. Alpine's Rust links against musl, so the
+# binary is static and runs on distroless's static base.
+FROM rust:1.92-alpine AS limitd
+COPY --from=limitdvendor . /vendor
+WORKDIR /src
+COPY cmd/pact-limitd ./
+RUN sed 's#^directory = .*#directory = "/vendor/crates"#' /vendor/config.toml > .cargo/config.toml \
+ && cargo build --release --locked --offline
+
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 # The node requires the PRIVATE module github.com/pact-cloud/pact-identity/go by version, and
@@ -28,6 +40,11 @@ FROM gcr.io/distroless/static-debian12:nonroot
 # BOTH paths: the entrypoint and every doc that says /pact-gateway keep working.
 COPY --from=build /pact-gateway /pact-gateway
 COPY --from=build /pact-gateway /usr/local/bin/pact-gateway
+# The limits sidecar and its shipped configuration: the same image runs it as a process of its own
+# (`--entrypoint /pact-limitd`, compose.yaml's `limitd`), socket /data/limits.sock, which is the
+# node's default limits_socket under /data.
+COPY --from=limitd /src/target/release/pact-limitd /pact-limitd
+COPY deploy/limitd/limits.json /etc/pact-limitd/limits.json
 # named volumes inherit the image's ownership of the mount point on first use;
 # distroless has no shell, so seed /data with the right owner at build time
 COPY --from=build --chown=nonroot:nonroot /data-skel /data

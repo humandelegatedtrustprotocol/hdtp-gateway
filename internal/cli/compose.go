@@ -251,6 +251,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /healthz", internalui.Health(nd.LimitsAnswer))
 	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, tokens, authSvc, chain, agent, presence, auditFn))
 	mux.Handle("/", internalui.HandlerWithAuth(st, setup, authDeps, mounts...))
 	return mux

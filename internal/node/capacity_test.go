@@ -1,7 +1,20 @@
 package node
 
 // How many contact calls one account on one node serves in a second: the figure that caps the
-// per-account aggregate (public.NodeCapacityPerSecond), measured rather than assumed.
+// per-account aggregate (`identity_capacity_per_second` in the limits sidecar's shipped
+// configuration, deploy/limitd/limits.json), measured rather than assumed.
+//
+// Measured 2026-09-28 on an Apple M2 Max (12 cores), SQLite store: one account, 500 contacts each
+// with its own root and leaf, sealing `send_message` over TLS on the real listener, open loop, 5 s
+// steps. Served (every call completed, p99 under a second) at up to 280/s in every run; the knee fell
+// between 300/s and 450/s from run to run (a cold ramp starting at 350/s held 400/s twice and 450/s
+// once; a ramp from 50/s broke at 300/s). `get_card` (the read path) held 400/s and broke at 500/s.
+// At 300/s the process was using 1.8 of 12 cores, callers included, so the ceiling is not CPU: what
+// the calls wait on was not isolated. The callers run in the same process and pay about what the
+// node does, so these figures are a floor for the node alone. 200 is the lowest knee (280/s) with a
+// margin of about a third, below the 500/s the default cap of 500 contacts asks for; the figure is
+// the node's, and every account on it shares it. That measurement predates the limits sidecar: the
+// ask over its socket adds about 5 µs a call (docs/release/two-layer-limits-2026-09-28.md §6).
 //
 // One node on its real listener, one account, N contacts each with its own root and leaf, pinned
 // active. Each contact seals `send_message` to the account — the write path, the heaviest thing a

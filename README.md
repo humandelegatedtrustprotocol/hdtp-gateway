@@ -78,12 +78,13 @@ the whole address book.
 
 ## Quickstart
 
-Five minutes from nothing to a working node. You need Docker with Compose, Go, and SSH
-access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
+Five minutes from nothing to a working node. You need Docker with Compose, Go, Rust (cargo), and
+SSH access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
 
 ```
 make identity-proxy     # fetch the identity module on this machine, for the image build
-docker compose up -d
+make limitd-vendor      # and the limits sidecar's crates, which include the identity's pact-limits
+docker compose up -d    # the node and its limits sidecar (SPEC §5.7)
 docker compose logs pact-gateway | grep -A2 "setup"
 ```
 

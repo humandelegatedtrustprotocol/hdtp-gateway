@@ -69,7 +69,7 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 		"PACT_INTERNAL_TLS_CERT":     "/tls/cert.pem",
 		"PACT_INTERNAL_TLS_KEY":      "/tls/key.pem",
 	})
-	node, err := w.Fab.Container(ctx, fabric.Spec{
+	node, err := topology.Serve(ctx, w.Fab, fabric.Spec{
 		Name: "first", Image: images.Node, Network: net, Env: env, Cmd: []string{"serve"},
 		Ports:   []string{fmt.Sprintf("%s:%d", port, topology.InternalPort)},
 		Volumes: []string{dir + ":/tls:ro"},

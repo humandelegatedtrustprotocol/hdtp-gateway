@@ -222,7 +222,7 @@ func OwnerFrom(ctx context.Context) string {
 func (d AuthDeps) SessionMiddleware(next http.Handler) http.Handler {
 	open := map[string]bool{
 		"/login": true, "/login/begin": true, "/login/finish": true,
-		"/setup": true, "/setup/begin": true, "/setup/finish": true, "/healthz": true,
+		"/setup": true, "/setup/begin": true, "/setup/finish": true,
 		// /api/session answers unauthenticated on purpose: it says only whether
 		// a login is required and whether setup is open — what the login and
 		// wizard views need to render — and its account list is empty until a

@@ -42,7 +42,10 @@ var layerRank = map[string]int{
 	"internal/calendar":            0,
 	"internal/ingress/dns":         0,
 	"internal/testid":              0,
-	"internal/integrationtest":     0,
+	"internal/limits":              0,
+	// a test-support package over the limits client: it runs the real sidecar for a test
+	"internal/limits/limitstest": 1,
+	"internal/integrationtest":   0,
 	// the store, over its generated engines
 	"internal/core/store":             1,
 	"internal/core/store/conformance": 2,

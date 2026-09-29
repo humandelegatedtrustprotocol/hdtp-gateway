@@ -15,3 +15,6 @@ docs/conformance-pact-*.json
 
 # The identity module laid out as a Go proxy for the image builds (`make identity-proxy`).
 /.build/
+
+# The limits sidecar's build (`make limitd`).
+/cmd/pact-limitd/target/

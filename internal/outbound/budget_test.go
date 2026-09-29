@@ -28,9 +28,12 @@ func TestEveryCallOutPassesTheBudgetOnceAndARefusalDialsNothing(t *testing.T) {
 			dialled++
 			return nil, errors.New("no network here")
 		},
-		Budget: func(p Peer, tool string) (bool, time.Duration) {
+		Budget: func(p Peer, tool string) error {
 			spent = append(spent, tool)
-			return !refuse, 7 * time.Second
+			if refuse {
+				return &RateLimited{RetryAfter: 7 * time.Second}
+			}
+			return nil
 		},
 	}
 	ctx := context.Background()

@@ -36,7 +36,9 @@ func newEnv(t *testing.T) *env {
 	}
 	clock := time.Unix(1756000000, 0)
 	return &env{
-		m:  &Manager{Store: st, Now: func() time.Time { return clock }},
+		// The pending-request cap is the node's limits sidecar's to decide (pending_test.go holds
+		// the manager's side of it); here every request is admitted.
+		m:  &Manager{Store: st, Now: func() time.Time { return clock }, AdmitRequest: func(context.Context, string, int64) error { return nil }},
 		st: st, account: a.ID, clock: &clock,
 	}
 }
