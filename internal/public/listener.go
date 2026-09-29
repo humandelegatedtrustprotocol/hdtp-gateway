@@ -6,8 +6,12 @@ package public
 import (
 	"context"
 	"crypto/tls"
+	"encoding/pem"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
@@ -84,6 +88,12 @@ type Server struct {
 	// node supplies the adapter's trusted-header rule here (SPEC §5.7).
 	SourceIP func(*http.Request) string
 
+	// ProxyAddress is the IP of the proxy in front of this listener (core.Config.ProxyAddress,
+	// deploy/envoy): a request whose connection comes from it carries the caller's certificate
+	// chain in X-Forwarded-Client-Cert and the caller's address in X-Pact-Client-Address, and is
+	// judged by them; from any other source both headers are ignored. "" is no proxy.
+	ProxyAddress string
+
 	// IgnoreClientCert reports that a presented certificate is the EDGE's, not
 	// a caller's, and must not become a transport identity (SPEC §10.1, §10.6).
 	// nil means ordinary direct mode, where a certificate IS the caller.
@@ -147,10 +157,20 @@ func (s *Server) slugCheck(next http.Handler) http.Handler {
 func (s *Server) withFacts(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f := TransportFacts{SrcAddr: r.RemoteAddr}
-		if s.SourceIP != nil {
+		fromProxy := s.fromProxy(r)
+		switch {
+		case fromProxy:
+			// The caller's address as the proxy saw it on its own socket; none when it named none,
+			// so the caller is budgeted as an address nobody gave rather than as the proxy's.
+			if ip := net.ParseIP(strings.TrimSpace(r.Header.Get(ProxyAddressHeader))); ip != nil {
+				f.RemoteIP = ip.String()
+			}
+		case s.SourceIP != nil:
 			f.RemoteIP = s.SourceIP(r)
-		} else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			f.RemoteIP = host
+		default:
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				f.RemoteIP = host
+			}
 		}
 		// Behind a TERMINATING edge the only certificate that can arrive is the
 		// edge's own — the caller's TLS ended there. Recording it as the caller
@@ -171,8 +191,16 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 		// certificate, gave a caller a fresh guest budget per certificate, and
 		// gave PACT §2's "both proofs present, their leaf keys MUST match" an
 		// unproven key to compare a proven one against.
-		if r.TLS != nil && len(r.TLS.PeerCertificates) == 2 {
-			chain := [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
+		var chain [][]byte
+		switch {
+		case fromProxy:
+			// The proxy terminated the caller's TLS: what the caller presented is what the proxy
+			// forwarded, and the proxy's own connection carries no certificate of the caller's.
+			chain = forwardedChain(r.Header.Values(ProxyCertHeader))
+		case r.TLS != nil && len(r.TLS.PeerCertificates) == 2:
+			chain = [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
+		}
+		if len(chain) == 2 {
 			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: s.now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
 				f.ClientLeaf, f.ClientEndpoint = chain[0], vr.Endpoint
@@ -181,6 +209,94 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(WithFacts(r.Context(), f)))
 	})
+}
+
+// The two headers a proxy in front of the listener sets (deploy/envoy/envoy.yaml): the caller's
+// certificate chain, and the caller's address as the proxy's socket saw it. Envoy replaces
+// whatever a caller sent in either (forward_client_cert_details SANITIZE_SET; the address header
+// is set from %DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT% with OVERWRITE_IF_EXISTS_OR_ADD), and the
+// node reads them only from ProxyAddress. The address is not Envoy's own
+// X-Envoy-External-Address: Envoy passes a caller's value of that one through when it counts the
+// caller as internal (internal_address_config), which is a deployment's setting, not this node's.
+const (
+	ProxyCertHeader    = "X-Forwarded-Client-Cert"
+	ProxyAddressHeader = "X-Pact-Client-Address"
+)
+
+// fromProxy reports whether r's connection comes from the configured proxy.
+func (s *Server) fromProxy(r *http.Request) bool {
+	if s.ProxyAddress == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	peer, want := net.ParseIP(host), net.ParseIP(s.ProxyAddress)
+	return peer != nil && want != nil && peer.Equal(want)
+}
+
+// forwardedChain is the certificate chain an X-Forwarded-Client-Cert names, DER, leaf first: its
+// `Chain` member (Envoy's set_current_client_cert_details.chain), URL-encoded PEM. Anything else —
+// no header, more than one element (a proxy that appended rather than replaced), no Chain, a Chain
+// that does not decode — is no chain at all: the caller then proved nothing on the transport.
+func forwardedChain(values []string) [][]byte {
+	if len(values) != 1 {
+		return nil
+	}
+	elements := splitOutsideQuotes(values[0], ',')
+	if len(elements) != 1 {
+		return nil
+	}
+	for _, pair := range splitOutsideQuotes(elements[0], ';') {
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(k), "Chain") {
+			continue
+		}
+		unquoted, err := strconv.Unquote(strings.TrimSpace(v))
+		if err != nil {
+			unquoted = strings.TrimSpace(v)
+		}
+		decoded, err := url.PathUnescape(unquoted)
+		if err != nil {
+			return nil
+		}
+		var chain [][]byte
+		rest := []byte(decoded)
+		for {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type != "CERTIFICATE" {
+				return nil
+			}
+			chain = append(chain, block.Bytes)
+		}
+		return chain
+	}
+	return nil
+}
+
+// splitOutsideQuotes splits s at sep where sep is not inside a double-quoted run.
+func splitOutsideQuotes(s string, sep rune) []string {
+	var out []string
+	var cur strings.Builder
+	quoted := false
+	for _, c := range s {
+		switch {
+		case c == '"':
+			quoted = !quoted
+			cur.WriteRune(c)
+		case c == sep && !quoted:
+			out = append(out, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteRune(c)
+		}
+	}
+	return append(out, cur.String())
 }
 
 // WithFactsForTest exposes the facts middleware so a test can assert what a

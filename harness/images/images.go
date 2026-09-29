@@ -57,11 +57,15 @@ const (
 	Radicale = "tomsquest/docker-radicale@sha256:e2ef8624b2156ada47489223df12575406d625c96725f03cfc4dc890e3eda400"
 	// Frps was `snowdreamtech/frps:latest` (frp 0.71.0, built 2026-08-14).
 	Frps = "snowdreamtech/frps@sha256:a98c472999f1a784b53cd6b7ed8a7e23b7a28ceda7aa7943e5313072175bfaae"
+	// Envoy was `envoyproxy/envoy:v1.35-latest` (envoy 1.35.13, built 2026-06-23; measured
+	// 2026-09-29): the proxy in front of a node in deploy/envoy/compose.yaml, which names this same
+	// reference (TestTheEnvoyDeploymentRunsThisImage).
+	Envoy = "envoyproxy/envoy@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e"
 )
 
 // Local lists the images built here; Pulled lists the ones pinned by digest. The guard in
 // images_test.go reads both, so an image added to the constants and not to a list fails it.
 var (
 	Local  = []string{Node, Caldav, Shaper}
-	Pulled = []string{Alpine, Socat, Curl, Pebble, CoreDNS, Radicale, Frps}
+	Pulled = []string{Alpine, Socat, Curl, Pebble, CoreDNS, Radicale, Frps, Envoy}
 )

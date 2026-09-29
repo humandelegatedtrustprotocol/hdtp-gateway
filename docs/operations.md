@@ -140,7 +140,35 @@ The public listener holds at most 1,024 connections open (SPEC §5.7); one more 
 its TLS handshake, and the audit trail gets one `listener_full` row a minute while that continues,
 with how many there were. Requests have 10 s for their headers, 60 s in all, 75 s for the answer,
 and an idle connection is kept 120 s. Rate limits per address or for the whole node are not the
-node's: put them where the traffic arrives — the edge, or a proxy in front of the node.
+node's: put them where the traffic arrives — the edge, or a proxy in front of the node, such as
+the one below.
+
+## Behind Envoy
+
+`deploy/envoy/` is the node behind a proxy of its own, the first of the two layers of its rate
+limits (the second is the sidecar above): `docker compose -f deploy/envoy/compose.yaml up -d` runs
+Envoy, the node and the limits sidecar, and only Envoy publishes a port. Before it: `make
+identity-proxy limitd-vendor` (the image build), a certificate for the node's public name at
+`deploy/envoy/tls/cert.pem` and `key.pem`, and `PACT_PUBLIC_URL`, that name, in the environment.
+
+What Envoy does (`deploy/envoy/envoy.yaml`, whose numbers are its own and nowhere else):
+
+- terminates the caller's TLS with that certificate, which is what a caller now sees — WebPKI for
+  the node's name, as behind a terminating edge — and asks for the caller's certificate chain,
+  accepting any, since there is no authority above the person;
+- limits each source address per path — the MCP endpoints, the invite landing, everything else,
+  each with a bucket of that address's own — and answers 429 past it, before the node sees the
+  request; and holds the listener's connection cap and timeouts;
+- forwards the caller's chain in `X-Forwarded-Client-Cert` and the address its socket saw in
+  `X-Pact-Client-Address`, replacing whatever the caller sent in either.
+
+The node reads those two headers only from Envoy's address, `proxy_address`
+(`PACT_PROXY_ADDRESS`, an IP; the compose file gives Envoy a fixed one on its network and the node
+that one). From anywhere else they are a caller's own claim and prove nothing, and with no
+`proxy_address` they are never read. The node still opens every envelope: Envoy sees the MCP
+requests, never what a sealed one carries. `internal/integrationtest/envoy_test.go` holds the two
+files to what the node relies on, on every commit, and the harness's S23 runs them with the image
+and floods them, with a control.
 
 ## The store, when it is large
 
