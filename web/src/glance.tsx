@@ -7,10 +7,10 @@
 // What the two pages do with them differs — the node's overview leads with reachability, the
 // cloud's with the plan — and lives in each portal's own view; what a number, a name, an id or a
 // failed read LOOKS like is here once.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "./router";
 import { Avatar, Badge, Icon, type Tone } from "./ui";
-import { detailLabel, resolved, shortId, type Detail, type Named as NamedId, type Part, type Said } from "./audit_names";
+import { detailLabel, kindSaid, nameBreaks, resolved, shortId, type Detail, type Named as NamedId, type Part, type Said } from "./audit_names";
 import { shown, type CertificateView, type Count } from "./overview";
 
 /**
@@ -207,24 +207,35 @@ export function Breakable({ text }: { text: string }) {
 /**
  * An id, said by its name. A name that says who it is shows nothing else: the whole id is in the
  * tooltip, and the copy button beside it copies it. A name the page could not resolve ("removed
- * owner", "a contact") is drawn in a quieter face and keeps its id, short, in view — there the id is
- * the one thing that tells two of them apart — so the trail stays verifiable whatever became of what
- * it names. `note` is the kind, said quietly after the name, where the name does not say it already.
+ * owner", "not in your contacts") is drawn in a quieter face and keeps its id, short, in view — there
+ * the id is the one thing that tells two of them apart — so the trail stays verifiable whatever became
+ * of what it names; such a name is short and the page's own, so it is never cut to two lines. Nor is
+ * an operator's: "PACT Cloud · <their address>" is the one fact that says which of ours acted. `note`
+ * is the kind, said quietly after a name somebody chose, where the name does not say it already.
  */
 export function Named({ n, note }: { n: NamedId; note?: string }) {
   const known = resolved(n);
-  const says = n.state === "unrecorded" || ["system", "cli", "anonymous", "operator", "agent"].includes(n.kind);
   return (
     <span className="nm" title={n.id ? `${n.name}\n${n.id}` : n.name}>
-      <span className={"nm-t" + (n.state === "gone" || n.state === "withheld" ? " quiet" : "")}>
-        <span className="nm-name">{n.name}</span>
+      <span className={"nm-t" + (known ? "" : " quiet") + (n.kind === "operator" ? " whole" : "")}>
+        <span className="nm-name"><NameText name={n.name} /></span>
         {n.state === "revoked" && <> <Badge tone="bad">revoked</Badge></>}
-        {note && !says && <span className="nm-note">{note}</span>}
+        {note && !kindSaid(n) && <span className="nm-note">{note}</span>}
         {!known && n.id && <span className="nm-id">{shortId(n.id)}</span>}
       </span>
       {n.id && <CopyId id={n.id} />}
     </span>
   );
+}
+
+/**
+ * A name, breakable only where `nameBreaks` says: between words, after an address's `@`, after a
+ * handle's underscores and dots. A piece too long for any column may break anywhere (`nm-long`).
+ */
+function NameText({ name }: { name: string }) {
+  return <>{nameBreaks(name).map((run, r) => run.map((p, i) => (
+    <Fragment key={`${r}.${i}`}>{i > 0 && <wbr />}{p.long ? <span className="nm-long">{p.text}</span> : p.text}</Fragment>
+  )))}</>;
 }
 
 /** A labelled value, the way a locator and a details bag are both drawn: a faint key, then the value. */
