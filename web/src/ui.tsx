@@ -1,6 +1,7 @@
 // The portal's shared pieces: avatars, the brand mark, line icons, and the
 // primitives every view is composed from (see the block at the end).
 import type { ReactNode } from "react";
+import { PRODUCT } from "./product";
 
 export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -9,8 +10,9 @@ export function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// A stable colour per name, from a fixed palette that reads on white and dark.
-const PALETTE = ["#4E8F7E", "#7A6FB0", "#C08A45", "#5B7FB5", "#B05A7A", "#5E9A5B", "#8A6E4B"];
+// A stable colour per name, from a fixed palette that reads on white and dark: the kit's avatar fills
+// first, each dark enough for white initials at 4.5 : 1 (tools/kit.mjs check holds every one).
+const PALETTE = ["#AB5309", "#665CA0", "#8F6428", "#5F6A66", "#646973", "#4E6E8E", "#8A4F6A"];
 function hue(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -22,24 +24,17 @@ export function Avatar({ name, size, me }: { name: string; size?: "sm" | "lg"; m
   return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initialsOf(name)}</span>;
 }
 
-export function Mark({ className }: { className?: string }) {
-  const id = "mk" + Math.floor(Math.random() * 1e6);
+/**
+ * The product's wordmark: the kit's (public/brand/, pact-web-kit), light, and dark on a dark ground. It is
+ * served as a file rather than inlined so a page that shows it twice repeats no SVG ids, and it is the
+ * same size everywhere it appears; brand.css crops it to its mark in the collapsed sidebar.
+ */
+export function Brand(): ReactNode {
   return (
-    <svg className={"mark" + (className ? " " + className : "")} viewBox="0 0 64 64" aria-hidden="true">
-      <defs><clipPath id={id}><rect x="6" y="6" width="34" height="34" rx="11" /></clipPath></defs>
-      <rect className="mk" x="6" y="6" width="34" height="34" rx="11" />
-      <rect className="mk" x="24" y="24" width="34" height="34" rx="11" />
-      <rect className="hi" x="24" y="24" width="34" height="34" rx="11" clipPath={`url(#${id})`} />
-    </svg>
-  );
-}
-
-export function Brand({ small }: { small?: boolean }): ReactNode {
-  return (
-    <>
-      <Mark />
-      <span className="wm">PACT{!small && <small>gateway</small>}</span>
-    </>
+    <picture>
+      <source srcSet={`/brand/${PRODUCT.logo}-inline-dark.svg`} media="(prefers-color-scheme: dark)" />
+      <img className="logo" src={`/brand/${PRODUCT.logo}-inline.svg`} alt={PRODUCT.name} width={PRODUCT.width} height={28} />
+    </picture>
   );
 }
 

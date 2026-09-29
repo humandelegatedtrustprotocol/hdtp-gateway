@@ -89,7 +89,7 @@ function Root() {
     <div className={"shell" + (mini ? " side-min" : "")}>
       <div className="topbar">
         <button className="nav-toggle" onClick={() => setOpen(true)} aria-label="Open navigation"><Icon name="menu" /></button>
-        <Link className="side-brand" to="/"><Brand small /></Link>
+        <Link className="side-brand" to="/"><Brand /></Link>
       </div>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
       <aside className={"side" + (open ? " open" : "")} aria-label="Navigation">
