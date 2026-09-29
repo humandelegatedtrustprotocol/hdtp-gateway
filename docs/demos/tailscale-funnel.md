@@ -53,6 +53,7 @@ and carries no security weight here (SPEC §10.1).
 ## Run and verify
 
 ```
+pact-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
 pact-gateway serve
 pact-gateway doctor
 ```

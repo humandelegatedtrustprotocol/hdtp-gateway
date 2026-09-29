@@ -23,6 +23,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
@@ -81,7 +82,7 @@ type demoNode struct {
 func (d *demoNode) onAudit(f func(line string)) { d.hookMu.Lock(); d.hook = f; d.hookMu.Unlock() }
 
 func (d *demoNode) endpoint() string { return identity.EndpointFor("https://"+d.host, d.slug) }
-func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public.SPKI) }
+func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public().SPKI) }
 
 // leaf is the current leaf; leafKey its key.
 func (d *demoNode) leaf() []byte {
@@ -122,7 +123,7 @@ func (d *demoNode) contact(fpr string) store.Contact {
 func (d *demoNode) issue(csr identity.CSRResult, days int, now time.Time) [][]byte {
 	d.t.Helper()
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public.SPKI},
+		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
 	if err != nil {
@@ -185,6 +186,7 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
+		Limits: limitstest.StartDefault(t).Client,
 		Audit: func(action, resource, outcome string) {
 			line := action + " " + resource + " → " + outcome
 			d.log = append(d.log, line)

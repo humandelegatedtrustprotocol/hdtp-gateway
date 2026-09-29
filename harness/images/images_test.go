@@ -41,6 +41,7 @@ func TestEveryImageConstantIsListed(t *testing.T) {
 	byName := map[string]string{
 		"Node": Node, "Caldav": Caldav, "Shaper": Shaper, "Alpine": Alpine, "Socat": Socat,
 		"Curl": Curl, "Pebble": Pebble, "CoreDNS": CoreDNS, "Radicale": Radicale, "Frps": Frps,
+		"Envoy": Envoy,
 	}
 	seen := 0
 	for _, d := range f.Decls {
@@ -162,5 +163,29 @@ func TestTheMakefileAgreesWithTheConstants(t *testing.T) {
 	}
 	if strings.Contains(mk, "add --no-cache iproute2") {
 		t.Error("the Makefile carries its own shaper recipe; images.ShaperDockerfile is the one copy")
+	}
+}
+
+// deploy/envoy/compose.yaml is the deployment S23 stands in for: the proxy it runs is the one the
+// scenario ran, or the scenario proved something about another binary. Every image line that
+// names envoy is held to the constant.
+func TestTheEnvoyDeploymentRunsThisImage(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "envoy", "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := strings.SplitN(Envoy, "@", 2)[0]
+	found := 0
+	for _, m := range regexp.MustCompile(`(?m)^\s*image:\s*(\S+)\s*$`).FindAllStringSubmatch(string(b), -1) {
+		if !strings.HasPrefix(m[1], repo) {
+			continue
+		}
+		found++
+		if m[1] != Envoy {
+			t.Errorf("deploy/envoy/compose.yaml runs %s; the harness runs %s", m[1], Envoy)
+		}
+	}
+	if found != 1 {
+		t.Errorf("deploy/envoy/compose.yaml names %s %d times; its one proxy is the one S23 runs", repo, found)
 	}
 }

@@ -41,14 +41,14 @@ func newTestIdentity(t *testing.T, cn, endpoint string) *testIdentity {
 		t.Fatal(err)
 	}
 	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: cn, RootCN: cn, RootKey: root, HostPub: lib.Public, Endpoint: endpoint,
+		CN: cn, RootCN: cn, RootKey: root, HostPub: lib.Public(), Endpoint: endpoint,
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(300 * 24 * time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	kp.Leaf, kp.Root = leaf, rootCert
-	return &testIdentity{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public.SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
+	return &testIdentity{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public().SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
 }
 
 func (i *testIdentity) tlsCert() tls.Certificate {
@@ -105,7 +105,7 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	// nobody meant to keep survives its own deletion.
 	lib, _ := identity.ToLib(server.kp)
 	byLeafKey := server.peerOf()
-	byLeafKey.Root = pactidentity.Fingerprint(lib.Public.SPKI)
+	byLeafKey.Root = pactidentity.Fingerprint(lib.Public().SPKI)
 	if err := dial(byLeafKey); err == nil {
 		t.Fatal("a pin of the leaf's key must not connect: the identity is the root (PACT §2)")
 	}

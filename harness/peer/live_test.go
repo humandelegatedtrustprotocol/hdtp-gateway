@@ -35,7 +35,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	// is a NAME, because a wallet does not issue a leaf for a loopback address (PACT §14.2 rule
 	// 5); the agent dials it to the published port below, which is DNS's job for a real caller.
 	url := "https://alice.harness.example:" + port
-	node, err := f.Container(ctx, fabric.Spec{
+	node, err := topology.Serve(ctx, f, fabric.Spec{
 		Name: "node", Image: images.Node, Env: topology.NodeEnv(url),
 		Ports: []string{fmt.Sprintf("%s:%d", port, topology.PublicPort)}, Cmd: []string{"serve"},
 	})

@@ -40,6 +40,7 @@ Full setup, limits and the tailnet prerequisites are in
 ```
 
 ```
+pact-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
 PACT_TUNNEL_HOSTNAME=pact PACT_TUNNEL_AUTH_KEY=tskey-… pact-gateway serve
 ```
 
@@ -84,6 +85,7 @@ token.
 ```
 
 ```
+pact-limitd -config limits.json &   # the limits sidecar, as above
 TUNNEL_TOKEN=eyJ… PACT_TUNNEL_HOSTNAME=pact.example.com pact-gateway serve
 ```
 

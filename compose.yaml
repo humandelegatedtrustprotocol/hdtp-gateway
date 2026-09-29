@@ -3,6 +3,9 @@
 # container: a non-loopback bind needs a passkey host, auth and TLS (SPEC §8.3),
 # which a first run has not got. The container healthcheck exercises the portal,
 # over TLS when internal TLS is configured.
+# The node's limits sidecar runs beside it (`limitd`, SPEC §5.7): until it answers, the node refuses
+# every sealed call. `make identity-proxy limitd-vendor` first: the build reads the private
+# identity module and the sidecar's crates from them.
 # Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
 services:
   # Named volumes are created root-owned and ownership propagation from the image
@@ -17,11 +20,13 @@ services:
     restart: "no"
 
   pact-gateway:
-    # `make identity-proxy` first: the build reads the private identity module from it (Dockerfile).
+    # `make identity-proxy limitd-vendor` first: the build reads the private identity module and
+    # the sidecar's crates from them (Dockerfile).
     build:
       context: .
       additional_contexts:
         identityproxy: ./.build/identity-proxy
+        limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
     depends_on:
       init-data:
@@ -34,6 +39,26 @@ services:
       # off. Publishing "8080:8080" instead would expose an unauthenticated portal
       # to your whole network. Port 8081 is the forwarder below, not the node.
       - "127.0.0.1:8080:8081"
+
+  # The limits sidecar (SPEC §5.7): the same image, run as /pact-limitd with its shipped
+  # configuration (deploy/limitd/limits.json, at /etc/pact-limitd/limits.json in the image), sharing
+  # the /data volume its socket is in. It decides every call budget of every account; edit a copy of
+  # that file and mount it over the shipped one to change a number.
+  limitd:
+    build:
+      context: .
+      additional_contexts:
+        identityproxy: ./.build/identity-proxy
+        limitdvendor: ./.build/limitd-vendor
+    restart: unless-stopped
+    entrypoint: ["/pact-limitd"]
+    command: ["-config", "/etc/pact-limitd/limits.json"]
+    network_mode: none
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    volumes:
+      - pact-data:/data
 
   # The portal forwarder.
   #

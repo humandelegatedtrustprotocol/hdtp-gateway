@@ -1,7 +1,7 @@
 BINARY := pact-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: harness-pact-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: limitd limitd-check limitd-vendor harness-pact-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -124,7 +124,30 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet dependents test test-js
+check: fmt vet dependents limitd-check test test-js
+
+# The limits sidecar (cmd/pact-limitd, SPEC §5.7): PACT §12's budgets, decided by pact-identity's
+# pact-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and
+# fetched over SSH with this machine's agent (cmd/pact-limitd/.cargo/config.toml), locally only;
+# the image builds read it from `limitd-vendor` instead, with no credential inside Docker.
+LIMITD := cmd/pact-limitd
+LIMITD_VENDOR := .build/limitd-vendor
+limitd:
+	cargo build --release --locked --manifest-path $(LIMITD)/Cargo.toml
+
+# The sidecar's gate: its style, its lints as errors, its tests. The style is also applied to
+# staged Rust at commit (githooks/pre-commit), so this step has nothing to find.
+limitd-check:
+	cargo fmt --manifest-path $(LIMITD)/Cargo.toml -- --check
+	cargo clippy --release --locked --all-targets --manifest-path $(LIMITD)/Cargo.toml -- -D warnings
+	cargo test --release --locked --manifest-path $(LIMITD)/Cargo.toml
+
+# The sidecar's crates laid out for an offline build ($(LIMITD_VENDOR), gitignored and dockerignored
+# like the identity proxy), which the image builds read as the named context `limitdvendor`.
+limitd-vendor:
+	rm -rf $(LIMITD_VENDOR) && mkdir -p $(LIMITD_VENDOR)
+	cargo vendor --locked --manifest-path $(LIMITD)/Cargo.toml $(LIMITD_VENDOR)/crates > $(LIMITD_VENDOR)/config.toml
+	@echo "limitd-vendor: $(LIMITD_VENDOR)"
 
 # SQLC pins the generator. It is pinned HERE and nowhere else: `sqlc` is not
 # installed on any machine that builds this, and the version matters more than
@@ -216,7 +239,8 @@ dependents:
 # ./... reaches into web/node_modules, which vendors a Go package of its own
 # (flatted). Naming the module's real trees keeps the run to this repository's
 # code and stops a dependency's test failures from reading as ours.
-test:
+# The node's tests run the real limits sidecar (internal/limits/limitstest), so it is built first.
+test: limitd
 	go test -race ./cmd/... ./internal/...
 
 # The portal's page scripts that no Go test can execute: wallet_return.js reads the web wallet's
@@ -282,8 +306,8 @@ identity-bump:
 # the other built last.
 HARNESS_IMAGE ?= pact-gateway:harness
 export PACT_HARNESS_IMAGE := $(HARNESS_IMAGE)
-harness-image: identity-proxy
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) -t $(HARNESS_IMAGE) .
+harness-image: identity-proxy limitd-vendor
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -t $(HARNESS_IMAGE) .
 
 # The live batteries that are DATA in the sibling repositories, run against a node by the nightly
 # tier: pact-identity's intrusion battery through its `pact` CLI (S18), the cloud's Go conformance
@@ -314,8 +338,8 @@ LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_C
 HARNESS_FULL_IMAGE ?= pact-gateway:harness-full
 HARNESS_CALDAV_IMAGE ?= pact-gateway:harness-caldav
 export PACT_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)
-harness-image-caldav: identity-proxy
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
+harness-image-caldav: identity-proxy limitd-vendor
+	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
 	printf 'FROM $(HARNESS_FULL_IMAGE)\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
 	  | docker build -t $(HARNESS_CALDAV_IMAGE) -
 

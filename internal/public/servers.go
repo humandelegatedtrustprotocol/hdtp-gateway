@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -141,12 +142,16 @@ type Pool struct {
 	// column is what scopes a narrowed token's reads (SPEC §11.6) and the
 	// portal's audit page, and a row with no account is readable by everyone.
 	AccountID string
-	// Limit, when set, consumes one unit of a PACT §12 budget and reports how long until it
-	// holds one again. It runs per CALL, not per request. `as` says which budget: the caller's
-	// own (ChargeCaller: a contact's, or a guest's), a guest's whatever the caller is
-	// (ChargeGuest: a pinned root at an address not approved, the pending tier), or the source
-	// address alone (ChargeSource: nothing proven).
-	Limit func(ctx context.Context, as Charge) (ok bool, retryAfter time.Duration)
+	// Limit, when set, charges one call to a PACT §12 budget, which the limits sidecar decides
+	// (internal/limits), and answers nil when the call may proceed. It runs per CALL, not per
+	// request. `as` says which budget: the caller's own (ChargeCaller: a contact's, or a guest's),
+	// a guest's whatever the caller is (ChargeGuest: a pinned root at an address not approved, the
+	// pending tier), or the source address alone (ChargeSource: nothing proven).
+	Limit func(ctx context.Context, as Charge) *Refusal
+	// PreOpen, when set, is the check BEFORE a sealed call is opened (the owner's decision of
+	// 2026-09-29 on the guest total): nil when it may go on to the open. It spends nothing, and it
+	// runs before a key is read.
+	PreOpen func(ctx context.Context) *Refusal
 	// Gate, when set, is the per-call transport-policy check that runs before
 	// authorization: the seal and client_cert knobs of SPEC §5.1. It sees the
 	// call's context, so it can tell a sealed call (envelope facts present)
@@ -166,24 +171,55 @@ const (
 	ChargeCaller Charge = iota
 	ChargeGuest
 	ChargeSource
+	// ChargeOpened is a call the open found and answered with a refusal that spends nothing else
+	// (an envelope_invalid, a certificate_renewed, a client certificate that is not the envelope's
+	// leaf): one call of the guest total, so a flood the open cannot place drains it.
+	ChargeOpened
 )
 
-// rateLimited is PACT §12's refusal for a spent budget.
-func rateLimited(retry time.Duration) *mcp.CallToolResult {
+// Refusal is a budget's answer to a call that may not proceed: `rate_limited`, with the whole
+// seconds until the budget holds a call again (PACT §12), or `unavailable` when no budget could be
+// asked — the limits sidecar is not answering, and the node refuses rather than guess (the owner's
+// rule of 2026-09-29, docs/release/two-layer-limits-2026-09-28.md §6).
+type Refusal struct {
+	RetryAfter  time.Duration
+	Unavailable bool
+}
+
+// Code is the refusal's PACT §12 code.
+func (r *Refusal) Code() string {
+	if r.Unavailable {
+		return "unavailable"
+	}
+	return "rate_limited"
+}
+
+// Result is the refusal as a tool error: `rate_limited` carries `retry_after`, whole seconds and
+// at least one.
+func (r *Refusal) Result() *mcp.CallToolResult {
+	if r.Unavailable {
+		return codeResult("unavailable")
+	}
+	secs := int(math.Ceil(r.RetryAfter.Seconds()))
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{
-		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, RetryAfterSeconds(retry))},
+		&mcp.TextContent{Text: fmt.Sprintf(`{"code":"rate_limited","retry_after":%d}`, max(1, secs))},
 	}}
 }
 
-// spend charges one call to the caller's budget; a refusal is the answer to give.
-func (p *Pool) spend(ctx context.Context) *mcp.CallToolResult {
+// spend charges one call to the caller's budget; nil when the call may proceed.
+// preOpen is Pool.PreOpen, or nil (the call may go on) when none is set.
+func (p *Pool) preOpen(ctx context.Context) *Refusal {
+	if p == nil || p.PreOpen == nil {
+		return nil
+	}
+	return p.PreOpen(ctx)
+}
+
+func (p *Pool) spend(ctx context.Context) *Refusal {
 	if p.Limit == nil {
 		return nil
 	}
-	if ok, retry := p.Limit(ctx, ChargeCaller); !ok {
-		return rateLimited(retry)
-	}
-	return nil
+	return p.Limit(ctx, ChargeCaller)
 }
 
 type poolEntry struct {
@@ -425,8 +461,8 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		// the replay and before Dispatch looks for the tool (so tools/list and a
 		// tool that is not there spend as well), and Dispatch runs `checked`.
 		if e.Tool.Name != SealedToolName {
-			if limited := p.spend(ctx); limited != nil {
-				return limited, nil
+			if r := p.spend(ctx); r != nil {
+				return r.Result(), nil
 			}
 		}
 		return run(ctx, req)

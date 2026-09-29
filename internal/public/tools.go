@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -111,10 +110,12 @@ type ToolDeps struct {
 	Audit      AuditFn
 	// AuditAs, when set, is used instead of Audit and is told who acted (see audit).
 	AuditAs func(kind, action, resource, outcome string)
-	// Limits reports the boundary caps in force, for get_card's metadata; nil
-	// means the compiled-in defaults. A function, not a snapshot, because the
-	// rate budgets are owner knobs that change while the node serves.
-	Limits func() Limits
+	// Limits reports the limits in force, for get_card's metadata (PACT §12): the sizes, and the call
+	// budgets the limits sidecar enforces for this account. Asked per call, because the contact cap
+	// that sizes the aggregate is an owner knob and the sidecar may be restarted with other numbers.
+	// An error, or no function at all, answers get_card `unavailable`: there is no compiled-in copy of
+	// the budgets to advertise instead.
+	Limits func(ctx context.Context) (Limits, error)
 	// Endpoint is this account's own address, for the guard a 2.0 guest's card
 	// must pass (PACT §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
@@ -374,7 +375,14 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 		proof := d.proofOf(ctx)
 		fpr := proof.Fingerprint
 		if err := d.Contacts.RequestContactAs(ctx, d.AccountID, a.Card, a.Note, proof); err != nil {
-			switch known(ctx, d, fpr) {
+			status := known(ctx, d, fpr)
+			if status != "pending_in" && errors.Is(err, contacts.ErrRequestsFull) {
+				// A full list of requests, or a cap the sidecar could not be asked about: `unavailable`
+				// to everybody who would have been written, a blocked caller included (SPEC §9.1).
+				d.audit("request_contact", "caller:"+fpr+" "+why(err), "unavailable")
+				return toolErr("unavailable"), nil
+			}
+			switch status {
 			case "blocked":
 				// SPEC §9.1: blocked MUST be indistinguishable from never-met.
 				// The stranger's answer is returned verbatim and nothing is
@@ -502,9 +510,12 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 		if err != nil {
 			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
-		limits := DefaultLimits()
-		if d.Limits != nil {
-			limits = d.Limits()
+		if d.Limits == nil {
+			return d.refuse(ctx, "get_card", "unavailable"), nil
+		}
+		limits, err := d.Limits(ctx)
+		if err != nil {
+			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
 		d.audit("get_card", "caller:"+callerFpr(ctx), "ok")
 		out := map[string]any{
@@ -828,25 +839,4 @@ func why(err error) string {
 		m = m[:160] + "…"
 	}
 	return "why:" + m
-}
-
-// DefaultLimits is the untuned node's advertisement (a contact cap of DefaultContactCap).
-func DefaultLimits() Limits { return LimitsFor(DefaultContactCap) }
-
-// LimitsFor is what an account whose contact cap is contactCap advertises: every number from the
-// same constant or function that enforces it (Limiter, Specs), so the card cannot disagree with
-// the gate.
-func LimitsFor(contactCap int) Limits {
-	return Limits{
-		TextBytes:               MaxTextBytes,
-		NoteBytes:               MaxNoteBytes,
-		MediaInlineBytes:        MaxInlineData,
-		AvailabilitySlots:       calendar.MaxSlots,
-		InviteTTLDays:           int(contacts.MaxInviteTTL / (24 * time.Hour)),
-		ContactCallsPerSecond:   int(ContactBucket.Rate),
-		ContactBurst:            int(ContactBucket.Burst),
-		IdentityCallsPerSecond:  int(IdentityBucket(contactCap).Rate),
-		GuestCallsPerHour:       int(math.Round(GuestBucket.Rate * 3600)),
-		GuestSourceCallsPerHour: int(math.Round(SourceBucket.Rate * 3600)),
-	}
 }

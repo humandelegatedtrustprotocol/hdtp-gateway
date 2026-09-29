@@ -50,7 +50,7 @@ func New(cn string) (*Wallet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wallet: minting %s's root certificate: %w", cn, err)
 	}
-	return &Wallet{CN: cn, Key: key, RootDER: root, Fingerprint: pactidentity.Fingerprint(key.Public.SPKI)}, nil
+	return &Wallet{CN: cn, Key: key, RootDER: root, Fingerprint: pactidentity.Fingerprint(key.Public().SPKI)}, nil
 }
 
 // Pin is what a caller holds of a certified account: enough to dial it, recognise it, and seal
@@ -117,7 +117,7 @@ func (w *Wallet) certify(ctx context.Context, n Node, slug, purpose, endpoint st
 		now, days = notAfter.Add(-23*time.Hour), 1
 	}
 	issued, err := pactidentity.IssueFromCSR(block.Bytes, pactidentity.IssueOpts{
-		RootCN: w.CN, RootKey: w.Key, RootSPKIs: [][]byte{w.Key.Public.SPKI},
+		RootCN: w.CN, RootKey: w.Key, RootSPKIs: [][]byte{w.Key.Public().SPKI},
 		Now: now, PreviousNotBefore: previous, ValidDays: days,
 	})
 	if err != nil {

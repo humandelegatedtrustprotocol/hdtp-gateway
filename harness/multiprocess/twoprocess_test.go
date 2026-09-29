@@ -40,6 +40,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
@@ -94,6 +95,8 @@ type deployment struct {
 	engine string
 	dsn    string // postgres only
 	dirs   [2]string
+	// limits is the limits sidecar both processes ask (SPEC §5.7): one host, one counter.
+	limits string
 }
 
 // seeded is what the store holds before either process starts.
@@ -132,7 +135,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 		t.Fatal(err)
 	}
 	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
-		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public.SPKI},
+		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {
@@ -157,7 +160,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 		t.Fatal(err)
 	}
 	return seeded{accountID: a.ID, slug: a.Slug, leaf: iss.DER,
-		root: pactidentity.Fingerprint(rootKey.Public.SPKI), ownerToken: token, inviteToken: invite}
+		root: pactidentity.Fingerprint(rootKey.Public().SPKI), ownerToken: token, inviteToken: invite}
 }
 
 // proc is one running `serve`.
@@ -194,6 +197,7 @@ func start(t *testing.T, bin, name string, d deployment, i int, env []string) *p
 	cfg := map[string]any{
 		"data_dir": d.dirs[i], "internal_bind": p.internal, "public_bind": p.public,
 		"public_url": publicURL, "seal": "required", "client_cert": "preferred", "store_engine": d.engine,
+		"limits_socket": d.limits,
 	}
 	if d.engine == "postgres" {
 		cfg["postgres_dsn"] = d.dsn
@@ -324,7 +328,7 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 		}
 		s := seed(t, st, kr)
 		st.Close()
-		scenario(t, bin, deployment{engine: "sqlite", dirs: [2]string{dir, dir}}, s, nil)
+		scenario(t, bin, deployment{engine: "sqlite", dirs: [2]string{dir, dir}, limits: limitstest.StartDefault(t).Path}, s, nil)
 	})
 	t.Run("postgres", func(t *testing.T) {
 		dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
@@ -357,7 +361,7 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 		}
 		s := seed(t, st, kr)
 		st.Close()
-		scenario(t, bin, deployment{engine: "postgres", dsn: target, dirs: [2]string{t.TempDir(), t.TempDir()}}, s,
+		scenario(t, bin, deployment{engine: "postgres", dsn: target, dirs: [2]string{t.TempDir(), t.TempDir()}, limits: limitstest.StartDefault(t).Path}, s,
 			[]string{"PACT_MASTER_KEY=" + masterKey})
 	})
 }
@@ -578,7 +582,7 @@ func legacySealedSend(t *testing.T, a *peer.Agent, target peer.Target, s seeded)
 		t.Fatal(err)
 	}
 	opened, err := pactidentity.OpenResult(answer, pactidentity.OpenOpts{
-		Recipient: sender, MsgID: "n7-legacy", Now: now,
+		Recipient: sender, RecipientPublic: sender.Public(), MsgID: "n7-legacy", Now: now,
 		Pins:         []pactidentity.Pin{{Root: s.root, Endpoint: target.Endpoint, Leaf: pactidentity.B64url(s.leaf), State: "active"}},
 		ExpectedRoot: s.root, ExpectedEndpoint: target.Endpoint,
 	})

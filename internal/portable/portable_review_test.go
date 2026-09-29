@@ -487,7 +487,7 @@ func TestAMergeKeepsAHeldBlockAndSaysSo(t *testing.T) {
 	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
 	must(t, err)
 	must(t, e.st.SetAccountRoot(ctx, a.ID, s.me.Fpr, nil))
-	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: s.peer.Fpr, SPKI: s.host.Key.Public.SPKI, Status: "blocked",
+	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: s.peer.Fpr, SPKI: s.host.Key.Public().SPKI, Status: "blocked",
 		Permissions: []string{"message.text"}, Endpoint: s.host.Endpoint, Leaf: s.host.LeafDER})
 	must(t, err)
 	p, err := Read(ctx, e.st, zipReader(t, file), "alina", time.Now())
