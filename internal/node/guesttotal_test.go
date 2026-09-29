@@ -43,7 +43,11 @@ type totalRig struct {
 const proxyAddr = "10.9.9.9"
 
 func newTotalRig(t *testing.T) *totalRig {
-	clock := &demoClock{t: time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)}
+	// The rig's clock starts at the real time, not a fixed date: the strangers' certificates come from
+	// testid, which issues them from time.Now() (valid from an hour before it). A clock fixed at
+	// 2026-09-29 12:00 UTC made every stranger's leaf not yet valid from 13:00 UTC that day, and the
+	// test failed 30 times in 30 from then on.
+	clock := &demoClock{t: time.Now().UTC().Truncate(time.Second)}
 	dn := &demoNet{hosts: map[string]string{}}
 	r := &totalRig{t: t, clock: clock, alina: startDemoNode(t, clock, dn, "alina", "Alina Rao", 365), bharat: startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)}
 	rules := limitstest.DefaultRules(t)
