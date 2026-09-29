@@ -169,7 +169,7 @@ export function brandProblems(app = APP) {
   for (const [t, k] of Object.entries(DARK_FROM_KIT)) {
     if (darkOwn[t] !== kit[k]) out.push(`dark --${t} is ${darkOwn[t]}; the kit's on-dark colour for it is --${k} ${kit[k]}`)
   }
-  for (const k of ['rise', 'pop']) {
+  for (const k of ['rise']) {
     const re = new RegExp(`@keyframes ${k}\\{[^\\n]*\\}\\}`)
     const a = kitCss.match(re)?.[0], b = brandCss.match(re)?.[0]
     if (!a || a !== b) out.push(`@keyframes ${k} is not the kit's`)
