@@ -781,7 +781,7 @@ The portal is server-side rendered from Go templates. It ships **zero external a
 | Page | What it does |
 |---|---|
 | Setup wizard | First-run flow; auto-shows while the node has zero passkeys; reachable only from loopback or with a one-time setup URL minted by `passkey reset-wizard` (§12) |
-| Dashboard | At-a-glance node state and recent activity |
+| Dashboard | At-a-glance node state: reachability and identities (the trail is Audit's) |
 | Inbox | Threads and messages, live over SSE; composer (sends labeled `human`, §7.3); click-to-fetch for `url` media (§7.5) |
 | Contacts | Accept an invite link, or connect from a card (§9.3); per-contact permission switchboard, preset assignment, message-vs-instruction trust flag, tier; block, unblock and remove on each contact's page, approve and reject on the Requests tab (§9.1, PACT §8) |
 | Invites | Issue, label, revoke; expiry / max_uses / auto_accept / preset (§9) |

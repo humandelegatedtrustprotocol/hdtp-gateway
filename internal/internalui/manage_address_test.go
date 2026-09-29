@@ -102,6 +102,17 @@ func TestTheRequestsTabDecidesAContactAtANewAddress(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &dash); err != nil || len(dash.Accounts) != 1 || dash.Accounts[0].Pending != 2 {
 		t.Fatalf("the dashboard counts %+v waiting, want 2: %s", dash.Accounts, rr.Body.String())
 	}
+	// The overview answers what it shows and nothing else: the audit trail is the Audit page's, and a
+	// member nobody renders is a read the page pays for on every visit.
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(rr.Body.Bytes(), &members); err != nil {
+		t.Fatal(err)
+	}
+	for k := range members {
+		if k != "posture" && k != "accounts" {
+			t.Errorf("the dashboard answers %q, which the overview does not show", k)
+		}
+	}
 
 	decide := func(t *testing.T, root, decision string) int {
 		t.Helper()
