@@ -1,30 +1,64 @@
-// The overview: is this node reachable, and who am I on it. What happened is the Audit page's:
-// a short copy of the trail here only repeated it, with less on each row.
-import { useEffect, useState } from "react";
-import { getJSON } from "../api";
-import { Link } from "../router";
-import { Badge, Button, EmptyState, Notice, PageHeader, Readout, Section, Table } from "../ui";
-
-type Posture = { mode: string; seal: string; client_cert: string; tunnel: string; public_url: string };
-type Acct = { slug: string; display_name: string; fingerprint: string; contacts: number; pending: number };
-type Data = { posture: Posture; accounts: Acct[] };
+// The overview: this node at a glance. Whether people can reach it and what it enforces, as one
+// strip; the four numbers an owner acts on; and each identity they administer as a card — its
+// address, whether its certificate is current, and its people, each number a link to where it is
+// explained. What happened is the Audit page's (the owner, 2026-09-29).
+//
+// Every number is a field of GET /api/dashboard (dashboard_model.ts); a failed read is said in place,
+// never drawn as zeros. The pieces are glance.tsx, which PACT Cloud's overview is built from too.
+import { useEffect, useState, type ReactNode } from "react";
+import { failureOf, getJSON, setAccount } from "../api";
+import { Attention, GlanceBody, IdentityCard, IdentityCards, GlanceSkeleton, StatTile, StatTiles, StatusStrip } from "../glance";
+import { certificateView, plural } from "../overview";
+import { navigate } from "../router";
+import { Button, EmptyState, Notice, PageHeader, Readout, Section } from "../ui";
+import { firstWaiting, needsOf, tilesOf, type Account, type Dashboard as Data } from "./dashboard_model";
 
 export function Dashboard() {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
+  const [now] = useState(() => Date.now());
   useEffect(() => {
-    getJSON<Data>("/api/dashboard").then(setD).catch((e) => setErr(String(e)));
+    getJSON<Data>("/api/dashboard").then(setD).catch((e) => setErr(failureOf(e)));
   }, []);
-  if (err) return <main><PageHeader title="Overview" /><Notice kind="err">{err}</Notice></main>;
-  if (!d) return <main><PageHeader title="Overview" /><EmptyState loading /></main>;
+
+  // "Review" opens the first identity with somebody waiting, and says whose when there are several.
+  const header = (sub?: ReactNode, waiting?: Account | null, several = false) => (
+    <PageHeader
+      title="Overview"
+      sub={sub}
+      actions={<>
+        {waiting && <Button onClick={() => { setAccount(waiting.id); navigate("/requests"); }}>
+          Review {plural(waiting.pending, "request")}{several ? ` for ${waiting.display_name || waiting.slug}` : ""}
+        </Button>}
+        <Button variant={waiting ? "secondary" : "primary"} to="/messages">Open inbox</Button>
+        <Button variant="secondary" to="/invites">Invite someone</Button>
+      </>}
+    />
+  );
+
+  if (err) {
+    return (
+      <main className="glance">
+        {header()}
+        <Notice kind="err" title="Could not read this node's overview">{err}</Notice>
+      </main>
+    );
+  }
+  if (!d) return <main className="glance">{header()}<GlanceSkeleton strip /></main>;
+
+  const accounts = d.accounts ?? [];
+  const tiles = tilesOf(d, now);
   const reachable = Boolean(d.posture.public_url);
+  const one = accounts.length === 1 ? accounts[0] : null;
+  // A summed tile links only where one page explains it: with one identity, that identity's page.
+  const pick = (a: Account | null) => (a ? () => setAccount(a.id) : undefined);
+
   return (
-    <main>
-      <PageHeader
-        title="Overview"
-        sub={reachable ? <>People reach this node at <code>{d.posture.public_url}</code>.</> : "This node has no public address yet."}
-        actions={<><Button to="/messages">Open inbox</Button><Button variant="secondary" to="/invites">Invite someone</Button></>}
-      />
+    <main className="glance">
+      {header(
+        reachable ? <>People reach this node at <code>{d.posture.public_url}</code>.</> : "This node has no public address yet.",
+        firstWaiting(d), accounts.length > 1,
+      )}
 
       {!reachable && (
         <Notice kind="warn" action={<Button variant="secondary" to="/settings">Open settings</Button>}>
@@ -32,37 +66,60 @@ export function Dashboard() {
         </Notice>
       )}
 
-      <Section title="Reachability">
-        <div className="grid">
-          <Cell k="mode" v={d.posture.mode} />
-          <Cell k="tunnel" v={d.posture.tunnel || "direct"} />
-          <Cell k="sealed envelopes" v={d.posture.seal} />
-          <Cell k="client certificates" v={d.posture.client_cert} />
-        </div>
-      </Section>
+      <StatusStrip aria-label="Reachability" items={[
+        { label: "Public address", value: reachable ? <Readout value={d.posture.public_url} /> : <span className="muted">none</span> },
+        { label: "Mode", value: d.posture.mode },
+        { label: "Tunnel", value: d.posture.tunnel || "direct" },
+        { label: "Sealed envelopes", value: d.posture.seal },
+        { label: "Client certificates", value: d.posture.client_cert },
+      ]} />
 
-      <Section title="Identities">
-        <Table head={["account", "fingerprint", "contacts", "waiting"]}
-          empty={<EmptyState title="No identities yet">Create one with <code>pact-gateway account create</code>.</EmptyState>}>
-          {d.accounts.map((a) => (
-            <tr key={a.slug}>
-              <td><strong>{a.display_name}</strong><br /><span className="muted">{a.slug}</span></td>
-              <td><Readout value={a.fingerprint} /></td>
-              <td>{a.contacts}</td>
-              <td>{a.pending ? <Link to="/requests"><Badge tone="warn">{String(a.pending)} waiting</Badge></Link> : <span className="muted">0</span>}</td>
-            </tr>
-          ))}
-        </Table>
-      </Section>
+      <StatTiles aria-label="This node in numbers">
+        <StatTile label="Identities" value={tiles.identities} to="/identity" hint="you administer" />
+        <StatTile label="Contacts" value={tiles.contacts} hint="can reach you"
+          to={one ? "/contacts" : undefined} onClick={pick(one)} />
+        <StatTile label="Waiting" value={tiles.waiting} tone={tiles.waiting ? "warn" : undefined}
+          hint={tiles.waiting ? "want your answer" : "nobody is waiting"}
+          to={one ? "/requests" : undefined} onClick={pick(one)} />
+        <StatTile label="Certificates" value={tiles.attention} tone={tiles.attention ? "warn" : undefined}
+          hint={tiles.attention ? "need your wallet" : "all current"} to="/identity" />
+      </StatTiles>
+
+      <GlanceBody side={
+        <Attention items={needsOf(d, now).map((n) => ({
+          key: n.key, tone: n.tone, text: n.text,
+          action: n.kind === "waiting"
+            ? <Button variant="secondary" onClick={() => { setAccount(n.account.id); navigate("/requests"); }}>Review</Button>
+            : <Button variant="secondary" onClick={() => { setAccount(n.account.id); navigate("/identity"); }}>Open its certificate</Button>,
+        }))} />
+      }>
+      {accounts.length === 0 ? (
+        <Section title="Identities">
+          <EmptyState title="No identities yet">Create one with <code>pact-gateway account create</code>.</EmptyState>
+        </Section>
+      ) : (
+        <IdentityCards>
+          {accounts.map((a) => {
+            const pickThis = () => setAccount(a.id);
+            return (
+              <IdentityCard key={a.id}
+                name={a.display_name || a.slug}
+                handle={a.fingerprint ? <>{a.slug} · <span title={a.fingerprint}>{a.fingerprint.slice(0, 18)}…</span></> : a.slug}
+                address={a.certificate === null ? undefined
+                  : a.certificate.endpoint ? <Readout value={a.certificate.endpoint} />
+                  : <span className="muted">not served: no current certificate</span>}
+                certificate={certificateView(a.certificate, now)}
+                counts={[
+                  { label: "contacts", value: a.contacts, to: "/contacts", onClick: pickThis },
+                  { label: "waiting", value: a.pending, tone: a.pending ? "warn" : undefined, to: "/requests", onClick: pickThis },
+                ]}
+                footer={<Button variant="quiet" to="/identity" icon="key">Certificate</Button>}
+              />
+            );
+          })}
+        </IdentityCards>
+      )}
+      </GlanceBody>
     </main>
-  );
-}
-
-function Cell({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="cell">
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
-    </div>
   );
 }

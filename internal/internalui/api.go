@@ -73,16 +73,10 @@ func (d SessionAPIDeps) getAPISession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
 			return
 		}
-		ms, merr := d.Store.ListMembershipsByOwner(r.Context(), owner)
+		admin, merr := administered(r.Context(), d.Store, owner)
 		if merr != nil {
 			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
 			return
-		}
-		admin := map[string]bool{}
-		for _, m := range ms {
-			if m.Role == "admin" {
-				admin[m.AccountID] = true
-			}
 		}
 		for _, a := range accounts {
 			if !admin[a.ID] {

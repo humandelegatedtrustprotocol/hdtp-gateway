@@ -12,7 +12,7 @@ with no platform in the middle deciding who may talk to whom.
 [![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
 
-![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
+![The overview: reachability, the four numbers that want you, and a card per identity](docs/images/dashboard.png)
 
 > **Status: feature-complete against [`SPEC.md`](SPEC.md), not yet released.** The
 > repository is private while the last owner-only checks are done, so there is no
