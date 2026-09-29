@@ -204,7 +204,7 @@ thead th{text-align:left;font-size:.72rem;font-weight:600;letter-spacing:.06em;t
 td{padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
 td .empty{white-space:normal}
 td .readout{white-space:normal;overflow-wrap:anywhere;word-break:normal;min-width:12rem;display:inline-block}
-td .pill{white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:left}
+td .pill{white-space:normal;overflow-wrap:normal;word-break:keep-all;line-height:1.35;text-align:left}
 td:last-child > .toolbar{justify-content:flex-end}
 thead th.actions{width:1%}
 table code{font:500 .74rem/1.2 var(--mono);background:var(--bg-3);border:0;border-radius:999px;padding:.2rem .6rem;color:var(--muted)}
