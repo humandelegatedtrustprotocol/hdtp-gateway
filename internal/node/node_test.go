@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,8 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/public"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
@@ -36,8 +39,10 @@ type env struct {
 	kr       *core.Keyring
 	idm      *identity.Manager
 	cfg      core.Config
-	mu       sync.Mutex
-	rows     []string
+	// limits is this host's limits sidecar, one for every node process the test starts on it.
+	limits *limitstest.Sidecar
+	mu     sync.Mutex
+	rows   []string
 }
 
 func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
@@ -56,7 +61,7 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, st: st, kr: kr, idm: &identity.Manager{Store: st, Keyring: kr}}
+	e := &env{t: t, st: st, kr: kr, idm: &identity.Manager{Store: st, Keyring: kr}, limits: limitstest.StartDefault(t)}
 	e.cfg = core.Config{
 		DataDir: dir, PublicBind: "127.0.0.1:0", PublicURL: "https://node.example",
 		Mode: core.ModeDirect, Seal: core.SealOptional, ClientCert: core.ClientCertPreferred,
@@ -148,7 +153,7 @@ func (e *env) issueLeaf(a store.Account) {
 
 func (e *env) options() Options {
 	return Options{
-		Config: e.cfg, Store: e.st, Keyring: e.kr, Landing: testLanding,
+		Config: e.cfg, Store: e.st, Keyring: e.kr, Landing: testLanding, Limits: e.limits.Client,
 		Audit: func(a, r, o string) { e.mu.Lock(); e.rows = append(e.rows, a+" "+r+" "+o); e.mu.Unlock() },
 	}
 }
@@ -539,10 +544,11 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 		Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}}
 
 	// This caller presents a certificate that is no chain, so no root is proven and its
-	// address alone pays: 60 calls an hour (PACT §12's source budget). Each of these is
-	// refused on its merits — the token is nonsense — but it is still a call, and the 61st
-	// must be refused for the budget instead.
-	for i := 0; i < public.GuestSourceCallsPerHour+2; i++ {
+	// address alone pays: PACT §12's source budget, `guest_source_calls_per_hour` of the
+	// sidecar's rules. Each of these is refused on its merits — the token is nonsense — but it is
+	// still a call, and the one past the budget must be refused for the budget instead.
+	budget := int(limitstest.DefaultRules(t).GuestSourceCallsPerHour)
+	for i := 0; i < budget+2; i++ {
 		res, err := client.CallTool(ctx, peer, "redeem_invite",
 			map[string]any{"token": "nope", "card": ""}, outbound.CallOptions{Plaintext: true})
 		if err != nil {
@@ -555,7 +561,7 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 			}
 		}
 		if strings.Contains(text, "rate_limited") {
-			if i < public.GuestSourceCallsPerHour {
+			if i < budget {
 				t.Fatalf("refused at call %d, before the budget was spent", i)
 			}
 			if !strings.Contains(text, "retry_after") {
@@ -571,7 +577,7 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 			t.Fatalf("the refusal was not audited: %v", e.rows)
 		}
 	}
-	t.Fatalf("%d guest calls all served; the cap is not installed", public.GuestSourceCallsPerHour+2)
+	t.Fatalf("%d guest calls all served; the cap is not installed", budget+2)
 }
 
 // The public surface is stateless (SPEC §5.5), on the shipped handler over real TLS: no request
@@ -832,33 +838,28 @@ func TestASealedContactIsNotBudgetedAsAGuest(t *testing.T) {
 	edge := public.WithFacts(ctx, public.TransportFacts{RemoteIP: "203.0.113.7"})
 	sealed := public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: peer})
 
-	key := n.classifyCtx(sealed, acct.ID, public.ChargeCaller)
-	if key.Kind != public.KindContact {
-		t.Fatalf("a sealed call from an active contact was budgeted as %q keyed on %q — "+
-			"in edge mode that is every peer, sharing one per-IP bucket",
-			key.Kind, key.IP)
+	cap := n.contactCap()
+	if c := n.chargeOf(sealed, acct.ID, public.ChargeCaller); !reflect.DeepEqual(c, limits.ContactIn(peer, cap)) {
+		t.Fatalf("a sealed call from an active contact was charged %+v, want the contact's own budget — "+
+			"in edge mode anything else is every peer sharing one per-IP bucket", c)
 	}
-	if key.Fingerprint != peer || key.AccountID != acct.ID {
-		t.Errorf("budget keyed on %q of %q, want the envelope's sender %q of %q", key.Fingerprint, key.AccountID, peer, acct.ID)
-	}
-
 	// A stranger who seals is still a guest, and still keeps the IP dimension.
 	unknown := public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:nobody"})
-	if k := n.classifyCtx(unknown, acct.ID, public.ChargeCaller); k.Kind != public.KindGuest || k.IP != "203.0.113.7" {
-		t.Errorf("an unknown sealed caller was not treated as a guest: %+v", k)
+	if c := n.chargeOf(unknown, acct.ID, public.ChargeCaller); !reflect.DeepEqual(c, limits.GuestIn("sha256:nobody", "203.0.113.7", true)) {
+		t.Errorf("an unknown sealed caller was not charged as a guest at its address: %+v", c)
 	}
 	// The contact at an address the owner has not approved, or at the pending tier, pays as a guest.
-	if k := n.classifyCtx(sealed, acct.ID, public.ChargeGuest); k.Kind != public.KindGuest || k.Fingerprint != peer {
-		t.Errorf("a guest charge of a pinned root was budgeted as %+v", k)
+	if c := n.chargeOf(sealed, acct.ID, public.ChargeGuest); !reflect.DeepEqual(c, limits.GuestIn(peer, "203.0.113.7", true)) {
+		t.Errorf("a guest charge of a pinned root was %+v", c)
 	}
 	// A small form answered chain_required proves no root: the source alone pays.
-	if k := n.classifyCtx(sealed, acct.ID, public.ChargeSource); k.Kind != public.KindSource || k.Fingerprint != "" || k.IP != "203.0.113.7" {
-		t.Errorf("a source charge was budgeted as %+v", k)
+	if c := n.chargeOf(sealed, acct.ID, public.ChargeSource); !reflect.DeepEqual(c, limits.GuestIn("", "203.0.113.7", true)) {
+		t.Errorf("a source charge was %+v", c)
 	}
 	// Budgets are the account's the call is addressed to: a contact of alice is a guest of any
-	// other account on this node.
-	if k := n.classifyCtx(sealed, "another-account", public.ChargeCaller); k.Kind != public.KindGuest || k.AccountID != "another-account" {
-		t.Errorf("a contact of one account was budgeted as a contact of another: %+v", k)
+	// other account on this node. (The sidecar keys every counter by the account asked about.)
+	if c := n.chargeOf(sealed, "another-account", public.ChargeCaller); !reflect.DeepEqual(c, limits.GuestIn(peer, "203.0.113.7", true)) {
+		t.Errorf("a contact of one account was charged as a contact of another: %+v", c)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
@@ -185,6 +186,7 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
+		Limits: limitstest.StartDefault(t).Client,
 		Audit: func(action, resource, outcome string) {
 			line := action + " " + resource + " → " + outcome
 			d.log = append(d.log, line)

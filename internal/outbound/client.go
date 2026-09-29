@@ -86,21 +86,20 @@ type Client struct {
 	// A test maps a leaf's endpoint host onto a local listener with it.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Budget, when set, spends one of the calling identity's outbound calls to peer — tool is
-	// the tool called, or "tools/list" — before anything leaves the host, and refuses with how
-	// long until it holds one again. Every call out passes it once: CallTool, ListTools, and
-	// the sealed exchange (Call and SealedCall reach one of them, never two).
-	Budget func(peer Peer, tool string) (bool, time.Duration)
+	// the tool called, or "tools/list" — before anything leaves the host, and refuses: a
+	// *RateLimited with how long until it holds one again, or any other error when no budget
+	// could be asked (the node's limits sidecar is not answering, and nothing is sent). Every call
+	// out passes it once: CallTool, ListTools, and the sealed exchange (Call and SealedCall reach
+	// one of them, never two).
+	Budget func(peer Peer, tool string) error
 }
 
-// spend is Budget, as the error a refused call returns.
+// spend is Budget: nil when the call may leave.
 func (c *Client) spend(peer Peer, tool string) error {
 	if c.Budget == nil {
 		return nil
 	}
-	if ok, retry := c.Budget(peer, tool); !ok {
-		return &RateLimited{RetryAfter: retry}
-	}
-	return nil
+	return c.Budget(peer, tool)
 }
 
 // tlsConfig builds the per-peer TLS client configuration implementing PACT §2's

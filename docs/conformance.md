@@ -62,7 +62,7 @@ that cited test names exist and cannot check that the list is complete.
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
-| `rate_limited` (+ `retry_after`) | `TestBucketArithmetic`, `TestTheAggregateHolds`, `TestGuestAndSourceBudgets`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| `rate_limited` (+ `retry_after`) | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
@@ -74,6 +74,8 @@ that cited test names exist and cannot check that the list is complete.
 
 ## Limits
 
+The call budgets' numbers are the limits sidecar's configuration (`deploy/limitd/limits.json` as shipped; members named below), and the arithmetic is pact-identity's `pact-limits` crate, which is held to the cloud's by `js/cases/limits-vectors.json` in that repository.
+
 | Limit | Default | Tests |
 |---|---|---|
 | `text` | ≤16 KiB | `TestTextCap`, `TestBoundaryCapsRejectOversizedInput` |
@@ -81,12 +83,16 @@ that cited test names exist and cannot check that the list is complete.
 | `note` | ≤1 KiB | `TestRequestContactNoteCapAndBinding`, `TestBoundaryCapsRejectOversizedInput` |
 | availability slots | ≤5 per response | `TestCalendarToolsRespectSlotCapAndBookIdempotently`, `TestP3ExitContactBooksCalendarSlot` |
 | invite `expires_at` | ≤90 days | `TestRedeemFailures` |
-| per-contact rate | 1/s, burst 10 | `TestBucketArithmetic` |
-| per-account rate | contacts × 1/s, burst one second, held at the measured capacity | `TestEveryContactAtItsRateIsServed`, `TestTheAggregateHolds` |
-| guest rate | 10/hour, burst 10, per root and address | `TestGuestAndSourceBudgets` |
-| source rate (no root proven) | 60/hour, burst 60, per address | `TestGuestAndSourceBudgets`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| per-contact rate | `contact_calls_per_second`, burst `contact_burst` | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestASealedContactIsNotBudgetedAsAGuest` |
+| per-account rate | `limit.contacts` × `contact_calls_per_second`, burst one second of it, at most `identity_capacity_per_second` | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestTheCardIsTheRulesAndTheCratesAggregate` |
+| guest rate | `guest_calls_per_hour`, per root and address | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestASealedContactIsNotBudgetedAsAGuest` |
+| source rate (no root proven) | `guest_source_calls_per_hour`, per address | `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| calls out | to a contact its rate and the aggregate; to anybody else `stranger_calls_out_per_hour` | `TestTheNodesCallsOutAreBudgeted` |
+| requests waiting on the owner | `pending_in_cap`, refused `unavailable` | `TestTheRequestCapIsAskedBeforeEveryRequestIsWritten`, `TestAStrangersRequestIsHeldToTheSidecarsPendingCap` |
+| one integration, per contact | `integration_calls_per_hour` | `TestAnIntegrationsCallsAreHeldToItsOwnCapPerContact` |
+| the limits sidecar not answering | every call it would decide refused `unavailable`; `/healthz` 503, `doctor` and the banner name it | `TestEveryBudgetIsRefusedUnavailableWhileTheSidecarIsDown`, `TestABudgetThatCannotBeAskedRefusesUnavailable`, `TestASidecarThatIsDownIsNamedByTheHealthCheckDoctorAndTheBanner` |
 | what spends | every inner call that reaches dispatch; a replay does not | `TestEveryInnerCallSpendsAndAReplayDoesNot`, `TestARefusedCallIsNotRecordedAsTheAnswer` |
-| advertised `limits` | the enforced figures, derived | `TestLimitsAreTheEnforcedOnes`, `TestGetCardAdvertisesTheLimitsInForce` |
+| advertised `limits` | the sidecar's rules and its aggregate for the account | `TestTheCardIsTheRulesAndTheCratesAggregate`, `TestGetCardAdvertisesTheLimitsInForce` |
 | request body (pre-parse) | 8 MiB, refused `too_large` by the bytes that arrive | `TestBodyCap`; on the running listener `TestBodiesPastTheCapAreRefusedByTheBytesThatArrive` (a body of exactly 8 MiB answered, one byte more refused) |
 
 ## Beyond the checklist
@@ -293,6 +299,7 @@ so an exception cannot outlive the reason for it.
 |---|---|---|
 | `internal/integrationtest` | Test-only by construction: it assembles nodes and drives them, so nothing in production imports it. Its own reachability is not a meaningful question. | — |
 | `internal/core/store/conformance` | The shared store-conformance suite both engines run. Test-only for the same reason. | — |
+| `internal/limits/limitstest` | Test-support by construction: it runs the real limits sidecar (`cmd/pact-limitd`) for a test and reads the shipped rules from `deploy/limitd/limits.json`, so every test that stands a node up meets the budgets a node meets. Nothing in production imports it. | — |
 | `internal/testid` | Test-support by construction: it builds the roots, leaves and cards a 2.0 identity needs, so that nine test files across six packages do not each grow their own wallet. Nothing in production imports it. | — |
 
 Method-level gaps. Four of these are Go interface dispatch — the runtime calls

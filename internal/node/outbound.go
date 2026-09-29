@@ -8,15 +8,19 @@ package node
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/pact-cloud/pact-gateway/internal/public"
 )
 
 // peerOf is the outbound view of a pinned contact: it dials the endpoint the pinned leaf names
@@ -81,8 +85,8 @@ func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.C
 		}
 		_ = n.opts.Store.SetContactChainSentKid(context.Background(), accountID, peer.Root, a.kp.Fingerprint)
 	}
-	client.Budget = func(peer outbound.Peer, tool string) (bool, time.Duration) {
-		return n.limiter.AllowOut(accountID, peer.Root, n.outboundToContact(accountID, peer, tool))
+	client.Budget = func(peer outbound.Peer, tool string) error {
+		return n.spendOutbound(accountID, peer, tool)
 	}
 	client.OnRepin = func(peer outbound.Peer, leaf, spki []byte) {
 		if !peer.Known() {
@@ -128,4 +132,41 @@ func hostOfEndpoint(endpoint string) string {
 		s = s[:i]
 	}
 	return strings.Trim(s, "[]")
+}
+
+// spendOutbound charges one call out of accountID to peer to its PACT §12 outbound budget, before
+// the call is sealed: to an active contact that contact's bucket and the account's outbound
+// aggregate, to anybody else — or with one of strangerTools, whoever the row says the peer is —
+// the account's stranger budget. A refusal leaves the node as nothing.
+func (n *Node) spendOutbound(accountID string, peer outbound.Peer, tool string) error {
+	charge := limits.StrangerOut()
+	if n.outboundToContact(accountID, peer, tool) {
+		charge = limits.ContactOut(peer.Root, n.contactCap())
+	}
+	r := n.decide(context.Background(), accountID, charge)
+	switch {
+	case r == nil:
+		return nil
+	case r.Unavailable:
+		return errors.New("unavailable: this node's limits sidecar is not answering, so nothing is sent")
+	default:
+		return &outbound.RateLimited{RetryAfter: r.RetryAfter}
+	}
+}
+
+// IntegrationBudget charges each call of an integration-backed tool to that integration's cap for
+// the calling contact (the owner's upstream quota, which one contact may not spend all of), on top
+// of the contact's own budget the call has already spent. A refusal is `rate_limited` with its
+// wait, or `unavailable` when the sidecar did not answer, and nothing reaches the upstream.
+func (n *Node) IntegrationBudget(accountID, integrationID string, next mcp.ToolHandler) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		c, ok := public.CallerFromContext(ctx)
+		if !ok || c.Fingerprint == "" {
+			return (&public.Refusal{Unavailable: true}).Result(), nil
+		}
+		if r := n.decide(ctx, accountID, limits.Integration(integrationID, c.Fingerprint)); r != nil {
+			return r.Result(), nil
+		}
+		return next(ctx, req)
+	}
 }

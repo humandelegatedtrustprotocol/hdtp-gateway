@@ -1,0 +1,13 @@
+# The style every commit arrives in: githooks/pre-commit runs rustfmt over staged Rust
+# and re-stages it, so nobody formats by hand and nothing is ever "fixed for style" later.
+#
+# Why that matters HERE more than elsewhere: this workspace ships a PINNED binary. A style fix made
+# after the fact moves lines, a moved line renumbers a `#[track_caller]` site, the number is in the
+# Wasm, and the pin no longer matches — measured on 2026-09-20, when obeying one clippy style lint
+# in keys.rs changed the canonical build's hash. Style that is applied before the commit can never
+# do that, because the pin is made FROM the commit (js/reproduce.sh).
+#
+# The width was measured, not chosen by taste: this code is written wide (723 of 8,053 lines pass
+# 100 columns), so rustfmt's default rewrote 442 hunks where these two settings rewrote 153.
+max_width = 140
+use_small_heuristics = "Max"

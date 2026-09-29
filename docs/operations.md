@@ -57,33 +57,68 @@ On the VPS run the ingress; on the node pair with a one-time token:
 ## Call budgets
 
 Every call counts against a budget of the account it is addressed to, sized by
-how many contacts that account may hold (PACT §12): if it may hold 500, all 500
-may call it at once, one call a second each, and none is refused. Each budget is
-a token bucket — a rate and a burst:
+how many contacts that account may hold (PACT §12). The budgets are not the
+node's to decide: the **limits sidecar**, `pact-limitd`, holds their numbers and
+their counters and decides each call with pact-identity's `pact-limits` crate,
+the decision the hosted cloud makes (SPEC §5.7). The node asks it over a unix
+socket, `limits_socket` (`PACT_LIMITS_SOCKET`, default `<data_dir>/limits.sock`),
+on one connection it keeps open; nothing but the charge — the account, the
+caller's root and tier, its address, the contact cap — crosses it.
 
-| Budget | Rate | Burst | Keyed by |
-|---|---|---|---|
-| a contact | 1 call/second | 10 | account, contact root |
-| every contact together | `limit.contacts` × 1/second, at most 200/second | one second of it | account |
-| a guest (a proven root that is not a contact) | 10 calls/hour | 10 | account, root, address |
-| an address alone (nothing proven) | 60 calls/hour | 60 | account, address |
-| calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | 20 calls/hour | 20 | account |
+Its numbers are its configuration file, the rules document of pact-identity's
+contract, shipped as `deploy/limitd/limits.json` (in the image at
+`/etc/pact-limitd/limits.json`):
+
+| Member | Budget | Keyed by |
+|---|---|---|
+| `contact_calls_per_second`, `contact_burst` | a contact | account, contact root |
+| `identity_capacity_per_second` | every contact together: `limit.contacts` × the contact rate, burst one second of it, at most this | account |
+| `guest_calls_per_hour` | a guest (a proven root that is not a contact) | account, root, address |
+| `guest_source_calls_per_hour` | an address alone (nothing proven) | account, address |
+| `stranger_calls_out_per_hour` | calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | account |
+| `integration_calls_per_hour` | one integration's tools, per contact | account, integration, contact |
+| `pending_in_cap` | requests waiting on the owner that strangers may write | account |
+| `guest_total_calls_per_hour` | every guest together | account |
+
+`guest_total_calls_per_hour` is read and checked with the rest; what the node charges to it is
+the next change of docs/release/two-layer-limits-2026-09-28.md, and until then nothing does.
 
 Calls out to a contact spend that contact's rate and the account's aggregate, in
 buckets of their own. A refusal is a `rate_limited` tool error carrying
 `retry_after` — the whole seconds until the bucket holds a call again — and an
-audited `rate_limited` row, not a dropped connection, so the caller's agent can
-read it and back off. A call out that is refused never leaves the node.
+audited `rate_limited` row naming the bucket, not a dropped connection, so the
+caller's agent can read it and back off. A call out that is refused never leaves
+the node. A request past `pending_in_cap` is answered `unavailable`: no wait
+empties a list only the owner can.
 
-**The 200 is measured, and it is below what 500 contacts ask for.** One node on an Apple M2 Max
-served sealed `send_message` from 500 contacts at up to 280 calls a second in every run, and broke
-between 300 and 450 a second from run to run (`TestMeasureAccountCapacity`, internal/node; the
-numbers and the method are beside `NodeCapacityPerSecond` in internal/public/limits.go). So an
-identity allowed 500 contacts is advertised and held at 200 calls a second, not 500: all 500 may
-call at once only at two-fifths of a call a second each. The figure is the node's, and every
-identity on the node shares it.
+**The shipped `identity_capacity_per_second` is measured, and it is below what 500 contacts ask
+for.** One node on an Apple M2 Max served sealed `send_message` from 500 contacts at up to 280
+calls a second in every run, and broke between 300 and 450 a second from run to run
+(`TestMeasureAccountCapacity`, internal/node; the method and the numbers are in its file), and
+the shipped figure is the lowest knee with a margin. The figure is the node's, and every identity
+on the node shares it.
 
-The one setting is how many contacts each identity may hold:
+**Changing a number** is editing the file and restarting the sidecar, which reads it once and
+refuses one it cannot enforce (a rate of zero, a burst under one call, a contact bucket that takes
+longer than the hour an idle row is kept to refill), saying which member and why. The node needs no
+restart: `get_card` asks the sidecar for the numbers it advertises on every call.
+
+**When the sidecar is down, the node refuses.** Every sealed call, call out, request and
+integration call is answered `unavailable` until it answers again, which the node notices by
+itself. `/healthz` answers 503 and names the socket, so the container's healthcheck fails;
+`pact-gateway doctor` prints `FAIL limits` with the reason, and the `serve` banner says `limits:
+NOT ANSWERING`. Start the sidecar (`pact-limitd -config <file>`; the compose file runs it) and
+the node serves again with no restart.
+
+The counters live in the sidecar's memory, one set for every node process on the host. A restart
+of the sidecar refills every bucket, which is the trade-off for not writing to a database on every
+call — the budget is there to blunt abuse, not to meter usage, and an attacker who can restart
+your sidecar has already won. Memory is bounded: a bucket idle for an hour is full whatever it
+budgets, so it is dropped (checked once a minute), and a caller cycling addresses or fingerprints
+cannot grow the table past who called in the last hour.
+
+The one budget setting that is the node's is how many contacts each identity may hold, which sizes
+the aggregate:
 
 | Setting | Environment | Default | Meaning |
 |---|---|---|---|
@@ -98,13 +133,6 @@ wherever a contact is added — approving a request, unblocking a contact,
 accepting somebody's invite, sending a request, a peer redeeming an auto-accept
 invite, approving a contact at a new address, and an import — and nothing already
 held is removed when it is lowered.
-
-The buckets live in memory. A restart refills every one, which is the trade-off
-for not writing to the database on every call — the budget is there to blunt
-abuse, not to meter usage, and an attacker who can restart your node has already
-won. Memory is bounded: a bucket that has refilled is exactly what a missing one
-starts as, so it is dropped (checked once a minute), and a caller cycling
-addresses or fingerprints cannot grow the table past who called lately.
 
 ## Connection bounds
 
@@ -170,9 +198,12 @@ retries and the hourly retention pass run on one process at a time: the one hold
 lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
 crashes is replaced within 30 s.
 
+The call budgets are shared by every process on a host: they are the limits sidecar's, and every
+process names the same `limits_socket`. A unix socket does not cross hosts, so on Postgres each
+host runs a sidecar of its own, and each host grants the whole budget.
+
 What each process still keeps to itself, and so what is not yet shared between them:
 
-- the §12 rate buckets (each process grants the whole budget);
 - integrations: every process connects each one itself, so a stdio integration runs a child per
   process. An OAuth token is one for them all: the store holds it, and an expired one is refreshed
   by the one process holding that integration's refresh lease while the others wait for it.

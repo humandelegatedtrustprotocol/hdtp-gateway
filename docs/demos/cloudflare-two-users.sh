@@ -26,7 +26,7 @@ RESOLVER="${PACT_CF_RESOLVER:-1.1.1.1}"
 
 if [ "${1:-}" = "--down" ]; then
   docker rm -f pactcf-alice pactcf-bob pactcf-alice-cfd pactcf-bob-cfd \
-    pactcf-alice-bridge pactcf-bob-bridge >/dev/null 2>&1 || true
+    pactcf-alice-bridge pactcf-bob-bridge pactcf-alice-limitd pactcf-bob-limitd >/dev/null 2>&1 || true
   docker network rm pactcf >/dev/null 2>&1 || true
   if [ "${2:-}" = "--wipe" ]; then
     docker volume rm pactcf-alice-data pactcf-bob-data >/dev/null 2>&1 || true
@@ -71,7 +71,7 @@ ingress:
   - service: http_status:404
 EOF
 
-  docker rm -f "pactcf-$who" "pactcf-$who-cfd" "pactcf-$who-bridge" >/dev/null 2>&1 || true
+  docker rm -f "pactcf-$who" "pactcf-$who-cfd" "pactcf-$who-bridge" "pactcf-$who-limitd" >/dev/null 2>&1 || true
   # A NAMED VOLUME, so a restart keeps the node's identity. Without one every
   # `docker run` starts an empty /data: accounts, passkeys and contacts are all
   # gone, the zero-passkey rule reopens the setup wizard, and it looks like
@@ -88,6 +88,11 @@ EOF
     -e PACT_TUNNEL_SIDECAR=true \
     -e "PACT_TUNNEL_TOKEN=$(cloudflared tunnel token "pact-$who")" \
     "$IMAGE" serve >/dev/null
+
+  # The node's limits sidecar (SPEC §5.7): the same image as /pact-limitd, sharing /data, where
+  # its socket is. Until it answers, the node refuses every sealed call.
+  docker run -d --name "pactcf-$who-limitd" --network none -v "pactcf-$who-data":/data \
+    --entrypoint /pact-limitd "$IMAGE" -config /etc/pact-limitd/limits.json >/dev/null
 
   # The connector shares the NODE's network namespace, so it delivers over
   # loopback. A connector in its own container arrives from an RFC 1918 address

@@ -2,17 +2,21 @@ package node
 
 // What an account sends is held to the buckets it is held to when called (PACT §12): to an active
 // contact at that contact's rate and within the account's aggregate, and to anybody else — or with
-// one of the stranger tools, whoever the row says the peer is — twenty an hour. Every client the node
+// one of the stranger tools, whoever the row says the peer is — the account's stranger budget
+// (`stranger_calls_out_per_hour`, the limits sidecar's configuration). Every client the node
 // hands out carries the budget (OutboundClient → wireClient), so no call out is unbudgeted.
 
 import (
 	"context"
+	"errors"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
 )
 
 func TestTheNodesCallsOutAreBudgeted(t *testing.T) {
@@ -49,21 +53,30 @@ func TestTheNodesCallsOutAreBudgeted(t *testing.T) {
 	if client.Budget == nil {
 		t.Fatal("the node hands out a client with no outbound budget")
 	}
+	rules := limitstest.DefaultRules(t)
+	strangers := int(rules.StrangerCallsOutPerHour)
 	stranger := outbound.Peer{Root: "sha256:stranger"}
-	for i := range public.StrangerCallsOutPerHour {
-		if ok, _ := client.Budget(stranger, "request_contact"); !ok {
-			t.Fatalf("request %d refused inside %d an hour", i+1, public.StrangerCallsOutPerHour)
+	for i := range strangers {
+		if err := client.Budget(stranger, "request_contact"); err != nil {
+			t.Fatalf("request %d refused inside %d an hour: %v", i+1, strangers, err)
 		}
 	}
-	if ok, retry := client.Budget(stranger, "request_contact"); ok || retry != 3*time.Minute {
-		t.Fatalf("request %d: ok=%v retry=%v, want refused for 180 s", public.StrangerCallsOutPerHour+1, ok, retry)
+	var limited *outbound.RateLimited
+	wait := time.Duration(math.Ceil(3600/rules.StrangerCallsOutPerHour)) * time.Second
+	if err := client.Budget(stranger, "request_contact"); !errors.As(err, &limited) || limited.RetryAfter != wait {
+		t.Fatalf("request %d: %v, want rate_limited for %v", strangers+1, err, wait)
 	}
-	for i := range public.ContactBurst {
-		if ok, _ := client.Budget(outbound.Peer{Root: friend}, "send_message"); !ok {
-			t.Fatalf("message %d to a contact refused inside the burst", i+1)
+	for i := range int(rules.ContactBurst) {
+		if err := client.Budget(outbound.Peer{Root: friend}, "send_message"); err != nil {
+			t.Fatalf("message %d to a contact refused inside the burst: %v", i+1, err)
 		}
 	}
-	if ok, _ := client.Budget(outbound.Peer{Root: friend}, "send_message"); ok {
-		t.Fatal("a contact's burst of messages out was not held")
+	if err := client.Budget(outbound.Peer{Root: friend}, "send_message"); !errors.As(err, &limited) {
+		t.Fatalf("a contact's burst of messages out was not held: %v", err)
+	}
+	// A sidecar that is down: nothing leaves, and the owner is told why, not rate_limited.
+	e.limits.Stop()
+	if err := client.Budget(outbound.Peer{Root: friend}, "send_message"); err == nil || errors.As(err, &limited) || !strings.HasPrefix(err.Error(), "unavailable") {
+		t.Fatalf("with the sidecar down a call out was %v, want refused unavailable", err)
 	}
 }

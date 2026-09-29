@@ -2,6 +2,7 @@ package internalui
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -41,11 +42,23 @@ func get(t *testing.T, h http.Handler, path, remote string) *httptest.ResponseRe
 	return rr
 }
 
+// /healthz says ok while what the node serves through answers, and 503 with the reason when it
+// does not (today the limits sidecar, SPEC §5.7): the container HEALTHCHECK reads the status.
 func TestHealthz(t *testing.T) {
-	e := newEnv(t)
-	rr := get(t, e.h, "/healthz", "127.0.0.1:5555")
-	if rr.Code != 200 || !strings.Contains(rr.Body.String(), "ok") {
+	var down error
+	h := Health(func(context.Context) error { return down })
+	rr := get(t, h, "/healthz", "127.0.0.1:5555")
+	if rr.Code != 200 || rr.Body.String() != "ok\n" {
 		t.Fatalf("healthz: %d %q", rr.Code, rr.Body.String())
+	}
+	down = errors.New("the limits sidecar at /data/limits.sock is not answering")
+	rr = get(t, h, "/healthz", "127.0.0.1:5555")
+	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "limits sidecar") {
+		t.Fatalf("healthz with the sidecar down: %d %q, want 503 naming it", rr.Code, rr.Body.String())
+	}
+	// The portal's handler no longer answers it: one health check, where serve mounts it.
+	if rr := get(t, newEnv(t).h, "/healthz", "127.0.0.1:5555"); strings.HasPrefix(rr.Body.String(), "ok") {
+		t.Fatalf("the portal's own handler still answers /healthz: %q", rr.Body.String())
 	}
 }
 
