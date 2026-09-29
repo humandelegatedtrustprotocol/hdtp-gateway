@@ -120,6 +120,9 @@ func (s *integrationSurface) buildEntries(ctx context.Context, in store.Integrat
 			}
 			h = hh
 		}
+		// Each call spends the integration's own cap for the calling contact (PACT §12's limits,
+		// `integration_calls_per_hour`), decided by the node's limits sidecar.
+		h = s.node.IntegrationBudget(in.AccountID, in.ID, h)
 		out = append(out, public.Entry{
 			Tool: &mcp.Tool{
 				Name:        en.ExposedName,

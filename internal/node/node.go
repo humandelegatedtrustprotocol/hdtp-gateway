@@ -30,6 +30,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/ingress"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/public"
@@ -93,6 +94,11 @@ type Options struct {
 	// DialContext overrides how outbound calls reach a contact's host; nil
 	// dials it. Tests map the hosts leaves name onto local listeners with it.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Limits is the client of the limits sidecar (internal/limits, cmd/pact-limitd), which decides
+	// every PACT §12 budget of every account: calls in, calls out, the pending-request cap and each
+	// integration's cap. Required. While it does not answer, every call it would decide is refused
+	// `unavailable`.
+	Limits *limits.Client
 	// ContactCap reports how many contacts each account may hold (limit.contacts) while the node
 	// runs; nil or 0 = core.DefaultLimitContacts. It is enforced where contacts are added and it
 	// sizes every account's call budget (PACT §12). A function, not a snapshot, so raising it from
@@ -160,7 +166,6 @@ type Node struct {
 	// else, so `serve` printed "serving" over an account that answered nobody.
 	unavailable map[string]string
 
-	limiter *public.Limiter
 	// follow is Follow's subscription, made with the node so nothing another process publishes
 	// between the node's making and Follow's start is missed; room for followBuffer events.
 	follow   <-chan messaging.Event
@@ -205,6 +210,9 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	}
 	if o.Landing == nil {
 		return nil, fmt.Errorf("node: no invite landing page")
+	}
+	if o.Limits == nil {
+		return nil, fmt.Errorf("node: no limits sidecar client")
 	}
 	if o.Bus == nil {
 		o.Bus = messaging.NewBus(o.Store)
@@ -301,13 +309,6 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// Order matters, outermost first: cap the body before anything parses it,
 	// refuse LAN sources before any handler runs, count the call against its
 	// caller's budget, then the routes.
-	// PACT §12's budgets (public/limits.go): per contact, per account, per guest, per source.
-	// Installed through Server.Inner so it runs INSIDE the facts middleware —
-	// it classifies by the caller's fingerprint, which does not exist until the
-	// TLS facts are attached — and still outside the routes, so a refusal costs
-	// nothing downstream.
-	n.limiter = public.NewLimiter(o.Now)
-	n.limiter.ContactCap = func(string) int { return n.contactCap() }
 	h := n.srv.Handler()
 	h = public.LANGuard{
 		Adapter: o.Adapter, AllowFn: n.LANAllowed,
@@ -318,6 +319,18 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	n.handler = h
 	n.conns = &public.ConnCap{Max: public.DefaultMaxConns, Audit: o.audit, Now: o.Now}
 	return n, nil
+}
+
+// LimitsAnswer asks the limits sidecar the one question that spends nothing (its rules) and
+// reports whether it answered, and if not why: what /healthz, `doctor` and the serve banner say,
+// since while it does not answer every sealed call is refused `unavailable`.
+func (n *Node) LimitsAnswer(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := n.opts.Limits.Probe(ctx); err != nil {
+		return fmt.Errorf("the limits sidecar at %s is not answering, so every sealed call is refused unavailable: %w", n.opts.Limits.Path, err)
+	}
+	return nil
 }
 
 // quotaFor is the account's configured media quota, or 0 for the default.
@@ -342,25 +355,35 @@ func (n *Node) contactCap() int {
 	return core.DefaultLimitContacts
 }
 
-// consumeBudget spends one unit of a PACT §12 allowance of accountID: the caller's own, or the
-// guest or source budget `as` names (public.Pool.Limit).
-func (n *Node) consumeBudget(ctx context.Context, accountID string, as public.Charge) (bool, time.Duration) {
-	key := n.classifyCtx(ctx, accountID, as)
-	ok, retry := n.limiter.Allow(key)
-	if !ok {
-		n.opts.audit("rate_limited", string(key.Kind)+":"+fprOr(key.Fingerprint, key.IP), "refused")
-	}
-	return ok, retry
+// consumeBudget charges one call to a PACT §12 budget of accountID — the caller's own, or the guest
+// or source budget `as` names (public.Pool.Limit) — by asking the limits sidecar, which holds the
+// numbers and the counters (internal/limits). nil when the call may proceed. A sidecar that does
+// not answer refuses the call `unavailable`: a budget nobody can enforce is not one the node guesses
+// at (docs/release/two-layer-limits-2026-09-28.md §6).
+func (n *Node) consumeBudget(ctx context.Context, accountID string, as public.Charge) *public.Refusal {
+	return n.decide(ctx, accountID, n.chargeOf(ctx, accountID, as))
 }
 
-func fprOr(fpr, ip string) string {
-	if fpr != "" {
-		return fpr
+// decide asks the sidecar for one charge of accountID's and audits a refusal: `rate_limited` names
+// the bucket that refused, `limits_unavailable` the sidecar that did not answer.
+func (n *Node) decide(ctx context.Context, accountID string, charge limits.Charge) *public.Refusal {
+	d, err := n.opts.Limits.Decide(ctx, accountID, charge, n.now())
+	if err != nil {
+		n.opts.audit("limits_unavailable", "account:"+accountID+" charge:"+charge.Kind(), "refused")
+		return &public.Refusal{Unavailable: true}
 	}
-	return ip
+	if d.Allowed {
+		return nil
+	}
+	n.opts.audit("rate_limited", "account:"+accountID+" bucket:"+d.RefusedBy, "refused")
+	if !d.Countable {
+		// A count no wait refills (the pending cap): no number of seconds is true of it.
+		return &public.Refusal{Unavailable: true}
+	}
+	return &public.Refusal{RetryAfter: d.RetryAfter}
 }
 
-// classifyCtx decides which of accountID's budgets a call counts against (PACT §12). Every budget
+// chargeOf decides which of accountID's budgets a call counts against (PACT §12). Every budget
 // is the account's the call is ADDRESSED to: being a contact of another account on this node earns
 // nothing here, and a contact's calls to one account never spend another's.
 //
@@ -376,9 +399,9 @@ func fprOr(fpr, ip string) string {
 //
 // The source comes from the adapter's trusted header behind a terminating edge and from the
 // socket otherwise — never a generic forwarded-for header.
-func (n *Node) classifyCtx(ctx context.Context, accountID string, as public.Charge) public.LimitKey {
+func (n *Node) chargeOf(ctx context.Context, accountID string, as public.Charge) limits.Charge {
 	ip := public.FactsFrom(ctx).RemoteIP
-	source := public.LimitKey{Kind: public.KindSource, AccountID: accountID, IP: ip}
+	source := limits.GuestIn("", ip, ip != "")
 	if as == public.ChargeSource {
 		return source
 	}
@@ -391,12 +414,12 @@ func (n *Node) classifyCtx(ctx context.Context, accountID string, as public.Char
 	if caller == "" {
 		return source
 	}
-	guest := public.LimitKey{Kind: public.KindGuest, AccountID: accountID, Fingerprint: caller, IP: ip}
+	guest := limits.GuestIn(caller, ip, ip != "")
 	if as == public.ChargeGuest || (e != nil && (e.Demote || e.Guest)) {
 		return guest
 	}
 	if c, err := n.opts.Store.GetContact(ctx, accountID, caller); err == nil && c.Status == "active" {
-		return public.LimitKey{Kind: public.KindContact, AccountID: accountID, Fingerprint: caller}
+		return limits.ContactIn(caller, n.contactCap())
 	}
 	return guest
 }
@@ -498,6 +521,14 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		cert: cert,
 		cm: &contacts.Manager{
 			Store: n.opts.Store, ContactCap: n.contactCap,
+			// The pending-request cap, decided by the sidecar; `decide` audits which refused it (the
+			// cap, or a sidecar that did not answer), and the peer hears `unavailable` either way.
+			AdmitRequest: func(ctx context.Context, accountID string, held int64) error {
+				if n.decide(ctx, accountID, limits.PendingIn(held)) != nil {
+					return contacts.ErrRequestsFull
+				}
+				return nil
+			},
 			// A guest's `request_contact` is the main way a request appears, so
 			// this is the manager that must reach the bus (SPEC §8.5, §9.1).
 			OnRequest: func(accountID, contactFpr string) {
@@ -559,7 +590,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		},
 	}
 	a.pool.Gate = ident.PoolGate()
-	a.pool.Limit = func(ctx context.Context, as public.Charge) (bool, time.Duration) {
+	a.pool.Limit = func(ctx context.Context, as public.Charge) *public.Refusal {
 		return n.consumeBudget(ctx, rec.ID, as)
 	}
 	a.pool.AccountID = rec.ID
@@ -601,7 +632,10 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		Chain:      func(ctx context.Context) ([][]byte, error) { return n.idm.Chain(ctx, rec.ID) },
 		// Read per call, like Quota: the contact cap is an owner knob and sizes the
 		// account's budget (§12), and a card must advertise what the gate enforces.
-		Limits: func() public.Limits { return public.LimitsFor(n.contactCap()) },
+		Limits: func(ctx context.Context) (public.Limits, error) {
+			calls, err := n.opts.Limits.Advertise(ctx, n.contactCap())
+			return public.LimitsWith(calls), err
+		},
 		AuditAs: func(kind, action, resource, outcome string) {
 			n.opts.auditAs(kind, action, "account:"+rec.ID+" "+resource, outcome)
 			// A contact ACTED — wake the owner's change feed (§7.7). Messages

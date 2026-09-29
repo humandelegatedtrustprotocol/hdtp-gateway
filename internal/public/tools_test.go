@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,8 +20,11 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/calendar"
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
@@ -58,6 +62,7 @@ type toolEnv struct {
 	pool     *Pool
 	cal      *fakeCalendar
 	status   *fakeStatus
+	limits   *limitstest.Sidecar
 	mu       sync.Mutex
 	rows     []string
 	outcomes []string
@@ -91,16 +96,30 @@ func newToolEnv(t *testing.T) *toolEnv {
 	// answer with the chain (PACT §6.1). This fixture used to wire a `spki` and no chain at all,
 	// and every test of those two results passed against an answer no caller could have verified.
 	card, _, host := testid.Card(t, "Me", "https://me.example/a/me/mcp", "")
+	// This host's limits sidecar, as the node wires it: the pending-request cap, and get_card's
+	// call budgets.
+	side := limitstest.StartDefault(t)
+	e.limits = side
 	reg := &Registry{}
 	reg.Add(BuiltinEntries(ToolDeps{
 		AccountID: acct.ID,
-		Contacts:  &contacts.Manager{Store: st},
-		Messages:  &messaging.Service{Store: st, Bus: messaging.NewBus(st)},
-		Media:     &messaging.MediaService{Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}},
-		Calendar:  e.cal,
-		Status:    e.status,
-		Card:      func(context.Context) (string, string, error) { return card, "sig", nil },
-		Chain:     func(context.Context) ([][]byte, error) { return host.Chain, nil },
+		Contacts: &contacts.Manager{Store: st, AdmitRequest: func(ctx context.Context, accountID string, held int64) error {
+			d, err := side.Decide(ctx, accountID, limits.PendingIn(held), time.Now())
+			if err != nil || !d.Allowed {
+				return contacts.ErrRequestsFull
+			}
+			return nil
+		}},
+		Limits: func(ctx context.Context) (Limits, error) {
+			calls, err := side.Advertise(ctx, core.DefaultLimitContacts)
+			return LimitsWith(calls), err
+		},
+		Messages: &messaging.Service{Store: st, Bus: messaging.NewBus(st)},
+		Media:    &messaging.MediaService{Store: st, Blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}},
+		Calendar: e.cal,
+		Status:   e.status,
+		Card:     func(context.Context) (string, string, error) { return card, "sig", nil },
+		Chain:    func(context.Context) ([][]byte, error) { return host.Chain, nil },
 		Invalidate: func(_ context.Context, _, fpr string) error {
 			e.mu.Lock()
 			defer e.mu.Unlock()
@@ -795,14 +814,32 @@ func TestGetCardAdvertisesTheLimitsInForce(t *testing.T) {
 	if err := json.Unmarshal([]byte(body(t, res)), &got); err != nil {
 		t.Fatalf("body: %s", body(t, res))
 	}
-	if got.Limits != DefaultLimits() {
-		t.Fatalf("defaults not advertised: %+v", got.Limits)
+	r := limitstest.DefaultRules(t)
+	want := Limits{
+		TextBytes: MaxTextBytes, NoteBytes: MaxNoteBytes, MediaInlineBytes: MaxInlineData,
+		AvailabilitySlots: calendar.MaxSlots, InviteTTLDays: int(contacts.MaxInviteTTL / (24 * time.Hour)),
+		Advertised: limits.Advertised{
+			ContactCallsPerSecond: r.ContactCallsPerSecond, ContactBurst: r.ContactBurst,
+			IdentityCallsPerSecond:  math.Max(1, math.Min(float64(core.DefaultLimitContacts)*r.ContactCallsPerSecond, r.IdentityCapacityPerSecond)),
+			GuestCallsPerHour:       r.GuestCallsPerHour,
+			GuestSourceCallsPerHour: r.GuestSourceCallsPerHour,
+		},
 	}
-	// PACT §12's figures, and the members' wire names: a card that renamed one would pass the
-	// comparison above and still say nothing a peer reads.
-	want := `"contact_calls_per_second":1,"contact_burst":10,"identity_calls_per_second":200,"guest_calls_per_hour":10,"guest_source_calls_per_hour":60`
-	if got.Limits.TextBytes != 16384 || !strings.Contains(body(t, res), want) {
-		t.Fatalf("documented numbers drifted: %s", body(t, res))
+	if got.Limits != want {
+		t.Fatalf("get_card advertised %+v; the sidecar enforces %+v", got.Limits, want)
+	}
+	// The members' wire names: a card that renamed one would pass the comparison above and still
+	// say nothing a peer reads.
+	for _, m := range []string{"text_bytes", "note_bytes", "media_inline_bytes", "availability_slots", "invite_ttl_days",
+		"contact_calls_per_second", "contact_burst", "identity_calls_per_second", "guest_calls_per_hour", "guest_source_calls_per_hour"} {
+		if !strings.Contains(body(t, res), `"`+m+`":`) {
+			t.Fatalf("get_card's limits have no %s: %s", m, body(t, res))
+		}
+	}
+	// No sidecar, no card: there is no compiled-in copy of the budgets to advertise instead.
+	e.limits.Stop()
+	if res, err := e.call(fpr, "get_card", map[string]any{}, nil); err != nil || !res.IsError || !strings.Contains(body(t, res), `"unavailable"`) {
+		t.Fatalf("get_card with the sidecar down: %v %s, want unavailable", err, body(t, res))
 	}
 	if strings.Contains(body(t, res), "contact_calls_per_hour") {
 		t.Fatalf("the hourly contact budget is gone from PACT §12 and is still advertised: %s", body(t, res))

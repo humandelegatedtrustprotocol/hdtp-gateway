@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/node"
 )
@@ -45,8 +46,8 @@ func process(t *testing.T, dir string, migrate bool) (*Service, *node.Node, *row
 	s := New(st, openKeyringAt(t, dir), cfg, aud.fn)
 	bus := messaging.NewBus(st)
 	n, err := node.New(context.Background(), node.Options{Config: *cfg, Store: st, Bus: bus, Audit: aud.fn,
-		SealPolicy: s.SealPolicy,
-		Landing:    func(node.LandingDeps) http.Handler { return http.NotFoundHandler() }})
+		SealPolicy: s.SealPolicy, Limits: limitstest.StartDefault(t).Client,
+		Landing: func(node.LandingDeps) http.Handler { return http.NotFoundHandler() }})
 	if err != nil {
 		t.Fatal(err)
 	}

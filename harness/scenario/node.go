@@ -145,7 +145,7 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	env := topology.NodeEnv(publicURL)
 	maps.Copy(env, o.Env)
 
-	if out.Node, err = w.Fab.Container(ctx, fabric.Spec{
+	if out.Node, err = topology.Serve(ctx, w.Fab, fabric.Spec{
 		Name: o.Slug, Image: cmp.Or(o.Image, images.Node), Network: o.Net, Env: env,
 		Aliases: o.Aliases, DNS: o.DNS, Ports: ports, Cmd: []string{"serve"},
 	}); err != nil {

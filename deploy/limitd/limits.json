@@ -1,0 +1,14 @@
+{
+  "socket": "/data/limits.sock",
+  "rules": {
+    "contact_calls_per_second": 1,
+    "contact_burst": 10,
+    "identity_capacity_per_second": 200,
+    "guest_calls_per_hour": 10,
+    "guest_source_calls_per_hour": 60,
+    "stranger_calls_out_per_hour": 20,
+    "integration_calls_per_hour": 60,
+    "guest_total_calls_per_hour": 600,
+    "pending_in_cap": 500
+  }
+}

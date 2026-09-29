@@ -10,6 +10,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/pact-cloud/pact-gateway/internal/limits"
 	"github.com/pact-cloud/pact-gateway/internal/services/settings"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
@@ -94,6 +95,16 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		name = "direct"
 	}
 	fmt.Fprintf(stdout, "ok   tunnel       %s (mode %s, seal %s, client_cert %s)\n", name, cfg.Mode, cfg.Seal, cfg.ClientCert)
+	// The limits sidecar decides every call budget (SPEC §5.7); while it does not answer, a serving
+	// node refuses every sealed call `unavailable`.
+	lctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if _, err := limits.New(cfg.LimitsSocketPath()).Probe(lctx); err != nil {
+		fmt.Fprintf(stdout, "FAIL limits       %s: %v; until it answers, every sealed call is refused unavailable\n", cfg.LimitsSocketPath(), err)
+		fail = 1
+	} else {
+		fmt.Fprintf(stdout, "ok   limits       %s answering\n", cfg.LimitsSocketPath())
+	}
+	cancel()
 	if cfg.PublicURL == "" {
 		fmt.Fprintln(stdout, "warn probe        skipped: public_url not configured")
 		return fail

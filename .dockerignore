@@ -1,3 +1,5 @@
 # The identity proxy reaches the image build as its own named context (`identityproxy`), never
 # through `COPY . .`.
 .build/
+# The limits sidecar's host build: the image builds its own (Dockerfile, stage `limitd`).
+cmd/pact-limitd/target/

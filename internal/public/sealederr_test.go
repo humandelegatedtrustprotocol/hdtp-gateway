@@ -69,9 +69,9 @@ func TestARefusalPastTheOpenIsSealed(t *testing.T) {
 	// tool error inside `result`, where the client keeps its `retry_after` (an
 	// `error` member is reduced to its code), as the cloud seals it.
 	var charged []Charge
-	s.pool.Limit = func(_ context.Context, as Charge) (bool, time.Duration) {
+	s.pool.Limit = func(_ context.Context, as Charge) *Refusal {
 		charged = append(charged, as)
-		return false, time.Minute
+		return &Refusal{RetryAfter: time.Minute}
 	}
 	res = s.call(t, s.sealFrom(t, moved, "chain", "send_message", map[string]any{"text": "again"}), TransportFacts{})
 	result, _ := s.opened(t, res, moved, "send_message")
