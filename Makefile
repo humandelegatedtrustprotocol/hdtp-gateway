@@ -256,7 +256,9 @@ test-js:
 
 # The scenario harness (docs/harness-design.md). Separate module, separate command,
 # deliberately not part of `check`.
-harness:
+# The multi-process scenario (harness/multiprocess) runs the limits sidecar, so the hermetic tier builds it
+# first: a fresh checkout has no target/ and the test refuses to run without the binary.
+harness: limitd
 	cd harness && go vet ./... && go test -race ./...
 
 # ---- the identity module ---------------------------------------------------
