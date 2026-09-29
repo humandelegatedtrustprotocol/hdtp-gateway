@@ -200,7 +200,7 @@ func TestTheAuditAnswerNamesItsIds(t *testing.T) {
 		t.Errorf("identities: %v, want only %s", n.Identities, acctA.ID)
 	}
 	// Contacts the rows mention, from the scope's own lists: B's contact is not A's to name, a contact
-	// no row mentions is not sent, and one no list holds is absent (the page says "former contact").
+	// no row mentions is not sent, and one no list holds is absent (the page says "not in your contacts").
 	if n.Contacts["sha256:alina"] != "Alina" {
 		t.Errorf("contacts: %v, want sha256:alina named", n.Contacts)
 	}

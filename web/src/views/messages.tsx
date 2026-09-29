@@ -9,6 +9,7 @@ import { accountName, currentAccount, getJSON, postForm, subscribe } from "../ap
 import { Link, navigate } from "../router";
 import { Avatar, Badge, Button, EmptyState, Icon, Notice, PLUMBING_TOOLS, Readout, Toolbar, permLabel, toolLabel, type IconName } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
+import { whenOf } from "../glance";
 import type { Schema, Values } from "../schema_form";
 
 type Person = {
@@ -448,7 +449,11 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         {audit.length === 0 ? <p className="muted">Nothing recorded for this contact yet.</p> : (
           <div className="audit-mini">
             {audit.map((r) => (
-              <div key={r.Seq}><b>{r.Action}</b><span className={r.Outcome === "ok" || r.Outcome === "allowed" ? "ok" : "deny"}>{r.Outcome} · {when(r.TS)}</span></div>
+              <div key={r.Seq}>
+                <b title={r.Action}>{r.Action.replace(/_/g, " ")}</b>
+                <Badge status={r.Outcome} />
+                <time dateTime={new Date(r.TS * 1000).toISOString()} title={new Date(r.TS * 1000).toString()}>{whenOf(r.TS * 1000)}</time>
+              </div>
             ))}
           </div>
         )}
@@ -459,11 +464,6 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       </div>
     </aside>
   );
-}
-
-function when(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function csrfCookie(): string {

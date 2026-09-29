@@ -5,20 +5,20 @@
 //
 // Every id a row carries is shown by the name a person knows it by — an owner's
 // name, a token's label, a contact's name, an identity's — from the directory
-// the answer carries beside its rows (audit_names.ts), with the id one step away:
-// under the name, short, as a button that copies the whole of it. The trail stays
-// verifiable; it just stops reading like a list of UUIDs.
+// the answer carries beside its rows (audit_names.ts). The id is in each name's
+// tooltip and its copy button, and in view only where no name could be found:
+// the trail stays verifiable, it just stops reading like a list of UUIDs.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { failureOf, getJSON } from "../api";
-import { actorOf, namedIn, resourceParts, searchText, type Directory, type Named as NamedId, type Part } from "../audit_names";
-import { Locator, Named } from "../glance";
+import { currentAccount, failureOf, getJSON } from "../api";
+import { aboutParts, actorOf, namedIn, resourceParts, searchText, type Directory, type Named as NamedId, type Part } from "../audit_names";
+import { Locator, Named, whenOf } from "../glance";
 import { Badge, Button, Chip, Chips, EmptyState, Notice, PageHeader, Table, Toolbar, toneOf } from "../ui";
 
 type Row = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
 type Data = { rows: Row[] | null; actor: string; limit?: number; names?: Directory };
 
 /** A row with its ids said, and the text the search box matches: the row's own, and every name. */
-type Said = { row: Row; actor: NamedId; parts: Part[]; haystack: string };
+type Said = { row: Row; actor: NamedId; about: Part[]; haystack: string };
 
 export function Audit() {
   const [d, setD] = useState<Data | null>(null);
@@ -35,11 +35,14 @@ export function Audit() {
 
   const said = useMemo<Said[]>(() => {
     const names = d?.names ?? {};
+    // The trail is the selected identity's (getJSON sends it as `account`): a row's own
+    // `account:<it>` only repeats the page, so it is not drawn. A node-level row names none.
+    const here = currentAccount();
     return (d?.rows ?? []).map((row) => {
       const actor = actorOf({ kind: row.ActorKind, id: row.ActorID, action: row.Action, resource: row.Resource }, names);
       const parts = resourceParts(row.Resource, names);
       const raw = `${row.Seq} ${row.ActorKind} ${row.ActorID} ${row.Action} ${row.Resource} ${row.Outcome}`;
-      return { row, actor, parts, haystack: searchText(raw, [actor, ...namedIn(parts)]) };
+      return { row, actor, about: aboutParts(parts, here, actor), haystack: searchText(raw, [actor, ...namedIn(parts)]) };
     });
   }, [d]);
   // A refusal is an outcome the badge already paints red: one definition of
@@ -73,7 +76,7 @@ export function Audit() {
     <PageHeader title="Audit" sub="Append-only and hash-chained; refusals are recorded as loudly as successes."
       actions={<Button variant="secondary" icon="refresh" onClick={load}>Refresh</Button>} />
   );
-  if (err) return <main className="wide">{header}<Notice kind="err" title="Could not read the audit trail">{err}</Notice></main>;
+  if (err) return <main className="wide">{header}<Notice kind="err" title="Could not read the audit trail" action={<Button variant="secondary" onClick={load}>Try again</Button>}>{err}</Notice></main>;
   if (!d) return <main className="wide">{header}<EmptyState loading /></main>;
 
   const filtering = Boolean(q || kind || action || refusedOnly);
@@ -99,31 +102,23 @@ export function Audit() {
         {shown.length === said.length ? `${said.length} entries` : `${shown.length} of ${said.length} entries`}
         {d.limit !== undefined && said.length >= d.limit && <> · newest {d.limit}; older entries are not loaded</>}
       </p>
-      <Table head={["Seq", "When", "Who", "Action", "About", "Outcome"]}
-        empty={<EmptyState title={filtering ? "Nothing matches those filters" : "Nothing recorded yet"} />}>
-        {shown.map(({ row: r, actor, parts }) => (
-          <tr key={r.Seq}>
-            <td className="muted">{r.Seq}</td>
-            <td className="muted" title={new Date(r.TS * 1000).toISOString()}>{when(r.TS)}</td>
-            <td><Named n={actor} note={r.ActorKind || "system"} /></td>
-            <td><code>{r.Action}</code></td>
-            <td>{parts.length ? <Locator parts={parts} /> : <span className="muted">—</span>}</td>
-            <td><Badge status={r.Outcome} /></td>
-          </tr>
-        ))}
-      </Table>
+      {/* The outcome sits beside the time, where it cannot scroll out of view: this page's promise is
+          that a refusal is as loud as a success. */}
+      <div className="audit-t">
+        <Table head={["Seq", "When", "Outcome", "Who", "Action", "About"]}
+          empty={<EmptyState title={filtering ? "Nothing matches those filters" : "Nothing recorded yet"} />}>
+          {shown.map(({ row: r, actor, about }) => (
+            <tr key={r.Seq}>
+              <td className="c-seq">{r.Seq}</td>
+              <td className="c-when" title={new Date(r.TS * 1000).toString()}>{whenOf(r.TS * 1000)}</td>
+              <td className="c-out"><Badge status={r.Outcome} /></td>
+              <td className="c-who"><Named n={actor} note={r.ActorKind || "system"} /></td>
+              <td className="c-act"><code>{r.Action}</code></td>
+              <td className="c-about" data-resource={r.Resource}><Locator parts={about} /></td>
+            </tr>
+          ))}
+        </Table>
+      </div>
     </main>
   );
-}
-
-// The clock for today, the date for anything older: a trail read from the
-// present backwards is mostly today, and a full timestamp on every row buries
-// the one thing that varies.
-function when(unix: number): string {
-  const d = new Date(unix * 1000);
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  return sameDay
-    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
