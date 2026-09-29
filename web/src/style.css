@@ -444,3 +444,71 @@ main.wide:has(.inbox){max-width:none;padding:0}
 .chip.bad{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,var(--line-2))}
 .chip.bad.on{background:var(--red);border-color:var(--red);color:var(--on-fill)}
 .chip.warn.on{background:var(--amber);border-color:var(--amber);color:var(--on-fill)}
+
+/* ---- the overview at a glance, and an id said by its name (glance.tsx). PACT Cloud's portal carries this
+   block byte for byte (its gateway/scripts/check-harvested.mjs holds the two copies equal, between this line and the end marker). Tokens only:
+   the orange is never text or state here. ---- */
+main.glance{max-width:80rem}
+.gl-strip{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;align-items:baseline;padding:.65rem 1rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);margin:0 0 1rem;font-size:.88rem}
+.gl-strip > div{display:flex;gap:.5rem;align-items:baseline;min-width:0}
+.gl-strip .k{font-size:.7rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.gl-strip .v{color:var(--ink);font-weight:500;min-width:0;overflow-wrap:anywhere}
+.gl-strip .v .readout{font-size:.86rem;color:var(--ink)}
+.gl-strip .gl-warn .v{color:var(--amber)}
+.gl-strip .gl-bad .v{color:var(--red)}
+.gl-tiles{display:grid;gap:.8rem;grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 1.2rem}
+.gl-tile{display:flex;flex-direction:column;gap:.15rem;padding:.9rem 1.05rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);box-shadow:var(--shadow-sm);color:var(--text);text-decoration:none!important;min-width:0}
+a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
+.gl-tile .k{font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.gl-tile .v{font-family:var(--display);font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;color:var(--ink);font-variant-numeric:tabular-nums}
+.gl-tile .v small{font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:0;color:var(--muted);margin-left:.35rem}
+.gl-tile .h{font-size:.84rem;color:var(--muted)}
+.gl-tile.gl-warn .v{color:var(--amber)}
+.gl-tile.gl-bad .v,.gl-tile.gl-bad .h{color:var(--red)}
+.gl-ids{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fill,minmax(min(100%,21rem),1fr));margin:0 0 1rem}
+.gl-id{display:flex;flex-direction:column;gap:.65rem;padding:1rem 1.1rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);box-shadow:var(--shadow-sm);min-width:0}
+.gl-id .top{display:flex;gap:.7rem;align-items:center;min-width:0}
+.gl-id .who{flex:1;min-width:0;line-height:1.3}
+.gl-id .who b{display:block;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gl-id .who small{display:block;color:var(--muted);font-family:var(--mono);font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gl-id .addr{font-size:.86rem;min-width:0;overflow-wrap:anywhere}
+.gl-id .addr .readout{font-size:.84rem;color:var(--text)}
+.gl-id .cert .pill{white-space:normal}
+.gl-id .counts{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:.4rem;border-top:1px solid var(--line);padding-top:.65rem}
+.gl-id .counts > *{display:flex;flex-direction:column;gap:.05rem;padding:.35rem .5rem;border-radius:8px;color:var(--text);text-decoration:none!important;min-width:0}
+.gl-id .counts > a:hover{background:var(--bg-2)}
+.gl-id .counts b{font-family:var(--display);font-size:1.3rem;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.15}
+.gl-id .counts b small{font-family:var(--sans);font-size:.8rem;font-weight:500;color:var(--muted)}
+.gl-id .counts span{font-size:.78rem;color:var(--muted)}
+.gl-id .counts .gl-warn b{color:var(--amber)}
+.gl-id .counts .gl-bad b,.gl-id .counts .gl-bad span{color:var(--red)}
+.gl-id .foot{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:-.2rem}
+.gl-body{display:grid;gap:1rem;grid-template-columns:minmax(0,1fr) 19rem;grid-template-areas:"main side";align-items:start}
+.gl-body > .gl-side{grid-area:side}
+.gl-body > .gl-main{grid-area:main;min-width:0}
+.gl-main > .card:first-child{margin-top:0}
+.gl-side{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);padding:.9rem 1rem}
+.gl-side h2{font-size:.95rem;margin:0 0 .6rem}
+.gl-side p{margin:0}
+.gl-side ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.55rem}
+.gl-side li{display:flex;flex-direction:column;align-items:flex-start;gap:.4rem;padding:.6rem .7rem;border-radius:var(--r);background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--line-2);font-size:.88rem}
+.gl-side li.gl-warn{border-left-color:var(--amber)}
+.gl-side li.gl-bad{border-left-color:var(--red)}
+.gl-side li .t{color:var(--text);line-height:1.4}
+.gl-skel{background:var(--bg-3);border-radius:var(--r-lg);min-height:5.6rem}
+.gl-skel.strip{min-height:2.7rem;margin:0 0 1rem}
+.gl-skel.card{min-height:12.5rem}
+.nm{display:inline-flex;flex-direction:column;min-width:0;line-height:1.3;vertical-align:top;white-space:normal}
+.nm-name{color:var(--ink);font-weight:500;overflow-wrap:anywhere}
+.nm-name.gone,.nm-name.withheld{color:var(--muted);font-style:italic}
+.nm-sub{display:inline-flex;gap:.4rem;align-items:baseline;flex-wrap:wrap;font-size:.72rem;color:var(--faint)}
+.nm-note{font-size:.72rem;color:var(--faint)}
+button.nm-id{height:auto;padding:0;margin:0;border:0;border-radius:3px;background:none;color:var(--faint);font:400 .72rem/1.3 var(--mono);cursor:copy;white-space:nowrap}
+button.nm-id:hover{filter:none;color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+.nm-parts{display:inline-flex;flex-wrap:wrap;gap:.3rem .9rem;align-items:flex-start;white-space:normal}
+.nm-kv{display:inline-flex;flex-direction:column;line-height:1.3;color:var(--text);overflow-wrap:anywhere}
+td .nm-parts code{white-space:nowrap}
+@media (max-width:1100px){.gl-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.gl-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"side" "main"}}
+@media (max-width:600px){.gl-tile .v{font-size:1.6rem}.gl-strip{gap:.35rem 1rem}}
+@media (max-width:600px){main.glance .page-h .actions{flex:1 1 100%}}
+/* ---- end of the overview at a glance ---- */
