@@ -156,7 +156,13 @@ func (d DashboardDeps) accounts(ctx context.Context, owner string) ([]dashAccoun
 			ID: a.ID, Slug: a.Slug, DisplayName: a.DisplayName, Fingerprint: a.Fingerprint,
 			Contacts: active, Pending: pending,
 		}
-		if d.Certificate != nil {
+		switch {
+		case d.Certificate == nil:
+		case !a.HasRoot():
+			// No wallet has signed it: nothing to read, as Settings · identity asks the reader only of
+			// an identity with a root. The reader's walk of the handshakes owed is not for one without.
+			row.Certificate = &dashCert{}
+		default:
 			info, err := d.Certificate(ctx, a.ID)
 			if err != nil {
 				return nil, err
