@@ -839,28 +839,66 @@ func TestASealedContactIsNotBudgetedAsAGuest(t *testing.T) {
 	sealed := public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: peer})
 
 	cap := n.contactCap()
-	if c := n.chargeOf(sealed, acct.ID, public.ChargeCaller); !reflect.DeepEqual(c, limits.ContactIn(peer, cap)) {
+	const ip = "203.0.113.7"
+	charged := func(ctx context.Context, account string, as public.Charge) ([]limits.Charge, string) {
+		return n.chargeOf(ctx, account, as)
+	}
+	want := func(what string, gotCharges []limits.Charge, gotKnown string, known string, charges ...limits.Charge) {
+		t.Helper()
+		if !reflect.DeepEqual(gotCharges, charges) || gotKnown != known {
+			t.Errorf("%s: charged %+v known %q, want %+v known %q", what, gotCharges, gotKnown, charges, known)
+		}
+	}
+	c, k := charged(sealed, acct.ID, public.ChargeCaller)
+	if !reflect.DeepEqual(c, []limits.Charge{limits.ContactIn(peer, cap)}) {
 		t.Fatalf("a sealed call from an active contact was charged %+v, want the contact's own budget — "+
 			"in edge mode anything else is every peer sharing one per-IP bucket", c)
 	}
-	// A stranger who seals is still a guest, and still keeps the IP dimension.
+	// ... and its source is known from here (the check before the open lets it through).
+	want("an active contact, sealed", c, k, ip, limits.ContactIn(peer, cap))
+	// A stranger who seals is still a guest, keeps the IP dimension, and spends the guest total.
 	unknown := public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:nobody"})
-	if c := n.chargeOf(unknown, acct.ID, public.ChargeCaller); !reflect.DeepEqual(c, limits.GuestIn("sha256:nobody", "203.0.113.7", true)) {
-		t.Errorf("an unknown sealed caller was not charged as a guest at its address: %+v", c)
-	}
-	// The contact at an address the owner has not approved, or at the pending tier, pays as a guest.
-	if c := n.chargeOf(sealed, acct.ID, public.ChargeGuest); !reflect.DeepEqual(c, limits.GuestIn(peer, "203.0.113.7", true)) {
-		t.Errorf("a guest charge of a pinned root was %+v", c)
-	}
-	// A small form answered chain_required proves no root: the source alone pays.
-	if c := n.chargeOf(sealed, acct.ID, public.ChargeSource); !reflect.DeepEqual(c, limits.GuestIn("", "203.0.113.7", true)) {
-		t.Errorf("a source charge was %+v", c)
-	}
+	c, k = charged(unknown, acct.ID, public.ChargeCaller)
+	want("an unknown sealed caller", c, k, "", limits.GuestIn("sha256:nobody", ip, true), limits.GuestTotal())
+	// The contact at an address the owner has not approved pays as a guest, and is still a proven
+	// contact: no guest total, and its source is known.
+	c, k = charged(sealed, acct.ID, public.ChargeGuest)
+	want("a guest charge of an active contact", c, k, ip, limits.GuestIn(peer, ip, true))
+	// A small form answered chain_required proves no root: the source alone pays, with the total.
+	c, k = charged(sealed, acct.ID, public.ChargeSource)
+	want("a small form answered chain_required", c, k, "", limits.GuestIn("", ip, true), limits.GuestTotal())
+	// An opened call refused for what it is: the total alone.
+	c, k = charged(sealed, acct.ID, public.ChargeOpened)
+	want("an opened refusal", c, k, "", limits.GuestTotal())
 	// Budgets are the account's the call is addressed to: a contact of alice is a guest of any
 	// other account on this node. (The sidecar keys every counter by the account asked about.)
-	if c := n.chargeOf(sealed, "another-account", public.ChargeCaller); !reflect.DeepEqual(c, limits.GuestIn(peer, "203.0.113.7", true)) {
-		t.Errorf("a contact of one account was charged as a contact of another: %+v", c)
+	c, k = charged(sealed, "another-account", public.ChargeCaller)
+	want("a contact of one account calling another", c, k, "", limits.GuestIn(peer, ip, true), limits.GuestTotal())
+	// A leaf older than the pin, or a blocked root, proves nothing for the row: a guest, total and all.
+	demoted := public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: peer, Demote: true})
+	c, k = charged(demoted, acct.ID, public.ChargeCaller)
+	want("a demoted contact", c, k, "", limits.GuestIn(peer, ip, true), limits.GuestTotal())
+	// A root this account asked (pending_out) is a pending contact: proven, known, no total.
+	// A root whose only row is the request it left (pending_in) is a stranger: the total.
+	for fpr, status := range map[string]string{"sha256:asked": "pending_out", "sha256:knocked": "pending_in"} {
+		if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: acct.ID, Fingerprint: fpr, Status: status, DisplayName: status, Card: "BEGIN:VCARD..."}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:asked"}), acct.ID, public.ChargeCaller)
+	want("a pending_out root", c, k, ip, limits.GuestIn("sha256:asked", ip, true))
+	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:knocked"}), acct.ID, public.ChargeCaller)
+	want("a pending_in root", c, k, "", limits.GuestIn("sha256:knocked", ip, true), limits.GuestTotal())
+	// A plaintext call opens nothing: never the total, never known, even from an active contact's
+	// transport chain.
+	plain := public.WithFacts(ctx, public.TransportFacts{RemoteIP: ip, ClientCertFingerprint: "sha256:nobody"})
+	c, k = charged(plain, acct.ID, public.ChargeCaller)
+	want("a plaintext stranger", c, k, "", limits.GuestIn("sha256:nobody", ip, true))
+	c, k = charged(public.WithFacts(ctx, public.TransportFacts{RemoteIP: ip}), acct.ID, public.ChargeCaller)
+	want("a plaintext call with nothing proven", c, k, "", limits.GuestIn("", ip, true))
+	// A sealed call with no root proven (no envelope sender, no transport chain) is opened: the total.
+	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{}), acct.ID, public.ChargeGuest)
+	want("a sealed call that names nobody", c, k, "", limits.GuestIn("", ip, true), limits.GuestTotal())
 }
 
 // PACT §13.4: at seal `none` the recipient does not accept envelopes, and the

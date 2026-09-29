@@ -66,6 +66,10 @@ func ContactOut(root string, contactCap int) Charge {
 // answers a relationship.
 func StrangerOut() Charge { return Charge{"stranger_out", map[string]any{"kind": "stranger_out"}} }
 
+// GuestTotal is one call of the identity's guest total: every caller the open does not prove a
+// contact, together (the owner's decision of 2026-09-29). A guest spends it beside its own buckets.
+func GuestTotal() Charge { return Charge{"guest_total", map[string]any{"kind": "guest_total"}} }
+
 // Integration is a call to one integration by one contact: the owner's upstream quota, which one
 // contact may not spend all of.
 func Integration(integrationID, contact string) Charge {
@@ -144,9 +148,33 @@ const DefaultTimeout = 2 * time.Second
 // New is a client of the sidecar at path. Nothing is dialled until the first exchange.
 func New(path string) *Client { return &Client{Path: path} }
 
-// Decide charges one call of identity's budget to charge, or reports how long until it may be.
-func (c *Client) Decide(ctx context.Context, identity string, charge Charge, now time.Time) (Decision, error) {
-	return c.ask(ctx, "decide", identity, charge, now)
+// Decide charges one call of identity's budgets to every one of charges, all or none, or reports
+// the first that refused and how long until it may be. known, when not empty, is the source of a
+// call the open proved an active or pending contact's: the sidecar remembers it for the identity
+// for an hour, whatever the budgets answer, and Admit lets calls from it through to the open.
+func (c *Client) Decide(ctx context.Context, identity string, charges []Charge, known string, now time.Time) (Decision, error) {
+	if len(charges) == 0 {
+		return Decision{}, errors.New("limits: a decision needs a charge")
+	}
+	list := make([]map[string]any, 0, len(charges))
+	for _, ch := range charges {
+		if ch.kind == "" {
+			return Decision{}, errors.New("limits: a zero Charge is not a charge")
+		}
+		list = append(list, ch.members)
+	}
+	req := map[string]any{"op": "decide", "identity": identity, "charges": list, "now": now.UnixMilli()}
+	if known != "" {
+		req["known"] = known
+	}
+	return c.decision(ctx, req)
+}
+
+// Admit is the check BEFORE the open: whether a sealed call to identity from source may go on to
+// the open — its source is known, or the identity's guest total holds a call. It spends nothing; a
+// refusal is the total's.
+func (c *Client) Admit(ctx context.Context, identity, source string, now time.Time) (Decision, error) {
+	return c.decision(ctx, map[string]any{"op": "admit", "identity": identity, "source": source, "now": now.UnixMilli()})
 }
 
 type answer struct {
@@ -158,11 +186,7 @@ type answer struct {
 	Error      *string     `json:"error"`
 }
 
-func (c *Client) ask(ctx context.Context, op, identity string, charge Charge, now time.Time) (Decision, error) {
-	if charge.kind == "" {
-		return Decision{}, errors.New("limits: a zero Charge is not a charge")
-	}
-	req := map[string]any{"op": op, "identity": identity, "charge": charge.members, "now": now.UnixMilli()}
+func (c *Client) decision(ctx context.Context, req map[string]any) (Decision, error) {
 	a, err := c.exchange(ctx, req)
 	if err != nil {
 		return Decision{}, err
