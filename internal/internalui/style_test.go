@@ -158,3 +158,27 @@ func TestWizardDoesNotDoubleEncodeTheTag(t *testing.T) {
 		t.Error("the tag no longer goes through URLSearchParams.set; re-check the encoding")
 	}
 }
+
+// A pill in a table cell is one value — a status, a count, a kind — and it breaks between words or
+// not at all. `overflow-wrap:anywhere` let a narrow status column split "active" into "activ" / "e"
+// (owner, 2026-09-29, on the Overview's status column). The rule is held here because the pill is
+// shared by every table in both portals: the cloud harvests this stylesheet.
+func TestAPillInATableNeverBreaksInsideAWord(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "style.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := regexp.MustCompile(`(?m)^td \.pill\{([^}]*)\}`).FindStringSubmatch(string(b))
+	if rule == nil {
+		t.Fatal("style.css has no `td .pill` rule, so a pill in a table inherits the cell's wrapping")
+	}
+	decl := strings.ReplaceAll(rule[1], " ", "")
+	for _, bad := range []string{"overflow-wrap:anywhere", "word-break:break-all", "word-break:break-word", "overflow-wrap:break-word"} {
+		if strings.Contains(decl, bad) {
+			t.Errorf("td .pill declares %s, which breaks a one-word status inside the word: %s", bad, rule[1])
+		}
+	}
+	if !strings.Contains(decl, "word-break:keep-all") && !strings.Contains(decl, "white-space:nowrap") {
+		t.Errorf("td .pill neither keeps words whole nor refuses to wrap: %s", rule[1])
+	}
+}
