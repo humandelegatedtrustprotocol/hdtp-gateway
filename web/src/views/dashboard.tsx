@@ -1,4 +1,5 @@
-// The overview: is this node reachable, who am I on it, and what happened last.
+// The overview: is this node reachable, and who am I on it. What happened is the Audit page's:
+// a short copy of the trail here only repeated it, with less on each row.
 import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { Link } from "../router";
@@ -6,8 +7,7 @@ import { Badge, Button, EmptyState, Notice, PageHeader, Readout, Section, Table 
 
 type Posture = { mode: string; seal: string; client_cert: string; tunnel: string; public_url: string };
 type Acct = { slug: string; display_name: string; fingerprint: string; contacts: number; pending: number };
-type Audit = { Action: string; ActorKind: string; Outcome: string };
-type Data = { posture: Posture; accounts: Acct[]; recent: Audit[] | null };
+type Data = { posture: Posture; accounts: Acct[] };
 
 export function Dashboard() {
   const [d, setD] = useState<Data | null>(null);
@@ -53,15 +53,6 @@ export function Dashboard() {
             </tr>
           ))}
         </Table>
-      </Section>
-
-      <Section title="Recent activity">
-        <Table head={["action", "who", "outcome"]} empty={<EmptyState title="Nothing recorded yet" />}>
-          {(d.recent ?? []).map((r, i) => (
-            <tr key={i}><td><code>{r.Action}</code></td><td>{r.ActorKind}</td><td><Badge status={r.Outcome} /></td></tr>
-          ))}
-        </Table>
-        <p className="help">The full trail, including refusals, is in <Link to="/audit">Audit</Link>.</p>
       </Section>
     </main>
   );
