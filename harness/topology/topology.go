@@ -95,6 +95,24 @@ func nodeSpec(name, image string, net *fabric.Network, f *fabric.Fabric) fabric.
 	return fabric.Spec{Name: name, Image: image, Network: net, Env: env, Cmd: []string{"serve"}}
 }
 
+// Serve starts a node container and, beside it, its limits sidecar (SPEC §5.7): the same image run
+// as /pact-limitd with its shipped configuration, no network of its own, sharing the node's /data,
+// where the socket is. Every node a scenario serves from is started here: without its sidecar a node
+// refuses every sealed call `unavailable`, and its healthcheck fails.
+func Serve(ctx context.Context, f *fabric.Fabric, s fabric.Spec) (*fabric.Container, error) {
+	c, err := f.Container(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Container(ctx, fabric.Spec{
+		Name: s.Name + "-limitd", Image: s.Image, NetworkMode: "none", VolumesFrom: []string{c.Name},
+		Entrypoint: "/pact-limitd", Cmd: []string{"-config", "/etc/pact-limitd/limits.json"},
+	}); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // LAN is T1: two nodes on one segment, both dialable. The control topology — if a
 // scenario fails here, the failure is not about reachability.
 func LAN(ctx context.Context, f *fabric.Fabric, image string) (*Topo, error) {
@@ -104,7 +122,7 @@ func LAN(ctx context.Context, f *fabric.Fabric, image string) (*Topo, error) {
 	}
 	t := &Topo{Kind: T1LAN, Fab: f, Image: image}
 	for _, slug := range []string{"alice", "bob"} {
-		c, err := f.Container(ctx, nodeSpec(slug, image, net, f))
+		c, err := Serve(ctx, f, nodeSpec(slug, image, net, f))
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +156,7 @@ func BehindNAT(ctx context.Context, f *fabric.Fabric, image string) (*Topo, erro
 		{"alice", wan, true},
 		{"bob", lan, false},
 	} {
-		c, err := f.Container(ctx, nodeSpec(spec.slug, image, spec.net, f))
+		c, err := Serve(ctx, f, nodeSpec(spec.slug, image, spec.net, f))
 		if err != nil {
 			return nil, err
 		}

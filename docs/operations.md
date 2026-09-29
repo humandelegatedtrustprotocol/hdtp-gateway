@@ -57,33 +57,91 @@ On the VPS run the ingress; on the node pair with a one-time token:
 ## Call budgets
 
 Every call counts against a budget of the account it is addressed to, sized by
-how many contacts that account may hold (PACT §12): if it may hold 500, all 500
-may call it at once, one call a second each, and none is refused. Each budget is
-a token bucket — a rate and a burst:
+how many contacts that account may hold (PACT §12). The budgets are not the
+node's to decide: the **limits sidecar**, `pact-limitd`, holds their numbers and
+their counters and decides each call with pact-identity's `pact-limits` crate,
+the decision the hosted cloud makes (SPEC §5.7). The node asks it over a unix
+socket, `limits_socket` (`PACT_LIMITS_SOCKET`, default `<data_dir>/limits.sock`),
+on one connection it keeps open; nothing but the charge — the account, the
+caller's root and tier, its address, the contact cap — crosses it.
 
-| Budget | Rate | Burst | Keyed by |
-|---|---|---|---|
-| a contact | 1 call/second | 10 | account, contact root |
-| every contact together | `limit.contacts` × 1/second, at most 200/second | one second of it | account |
-| a guest (a proven root that is not a contact) | 10 calls/hour | 10 | account, root, address |
-| an address alone (nothing proven) | 60 calls/hour | 60 | account, address |
-| calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | 20 calls/hour | 20 | account |
+Its numbers are its configuration file, the rules document of pact-identity's
+contract, shipped as `deploy/limitd/limits.json` (in the image at
+`/etc/pact-limitd/limits.json`):
+
+| Member | Budget | Keyed by |
+|---|---|---|
+| `contact_calls_per_second`, `contact_burst` | a contact | account, contact root |
+| `identity_capacity_per_second` | every contact together: `limit.contacts` × the contact rate, burst one second of it, at most this | account |
+| `guest_calls_per_hour` | a guest (a proven root that is not a contact) | account, root, address |
+| `guest_source_calls_per_hour` | an address alone (nothing proven) | account, address |
+| `stranger_calls_out_per_hour` | calls OUT to strangers (`request_contact`, `redeem_invite`, the answers to a request) | account |
+| `integration_calls_per_hour` | one integration's tools, per contact | account, integration, contact |
+| `pending_in_cap` | requests waiting on the owner that strangers may write | account |
+| `guest_total_calls_per_hour` | every caller the open does not prove a contact, together (below) | account |
+
+**`guest_total_calls_per_hour` is checked before the envelope is opened** (the owner's decision of
+2026-09-29). Nothing unopened says who sent a sealed call, so the node asks the sidecar first,
+before it reads a key: while the account's total holds a call, every sealed call goes on to be
+opened; once it holds none, only a call from a known address does — one that carried an active or
+pending_out contact's call to the account in the last hour, which the sidecar remembers — and
+everything else is refused `rate_limited`, in the clear, with the total's `retry_after`. Asking
+spends nothing. The total is spent after the open by every call that is opened and does not prove
+an active or pending_out contact: a guest, a blocked or superseded root, a root whose only row is
+the request it left, a small form naming a leaf nobody pinned, and an `envelope_invalid` or
+`certificate_renewed` the open found. A proven contact never spends it; a plaintext call opens
+nothing and never spends it.
+
+The known cost: during a flood, a contact calling from an address it has not used in the last hour
+is refused before the open, as a stranger is, with `retry_after`, until the total refills. The known
+addresses live in the sidecar's memory beside the counters, an hour each and a bounded number an
+account (the oldest going first: `KNOWN_SOURCE_TTL_MS` and `KNOWN_SOURCES_CAP`,
+cmd/pact-limitd/src/lib.rs), so a sidecar restart forgets them too.
+
+A known address is an address: every caller arriving from it shares its standing. Behind a carrier
+that delivers every caller from one address of its own — `frp`, `ngrok` and `tailscale` from the
+node's host, a terminate-mode ingress from its own, none of which names the client's address — one
+contact's call makes that one address known, and the check before the open lets every stranger
+through to be opened (and refused after it). The check does its work where each caller arrives with
+an address of its own: behind Envoy (below), or the `cloudflare` adapter. (`TestAStrangerFloodDrainsTheTotalThenIsRefusedBeforeTheOpenAndAKnownContactGetsThrough`
+shows a stranger at the contact's known address opened and refused.)
 
 Calls out to a contact spend that contact's rate and the account's aggregate, in
 buckets of their own. A refusal is a `rate_limited` tool error carrying
 `retry_after` — the whole seconds until the bucket holds a call again — and an
-audited `rate_limited` row, not a dropped connection, so the caller's agent can
-read it and back off. A call out that is refused never leaves the node.
+audited `rate_limited` row naming the bucket, not a dropped connection, so the
+caller's agent can read it and back off. A call out that is refused never leaves
+the node. A request past `pending_in_cap` is answered `unavailable`: no wait
+empties a list only the owner can.
 
-**The 200 is measured, and it is below what 500 contacts ask for.** One node on an Apple M2 Max
-served sealed `send_message` from 500 contacts at up to 280 calls a second in every run, and broke
-between 300 and 450 a second from run to run (`TestMeasureAccountCapacity`, internal/node; the
-numbers and the method are beside `NodeCapacityPerSecond` in internal/public/limits.go). So an
-identity allowed 500 contacts is advertised and held at 200 calls a second, not 500: all 500 may
-call at once only at two-fifths of a call a second each. The figure is the node's, and every
-identity on the node shares it.
+**The shipped `identity_capacity_per_second` is measured, and it is below what 500 contacts ask
+for.** One node on an Apple M2 Max served sealed `send_message` from 500 contacts at up to 280
+calls a second in every run, and broke between 300 and 450 a second from run to run
+(`TestMeasureAccountCapacity`, internal/node; the method and the numbers are in its file), and
+the shipped figure is the lowest knee with a margin. The figure is the node's, and every identity
+on the node shares it.
 
-The one setting is how many contacts each identity may hold:
+**Changing a number** is editing the file and restarting the sidecar, which reads it once and
+refuses one it cannot enforce (a rate of zero, a burst under one call, a contact bucket that takes
+longer than the hour an idle row is kept to refill), saying which member and why. The node needs no
+restart: `get_card` asks the sidecar for the numbers it advertises on every call.
+
+**When the sidecar is down, the node refuses.** Every sealed call, call out, request and
+integration call is answered `unavailable` until it answers again, which the node notices by
+itself. `/healthz` answers 503 and names the socket, so the container's healthcheck fails;
+`pact-gateway doctor` prints `FAIL limits` with the reason, and the `serve` banner says `limits:
+NOT ANSWERING`. Start the sidecar (`pact-limitd -config <file>`; the compose file runs it) and
+the node serves again with no restart.
+
+The counters live in the sidecar's memory, one set for every node process on the host. A restart
+of the sidecar refills every bucket, which is the trade-off for not writing to a database on every
+call — the budget is there to blunt abuse, not to meter usage, and an attacker who can restart
+your sidecar has already won. Memory is bounded: a bucket idle for an hour is full whatever it
+budgets, so it is dropped (checked once a minute), and a caller cycling addresses or fingerprints
+cannot grow the table past who called in the last hour.
+
+The one budget setting that is the node's is how many contacts each identity may hold, which sizes
+the aggregate:
 
 | Setting | Environment | Default | Meaning |
 |---|---|---|---|
@@ -99,20 +157,41 @@ accepting somebody's invite, sending a request, a peer redeeming an auto-accept
 invite, approving a contact at a new address, and an import — and nothing already
 held is removed when it is lowered.
 
-The buckets live in memory. A restart refills every one, which is the trade-off
-for not writing to the database on every call — the budget is there to blunt
-abuse, not to meter usage, and an attacker who can restart your node has already
-won. Memory is bounded: a bucket that has refilled is exactly what a missing one
-starts as, so it is dropped (checked once a minute), and a caller cycling
-addresses or fingerprints cannot grow the table past who called lately.
-
 ## Connection bounds
 
 The public listener holds at most 1,024 connections open (SPEC §5.7); one more is closed before
 its TLS handshake, and the audit trail gets one `listener_full` row a minute while that continues,
 with how many there were. Requests have 10 s for their headers, 60 s in all, 75 s for the answer,
 and an idle connection is kept 120 s. Rate limits per address or for the whole node are not the
-node's: put them where the traffic arrives — the edge, or a proxy in front of the node.
+node's: put them where the traffic arrives — the edge, or a proxy in front of the node, such as
+the one below.
+
+## Behind Envoy
+
+`deploy/envoy/` is the node behind a proxy of its own, the first of the two layers of its rate
+limits (the second is the sidecar above): `docker compose -f deploy/envoy/compose.yaml up -d` runs
+Envoy, the node and the limits sidecar, and only Envoy publishes a port. Before it: `make
+identity-proxy limitd-vendor` (the image build), a certificate for the node's public name at
+`deploy/envoy/tls/cert.pem` and `key.pem`, and `PACT_PUBLIC_URL`, that name, in the environment.
+
+What Envoy does (`deploy/envoy/envoy.yaml`, whose numbers are its own and nowhere else):
+
+- terminates the caller's TLS with that certificate, which is what a caller now sees — WebPKI for
+  the node's name, as behind a terminating edge — and asks for the caller's certificate chain,
+  accepting any, since there is no authority above the person;
+- limits each source address per path — the MCP endpoints, the invite landing, everything else,
+  each with a bucket of that address's own — and answers 429 past it, before the node sees the
+  request; and holds the listener's connection cap and timeouts;
+- forwards the caller's chain in `X-Forwarded-Client-Cert` and the address its socket saw in
+  `X-Pact-Client-Address`, replacing whatever the caller sent in either.
+
+The node reads those two headers only from Envoy's address, `proxy_address`
+(`PACT_PROXY_ADDRESS`, an IP; the compose file gives Envoy a fixed one on its network and the node
+that one). From anywhere else they are a caller's own claim and prove nothing, and with no
+`proxy_address` they are never read. The node still opens every envelope: Envoy sees the MCP
+requests, never what a sealed one carries. `internal/integrationtest/envoy_test.go` holds the two
+files to what the node relies on, on every commit, and the harness's S23 runs them with the image
+and floods them, with a control.
 
 ## The store, when it is large
 
@@ -170,9 +249,12 @@ retries and the hourly retention pass run on one process at a time: the one hold
 lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
 crashes is replaced within 30 s.
 
+The call budgets are shared by every process on a host: they are the limits sidecar's, and every
+process names the same `limits_socket`. A unix socket does not cross hosts, so on Postgres each
+host runs a sidecar of its own, and each host grants the whole budget.
+
 What each process still keeps to itself, and so what is not yet shared between them:
 
-- the §12 rate buckets (each process grants the whole budget);
 - integrations: every process connects each one itself, so a stdio integration runs a child per
   process. An OAuth token is one for them all: the store holds it, and an expired one is refreshed
   by the one process holding that integration's refresh lease while the others wait for it.

@@ -52,7 +52,7 @@ func NewWallet(t testing.TB, cn string, alg ...string) *Wallet {
 	if err != nil {
 		t.Fatalf("testid: root certificate: %v", err)
 	}
-	return &Wallet{CN: cn, Key: key, RootDER: root, Fpr: pactidentity.Fingerprint(key.Public.SPKI)}
+	return &Wallet{CN: cn, Key: key, RootDER: root, Fpr: pactidentity.Fingerprint(key.Public().SPKI)}
 }
 
 // Host is a host the root has issued to: its own key, its leaf, and the chain.
@@ -80,7 +80,7 @@ func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 	}
 	now := time.Now()
 	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
-		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: hostKey.Public,
+		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: hostKey.Public(),
 		URIs: []string{endpoint}, NotBefore: now.Add(-time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 	}
 	return &Host{
 		Key: hostKey, LeafDER: leaf, Chain: [][]byte{leaf, w.RootDER},
-		Endpoint: endpoint, Kid: pactidentity.Fingerprint(hostKey.Public.SPKI), RootFpr: w.Fpr,
+		Endpoint: endpoint, Kid: pactidentity.Fingerprint(hostKey.Public().SPKI), RootFpr: w.Fpr,
 	}
 }
 

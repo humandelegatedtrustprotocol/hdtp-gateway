@@ -170,7 +170,7 @@ func TestASealedCallCompletesFromEitherMCPEra(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened, err := pactidentity.OpenResult(answer, pactidentity.OpenOpts{
-		Recipient: sender, MsgID: "legacy-1", Now: now,
+		Recipient: sender, RecipientPublic: sender.Public(), MsgID: "legacy-1", Now: now,
 		Pins:         []pactidentity.Pin{{Root: peerA.Root, Endpoint: peerA.Endpoint, Leaf: pactidentity.B64url(peerA.Leaf), State: "active"}},
 		ExpectedRoot: peerA.Root, ExpectedEndpoint: peerA.Endpoint,
 	})

@@ -37,7 +37,7 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 	a, _ := st.GetAccountBySlug(ctx, "alice")
 	peer := testid.NewWallet(t, "Bharat")
 	ph := peer.Issue(t, "https://bharat.example/a/bharat/mcp")
-	if _, err := st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public.SPKI, Status: "active",
+	if _, err := st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: peer.Fpr, SPKI: ph.Key.Public().SPKI, Status: "active",
 		Endpoint: ph.Endpoint, Leaf: ph.LeafDER, RootCert: peer.RootDER, DisplayName: "Bharat", Card: ph.Card("Bharat", "optional")}); err != nil {
 		t.Fatal(err)
 	}

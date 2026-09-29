@@ -72,24 +72,47 @@ type peeked struct {
 	Leaf  string   `json:"leaf"`
 }
 
+// opener is the held key an envelope's header names and the suite it is sealed in, when this node
+// opens it: an unknown kid, a key past its date or a suite nobody knows is nil — an envelope nothing
+// here opens.
+func opener(now time.Time, e *pactidentity.Envelope, st *RecipientState) (*identity.LeafKey, string) {
+	var header struct {
+		Kid   string `json:"kid"`
+		Suite string `json:"suite"`
+	}
+	if json.Unmarshal(pactidentity.FromB64url(e.Protected), &header) != nil || !pactidentity.SuiteKnown(header.Suite) {
+		return nil, ""
+	}
+	for i := range st.Keys {
+		if k := &st.Keys[i]; k.Kid == header.Kid && (k.Current || !now.After(k.NotAfter)) {
+			return k, header.Suite
+		}
+	}
+	return nil, ""
+}
+
+// errOpened marks a refusal of an envelope this node OPENED (one of its keys is the one the header
+// named, so HPKE ran on it) and that proved no caller: the wrapper spends the guest total for it
+// (sealed.go), so a flood the open cannot place drains it and meets the check before the open. The
+// refusal's code is unchanged: errOpened is none of the errors Code reads.
+var errOpened = errors.New("the envelope was opened")
+
+// openedIf marks err as a refusal of an opened envelope when it was one.
+func openedIf(opened bool, err error) error {
+	if !opened {
+		return err
+	}
+	return fmt.Errorf("%w (%w)", err, errOpened)
+}
+
 // peekProof opens e with the key Decide would pick (the kid's, current or not yet expired) and reads
 // its proof. The zero value when it cannot: an unknown kid, a suite it does not know, a ciphertext
 // that does not open, a plaintext that is not JSON. One extra HPKE open per envelope buys handing
 // Decide a few pins instead of every contact.
 func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peeked {
 	var none peeked
-	var header struct {
-		Kid   string `json:"kid"`
-		Suite string `json:"suite"`
-	}
 	aad := pactidentity.FromB64url(e.Protected)
-	if json.Unmarshal(aad, &header) != nil || !pactidentity.SuiteKnown(header.Suite) {
-		return none
-	}
-	for _, k := range st.Keys {
-		if k.Kid != header.Kid || !(k.Current || !now.After(k.NotAfter)) {
-			continue
-		}
+	if k, suite := opener(now, e, st); k != nil {
 		der, err := identity.MarshalPKCS8(k.KP)
 		if err != nil {
 			return none
@@ -98,7 +121,13 @@ func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peek
 		if err != nil {
 			return none
 		}
-		plaintext, err := pactidentity.Open(header.Suite, priv, []byte(pactidentity.InfoV2), aad, pactidentity.FromB64url(e.Enc), pactidentity.FromB64url(e.Ct))
+		// The recipient's public key as its leaf holds it (pact-identity 0.4.0): the open takes it
+		// rather than deriving it from the private key on every call.
+		leaf, err := pactidentity.Parse(k.Leaf)
+		if err != nil {
+			return none
+		}
+		plaintext, err := pactidentity.Open(suite, priv, leaf.PublicKey, []byte(pactidentity.InfoV2), aad, pactidentity.FromB64url(e.Enc), pactidentity.FromB64url(e.Ct))
 		if err != nil {
 			return none
 		}
@@ -213,6 +242,10 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	// The members go to the library exactly as they arrived: it holds each to its one spelling
 	// (PACT §13.1), which a decode and re-encode here would launder.
 	now := id.now()
+	// Whether this envelope is OPENED here: a refusal of one that proves no caller spends the guest
+	// total (errOpened).
+	key, _ := opener(now, e, st)
+	opened := key != nil
 	ns, err := id.nodeState(ctx, accountID, st, peekProof(now, e, st))
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
@@ -231,7 +264,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	switch code {
 	case "envelope_invalid":
 		why, _ := d.Result["why"].(string)
-		return nil, fmt.Errorf("%w: %s", envelope.ErrInvalid, why)
+		return nil, openedIf(opened, fmt.Errorf("%w: %s", envelope.ErrInvalid, why))
 	case "chain_required":
 		return nil, ErrChainRequired
 	case "certificate_renewed":
@@ -245,7 +278,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 				}
 			}
 		}
-		return nil, &CertificateRenewed{Chain: chain}
+		return nil, openedIf(opened, &CertificateRenewed{Chain: chain})
 	case "pending_approval":
 		// A pin in `pending_out` calling something other than contact_accepted or
 		// contact_rejected, or a listing of them (a sealed tools/list answers at the
@@ -307,7 +340,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	// Unified identity rule (§2): both proofs present ⇒ their leaf keys MUST match.
 	if len(tf.ClientCertSPKI) > 0 && !bytes.Equal(tf.ClientCertSPKI, leaf.SPKI) {
 		id.audit("identity_mismatch", "account:"+id.AccountID+" contact:"+root, "envelope_invalid")
-		return nil, fmt.Errorf("%w: client certificate key does not match the envelope's leaf", envelope.ErrInvalid)
+		return nil, openedIf(opened, fmt.Errorf("%w: client certificate key does not match the envelope's leaf", envelope.ErrInvalid))
 	}
 	if err := id.apply(ctx, accountID, d.Effects, now); err != nil {
 		return nil, fmt.Errorf("%w: recording the decision: %v", envelope.ErrInvalid, err)

@@ -56,7 +56,7 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, spki, pool := localhostCertificate(t)
+	dir, spki, pool := selfSignedCertificate(t, "localhost")
 	port, err := fabric.FreePort()
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 		"PACT_INTERNAL_TLS_CERT":     "/tls/cert.pem",
 		"PACT_INTERNAL_TLS_KEY":      "/tls/key.pem",
 	})
-	node, err := w.Fab.Container(ctx, fabric.Spec{
+	node, err := topology.Serve(ctx, w.Fab, fabric.Spec{
 		Name: "first", Image: images.Node, Network: net, Env: env, Cmd: []string{"serve"},
 		Ports:   []string{fmt.Sprintf("%s:%d", port, topology.InternalPort)},
 		Volumes: []string{dir + ":/tls:ro"},
@@ -178,10 +178,10 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 	}
 }
 
-// localhostCertificate makes a self-signed certificate for `localhost` in a directory a container
-// can mount, and returns the directory, the base64 SHA-256 of its public key (what Chrome is told
-// to trust) and a pool holding it (what this process trusts).
-func localhostCertificate(t *testing.T) (string, string, *x509.CertPool) {
+// selfSignedCertificate makes a self-signed certificate for the DNS name `name` in a directory a
+// container can mount, and returns the directory, the base64 SHA-256 of its public key (what
+// Chrome is told to trust) and a pool holding it (what this process trusts).
+func selfSignedCertificate(t *testing.T, name string) (string, string, *x509.CertPool) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -189,8 +189,8 @@ func localhostCertificate(t *testing.T) (string, string, *x509.CertPool) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "localhost"},
-		DNSNames:     []string{"localhost"},
+		Subject:      pkix.Name{CommonName: name},
+		DNSNames:     []string{name},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -209,7 +209,7 @@ func localhostCertificate(t *testing.T) (string, string, *x509.CertPool) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	// The node runs as an unprivileged user and must read both files through the mount.
+	// The container runs as an unprivileged user and must read both files through the mount.
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

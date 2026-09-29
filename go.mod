@@ -17,7 +17,7 @@ require (
 	github.com/libdns/cloudflare v0.2.2
 	github.com/miekg/dns v1.1.73
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/pact-cloud/pact-identity/go v0.3.6
+	github.com/pact-cloud/pact-identity/go v0.4.1
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rs/zerolog v1.35.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -26,6 +26,7 @@ require (
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.57.0
+	sigs.k8s.io/yaml v1.6.0
 	tailscale.com v1.102.4
 )
 
@@ -145,5 +146,4 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )

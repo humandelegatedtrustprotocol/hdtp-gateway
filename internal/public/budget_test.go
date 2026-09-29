@@ -25,9 +25,9 @@ func TestEveryInnerCallSpendsAndAReplayDoesNot(t *testing.T) {
 	p := newPeer(t, s.nowAt.Add(-time.Hour))
 	s.pin(t, p, "active")
 	var charged []Charge
-	s.pool.Limit = func(_ context.Context, as Charge) (bool, time.Duration) {
+	s.pool.Limit = func(_ context.Context, as Charge) *Refusal {
 		charged = append(charged, as)
-		return true, 0
+		return nil
 	}
 	spent := func(t *testing.T, want int, what string) {
 		t.Helper()
@@ -62,7 +62,12 @@ func TestARefusedCallIsNotRecordedAsTheAnswer(t *testing.T) {
 	p := newPeer(t, s.nowAt.Add(-time.Hour))
 	s.pin(t, p, "active")
 	refuse := true
-	s.pool.Limit = func(context.Context, Charge) (bool, time.Duration) { return !refuse, 3 * time.Second }
+	s.pool.Limit = func(context.Context, Charge) *Refusal {
+		if refuse {
+			return &Refusal{RetryAfter: 3 * time.Second}
+		}
+		return nil
+	}
 	send := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"})
 	result, _ := s.opened(t, s.call(t, send, TransportFacts{}), p, "send_message")
 	var inner mcp.CallToolResult
@@ -82,5 +87,32 @@ func TestARefusedCallIsNotRecordedAsTheAnswer(t *testing.T) {
 func TestAFullContactListIsUnavailableToAPeer(t *testing.T) {
 	if got := domainCode(fmt.Errorf("wrapped: %w", contacts.ErrContactCap)); got != "unavailable" {
 		t.Fatalf("a full contact list reaches a peer as %q", got)
+	}
+}
+
+// A budget nobody could be asked about (the limits sidecar is not answering) refuses the call
+// `unavailable`, sealed like any refusal past the open, and audited as that: never `rate_limited`,
+// which would name a wait that nothing measured, and never served (the owner's rule of 2026-09-29).
+func TestABudgetThatCannotBeAskedRefusesUnavailable(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt.Add(-time.Hour))
+	s.pin(t, p, "active")
+	down := true
+	s.pool.Limit = func(context.Context, Charge) *Refusal {
+		if down {
+			return &Refusal{Unavailable: true}
+		}
+		return nil
+	}
+	send := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"})
+	result, _ := s.opened(t, s.call(t, send, TransportFacts{}), p, "send_message")
+	var inner mcp.CallToolResult
+	if err := json.Unmarshal(result, &inner); err != nil || !inner.IsError || inner.Content[0].(*mcp.TextContent).Text != `{"code":"unavailable"}` {
+		t.Fatalf("with no budget to ask, the call was answered %s, want a sealed unavailable", result)
+	}
+	down = false
+	result, _ = s.opened(t, s.call(t, send, TransportFacts{}), p, "send_message")
+	if err := json.Unmarshal(result, &inner); err != nil || inner.IsError {
+		t.Fatalf("the same envelope, sent again once the budget could be asked, was not served: %s", result)
 	}
 }

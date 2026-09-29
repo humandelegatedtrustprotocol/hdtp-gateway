@@ -97,6 +97,11 @@ type Spec struct {
 	// another container's namespace. That is how a sidecar reaches a node's
 	// loopback-bound internal surface without the node binding non-loopback.
 	NetworkMode string
+	// VolumesFrom mounts another container's volumes (docker --volumes-from): how the limits
+	// sidecar shares the /data its socket is in with the node it serves.
+	VolumesFrom []string
+	// Entrypoint replaces the image's: the node image's second binary, /pact-limitd, runs this way.
+	Entrypoint string
 }
 
 // Netem describes link impairment applied inside a container.
@@ -273,6 +278,12 @@ func (f *Fabric) Container(ctx context.Context, s Spec) (*Container, error) {
 	}
 	for _, v := range s.Volumes {
 		args = append(args, "-v", v)
+	}
+	for _, v := range s.VolumesFrom {
+		args = append(args, "--volumes-from", v)
+	}
+	if s.Entrypoint != "" {
+		args = append(args, "--entrypoint", s.Entrypoint)
 	}
 	for _, a := range s.Aliases {
 		args = append(args, "--network-alias", a)

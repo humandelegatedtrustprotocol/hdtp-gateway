@@ -98,6 +98,22 @@ func (s *SetupTokens) ValidRecovery(tok string) bool {
 	return ok && t.recovery && time.Now().Before(t.expires)
 }
 
+// Health answers /healthz, which the container HEALTHCHECK probes (`pact-gateway healthcheck`): 200
+// and `ok` when what the node serves through answers, 503 naming what does not. What it asks is
+// `check`: today the limits sidecar, without which every sealed call is refused `unavailable`
+// (SPEC §5.7). It needs no session: it says nothing about any account.
+func Health(check func(ctx context.Context) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if err := check(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = fmt.Fprintf(w, "not serving: %v\n", err)
+			return
+		}
+		_, _ = w.Write([]byte("ok\n"))
+	}
+}
+
 // HandlerWithAuth builds the internal-surface HTTP handler. Page packages register
 // their routes via mount functions so they land INSIDE the CSRF wrap (SPEC §8.3).
 // Auth, when supplied, wraps everything in the session gate of SPEC §8.3; a nil
@@ -107,11 +123,6 @@ func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mou
 	for _, m := range mounts {
 		m(mux)
 	}
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("ok\n"))
-	})
-
 	// The SPA and its data plane are part of every composition, so a test that
 	// builds the handler exercises the same portal an owner gets. Its catch-all
 	// runs last in ServeMux precedence: every registered route wins over it.

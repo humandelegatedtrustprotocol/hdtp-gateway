@@ -62,7 +62,7 @@ that cited test names exist and cannot check that the list is complete.
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
-| `rate_limited` (+ `retry_after`) | `TestBucketArithmetic`, `TestTheAggregateHolds`, `TestGuestAndSourceBudgets`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| `rate_limited` (+ `retry_after`) | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
@@ -74,6 +74,8 @@ that cited test names exist and cannot check that the list is complete.
 
 ## Limits
 
+The call budgets' numbers are the limits sidecar's configuration (`deploy/limitd/limits.json` as shipped; members named below), and the arithmetic is pact-identity's `pact-limits` crate, which is held to the cloud's by `js/cases/limits-vectors.json` in that repository.
+
 | Limit | Default | Tests |
 |---|---|---|
 | `text` | ≤16 KiB | `TestTextCap`, `TestBoundaryCapsRejectOversizedInput` |
@@ -81,12 +83,17 @@ that cited test names exist and cannot check that the list is complete.
 | `note` | ≤1 KiB | `TestRequestContactNoteCapAndBinding`, `TestBoundaryCapsRejectOversizedInput` |
 | availability slots | ≤5 per response | `TestCalendarToolsRespectSlotCapAndBookIdempotently`, `TestP3ExitContactBooksCalendarSlot` |
 | invite `expires_at` | ≤90 days | `TestRedeemFailures` |
-| per-contact rate | 1/s, burst 10 | `TestBucketArithmetic` |
-| per-account rate | contacts × 1/s, burst one second, held at the measured capacity | `TestEveryContactAtItsRateIsServed`, `TestTheAggregateHolds` |
-| guest rate | 10/hour, burst 10, per root and address | `TestGuestAndSourceBudgets` |
-| source rate (no root proven) | 60/hour, burst 60, per address | `TestGuestAndSourceBudgets`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| per-contact rate | `contact_calls_per_second`, burst `contact_burst` | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestASealedContactIsNotBudgetedAsAGuest` |
+| per-account rate | `limit.contacts` × `contact_calls_per_second`, burst one second of it, at most `identity_capacity_per_second` | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestTheCardIsTheRulesAndTheCratesAggregate` |
+| guest rate | `guest_calls_per_hour`, per root and address | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestASealedContactIsNotBudgetedAsAGuest` |
+| source rate (no root proven) | `guest_source_calls_per_hour`, per address | `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| calls out | to a contact its rate and the aggregate; to anybody else `stranger_calls_out_per_hour` | `TestTheNodesCallsOutAreBudgeted` |
+| requests waiting on the owner | `pending_in_cap`, refused `unavailable` | `TestTheRequestCapIsAskedBeforeEveryRequestIsWritten`, `TestAStrangersRequestIsHeldToTheSidecarsPendingCap` |
+| one integration, per contact | `integration_calls_per_hour` | `TestAnIntegrationsCallsAreHeldToItsOwnCapPerContact` |
+| the guest total | `guest_total_calls_per_hour`, every caller the open does not prove a contact; checked before the open, where only a known address gets past it once spent, and spent after it, all or none with the caller's own buckets | `TestAStrangerFloodDrainsTheTotalThenIsRefusedBeforeTheOpenAndAKnownContactGetsThrough`, `TestSmallFormsNamingLeavesNobodyPinnedDrainTheTotalAndAreThenRefusedBeforeTheOpen`, `TestACallTheTotalRefusesBeforeTheOpenReadsNoKeyAndOpensNothing`, `TestAnOpenedCallThatProvesNobodyIsChargedTheTotal`, `TestASealedContactIsNotBudgetedAsAGuest`, `TestTheGuestTotalIsSpentWithTheGuestAndAskedBeforeTheOpenWithoutSpending` |
+| the limits sidecar not answering | every call it would decide refused `unavailable`; `/healthz` 503, `doctor` and the banner name it | `TestEveryBudgetIsRefusedUnavailableWhileTheSidecarIsDown`, `TestABudgetThatCannotBeAskedRefusesUnavailable`, `TestASidecarThatIsDownIsNamedByTheHealthCheckDoctorAndTheBanner` |
 | what spends | every inner call that reaches dispatch; a replay does not | `TestEveryInnerCallSpendsAndAReplayDoesNot`, `TestARefusedCallIsNotRecordedAsTheAnswer` |
-| advertised `limits` | the enforced figures, derived | `TestLimitsAreTheEnforcedOnes`, `TestGetCardAdvertisesTheLimitsInForce` |
+| advertised `limits` | the sidecar's rules and its aggregate for the account | `TestTheCardIsTheRulesAndTheCratesAggregate`, `TestGetCardAdvertisesTheLimitsInForce` |
 | request body (pre-parse) | 8 MiB, refused `too_large` by the bytes that arrive | `TestBodyCap`; on the running listener `TestBodiesPastTheCapAreRefusedByTheBytesThatArrive` (a body of exactly 8 MiB answered, one byte more refused) |
 
 ## Beyond the checklist
@@ -109,6 +116,8 @@ of it, and are listed so a reader can tell the two apart.
 | a wake of the owner's wait reads the same rows at 1, 300 and 2000 contacts, and answers what counting every contact answered; the count reads by account and state together (§8.5) | `TestAWakeReadsTheSameRowsAt1And300And2000Contacts`, `TestCountingContactsByStatusReadsThoseRowsAlone` |
 | one audit chain, however many writers: appends from several processes on one SQLite file and on one Postgres database make one verifying chain (§11.4) | `TestWritersInSeveralProcessesExtendOneChain` |
 | the listener closes a connection past its cap before a handshake, audits the refusals once a minute, and admits the next once a slot frees (§5.7) | `TestTheListenerClosesAConnectionPastItsCapAndAdmitsTheNext` |
+| behind the proxy `proxy_address` names, the caller's chain and address are what it forwarded, and from any other source neither header is read; a forwarded chain that does not read — two elements, two headers, no `Chain`, a lone certificate — proves nothing; `proxy_address` is an IP address (§5.1, §12.2) | `TestTheProxysForwardedChainAndAddressAreReadFromItAlone`, `TestAForwardedChainThatDoesNotReadProvesNothing`, `TestTheProxyAddressIsAnIPAddress` |
+| `deploy/envoy` requests and forwards the caller's chain, replacing a caller's own header, puts the address its socket saw in the header the node reads, limits every route per source address with no bucket the sources share, holds the listener's connection cap and bounds, and its compose file trusts Envoy's address alone (§5.1, §5.7) | `TestEnvoyForwardsTheCallersChainAndAddressAsTheNodeReadsThem`, `TestEnvoyLimitsEveryRoutePerSourceAddressAndHoldsTheNodesConnectionCap`, `TestEnvoyHoldsARequestToTheListenersOwnBounds`, `TestTheEnvoyComposeTrustsEnvoyAloneAndRunsTheSidecar` |
 | a sealed call completes from a 2026-07-28 client and from a handshake-era client, and the outbound client sends two sessionless POSTs (§5.5) | `TestASealedCallCompletesFromEitherMCPEra` |
 | a withdrawn integration tool leaves the next request, repeatedly, and the cache stays within its bound | `TestWithholdingAnIntegrationWithdrawsItFromTheNextRequest`, `TestTheCacheStaysWithinItsBound` |
 | outbound retries are scheduled by attempts made, so uneven sweeps cannot starve a message | `TestRetriesStayOnScheduleWhenSweepsAreUneven`, `TestRetryBackoffWidensWithAge` |
@@ -264,8 +273,8 @@ calls rather than names and sees unexported functions too. Its report is held to
 this same table by `TestDeadcodeFindsOnlyWhatTheTableExcuses` — a function it
 finds must be excused here by its `Type.Method` or `pkg.Func`, or sit in an
 excused package. The table's staleness stays with the hermetic gate, which is
-why a row the deadcode report alone needs (`identity.FromLib`) must also be one
-the fourth check needs.
+why a row the deadcode report alone needs must also be one the fourth check
+needs.
 
 Call sites inside **test-only packages** do not count as production references
 either (P14-05d). `internal/core/store/conformance` is ordinary `.go` source — Go
@@ -293,6 +302,7 @@ so an exception cannot outlive the reason for it.
 |---|---|---|
 | `internal/integrationtest` | Test-only by construction: it assembles nodes and drives them, so nothing in production imports it. Its own reachability is not a meaningful question. | — |
 | `internal/core/store/conformance` | The shared store-conformance suite both engines run. Test-only for the same reason. | — |
+| `internal/limits/limitstest` | Test-support by construction: it runs the real limits sidecar (`cmd/pact-limitd`) for a test and reads the shipped rules from `deploy/limitd/limits.json`, so every test that stands a node up meets the budgets a node meets. Nothing in production imports it. | — |
 | `internal/testid` | Test-support by construction: it builds the roots, leaves and cards a 2.0 identity needs, so that nine test files across six packages do not each grow their own wallet. Nothing in production imports it. | — |
 
 Method-level gaps. Four of these are Go interface dispatch — the runtime calls
@@ -305,7 +315,6 @@ them, no source names them — and the rest are debt with a task against it.
 | `ownerUser.WebAuthnDisplayName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnCredentials` | Interface dispatch, as above. | — |
 | `Server.WithFactsForTest` | Test seam onto the facts middleware, so a test can assert what a request is SEEN as rather than asserting on the flag that decides it — which is the difference between pinning behaviour and pinning a variable. | — |
-| `identity.FromLib` | Called from another module: the cloud's conformance battery (`pact-cloud/gateway/conformance`) builds its reference peer's keypair through it, and `make dependents` is the gate that compiles that. A scan of this module alone reads it as unused; one such scan deleted it on 2026-09-19. | — |
 | `SQLite.MigrateDown` | A rollback seam on the `Store` interface, used by the conformance suite's `MigrateUpDownUp` and by the populated-rollback case (P14-03). SPEC §12.1 documents `migrate` as forward-only — there is deliberately no rollback command — so this has no production caller by design. | — |
 | `SQLite.RemoveMembership` | v1 has no surface for editing account membership: it is granted automatically (P14-05c) and never revoked, because v1 defines one role and no multi-owner UX. Pre-shaped for post-v1 the same way the `role` column is. | post-v1 |
 
