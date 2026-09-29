@@ -85,6 +85,10 @@ func dashEnv(t *testing.T) (store.Store, store.Account, store.Account) {
 	if err := st.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: a.ID, Root: "sha256:c0", Endpoint: "https://new.example/c0", Leaf: []byte{1}, Why: "ask", At: 1}); err != nil {
 		t.Fatal(err)
 	}
+	// A has a root (a wallet signed it), so its certificate is read; B has none.
+	if err := st.SetAccountRoot(ctx, a.ID, "sha256:root-a", []byte{1}); err != nil {
+		t.Fatal(err)
+	}
 	return st, a, b
 }
 
@@ -92,7 +96,7 @@ func dashEnv(t *testing.T) (store.Store, store.Account, store.Account) {
 // explain — the People page's contacts, the Requests tab's waiting — and the certificate the identity
 // page shows, from the same reader. A read that fails is a failed answer, never a zero.
 func TestTheOverviewCountsWhatItsLinksShow(t *testing.T) {
-	st, a, _ := dashEnv(t)
+	st, a, b := dashEnv(t)
 	notAfter := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	cert := func(_ context.Context, id string) (identity.CertificateInfo, error) {
 		if id != a.ID {
@@ -121,6 +125,33 @@ func TestTheOverviewCountsWhatItsLinksShow(t *testing.T) {
 	want := dashCert{Certified: true, Served: true, Endpoint: "https://node.example/a", NotAfter: "2026-10-20T12:00:00Z", RenewalDue: true}
 	if row.Certificate == nil || *row.Certificate != want {
 		t.Errorf("certificate %+v, want %+v", row.Certificate, want)
+	}
+
+	// An identity no wallet has signed is not asked of the reader, which walks what a root owes: it is
+	// answered as unsigned. (Owner A here administers only A, so a second owner reads B.)
+	if err := st.AddMembership(context.Background(), "owner-a", b.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	asked := map[string]bool{}
+	counted := http.NewServeMux()
+	MountDashboard(counted, DashboardDeps{Store: st, Certificate: func(_ context.Context, id string) (identity.CertificateInfo, error) {
+		asked[id] = true
+		return identity.CertificateInfo{Certified: true}, nil
+	}})
+	var both struct {
+		Accounts []dashAccount `json:"accounts"`
+	}
+	rr = asOwner(t, counted, "owner-a", "/api/dashboard")
+	if err := json.Unmarshal(rr.Body.Bytes(), &both); err != nil || rr.Code != 200 || len(both.Accounts) != 2 {
+		t.Fatalf("%d %s", rr.Code, rr.Body.String())
+	}
+	if !asked[a.ID] || asked[b.ID] {
+		t.Errorf("the reader was asked of %v; want A (which has a root) and never B", asked)
+	}
+	for _, row := range both.Accounts {
+		if row.ID == b.ID && (row.Certificate == nil || *row.Certificate != (dashCert{})) {
+			t.Errorf("B, which no wallet signed, answered %+v; want an unsigned certificate", row.Certificate)
+		}
 	}
 
 	// An identity certified and holding no current leaf says so, and no dates for a leaf that is not.
