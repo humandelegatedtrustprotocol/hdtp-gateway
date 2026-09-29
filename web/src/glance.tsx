@@ -104,7 +104,7 @@ export function IdentityCard({ name, handle, address, status, certificate, count
           ? <Badge tone="bad" title={certificate.failed}>certificate could not be read</Badge>
           : <Badge tone={certificate.tone} title={certificate.until ? `not after ${new Date(certificate.until).toUTCString()}` : undefined}>{certificate.text}</Badge>}
       </div>
-      <div className="counts">
+      {counts.length > 0 && <div className="counts">
         {counts.map((c) => {
           const failed = c.value === null;
           const cls = toneClass(failed ? "bad" : c.tone).trim() || undefined;
@@ -113,7 +113,7 @@ export function IdentityCard({ name, handle, address, status, certificate, count
             ? <Link key={c.label} to={c.to} className={cls} onClick={c.onClick}>{body}</Link>
             : <div key={c.label} className={cls}>{body}</div>;
         })}
-      </div>
+      </div>}
       {footer && <div className="foot">{footer}</div>}
     </article>
   );
