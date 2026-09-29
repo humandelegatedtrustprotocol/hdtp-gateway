@@ -33,7 +33,7 @@ export function Brand(): ReactNode {
   return (
     <picture>
       <source srcSet={`/brand/${PRODUCT.logo}-inline-dark.svg`} media="(prefers-color-scheme: dark)" />
-      <img className="logo" src={`/brand/${PRODUCT.logo}-inline.svg`} alt={PRODUCT.name} width={PRODUCT.width} height={28} />
+      <img className="logo" src={`/brand/${PRODUCT.logo}-inline.svg`} alt={PRODUCT.name} width={PRODUCT.width} height={PRODUCT.height} />
     </picture>
   );
 }
