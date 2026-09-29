@@ -31,7 +31,10 @@ export type Entry = { name: string; revoked?: boolean };
  * A kind the caller may not read is `null`; a kind this product does not have is absent.
  */
 export type Directory = {
-  /** Owner id → display name (or, to a workspace admin only, email where they gave no name). Only current owners. */
+  /**
+   * Owner id → the name they go by. Only current owners. The node answers display names; the cloud,
+   * for one who gave none, their email to a workspace admin and "a member" to anyone else.
+   */
   owners?: Record<string, string> | null;
   /** Account id → the identity's name. */
   identities?: Record<string, string> | null;
