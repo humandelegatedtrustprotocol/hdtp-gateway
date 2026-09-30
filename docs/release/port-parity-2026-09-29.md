@@ -103,11 +103,17 @@ owner wants something else (plaintext, or asking the contact's plain `tools/list
 - **Lead 2: `pending_approval` names no signer.** A `pending_out` contact's sealed call is decided
   `pending_approval`, and Decide's result is `{code}` alone, in both ports and in the contract
   (`$defs` Decision, `additionalProperties: false`), at 0.4.1 and at the port-parity branch
-  (d029713). The signature has verified by then, but the node is not told under which leaf, so it
-  has no key to seal the refusal to (§13.2 wants it sealed), no root to charge it to, and it cannot
-  apply the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address
-  under `auto`, is dropped: `decideEnvelope` returns before `apply`). Rebuilding the signer from the
-  node's own peek would re-implement `pinHolding`. What the node needs: `pending_approval` carrying
-  `root`, `endpoint`, `leaf` and `form`, as `ok` does, in Go's `pendingApproval`, Rust's
-  `envelope/decide.rs` (both places) and the contract. Until then the node answers the code itself in
-  plaintext (it answered `envelope_invalid`), and charges the call as a stranger.
+  (d029713). The signature has verified by then (Go's `Decide` at 0.4.1: in the small form after
+  `VerifyDetached` under the pinned leaf, in the full form after `ValidateChain` and `VerifyDetached`
+  under the chain's leaf), but the node is not told under which leaf. The node now reads it itself
+  (`public.signerOf`: the peeked chain's leaf, or the pinned leaf the small form names, matched as
+  `pinHolding` matches it, and only for a `pending_out` pin) and seals the refusal to it, and the
+  budget's refusal on that path too (`TestAPendingContactsSealedCallIsAnsweredPendingApproval`). The
+  call is still charged as a stranger's: its facts name the key, not the root. It still cannot apply
+  the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address under
+  `auto`, is dropped: `decideEnvelope` returns before `apply`). What the node
+  needs: `pending_approval` carrying `root`, `endpoint`, `leaf` and `form`, as `ok` does, in Go's
+  `pendingApproval`, Rust's `envelope/decide.rs` (both places) and the contract. Reading the signer
+  from that answer instead of `signerOf` is a simplification, not a change in what the node answers;
+  applying the effects it carries IS a change (the pin follows), and is a commit of its own with
+  its own test.
