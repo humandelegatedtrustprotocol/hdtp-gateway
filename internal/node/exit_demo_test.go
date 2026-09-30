@@ -155,6 +155,12 @@ func (d *demoNode) install(purpose, endpoint string, days int, now time.Time) id
 
 func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name string, leafDays int) *demoNode {
 	t.Helper()
+	return startDemoNodeSealed(t, clock, dn, slug, name, leafDays, core.SealRequired)
+}
+
+// startDemoNodeSealed is startDemoNode under another seal policy, which its card then advertises.
+func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name string, leafDays int, seal core.Seal) *demoNode {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	st, err := store.OpenSQLite(filepath.Join(dir, slug+".db"))
@@ -184,7 +190,7 @@ func startDemoNode(t *testing.T, clock *demoClock, dn *demoNet, slug, name strin
 	}
 	d.install(identity.PurposeSignup, d.endpoint(), leafDays, clock.now())
 
-	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: core.SealRequired, ClientCert: core.ClientCertPreferred, LANConnections: true}
+	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: seal, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
 		Limits: limitstest.StartDefault(t).Client,
 		Audit: func(action, resource, outcome string) {

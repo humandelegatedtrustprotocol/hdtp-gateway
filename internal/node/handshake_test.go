@@ -107,7 +107,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 		}
 	}
 	// A request that is refused is a refusal, never a request that landed: Chitra already has one.
-	peer, err := alina.n.peerOf(alina.acct.ID, alina.contact(chitra.rootFpr()))
+	peer, err := alina.n.PeerOf(alina.acct.ID, alina.contact(chitra.rootFpr()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peerA, err := chitra.n.peerOf(chitra.acct.ID, chitra.contact(alina.rootFpr()))
+	peerA, err := chitra.n.PeerOf(chitra.acct.ID, chitra.contact(alina.rootFpr()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peerAD, err := dmitri.n.peerOf(dmitri.acct.ID, dmitri.contact(alina.rootFpr()))
+	peerAD, err := dmitri.n.PeerOf(dmitri.acct.ID, dmitri.contact(alina.rootFpr()))
 	if err != nil {
 		t.Fatal(err)
 	}

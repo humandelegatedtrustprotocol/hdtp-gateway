@@ -52,7 +52,7 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 	}
 	announcer := &identity.Announcer{Manager: n.idm, Audit: n.opts.audit, Now: n.opts.Now}
 	done, failed, err = announcer.Fanout(ctx, camp, card, func(ctx context.Context, c store.Contact, card string) (string, error) {
-		peer, err := n.peerOf(accountID, c)
+		peer, err := n.PeerOf(accountID, c)
 		if err != nil {
 			return "", err
 		}
