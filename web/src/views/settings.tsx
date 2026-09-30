@@ -185,7 +185,7 @@ function PresetForm({ p, allPerms, onSaved, isNew }: { p: PresetRow; allPerms: s
       <div className="fields">
         {isNew && (
           <Field label="Name" help="a-z, 0-9, dash, underscore">
-            <input value={name} onChange={(e) => setName(e.target.value)} />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
         )}
         {allPerms.map((x) => (
