@@ -1,24 +1,31 @@
-import { useEffect, useState } from "react";
-import { currentAccount, getJSON } from "../api";
-import { Button, EmptyState, Notice, PageHeader, Readout, Section } from "../ui";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, currentAccount, failureOf, getJSON } from "../api";
+import { Button, EmptyState, Failed, Notice, PageHeader, Readout, Section } from "../ui";
+import { CopyId, IdText, UrlText } from "../glance";
 
-type Data = { card: string; sig: string; slug: string };
+// endpoint, root_fingerprint and kid are read by the node from the card's own certificate
+// (manage_pages.go getAPICard), under the names the cloud's card read uses.
+type Data = { card: string; sig: string; slug: string; endpoint: string; root_fingerprint: string; kid: string };
 
 export function CardView() {
   const [d, setD] = useState<Data | null>(null);
-  const [err, setErr] = useState("");
+  // "none": the identity has no certificate yet (404); any other refusal is said as the failure it is.
+  const [err, setErr] = useState<"none" | string>("");
   const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    getJSON<Data>("/api/card").then(setD).catch(() => setErr("No card yet — this account may have no public endpoint."));
+  const load = useCallback(() => {
+    setErr("");
+    getJSON<Data>("/api/card").then(setD).catch((e) => setErr(e instanceof ApiError && e.status === 404 ? "none" : failureOf(e)));
   }, []);
+  useEffect(() => { load(); }, [load]);
+  const download = "/card.vcf" + (currentAccount() ? "?account=" + encodeURIComponent(currentAccount()) : "");
   const header = (
     <PageHeader
       title="Your card"
       sub="This vCard is your address: hand it to people the way you would a phone number. The certificate inside names your identity — the root you hold in your wallet — and that is what everyone pins."
-      actions={d && <Button href={"/card.vcf" + (currentAccount() ? "?account=" + encodeURIComponent(currentAccount()) : "")} download={`${d.slug}.vcf`}>Download {d.slug}.vcf</Button>}
     />
   );
-  if (err) return <main><PageHeader title="Your card" /><Notice kind="warn">{err}</Notice></main>;
+  if (err === "none") return <main>{header}<Notice kind="warn">No card yet — this identity has no certificate, so it has nothing to hand out. The Identity page says how its wallet makes one.</Notice></main>;
+  if (err) return <main>{header}<Failed what="your card" error={err} retry={load} /></main>;
   if (!d) return <main>{header}<EmptyState loading /></main>;
   const copy = () => {
     navigator.clipboard?.writeText(d.card).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
@@ -26,9 +33,21 @@ export function CardView() {
   return (
     <main>
       {header}
-      <Section title="vCard" footer={<Button variant="secondary" icon="copy" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>}>
-        <pre>{d.card}</pre>
-        {d.sig && <p className="muted">signature: <Readout value={d.sig} /></p>}
+      <Section title="What it says"
+        footer={<>
+          <Button href={download} download={`${d.slug}.vcf`}>Download</Button>
+          <Button variant="secondary" icon="copy" onClick={copy}>{copied ? "Copied" : "Copy vCard"}</Button>
+        </>}>
+        <dl className="facts">
+          <dt>Address</dt><dd><UrlText url={d.endpoint} /></dd>
+          <dt>Root</dt><dd><IdText id={d.root_fingerprint} /><span className="muted"> — your identity: what contacts pin</span></dd>
+          <dt>Host key</dt><dd><IdText id={d.kid} /><span className="muted"> — this node's key, which a renewal replaces</span></dd>
+        </dl>
+        <details className="raw">
+          <summary>Show vCard</summary>
+          <pre>{d.card}</pre>
+          {d.sig && <p className="muted">Signature <Readout value={d.sig} /> <CopyId id={d.sig} /></p>}
+        </details>
       </Section>
     </main>
   );

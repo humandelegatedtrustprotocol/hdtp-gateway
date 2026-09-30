@@ -21,6 +21,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
@@ -1029,6 +1030,15 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	if !strings.Contains(textOf(res), "X-PACT-CERT") {
 		t.Fatalf("export_card returned no card: %s", textOf(res))
 	}
+	// ...and what the owner reads it by, as the portal's card read answers them (contacts.CardFacts):
+	// the address and root its certificate names, and the key it is served under.
+	var facts contacts.CardFacts
+	if err := json.Unmarshal([]byte(textOf(res)), &facts); err != nil {
+		t.Fatalf("export_card: %v %s", err, textOf(res))
+	}
+	if pinned, err := contacts.ValidateInbound(facts.Card); err != nil || facts.Endpoint != pinned.Endpoint || facts.Root != pinned.Key || facts.Root == "" || facts.Kid == "" {
+		t.Fatalf("export_card facts %+v (%v)", facts, err)
+	}
 
 	// audit_query returns rows and honours its filter
 	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
@@ -1061,8 +1071,8 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	}
 }
 
-// AC (P9-02): `/` shows the resolved posture, the identities and recent
-// activity — and still routes to the wizard while no passkey exists, because
+// AC (P9-02): `/` shows the resolved posture and the identities the owner
+// administers — and still routes to the wizard while no passkey exists, because
 // that gate is what stops a node being claimed by whoever finds it first.
 func TestDashboardShowsStateAndKeepsTheWizardGate(t *testing.T) {
 	ctx := context.Background()

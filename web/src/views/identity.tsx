@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchSession, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
+import { failureOf, fetchSession, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
 
 type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string; web_wallet?: boolean; root_fingerprint?: string };
 type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
@@ -11,9 +11,10 @@ export function Identity() {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [algo, setAlgo] = useState("p256");
-  const load = useCallback(() => getJSON<Data>("/api/identity").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/identity").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
-  if (!d) return <main><PageHeader title="Identity" /><EmptyState loading /></main>;
+  if (!d) return <main><PageHeader title="Identity" />{err ? <Failed what="this node's identities" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const create = async () => {
     const r = await postForm("/identity/create", { slug, name, algo });
@@ -54,10 +55,20 @@ export function Identity() {
         </Section>
       )}
       {d.rows.map((a) => (
-        <Section key={a.id} title={a.display_name} meta={<><Badge mono>{a.slug}</Badge><Badge mono>{a.algo}</Badge></>}
+        // An identity with no root has no certificate, and so no card and no address: that is its status,
+        // said as a warning. The key algorithm answers no question an owner asks; it is in the details line.
+        <Section key={a.id} title={a.display_name}
+          meta={<><Badge mono>{a.slug}</Badge>{!a.root_fingerprint && <Badge tone="warn">no certificate yet</Badge>}</>}
           footer={a.web_wallet ? <Button variant="secondary" href={"/identity/" + encodeURIComponent(a.slug) + "/wallet"}>Sign with my web wallet</Button> : undefined}>
           <p><Readout value={a.fingerprint} copy /></p>
-          {!a.root_fingerprint && <p className="muted">Its first certificate comes from your command-line wallet: <code>pact-gateway account csr -slug {a.slug}</code>, <code>pact id issue</code>, then <code>pact-gateway account install-leaf -slug {a.slug}</code>.</p>}
+          <p className="help">Host key · {a.algo}</p>
+          {!a.root_fingerprint && (
+            <>
+              <p className="muted">Its first certificate comes from your command-line wallet. Run these three, in order:</p>
+              {/* One command a line, whole, with a copy button: inline, they broke mid-token ('install-leaf -slug work-consulting-and-' / 'advisory'). */}
+              <Readout block pre copy value={`pact-gateway account csr -slug ${a.slug}\npact id issue\npact-gateway account install-leaf -slug ${a.slug}`} />
+            </>
+          )}
         </Section>
       ))}
       {d.rows.length === 0 && <EmptyState title="No identities yet" />}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { csrf, currentAccount, getJSON } from "../api";
-import { Badge, Button, CsrfFields, EmptyState, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
+import { csrf, currentAccount, failureOf, getJSON } from "../api";
+import { Badge, Button, CsrfFields, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
 type SettingRow = {
   key: string; value: string; locked: boolean; reason: string; restart: boolean;
@@ -21,10 +21,11 @@ type Data = {
 
 export function Settings() {
   const [d, setD] = useState<Data | null>(null);
-  const load = useCallback(() => getJSON<Data>("/api/settings").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/settings").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
   const header = <PageHeader title="Settings" />;
-  if (!d) return <main>{header}<EmptyState loading /></main>;
+  if (!d) return <main>{header}{err ? <Failed what="this node's settings" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   // Settings posts itself: the knob KEYS are the field names, and unchecked
   // bools must still submit (the handler treats presence as the signal for

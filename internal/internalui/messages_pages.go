@@ -52,15 +52,21 @@ type convContact struct {
 	// inventing a signal we are not entitled to. Granted, it is green when we
 	// have confirmed contact with them just now and amber when we have not.
 	Presence string `json:"presence"`
-	Since    string `json:"since"`
+	// LastSeen is when that evidence is from (unix seconds), 0 for none. The view says it in the
+	// reader's own words and clock (web/src/words.ts `ago`), as every other time on the page.
+	LastSeen int64 `json:"last_seen,omitempty"`
 }
 
 type convMessage struct {
 	Mine bool   `json:"mine"` // right-hand side: we sent it
 	Body string `json:"body"`
 	Who  string `json:"who"` // agent | human, per PACT §6.2's mandatory labelling
-	When string `json:"when"`
-	Bad  string `json:"bad"` // a delivery that did not land, said plainly
+	// TS is when it was written (unix seconds). The view says it (web/src/words.ts `when`): a time
+	// formatted here was the host's clock and the host's words, one format of five on the page.
+	TS int64 `json:"ts"`
+	// Until is when an outbound message still being tried stops being tried (unix seconds), for
+	// the line that says so; 0 for any other message.
+	Until int64 `json:"until,omitempty"`
 	// Media is set when the row is a media message (§7.4). A media row's BODY is
 	// a JSON reference, not prose: rendering it raw showed the owner a blob of
 	// JSON and gave them nothing to click — the same defect the thread page was
@@ -123,12 +129,12 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		name := labels[c.Fingerprint]
-		presence, since := presenceOf(r.Context(), d.Store, account, threads, c)
+		presence, seen := presenceOf(r.Context(), d.Store, account, threads, c)
 		people = append(people, convContact{
 			Fpr: c.Fingerprint, Name: name, Status: c.Status,
 			Preview:  previewOf(r.Context(), d.Store, account, threads, c.Fingerprint),
 			Selected: c.Fingerprint == selected,
-			Presence: presence, Since: since,
+			Presence: presence, LastSeen: seen,
 		})
 	}
 	sort.SliceStable(people, func(i, j int) bool {
@@ -151,7 +157,10 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
 			cm := convMessage{
 				Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
-				When: shortTime(m.CreatedAt), Bad: deliveryNote(m), State: deliveryState(m),
+				TS: m.CreatedAt, State: deliveryState(m),
+			}
+			if cm.State == "retrying" {
+				cm.Until = m.Deadline()
 			}
 			if m.Kind == "media" {
 				if ref, ok := parseMediaRef(m.Body); ok {
@@ -303,7 +312,7 @@ const presenceWindow = 5 * time.Minute
 // probe is sent: asking every contact whether they are up, on every page render,
 // would be a burst of traffic to answer a decoration.
 func presenceOf(ctx context.Context, st store.MessageStore, account string,
-	threads []store.Thread, c store.Contact) (state, since string) {
+	threads []store.Thread, c store.Contact) (state string, last int64) {
 
 	granted := false
 	for _, p := range c.TheirPermissions {
@@ -313,9 +322,8 @@ func presenceOf(ctx context.Context, st store.MessageStore, account string,
 		}
 	}
 	if !granted {
-		return "", ""
+		return "", 0
 	}
-	var last int64
 	for _, m := range historyWith(ctx, st, account, threads, c.Fingerprint) {
 		// Inbound at all, or outbound that actually landed.
 		if m.Direction == "in" || m.Status == "delivered" {
@@ -324,13 +332,10 @@ func presenceOf(ctx context.Context, st store.MessageStore, account string,
 			}
 		}
 	}
-	if last == 0 {
-		return "away", "no contact yet"
+	if last != 0 && time.Since(time.Unix(last, 0)) <= presenceWindow {
+		return "online", last
 	}
-	if time.Since(time.Unix(last, 0)) <= presenceWindow {
-		return "online", "active just now"
-	}
-	return "away", "last seen " + shortTime(last)
+	return "away", last
 }
 
 // historyWith is every message exchanged with one contact, oldest first.
@@ -395,8 +400,6 @@ func previewOf(ctx context.Context, st store.MessageStore, account string,
 	return body
 }
 
-// deliveryNote says plainly when a message did not land, rather than showing it
-// the same as one that did.
 // deliveryState is what an outbound message is doing, for the tick-or-clock the
 // inbox draws. It separates the two things "pending" used to mean: an attempt
 // still in flight (nothing has gone wrong; the first attempt runs inline and
@@ -420,39 +423,6 @@ func deliveryState(m store.Message) string {
 	default:
 		return "failed"
 	}
-}
-
-func deliveryNote(m store.Message) string {
-	if m.Direction != "out" {
-		return ""
-	}
-	switch m.Status {
-	case "", "delivered":
-		return ""
-	case "pending":
-		if m.Attempts == 0 {
-			// In flight. The tick shows it; words would only alarm.
-			return ""
-		}
-		return "not delivered yet — retrying"
-	case "expired":
-		return "never delivered"
-	default:
-		return m.Status
-	}
-}
-
-// shortTime is a timestamp a person reads at a glance: the clock for today, the
-// date for anything older.
-func shortTime(unix int64) string {
-	if unix == 0 {
-		return ""
-	}
-	t := time.Unix(unix, 0)
-	if time.Since(t) < 24*time.Hour {
-		return t.Format("15:04")
-	}
-	return t.Format("2 Jan 15:04")
 }
 
 func shortFpr(f string) string {

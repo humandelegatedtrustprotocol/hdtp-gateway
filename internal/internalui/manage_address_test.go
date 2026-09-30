@@ -91,9 +91,15 @@ func TestTheRequestsTabDecidesAContactAtANewAddress(t *testing.T) {
 		}
 	}
 
-	// The dashboard's "N waiting" links to this tab, so it counts what the tab holds.
-	rr = httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/dashboard", nil))
+	// The dashboard's "N waiting" links to this tab, so it counts what the tab holds. It answers an
+	// owner, for the identities they administer.
+	if _, err := st.CreateOwnerWithID(ctx, "owner-me", "Me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership(ctx, "owner-me", acct, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	rr = asOwner(t, mux, "owner-me", "/api/dashboard")
 	var dash struct {
 		Accounts []struct {
 			Pending int `json:"pending"`

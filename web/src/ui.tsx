@@ -2,13 +2,8 @@
 // primitives every view is composed from (see the block at the end).
 import type { ReactNode } from "react";
 import { PRODUCT } from "./product";
-
-export function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { initialsOf } from "./words";
+export { initialsOf };
 
 // A stable colour per name, from a fixed palette that reads on white and dark: the kit's avatar fills
 // first, each dark enough for white initials at 4.5 : 1 (tools/kit.mjs check holds every one).
@@ -21,7 +16,11 @@ function hue(name: string): string {
 
 export function Avatar({ name, size, me }: { name: string; size?: "sm" | "lg"; me?: boolean }) {
   const cls = "av" + (size ? " " + size : "") + (me ? " me" : "");
-  return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initialsOf(name)}</span>;
+  // Nobody's name: a neutral figure, never initials made of whatever stood in for one ('SH' from a
+  // fingerprint's `sha256:`, 'JN' from a short fingerprint, '(' from a bracket).
+  const initials = initialsOf(name);
+  if (!me && !initials) return <span className={cls + " anon"} aria-hidden="true"><Icon name="person" size={size === "lg" ? 22 : size === "sm" ? 14 : 16} /></span>;
+  return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initials || "?"}</span>;
 }
 
 /**
@@ -78,6 +77,7 @@ const PATHS: Record<string, string> = {
   home: "M4 11l8-7 8 7v9h-5v-6H9v6H4z",
   key: "M15 7a4 4 0 1 1-4 4l-7 7v3h3l1-1v-2h2v-2h2l1-1a4 4 0 0 1 2-8z",
   shield: "M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z",
+  person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5a7.5 7.5 0 0 1 15 0",
   cog: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM4 12h2M18 12h2M12 4v2M12 18v2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M6.3 17.7l1.4-1.4M16.3 7.7l1.4-1.4",
   list: "M4 6h16M4 12h16M4 18h10",
   rail: "M11 17l-5-5 5-5M18 17l-5-5 5-5",
@@ -101,8 +101,9 @@ export function Icon({ name, size }: { name: keyof typeof PATHS; size?: number }
  * readout. A view that needs something these cannot express changes the
  * primitive, not the view — the rule the lint on inline styles enforces.
  * ---------------------------------------------------------------------- */
-import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState, type MouseEvent, type ReactElement } from "react";
+import { Children, cloneElement, Fragment, isValidElement, useEffect, useId, useRef, useState, type MouseEvent, type ReactElement } from "react";
 import { Link } from "./router";
+import { statusWord, toneOf, type Tone } from "./words";
 
 export type IconName = keyof typeof PATHS;
 
@@ -200,26 +201,16 @@ export function Field({ label, help, mono, check, id, children }: { label: React
   );
 }
 
-export type Tone = "neutral" | "ok" | "warn" | "bad";
-// Outcomes are a bounded vocabulary in Go, but a wide one, and this has to
-// colour a row it has never seen. The good and waiting cases are named exactly;
-// a refusal is recognised by shape, so a code added tomorrow lands red rather
-// than quietly grey — the audit view counts these as refusals, and a refusal
-// the portal cannot recognise is one the owner never sees.
-const OK = /^(ok|active|live|allowed|paired|set|read|delivered|delivered_on_retry|accepted|sealed|connected|rebuilt|started|stopped)$/;
-const WARN = /^(connecting|pending|pending_in|pending_out|pending_approval|write|waiting|retrying|late|skipped|replayed)$/;
-const BAD = /(denied|error|failed|refused|reject|invalid|unreachable|unavailable|expired|revoked|blocked|mismatch|_required|unknown|^not_|too_large|missing|unreadable|^bad_|stale|undelivered)/;
-export function toneOf(status: string): Tone {
-  if (OK.test(status)) return "ok";
-  if (WARN.test(status)) return "warn";
-  if (BAD.test(status)) return "bad";
-  return "neutral";
-}
+// A status's tone and its words are words.ts's, shared with PACT Cloud's portal: one table for both.
+export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, when, whenTitle, ago, num, type Tone } from "./words";
 // Badge: four tones × {text, mono, count}. `status` derives tone and label.
 export function Badge({ tone, mono, count, status, title, children }: { tone?: Tone; mono?: boolean; count?: boolean; status?: string; title?: string; children?: ReactNode }) {
   const t = tone ?? (status ? toneOf(status) : "neutral");
   const cls = "pill" + (t !== "neutral" ? " " + t : "") + (mono ? " mono" : "") + (count ? " count" : "");
-  return <span className={cls} title={title}>{children ?? status?.replace(/_/g, " ")}</span>;
+  // Words are held in a span of their own so a pill wider than its box ends in an ellipsis (the whole
+  // of it in `title`) rather than running past the box or breaking onto a second line.
+  const body = children ?? (status !== undefined ? statusWord(status) : null);
+  return <span className={cls} title={title}>{typeof body === "string" ? <span className="pill-t">{body}</span> : body}</span>;
 }
 
 // Tabs: route tabs (`to`) and state filters (`onSelect`) are the same control.
@@ -263,14 +254,31 @@ export function ListRow({ leading, title, to, meta, description, trailing, selec
   );
 }
 
-// Table: owns the overflow wrapper and the empty row.
-export function Table({ head, children, empty }: { head: ReactNode[]; children?: ReactNode; empty?: ReactNode }) {
+// Table: owns the overflow wrapper and the empty row. On a phone it is a list of cards (`stack`, the
+// sheet's ≤700px block): each row a card, each cell between the first and the last said with its
+// column's name, which is set here from `head` as the cell's `data-label` so no view repeats it. A
+// table that lays itself out on a phone (the audit trail's) passes `stack={false}`.
+// A heading given as `{ label, num }` is a number column's: right-aligned with its cells (`td.num`).
+export type Head = ReactNode | { label: string; num: true };
+export function Table({ head: given, children, empty, stack = true }: { head: Head[]; children?: ReactNode; empty?: ReactNode; stack?: boolean }) {
+  const num = given.map((h) => typeof h === "object" && h !== null && "num" in h);
+  const head: ReactNode[] = given.map((h) => (typeof h === "object" && h !== null && "num" in h ? h.label : h));
   const n = Children.count(children);
+  const labelled = stack ? Children.map(children, (row) => {
+    if (!isValidElement<{ children?: ReactNode }>(row) || row.type !== "tr") return row;
+    let i = 0;
+    const cells = Children.map(row.props.children, (cell) => {
+      const at = i++;
+      if (!isValidElement(cell) || cell.type !== "td" || typeof head[at] !== "string" || head[at] === "") return cell;
+      return cloneElement(cell as ReactElement<{ "data-label"?: string }>, { "data-label": head[at] as string });
+    });
+    return cloneElement(row, {}, cells);
+  }) : children;
   return (
-    <div className="table-wrap">
+    <div className={"table-wrap" + (stack ? " stack" : "")}>
       <table>
-        <thead><tr>{head.map((h, i) => h === "" ? <th key={i} className="actions" aria-label="Actions" /> : <th key={i}>{h}</th>)}</tr></thead>
-        <tbody>{n === 0 ? <tr><td colSpan={head.length}>{empty ?? <EmptyState title="Nothing here yet" />}</td></tr> : children}</tbody>
+        <thead><tr>{head.map((h, i) => h === "" ? <th key={i} className="actions" aria-label="Actions" /> : <th key={i} className={num[i] ? "num" : undefined}>{h}</th>)}</tr></thead>
+        <tbody>{n === 0 ? <tr><td colSpan={head.length}>{empty ?? <EmptyState title="Nothing here yet" />}</td></tr> : labelled}</tbody>
       </table>
     </div>
   );
@@ -288,6 +296,16 @@ export function Notice({ kind, title, action, id, children }: { kind: NoticeKind
   );
 }
 
+// Failed: a read that was refused, said as one, with the way to ask again. A refusal is never drawn as
+// the loading box or an empty list: a 500 left People, the Inbox and Settings on a skeleton forever.
+export function Failed({ what, error, retry }: { what: string; error: string; retry?: () => void }) {
+  return (
+    <Notice kind="err" title={`Could not read ${what}`} action={retry && <Button variant="secondary" onClick={retry}>Try again</Button>}>
+      {error}
+    </Notice>
+  );
+}
+
 // EmptyState: the only loading and empty rendering.
 export function EmptyState({ title, action, loading, children }: { title?: ReactNode; action?: ReactNode; loading?: boolean; children?: ReactNode }) {
   if (loading) return <div className="empty loading" aria-busy="true" />;
@@ -301,36 +319,24 @@ export function EmptyState({ title, action, loading, children }: { title?: React
 }
 
 // Readout: a fingerprint, endpoint, command or signature — mono, breakable,
-// optionally copyable.
-export function Readout({ value, copy, block }: { value: string; copy?: boolean; block?: boolean }) {
+// optionally copyable. `dots`: a name read in pieces (a DNS name, a host) breaks after its dots first.
+// `pre`: lines kept whole (commands, one a line), scrolled sideways rather than broken mid-token.
+export function Readout({ value, copy, block, dots, pre }: { value: string; copy?: boolean; block?: boolean; dots?: boolean; pre?: boolean }) {
   const [done, setDone] = useState(false);
   const btn = copy && (
     <Button variant="link" title="Copy to clipboard" onClick={() => { navigator.clipboard?.writeText(value).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
       {done ? "Copied" : "Copy"}
     </Button>
   );
-  if (block) return <div className="readout block"><code>{value}</code>{btn}</div>;
-  return <span className="readout"><code>{value}</code>{btn && <> {btn}</>}</span>;
+  const text = dots ? value.split(/(?<=\.)(?=.)/).map((b, i) => <Fragment key={i}>{i > 0 && <wbr />}{b}</Fragment>) : value;
+  if (block) return <div className={"readout block" + (pre ? " pre" : "")}><code>{text}</code>{btn}</div>;
+  return <span className="readout"><code>{text}</code>{btn && <> {btn}</>}</span>;
 }
 
 // CsrfFields: what every self-posting form carries.
 import { csrf, currentAccount } from "./api";
 export function CsrfFields() {
   return <><input type="hidden" name="csrf" value={csrf()} /><input type="hidden" name="account" value={currentAccount()} /></>;
-}
-
-// permLabel: the human name of a PACT permission (SPEC §5).
-export function permLabel(name: string): string {
-  const L: Record<string, string> = {
-    "message.text": "Messages", "message.media": "Media & files", "status.view": "See status",
-    "calendar.availability": "Availability", "calendar.book": "Book time",
-  };
-  if (L[name]) return L[name];
-  if (name.startsWith("integration.")) {
-    const slug = name.slice("integration.".length);
-    return slug.charAt(0).toUpperCase() + slug.slice(1) + " tools";
-  }
-  return name;
 }
 
 // Menu: a popover anchored to its trigger — the account switcher today, a row's
@@ -380,27 +386,40 @@ export const PLUMBING_TOOLS = new Set([
   "sealed_call", "request_contact", "redeem_invite", "contact_accepted", "contact_rejected",
 ]);
 
-// toolLabel: a peer's tool name as a person reads it.
-export function toolLabel(name: string): string {
-  const L: Record<string, string> = {
-    get_status: "Status", check_availability: "Availability", book_slot: "Book time", cancel_booking: "Cancel booking",
-  };
-  return L[name] ?? name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-}
-
 // Chips: toggleable filters. Tabs are a navigation bar with a rule under them
 // and one active item; a filter row is a set of independent switches that can
 // all be off, which is a different thing and looked wrong borrowed.
-export function Chips({ children, "aria-label": label }: { children?: ReactNode; "aria-label"?: string }) {
-  return <div className="chips" role="group" aria-label={label}>{children}</div>;
+export function Chips({ children, className, "aria-label": label }: { children?: ReactNode; className?: string; "aria-label"?: string }) {
+  return <div className={"chips" + (className ? " " + className : "")} role="group" aria-label={label}>{children}</div>;
 }
 
-export function Chip({ on, count, tone, onClick, children }: {
-  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; children: ReactNode;
+/**
+ * A row of chips, said as one select on a phone: the sheet's ≤700px rule shows `.chip-pick` in place of
+ * the chips it stands for (`.chip.picked`, and a whole `.chips.phone-pick` row). Twelve action chips
+ * wrapped into five rows before the first entry.
+ */
+export function ChipPick({ label, all, value, options, onChange, say = (k) => k, className = "chip-pick" }: {
+  label: string; all: string; value: string | null; options: [string, number][]; onChange: (v: string | null) => void;
+  /** An option's words (the code stays its value). */
+  say?: (k: string) => string;
+  /** `chip-more`: the select that holds what a row of chips has no room for, shown at every width. */
+  className?: string;
+}) {
+  const on = value !== null && options.some(([k]) => k === value);
+  return (
+    <select className={className + (on && className === "chip-more" ? " on" : "")} aria-label={label} value={on ? value ?? "" : ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{all}</option>
+      {options.map(([k, n]) => <option key={k} value={k} title={k}>{say(k)} ({n})</option>)}
+    </select>
+  );
+}
+
+export function Chip({ on, count, tone, onClick, className, title, children }: {
+  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; className?: string; title?: string; children: ReactNode;
 }) {
   return (
-    <button type="button" className={"chip" + (on ? " on" : "") + (tone && tone !== "neutral" ? " " + tone : "")}
-      aria-pressed={on} onClick={onClick}>
+    <button type="button" className={"chip" + (on ? " on" : "") + (tone && tone !== "neutral" ? " " + tone : "") + (className ? " " + className : "")}
+      aria-pressed={on} onClick={onClick} title={title}>
       {children}{count !== undefined && <span className="n">{count}</span>}
     </button>
   );
