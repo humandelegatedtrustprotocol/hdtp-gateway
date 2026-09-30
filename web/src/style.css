@@ -863,6 +863,7 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
    line of its own under the row (preset_grid.tsx), the row back as it is saved. */
 .preset-grid tr.pg-saving .pg-chip{cursor:progress;opacity:.6}
 .preset-grid tbody tr.pg-fail > td{padding:0 .85rem .6rem;text-align:left;white-space:normal}
+.preset-grid tbody tr.pg-fail .notice{margin:0}
 @media (max-width:480px){
   .preset-grid{overflow:visible}
   .preset-grid > table,.preset-grid > table > tbody{display:block;border:0;background:none;border-radius:0;min-width:0}
