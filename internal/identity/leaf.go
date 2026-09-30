@@ -50,7 +50,9 @@ const (
 // RenewalWindow is how far ahead a host asks for a renewal (PACT §2: thirty days).
 const RenewalWindow = 30 * 24 * time.Hour
 
-// ToLib converts a keypair to the library's private key.
+// ToLib converts a keypair to the library's private key, re-encoding it (PKCS#8 out, then in) on
+// every call. An outbound call (outbound/seal.go) and a signing request (issueCSR) use it; the
+// inbound path does not: a LeafKey holds that form, made once (Lib).
 func ToLib(kp *Keypair) (*pactidentity.PrivateKey, error) {
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
@@ -114,7 +116,8 @@ func EndpointFor(publicURL, slug string) string {
 // every form its readers take, each made once when the key is opened: KP signs and presents it,
 // PKCS8 is what the identity library's Decide is handed, and Lib is the library's own form, which
 // an envelope is opened and an answer sealed with. Each used to be re-encoded from KP at every use,
-// on every sealed call.
+// on every sealed call. That is the inbound path only: a call this host makes still converts its
+// keypair at every call (ToLib, from outbound/seal.go).
 type LeafKey struct {
 	Kid      string
 	Leaf     []byte

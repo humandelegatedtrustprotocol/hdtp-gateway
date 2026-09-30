@@ -37,8 +37,6 @@ type SealedDeps struct {
 	Pool       *Pool
 	Identifier *Identifier
 	AccountID  string
-	// Keypair unseals the account identity key (to open and to sign results).
-	Keypair func(ctx context.Context) (*identity.Keypair, error)
 	// Idem is optional; nil disables envelope-level msg_id replay.
 	Idem  IdempotencyStore
 	Now   func() time.Time
