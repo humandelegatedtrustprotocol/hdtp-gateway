@@ -219,6 +219,63 @@ func pinsOf(contacts []store.Contact) []pactidentity.Pin {
 	return pins
 }
 
+// signer is the leaf a `pending_approval` was decided under, and the form that named it.
+type signer struct {
+	root string
+	spki []byte
+	leaf []byte
+	form string
+}
+
+// signerOf is who signed an envelope Decide answered `pending_approval`, read from the proof the node
+// peeked (the same plaintext Decide opened) and the pins it handed Decide. pact-identity 0.4.1 answers
+// that code with nothing but the code, and only after the signature verified (envelope.go, Decide):
+// in the full form under the chain's leaf, once the chain validated; in the small form under the
+// pinned leaf the envelope names. So the key is that leaf's, and the refusal can be sealed to it.
+//
+// The pin the answer was decided for must be `pending_out` — the one state Decide answers this for —
+// or no signer is named and the refusal goes out as itself (sealBackErr): the node never seals to a
+// key other than the one Decide verified.
+func signerOf(p peeked, pins []pactidentity.Pin) (signer, bool) {
+	switch {
+	case len(p.Chain) == 2:
+		leafDER, rootDER := pactidentity.FromB64url(p.Chain[0]), pactidentity.FromB64url(p.Chain[1])
+		leaf, errLeaf := pactidentity.Parse(leafDER)
+		rootCert, errRoot := pactidentity.Parse(rootDER)
+		if errLeaf != nil || errRoot != nil {
+			return signer{}, false
+		}
+		root := pactidentity.FingerprintOf(rootCert)
+		for _, pin := range pins {
+			if pin.Root == root {
+				if pin.State != "pending_out" {
+					return signer{}, false
+				}
+				return signer{root: root, spki: leaf.SPKI, leaf: leafDER, form: "chain"}, true
+			}
+		}
+	case p.Leaf != "":
+		// pinHolding's reading (pact-identity envelope.go): the first pin that is not blocked, whose
+		// column does not name another leaf, and whose leaf's own fingerprint is the one named. The
+		// match is on the fingerprint computed from the leaf, not on the column.
+		for _, pin := range pins {
+			if pin.State == "blocked" || (pin.LeafFingerprint != "" && pin.LeafFingerprint != p.Leaf) {
+				continue
+			}
+			leafDER := pactidentity.FromB64url(pin.Leaf)
+			leaf, err := pactidentity.Parse(leafDER)
+			if err != nil || pactidentity.Fingerprint(leaf.SPKI) != p.Leaf {
+				continue
+			}
+			if pin.State != "pending_out" {
+				return signer{}, false
+			}
+			return signer{root: pin.Root, spki: leaf.SPKI, leaf: leafDER, form: "leaf"}, true
+		}
+	}
+	return signer{}, false
+}
+
 // decideEnvelope is the `v: 2` half of OpenSealed.
 func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
 	if id.RecipientState == nil {
@@ -238,7 +295,8 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	// total (errOpened).
 	key, _ := opener(now, e, st)
 	opened := key != nil
-	ns, err := id.nodeState(ctx, accountID, st, peekProof(now, e, st))
+	proof := peekProof(now, e, st)
+	ns, err := id.nodeState(ctx, accountID, st, proof)
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
@@ -276,9 +334,19 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		// contact_rejected, or a listing of them (a sealed tools/list answers at the
 		// pending tier): the contact request has not been answered yet, so
 		// nothing else runs. (A new address the owner has not approved is the
-		// `pending_new_address` tier below, not this.) Answered as a plain code,
-		// before any tier is earned; the decision carried no effects to apply.
-		return &EnvelopeFacts{Refusal: "pending_approval", state: st}, nil
+		// `pending_new_address` tier below, not this.) The refusal is sealed to the leaf that
+		// signed (PACT §13.2), read by signerOf; nothing is dispatched and no tier is earned.
+		//
+		// The effects Decide returns beside it are NOT applied: in the full form they can carry a
+		// pending contact's newer leaf, or its new address under `auto` (pact-identity envelope.go),
+		// and they are dropped (docs/release/port-parity-2026-09-29.md, §5).
+		facts := &EnvelopeFacts{Refusal: "pending_approval", state: st}
+		if sg, ok := signerOf(proof, ns.Pins); ok {
+			var h envelope.Header
+			_ = json.Unmarshal(pactidentity.FromB64url(e.Protected), &h)
+			facts.Header, facts.SPKI, facts.Leaf, facts.Form = h, sg.spki, sg.leaf, sg.form
+		}
+		return facts, nil
 	case "ok":
 	default:
 		return nil, fmt.Errorf("%w: undecided", envelope.ErrInvalid)

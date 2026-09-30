@@ -57,12 +57,12 @@ that cited test names exist and cannot check that the list is complete.
 | Code | Tests |
 |---|---|
 | `unknown_contact` | `TestPendingAnswerTools`, `TestAlwaysToolsAtContactTier` |
-| `pending_approval` — plaintext before the envelope opens, **sealed** once it has (§13.2) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestARefusalPastTheOpenIsSealed` |
+| `pending_approval` — in plaintext to a plaintext call (a repeated request); **sealed** to a sealed one once the envelope has opened (§13.2): a root at an address not yet approved, and a `pending_out` contact calling before its answer, in either form, sealed to the leaf that signed | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestARefusalPastTheOpenIsSealed`, `TestAPendingContactsSealedCallIsAnsweredPendingApproval` |
 | `permission_denied` | `TestCallTimeDenyOnAServerComposedBeforeTheRevocation`, `TestSealedGuestReachesGuestToolsOnly`, `TestOwnerActionsAreAuditedAsOwner` (audited, per §5.8) |
 | `invite_invalid` | `TestRedeemFailures`, `TestRedeemInvitePinsProvenKeyAndInvalidates` |
 | `blocked_or_unknown` (guest catch-all, indistinguishable by design) | `TestBlockedCallerIsIndistinguishableFromAStranger`, `TestLandingNoOracle404` |
 | `too_large` | `TestBoundaryCapsRejectOversizedInput`, `TestBodyCap`, `TestTextCap` |
-| `rate_limited` (+ `retry_after`) | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestARefusalPastTheOpenIsSealed`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
+| `rate_limited` (+ `retry_after`; sealed as a tool error inside `result` once the envelope has opened) | `TestEveryKindOfChargeIsLetThroughFreshAndRefusedOnceSpentAndAnotherIdentityIsUntouched`, `TestARefusalPastTheOpenIsSealed`, `TestAPendingContactsSealedCallIsAnsweredPendingApproval`, `TestGuestRateLimitIsEnforcedOnTheRealListener` |
 | `unavailable` (withheld capability or stale mapping) | `TestUnconfiguredCapabilityIsUnavailable`, `TestPickerShowsStaleAndReconfirmRestores` |
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |

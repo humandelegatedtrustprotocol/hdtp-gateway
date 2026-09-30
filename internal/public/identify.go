@@ -88,7 +88,8 @@ type EnvelopeFacts struct {
 	// proved nothing for it (blocked, superseded), so the caller is a guest
 	// whatever the pool would resolve; Endpoint and Leaf are the proven
 	// address and certificate; Form is chain or leaf; Refusal is a code the
-	// wrapper answers in plaintext (pending_approval) with nothing dispatched.
+	// wrapper answers with nothing dispatched (pending_approval), sealed to the
+	// key in SPKI (sealed.go, sealBackErr).
 	Tier         policy.Tier
 	Demote       bool
 	Endpoint     string
