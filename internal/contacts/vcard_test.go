@@ -150,3 +150,17 @@ func TestValidateInbound(t *testing.T) {
 		}
 	}
 }
+
+// The certificate is read by the identity core's rule (pact-identity 0.4.2's DecodeB64url): a
+// character outside base64url is a refusal, never skipped. The reader this replaced skipped it, so
+// a card the core and PACT Cloud refused was a card to this parser.
+func TestParseCardReadsTheCertificateByTheCoresRule(t *testing.T) {
+	good := testid.CardFor(t, "P", "https://p.example/mcp")
+	if _, err := ParseCard(good); err != nil {
+		t.Fatalf("a real card: %v", err)
+	}
+	bad := strings.Replace(good, "X-PACT-CERT:", "X-PACT-CERT:!", 1)
+	if _, err := ParseCard(bad); err == nil {
+		t.Fatal("ParseCard read a certificate with a character outside base64url")
+	}
+}

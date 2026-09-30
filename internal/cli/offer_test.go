@@ -136,6 +136,11 @@ func TestVerifyOfferRefusals(t *testing.T) {
 			"the root is the identity: accepting an unrelated one pins the wrong person",
 			func(o *inviteOffer) { o.Chain[1] = pactidentity.B64url(other.Wallet.RootDER) },
 		},
+		{
+			"a chain with a character outside base64url",
+			"it is refused as the identity core refuses it, never skipped (pact-identity 0.4.2's DecodeB64url)",
+			func(o *inviteOffer) { o.Chain[0] = "!" + o.Chain[0] },
+		},
 		// "a key that is not the leaf's" was a case here: the offer carried the key a second time
 		// as `spki`, and swapping it was refused. There is no second key now — the one sealed to is
 		// read from the validated leaf — so the swap cannot be attempted rather than being caught.

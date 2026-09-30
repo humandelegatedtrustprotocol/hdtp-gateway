@@ -402,10 +402,18 @@ func storeContact(accountID string, r pactidentity.ContactRow) (store.Contact, e
 		Petname: r.Name, CreatedAt: unixOf(r.Added), Endpoint: r.Endpoint, EverActive: r.WasActive,
 	}
 	if r.RootCert != nil {
-		c.RootCert = pactidentity.FromB64url(*r.RootCert)
+		der, err := pactidentity.DecodeB64url(*r.RootCert)
+		if err != nil {
+			return c, refuse("contacts.csv: %s: its root_cert is not base64url", r.Root)
+		}
+		c.RootCert = der
 	}
 	if r.Leaf != nil {
-		c.Leaf = pactidentity.FromB64url(*r.Leaf)
+		der, err := pactidentity.DecodeB64url(*r.Leaf)
+		if err != nil {
+			return c, refuse("contacts.csv: %s: its leaf is not base64url", r.Root)
+		}
+		c.Leaf = der
 		cert, err := pactidentity.Parse(c.Leaf)
 		if err != nil {
 			return c, refuse("contacts.csv: %s: its leaf does not parse", r.Root)

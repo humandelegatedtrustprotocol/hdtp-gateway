@@ -114,12 +114,12 @@ func resolveCommand(words []string) ([]string, bool) {
 	}
 	top := map[string]bool{
 		"serve": true, "ingress": true, "migrate": true, "doctor": true, "healthcheck": true,
-		"account": true, "passkey": true, "token": true, "audit": true, "export": true, "import": true, "version": true,
+		"account": true, "passkey": true, "token": true, "audit": true, "export": true, "import": true, "check": true, "version": true,
 	}
 	if !top[words[0]] {
 		return nil, false
 	}
-	multi := map[string]bool{"ingress": true, "account": true, "passkey": true, "token": true, "audit": true}
+	multi := map[string]bool{"ingress": true, "account": true, "passkey": true, "token": true, "audit": true, "check": true}
 	if multi[words[0]] {
 		if len(words) < 2 {
 			return words[:1], true
