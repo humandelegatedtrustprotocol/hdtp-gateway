@@ -168,7 +168,7 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .acts-status:empty{display:none}
 .acts-status::before{content:"\2713";font-weight:700}
 .notice .act.acts{flex:0 0 auto}
-/* A card that holds several forms (Settings' storage and presets): a form's closing row is followed by
+/* A card that holds several forms (Settings' storage, one per identity): a form's closing row is followed by
    the next form's heading, which it used to butt against. */
 .acts.foot + h3{margin-top:1.6rem}
 /* A field and the one button that saves it, side by side: the field gives way, the button never
@@ -182,6 +182,8 @@ details.card > .card-body > :last-child{margin-bottom:0}
   .acts-status{margin:0;justify-content:center}
   .notice .act.acts,.page-h .actions.acts,.row .trail:has(> .acts){flex:1 1 100%}
   .row .trail:has(> .acts){margin-left:0}
+  .acts.inline{flex-direction:row;align-items:center;width:auto}
+  .acts.inline > .btn,.acts.inline > button{width:auto}
 }
 .field{margin:0 0 .9rem}
 .field:not(.check){max-width:420px}
@@ -827,3 +829,38 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
 .field-l > label{margin:0}
 .field.check .field-l{align-items:flex-start;margin:0}
 .field.check .field-l button.tip-btn{margin-top:.2rem}
+
+/* The permission presets' grid (preset_grid.tsx): a preset a row, a permission a column, a checkbox where
+   they meet. It scrolls inside its own box when it is wider than the page. On a phone (≤480px) there is
+   no head: each preset is a card of chips that wrap, each chip its checkbox and the permission's name,
+   under a line with the preset's name and its buttons — one small row beside the name, not the phone's
+   full-width stack, which made each preset a screen tall. */
+.preset-grid table{min-width:100%}
+.preset-grid thead th.pg-col{text-align:center;padding:.5rem .45rem;min-width:4.5rem;line-height:1.35}
+.preset-grid .pg-h{cursor:help}
+.preset-grid tbody th.pg-name{text-align:left;font-weight:600;color:var(--ink);padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:normal;overflow-wrap:anywhere;min-width:10rem}
+.preset-grid tr:last-child th.pg-name{border-bottom:0}
+.preset-grid tbody tr:hover th.pg-name{background:var(--bg-2)}
+.preset-grid .pg-note{display:block;font-size:.8rem;font-weight:400;color:var(--muted)}
+.preset-grid td.pg-cell{text-align:center;padding:.35rem .45rem}
+.preset-grid .pg-chip{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;min-width:28px;min-height:28px;margin:0;cursor:pointer}
+.preset-grid .pg-chip input{margin:0}
+.preset-grid .pg-chip-t{display:none}
+.preset-grid input.pg-new{width:100%;min-width:7rem;max-width:12rem;font-weight:400}
+.preset-grid td.pg-acts{text-align:right;padding-left:.45rem}
+@media (max-width:480px){
+  .preset-grid{overflow:visible}
+  .preset-grid > table,.preset-grid > table > tbody{display:block;border:0;background:none;border-radius:0;min-width:0}
+  .preset-grid > table > thead{display:none}
+  .preset-grid > table > tbody > tr{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;padding:.6rem .55rem;margin:0 0 .5rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg)}
+  .preset-grid tbody th.pg-name{display:block;flex:1 1 auto;order:0;align-self:center;padding:0;border:0;background:none;min-width:0;overflow-wrap:break-word}
+  .preset-grid td.pg-acts{display:block;flex:0 0 auto;order:1;padding:0;border:0;background:none}
+  .preset-grid td.pg-cell{display:block;order:2;padding:0;border:0;background:none}
+  /* The line break between the name's line and the chips: an empty item a whole line wide. */
+  .preset-grid > table > tbody > tr::after{content:"";order:1;flex:0 0 100%;height:0;margin-top:-.35rem}
+  .preset-grid tbody tr:hover td,.preset-grid tbody tr:hover th.pg-name{background:none}
+  .preset-grid input.pg-new{max-width:none}
+  .preset-grid .pg-chip{min-height:30px;gap:.25rem;padding:.15rem .5rem .15rem .35rem;border:1px solid var(--line-2);border-radius:999px;background:var(--bg);font-size:.82rem;white-space:nowrap;color:var(--ink)}
+  .preset-grid .pg-chip:has(input:checked){border-color:var(--accent-ui);background:color-mix(in srgb,var(--accent-ui) 10%,var(--bg))}
+  .preset-grid .pg-chip-t{display:inline}
+}

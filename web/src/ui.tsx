@@ -163,10 +163,12 @@ export function Section({ title, description, meta, footer, footerStatus, tone, 
  * secondaries before it, one line on a wide screen and a full-width stack (primary on top) on a phone.
  * `foot` is a card's closing row (a rule above it, as Section's footer). `status` is what the row's last action did, a check and a few words beside the buttons ("Copied",
  * "Saved"): the button keeps its label. The status is a live region, there before it has words, so a
- * screen reader hears it arrive.
+ * screen reader hears it arrive. `inline` is a row that sits beside what it acts on (a grid row's name,
+ * preset_grid.tsx) and stays a row of its own width on a phone, where a full-width stack would stand
+ * taller than the thing it saves.
  */
-export function Actions({ children, status, foot, className }: { children?: ReactNode; status?: ReactNode; foot?: boolean; className?: string }) {
-  return <div className={"acts" + (foot ? " toolbar foot" : "") + (className ? " " + className : "")}><span className="acts-status" role="status">{status}</span>{children}</div>;
+export function Actions({ children, status, foot, inline, className }: { children?: ReactNode; status?: ReactNode; foot?: boolean; inline?: boolean; className?: string }) {
+  return <div className={"acts" + (foot ? " toolbar foot" : "") + (inline ? " inline" : "") + (className ? " " + className : "")}><span className="acts-status" role="status">{status}</span>{children}</div>;
 }
 
 /** A done action's moment: `flash()` sets it for a second and a half, then it clears itself. */
