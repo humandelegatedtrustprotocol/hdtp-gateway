@@ -68,6 +68,8 @@ var layerRank = map[string]int{
 	"internal/services/presence":         4,
 	"internal/services/integrationchain": 4,
 	"internal/services/retention":        4,
+	// the walk over the store's cards and certificates, read as the contacts package reads them
+	"internal/storecheck": 4,
 	// the node, and the integration adapters it must not reach into
 	"internal/node":                   5,
 	"internal/integrations/providers": 5,
