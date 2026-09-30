@@ -188,3 +188,20 @@ test("a number column's cells and heading are right-aligned together", () => {
   const num = rules(css).filter(([sel, d]) => /\btd\.num\b/.test(sel) && /\bth\.num\b/.test(sel) && value(d, "text-align") === "right");
   assert.ok(num.length > 0, "no rule aligns td.num and th.num right");
 });
+
+test("the presets' grid is a grid on a screen and wrapping chips on a phone", () => {
+  // A screen: the head shows, each cell is a bare checkbox (the permission's name is the column's), and
+  // a grid wider than the page scrolls in its own box (.table-wrap), not the page.
+  assert.equal(lastAt(css, ".preset-grid > table > thead", "display", 1280), null);
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 1280), "none");
+  assert.equal(lastAt(css, ".table-wrap", "overflow-x", 1280), "auto");
+  // A phone: no head, each preset a card of chips that wrap, each chip saying its permission and
+  // standing one line high.
+  assert.equal(lastAt(css, ".preset-grid > table > thead", "display", 390), "none");
+  assert.equal(lastAt(css, ".preset-grid > table > tbody > tr", "display", 390), "flex");
+  assert.equal(lastAt(css, ".preset-grid > table > tbody > tr", "flex-wrap", 390), "wrap");
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 390), "inline");
+  assert.equal(lastAt(css, ".preset-grid .pg-chip", "white-space", 390), "nowrap");
+  // The phone's rules end at 480: at 481 it is the grid again.
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 481), "none");
+});
