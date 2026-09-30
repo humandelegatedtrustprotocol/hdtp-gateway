@@ -110,7 +110,9 @@ button:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:default;filter:none
 label{display:block;margin:0 0 .3rem;font-weight:600;font-size:.86rem;color:var(--ink)}
 label.inline{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;font-size:.9rem;color:var(--text)}
 label.inline input[type="checkbox"],label.inline input[type="radio"]{margin:.28rem 0 0;flex:0 0 auto}
-input[type="text"],input[type="number"],input[type="password"],input[type="url"],input[type="email"],input[type="search"],input[type="datetime-local"],select,textarea{
+/* A text field is any input the browser draws as one: no `type` is type text. Every list of text
+   field types below is this one (web/test/style_test.mjs holds them equal). */
+input:not([type]),input[type="text"],input[type="number"],input[type="password"],input[type="url"],input[type="email"],input[type="search"],input[type="tel"],input[type="datetime-local"],select,textarea{
   width:100%;max-width:420px;height:var(--ctl-h);padding:0 .7rem;font:inherit;font-size:.92rem;background:var(--bg);color:var(--ink);
   border:1px solid var(--line-2);border-radius:9px;transition:border-color .12s,box-shadow .12s}
 select{max-width:420px}
@@ -453,7 +455,7 @@ main.tables{max-width:72rem}
   .thread-h .details{display:inline-flex}
   .msg{max-width:92%}
   .convs{border-right:0}
-  input[type="text"],input[type="number"],input[type="password"],select,textarea{max-width:none}
+  input:not([type]),input[type="text"],input[type="number"],input[type="password"],input[type="url"],input[type="email"],input[type="search"],input[type="tel"],input[type="datetime-local"],select,textarea{max-width:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* panel back button is a mobile affordance; the fingerprint pill yields to the name on narrow screens */
@@ -488,7 +490,7 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .sform .field{margin-bottom:.6rem}
 .sform label{margin:.3rem 0 .25rem;font-size:.82rem}
 .sform .help{font-weight:400;color:var(--muted)}
-.sform input[type="text"],.sform input[type="number"],.sform input[type="datetime-local"],.sform select,.sform textarea{max-width:none;font-family:var(--sans);font-size:.88rem;padding:.42rem .6rem}
+.sform input:not([type]),.sform input[type="text"],.sform input[type="number"],.sform input[type="password"],.sform input[type="url"],.sform input[type="email"],.sform input[type="search"],.sform input[type="tel"],.sform input[type="datetime-local"],.sform select,.sform textarea{max-width:none;font-family:var(--sans);font-size:.88rem;padding:.42rem .6rem}
 .sform fieldset.sub{border:1px solid var(--line);border-radius:9px;padding:.4rem .8rem .6rem;margin:0 0 .6rem}
 .sform legend{font-size:.8rem;font-weight:600;color:var(--ink);padding:0 .3rem}
 .sform .req{color:var(--accent-ink)}
