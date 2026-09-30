@@ -47,7 +47,8 @@ func TestAPendingContactsSealedCallIsAnsweredPendingApproval(t *testing.T) {
 			// the signature proved, at the guest charge, which the node's budget pays as a proven
 			// pending contact's: the guest bucket of that root at its address, no guest total, and its
 			// source known from then (node.chargeOf; TestASealedContactIsNotBudgetedAsAGuest, "a
-			// pending_out root"). It was asked for nobody, which pays as a stranger, total and all.
+			// pending_out root at the guest charge"). It was asked for nobody, which pays as a
+			// stranger, total and all.
 			var askedFor []string
 			s.pool.Limit = func(ctx context.Context, as Charge) *Refusal {
 				f := EnvelopeFactsFrom(ctx)
