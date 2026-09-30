@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { csrf, currentAccount, getJSON } from "../api";
 import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Section, Tabs, Toolbar, type Note } from "../ui";
+import { Breakable } from "../glance";
 
 type Tool = { name: string; description: string; risk: { write?: boolean; reasons?: string[] }; suggestion: string; exposed: boolean };
 type Entry = { tool: string; exposed_name: string; mode: string; recipe?: string; fallback?: string; stale?: boolean };
@@ -100,8 +101,9 @@ export function Exposure({ id }: { id: string }) {
 
   return (
     <main>
-      <PageHeader parent={PARENT} title={<>Exposure <span className="muted">·</span> {d.integration.Slug}</>}
-        meta={<Badge mono>catalog v{d.catalog.Version}</Badge>}
+      {/* The catalogue's version is the node's bookkeeping (which listing the exposures were confirmed
+          against), not something an owner decides by: it is in the heading's tooltip, not a pill. */}
+      <PageHeader parent={PARENT} title={<span title={`Tool listing v${d.catalog.Version}`}>Exposure <span className="muted">·</span> {d.integration.Slug}</span>}
         sub={<>Nothing is exposed by default. Expose only what the use-case needs, and prefer the <strong>narrowest credential that works</strong>. Read-only tools are the safe default; write-capable ones let contacts change things upstream.</>} />
 
       {d.has_stale && (
@@ -128,7 +130,7 @@ export function Exposure({ id }: { id: string }) {
             return (
               <ListRow key={t.name} selected={c.on}
                 leading={<input type="checkbox" checked={c.on} onChange={(e) => set(t.name, { on: e.target.checked })} aria-label={`Expose ${t.name}`} />}
-                title={<><code>{t.name}</code><Badge tone={t.risk.write ? "warn" : "ok"}>{t.risk.write ? "write" : "read"}</Badge>{stale && <Badge tone="bad">stale</Badge>}{c.on && c.name !== t.name && <span className="muted">as <code>{c.name}</code></span>}</>}
+                title={<><span className="tool-name" title={t.name}><Breakable text={t.name} /></span><Badge tone={t.risk.write ? "warn" : "ok"}>{t.risk.write ? "write" : "read"}</Badge>{stale && <Badge tone="bad">stale</Badge>}{c.on && c.name !== t.name && <span className="muted tool-name" title={c.name}>as <Breakable text={c.name} /></span>}</>}
                 description={t.description}
                 trailing={c.on && <Button variant="link" onClick={() => setOpen((o) => ({ ...o, [t.name]: !o[t.name] }))}>{open[t.name] ? "hide options" : "options"}</Button>}>
                 {c.on && open[t.name] && (

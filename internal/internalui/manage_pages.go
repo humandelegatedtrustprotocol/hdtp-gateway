@@ -13,6 +13,7 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 )
 
 type ManageDeps struct {
@@ -100,7 +101,7 @@ func (d ManageDeps) buildCard(r *http.Request, accountID string) (string, store.
 	// account whose wallet has not issued one yet has nothing to serve rather than a
 	// key to spell out. This used to fall back to a 1.x card built from the bare
 	// fingerprint, which is exactly the shape that no longer exists.
-	return "", a, fmt.Errorf("this account has no certificate yet; its card exists once a wallet has issued a leaf")
+	return "", a, fmt.Errorf("%w: its card exists once a wallet has issued a leaf", identity.ErrNoCertificate)
 }
 
 // decideAddress is the handler for one answer to a contact waiting at a new address.
@@ -308,14 +309,30 @@ func (d ManageDeps) getAPICard(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
 	card, a, err := d.buildCard(r, account)
 	if err != nil {
-		http.NotFound(w, r)
+		// No card is a state, and it is 404; anything else (the store, the ledger) is a failure the
+		// portal says as one, never as "no card yet".
+		if errors.Is(err, identity.ErrNoCertificate) || errors.Is(err, store.ErrNotFound) {
+			http.Error(w, `{"error":"no_card"}`, http.StatusNotFound)
+			return
+		}
+		http.Error(w, `{"error":"card_unavailable"}`, http.StatusInternalServerError)
 		return
 	}
 	sig := ""
 	if d.SignCard != nil {
 		sig, _ = d.SignCard(account, card)
 	}
-	apiJSON(w, map[string]any{"card": card, "sig": sig, "slug": a.Slug})
+	// The facts the page leads with are read from the card itself, through the intake a peer's card
+	// passes (the certificate's address and root) — never from the account row, so the page cannot say
+	// an address or a root the card does not. The names are the cloud's (/v1/identities/{slug}/card):
+	// endpoint, root_fingerprint, kid.
+	parsed, err := contacts.ValidateInbound(card)
+	if err != nil {
+		http.Error(w, `{"error":"card_unavailable"}`, http.StatusInternalServerError)
+		return
+	}
+	apiJSON(w, map[string]any{"card": card, "sig": sig, "slug": a.Slug,
+		"endpoint": parsed.Endpoint, "root_fingerprint": parsed.Key, "kid": a.Fingerprint})
 }
 
 // getCardVCF serves `GET /card.vcf`.

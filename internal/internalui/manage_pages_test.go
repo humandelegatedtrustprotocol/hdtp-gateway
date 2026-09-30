@@ -3,6 +3,8 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +17,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/public"
 	"github.com/pact-cloud/pact-gateway/internal/testid"
 )
@@ -205,6 +208,18 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	if !strings.Contains(rr2.Body.String(), "X-PACT-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
 		t.Fatalf("card payload: %s", rr2.Body.String())
 	}
+	// The facts beside it are the card's own: its certificate's address and root, and this host's key.
+	var got struct{ Endpoint, Root, Kid string }
+	var raw map[string]string
+	_ = json.Unmarshal(rr2.Body.Bytes(), &raw)
+	got.Endpoint, got.Root, got.Kid = raw["endpoint"], raw["root_fingerprint"], raw["kid"]
+	pinned, err := contacts.ValidateInbound(raw["card"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Endpoint != "https://pact.example/a/me/mcp" || got.Root != pinned.Key || got.Root == "" || got.Kid != "sha256:mykey" {
+		t.Fatalf("card facts %+v, want the card's endpoint and root %q, and the host key", got, pinned.Key)
+	}
 }
 
 // A request is approved in the portal, and the requester's NEXT call must see
@@ -366,5 +381,38 @@ func TestApproveWithAnOwnerEditedPreset(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/requests?account="+acct, nil))
 	if body := rr.Body.String(); !strings.Contains(body, `"close"`) || strings.Contains(body, `"basic"`) {
 		t.Fatalf("offered presets: %s", body)
+	}
+}
+
+// GET /api/card answers 404 only when there is no card (no certificate, no such identity) and 500 when
+// the card could not be built: a store failure used to read "No card yet" in the portal.
+func TestTheCardReadTellsNoCardApartFromAFailure(t *testing.T) {
+	_, st, _, acct := manageEnv(t)
+	for _, tc := range []struct {
+		name    string
+		account string
+		card    func(context.Context, string) (string, error)
+		want    int
+	}{
+		{"a card", acct, func(context.Context, string) (string, error) {
+			return testid.CardFor(t, "Sumit", "https://pact.example/a/me/mcp"), nil
+		}, http.StatusOK},
+		{"no certificate", acct, func(context.Context, string) (string, error) {
+			return "", fmt.Errorf("wrapped: %w", identity.ErrNoCertificate)
+		}, http.StatusNotFound},
+		{"no such identity", "acc-nobody", func(context.Context, string) (string, error) { return "card", nil }, http.StatusNotFound},
+		{"a failure", acct, func(context.Context, string) (string, error) { return "", errors.New("disk I/O error") }, http.StatusInternalServerError},
+	} {
+		mux := http.NewServeMux()
+		MountManagePages(mux, ManageDeps{Store: st, Contacts: &contacts.Manager{Store: st}, Audit: func(string, string, string) {}, Card: tc.card,
+			PublicURL: func() string { return "https://pact.example" }})
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/card?account="+tc.account, nil))
+		if rr.Code != tc.want {
+			t.Errorf("%s: %d %s, want %d", tc.name, rr.Code, rr.Body.String(), tc.want)
+		}
+		if tc.want == http.StatusInternalServerError && strings.Contains(rr.Body.String(), "disk") {
+			t.Errorf("%s: the failure's own text reached the wire: %s", tc.name, rr.Body.String())
+		}
 	}
 }

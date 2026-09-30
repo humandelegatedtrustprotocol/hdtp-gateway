@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { currentAccount, failureOf, getJSON } from "../api";
 import { aboutParts, actorOf, namedIn, resourceParts, searchText, type Directory, type Named as NamedId, type Part } from "../audit_names";
 import { Locator, Named, whenOf } from "../glance";
-import { Badge, Button, Chip, Chips, EmptyState, Notice, PageHeader, Table, Toolbar, toneOf } from "../ui";
+import { Badge, Button, Chip, ChipPick, Chips, EmptyState, Notice, PageHeader, Table, Toolbar, toneOf } from "../ui";
 
 type Row = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
 type Data = { rows: Row[] | null; actor: string; limit?: number; names?: Directory };
@@ -87,13 +87,15 @@ export function Audit() {
         <input type="search" placeholder="Search by name or id, action, outcome…" value={q}
           onChange={(e) => setQ(e.target.value)} aria-label="Search the audit trail" />
       </Toolbar>
-      <Chips aria-label="Filter by actor and outcome">
+      <Chips aria-label="Filter by actor and outcome" className="has-picks">
         <Chip on={refusedOnly} tone="bad" count={refusals} onClick={() => setRefusedOnly((v) => !v)}>Refusals</Chip>
         {kinds.map(([k, n]) => (
-          <Chip key={k} on={kind === k} count={n} onClick={() => setKind(kind === k ? null : k)}>{k}</Chip>
+          <Chip key={k} className="picked" on={kind === k} count={n} onClick={() => setKind(kind === k ? null : k)}>{k}</Chip>
         ))}
+        <ChipPick label="Filter by actor" all="Anyone" value={kind} options={kinds} onChange={setKind} />
+        <ChipPick label="Filter by action" all="Any action" value={action} options={actions} onChange={setAction} />
       </Chips>
-      <Chips aria-label="Filter by action">
+      <Chips aria-label="Filter by action" className="phone-pick">
         {actions.map(([a, n]) => (
           <Chip key={a} on={action === a} count={n} onClick={() => setAction(action === a ? null : a)}>{a}</Chip>
         ))}

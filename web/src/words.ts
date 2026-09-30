@@ -89,3 +89,55 @@ export function toolLabel(name: string, names?: IntegrationNames): string {
   if (one) return `${integrationName(one[1], names)} tools`;
   return words(name);
 }
+
+const ACTIONS: Readonly<Record<string, string>> = {
+  get_status: "Get status", check_availability: "Check availability", book_slot: "Book", cancel_booking: "Cancel booking",
+};
+
+/**
+ * The words on the button that calls a tool: a built-in tool's verb ("Check availability"), an integration's
+ * tool its own name ("Search", "Create issue"), and anything else "Run". The dock's title says which tool; the button says what pressing it does.
+ */
+export function toolAction(name: string): string {
+  if (ACTIONS[name]) return ACTIONS[name];
+  const m = /^integration\.([^.]+)\.(.+)$/.exec(name);
+  return m ? words(m[2].replace(/\./g, " ")) : "Run";
+}
+
+/**
+ * A name's initials, for an avatar: the first letter or digit of its first and last words, or the first
+ * two of a one-word name. Only letters and digits count ('Konstantin (board)' is not 'K('), a part in
+ * brackets is a note about the name rather than the name, and so is what follows a ' · ' (a namesake's
+ * short fingerprint: 'Alice · zS_0RT…' is Alice). A word cut short with an ellipsis is an id, not a name,
+ * and gives no letters. Nothing left means nothing to draw: the avatar shows a neutral figure instead.
+ */
+export function initialsOf(name: string): string {
+  const plain = name.split(/\s+·\s+/)[0].replace(/\([^)]*\)?|\[[^\]]*\]?/g, " ");
+  const parts = plain.split(/\s+/)
+    .filter((w) => !/…|\.\.\./.test(w))
+    .map((w) => [...w].filter((ch) => /[\p{L}\p{N}]/u.test(ch)))
+    .filter((cs) => cs.length > 0);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0].slice(0, 2).join("").toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const TRUST: Readonly<Record<string, string>> = { messages_only: "Messages only", may_instruct: "May instruct your agent" };
+
+/** A contact's trust flag as words: `messages_only` → "Messages only", `may_instruct` → "May instruct your agent". */
+export function trustWord(flag: string): string {
+  return TRUST[flag] ?? statusWord(flag);
+}
+
+/**
+ * What a tool's input field is called on the form: its schema's title; else its description, when that
+ * is short enough to be a label ('Search query' rather than 'q'); else its name. The name, when it is not
+ * the label, is shown beside it small, since it is what the tool's own documentation calls the field. A
+ * description that became the label is not said again as help.
+ */
+export function fieldLabel(name: string, schema: { title?: string; description?: string }): { text: string; help: string } {
+  const desc = (schema.description ?? "").trim();
+  if (schema.title) return { text: schema.title, help: desc };
+  if (desc && desc.length <= 48 && !desc.includes("\n")) return { text: desc.replace(/\.$/, ""), help: "" };
+  return { text: name, help: desc };
+}

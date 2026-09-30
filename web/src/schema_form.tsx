@@ -4,6 +4,7 @@
 // line), and anything else as raw JSON. It never invents fields: what the peer's
 // schema does not describe is offered as JSON, so nothing is hidden.
 import type { ReactNode } from "react";
+import { fieldLabel } from "./words";
 
 export type Schema = {
   type?: string | string[]; properties?: Record<string, Schema>; required?: string[];
@@ -63,9 +64,11 @@ function Field({ name, schema, required, value, onChange }: {
 }) {
   const t = typeOf(schema);
   const id = "sf-" + name.replace(/\W+/g, "_");
+  const { text, help } = fieldLabel(name, schema);
   const label = (
-    <label htmlFor={id}>{schema.title ?? name}{required && <span className="req"> *</span>}
-      {schema.description && <span className="help"> — {schema.description}</span>}
+    <label htmlFor={id}>{text}{required && <span className="req"> *</span>}
+      {text !== name && <code className="sf-key" title="The field's name in the tool's schema">{name}</code>}
+      {help && <span className="help"> — {help}</span>}
     </label>
   );
   if (schema.enum) {
@@ -83,7 +86,7 @@ function Field({ name, schema, required, value, onChange }: {
       <div className="field">
         <label className="inline" htmlFor={id}>
           <input id={id} type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked ? true : undefined)} />
-          {schema.title ?? name}{schema.description && <span className="help"> — {schema.description}</span>}
+          {text}{text !== name && <code className="sf-key" title="The field's name in the tool's schema">{name}</code>}{help && <span className="help"> — {help}</span>}
         </label>
       </div>
     );
@@ -131,8 +134,8 @@ function Field({ name, schema, required, value, onChange }: {
     const sub = (value && typeof value === "object" ? (value as Values) : {});
     return (
       <fieldset className="field sub">
-        <legend>{schema.title ?? name}{required && <span className="req"> *</span>}</legend>
-        {schema.description && <p className="help">{schema.description}</p>}
+        <legend>{text}{required && <span className="req"> *</span>}{text !== name && <code className="sf-key">{name}</code>}</legend>
+        {help && <p className="help">{help}</p>}
         <SchemaForm schema={schema} values={sub} onChange={(v) => onChange(Object.keys(v).length ? v : undefined)} />
       </fieldset>
     );

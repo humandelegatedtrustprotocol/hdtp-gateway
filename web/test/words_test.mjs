@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { permLabel, statusWord, toneOf, toolLabel } from "../src/words.ts";
+import { fieldLabel, initialsOf, permLabel, statusWord, toneOf, toolAction, toolLabel, trustWord } from "../src/words.ts";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -121,4 +121,45 @@ test("a tool and a permission are said as an owner reads them, the integration's
   assert.deepEqual(cases.map(([got]) => got), cases.map(([, want]) => want));
   // No label is the raw dotted name an owner cannot read.
   assert.ok(!/^Integration\./.test(toolLabel("integration.linear.create_issue")));
+});
+
+// What the module answers for an avatar, a tool's button, a trust flag and a field's label. PACT Cloud's
+// portal/test/words.test.ts runs its verbatim copy of the module against these same cases.
+export const INITIALS = [
+  ["Aarav Mehta", "AM"],
+  ["Research assistant (bot)", "RA"],
+  ["Acme Logistics Procurement Agent (EU-West)", "AA"],
+  ["Konstantin (board)", "KO"],
+  ["Alice · zS_0RTYx…jEobtk", "AL"],
+  ["research-bot@lab.example", "RE"],
+  ["Björn Þórðarson", "BÞ"],
+  ["JNljQ3XfOgp7…", ""],
+  ["JNljQ3Xf...KWTDKw", ""],
+  ["(bot)", ""],
+  ["", ""],
+];
+
+test("an avatar's initials are letters and digits of the name, never punctuation or an id", () => {
+  for (const [name, want] of INITIALS) assert.equal(initialsOf(name), want, name);
+});
+
+test("a tool's button says what pressing it does", () => {
+  assert.equal(toolAction("integration.github.search"), "Search");
+  assert.equal(toolAction("integration.linear.create_issue"), "Create issue");
+  assert.equal(toolAction("check_availability"), "Check availability");
+  assert.equal(toolAction("deepwiki_ask_wiki_question"), "Run");
+});
+
+test("a trust flag is said in words", () => {
+  assert.equal(trustWord("messages_only"), "Messages only");
+  assert.equal(trustWord("may_instruct"), "May instruct your agent");
+  assert.equal(trustWord("something_new"), "something new");
+});
+
+test("a tool's field is labelled by its title, else a short description, else its name", () => {
+  assert.deepEqual(fieldLabel("q", { description: "Search query." }), { text: "Search query", help: "" });
+  assert.deepEqual(fieldLabel("q", { title: "Query", description: "What to look for" }), { text: "Query", help: "What to look for" });
+  const long = "The repository to search, as owner/name; leave empty to search every repository you can read";
+  assert.deepEqual(fieldLabel("repo", { description: long }), { text: "repo", help: long });
+  assert.deepEqual(fieldLabel("limit", {}), { text: "limit", help: "" });
 });

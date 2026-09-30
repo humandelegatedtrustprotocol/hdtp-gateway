@@ -2,13 +2,8 @@
 // primitives every view is composed from (see the block at the end).
 import type { ReactNode } from "react";
 import { PRODUCT } from "./product";
-
-export function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { initialsOf } from "./words";
+export { initialsOf };
 
 // A stable colour per name, from a fixed palette that reads on white and dark: the kit's avatar fills
 // first, each dark enough for white initials at 4.5 : 1 (tools/kit.mjs check holds every one).
@@ -22,9 +17,10 @@ function hue(name: string): string {
 export function Avatar({ name, size, me }: { name: string; size?: "sm" | "lg"; me?: boolean }) {
   const cls = "av" + (size ? " " + size : "") + (me ? " me" : "");
   // Nobody's name: a neutral figure, never initials made of whatever stood in for one ('SH' from a
-  // fingerprint's `sha256:`).
-  if (!me && !name.trim()) return <span className={cls + " anon"} aria-hidden="true"><Icon name="person" size={size === "lg" ? 22 : size === "sm" ? 14 : 16} /></span>;
-  return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initialsOf(name)}</span>;
+  // fingerprint's `sha256:`, 'JN' from a short fingerprint, '(' from a bracket).
+  const initials = initialsOf(name);
+  if (!me && !initials) return <span className={cls + " anon"} aria-hidden="true"><Icon name="person" size={size === "lg" ? 22 : size === "sm" ? 14 : 16} /></span>;
+  return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initials || "?"}</span>;
 }
 
 /**
@@ -206,7 +202,7 @@ export function Field({ label, help, mono, check, id, children }: { label: React
 }
 
 // A status's tone and its words are words.ts's, shared with PACT Cloud's portal: one table for both.
-export { toneOf, statusWord, permLabel, toolLabel, type Tone } from "./words";
+export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, type Tone } from "./words";
 // Badge: four tones × {text, mono, count}. `status` derives tone and label.
 export function Badge({ tone, mono, count, status, title, children }: { tone?: Tone; mono?: boolean; count?: boolean; status?: string; title?: string; children?: ReactNode }) {
   const t = tone ?? (status ? toneOf(status) : "neutral");
@@ -388,15 +384,31 @@ export const PLUMBING_TOOLS = new Set([
 // Chips: toggleable filters. Tabs are a navigation bar with a rule under them
 // and one active item; a filter row is a set of independent switches that can
 // all be off, which is a different thing and looked wrong borrowed.
-export function Chips({ children, "aria-label": label }: { children?: ReactNode; "aria-label"?: string }) {
-  return <div className="chips" role="group" aria-label={label}>{children}</div>;
+export function Chips({ children, className, "aria-label": label }: { children?: ReactNode; className?: string; "aria-label"?: string }) {
+  return <div className={"chips" + (className ? " " + className : "")} role="group" aria-label={label}>{children}</div>;
 }
 
-export function Chip({ on, count, tone, onClick, children }: {
-  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; children: ReactNode;
+/**
+ * A row of chips, said as one select on a phone: the sheet's ≤700px rule shows `.chip-pick` in place of
+ * the chips it stands for (`.chip.picked`, and a whole `.chips.phone-pick` row). Twelve action chips
+ * wrapped into five rows before the first entry.
+ */
+export function ChipPick({ label, all, value, options, onChange }: {
+  label: string; all: string; value: string | null; options: [string, number][]; onChange: (v: string | null) => void;
 }) {
   return (
-    <button type="button" className={"chip" + (on ? " on" : "") + (tone && tone !== "neutral" ? " " + tone : "")}
+    <select className="chip-pick" aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{all}</option>
+      {options.map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}
+    </select>
+  );
+}
+
+export function Chip({ on, count, tone, onClick, className, children }: {
+  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; className?: string; children: ReactNode;
+}) {
+  return (
+    <button type="button" className={"chip" + (on ? " on" : "") + (tone && tone !== "neutral" ? " " + tone : "") + (className ? " " + className : "")}
       aria-pressed={on} onClick={onClick}>
       {children}{count !== undefined && <span className="n">{count}</span>}
     </button>

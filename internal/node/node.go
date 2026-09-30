@@ -769,7 +769,13 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	a := n.accounts[accountID]
 	n.mu.RUnlock()
 	if a == nil {
-		return "", fmt.Errorf("node: unknown account %s", accountID)
+		// Not an identity this node serves. One awaiting its wallet (no root yet) is skipped until it has a
+		// leaf, so it has no card, and the portal says so; one the node could not open is a failure.
+		rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+		if err == nil && !rec.HasRoot() {
+			return "", fmt.Errorf("node: %s awaits its wallet: %w", accountID, identity.ErrNoCertificate)
+		}
+		return "", fmt.Errorf("node: account %s is not served", accountID)
 	}
 	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
