@@ -58,13 +58,21 @@ func ParseCard(text string) (Card, error) {
 		}
 		return ""
 	}
+	// The certificate is read by the rule the identity core reads it with (pact-identity's
+	// DecodeB64url: the padding and the standard alphabet forgiven, nothing else), so a card the
+	// core refuses does not read here either. An absent property is no certificate, not a
+	// refusal; the library's intake, behind ValidateInbound, refuses a card without one.
+	cert, err := pactidentity.DecodeB64url(get(propCert))
+	if err != nil {
+		return Card{}, fmt.Errorf("vcard: %s is not base64url", propCert)
+	}
 	return Card{
 		FN:      displayName(get(govcard.FieldFormattedName)),
 		Tel:     get(govcard.FieldTelephone),
 		Email:   get(govcard.FieldEmail),
 		Version: get(propVersion),
 		Seal:    get(propSeal),
-		Cert:    pactidentity.FromB64url(get(propCert)),
+		Cert:    cert,
 	}, nil
 }
 
