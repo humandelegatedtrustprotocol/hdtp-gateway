@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchSession, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
+import { failureOf, fetchSession, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
 
 type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string; web_wallet?: boolean; root_fingerprint?: string };
 type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
@@ -11,9 +11,10 @@ export function Identity() {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [algo, setAlgo] = useState("p256");
-  const load = useCallback(() => getJSON<Data>("/api/identity").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/identity").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
-  if (!d) return <main><PageHeader title="Identity" /><EmptyState loading /></main>;
+  if (!d) return <main><PageHeader title="Identity" />{err ? <Failed what="this node's identities" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const create = async () => {
     const r = await postForm("/identity/create", { slug, name, algo });

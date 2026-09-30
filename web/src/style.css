@@ -1,7 +1,10 @@
 /* PACT gateway portal — the layout, on the brand's tokens.
  * The palette, the fonts, the display face and the motion are brand.css (pact-web-kit's, held to the
  * vendored kit by tools/kit.mjs check), loaded before this file. Light and dark; the whole portal is
- * built from those variables. */
+ * built from those variables.
+ * PACT Cloud's portal carries this file byte for byte (its gateway/scripts/check-harvested.mjs holds
+ * the copy to this one at the node commit its portal/HARVESTED records); its own rules are its
+ * cloud.css. A table, a pill or a pane is laid out here once, for both. */
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -165,8 +168,12 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .row .meta{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--muted)}
 .row .desc{color:var(--muted);font-size:.9rem;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .row .desc.open{display:block}
-.row .trail{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto}
-.row .body{flex-basis:100%;padding-top:.4rem}
+/* The trail wraps inside the row rather than running out of it: on a phone the list's overflow:hidden
+   clipped Refresh and Remove past the row's edge, out of reach. */
+.row .trail{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+/* min-width:0, or the body takes its widest child's width (a deliveries table, 1491px) and the list's
+   overflow:hidden clips it with no way to scroll: the table-wrap inside must be the one that scrolls. */
+.row .body{flex-basis:100%;padding-top:.4rem;min-width:0}
 .row .body > .card{border:0;border-radius:0;box-shadow:none;margin:.4rem 0 0;padding:0;border-top:1px solid var(--line)}
 .row .body > details.card > summary{padding:.6rem 0}
 .row .body > details.card > .card-body{padding:0 0 .6rem}
@@ -211,15 +218,66 @@ td{padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middl
 td .empty{white-space:normal}
 /* What a pill in a cell cannot say in a word or two: a line of its own under it, which may wrap. */
 td .cell-note{display:block;white-space:normal;max-width:24rem;margin-top:.25rem;font-size:.8rem;color:var(--muted);line-height:1.4}
-td .readout{white-space:normal;overflow-wrap:anywhere;word-break:normal;min-width:12rem;display:inline-block}
+td .readout{white-space:normal;overflow-wrap:anywhere;word-break:normal;min-width:8.5rem;max-width:26rem;display:inline-block;line-height:1.45}
+/* A readout in a cell is text to read and copy whole, not a chip: `table code` below is for a code word. */
+td .readout code{font:inherit;background:none;border-radius:0;padding:0;color:var(--ink)}
+/* A cell's note that is a quotation (an endpoint's answer): two lines at most, the whole of it in its title. */
+td .cell-note.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+td.num{font-variant-numeric:tabular-nums}
 td:last-child > .toolbar{justify-content:flex-end}
 thead th.actions{width:1%}
+/* Row actions stay on one line. `.toolbar` wraps by default, which is right in a page header and wrong
+   in a table cell: a wrapping flex box has a min-content width of ONE button, so the layout gave the
+   actions column that width and stacked Approve / Reject / Block down three lines ('Approv' / 'Rejec'
+   on the node). Not wrapping makes the column's min-content width the whole group, which is what
+   `th.actions{width:1%}` shrinks to. Each action keeps its slot: a row without one leaves the slot
+   empty, so the buttons of every row line up. */
+td > .toolbar{flex-wrap:nowrap;gap:.4rem}
+td.actions,td:last-child{white-space:nowrap}
+td > .toolbar.slots{display:grid;grid-auto-flow:column;grid-auto-columns:7.5rem;justify-items:start;justify-content:end}
+/* A name or a label wraps, two lines at most, the whole of it in its title: `td{white-space:nowrap}`
+   let one long name ('Dubai investor dinner — table 4 guests and their executive assistants', 515px)
+   set the whole table's width and push the actions off the page. A trust or kind pill sits beside it. */
+td:has(> .name),td:has(> .who-l){white-space:normal;min-width:10rem}
+td .name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;max-width:22rem;overflow-wrap:break-word;color:var(--ink);font-weight:500}
+/* "Unnamed contact": the page's words where they gave no name, in a quieter face than a name. */
+.unnamed{color:var(--muted);font-style:italic}
+td .name.unnamed{color:var(--muted);font-weight:400;padding-right:.15em}
+/* A cell that holds words that may wrap (an event name broken after its dots and underscores). */
+td.wrap{white-space:normal;min-width:8rem}
+/* The name and what kind of request it is, on one line while they fit. */
+td .who-l{display:flex;flex-wrap:wrap;align-items:center;gap:.2rem .45rem}
+/* An address in a cell breaks after its dots and slashes (glance.tsx UrlText), so it never sets the table's width. */
+td:has(> .nm-url){white-space:normal;min-width:8rem}
+/* The id under a name: short, with its copy button (glance.tsx IdText). */
+td .sub-id{display:block;margin-top:.15rem}
+/* A preset name has to be readable: squeezed, the select drew as one letter and a chevron. */
+td select{min-width:7.5rem}
 table code{font:500 .74rem/1.2 var(--mono);background:var(--bg-3);border:0;border-radius:999px;padding:.2rem .6rem;color:var(--muted)}
 tr:last-child td{border-bottom:0}
 tbody tr:hover td{background:var(--bg-2)}
 td button{margin:0}
 .table-wrap{overflow-x:auto;margin:1rem 0}
 .card .table-wrap{margin:.6rem 0 0}
+/* A page of tables gets the room a table needs (the People tabs): 56rem left ~500px of a 1440 window
+   unused while the Requests table scrolled sideways inside it. */
+main.tables{max-width:72rem}
+/* On a phone a table is a list of cards: each row one card, its first cell the title, its actions last,
+   and each cell between said with its column's name (`data-label`, which Table sets from its head). The
+   audit tables lay themselves out (their `.audit-t` block) and are not `.stack`. */
+@media (max-width:700px){
+  .table-wrap.stack{overflow:visible}
+  .table-wrap.stack > table,.table-wrap.stack > table > tbody{display:block;border:0;background:none;border-radius:0}
+  .table-wrap.stack > table > thead{display:none}
+  .table-wrap.stack > table > tbody > tr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.5rem 1.1rem;padding:.75rem .85rem;margin:0 0 .5rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg)}
+  .table-wrap.stack > table > tbody > tr > td{display:block;padding:0;border:0;white-space:normal;min-width:0;background:none}
+  .table-wrap.stack > table > tbody > tr:hover > td{background:none}
+  .table-wrap.stack > table > tbody > tr > td:first-child,.table-wrap.stack > table > tbody > tr > td:last-child,.table-wrap.stack > table > tbody > tr > td[colspan]{flex:1 1 100%}
+  .table-wrap.stack > table > tbody > tr > td[data-label]:not(:first-child):not(:last-child)::before{content:attr(data-label);display:block;margin-bottom:.15rem;font-size:.68rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .table-wrap.stack > table > tbody > tr > td:last-child > .toolbar{justify-content:flex-start;flex-wrap:wrap}
+  .table-wrap.stack > table > tbody > tr > td:last-child > .toolbar.slots{display:flex}
+  .table-wrap.stack td .name{max-width:none}
+}
 
 .tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--line);margin:0 0 1.2rem}
 .toolbar + .tabs{margin-top:.8rem}
@@ -228,7 +286,9 @@ td button{margin:0}
 .tabs .tab:hover{color:var(--ink)}
 .tabs .tab.on{color:var(--ink);border-bottom-color:var(--ink)}
 
-.pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap;max-width:100%}
+/* A pill never wraps; one wider than its box ends in an ellipsis, the whole of it in its title. */
+.pill-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .pill.ok{background:var(--accent-soft);color:var(--accent-ink)}
 .pill.warn{background:var(--amber-soft);color:var(--amber)}
 .pill.bad{background:var(--red-soft);color:var(--red)}
@@ -240,6 +300,7 @@ td button{margin:0}
 .av.sm{width:26px;height:26px;flex-basis:26px;font-size:.68rem}
 .av.lg{width:44px;height:44px;flex-basis:44px;font-size:1rem}
 .av.me{background:var(--ink);color:var(--bg)}
+.av.anon{background:var(--bg-3);color:var(--muted)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:0 0 8px}
 .dot.online{background:var(--accent-ui)}
 .dot.away{background:var(--amber)}
@@ -275,6 +336,7 @@ td button{margin:0}
 .thread > .empty{margin:auto}
 .thread > .notice{margin:.6rem 1.2rem}
 .thread-h .who,.panel .who > div{min-width:0}
+.thread-h .who{flex:1 1 auto}
 .thread-h{display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem;border-bottom:1px solid var(--line);min-height:56px}
 .thread-h .name{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thread-h .meta{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--muted);min-width:0}
@@ -352,6 +414,7 @@ td button{margin:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* panel back button is a mobile affordance; the fingerprint pill yields to the name on narrow screens */
 .panel .back{display:none}
+.panel > .back{align-self:flex-start}
 @media (max-width:900px){.panel .back{display:inline-flex}.inbox.panel-off .panel{display:none}.inbox[data-pane="panel"] .panel{display:flex}}
 @media (max-width:600px){.thread-h .end .pill{display:none}.thread-h .name{max-width:40vw}}
 main.wide{max-width:80rem;margin:0 auto;padding:1.6rem 2rem 3rem}
@@ -385,7 +448,7 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .sform fieldset.sub{border:1px solid var(--line);border-radius:9px;padding:.4rem .8rem .6rem;margin:0 0 .6rem}
 .sform legend{font-size:.8rem;font-weight:600;color:var(--ink);padding:0 .3rem}
 .sform .req{color:var(--accent-ink)}
-@media (max-width:1180px){.inbox{grid-template-columns:300px minmax(0,1fr) 300px}}
+@media (min-width:901px) and (max-width:1180px){.inbox{grid-template-columns:300px minmax(0,1fr) 300px}}
 .ic{vertical-align:-3px;flex:0 0 auto}
 .media .ic{vertical-align:-2px}
 .bad .ic{color:var(--red)}
@@ -397,7 +460,11 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .inbox.focus{grid-template-columns:minmax(0,1fr)}
 .inbox.focus .convs,.inbox.focus .panel{display:none}
 .inbox.focus .msg{max-width:70%}
-@media (max-width:900px){.thread-h .expand{display:none}.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}}
+/* A phone shows one pane at a time, the whole width. This comes after every rule that sets the inbox's
+   columns (the ≤1180 three, panel-off's two, focus's one), or one of them re-imposes columns: the phone
+   drew 300px 0px 300px, every pane 300px wide in a 390px screen. The panel pane shows whether or not the
+   panel is kept open at desktop widths: panel-off and focus hide it only beside a thread. */
+@media (max-width:900px){.thread-h .expand{display:none}.inbox,.inbox.panel-off,.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}.inbox[data-pane="panel"] .panel{display:flex}}
 /* the + menu: round tiles, like a phone's attach sheet, anchored above the composer */
 .composer{position:relative}
 .plus-wrap{position:relative;flex:0 0 auto}
@@ -408,6 +475,9 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .tile{display:flex;flex-direction:column;align-items:center;gap:.45rem;font:inherit;font-size:.78rem;font-weight:500;color:var(--text);background:none;border:0;padding:0;margin:0;height:auto;white-space:normal;cursor:pointer;line-height:1.2;text-align:center}
 .tile .circ{width:58px;height:58px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line);display:grid;place-items:center;color:var(--accent-ink);transition:background .12s,transform .12s}
 .tile:hover{filter:none}
+/* A tile's label is two lines at most, then an ellipsis, the tool's own name in the title: a label
+   wider than its 88px column ran into the next tile's. */
+.tile .lbl{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;max-width:100%;overflow-wrap:break-word}
 .tile:hover .circ{background:var(--accent-soft);transform:translateY(-1px)}
 .tile:focus-visible{outline:none}
 .tile:focus-visible .circ{outline:2px solid var(--accent-ui);outline-offset:2px}
@@ -454,8 +524,7 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .chip.bad.on{background:var(--red);border-color:var(--red);color:var(--on-fill)}
 .chip.warn.on{background:var(--amber);border-color:var(--amber);color:var(--on-fill)}
 
-/* ---- the overview at a glance, the audit tables, and an id said by its name (glance.tsx). PACT Cloud's portal carries this
-   block byte for byte (its gateway/scripts/check-harvested.mjs holds the two copies equal, between this line and the end marker). Tokens only:
+/* ---- the overview at a glance, the audit tables, and an id said by its name (glance.tsx). Tokens only:
    the orange is never text or state here. Widths are the page's own (container queries), never the window's: the sidebar takes 248px of it. ---- */
 main.glance{max-width:80rem;container-type:inline-size}
 .gl-flow{display:flex;flex-direction:column}
@@ -523,12 +592,12 @@ main.glance .page-h .sub code{display:inline-block;max-width:100%;vertical-align
 .nm-id,.nm-idt{font:400 .74rem/1.3 var(--mono);color:var(--faint);white-space:nowrap}
 .nm-t .nm-id{margin-left:.35rem}
 .nm-idt{display:inline-flex;align-items:baseline;gap:.25rem}
-.nm-url{overflow-wrap:anywhere}
+.nm-url{overflow-wrap:break-word}
 .nm-url button.nm-copy{margin-left:.25rem;vertical-align:middle}
 button.nm-copy{flex:0 0 auto;height:auto;min-height:0;padding:.1rem;margin:0;border:0;border-radius:4px;background:none;color:var(--faint);cursor:copy;opacity:0;line-height:0;align-self:center}
 button.nm-copy:hover,button.nm-copy:focus-visible{filter:none;opacity:1;color:var(--ink);background:var(--bg-3)}
 button.nm-copy.done{opacity:1;color:var(--accent-ink)}
-:is(tr,.row,.nm-kv,.gl-id .who):hover button.nm-copy,:is(tr,.row,.gl-id .who):focus-within button.nm-copy{opacity:1}
+:is(tr,.row,.nm-kv,.gl-id .who,.page-h .sub,.panel):hover button.nm-copy,:is(tr,.row,.gl-id .who,.page-h .sub,.panel):focus-within button.nm-copy{opacity:1}
 @media (hover:none){button.nm-copy{opacity:1}}
 .nm-parts,.nm-det{display:flex;flex-wrap:wrap;gap:.2rem .95rem;align-items:baseline;white-space:normal;min-width:0}
 .nm-kv{min-width:0;max-width:100%;line-height:1.4;color:var(--text);overflow-wrap:break-word}

@@ -255,8 +255,11 @@ function valueOf(p: Detail | Part): ReactNode {
   return <Breakable text={p.text} />;
 }
 
-/** An address: its host and the start of its path, the whole of it in the tooltip, and a copy button. */
-function UrlText({ url }: { url: string }) {
+/**
+ * An address: its host and the start of its path, the whole of it in the tooltip, and a copy button. It
+ * may break after a dot or a slash, where an address is read in pieces, and nowhere else.
+ */
+export function UrlText({ url }: { url: string }) {
   let shown = url;
   try {
     const u = new URL(url);
@@ -265,7 +268,8 @@ function UrlText({ url }: { url: string }) {
   } catch {
     // Not a URL after all: said as written.
   }
-  return <span className="nm-url"><span title={url}>{shown}</span><CopyId id={url} /></span>;
+  const bits = shown.split(/(?<=[./])(?=.)/);
+  return <span className="nm-url"><span title={url}>{bits.map((b, i) => <Fragment key={i}>{i > 0 && <wbr />}{b}</Fragment>)}</span><CopyId id={url} /></span>;
 }
 
 /**
