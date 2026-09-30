@@ -66,12 +66,6 @@ func Code(err error) string {
 	}
 }
 
-// Freshness bounds (SPEC §4.4 step 7 / PACT §13.1).
-const (
-	TSWindow    = 300 * time.Second
-	MaxLifetime = 30 * 24 * time.Hour
-)
-
 // Payload is the call an opened request envelope carries (PACT §13.2): the
 // method and its params, as the library's Decide read them out of the
 // plaintext. The sender's chain or leaf, which the same plaintext carries, is
@@ -300,7 +294,7 @@ func (id *Identifier) Replay(ctx context.Context, idem IdempotencyStore, account
 	if idem == nil || f.Header.MsgID == "" {
 		return "", false, nil
 	}
-	stored, existed, err := idem.PutIdempotency(ctx, accountID, f.From, EnvelopeKey(f.Header.MsgID), "", f.Header.Exp)
+	stored, existed, err := idem.PutIdempotency(ctx, accountID, f.From, EnvelopeKey(f.Header.MsgID), "", replayWindowEnd(f.Header))
 	if err != nil {
 		return "", false, err
 	}
@@ -308,4 +302,17 @@ func (id *Identifier) Replay(ctx context.Context, idem IdempotencyStore, account
 		return stored, true, nil
 	}
 	return "", false, nil
+}
+
+// replayWindowEnd is when an envelope's replay record may go: PACT §13.3's "retained until
+// min(exp, ts + 300 s) — the end of the window in which the envelope could be presented again and
+// accepted". The open accepts `now < exp` and `|now − ts| <= 300` (pactidentity.SkewSeconds), in
+// whole seconds, so ts + 300 is itself a second the envelope is accepted at and exp is not; and the
+// store removes a record once its expiry is not after the sweep's clock. The record's expiry is
+// therefore the first second the envelope is refused: exp, or ts + 300 + 1.
+//
+// It was the header's exp alone, and exp − ts may be thirty days, so a sender chose how long this
+// node remembered each envelope it sent.
+func replayWindowEnd(h envelope.Header) int64 {
+	return min(h.Exp, h.TS+pactidentity.SkewSeconds+1)
 }

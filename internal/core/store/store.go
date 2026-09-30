@@ -330,12 +330,13 @@ type AuditAnchorRow struct {
 	UpdatedAt          int64
 }
 
-// AuditPage bounds one read of the trail. Both filters are optional and empty
-// means "any"; Account keeps the node's own rows, which belong to no account.
-// UndatedIdempotencyWindow is how long an idempotency record written without an expiry is kept
-// (SPEC §11: "retained at least until the envelope's `exp`, else 30 days").
+// UndatedIdempotencyWindow is how long an idempotency record written without an expiry is kept:
+// a `book_slot` replay's (SPEC §11). An envelope's record carries its own, the end of the window
+// it can be accepted in (PACT §13.3; public.replayWindowEnd).
 const UndatedIdempotencyWindow = 30 * 24 * time.Hour
 
+// AuditPage bounds one read of the trail. Both filters are optional and empty
+// means "any"; Account keeps the node's own rows, which belong to no account.
 type AuditPage struct {
 	Actor   string
 	Account string
