@@ -206,7 +206,7 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   }));
   rows.push({
     name: NEW, perms: drafts.perms(NEW),
-    title: <input className="pg-new" aria-label="New preset's name" placeholder="new preset" title="a-z, 0-9, dash, underscore"
+    title: <input type="text" className="pg-new" aria-label="New preset's name" placeholder="new preset" title="a-z, 0-9, dash, underscore"
       value={newName} onChange={(e) => setNewName(e.target.value)} />,
     actions: <Actions inline><Button onClick={() => save(NEW, newName.trim())} busy={busy === NEW} disabled={!newName.trim()}>Add preset</Button></Actions>,
   });
