@@ -12,10 +12,11 @@ import (
 const checkUsage = "usage: pact-gateway check <store> [flags]"
 
 // checkCmd is `check store`: every card and certificate the store holds, read by the identity
-// core's rule (storecheck), each refusal named, exit 1 when there is one. It reads and writes
-// nothing, so like `doctor` it runs beside a serving node; it takes no lock. A store whose schema
-// is not this binary's is not read — the statements would not match its tables — and is refused
-// with the command that brings it up.
+// core's rule (storecheck), each refusal named, and each contact in a state neither a pin nor a
+// request has named; exit 1 when there is one of either. It reads and writes nothing, so like
+// `doctor` it runs beside a serving node; it takes no lock. A store whose schema is not this
+// binary's is not read — the statements would not match its tables — and is refused with the
+// command that brings it up.
 func checkCmd(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, checkUsage)
@@ -55,7 +56,7 @@ func checkCmd(args []string, stdout, stderr io.Writer) int {
 	for _, line := range rep.Lines() {
 		fmt.Fprintln(stdout, line)
 	}
-	if len(rep.Refusals) > 0 {
+	if len(rep.Refusals) > 0 || len(rep.NoPin) > 0 {
 		return 1
 	}
 	return 0
