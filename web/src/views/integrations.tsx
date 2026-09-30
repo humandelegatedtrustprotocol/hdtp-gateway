@@ -4,7 +4,7 @@
 // disclosures so the page reads as a list, not a wall of forms.
 import { useCallback, useEffect, useState } from "react";
 import { csrf, currentAccount, failureOf, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, type Note, Actions } from "../ui";
+import { Badge, Button, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Readout, Section, type Note, Actions } from "../ui";
 import { CopyId, UrlText } from "../glance";
 
 type Row = { ID: string; Slug: string; Transport: string; Endpoint: string; Command: string; AuthKind: string; Status: string };
@@ -102,14 +102,16 @@ export function Integrations() {
   const header = (
     <PageHeader
       title="Integrations"
-      sub="Connect an MCP server, then expose only the tools the use-case needs. Nothing is exposed by default, and write-capable tools take an explicit acknowledgment."
+      sub={<>Connect an MCP server, then choose which tools to expose.<HelpTip label="About integrations">
+        Nothing is exposed by default, and write-capable tools take an explicit acknowledgment.
+      </HelpTip></>}
       actions={<Button icon="plus" onClick={() => setAdding((v) => !v)} aria-pressed={adding}>Add integration</Button>}
     />
   );
   if (!d) return <main>{header}{err ? <Failed what="the integrations" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const addForm = (
-    <Section title="New integration" description="Give it a short name; the transport and address are what the node dials."
+    <Section title="New integration" description="A short name, and the address the node dials."
       footer={<>{rows.length > 0 && <Button variant="quiet" onClick={() => setAdding(false)}>Cancel</Button>}<Button onClick={add} disabled={!slug.trim()}>Add</Button></>}>
       <div className="fields">
         <Field label="Name (slug)"><input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="calendar" /></Field>
@@ -189,7 +191,7 @@ export function Integrations() {
                   </Notice>
                 )}
                 {row.AuthKind === "static" && d.can_set_static && (
-                  <Section collapsible title="Credential" description="Stored sealed at rest; never rendered back."
+                  <Section collapsible title="Credential" description="Stored sealed; never shown again."
                     footer={<Button onClick={() => act(`/integrations/${row.ID}/credential`, { header: cred[row.ID]?.header ?? "Authorization", value: cred[row.ID]?.value ?? "" })}>Save credential</Button>}>
                     <div className="fields">
                       <Field label="Header"><input type="text" value={cred[row.ID]?.header ?? "Authorization"} onChange={(e) => setCred({ ...cred, [row.ID]: { header: e.target.value, value: cred[row.ID]?.value ?? "" } })} /></Field>
@@ -199,7 +201,10 @@ export function Integrations() {
                 )}
                 {row.AuthKind === "oauth" && d.can_set_oauth && (
                   <Section collapsible title="OAuth client (optional)"
-                    description="Leave this empty: on Connect & authorize the node registers itself with the provider automatically. Fill it in only if the provider gave you a client id to use instead."
+                    description={<>Usually left empty.<HelpTip label="About the OAuth client">
+                      On Connect &amp; authorize the node registers itself with the provider automatically. Fill
+                      this in only if the provider gave you a client id to use instead.
+                    </HelpTip></>}
                     footer={<Button variant="secondary" onClick={() => act(`/integrations/${row.ID}/oauth-client`, { client_id: oauth[row.ID]?.id ?? "", client_secret: oauth[row.ID]?.secret ?? "" })}>Save client</Button>}>
                     <div className="fields">
                       <Field label="Client id"><input type="text" value={oauth[row.ID]?.id ?? ""} onChange={(e) => setOauth({ ...oauth, [row.ID]: { id: e.target.value, secret: oauth[row.ID]?.secret ?? "" } })} /></Field>
