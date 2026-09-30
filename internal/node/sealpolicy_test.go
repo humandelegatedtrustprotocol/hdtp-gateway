@@ -69,7 +69,8 @@ func TestACardWithNoSealLineIsCalledInPlaintext(t *testing.T) {
 // The policy the node reads off the card it holds for a contact, for every card there can be: the
 // three values as written, no line (none), a card on file that does not read (refused: its policy is
 // not known, and neither guess is safe on the wire), and no card on file at all — a contact that
-// arrived in an export, which carries no card (PACT §9.2) — which is sealed to, as it always was.
+// arrived in an export, which carries no card (PACT §9.2), or a returned root the owner approved
+// (contacts.DecideAddress) — which is sealed to, as it always was.
 func TestAContactsSealIsWhatItsCardOnFileSays(t *testing.T) {
 	clock := &demoClock{t: time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)}
 	dn := &demoNet{hosts: map[string]string{}}

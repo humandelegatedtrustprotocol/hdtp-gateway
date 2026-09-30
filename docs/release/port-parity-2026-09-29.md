@@ -78,6 +78,13 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
 - **P6 (cloud), after the two-layer cloud PR lands.** Bump to 0.5.0; S8's cloud lint; R37/CW-01 (the
   core sees the members as received); CW-02; R38 (`media_holds_private_key` from the core); every cloud
   finding; the new leads that verify (the 60 s proof lifetime; redeeming a node's invite).
+  - **A cloud lead to fix: PACT Cloud seals to every contact, whatever its card says.** Its outbound
+    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-PACT-SEAL`, so a
+    contact whose card says `none`, or has no such line (PACT §3: "Absent = none"), is sent an
+    envelope it said it would not take — PACT §13.4's "senders MUST NOT seal", broken. The node
+    reads the policy off the card on file (`contacts.SealOf`, fix/parity-leads). The cloud's fix is
+    the same reading, from the core's `DecodeCard`, on every outbound door, with a test that a `none`
+    card and a card with no line are called in plaintext.
 
 **(owner) N1:** SPEC §5.3 (SPEC.md:307) reads a removal tombstone only when there is no pin; the node's
 TLS door also applies it to a pinned root. The plan makes the TLS door follow the SPEC and the seed.
@@ -85,12 +92,15 @@ If the owner wants a pinned root to be refused after a removal too, that is a SP
 
 **(owner) A contact with no card on file** (found closing lead 4, 2026-09-30). SPEC §3 reads a card
 with no `X-PACT-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
-`DecodeCard` reading). A contact that arrived in an export has no card at all: contacts.csv carries
-neither a card nor a policy (§9.2), so the host does not know whether the contact accepts envelopes
-until a card of theirs reaches it. The SPEC does not say what a host assumes then. The node seals to
-such a contact, as it always did; PACT Cloud seals to every contact whatever its card says. If the
-owner wants something else (plaintext, or asking the contact's plain `tools/list` whether it lists
-`sealed_call`), that is a SPEC sentence first.
+`DecodeCard` reading). Two paths write a contact with no card at all: an import, whose contacts.csv
+carries neither a card nor a policy (§9.2), and the owner approving a root that returned after a
+removal (`contacts.DecideAddress`), which re-adds it from the pending address — a leaf and an
+endpoint, no card. Either way the host does not know whether the contact accepts envelopes until a
+card of theirs reaches it. The SPEC does not say what a host assumes then. The node seals to such a
+contact, as it always did; PACT Cloud seals to every contact whatever its card says, which breaks
+§13.4 for a card that says `none` and is a cloud lead to fix (P6). If the owner wants something else
+(plaintext, or asking the contact's plain `tools/list` whether it lists `sealed_call`), that is a
+SPEC sentence first.
 
 ## 4. What this plan does not do
 
