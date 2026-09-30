@@ -279,11 +279,16 @@ main.tables{max-width:72rem}
   .table-wrap.stack td .name{max-width:none}
 }
 
-.tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--line);margin:0 0 1.2rem}
+/* Tabs that do not fit scroll sideways, a tab at a time, rather than running off the page (the fourth of
+   four ran off a phone). The rule under them is drawn inside the box, since a scroller clips what hangs
+   below it, and the active tab's underline sits on it. */
+.tabs{display:flex;gap:.25rem;margin:0 0 1.2rem;box-shadow:inset 0 -1px 0 var(--line);overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
 .toolbar + .tabs{margin-top:.8rem}
-.tabs .tab{height:auto;padding:.55rem .8rem;color:var(--muted);font-weight:500;font-size:.92rem;background:none;border:0;border-radius:0;border-bottom:2px solid transparent;margin-bottom:-1px;text-decoration:none!important;display:inline-flex;gap:.45rem;align-items:center}
+.tabs .tab{height:auto;padding:.55rem .8rem;color:var(--muted);font-weight:500;font-size:.92rem;background:none;border:0;border-radius:0;border-bottom:2px solid transparent;text-decoration:none!important;display:inline-flex;gap:.45rem;align-items:center;flex:0 0 auto;scroll-snap-align:start;white-space:nowrap}
 .tabs .tab:hover{filter:none;background:none}
 .tabs .tab:hover{color:var(--ink)}
+.tabs .tab:focus-visible{outline-offset:-2px}
 .tabs .tab.on{color:var(--ink);border-bottom-color:var(--ink)}
 
 .pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap;max-width:100%}
@@ -669,3 +674,51 @@ button.nm-more{height:auto;min-height:0;padding:0;border:0;background:none;color
 .audit-t tr.link-hash{border-style:dashed}
 }
 /* ---- end of the overview at a glance ---- */
+
+/* ---- the design review's should items (2026-09-30) ---- */
+/* Text for a screen reader only: a thread's sender, said once per message without drawing it. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* A list of facts: a faint label, then its value. */
+dl.facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.45rem 1rem;margin:0;font-size:.9rem;align-items:baseline}
+dl.facts dt{color:var(--muted);font-size:.82rem}
+dl.facts dd{margin:0;min-width:0;color:var(--ink)}
+@media (max-width:600px){dl.facts{grid-template-columns:minmax(0,1fr);gap:.1rem}dl.facts dd{margin-bottom:.45rem}}
+/* The raw material behind the facts (a vCard, a row's connection), one click away. */
+details.raw,details.row-more{margin-top:.8rem}
+details.raw > summary,details.row-more > summary{cursor:pointer;color:var(--muted);font-size:.85rem;width:max-content}
+details.raw[open] > summary,details.row-more[open] > summary{margin-bottom:.5rem}
+details.row-more{margin-top:.2rem}
+/* A form whose one field and its button sit on one line. */
+form.add-row{display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap;margin:0 0 .8rem}
+form.add-row .field{flex:1 1 16rem;margin:0}
+form.add-row .toolbar{margin:0}
+/* A supervised command in a row: one line, cut at the row's edge. */
+.nm-url.cmd{min-width:0;max-width:100%}
+.nm-url.cmd code{font:inherit;font-family:var(--mono);font-size:.8rem;background:none;padding:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* A tool's name in a row breaks after its dots and underscores (Breakable), never off the row. */
+.row .title .tool-name{min-width:0;max-width:100%;overflow-wrap:anywhere;font-family:var(--mono);font-size:.88em}
+/* The pinned save bar: on a phone it would cover the list it saves (590px of 844), so it scrolls with the page. */
+@media (max-width:600px){.card.sticky{position:static;box-shadow:none}main:has(> .card.sticky){padding-bottom:3rem}}
+/* The + sheet's tiles line up by their tops however many lines a label takes. */
+.plusmenu{align-items:start}
+/* The tool dock: its title is the tool's words, the raw name small beside it, on one line with its buttons. */
+.tooldock-h{flex-wrap:nowrap;min-width:0}
+.tooldock-h strong{font-family:inherit;font-size:.92rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tooldock-h strong code{font:400 .74rem var(--mono);color:var(--muted);background:none;border:0;padding:0;margin-left:.3rem}
+.tooldock-h .toolbar{flex:0 0 auto;flex-wrap:nowrap;margin:0}
+.toolitem b{font-weight:600;font-size:.86rem;color:var(--ink)}
+/* A schema field's own name, beside the words it is labelled with. */
+.sform .sf-key{font:400 .72rem var(--mono);color:var(--faint);background:none;border:0;padding:0;margin-left:.4rem}
+/* The message box's placeholder stays on its one line ('Message Dr. Maximiliana Oyelaran-Westbrook…' wrapped and clipped). */
+.composer textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The composer's foot-note is for a screen with room: on a phone it took five lines under the box. */
+@media (max-width:600px){.thread .foot-note{display:none}}
+/* A thread's topic is one line in its header, the whole of it in the title. */
+.thread-h .meta .topic{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Filters: chips on a screen with room; on a phone, Refusals and two selects in their place. */
+.chip-pick{display:none;height:30px;width:auto;max-width:11rem;padding:0 .6rem;border-radius:999px;font-size:.85rem}
+@media (max-width:700px){
+.chips.has-picks .chip.picked{display:none}
+.chips.has-picks .chip-pick{display:inline-block;flex:1 1 0;width:0;min-width:5.5rem}
+.chips.phone-pick{display:none}
+}

@@ -144,3 +144,22 @@ test("between a phone and PANEL_BESIDE the contact panel is a drawer, and the In
   }
   assert.equal(lastAt(css, ".inbox .panel", "position", 390), null, "a phone's panel is a pane of its own");
 });
+
+test("on a phone nothing pins itself over the page, and what fills a row is said in less", () => {
+  // The Exposure save bar was 590px of an 844px phone, pinned over the list it saves (S-F10).
+  assert.equal(lastAt(css, ".card.sticky", "position", 390), "static");
+  assert.equal(lastAt(css, ".card.sticky", "position", 1440), "sticky");
+  // The composer's foot-note took five lines under the box on a phone (S-F7).
+  assert.equal(lastAt(css, ".thread .foot-note", "display", 390), "none");
+  assert.notEqual(lastAt(css, ".thread .foot-note", "display", 1440), "none");
+  // Twelve action chips were five rows before the first entry (S-F4): a phone gets two selects instead.
+  assert.equal(lastAt(css, ".chip-pick", "display", 1440), "none");
+  assert.equal(lastAt(css, ".chips.has-picks .chip-pick", "display", 390), "inline-block");
+  assert.equal(lastAt(css, ".chips.has-picks .chip.picked", "display", 390), "none");
+  assert.equal(lastAt(css, ".chips.phone-pick", "display", 390), "none");
+  assert.equal(lastAt(css, ".chips.phone-pick", "display", 1440), null);
+  // A tab bar wider than a phone scrolls rather than running off it (S-F9); the + sheet's tiles line up
+  // by their tops (S-C3).
+  assert.equal(lastAt(css, ".tabs", "overflow-x", 390), "auto");
+  assert.equal(lastAt(css, ".plusmenu", "align-items", 1440), "start");
+});

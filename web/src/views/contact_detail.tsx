@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, failureOf, getJSON, postForm } from "../api";
 import { navigate } from "../router";
-import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, type Note } from "../ui";
+import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, trustWord, type Note } from "../ui";
 import { IdText } from "../glance";
 
 type PermRow = { name: string; on: boolean };
@@ -30,7 +30,7 @@ function refreshNote(outcome: string, why: string): Note {
 }
 
 const PARENT = { to: "/contacts", label: "People" };
-const TRUST: [string, string][] = [["messages_only", "Messages only"], ["may_instruct", "May instruct"]];
+const TRUST = ["messages_only", "may_instruct"];
 
 export function ContactDetail({ fpr }: { fpr: string }) {
   const [d, setD] = useState<Data | null>(null);
@@ -127,7 +127,7 @@ export function ContactDetail({ fpr }: { fpr: string }) {
   return (
     <main>
       <PageHeader parent={PARENT} leading={<Avatar name={named} size="lg" />} title={named || <span className="unnamed">Unnamed contact</span>}
-        meta={<><Badge status={d.status} /><Badge>{d.preset || "custom"}</Badge><Badge>{trust.replace(/_/g, " ")}</Badge></>}
+        meta={<><Badge status={d.status} /><Badge>{d.preset || "custom"}</Badge><Badge title={trust}>{trustWord(trust)}</Badge></>}
         sub={<><IdText id={d.fingerprint} />{d.petname && d.display_name && <> · they call themselves “{d.display_name}”</>}</>} />
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
 
@@ -142,8 +142,8 @@ export function ContactDetail({ fpr }: { fpr: string }) {
       <PermForm d={d} onSubmit={savePerms} />
 
       <Section title="Trust" description="Whether things they send may INSTRUCT your agent, or are only messages to read.">
-        {TRUST.map(([t, label]) => (
-          <Field key={t} check label={label} help={t}>
+        {TRUST.map((t) => (
+          <Field key={t} check label={<span title={t}>{trustWord(t)}</span>}>
             <input type="radio" name="trust" value={t} checked={trust === t} onChange={() => setTrust(t)} />
           </Field>
         ))}
@@ -157,12 +157,12 @@ export function ContactDetail({ fpr }: { fpr: string }) {
             : "Their node could not be reached, so this is what they granted when you paired — it may be out of date."}>
         {live.state === "ok"
           ? (live.tools.length > 0
-            ? <span className="rowline">{live.tools.map((t) => <Badge key={t} mono title={t}>{toolLabel(t)}</Badge>)}</span>
+            ? <span className="rowline">{live.tools.map((t) => <Badge key={t} title={t}>{toolLabel(t)}</Badge>)}</span>
             : <p className="muted">Nothing beyond the plumbing every contact carries.</p>)
           : live.state === "loading"
             ? <EmptyState loading />
             : theirs.length > 0
-              ? <span className="rowline">{theirs.map((p) => <Badge key={p} mono>{p}</Badge>)}</span>
+              ? <span className="rowline">{theirs.map((p) => <Badge key={p} title={p}>{permLabel(p)}</Badge>)}</span>
               : <p className="muted">Nothing recorded when you paired.</p>}
       </Section>
 
@@ -195,7 +195,7 @@ function PermForm({ d, onSubmit }: { d: Data; onSubmit: (f: HTMLFormElement) => 
       <Section title="What they may do here" footer={<Button type="submit">Save</Button>}>
         <CsrfFields />
         {d.permissions.map((p) => (
-          <Field key={p.name} check label={permLabel(p.name)} help={p.name} mono>
+          <Field key={p.name} check label={<span title={p.name}>{permLabel(p.name)}</span>}>
             <input type="checkbox" name="perm" value={p.name} defaultChecked={p.on} />
           </Field>
         ))}

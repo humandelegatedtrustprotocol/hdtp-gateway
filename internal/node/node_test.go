@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -996,4 +997,25 @@ func TestOneBrokenAccountStopsTheNodeOnlyWhenNothingProvesTheMasterKey(t *testin
 			t.Fatal("a node started with nothing to show its master key is the store's own")
 		}
 	})
+}
+
+// An identity awaiting its wallet has no card, and says so with the error the portal answers 404 for;
+// the served one beside it is the control that must get a card.
+func TestACardIsRefusedAsNoCertificateOnlyWhereThereIsNone(t *testing.T) {
+	ctx := context.Background()
+	e, accts := newEnv(t, "alice")
+	n, err := New(ctx, e.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card, err := n.Card(ctx, accts[0].ID); err != nil || !strings.Contains(card, "X-PACT-CERT:") {
+		t.Fatalf("the served identity's card: %q, %v", card, err)
+	}
+	bob, err := e.idm.CreateAccount(ctx, "bob", "BOB", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Card(ctx, bob.ID); !errors.Is(err, identity.ErrNoCertificate) {
+		t.Fatalf("an identity awaiting its wallet: %v, want identity.ErrNoCertificate", err)
+	}
 }

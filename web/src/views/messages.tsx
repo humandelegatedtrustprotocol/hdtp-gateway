@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } from "../api";
 import { Link, navigate } from "../router";
-import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolLabel, type IconName } from "../ui";
+import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolAction, toolLabel, trustWord, type IconName } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
 import { IdText, whenOf } from "../glance";
 import type { Schema, Values } from "../schema_form";
@@ -247,7 +247,9 @@ export function Messages() {
                       {m.mine ? <Avatar me name={accountName()} size="sm" /> : <Avatar name={current.label} size="sm" />}
                       <div className="body">
                         <div className="meta">
-                          <span>{m.mine ? "You" : current.label}</span>
+                          {/* One contact per thread, and the avatar and the side say whose each message is: a
+                              long name over every message wrapped to four lines on a phone. Said to a reader. */}
+                          <span className="sr-only">{m.mine ? "You" : current.label}</span>
                           <span className={"tag " + (m.who === "agent" ? "agent" : "human")}>{m.who || "human"}</span>
                           <span>{m.when}</span>
                           {m.mine && <DeliveryMark state={m.state} />}
@@ -266,9 +268,9 @@ export function Messages() {
               {toolsOpen && (
                 <div className="tooldock" aria-label="Contact tools">
                   <div className="tooldock-h">
-                    <strong>{active ? active.name : "Tools this contact lets you call"}</strong>
+                    <strong title={active?.name}>{active ? <>{toolLabel(active.name)} <code>{active.name}</code></> : "Tools this contact lets you call"}</strong>
                     <Toolbar>
-                      {active && <Button variant="quiet" icon="back" onClick={() => { setActive(null); setArgs({}); setResult(""); }}>All tools</Button>}
+                      {active && <Button variant="quiet" icon="back" aria-label="All tools" title="All tools" onClick={() => { setActive(null); setArgs({}); setResult(""); }} />}
                       <Button variant="quiet" icon="close" aria-label="Close tools" onClick={() => setToolsOpen(false)} />
                     </Toolbar>
                   </div>
@@ -276,7 +278,7 @@ export function Messages() {
                     <div className="toollist">
                       {tools.map((t) => (
                         <button key={t.name} className="toolitem" onClick={() => { setActive(t); setArgs({}); setResult(""); }}>
-                          <code>{t.name}</code>{t.description && <span>{t.description}</span>}
+                          <b title={t.name}>{toolLabel(t.name)}</b>{t.description && <span>{t.description}</span>}
                         </button>
                       ))}
                     </div>
@@ -285,7 +287,7 @@ export function Messages() {
                       {active.description && <p className="help">{active.description}</p>}
                       <SchemaForm schema={active.input_schema ?? {}} values={args} onChange={setArgs} />
                       <Toolbar>
-                        <Button busy={running} disabled={missing.length > 0} onClick={run}>Call {active.name}</Button>
+                        <Button busy={running} disabled={missing.length > 0} onClick={run} title={`Call ${active.name}`}>{toolAction(active.name)}</Button>
                         {missing.length > 0 && <span className="muted">required: {missing.join(", ")}</span>}
                       </Toolbar>
                       {result && <pre className="toolresult">{result}</pre>}
@@ -296,7 +298,7 @@ export function Messages() {
               <div className="composer">
                 <input ref={fileRef} type="file" hidden accept={accept || undefined} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
                 <div className="plus-wrap">
-                  <button className={"quiet icon plus" + (menuOpen ? " on" : "")} title="Add" aria-label="Add" aria-expanded={menuOpen} aria-haspopup="menu" aria-busy={uploading} disabled={uploading} onClick={() => setMenuOpen((v) => !v)}>
+                  <button className={"btn quiet icon plus" + (menuOpen ? " on" : "")} title="Add" aria-label="Add" aria-expanded={menuOpen} aria-haspopup="menu" aria-busy={uploading} disabled={uploading} onClick={() => setMenuOpen((v) => !v)}>
                     <Icon name="plus" size={20} />
                   </button>
                   {menuOpen && (
@@ -425,7 +427,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         <Avatar name={label} size="lg" />
         <div>
           <b>{label}</b>
-          <small>{c?.status ?? ""}{c?.trust && <> · trust: <code>{c.trust}</code></>}</small>
+          <small>{c?.status ?? ""}{c?.trust && <> · {trustWord(c.trust)}</>}</small>
         </div>
       </div>
       <div>
@@ -437,8 +439,8 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         {note && <Notice kind="err">{note}</Notice>}
         {c ? c.permissions.map((p) => (
           <div className="perm" key={p.name}>
-            <span><span className="k">{permLabel(p.name)}</span><small>{p.name}</small></span>
-            <button type="button" role="switch" aria-checked={p.on} aria-label={p.name}
+            <span className="k" title={p.name}>{permLabel(p.name)}</span>
+            <button type="button" role="switch" aria-checked={p.on} aria-label={permLabel(p.name)} title={p.name}
               className={"sw" + (p.on ? " on" : "")} disabled={busy === p.name}
               onClick={() => toggle(p.name, !p.on)} />
           </div>

@@ -5,9 +5,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { csrf, currentAccount, failureOf, getJSON, postForm } from "../api";
 import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
+import { CopyId, UrlText } from "../glance";
 
 type Row = { ID: string; Slug: string; Transport: string; Endpoint: string; Command: string; AuthKind: string; Status: string };
 type Data = { rows: Row[] | null; can_set_static: boolean; can_set_oauth: boolean };
+
+const AUTH: Record<string, string> = { none: "None", static: "A header the node attaches", oauth: "OAuth" };
+
+/**
+ * A supervised command, as short as a row can hold: the program and what follows, cut at the row's edge,
+ * the whole of it in the tooltip and one click from the clipboard (the row's details show it whole).
+ */
+function CommandText({ command }: { command: string }) {
+  return <span className="nm-url cmd"><code title={command}>{command}</code><CopyId id={command} /></span>;
+}
 
 export function Integrations() {
   const [d, setD] = useState<Data | null>(null);
@@ -130,20 +141,32 @@ export function Integrations() {
         <List aria-label="Integrations">
           {rows.map((row) => {
             const trouble = row.Status === "auth_error" || row.Status === "unreachable";
+            // The filled button only where something needs doing: a healthy row's Reconnect is there for
+            // when you want it, not a call to action.
+            const variant = row.Status === "ok" ? "secondary" : "primary";
             const primary = row.AuthKind === "oauth"
-              ? <Button busy={busy === row.ID} onClick={() => authorize(row.ID)}>{trouble ? "Reconnect & authorize" : row.Status === "ok" ? "Reconnect" : "Connect & authorize"}</Button>
-              : <Button variant={row.Status === "ok" ? "secondary" : "primary"} onClick={() => act(`/integrations/${row.ID}/connect`)}>{trouble || row.Status === "ok" ? "Reconnect" : "Connect"}</Button>;
+              ? <Button variant={variant} busy={busy === row.ID} onClick={() => authorize(row.ID)}>{trouble ? "Reconnect & authorize" : row.Status === "ok" ? "Reconnect" : "Connect & authorize"}</Button>
+              : <Button variant={variant} onClick={() => act(`/integrations/${row.ID}/connect`)}>{trouble || row.Status === "ok" ? "Reconnect" : "Connect"}</Button>;
+            const where = row.Endpoint || row.Command;
             return (
               <ListRow key={row.ID}
                 leading={<span className="av" aria-hidden="true">{row.Slug.slice(0, 2).toUpperCase()}</span>}
                 title={<>{row.Slug}<Badge status={row.Status} /></>}
-                meta={<><Badge mono>{row.Transport}</Badge><Badge mono>{row.AuthKind === "none" ? "no auth" : row.AuthKind}</Badge>{(row.Endpoint || row.Command) && <Readout value={row.Endpoint || row.Command} />}</>}
+                meta={where && (row.Endpoint ? <UrlText url={row.Endpoint} /> : <CommandText command={row.Command} />)}
                 trailing={<Toolbar>
                   {primary}
                   <Button variant="secondary" to={`/integrations/${row.ID}/exposure`} icon="tool">Exposure</Button>
                   <Button variant="quiet" icon="refresh" aria-label="Refresh catalog" title="Refresh catalog" onClick={() => act(`/integrations/${row.ID}/refresh`)} />
                   <Button variant="quiet" icon="trash" aria-label={`Remove ${row.Slug}`} title="Remove" confirm={`Remove ${row.Slug}? Its exposures stop serving.`} onClick={() => act(`/integrations/${row.ID}/remove`)} />
                 </Toolbar>}>
+                <details className="row-more">
+                  <summary>Connection</summary>
+                  <dl className="facts">
+                    <dt>Transport</dt><dd>{row.Transport}</dd>
+                    <dt>Authentication</dt><dd>{AUTH[row.AuthKind] ?? row.AuthKind}</dd>
+                    {where && <><dt>{row.Endpoint ? "Address" : "Command"}</dt><dd><Readout value={where} copy dots /></dd></>}
+                  </dl>
+                </details>
                 {row.Status === "auth_error" && (
                   <Notice kind="warn" action={row.AuthKind !== "oauth" && (
                     <Button variant="secondary" onClick={async () => {
