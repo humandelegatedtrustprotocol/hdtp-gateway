@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"regexp"
@@ -49,8 +50,8 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 	good := w.issue(t, req, later, 365)
 
 	// Another state, and no state at all.
-	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, strings.Repeat("A", 43), later); !errors.Is(err, ErrRequestState) {
-		t.Fatalf("an answer with another state: %v", err)
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, strings.Repeat("A", 43), later); !errors.Is(err, ErrRequestState) || errors.Is(err, ErrRequestAnswered) || errors.Is(err, ErrNoRequest) {
+		t.Fatalf("an answer with another state, a request pending: %v", err)
 	}
 	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, "", later); !errors.Is(err, ErrRequestState) {
 		t.Fatalf("an answer with no state: %v", err)
@@ -66,12 +67,12 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	good = w.issue(t, req, later, 365)
-	if _, err := m.InstallWalletLeaf(ctx, a.ID, wrongKey, req.State, later); !errors.Is(err, ErrLeafRefused) {
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, wrongKey, req.State, later); !errors.Is(err, ErrLeafRefused) || !errors.Is(err, ErrWrongKey) || errors.Is(err, ErrWrongRoot) {
 		t.Fatalf("a leaf over another key: %v", err)
 	}
 	// The wrong root: the right request, signed by somebody else's root.
 	mallory := newWallet(t, "Mallory")
-	if _, err := m.InstallWalletLeaf(ctx, a.ID, mallory.issue(t, req, later, 365), req.State, later); !errors.Is(err, ErrLeafRefused) {
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, mallory.issue(t, req, later, 365), req.State, later); !errors.Is(err, ErrLeafRefused) || !errors.Is(err, ErrWrongRoot) || errors.Is(err, ErrWrongKey) {
 		t.Fatalf("a leaf under another root: %v", err)
 	}
 	// The state is judged before the chain: an answer with another state is refused for that,
@@ -87,8 +88,58 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 	if res.Kid != req.Kid || res.Moved {
 		t.Fatalf("installed %+v", res)
 	}
-	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, req.State, later); !errors.Is(err, ErrRequestState) {
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, req.State, later); !errors.Is(err, ErrRequestState) || !errors.Is(err, ErrRequestAnswered) {
 		t.Fatalf("the same answer twice: %v", err)
+	}
+	// With nothing pending, a state this identity never had is not one that was installed.
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, strings.Repeat("C", 43), later); !errors.Is(err, ErrRequestState) || !errors.Is(err, ErrNoRequest) || errors.Is(err, ErrRequestAnswered) {
+		t.Fatalf("a state never minted, nothing pending: %v", err)
+	}
+	// A new request waiting does not make the answer installed before it "not for this request": it
+	// is still the answer that was installed.
+	if _, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.pact.contact", later.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, req.State, later); !errors.Is(err, ErrRequestAnswered) {
+		t.Fatalf("the installed answer again, another request pending: %v", err)
+	}
+}
+
+// A leaf that is not newer than the current one is refused as that (PACT §14.3), and a root that is
+// not self-signed is a refused chain, not "another wallet's root".
+func TestAWalletLeafNotNewerIsRefusedAsThat(t *testing.T) {
+	m, a := leafEnv(t)
+	ctx := context.Background()
+	w := newWallet(t, "Alina Rao")
+	now := time.Now().Add(-time.Hour).Truncate(time.Second)
+	first, err := m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.InstallLeaf(ctx, a.ID, w.issue(t, first, now, 365), now); err != nil {
+		t.Fatal(err)
+	}
+	later := now.Add(time.Minute)
+	req, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://w.example", later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The wallet dates the new leaf at the current one's notBefore: the same instant, not newer.
+	same := req
+	same.PreviousNotBefore = nil
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, w.issue(t, same, now, 365), req.State, later); !errors.Is(err, ErrNotNewer) || !errors.Is(err, ErrLeafRefused) {
+		t.Fatalf("a leaf as old as the current one: %v", err)
+	}
+	// A root that is this identity's key but not self-signed: rule 2, and not the wrong root.
+	chain := w.issue(t, req, later, 365)
+	broken := append([]byte(nil), chain[1]...)
+	broken[len(broken)-1] ^= 1 // the root's signature
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, [][]byte{chain[0], broken}, req.State, later); !errors.Is(err, ErrLeafRefused) || errors.Is(err, ErrWrongRoot) || !strings.Contains(err.Error(), "rule 2") {
+		t.Fatalf("a root that is not self-signed: %v", err)
+	}
+	// And the request is still answerable.
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, chain, req.State, later); err != nil {
+		t.Fatalf("the answer that must pass: %v", err)
 	}
 }
 
@@ -108,6 +159,16 @@ func TestTheStateIsConsumedByTheStatementThatChecksIt(t *testing.T) {
 	}
 	if ok2, _ := m.Store.ConsumeLeafRequest(ctx, a.ID, req.Kid, h); ok2 {
 		t.Fatal("the state was consumed twice")
+	}
+	// The statement that consumed it kept it as the answered state (migration 0051).
+	leaves, err := m.Store.ListLeaves(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range leaves {
+		if l.Kid == req.Kid && (len(l.RequestStateHash) != 0 || !bytes.Equal(l.AnsweredStateHash, h)) {
+			t.Fatalf("after the answer: request %x answered %x, want none and %x", l.RequestStateHash, l.AnsweredStateHash, h)
+		}
 	}
 }
 

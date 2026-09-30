@@ -337,21 +337,30 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if p := pending(); len(p) != 1 || len(p[0].RequestStateHash) == 0 {
 		t.Fatalf("a refused install used the request up: %+v", p)
 	}
-	if res, body := install(signedIn, good, firstState); res.StatusCode != 409 {
+	// Each refusal carries the code the return page words it by (internalui.walletRefusals).
+	code := func(body string) string {
+		var j map[string]any
+		if err := json.Unmarshal([]byte(body), &j); err != nil {
+			t.Fatalf("a refusal that is not JSON: %s", body)
+		}
+		c, _ := j["code"].(string)
+		return c
+	}
+	if res, body := install(signedIn, good, firstState); res.StatusCode != 409 || code(body) != "not_this_request" {
 		t.Fatalf("the replaced request's state: %d %s", res.StatusCode, body)
 	}
-	if res, body := install(signedIn, good, strings.Repeat("A", 43)); res.StatusCode != 409 {
+	if res, body := install(signedIn, good, strings.Repeat("A", 43)); res.StatusCode != 409 || code(body) != "not_this_request" {
 		t.Fatalf("another state: %d %s", res.StatusCode, body)
 	}
-	if res, body := install(signedIn, issue(csrDER, &prev, key, rootDER), state); res.StatusCode != 400 {
+	if res, body := install(signedIn, issue(csrDER, &prev, key, rootDER), state); res.StatusCode != 400 || code(body) != "wrong_key" {
 		t.Fatalf("a leaf over the replaced request's key: %d %s", res.StatusCode, body)
 	}
 	mallory, _ := pactidentity.GenerateKey("ed25519")
 	malloryRoot, _ := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alice", Key: mallory, NotBefore: time.Now().Add(-time.Hour)})
-	if res, body := install(signedIn, issue(csrDER2, &prev, mallory, malloryRoot), state); res.StatusCode != 400 {
+	if res, body := install(signedIn, issue(csrDER2, &prev, mallory, malloryRoot), state); res.StatusCode != 400 || code(body) != "wrong_root" {
 		t.Fatalf("a leaf under another root: %d %s", res.StatusCode, body)
 	}
-	if res, body := install(signedIn, "not-a-chain", state); res.StatusCode != 400 {
+	if res, body := install(signedIn, "not-a-chain", state); res.StatusCode != 400 || code(body) != "malformed" {
 		t.Fatalf("a malformed chain: %d %s", res.StatusCode, body)
 	}
 	// The one that must pass.
@@ -360,11 +369,23 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatalf("the answer that must pass: %d %s", res.StatusCode, body)
 	}
 	var out map[string]any
-	if err := json.Unmarshal([]byte(body), &out); err != nil || out["endpoint"] != identity.EndpointFor(cfg.PublicURL, "alice") || out["notice"] != "" {
+	if err := json.Unmarshal([]byte(body), &out); err != nil || out["endpoint"] != identity.EndpointFor(cfg.PublicURL, "alice") || out["notice"] != "" || out["name"] != "Alice" {
 		t.Fatalf("install answered %s", body)
 	}
-	if res, _ := install(signedIn, good, state); res.StatusCode != 409 {
-		t.Fatalf("the same answer twice: %d", res.StatusCode)
+	// The validity is the installed leaf's, as the chain gives it.
+	leafCert, err := pactidentity.Parse(pactidentity.FromB64url(strings.Split(good, ".")[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["not_before"] != leafCert.NotBefore.UTC().Format(time.RFC3339) || out["not_after"] != leafCert.NotAfter.UTC().Format(time.RFC3339) {
+		t.Fatalf("install answered validity %v to %v; the leaf says %v to %v", out["not_before"], out["not_after"], leafCert.NotBefore, leafCert.NotAfter)
+	}
+	if res, body := install(signedIn, good, state); res.StatusCode != 409 || code(body) != "answered" {
+		t.Fatalf("the same answer twice: %d %s", res.StatusCode, body)
+	}
+	// With nothing pending now, a state never minted is not an answer installed before.
+	if res, body := install(signedIn, good, strings.Repeat("C", 43)); res.StatusCode != 409 || code(body) != "no_request" {
+		t.Fatalf("a state never minted, nothing pending: %d %s", res.StatusCode, body)
 	}
 	// The running node presents the leaf just installed: the install went through the service
 	// that reloads it, not only into the store.
@@ -398,7 +419,8 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		}
 	}
 	want := "account_csr/ok,account_csr/refused,account_csr/ok,account_leaf_install_refused/refused,account_leaf_install_refused/refused," +
-		"account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install/ok,account_leaf_install_refused/refused"
+		"account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install/ok,account_leaf_install_refused/refused," +
+		"account_leaf_install_refused/refused"
 	if strings.Join(seen, ",") != want {
 		t.Fatalf("audit rows\n got %s\nwant %s", strings.Join(seen, ","), want)
 	}
@@ -424,8 +446,23 @@ func TestTheWalletReturnPageNeedsNoSessionAndHoldsNoData(t *testing.T) {
 		!strings.Contains(res.Header.Get("Content-Security-Policy"), "script-src 'self';") {
 		t.Fatalf("return page headers: %v", res.Header)
 	}
-	if strings.Contains(page, "<script>") {
-		t.Fatal("an inline script, which the portal's CSP refuses")
+	// No inline script of any kind: every <script> names its file, and no element carries a handler
+	// attribute or a javascript: URL. The portal's CSP (script-src 'self') would refuse each.
+	for _, tag := range regexp.MustCompile(`(?i)<script\b[^>]*>`).FindAllString(page, -1) {
+		if !regexp.MustCompile(`\ssrc="/[^"]+"`).MatchString(tag) {
+			t.Fatalf("an inline script, which the portal's CSP refuses: %s", tag)
+		}
+	}
+	if m := regexp.MustCompile(`(?i)<[^>]*\son[a-z]+\s*=|javascript:`).FindString(page); m != "" {
+		t.Fatalf("inline script in markup: %s", m)
+	}
+	// The portal's stylesheet it links is served without a session, like the sign-in page's.
+	css := regexp.MustCompile(`<link rel="stylesheet" href="(/assets/[^"]+\.css)"/>`).FindStringSubmatch(page)
+	if css == nil {
+		t.Fatal("the return page links no portal stylesheet")
+	}
+	if res, body := p.do("GET", css[1], nil, nil); res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") || !strings.Contains(body, ".brandline") {
+		t.Fatalf("the portal's stylesheet without a session: %d %q", res.StatusCode, res.Header.Get("Content-Type"))
 	}
 	res, js := p.do("GET", "/wallet/return.js", nil, nil)
 	if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") || !strings.Contains(js, "history.replaceState") {

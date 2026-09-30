@@ -609,21 +609,38 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		// Migration 0044 makes this impossible; a ledger that holds it anyway is not one to guess in.
 		return InstallResult{}, fmt.Errorf("identity: %d certificate requests are pending for this account and one is expected; run `account csr` again", pendings)
 	}
+	// The state is judged before the chain, so an answer meant for no request here learns nothing
+	// about the chain rules: an answer installed already, then no request at all, then another one.
+	if state != "" {
+		h := stateHash(state)
+		for i := range leaves {
+			if len(leaves[i].AnsweredStateHash) > 0 && subtle.ConstantTimeCompare(leaves[i].AnsweredStateHash, h) == 1 {
+				return InstallResult{}, fmt.Errorf("identity: this answer was installed already: %w: %w", ErrRequestAnswered, ErrRequestState)
+			}
+		}
+	}
 	if pending == nil {
 		if state != "" {
-			return InstallResult{}, fmt.Errorf("identity: no certificate request is pending for this account, so no answer is expected (it may have been answered already): %w", ErrRequestState)
+			return InstallResult{}, fmt.Errorf("identity: no certificate request is pending for this account, so no answer is expected: %w: %w", ErrNoRequest, ErrRequestState)
 		}
 		return InstallResult{}, fmt.Errorf("identity: no certificate request is pending for this account; run `account csr` first: %w", ErrLeafRefused)
 	}
 	if state != "" && (len(pending.RequestStateHash) == 0 || subtle.ConstantTimeCompare(pending.RequestStateHash, stateHash(state)) != 1) {
-		return InstallResult{}, fmt.Errorf("identity: the answer's state is not the pending request's (another request, or one already answered): %w", ErrRequestState)
+		return InstallResult{}, fmt.Errorf("identity: the answer's state is not the pending request's (a request that was replaced, or one this identity never had): %w", ErrRequestState)
 	}
 	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now, ExpectedRoot: a.RootFingerprint, ExpectedEndpoint: pending.Endpoint})
 	if !vr.OK {
+		if vr.Rule == 2 && a.RootFingerprint != "" && len(chain) == 2 {
+			// Rule 2 is also a root that is not self-signed; the wrong root is one whose key is not
+			// the identity's.
+			if root, err := pactidentity.Parse(chain[1]); err == nil && pactidentity.FingerprintOf(root) != a.RootFingerprint {
+				return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s: %w: %w", vr.Rule, vr.Reason, ErrWrongRoot, ErrLeafRefused)
+			}
+		}
 		return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s: %w", vr.Rule, vr.Reason, ErrLeafRefused)
 	}
 	if got := pactidentity.Fingerprint(vr.LeafKey.SPKI); got != pending.Kid {
-		return InstallResult{}, fmt.Errorf("identity: the leaf carries key %s, not the requested %s: %w", got, pending.Kid, ErrLeafRefused)
+		return InstallResult{}, fmt.Errorf("identity: the leaf carries key %s, not the requested %s: %w: %w", got, pending.Kid, ErrWrongKey, ErrLeafRefused)
 	}
 	if current != nil {
 		cmp, err := pactidentity.CompareLeaves(current.Leaf, chain[0])
@@ -631,7 +648,7 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 			return InstallResult{}, fmt.Errorf("identity: %w: %w", err, ErrLeafRefused)
 		}
 		if cmp != "newer" {
-			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3): %w", cmp, ErrLeafRefused)
+			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3): %w: %w", cmp, ErrNotNewer, ErrLeafRefused)
 		}
 	}
 	// The answer has passed every check. What follows is one transaction: the answer is used —
@@ -716,7 +733,18 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 				return err
 			}
 			if !ok {
-				return fmt.Errorf("identity: the request was answered already: %w", ErrRequestState)
+				// Another answer carrying this state was installed first, or the request was
+				// replaced since it was read above; the ledger as this transaction sees it says which.
+				ledger, err := tx.ListLeaves(ctx, a.ID)
+				if err != nil {
+					return err
+				}
+				for _, l := range ledger {
+					if len(l.AnsweredStateHash) > 0 && subtle.ConstantTimeCompare(l.AnsweredStateHash, stateHash(state)) == 1 {
+						return fmt.Errorf("identity: the request was answered already: %w: %w", ErrRequestAnswered, ErrRequestState)
+					}
+				}
+				return fmt.Errorf("identity: the request was replaced while this answer was checked: %w", ErrRequestState)
 			}
 		}
 		if current != nil {
