@@ -1064,7 +1064,7 @@ What one process changes about what it serves, every other applies from the chan
 | `invites` | Invite state — expiry, uses, auto_accept, preset, label; stores the token **hash only**, never the token (§9) |
 | `threads` | Conversation threads (§7) |
 | `messages` | Messages, idempotent on `(account, contact, msg_id)` (§7) |
-| `idempotency` | Recorded acknowledgments for `msg_id`-bearing calls that append no `messages` row: envelope-level `sealed_call` dedup (PACT §13.3) and `book_slot` replays (§6.7), keyed `(account, caller fingerprint, msg_id)` with a reference to the recorded result; retained until the envelope's `exp`, else 30 days, and removed by the hourly sweep after that — a record past its window protects nothing (PACT §13.3) |
+| `idempotency` | Recorded acknowledgments for `msg_id`-bearing calls that append no `messages` row: envelope-level `sealed_call` dedup (PACT §13.3) and `book_slot` replays (§6.7), keyed `(account, caller fingerprint, msg_id)` with a reference to the recorded result; an envelope's is kept until the envelope can no longer be accepted — `exp`, or the second after `ts + 300`, whichever comes first (PACT §13.3's `min(exp, ts + 300 s)`; `ts + 300` itself still passes the skew check) — and a `book_slot` replay's for 30 days; the hourly sweep removes a record after that, since one past its window protects nothing |
 | `blobs` | Content-addressed media store (§7) |
 | `integrations` | Configured upstream integrations (§6) |
 | `catalogs` | Versioned catalog snapshots (catalog snapshot vN) with per-tool content hashes (§6) |
