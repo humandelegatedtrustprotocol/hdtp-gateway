@@ -217,11 +217,16 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				Background:     background,
 			})
 		},
-		func(mux *http.ServeMux) { internalui.MountAuditPages(mux, st) },
+		func(mux *http.ServeMux) {
+			// The trail, and the lists its ids are named from: the owners page's tokens and passkeys.
+			internalui.MountAuditPages(mux, internalui.AuditDeps{Store: st, Tokens: tokens, Passkeys: authSvc.ListPasskeys})
+		},
 		func(mux *http.ServeMux) {
 			internalui.MountDashboard(mux, internalui.DashboardDeps{
 				Store: st,
 				Setup: setup,
+				// The SAME reader Settings · identity renders, so the two cannot disagree about a leaf.
+				Certificate: identityDeps.Certificate,
 				// Only offer to sign out of a session that exists: a loopback
 				// portal serves with no login at all (SPEC §8.3).
 				SignedIn: func(r *http.Request) bool {

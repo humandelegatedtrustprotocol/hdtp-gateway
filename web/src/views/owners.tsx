@@ -2,23 +2,30 @@
 // runs the node with. Token creation answers with the plaintext exactly once,
 // so that response is the page state rather than a re-fetch.
 import { useCallback, useEffect, useState } from "react";
-import { getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Section, type Note } from "../ui";
+import { failureOf, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, type Note } from "../ui";
+import { dateOf, whenTitle } from "../words";
 
 type Passkey = { id: string; tag: string; created_at: number };
-type Token = { id: string; label: string; account_id?: string; revoked: boolean };
+type Token = { id: string; label: string; account_id?: string; created_at: number; revoked: boolean };
 type Data = { notice: string; new_token: string; passkeys: Passkey[] | null; tokens: Token[] | null; accounts: { id: string; label: string }[] | null };
+
+/** A day, said as every date in the portal is (words.ts `dateOf`), from the Unix seconds the node stores. */
+function day(unix: number): string {
+  return dateOf(unix * 1000);
+}
 
 export function Owners() {
   const [d, setD] = useState<Data | null>(null);
   const [label, setLabel] = useState("");
   const [note, setNote] = useState<Note | null>(null);
   const [fresh, setFresh] = useState("");
-  const load = useCallback(() => getJSON<Data>("/api/owners").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/owners").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
 
   const header = <PageHeader title="Owners" />;
-  if (!d) return <main>{header}<EmptyState loading /></main>;
+  if (!d) return <main>{header}{err ? <Failed what="the owners" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const post = async (path: string, fields: Record<string, string> = {}) => {
     const r = await postForm(path, fields);
@@ -40,6 +47,13 @@ export function Owners() {
 
   const passkeys = d.passkeys ?? [];
   const tokens = d.tokens ?? [];
+  // Which identity a token acts as: its account, by the name the node lists it under. A token with no
+  // account acts for every identity of its owner (auth.Identity: "" = all the owner's accounts).
+  const acting = (t: Token) => {
+    if (!t.account_id) return "every identity";
+    return (d.accounts ?? []).find((a) => a.id === t.account_id)?.label ?? `a removed identity (${t.account_id})`;
+  };
+  const create = () => { post("/owners/tokens/create", { label }); setLabel(""); };
   return (
     <main>
       {header}
@@ -62,20 +76,27 @@ export function Owners() {
             {passkeys.map((p) => (
               <ListRow key={p.id}
                 title={p.tag || <span className="muted">(untagged)</span>}
-                trailing={<Button variant="quiet" onClick={() => post(`/owners/passkeys/${encodeURIComponent(p.id)}/remove`)}>Remove</Button>} />
+                meta={<span className="muted" title={whenTitle(p.created_at * 1000)}>added {day(p.created_at)}</span>}
+                trailing={<Button variant="quiet" aria-label={`Remove ${p.tag || "the untagged passkey"}`}
+                  confirm={`Remove the passkey ${p.tag ? `“${p.tag}”` : "with no tag"}, added ${day(p.created_at)}? It no longer opens this portal.`}
+                  onClick={() => post(`/owners/passkeys/${encodeURIComponent(p.id)}/remove`)}>Remove</Button>} />
             ))}
           </List>
         )}
       </Section>
-      <Section title="Agent tokens" description="Named, revocable bearer tokens for the owner MCP — how your own agent runs this node."
-        footer={<Button disabled={!label.trim()} onClick={() => { post("/owners/tokens/create", { label }); setLabel(""); }}>Create</Button>}>
-        <Field label="Label"><input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="my laptop agent" /></Field>
+      <Section title="Agent tokens" description="Named, revocable bearer tokens for the owner MCP — how your own agent runs this node.">
+        <form className="add-row" onSubmit={(e) => { e.preventDefault(); if (label.trim()) create(); }}>
+          <Field label="Label"><input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="my laptop agent" /></Field>
+          <Toolbar><Button type="submit" disabled={!label.trim()}>Create</Button></Toolbar>
+        </form>
         <List aria-label="Agent tokens" empty={<EmptyState title="No tokens yet" />}>
           {tokens.map((t) => (
             <ListRow key={t.id}
               title={t.label}
-              meta={<Badge status={t.revoked ? "revoked" : "live"} />}
-              trailing={!t.revoked && <Button variant="quiet" onClick={() => post(`/owners/tokens/${encodeURIComponent(t.id)}/revoke`)}>Revoke</Button>} />
+              meta={<><Badge status={t.revoked ? "revoked" : "active"} /><span className="muted">acting as {acting(t)} · made {day(t.created_at)}</span></>}
+              trailing={!t.revoked && <Button variant="quiet" aria-label={`Revoke ${t.label}`}
+                confirm={`Revoke “${t.label}”? The agent using it is refused from its next call.`}
+                onClick={() => post(`/owners/tokens/${encodeURIComponent(t.id)}/revoke`)}>Revoke</Button>} />
           ))}
         </List>
       </Section>
