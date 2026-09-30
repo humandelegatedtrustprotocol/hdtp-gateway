@@ -2,6 +2,7 @@ package storecheck
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -209,5 +210,112 @@ func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 	}
 	if rep.Fields() != 4 || len(rep.Refusals) != 0 || !strings.HasSuffix(rep.Lines()[0], "; all read") {
 		t.Fatalf("a store that reads: %+v %q", rep, rep.Lines())
+	}
+}
+
+// forceContactStatus puts a contact in a state the store's own API cannot write: the schema holds
+// a contact's status to the four (migration 0002's CHECK, both engines), so a row in any other
+// state is a hand-edited store's, and this is that hand — raw SQL, in a test only, with the
+// constraint switched off for the one connection that writes it.
+func forceContactStatus(t *testing.T, dbPath, accountID, root, status string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE contacts SET status = ? WHERE account_id = ? AND fingerprint = ?`, status, accountID, root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A contact whose status is one this node does not know — neither a state a pin has nor a request
+// awaiting the owner — is counted and named by its row and its status, and a contact in each of
+// the four known states is not. The store's own API cannot write such a row (shown first: the
+// schema's CHECK refuses the move), so the test writes it as a hand-edited store would. The run
+// changes nothing, and two such rows read as a plural.
+//
+// Shown red with the state's reading removed from the run (the mutation): no row is counted and
+// no line names it.
+func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "pact.db")
+	st, err := store.OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	alina, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "ed25519"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := testid.NewWallet(t, "Alina")
+	if err := st.SetAccountRoot(ctx, alina.ID, me.Fpr, me.RootDER); err != nil {
+		t.Fatal(err)
+	}
+	// One contact in each known state, and one more (planted active) to be put in a state the
+	// node does not know; every field of every row reads.
+	roots := map[string]string{}
+	for _, name := range []string{"active", "pending_out", "blocked", "pending_in", "odd", "odder"} {
+		w := testid.NewWallet(t, name)
+		h := w.Issue(t, "https://"+name+".example/mcp")
+		leaf, _ := pactidentity.Parse(h.LeafDER)
+		status := name
+		if name == "odd" || name == "odder" {
+			status = "active"
+		}
+		if _, err := st.InsertContact(ctx, store.Contact{
+			AccountID: alina.ID, Fingerprint: w.Fpr, SPKI: leaf.SPKI, Status: status, Permissions: []string{"message.text"},
+			Endpoint: h.Endpoint, Card: h.Card(name, "required"), Leaf: h.LeafDER, RootCert: w.RootDER,
+		}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		roots[name] = w.Fpr
+	}
+	if err := st.UpdateContactStatus(ctx, alina.ID, roots["odd"], "frozen"); err == nil {
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+	}
+	forceContactStatus(t, path, alina.ID, roots["odd"], "frozen")
+
+	rep, err := Run(ctx, st, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Refusals) != 0 || rep.Fields() != 19 {
+		t.Fatalf("every field reads and there are 19: %+v", rep)
+	}
+	if len(rep.NoPin) != 1 || rep.NoPin[0] != (NoPin{Row: "account:alina contact:" + roots["odd"], Status: "frozen"}) {
+		t.Fatalf("the contacts in a state no pin has: %+v, want the one in state frozen", rep.NoPin)
+	}
+	lines := rep.Lines()
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "; all read; 1 contact in a state neither a pin nor a request has") {
+		t.Fatalf("the lines: %q", lines)
+	}
+	want := "NO PIN contacts account:alina contact:" + roots["odd"] + ` status: "frozen" is neither a state a pin has (active, pending_out, blocked) nor a request awaiting the owner (pending_in); the identity core is handed no pin for this row`
+	if lines[1] != want {
+		t.Fatalf("the line naming it:\n%s\nwant:\n%s", lines[1], want)
+	}
+	// Nothing was changed: the row is in the state it was put in.
+	if c, err := st.GetContact(ctx, alina.ID, roots["odd"]); err != nil || c.Status != "frozen" {
+		t.Fatalf("the run changed the store: %v %q", err, c.Status)
+	}
+	// Two such rows: counted as two, each named.
+	forceContactStatus(t, path, alina.ID, roots["odder"], "held")
+	rep, err = Run(ctx, st, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var named []string
+	for _, p := range rep.NoPin {
+		named = append(named, p.Row+" "+p.Status)
+	}
+	sort.Strings(named)
+	wantNamed := []string{"account:alina contact:" + roots["odd"] + " frozen", "account:alina contact:" + roots["odder"] + " held"}
+	sort.Strings(wantNamed)
+	if lines := rep.Lines(); len(lines) != 3 || !strings.HasSuffix(lines[0], "; all read; 2 contacts in a state neither a pin nor a request has") || strings.Join(named, "\n") != strings.Join(wantNamed, "\n") {
+		t.Fatalf("two such rows: %q\nnamed %v", lines, named)
 	}
 }
