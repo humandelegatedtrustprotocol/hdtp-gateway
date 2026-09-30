@@ -169,8 +169,10 @@ export function Section({ title, description, meta, footer, footerStatus, tone, 
  * preset_grid.tsx) and stays a row of its own width on a phone, where a full-width stack would stand
  * taller than the thing it saves.
  */
-export function Actions({ children, status, foot, inline, className }: { children?: ReactNode; status?: ReactNode; foot?: boolean; inline?: boolean; className?: string }) {
-  return <div className={"acts" + (foot ? " toolbar foot" : "") + (inline ? " inline" : "") + (className ? " " + className : "")}><span className="acts-status" role="status">{status}</span>{children}</div>;
+// `start` lays the row from the left (inside running text, beside what it acts on) instead of the
+// toolbar's right edge; it wraps rather than overflow.
+export function Actions({ children, status, foot, inline, start, className }: { children?: ReactNode; status?: ReactNode; foot?: boolean; inline?: boolean; start?: boolean; className?: string }) {
+  return <div className={"acts" + (foot ? " toolbar foot" : "") + (inline ? " inline" : "") + (start ? " start" : "") + (className ? " " + className : "")}><span className="acts-status" role="status">{status}</span>{children}</div>;
 }
 
 /** A done action's moment: `flash()` sets it for a second and a half, then it clears itself. */
@@ -187,7 +189,7 @@ export function Toolbar({ children, end, className }: { children?: ReactNode; en
   return <div className={"toolbar" + (className ? " " + className : "")}>{children}{end && <span className="end">{end}</span>}</div>;
 }
 
-export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "link";
+export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "link" | "emergency";
 // `busy`: at work — disabled, aria-busy, a spinner in the icon's place, the label kept. `done`: what it
 // did has just happened — a check in the icon's place, the label kept, and `doneText` said once to a
 // screen reader. A status is never a button's label.

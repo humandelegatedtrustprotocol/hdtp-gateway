@@ -193,6 +193,10 @@ export function brandProblems(app = APP) {
     for (const fill of ['red', 'amber', 'accent-ink']) need('on-fill', fill, 4.5, 'a count or a danger button')
     need('bg', 'ink', 4.5, 'a primary button, an own message')
     need('accent-on-ink', 'ink', 4.5, 'a link inside an own message')
+    for (const g of ['emergency', 'emergency-hover']) {
+      need('on-emergency', g, 4.5, 'the emergency button\'s words'); need('sign-warn', g, 3, 'its warning sign')
+    }
+    for (const g of ['bg', 'bg-2', 'bg-3', 'raise']) need('emergency-ring', g, 3, 'the emergency button\'s edge')
     if (ratio(v('accent'), v('bg')) >= 4.5 && theme === 'light') out.push('the brand orange passes as text now; the kit says it never carries text')
   }
 
