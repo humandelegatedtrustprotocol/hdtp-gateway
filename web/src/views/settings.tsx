@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { csrf, currentAccount, failureOf, getJSON } from "../api";
-import { Badge, Button, CsrfFields, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
+import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
 type SettingRow = {
   key: string; value: string; locked: boolean; reason: string; restart: boolean;
@@ -59,14 +59,14 @@ export function Settings() {
         <CsrfFields />
         <Group title="Reachability" rows={d.reach ?? []} />
         <Group title="Security posture" rows={d.security ?? []} />
-        <Toolbar>
-          <Button type="submit">Save settings</Button>
+        <Actions foot>
           {d.show_probe && (
             <Button variant="secondary" onClick={async (e) => { await submitForm((e.currentTarget as HTMLButtonElement).form!, "/settings/probe"); }}>
               Probe reachability
             </Button>
           )}
-        </Toolbar>
+          <Button type="submit">Save settings</Button>
+        </Actions>
       </form>
 
       {(d.adapter_settings ?? []).length > 0 && (
@@ -142,7 +142,7 @@ function AdapterRow({ a, onSaved }: { a: AdapterSetting; onSaved: () => void }) 
     <ListRow
       title={<code>{a.key}</code>}
       meta={<><Badge status={a.set ? "set" : "empty"} />{a.secret && <Badge>secret</Badge>}</>}
-      trailing={<Toolbar>
+      trailing={<Toolbar className="field-save">
         <input aria-label={a.key} type={a.secret ? "password" : "text"} value={v} onChange={(e) => setV(e.target.value)} placeholder="new value" />
         <Button variant="quiet" onClick={save}>Save</Button>
       </Toolbar>}
@@ -190,10 +190,10 @@ function PresetForm({ p, allPerms, onSaved, isNew }: { p: PresetRow; allPerms: s
           </Field>
         ))}
       </div>
-      <Toolbar className="foot">
+      <Actions foot>
+        {!isNew && <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={del}>Delete</Button>}
         <Button onClick={save}>{isNew ? "Add preset" : "Save"}</Button>
-        {!isNew && <Button variant="danger" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={del}>Delete</Button>}
-      </Toolbar>
+      </Actions>
     </>
   );
 }
@@ -217,7 +217,7 @@ function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
           <input type="number" min={1} max={365} value={expiry} onChange={(e) => setExpiry(e.target.value)} />
         </Field>
       </div>
-      <Toolbar className="foot"><Button onClick={save}>Save</Button></Toolbar>
+      <Actions foot><Button onClick={save}>Save</Button></Actions>
     </>
   );
 }
