@@ -134,7 +134,7 @@ test("a wallet that declined: nothing is sent, and the page says so, with Sign a
   assert.equal(r.fetches.length, 0);
   assert.equal(r.events[0][0], "replaceState");
   settled(r, "wallet_cancelled");
-  assert.equal(r.els.detail.textContent, "wallet: cancelled");
+  assert.equal(r.els.detail.textContent, "");
   assert.ok(r.visible("a-sign"));
   assert.equal(r.els["a-sign"].href, "/identity/alice/wallet");
 });
@@ -171,7 +171,7 @@ test("an arrival with nothing to install sends nothing", async () => {
   }
 });
 
-test("each refusal of the install is its own state, with the code as the quiet line", async () => {
+test("each refusal of the install is its own state, its words and no code; a failure keeps a reference", async () => {
   const cases = [
     [409, "answered", "ok", false],
     [409, "not_this_request", "err", true],
@@ -186,7 +186,8 @@ test("each refusal of the install is its own state, with the code as the quiet l
     const r = await run({ href: answer, reply: { status, body: { error: "a sentence", code } } });
     settled(r, "r-" + code);
     assert.equal(r.kind, kind, code);
-    assert.equal(r.els.detail.textContent, code, code);
+    assert.equal(r.els.detail.textContent, code === "failed" ? `Reference: HTTP ${status}` : "", code);
+    assert.equal(r.visible("detail"), code === "failed", code);
     assert.equal(r.visible("a-sign"), sign, code);
   }
   // A refused chain and a malformed answer carry the node's sentence too.
@@ -201,7 +202,7 @@ test("a code the node answers that the page has no state for is shown as a plain
   for (const code of ["something_new", "st-installed", "installed", "working", "wallet_cancelled", "r-answered", "<b>x</b>"]) {
     const r = await run({ href: answer, reply: { status: 409, body: { error: "refused", code } } });
     settled(r, "refused");
-    assert.equal(r.els.detail.textContent, "HTTP 409: refused", code);
+    assert.equal(r.els.detail.textContent, "Reference: HTTP 409 — refused", code);
   }
 });
 
@@ -213,9 +214,10 @@ test("the portal's own refusals, which are not JSON, each have a state", async (
   r = await run({ href: answer, reply: { status: 403, text: "cross-origin request refused" } });
   settled(r, "forbidden");
   assert.ok(r.visible("a-sign"));
+  assert.ok(!r.visible("detail"), "a state that explains itself shows no status line");
   r = await run({ href: answer, reply: { status: 502, text: "Bad Gateway" } });
   settled(r, "refused");
-  assert.equal(r.els.detail.textContent, "HTTP 502");
+  assert.equal(r.els.detail.textContent, "Reference: HTTP 502");
 });
 
 test("no reply at all does not claim that nothing was installed", async () => {
