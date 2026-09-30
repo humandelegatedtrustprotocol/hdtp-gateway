@@ -25,6 +25,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
@@ -170,7 +171,16 @@ func (ot ownerTools) exportCardTool(ctx context.Context, req *mcp.CallToolReques
 	if err != nil {
 		return nil, nil, err
 	}
-	r, err := jsonResult(map[string]string{"card": card})
+	acct, err := ot.d.Store.GetAccountByID(ctx, a.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The card and what the owner reads it by, as the portal's card read answers them.
+	facts, err := contacts.FactsOf(card, acct.Fingerprint)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := jsonResult(facts)
 	return r, nil, err
 }
 
