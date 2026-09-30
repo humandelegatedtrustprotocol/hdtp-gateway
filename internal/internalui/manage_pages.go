@@ -322,17 +322,16 @@ func (d ManageDeps) getAPICard(w http.ResponseWriter, r *http.Request) {
 	if d.SignCard != nil {
 		sig, _ = d.SignCard(account, card)
 	}
-	// The facts the page leads with are read from the card itself, through the intake a peer's card
-	// passes (the certificate's address and root) — never from the account row, so the page cannot say
-	// an address or a root the card does not. The names are the cloud's (/v1/identities/{slug}/card):
-	// endpoint, root_fingerprint, kid.
-	parsed, err := contacts.ValidateInbound(card)
+	// The facts the page leads with, as the owner MCP's export_card answers them (contacts.FactsOf):
+	// read from the card itself, never from the account row. The signature and the slug are the
+	// portal's own (the download's name).
+	f, err := contacts.FactsOf(card, a.Fingerprint)
 	if err != nil {
 		http.Error(w, `{"error":"card_unavailable"}`, http.StatusInternalServerError)
 		return
 	}
-	apiJSON(w, map[string]any{"card": card, "sig": sig, "slug": a.Slug,
-		"endpoint": parsed.Endpoint, "root_fingerprint": parsed.Key, "kid": a.Fingerprint})
+	apiJSON(w, map[string]any{"card": f.Card, "sig": sig, "slug": a.Slug,
+		"endpoint": f.Endpoint, "root_fingerprint": f.Root, "kid": f.Kid})
 }
 
 // getCardVCF serves `GET /card.vcf`.
