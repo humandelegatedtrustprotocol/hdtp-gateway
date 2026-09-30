@@ -43,6 +43,9 @@ optional|required` additionally implements §13"*.
 |---|---|
 | `sealed_call` at every tier | `TestSealedCallIsPresentAtEveryTier`, `TestSealedGuestReachesGuestToolsOnly` |
 | sealed results for sealed requests | `TestP1ExitTwoNodesPairAndMessage` |
+| a sealed answer is sealed under the recipient state its open read and reads none of its own: one read of that state for a sealed call that presents no client certificate — an answer, a refusal past the open, a budget's refusal (§13.2) | `TestASealedCallReadsTheRecipientStateOnce` |
+| a card with no `X-PACT-SEAL` line says `none`, and senders MUST NOT seal to it (§3, §13.4): the node reads a contact's policy off the card on file as the core reads a card, refuses to guess the policy of a card on file that does not read, and seals to a contact with no card on file (an import, or a returned root the owner approved: a gap the SPEC leaves, docs/release/port-parity-2026-09-29.md §3); the answer to a contact request goes to the asker the way its card says | `TestACardWithNoSealLineIsCalledInPlaintext`, `TestAContactsSealIsWhatItsCardOnFileSays`, `TestAnImportedContactWithNoCardOnFileCanBeWritten`, `TestAnAskerIsAnsweredTheWayItsCardSays` |
+| an envelope's replay record is kept until `min(exp, ts + 300 s)` (§13.3): through the second `ts + 300`, which still passes the skew check, removed by the sweep after it, and never kept to a later `exp` | `TestAnEnvelopesReplayRecordIsKeptForTheWindowItCanBeAcceptedIn` |
 
 ## Error codes
 
