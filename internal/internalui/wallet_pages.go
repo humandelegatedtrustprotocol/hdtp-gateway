@@ -36,7 +36,8 @@ import (
 // WalletInstalled is what an install did, as the return page reports it.
 type WalletInstalled struct {
 	Endpoint string
-	NotAfter time.Time
+	// NotBefore and NotAfter are the installed leaf's validity, as the wallet's chain gives it.
+	NotBefore, NotAfter time.Time
 	// Notice is the move notice (identity.MoveNotice), "" when the identity did not move.
 	Notice string
 	// Warnings are what the install did not finish although the leaf is installed.
@@ -126,16 +127,120 @@ var walletSubmitTmpl = template.Must(template.New("submit").Parse(`<!DOCTYPE htm
 <script src="/wallet/submit.js"></script>
 </main></body></html>`))
 
+// The return page is laid out by the portal's own stylesheet (the SPA's built CSS, portalStylesheet):
+// its sign-in column (.center, .brandline), .card, .btn, .pill, .notice and dl.facts, on brand.css's
+// tokens, light and dark. walletReturnStyle is the page's own few rules on the same tokens;
+// TestTheWalletReturnPageIsThePortals holds both to the SPA.
+const walletReturnStyle = `<style>
+[hidden]{display:none!important}
+main.center.wr{max-width:32rem;margin-top:8vh;padding-bottom:3rem}
+.wr > .brandline{animation:none}
+.wr-card{padding:1.25rem 1.35rem}
+.wr-card[data-kind="ok"]{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.wr-card[data-kind="warn"]{border-color:color-mix(in srgb,var(--amber) 40%,var(--line))}
+.wr-card[data-kind="err"]{border-color:color-mix(in srgb,var(--red) 35%,var(--line))}
+.wr-head{display:flex;gap:.85rem;align-items:flex-start}
+.wr-head h2{margin:.35rem 0 .1rem;font-size:1.1rem}
+.wr-icon{flex:0 0 auto;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--bg-3);color:var(--muted)}
+.wr-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.wr-card[data-kind="ok"] .wr-icon{background:var(--accent-soft);color:var(--accent-ink)}
+.wr-card[data-kind="warn"] .wr-icon{background:var(--amber-soft);color:var(--amber)}
+.wr-card[data-kind="err"] .wr-icon{background:var(--red-soft);color:var(--red)}
+.wr-spin{width:18px;height:18px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
+.wr-card section > p,.wr-card section > dl,.wr-card section > .notice{margin:.9rem 0 0}
+.wr-card section:not(#st-working){animation:rise .3s var(--ease-out) both}
+.wr-card dl.facts dd{overflow-wrap:anywhere}
+.wr-card dl.facts dd.mono{font-family:var(--mono);font-size:.84rem}
+.wr-detail{margin:1rem 0 0;color:var(--faint);overflow-wrap:anywhere}
+.wr-actions{margin-top:1.1rem;padding-top:1rem;border-top:1px solid var(--line)}
+@media (max-width:600px){main.center.wr{margin-top:4vh;padding:0 16px 2rem}.wr-card{padding:1.05rem 1rem}.wr-actions .btn{flex:1 1 auto}}
+@media (prefers-reduced-motion:reduce){.wr-spin,.wr-card section{animation:none!important}}
+</style>`
+
+// The return page's marks, in the portal's line style (1.8 stroke, round caps). Each state says in
+// words what it is (its pill and its heading); the mark and the card's colour only repeat it.
+const (
+	wrIconOK   = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.2 9.5"/></svg>`
+	wrIconWarn = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8L21.2 19.5H2.8z"/><path d="M12 10v4.2M12 16.9v.1"/></svg>`
+	wrIconErr  = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/></svg>`
+	wrIconNone = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 12h7"/></svg>`
+)
+
+// wrState is one state of the return page: its section, its pill, its heading and what it says.
+func wrState(id, icon, pill, pillClass, title, body string) string {
+	p := ""
+	if pill != "" {
+		p = `<span class="pill ` + pillClass + `">` + pill + `</span>`
+	}
+	return `<section id="st-` + id + `" hidden><div class="wr-head"><span class="wr-icon">` + icon + `</span><div>` + p +
+		`<h2>` + title + `</h2></div></div><p>` + body + `</p></section>
+`
+}
+
+// The states the return page shows: one for each refusal the install answers, as r-<code>
+// (walletRefusals, and not_found, malformed, chain, failed; the prefix keeps a code from naming any
+// other state), for the portal's own refusals before it (signed_out, the 401; forbidden, the CSRF
+// check's 403), for no reply at all, and for the wallet's own answers (#error=<code>: PACT §9.1 names
+// `cancelled`; PACT Cloud's wallet also sends `failed`).
+var walletReturnStates = wrState("r-answered", wrIconOK, "Already installed", "ok", "This answer was installed already",
+	"Your wallet&#39;s answer was installed the first time it arrived here. Arriving again changes nothing. The Identity page shows the certificate this identity has now.") +
+	wrState("r-not_this_request", wrIconErr, "Not installed", "bad", "This answer is for another request",
+		"The request waiting here is not the one your wallet answered. A request is replaced when a new one is started, and the answer to the old one can no longer be used. Sign again to make a new request.") +
+	wrState("r-no_request", wrIconErr, "Not installed", "bad", "No request is waiting",
+		"This identity has no signing request waiting, so there is nothing for this answer to complete. Sign again to make a new request.") +
+	wrState("r-wrong_root", wrIconErr, "Not installed", "bad", "Signed by a different wallet",
+		"The certificate was signed by a root other than this identity&#39;s, so the wallet that answered does not hold this identity. Sign again, with the wallet that does.") +
+	wrState("r-wrong_key", wrIconErr, "Not installed", "bad", "The certificate is for another key",
+		"Your wallet certified a key other than the one this node asked it to. Sign again to make a new request.") +
+	wrState("r-not_newer", wrIconErr, "Not installed", "bad", "Not newer than the current certificate",
+		"The certificate your wallet signed does not start after the one this identity already has, and a new one must. Sign again to make a new request.") +
+	wrState("r-chain", wrIconErr, "Not installed", "bad", "The certificate did not pass this node&#39;s checks",
+		"This node checked the certificate against this identity and refused it; the line below names the rule. Sign again to make a new request.") +
+	wrState("r-malformed", wrIconErr, "Not installed", "bad", "The answer was incomplete",
+		"What came back from your wallet was not a whole answer, so there was nothing to install. Sign again to make a new request.") +
+	wrState("r-not_found", wrIconErr, "Not installed", "bad", "Not an identity you manage here",
+		"The identity this answer names is not one you manage on this node, or it no longer exists. Nothing was installed.") +
+	wrState("r-failed", wrIconErr, "Not installed", "bad", "This node could not install the certificate",
+		"Something failed on this node while installing it, and nothing was installed. The audit log records the attempt. Sign again to try once more.") +
+	wrState("signed_out", wrIconErr, "Not installed", "bad", "Sign in to finish",
+		"This browser is not signed in to this node&#39;s portal, so the answer could not be installed. Your wallet does not keep its answer: sign in, then sign again.") +
+	wrState("forbidden", wrIconErr, "Not installed", "bad", "The install was refused",
+		"This node could not confirm that the answer came from its own portal page in this browser, and refused it. Sign again from this browser.") +
+	wrState("unreachable", wrIconWarn, "No reply", "warn", "This node did not reply",
+		"The answer could not be delivered, or the reply to it was lost, so this page cannot say whether it was installed. The Identity page shows the certificate this identity has now.") +
+	wrState("refused", wrIconErr, "Not installed", "bad", "This node refused the answer",
+		"Nothing was installed. The line below is what this node said.") +
+	wrState("wallet_cancelled", wrIconNone, "Not signed", "", "You declined in your wallet",
+		"Nothing was signed and nothing was installed. Sign again when you are ready.") +
+	wrState("wallet_failed", wrIconErr, "Not signed", "bad", "Your wallet could not sign",
+		"Your wallet stopped before it signed, so nothing was installed. Sign again to try once more.") +
+	wrState("wallet_other", wrIconErr, "Not signed", "bad", "Your wallet did not sign",
+		"Nothing was installed.") +
+	wrState("empty", wrIconNone, "", "", "Nothing to install",
+		"This is where your wallet sends its answer, and none came with this visit. To sign, start from the Identity page.")
+
 var walletReturnTmpl = template.Must(template.New("return").Parse(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="color-scheme" content="light dark"/>
 <meta name="pact-csrf-cookie" content="{{.Cookie}}"/>
-<title>Your wallet's answer</title>` + walletStyle + `</head>
-<body><main>
-` + portalBrand + `
+<title>Your wallet's answer</title>
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="{{.Stylesheet}}"/>
+` + walletReturnStyle + `</head>
+<body><main class="center wr">
+<div class="brandline"><picture><source srcset="/brand/pact-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/><img class="logo" src="/brand/pact-gateway-inline.svg" alt="PACT gateway" width="169" height="34"/></picture></div>
 <h1>Your wallet's answer</h1>
-<p id="out">Installing…</p>
-<noscript><p class="err">Installing the certificate needs this page's script.</p></noscript>
-<p><a href="/identity">Back to Identity</a></p>
+<div class="card wr-card" id="answer" data-kind="working" role="status" aria-live="polite" aria-busy="true">
+<section id="st-working"><div class="wr-head"><span class="wr-icon"><span class="wr-spin" aria-hidden="true"></span></span><div><span class="pill">Working</span><h2>Installing your certificate…</h2></div></div>
+<p>This node is checking your wallet's answer.</p>
+<noscript><div class="notice err"><div class="body">Installing the certificate needs this page's script, and it did not run.</div></div></noscript></section>
+<section id="st-installed" hidden><div class="wr-head"><span class="wr-icon"><span id="i-installed">` + wrIconOK + `</span><span id="i-installed-warn" hidden>` + wrIconWarn + `</span></span><div><span class="pill ok" id="p-installed">Installed</span><span class="pill warn" id="p-installed-warn" hidden>Installed, one thing left</span><h2>Your certificate is installed</h2></div></div>
+<dl class="facts"><dt>Identity</dt><dd id="f-name"></dd><dt>Address</dt><dd class="mono" id="f-address"></dd><dt>Valid from</dt><dd id="f-from"></dd><dt>Valid until</dt><dd id="f-until"></dd></dl>
+<p id="f-notice" hidden></p>
+<div class="notice warn" id="f-warn" hidden><div class="body"><strong class="title">One thing is left to do</strong><span id="f-warnings"></span></div></div></section>
+` + walletReturnStates + `<p class="help mono wr-detail" id="detail" hidden></p>
+<div class="toolbar wr-actions" id="actions" hidden><a class="btn" id="a-login" hidden>Sign in</a><a class="btn" id="a-sign" hidden>Sign again</a><a class="btn secondary" id="a-back" href="/identity">Back to Identity</a></div>
+</div>
 <script src="/wallet/return.js"></script>
 </main></body></html>`))
 
@@ -382,7 +487,7 @@ func walletRecipient(endpoint string) string {
 // data; its script reads the answer from the fragment, clears it, and POSTs it same-site.
 func (d WalletDeps) getWalletReturn(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	_ = walletReturnTmpl.Execute(w, map[string]any{"Cookie": csrfCookieName()})
+	_ = walletReturnTmpl.Execute(w, map[string]any{"Cookie": csrfCookieName(), "Stylesheet": portalStylesheet})
 }
 
 // parseWalletChain reads `chain=<leaf>.<root>`, each base64url DER.
@@ -408,12 +513,17 @@ func walletJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// postWalletInstall serves `POST /identity/{slug}/wallet/install`.
+// postWalletInstall serves `POST /identity/{slug}/wallet/install`. Every answer is JSON; a refusal is
+// {"error": a sentence, "code": one of walletRefusals}, which the return page words for the owner.
+// (No session is refused before this handler, 401, and a failed CSRF check 403, both as text.)
 func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
+	refuse := func(status int, code, msg string) {
+		walletJSON(w, status, map[string]string{"error": msg, "code": code})
+	}
 	a, err := d.Store.GetAccountBySlug(r.Context(), r.PathValue("slug"))
 	if err != nil || !ownerAdmins(r, d.Store, a.ID) {
-		walletJSON(w, http.StatusNotFound, map[string]string{"error": "no such identity"})
+		refuse(http.StatusNotFound, "not_found", "no such identity")
 		return
 	}
 	state := r.PostFormValue("state")
@@ -424,19 +534,13 @@ func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			msg = err.Error()
 		}
-		walletJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		refuse(http.StatusBadRequest, "malformed", msg)
 		return
 	}
 	res, err := d.Install(r, a, chain, state)
-	switch {
-	case errors.Is(err, identity.ErrRequestState):
-		walletJSON(w, http.StatusConflict, map[string]string{"error": "this answer is not for the request waiting here, or it was installed already"})
-		return
-	case errors.Is(err, identity.ErrLeafRefused):
-		walletJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	case err != nil:
-		walletJSON(w, http.StatusInternalServerError, map[string]string{"error": "the certificate could not be installed"})
+	if err != nil {
+		status, code, msg := walletRefusal(err)
+		refuse(status, code, msg)
 		return
 	}
 	warnings := res.Warnings
@@ -444,7 +548,42 @@ func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 		warnings = []string{}
 	}
 	walletJSON(w, http.StatusOK, map[string]any{
-		"endpoint": res.Endpoint, "not_after": res.NotAfter.UTC().Format(time.RFC3339), "notice": res.Notice,
-		"warnings": warnings,
+		"name": a.DisplayName, "endpoint": res.Endpoint,
+		"not_before": res.NotBefore.UTC().Format(time.RFC3339), "not_after": res.NotAfter.UTC().Format(time.RFC3339),
+		"notice": res.Notice, "warnings": warnings,
 	})
+}
+
+// walletRefusals are the codes an install answers besides "not_found" and "malformed", each with
+// its status and sentence. A state refusal is 409 (the request is not in the state the answer
+// assumes); a chain refusal 400. TestEveryWalletRefusalIsWordedOnTheReturnPage holds the return
+// page to this list.
+var walletRefusals = []struct {
+	is     error
+	status int
+	code   string
+	msg    string
+}{
+	{identity.ErrRequestAnswered, http.StatusConflict, "answered", "this answer was installed already"},
+	{identity.ErrNoRequest, http.StatusConflict, "no_request", "no request is waiting for a wallet's answer"},
+	{identity.ErrRequestState, http.StatusConflict, "not_this_request", "this answer is not for the request waiting here"},
+	{identity.ErrWrongRoot, http.StatusBadRequest, "wrong_root", "the certificate was signed by another root than this identity's"},
+	{identity.ErrWrongKey, http.StatusBadRequest, "wrong_key", "the certificate is for another key than the one this node asked for"},
+	{identity.ErrNotNewer, http.StatusBadRequest, "not_newer", "the certificate is not newer than the current one"},
+}
+
+// walletRefusal maps an install's error to its answer. A chain refusal the list does not name keeps
+// its text, which names the rule and never a secret (identity.installLeaf); a failure of this node
+// never does.
+func walletRefusal(err error) (int, string, string) {
+	for _, rf := range walletRefusals {
+		if errors.Is(err, rf.is) {
+			return rf.status, rf.code, rf.msg
+		}
+	}
+	if errors.Is(err, identity.ErrLeafRefused) {
+		msg := strings.TrimSuffix(strings.TrimPrefix(err.Error(), "identity: "), ": "+identity.ErrLeafRefused.Error())
+		return http.StatusBadRequest, "chain", msg
+	}
+	return http.StatusInternalServerError, "failed", "the certificate could not be installed"
 }
