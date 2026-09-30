@@ -692,27 +692,76 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 }
 
 // The core's pin has three states (CONTRACT `Pin`; pact-identity 0.4.2 refuses any other as this
-// node's unreadable state, where 0.4.1 read it as active). A request the owner has not answered is
-// handed over as `active`, as 0.4.1 read it — the small form from that requester still decides, on
-// the leaf it pinned — and the node's other statuses go as themselves.
-func TestAPendingRequestIsHandedToDecideAsAnActivePin(t *testing.T) {
-	for status, want := range map[string]string{"active": "active", "pending_out": "pending_out", "blocked": "blocked", "pending_in": "active", "removed": "removed"} {
-		if got := pinState(status); got != want {
-			t.Errorf("pinState(%q) = %q, want %q", status, got, want)
-		}
-	}
+// node's unreadable state). A request the owner has not answered is handed to Decide as NO pin —
+// what PACT Cloud's `pinsOf` hands, the owner's decision of 2026-09-30 — so its requester is decided
+// as the stranger SPEC §5.4 says it is: the small form names a leaf nobody pinned and is refused
+// `chain_required`; the chain form is decided as a guest's and audited as one; and the effects
+// Decide returns for an active pin — the newer leaf a chain carries, a new address under `auto` —
+// reach no row the owner has not approved. The three states the core names go as themselves.
+//
+// Shown red with the mapping this replaced (`pending_in` handed as `active`): one pin, the small
+// form `ok`, the actor `contact`, and the renewed leaf written onto the unanswered request.
+func TestAPendingRequestIsHandedToDecideWithNoPin(t *testing.T) {
+	ctx := context.Background()
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "pending_in")
-	all, err := e.st.ListContacts(context.Background(), e.acct.ID)
+	all, err := e.st.ListContacts(ctx, e.acct.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pins := pinsOf(all); len(pins) != 1 || pins[0].Root != p.fpr() || pins[0].State != "active" {
-		t.Fatalf("the pin of a pending_in row: %+v", pins)
+	if pins := pinsOf(all); len(pins) != 0 {
+		t.Fatalf("a pending_in row was handed to Decide as a pin: %+v", pins)
 	}
-	f, err := e.open(t, e.sealFrom(t, p, "leaf", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
-	if err != nil || f.From != p.fpr() || f.Form != "leaf" || f.Endpoint != endpointA {
-		t.Fatalf("the small form from a requester the owner has not answered: %v %+v", err, f)
+	for _, status := range []string{"active", "pending_out", "blocked"} {
+		row := all[0]
+		row.Status = status
+		if pins := pinsOf([]store.Contact{row}); len(pins) != 1 || pins[0].Root != p.fpr() || pins[0].State != status {
+			t.Fatalf("a %s row's pin: %+v", status, pins)
+		}
+	}
+	// The small form: nothing here holds the leaf it names.
+	_, err = e.open(t, e.sealFrom(t, p, "leaf", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if Code(err) != "chain_required" {
+		t.Fatalf("the small form from a requester the owner has not answered: %v; want chain_required, as the cloud answers it", err)
+	}
+	// The chain form: a guest, on the envelope's own proof, and audited as one.
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if err != nil || !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || f.Form != "chain" || f.Endpoint != endpointA || f.Demote {
+		t.Fatalf("the chain form from a requester the owner has not answered: %v %+v", err, f)
+	}
+	if actor := actorOf(f); actor != "guest" {
+		t.Fatalf("the audit row's actor for that requester: %q, want guest", actor)
+	}
+	// Decide's pin effects reach no unanswered request: a renewed leaf, then a leaf for a new
+	// address under `auto` (the account's setting as made), each carried by a chain form, and the
+	// row is as it was — no repin, no pending address for the owner to answer.
+	before, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := e.st.GetAccountByID(ctx, e.acct.ID); a.AcceptNewHosts != "auto" {
+		t.Fatalf("the account's new-host policy is %q; the case below needs auto", a.AcceptNewHosts)
+	}
+	for _, c := range []struct {
+		name     string
+		endpoint string
+	}{{"renewed", endpointA}, {"moved", endpointA2}} {
+		newer := &peer{root: p.root, host: p.host, leaf: p.leafFor(t, c.endpoint, fixedNow)}
+		withID := func(o *pactidentity.SealOpts) { o.MsgID = "m-" + c.name }
+		f, err := e.open(t, e.sealFrom(t, newer, "chain", "request_contact", map[string]any{"card": cardOf(newer)}, withID), TransportFacts{})
+		if err != nil || !f.Guest || f.Endpoint != c.endpoint {
+			t.Fatalf("the %s leaf's chain form from that requester: %v %+v", c.name, err, f)
+		}
+	}
+	after, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after.Leaf) != string(before.Leaf) || after.Endpoint != before.Endpoint || after.Status != before.Status || after.PinnedAt != before.PinnedAt {
+		t.Fatalf("Decide's effects reached a request the owner has not answered:\n before %+v\n after  %+v", before, after)
+	}
+	if pending, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(pending) != 0 {
+		t.Fatalf("a new address was noted for a request the owner has not answered: %+v", pending)
 	}
 }
