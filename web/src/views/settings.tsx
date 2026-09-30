@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { PresetGrid, usePresetDrafts, type GridRow } from "../preset_grid";
+import { PresetGrid, usePresetAutosave, type GridRow } from "../preset_grid";
 import { presetColumns } from "../presets";
 import { csrf, currentAccount, failureOf, getJSON } from "../api";
 import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
@@ -149,17 +149,17 @@ function AdapterRow({ a, onSaved }: { a: AdapterSetting; onSaved: () => void }) 
 type PresetRow = { name: string; perms: string[] };
 
 // The presets as one grid (preset_grid.tsx, shared with PACT Cloud): a row per preset, a column per
-// permission. The node saves a preset whole (`POST /settings/presets`, its name and every `perm`), so
-// a row's ticks are a draft (usePresetDrafts) until its Save; the last row names and adds a new one.
-// A save that fails says so inside this section and keeps the row's ticks.
+// permission. A row saves itself when its ticks stop (usePresetAutosave): the node saves a preset whole
+// (`POST /settings/presets`, its name and every `perm`) and answers with the page. The last row names
+// a new preset, whose ticks wait for its Add. A refused save says why under its row; a refused Add or
+// Delete says so at the top of this section.
 const NEW = "New preset";
 
 function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   const presets = d.presets ?? [];
   const columns = presetColumns(d.preset_perms ?? [], presets);
-  const drafts = usePresetDrafts(presets);
   const [newName, setNewName] = useState("");
-  const [busy, setBusy] = useState("");
+  const [adding, setAdding] = useState(false);
   const [failed, setFailed] = useState("");
   // The node answers a settings post with the page's data, `error` set when it refused.
   const post = async (path: string, body: URLSearchParams): Promise<{ page: Data | null; say: string }> => {
@@ -176,48 +176,54 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
       return { page: null, say: "the node could not be reached" };
     }
   };
-  const save = async (row: string, name: string) => {
-    setBusy(row);
-    setFailed("");
+  const put = (name: string, perms: readonly string[]) => {
     const body = new URLSearchParams({ csrf: csrf(), name });
-    for (const p of drafts.perms(row)) body.append("perm", p);
-    const a = await post("/settings/presets", body);
-    setBusy("");
-    if (!a.page) { setFailed(`Could not save the ${name} preset: ${a.say}.`); return; }
-    drafts.settle(row);
-    if (row === NEW) setNewName("");
+    for (const p of perms) body.append("perm", p);
+    return post("/settings/presets", body);
+  };
+  const rows = usePresetAutosave(presets, async (name, perms) => {
+    const a = await put(name, perms);
+    if (!a.page) throw new Error(`Could not save the ${name} preset: ${a.say}.`);
+    onSaved(a.page);
+  });
+  const add = async () => {
+    const name = newName.trim();
+    setAdding(true);
+    setFailed("");
+    const a = await put(name, rows.perms(NEW));
+    setAdding(false);
+    if (!a.page) { setFailed(`Could not add the ${name} preset: ${a.say}.`); return; }
+    rows.forget(NEW);
+    setNewName("");
     onSaved(a.page);
   };
   const del = async (name: string) => {
     setFailed("");
     const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
     if (!a.page) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
-    drafts.settle(name);
+    rows.forget(name);
     onSaved(a.page);
   };
-  const rows: GridRow[] = presets.map((p) => ({
-    name: p.name, perms: drafts.perms(p.name),
-    actions: (
-      <Actions inline>
-        <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={() => del(p.name)}>Delete</Button>
-        <Button onClick={() => save(p.name, p.name)} busy={busy === p.name} disabled={!drafts.changed(p.name)}>Save</Button>
-      </Actions>
-    ),
+  const grid: GridRow[] = presets.map((p) => ({
+    name: p.name, perms: rows.perms(p.name),
+    actions: <Actions inline><Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={() => del(p.name)}>Delete</Button></Actions>,
   }));
-  rows.push({
-    name: NEW, perms: drafts.perms(NEW),
+  grid.push({
+    name: NEW, perms: rows.perms(NEW),
     title: <input type="text" className="pg-new" aria-label="New preset's name" placeholder="new preset" title="a-z, 0-9, dash, underscore"
       value={newName} onChange={(e) => setNewName(e.target.value)} />,
-    actions: <Actions inline><Button onClick={() => save(NEW, newName.trim())} busy={busy === NEW} disabled={!newName.trim()}>Add preset</Button></Actions>,
+    actions: <Actions inline><Button onClick={add} busy={adding} disabled={!newName.trim()}>Add preset</Button></Actions>,
   });
   return (
     <Section title="Contact presets"
       description={<>The bundles offered when you approve someone.<HelpTip label="About contact presets">
-        Tick what each preset grants, then Save its row. Editing applies from the next approval or apply;
-        grants already made keep their switches. Deleting the last preset restores the documented four.
+        Tick what each preset grants; its row saves itself a moment after your last tick, and Undo beside
+        the check puts it back. Editing applies from the next approval or apply; grants already made keep
+        their switches. Deleting the last preset restores the documented four.
       </HelpTip></>}>
       {failed && <Notice kind="err">{failed}</Notice>}
-      <PresetGrid aria-label="Contact presets" rows={rows} columns={columns} label={permLabel} onToggle={drafts.toggle} />
+      <PresetGrid aria-label="Contact presets" rows={grid} columns={columns} label={permLabel} autosave={rows}
+        failure={(_name, e) => <Notice kind="err">{e instanceof Error ? e.message : String(e)}</Notice>} />
     </Section>
   );
 }
