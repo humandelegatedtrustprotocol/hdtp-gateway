@@ -43,9 +43,25 @@ func TestAPendingContactsSealedCallIsAnsweredPendingApproval(t *testing.T) {
 				t.Fatal("contact_accepted from a pending contact must be answered with a result")
 			}
 
-			// The budget, spent, on the same path: its own code, sealed.
-			s.pool.Limit = func(context.Context, Charge) *Refusal { return &Refusal{RetryAfter: time.Minute} }
+			// The budget, spent, on the same path: its own code, sealed. It is asked for the root
+			// the signature proved, at the guest charge, which the node's budget pays as a proven
+			// pending contact's: the guest bucket of that root at its address, no guest total, and its
+			// source known from then (node.chargeOf; TestASealedContactIsNotBudgetedAsAGuest, "a
+			// pending_out root"). It was asked for nobody, which pays as a stranger, total and all.
+			var askedFor []string
+			s.pool.Limit = func(ctx context.Context, as Charge) *Refusal {
+				f := EnvelopeFactsFrom(ctx)
+				if as != ChargeGuest || f == nil {
+					t.Errorf("the budget was asked with charge %v and facts %+v, want a guest charge with the envelope's facts", as, f)
+				} else {
+					askedFor = append(askedFor, f.From)
+				}
+				return &Refusal{RetryAfter: time.Minute}
+			}
 			res = s.call(t, s.sealFrom(t, p, form, "send_message", map[string]any{"text": "again"}), TransportFacts{})
+			if len(askedFor) != 1 || askedFor[0] != p.fpr() {
+				t.Fatalf("the budget was asked for %q, want once for the root that signed (%s)", askedFor, p.fpr())
+			}
 			result, _ := s.openedWith(t, res, p, msgIDFor("send_message", form))
 			var inner mcp.CallToolResult
 			if err := json.Unmarshal(result, &inner); err != nil || !inner.IsError || len(inner.Content) == 0 {

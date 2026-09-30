@@ -108,9 +108,10 @@ owner wants something else (plaintext, or asking the contact's plain `tools/list
   under the chain's leaf), but the node is not told under which leaf. The node now reads it itself
   (`public.signerOf`: the peeked chain's leaf, or the pinned leaf the small form names, matched as
   `pinHolding` matches it, and only for a `pending_out` pin) and seals the refusal to it, and the
-  budget's refusal on that path too (`TestAPendingContactsSealedCallIsAnsweredPendingApproval`). The
-  call is still charged as a stranger's: its facts name the key, not the root. It still cannot apply
-  the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address under
+  budget's refusal on that path too, and charges the call to the root that signed, which pays as a
+  proven pending contact: the guest bucket of that root at its address, no guest total, its source
+  known (`TestAPendingContactsSealedCallIsAnsweredPendingApproval`; `node.chargeOf`). It still
+  cannot apply the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address under
   `auto`, is dropped: `decideEnvelope` returns before `apply`). What the node
   needs: `pending_approval` carrying `root`, `endpoint`, `leaf` and `form`, as `ok` does, in Go's
   `pendingApproval`, Rust's `envelope/decide.rs` (both places) and the contract. Reading the signer
