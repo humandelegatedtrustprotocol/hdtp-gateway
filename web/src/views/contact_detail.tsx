@@ -7,6 +7,7 @@ import { ApiError, failureOf, getJSON, postForm } from "../api";
 import { navigate } from "../router";
 import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, trustWord, type Note } from "../ui";
 import { IdText } from "../glance";
+import { contactPill, contactStatusWord } from "../words";
 
 type PermRow = { name: string; on: boolean };
 type Data = {
@@ -127,7 +128,8 @@ export function ContactDetail({ fpr }: { fpr: string }) {
   return (
     <main>
       <PageHeader parent={PARENT} leading={<Avatar name={named} size="lg" />} title={named || <span className="unnamed">Unnamed contact</span>}
-        meta={<><Badge status={d.status} /><Badge>{d.preset || "custom"}</Badge><Badge title={trust}>{trustWord(trust)}</Badge></>}
+        // A pill for what is not the ordinary: an active contact who may only message says nothing more.
+        meta={<>{contactPill(d.status) && <Badge status={d.status}>{contactStatusWord(d.status)}</Badge>}<Badge>{d.preset || "custom"}</Badge>{trust !== "messages_only" && <Badge title={trust}>{trustWord(trust)}</Badge>}</>}
         sub={<><IdText id={d.fingerprint} />{d.petname && d.display_name && <> · they call themselves “{d.display_name}”</>}</>} />
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
 

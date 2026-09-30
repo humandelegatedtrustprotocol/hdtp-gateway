@@ -16,11 +16,11 @@ func TestOutboundExpiryDefaultsToTwentyFourHours(t *testing.T) {
 	base := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC).Unix()
 
 	unset := store.Message{CreatedAt: base}
-	if got, want := expiryOf(unset), base+24*3600; got != want {
+	if got, want := unset.Deadline(), base+24*3600; got != want {
 		t.Errorf("default expiry = %d, want %d (created_at + 24h)", got, want)
 	}
 	chosen := store.Message{CreatedAt: base, ExpiresAt: base + 60}
-	if got := expiryOf(chosen); got != base+60 {
+	if got := chosen.Deadline(); got != base+60 {
 		t.Errorf("a sender-chosen expiry was ignored: %d", got)
 	}
 }

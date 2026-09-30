@@ -163,3 +163,28 @@ test("on a phone nothing pins itself over the page, and what fills a row is said
   assert.equal(lastAt(css, ".tabs", "overflow-x", 390), "auto");
   assert.equal(lastAt(css, ".plusmenu", "align-items", 1440), "start");
 });
+
+// A good state is quiet (the design review: 'ok' in the brand accent read as one family with the amber of
+// 'pending', so a trail of successes read as a page of warnings). Colour is for waiting and refused.
+test("an ok pill is not coloured, and online is not the brand's orange beside away's amber", () => {
+  const ok = rules(css).filter(([sel]) => sel.split(",").map((x) => x.trim()).includes(".pill.ok"));
+  assert.ok(ok.length > 0, "no .pill.ok rule");
+  for (const [, d] of ok) {
+    for (const prop of ["background", "color"]) {
+      const v = value(d, prop) ?? "";
+      assert.ok(!/accent|amber|red/.test(v), `.pill.ok ${prop}: ${v}`);
+    }
+  }
+  const online = rules(css).filter(([sel]) => sel === ".dot.online").map(([, d]) => value(d, "background"));
+  const away = rules(css).filter(([sel]) => sel === ".dot.away").map(([, d]) => value(d, "background"));
+  assert.ok(online.length > 0 && away.length > 0);
+  for (const v of online) assert.ok(!/accent|amber/.test(v), `.dot.online: ${v}`);
+  // Its colour is set for both themes.
+  const tokens = rules(css).filter(([sel, d]) => sel === ":root" && value(d, "--online"));
+  assert.equal(tokens.length, 2, "--online is set for light and for dark");
+});
+
+test("a number column's cells and heading are right-aligned together", () => {
+  const num = rules(css).filter(([sel, d]) => /\btd\.num\b/.test(sel) && /\bth\.num\b/.test(sel) && value(d, "text-align") === "right");
+  assert.ok(num.length > 0, "no rule aligns td.num and th.num right");
+});

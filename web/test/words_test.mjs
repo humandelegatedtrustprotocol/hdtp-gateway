@@ -12,7 +12,10 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fieldLabel, initialsOf, permLabel, statusWord, toneOf, toolAction, toolLabel, trustWord } from "../src/words.ts";
+import {
+  actionWord, ago, clockOf, contactPill, contactStatusWord, dateOf, dayOf, fieldLabel, fileSize, initialsOf, inviteState, kindLabel, mediaKind, num,
+  permLabel, statusWord, toneOf, toolAction, toolLabel, trustWord, undeliveredReason, usesText, when, whenTitle, withDays,
+} from "../src/words.ts";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -163,4 +166,124 @@ test("a tool's field is labelled by its title, else a short description, else it
   const long = "The repository to search, as owner/name; leave empty to search every repository you can read";
   assert.deepEqual(fieldLabel("repo", { description: long }), { text: "repo", help: long });
   assert.deepEqual(fieldLabel("limit", {}), { text: "limit", help: "" });
+});
+
+// ---- dates and numbers: one way to say a time (the design review counted five or more formats). Every
+// instant is built on the reader's own clock, so the cases hold in any time zone the suite runs in.
+const at = (y, mo, d, h = 0, mi = 0, sec = 0) => new Date(y, mo - 1, d, h, mi, sec).getTime();
+const NOW = at(2026, 9, 30, 15, 0);
+
+test("a time is the clock today, the weekday this week, the date after", () => {
+  assert.equal(when(at(2026, 9, 30, 9, 5), NOW), "09:05");
+  assert.equal(when(at(2026, 9, 29, 23, 59), NOW), "Yesterday 23:59");
+  assert.equal(when(at(2026, 9, 28, 14, 46), NOW), "Mon 14:46");
+  assert.equal(when(at(2026, 9, 24, 8, 0), NOW), "Thu 08:00");
+  assert.equal(when(at(2026, 9, 23, 8, 0), NOW), "23 Sep");
+  assert.equal(when(at(2025, 9, 28, 8, 0), NOW), "28 Sep 2025");
+  // Inside a thread, and on a deadline, the hour stays.
+  assert.equal(when(at(2026, 9, 2, 7, 3), NOW, true), "2 Sep 07:03");
+  assert.equal(when(at(2025, 12, 31, 23, 0), NOW, true), "31 Dec 2025 23:00");
+  assert.equal(when(0, NOW), "");
+});
+
+test("a day heading, a clock and a date say the same day the same way", () => {
+  assert.equal(dayOf(at(2026, 9, 30, 0, 0), NOW), "Today");
+  assert.equal(dayOf(at(2026, 9, 29, 12), NOW), "Yesterday");
+  assert.equal(dayOf(at(2026, 9, 27, 12), NOW), "Sun 27 Sep");
+  assert.equal(dayOf(at(2025, 9, 27, 12), NOW), "27 Sep 2025");
+  assert.equal(clockOf(at(2026, 9, 30, 7, 4, 9)), "07:04");
+  assert.equal(clockOf(at(2026, 9, 30, 7, 4, 9), true), "07:04:09");
+  assert.equal(dateOf(at(2026, 12, 8), NOW), "8 Dec");
+  assert.equal(dateOf(at(2027, 12, 8), NOW), "8 Dec 2027");
+});
+
+test("how long ago, and how long until, in words", () => {
+  assert.equal(ago(NOW - 30_000, NOW), "just now");
+  assert.equal(ago(NOW - 5 * 60_000, NOW), "5 min ago");
+  assert.equal(ago(NOW - 3 * 3_600_000, NOW), "3 h ago");
+  assert.equal(ago(NOW - 86_400_000, NOW), "1 day ago");
+  assert.equal(ago(NOW - 4 * 86_400_000, NOW), "4 days ago");
+  assert.equal(ago(NOW + 12 * 86_400_000, NOW), "in 12 days");
+  assert.equal(ago(NOW + 2 * 3_600_000, NOW), "in 2 h");
+  assert.equal(ago(at(2026, 6, 1), NOW), "1 Jun");
+});
+
+test("a title carries the whole instant, seconds and zone", () => {
+  const t = whenTitle(at(2026, 9, 28, 14, 5, 9));
+  assert.match(t, /^Mon 28 Sep 2026, 14:05:09 (UTC|GMT[+-]\d{1,2}(:\d\d)?)$/);
+});
+
+test("a list read newest first gets one heading per day", () => {
+  const rows = [at(2026, 9, 30, 12), at(2026, 9, 30, 9), at(2026, 9, 29, 20), at(2026, 9, 27, 8)];
+  const out = withDays(rows, (r) => r, NOW).map((x) => ("day" in x ? x.day : "row"));
+  assert.deepEqual(out, ["Today", "row", "row", "Yesterday", "row", "Sun 27 Sep", "row"]);
+});
+
+test("a count is grouped", () => {
+  assert.equal(num(1246), "1,246");
+  assert.equal(num(233808), "233,808");
+  assert.equal(num(7), "7");
+});
+
+// ---- the audit trail's filters: every actor kind the node's store can hold (its CHECK) has a word,
+// and none of them is the code itself.
+test("every actor kind the node records has a word of its own", () => {
+  const mig = readFileSync(join(repo, "migrations/sqlite/0001_init.sql"), "utf8");
+  const kinds = /actor_kind TEXT NOT NULL CHECK \(actor_kind IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
+  assert.ok(kinds.length >= 6, `read ${kinds.length} kinds from the CHECK`);
+  for (const k of kinds) {
+    const w = kindLabel(k);
+    assert.match(w, /^[A-Z][a-z]+( [a-z]+)*$/, `${k} is said as ${w}`);
+  }
+  assert.equal(kindLabel("token"), "Agent key");
+  assert.equal(kindLabel("cli"), "Command line");
+  assert.equal(kindLabel("guest"), "Stranger");
+  assert.equal(kindLabel("cli", { cli: "Operator" }), "Operator");
+  assert.equal(actionWord("identity_gate"), "Identity gate");
+  assert.equal(actionWord("operator.suspend"), "Operator suspend");
+});
+
+// ---- messages
+test("an undelivered message says why in words, and a code it does not know says only that it did not arrive", () => {
+  for (const code of ["pending_approval", "unavailable", "envelope_invalid", "permission_denied", "rate_limited", "too_large", "seal_required", "expired"]) {
+    const w = undeliveredReason(code);
+    assert.notEqual(w, "it did not arrive", code);
+    assert.ok(!w.includes("_"), code);
+  }
+  assert.equal(undeliveredReason("something_new"), "it did not arrive");
+  assert.equal(undeliveredReason(null), "it did not arrive");
+});
+
+test("a file is said by what it is, not by its MIME type", () => {
+  assert.equal(mediaKind("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "q3.xlsx"), "Excel spreadsheet");
+  assert.equal(mediaKind("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "noext"), "Spreadsheet");
+  assert.equal(mediaKind("application/pdf", "a"), "PDF");
+  assert.equal(mediaKind("image/png", ""), "Image");
+  assert.equal(mediaKind("application/octet-stream", "blob"), "File");
+  assert.equal(fileSize(2.2 * 1024 * 1024), "2.2 MB");
+  assert.equal(fileSize(640 * 1024), "640 KB");
+  assert.equal(fileSize(0), "");
+});
+
+// ---- invites and contacts
+test("an invite's state is redemption's: revoked, then expired, then used up", () => {
+  const live = { revoked: false, expiresAt: NOW + 86_400_000, uses: 0, maxUses: 1 };
+  assert.equal(inviteState(live, NOW), "live");
+  assert.equal(inviteState({ ...live, revoked: true, expiresAt: NOW - 1 }, NOW), "revoked");
+  assert.equal(inviteState({ ...live, expiresAt: NOW - 1, uses: 1 }, NOW), "expired");
+  assert.equal(inviteState({ ...live, uses: 500, maxUses: 500 }, NOW), "used_up");
+  assert.equal(inviteState({ ...live, uses: 17, maxUses: 0 }, NOW), "live");
+  assert.equal(usesText(9, 10), "9 of 10");
+  assert.equal(usesText(17, 0), "17 used · no limit");
+  assert.equal(usesText(1200, 5000), "1,200 of 5,000");
+});
+
+test("every contact state the node stores has an owner's word, and only the ordinary one goes unpilled", () => {
+  const mig = readFileSync(join(repo, "migrations/sqlite/0002_contacts.sql"), "utf8");
+  const states = /status\s+TEXT NOT NULL CHECK \(status IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
+  assert.deepEqual([...states].sort(), ["active", "blocked", "pending_in", "pending_out"]);
+  for (const st of states) assert.ok(!contactStatusWord(st).includes("_"), st);
+  assert.equal(contactStatusWord("pending_in"), "asked you");
+  assert.equal(contactStatusWord("pending_out"), "you asked");
+  assert.deepEqual(states.filter(contactPill).sort(), ["blocked", "pending_in", "pending_out"]);
 });

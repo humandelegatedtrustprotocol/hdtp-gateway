@@ -10,6 +10,7 @@ import { failureOf, getJSON, postForm } from "../api";
 import { usePath } from "../router";
 import { Avatar, Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Table, Tabs, Toolbar, type Note } from "../ui";
 import { IdText, UrlText } from "../glance";
+import { ago, contactPill, contactStatusWord, dateOf, inviteState, usesText, whenTitle } from "../words";
 
 type Contact = { fingerprint: string; label: string; status: string };
 type ContactsData = { contacts: Contact[] | null; presets: string[]; can_add: boolean };
@@ -24,6 +25,11 @@ type Invite = {
   AutoAccept: boolean; Preset: string; RevokedAt: number; ExpiresAt: number;
 };
 type InvitesData = { invites: Invite[] | null; presets: string[]; public_url: string };
+
+/** An invite's facts as words.ts's inviteState reads them: the node's times are unix seconds. */
+function inviteFacts(x: Invite) {
+  return { revoked: x.RevokedAt !== 0, expiresAt: x.ExpiresAt * 1000, uses: x.Uses, maxUses: x.MaxUses };
+}
 
 type Tab = "contacts" | "requests" | "invites";
 
@@ -67,7 +73,10 @@ export function People() {
   // A tab whose read failed carries no count: nothing was counted.
   const contacts = c ? (c.contacts ?? []).length : 0;
   const waiting = r ? (r.pending ?? []).length + (r.addresses ?? []).length : 0;
-  const live = i ? (i.invites ?? []).filter((x) => !x.RevokedAt).length : 0;
+  // Live as redemption judges it: not revoked, not expired, not used up (the tab counted every
+  // unrevoked invite, expired and spent ones too).
+  const now = Date.now();
+  const live = i ? (i.invites ?? []).filter((x) => inviteState(inviteFacts(x), now) === "live").length : 0;
 
   return (
     <main className="tables">
@@ -124,10 +133,22 @@ function ContactsTab({ d, onNote, reload }: {
   };
   const readCardFile = async (f: File | undefined) => { if (f) setCard(await f.text()); };
 
+  // The list first: at 1440x900 the two forms above it left no contact above the fold. The forms are
+  // under it, folded while there is anybody to show, open when there is nobody.
   return (
     <>
+      <List aria-label="Contacts" empty={<EmptyState title="Nobody yet" action={<Button to="/invites">Create an invite</Button>}>invite someone, or accept an invite below</EmptyState>}>
+        {rows.map((x) => (
+          <ListRow key={x.fingerprint}
+            leading={<Avatar name={x.label} />}
+            title={x.label}
+            to={`/contacts/${encodeURIComponent(x.fingerprint)}`}
+            meta={contactPill(x.status) ? <Badge status={x.status}>{contactStatusWord(x.status)}</Badge> : undefined}
+            trailing={x.status === "active" && <Button variant="secondary" to={`/messages?contact=${encodeURIComponent(x.fingerprint)}`}>Message</Button>} />
+        ))}
+      </List>
       {d.can_add && (
-        <Section title="Accept an invite"
+        <Section title="Accept an invite" collapsible open={rows.length === 0}
           description="Your node fetches their card, checks the key matches the fingerprint it claims, and only then redeems — pinning them as a contact."
           footer={<Button onClick={accept} disabled={!invite.trim()}>Accept invite</Button>}>
           <Field label="Invite link" id="inv">
@@ -143,7 +164,7 @@ function ContactsTab({ d, onNote, reload }: {
         </Section>
       )}
       {d.can_add && (
-        <Section title="Connect from a card"
+        <Section title="Connect from a card" collapsible open={rows.length === 0}
           description="Somebody gave you their contact card — a .vcf file, or its text — instead of an invite link. Your node asks them at the address their card names; they are listed as waiting until they approve."
           footer={<Button onClick={askFromCard} disabled={!card.trim()}
             confirm="Connect our agents? Your node sends them your card and asks to be added.">Ask to connect</Button>}>
@@ -158,16 +179,6 @@ function ContactsTab({ d, onNote, reload }: {
           </Field>
         </Section>
       )}
-      <List aria-label="Contacts" empty={<EmptyState title="Nobody yet" action={<Button to="/invites">Create an invite</Button>}>invite someone, or accept an invite above</EmptyState>}>
-        {rows.map((x) => (
-          <ListRow key={x.fingerprint}
-            leading={<Avatar name={x.label} />}
-            title={x.label}
-            to={`/contacts/${encodeURIComponent(x.fingerprint)}`}
-            meta={<Badge status={x.status} />}
-            trailing={x.status === "active" && <Button variant="secondary" to={`/messages?contact=${encodeURIComponent(x.fingerprint)}`}>Message</Button>} />
-        ))}
-      </List>
     </>
   );
 }
@@ -331,7 +342,33 @@ function InvitesTab({ d, reload, onNote }: {
           so there is no link anybody could open. Set one in Settings, then mint a fresh invite.
         </Notice>
       )}
-      <Section title="Create an invite" footer={<Button onClick={create}>Create</Button>}>
+      <Table head={["Label", { label: "Uses", num: true }, "Preset", "Expires", "State", ""]} empty={<EmptyState title="No invites yet" />}>
+        {(d.invites ?? []).map((x) => { const state = inviteState(inviteFacts(x)); return (
+          <tr key={x.ID}>
+            <td>{x.Label ? <span className="name" title={x.Label}>{x.Label}</span> : <span className="muted">—</span>}</td>
+            <td className="num">{usesText(x.Uses, x.MaxUses)}</td>
+            <td>{x.Preset}</td>
+            <td title={whenTitle(x.ExpiresAt * 1000)}>{x.ExpiresAt * 1000 > Date.now() ? ago(x.ExpiresAt * 1000) : dateOf(x.ExpiresAt * 1000)}</td>
+            {/* `used up` is not a refusal and not a fault: neutral. Auto-accept is a fact about how the invite
+                works, so it is said under its state rather than in a column of its own. */}
+            <td><Badge status={state} tone={state === "used_up" ? "neutral" : undefined} />{x.AutoAccept && <span className="cell-note">auto‑accept</span>}</td>
+            <td>
+              {/* Only a live invite has anything left to revoke: redemption already refuses the rest. */}
+              {state === "live" && (
+                <Toolbar>
+                  <Button variant="quiet" onClick={async () => {
+                    await postForm(`/invites/${encodeURIComponent(x.ID)}/revoke`, {});
+                    reload();
+                  }}>
+                    Revoke
+                  </Button>
+                </Toolbar>
+              )}
+            </td>
+          </tr>
+        ); })}
+      </Table>
+      <Section title="Create an invite" collapsible open={(d.invites ?? []).length === 0} footer={<Button onClick={create}>Create</Button>}>
         <div className="fields">
           <Field label="Label (for you)">
             <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="dinner group" />
@@ -349,30 +386,6 @@ function InvitesTab({ d, reload, onNote }: {
           </Field>
         </div>
       </Section>
-      <Table head={["Label", "Uses", "Preset", "State", ""]} empty={<EmptyState title="No invites yet" />}>
-        {(d.invites ?? []).map((x) => (
-          <tr key={x.ID}>
-            <td>{x.Label ? <span className="name" title={x.Label}>{x.Label}</span> : <span className="muted">—</span>}</td>
-            <td>{x.Uses}/{x.MaxUses}</td>
-            <td>{x.Preset}</td>
-            {/* Auto-accept is a fact about how the invite works, so it is said under its state rather than
-                in a column of its own. */}
-            <td><Badge status={x.RevokedAt ? "revoked" : "live"} />{x.AutoAccept && <span className="cell-note">auto‑accept</span>}</td>
-            <td>
-              {!x.RevokedAt && (
-                <Toolbar>
-                  <Button variant="quiet" onClick={async () => {
-                    await postForm(`/invites/${encodeURIComponent(x.ID)}/revoke`, {});
-                    reload();
-                  }}>
-                    Revoke
-                  </Button>
-                </Toolbar>
-              )}
-            </td>
-          </tr>
-        ))}
-      </Table>
     </>
   );
 }
