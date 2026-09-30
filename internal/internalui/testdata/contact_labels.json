@@ -1,0 +1,103 @@
+{
+ "_": "What a contact is CALLED in a list, and the look-alike table that decides two names are one. Read by pact-gateway internal/internalui (labels.go, Go) and by PACT Cloud portal/src/contact_labels.ts, whose copy of this file is held byte for byte to the node commit portal/HARVESTED records. {short} is each port's short fingerprint.",
+ "look_alikes": [
+  ["\u0430", "a"],
+  ["\u0432", "b"],
+  ["\u0435", "e"],
+  ["\u043a", "k"],
+  ["\u043c", "m"],
+  ["\u043d", "h"],
+  ["\u043e", "o"],
+  ["\u0440", "p"],
+  ["\u0441", "c"],
+  ["\u0442", "t"],
+  ["\u0443", "y"],
+  ["\u0445", "x"],
+  ["\u0455", "s"],
+  ["\u0456", "i"],
+  ["\u0458", "j"],
+  ["\u04bb", "h"],
+  ["\u04cf", "l"],
+  ["\u0501", "d"],
+  ["\u03b1", "a"],
+  ["\u03b2", "b"],
+  ["\u03b5", "e"],
+  ["\u03b9", "i"],
+  ["\u03ba", "k"],
+  ["\u03bd", "v"],
+  ["\u03bf", "o"],
+  ["\u03c1", "p"],
+  ["\u03c4", "t"],
+  ["\u03c5", "u"],
+  ["\u03c7", "x"],
+  ["\u03f2", "c"]
+ ],
+ "cases": [
+  {"case": "two peers choose one name: both carry their fingerprint, not only the newcomer",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:ccccccccccccccccccccccccccccccccccccccccccc", "display_name": "Bob", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Alice \u00b7 {short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "Alice \u00b7 {short}", "sha256:ccccccccccccccccccccccccccccccccccccccccccc": "Bob"}},
+  {"case": "case and spacing do not make two names different",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "  alice ", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Alice \u00b7 {short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "alice \u00b7 {short}"}},
+  {"case": "a fullwidth name is the same name (NFKC)",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "\uff21\uff4c\uff49\uff43\uff45", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Alice \u00b7 {short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "\uff21\uff4c\uff49\uff43\uff45 \u00b7 {short}"}},
+  {"case": "a Cyrillic look-alike collides",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "\u0410lice", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Alice \u00b7 {short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "\u0410lice \u00b7 {short}"}},
+  {"case": "a Greek look-alike collides",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Kate", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "\u039a\u03b1te", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Kate \u00b7 {short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "\u039a\u03b1te \u00b7 {short}"}},
+  {"case": "case is lowered, not folded (PRECIS Nickname): \u00df and ss stay two names",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Stra\u00dfe", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "STRASSE", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Stra\u00dfe", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "STRASSE"}},
+  {"case": "distinct non-Latin names do not collide",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "\u041c\u0430\u0440\u0438\u044f", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "\u041c\u0430\u0440\u0438\u043d\u0430", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "\u041c\u0430\u0440\u0438\u044f", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "\u041c\u0430\u0440\u0438\u043d\u0430"}},
+  {"case": "a petname wins over the name they chose",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Totally Legit Bank", "petname": "Mum"}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Mum"}},
+  {"case": "a petname that matches a peer-chosen name: only the peer-chosen side is decorated",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "Alice", "petname": "Alice"},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "Alice", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Alice", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "Alice \u00b7 {short}"}},
+  {"case": "two matching petnames are the owner's own filing, not a warning",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "X", "petname": "Sam"},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "Y", "petname": "Sam"}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "Sam", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "Sam"}},
+  {"case": "no name at all is the short fingerprint",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "   ", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "{short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "{short}"}}
+ ]
+}

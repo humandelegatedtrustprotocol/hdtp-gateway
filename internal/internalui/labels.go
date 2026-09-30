@@ -87,14 +87,28 @@ func compareKey(s string) string {
 // equates within-Latin pairs -- l/I/1, O/0, rn/m -- which would collide "Ali" with
 // "All" and decorate honest rows for everyone. Cross-script is the high-value,
 // low-false-positive half. Within-Latin look-alikes remain a known gap.
-var lookAlikes = strings.NewReplacer(
+var lookAlikes = strings.NewReplacer(flatten(lookAlikePairs)...)
+
+// lookAlikePairs is the table itself, as data: each look-alike and the Latin letter it
+// reads as. PACT Cloud's portal applies the same rule to its own contact lists, and its
+// copy of this table is held to this one through testdata/contact_labels.json (the
+// test reads the table from there and compares it with this; the cloud's does the same).
+var lookAlikePairs = [][2]string{
 	// Cyrillic
-	"\u0430", "a", "\u0432", "b", "\u0435", "e", "\u043a", "k", "\u043c", "m",
-	"\u043d", "h", "\u043e", "o", "\u0440", "p", "\u0441", "c", "\u0442", "t",
-	"\u0443", "y", "\u0445", "x", "\u0455", "s", "\u0456", "i", "\u0458", "j",
-	"\u04bb", "h", "\u04cf", "l", "\u0501", "d",
+	{"\u0430", "a"}, {"\u0432", "b"}, {"\u0435", "e"}, {"\u043a", "k"}, {"\u043c", "m"},
+	{"\u043d", "h"}, {"\u043e", "o"}, {"\u0440", "p"}, {"\u0441", "c"}, {"\u0442", "t"},
+	{"\u0443", "y"}, {"\u0445", "x"}, {"\u0455", "s"}, {"\u0456", "i"}, {"\u0458", "j"},
+	{"\u04bb", "h"}, {"\u04cf", "l"}, {"\u0501", "d"},
 	// Greek
-	"\u03b1", "a", "\u03b2", "b", "\u03b5", "e", "\u03b9", "i", "\u03ba", "k",
-	"\u03bd", "v", "\u03bf", "o", "\u03c1", "p", "\u03c4", "t", "\u03c5", "u",
-	"\u03c7", "x", "\u03f2", "c",
-)
+	{"\u03b1", "a"}, {"\u03b2", "b"}, {"\u03b5", "e"}, {"\u03b9", "i"}, {"\u03ba", "k"},
+	{"\u03bd", "v"}, {"\u03bf", "o"}, {"\u03c1", "p"}, {"\u03c4", "t"}, {"\u03c5", "u"},
+	{"\u03c7", "x"}, {"\u03f2", "c"},
+}
+
+func flatten(pairs [][2]string) []string {
+	out := make([]string, 0, 2*len(pairs))
+	for _, p := range pairs {
+		out = append(out, p[0], p[1])
+	}
+	return out
+}
