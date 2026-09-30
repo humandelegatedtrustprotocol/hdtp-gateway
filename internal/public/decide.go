@@ -335,7 +335,8 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		// pending tier): the contact request has not been answered yet, so
 		// nothing else runs. (A new address the owner has not approved is the
 		// `pending_new_address` tier below, not this.) The refusal is sealed to the leaf that
-		// signed (PACT §13.2), read by signerOf; nothing is dispatched and no tier is earned.
+		// signed (PACT §13.2), read by signerOf, and charged to the root it proves; nothing is
+		// dispatched and no tier is earned (the facts carry none, so the audit row's actor is a guest).
 		//
 		// The effects Decide returns beside it are NOT applied: in the full form they can carry a
 		// pending contact's newer leaf, or its new address under `auto` (pact-identity envelope.go),
@@ -344,7 +345,10 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		if sg, ok := signerOf(proof, ns.Pins); ok {
 			var h envelope.Header
 			_ = json.Unmarshal(pactidentity.FromB64url(e.Protected), &h)
-			facts.Header, facts.SPKI, facts.Leaf, facts.Form = h, sg.spki, sg.leaf, sg.form
+			// From is the root the signature proved, as an `ok` decision names it: the budget charges
+			// the call to that root (node.chargeOf pays a proven pending_out contact's guest bucket at
+			// its address, without the guest total), and the seal records what that contact has seen.
+			facts.Header, facts.From, facts.SPKI, facts.Leaf, facts.Form = h, sg.root, sg.spki, sg.leaf, sg.form
 		}
 		return facts, nil
 	case "ok":
