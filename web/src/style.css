@@ -448,7 +448,6 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .sform fieldset.sub{border:1px solid var(--line);border-radius:9px;padding:.4rem .8rem .6rem;margin:0 0 .6rem}
 .sform legend{font-size:.8rem;font-weight:600;color:var(--ink);padding:0 .3rem}
 .sform .req{color:var(--accent-ink)}
-@media (min-width:901px) and (max-width:1180px){.inbox{grid-template-columns:300px minmax(0,1fr) 300px}}
 .ic{vertical-align:-3px;flex:0 0 auto}
 .media .ic{vertical-align:-2px}
 .bad .ic{color:var(--red)}
@@ -460,8 +459,17 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .inbox.focus{grid-template-columns:minmax(0,1fr)}
 .inbox.focus .convs,.inbox.focus .panel{display:none}
 .inbox.focus .msg{max-width:70%}
+/* Between a phone and 1360px the contact panel is a drawer over the conversation, not a third column: as
+   a column it left the conversation 252px at 1100 and 412px at 1280 (measured in PACT Cloud's Inbox, a
+   95px message box at 1100). Each Inbox opens without it below PANEL_BESIDE (messages.tsx), and the
+   drawer carries its own close button, since it covers the header's. */
+@media (min-width:901px) and (max-width:1359px){
+  .inbox{grid-template-columns:300px minmax(0,1fr);position:relative}
+  .inbox .panel{position:absolute;top:0;right:0;bottom:0;width:min(340px,calc(100% - 300px));z-index:5;box-shadow:var(--shadow)}
+  .panel .back{display:inline-flex}
+}
 /* A phone shows one pane at a time, the whole width. This comes after every rule that sets the inbox's
-   columns (the ≤1180 three, panel-off's two, focus's one), or one of them re-imposes columns: the phone
+   columns (the drawer's two, panel-off's two, focus's one), or one of them re-imposes columns: the phone
    drew 300px 0px 300px, every pane 300px wide in a 390px screen. The panel pane shows whether or not the
    panel is kept open at desktop widths: panel-off and focus hide it only beside a thread. */
 @media (max-width:900px){.thread-h .expand{display:none}.inbox,.inbox.panel-off,.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}.inbox[data-pane="panel"] .panel{display:flex}}
