@@ -205,7 +205,7 @@ of it, and are listed so a reader can tell the two apart.
 
 ## PACT 2.0: the person is the certificate authority
 
-PACT 2.2.3 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
+PACT 2.2.5 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
 `github.com/pact-cloud/pact-identity/go` (the version `go.mod` requires), proven against
 Appendix B by its own tests; these are the node's.
 
@@ -215,6 +215,8 @@ Appendix B by its own tests; these are the node's.
 | a `v: 2` envelope is decided by the library and the effects applied: guest binding, both forms, tiers (§13.3, §6.1) | `internal/public/decide.go` | `TestV2FirstContactMustRedeemOrRequest`, `TestV2PinnedContactBothForms` |
 | a client-certificate chain resolves through the same pin rules as an envelope — superseded or blocked to guest, a new address by `accept_new_hosts` (§2, §5.3, §14.3). These are the node's OWN resolution, written against the library's rules rather than delegated to `Decide`, which is why they are their own row | `internal/public/decide.go` (`ResolveTransport`) | `TestV2TransportPinChecks`, `TestATransportChainResolvesThroughThePinChecks` |
 | `chain_required` is one answer for unknown, blocked, expired and a bad signature, and spends the guest budget (§13.2, §14.5) | `internal/public/decide.go`, `sealed.go` | `TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer` |
+| a pin has three states (CONTRACT `Pin`: active, pending_out, blocked) and the node hands Decide only rows in one of them, as PACT Cloud does: a request the owner has not answered (`pending_in`) is no pin, so its small form is `chain_required`, its chain form a stranger's, its audit row a guest's, and Decide's effects for an active pin reach no unanswered request (SPEC §5.4, the owner's decision of 2026-09-30) | `internal/public/decide.go` (`pinsOf`) | `TestAPendingRequestIsHandedToDecideWithNoPin` |
+| every card and certificate the store holds is read by the identity core's rule — a card as every write to that contact reads it, a certificate as the core parses it — and each that does not read is named by table, row and field with the reason: in `serve`'s banner, which serves whatever it says, and by `check store`, which exits 1 on one; nothing is changed (SPEC §12.1) | `internal/storecheck/storecheck.go`, `internal/cli/checkcmd.go`, `internal/cli/serve.go` (`announce`) | `TestTheRunNamesEveryCardAndCertificateThatDoesNotRead`, `TestAStoreWhoseFieldsAllReadSaysSo`, `TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne`, `TestCheckStoreRefusals`, `TestServeNamesTheCardThatDoesNotReadInItsBannerAndServes` |
 | a stale kid is answered `certificate_renewed` with the current chain, in plaintext (§14.4) | `internal/public/sealed.go` | `TestV2StaleKidIsAnsweredWithTheCurrentChain` |
 | the newest leaf wins; a new address re-pins under `auto`, waits under `ask`, and a removed root returning is asked about (§14.3, §5.3) | `internal/public/decide.go`, `internal/contacts/manager.go` | `TestV2NewestLeafWinsAndNewAddresses`, `TestV2TombstoneForcesTheQuestion` |
 | a caller at an address the owner has not approved is told once however often it calls, and every such answer spends the guest budget (§5.3, §14.5) | `internal/public/decide.go`, `sealed.go` | `TestV2AnUnapprovedAddressIsToldOnce` |

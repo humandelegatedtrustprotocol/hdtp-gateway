@@ -154,7 +154,12 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	if len(off.Chain) != 2 {
 		return card, nil, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
 	}
-	chain := [][]byte{pactidentity.FromB64url(off.Chain[0]), pactidentity.FromB64url(off.Chain[1])}
+	leafDER, errLeaf := pactidentity.DecodeB64url(off.Chain[0])
+	rootDER, errRoot := pactidentity.DecodeB64url(off.Chain[1])
+	if errLeaf != nil || errRoot != nil {
+		return card, nil, nil, fmt.Errorf("the invite's chain is not base64url")
+	}
+	chain := [][]byte{leafDER, rootDER}
 	v := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
 	if !v.OK {
 		return card, nil, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)

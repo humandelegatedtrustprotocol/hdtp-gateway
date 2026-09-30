@@ -178,8 +178,15 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 					fmt.Fprintf(c, "suite: %v", serr)
 					return
 				}
+				protected, errP := pactidentity.DecodeB64url(env.Protected)
+				enc, errE := pactidentity.DecodeB64url(env.Enc)
+				ct, errC := pactidentity.DecodeB64url(env.Ct)
+				if errP != nil || errE != nil || errC != nil {
+					fmt.Fprint(c, "decode: the envelope is not base64url")
+					return
+				}
 				plain, err := pactidentity.Open(suite, nodePriv, nodePriv.Public(),
-					[]byte(pactidentity.InfoV2), pactidentity.FromB64url(env.Protected), pactidentity.FromB64url(env.Enc), pactidentity.FromB64url(env.Ct))
+					[]byte(pactidentity.InfoV2), protected, enc, ct)
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
 					return
