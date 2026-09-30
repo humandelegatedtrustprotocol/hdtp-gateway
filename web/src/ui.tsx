@@ -202,7 +202,7 @@ export function Field({ label, help, mono, check, id, children }: { label: React
 }
 
 // A status's tone and its words are words.ts's, shared with PACT Cloud's portal: one table for both.
-export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, type Tone } from "./words";
+export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, when, whenTitle, ago, num, type Tone } from "./words";
 // Badge: four tones × {text, mono, count}. `status` derives tone and label.
 export function Badge({ tone, mono, count, status, title, children }: { tone?: Tone; mono?: boolean; count?: boolean; status?: string; title?: string; children?: ReactNode }) {
   const t = tone ?? (status ? toneOf(status) : "neutral");
@@ -258,7 +258,11 @@ export function ListRow({ leading, title, to, meta, description, trailing, selec
 // sheet's ≤700px block): each row a card, each cell between the first and the last said with its
 // column's name, which is set here from `head` as the cell's `data-label` so no view repeats it. A
 // table that lays itself out on a phone (the audit trail's) passes `stack={false}`.
-export function Table({ head, children, empty, stack = true }: { head: ReactNode[]; children?: ReactNode; empty?: ReactNode; stack?: boolean }) {
+// A heading given as `{ label, num }` is a number column's: right-aligned with its cells (`td.num`).
+export type Head = ReactNode | { label: string; num: true };
+export function Table({ head: given, children, empty, stack = true }: { head: Head[]; children?: ReactNode; empty?: ReactNode; stack?: boolean }) {
+  const num = given.map((h) => typeof h === "object" && h !== null && "num" in h);
+  const head: ReactNode[] = given.map((h) => (typeof h === "object" && h !== null && "num" in h ? h.label : h));
   const n = Children.count(children);
   const labelled = stack ? Children.map(children, (row) => {
     if (!isValidElement<{ children?: ReactNode }>(row) || row.type !== "tr") return row;
@@ -273,7 +277,7 @@ export function Table({ head, children, empty, stack = true }: { head: ReactNode
   return (
     <div className={"table-wrap" + (stack ? " stack" : "")}>
       <table>
-        <thead><tr>{head.map((h, i) => h === "" ? <th key={i} className="actions" aria-label="Actions" /> : <th key={i}>{h}</th>)}</tr></thead>
+        <thead><tr>{head.map((h, i) => h === "" ? <th key={i} className="actions" aria-label="Actions" /> : <th key={i} className={num[i] ? "num" : undefined}>{h}</th>)}</tr></thead>
         <tbody>{n === 0 ? <tr><td colSpan={head.length}>{empty ?? <EmptyState title="Nothing here yet" />}</td></tr> : labelled}</tbody>
       </table>
     </div>
@@ -316,7 +320,8 @@ export function EmptyState({ title, action, loading, children }: { title?: React
 
 // Readout: a fingerprint, endpoint, command or signature — mono, breakable,
 // optionally copyable. `dots`: a name read in pieces (a DNS name, a host) breaks after its dots first.
-export function Readout({ value, copy, block, dots }: { value: string; copy?: boolean; block?: boolean; dots?: boolean }) {
+// `pre`: lines kept whole (commands, one a line), scrolled sideways rather than broken mid-token.
+export function Readout({ value, copy, block, dots, pre }: { value: string; copy?: boolean; block?: boolean; dots?: boolean; pre?: boolean }) {
   const [done, setDone] = useState(false);
   const btn = copy && (
     <Button variant="link" title="Copy to clipboard" onClick={() => { navigator.clipboard?.writeText(value).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
@@ -324,7 +329,7 @@ export function Readout({ value, copy, block, dots }: { value: string; copy?: bo
     </Button>
   );
   const text = dots ? value.split(/(?<=\.)(?=.)/).map((b, i) => <Fragment key={i}>{i > 0 && <wbr />}{b}</Fragment>) : value;
-  if (block) return <div className="readout block"><code>{text}</code>{btn}</div>;
+  if (block) return <div className={"readout block" + (pre ? " pre" : "")}><code>{text}</code>{btn}</div>;
   return <span className="readout"><code>{text}</code>{btn && <> {btn}</>}</span>;
 }
 
@@ -393,23 +398,28 @@ export function Chips({ children, className, "aria-label": label }: { children?:
  * the chips it stands for (`.chip.picked`, and a whole `.chips.phone-pick` row). Twelve action chips
  * wrapped into five rows before the first entry.
  */
-export function ChipPick({ label, all, value, options, onChange }: {
+export function ChipPick({ label, all, value, options, onChange, say = (k) => k, className = "chip-pick" }: {
   label: string; all: string; value: string | null; options: [string, number][]; onChange: (v: string | null) => void;
+  /** An option's words (the code stays its value). */
+  say?: (k: string) => string;
+  /** `chip-more`: the select that holds what a row of chips has no room for, shown at every width. */
+  className?: string;
 }) {
+  const on = value !== null && options.some(([k]) => k === value);
   return (
-    <select className="chip-pick" aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+    <select className={className + (on && className === "chip-more" ? " on" : "")} aria-label={label} value={on ? value ?? "" : ""} onChange={(e) => onChange(e.target.value || null)}>
       <option value="">{all}</option>
-      {options.map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}
+      {options.map(([k, n]) => <option key={k} value={k} title={k}>{say(k)} ({n})</option>)}
     </select>
   );
 }
 
-export function Chip({ on, count, tone, onClick, className, children }: {
-  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; className?: string; children: ReactNode;
+export function Chip({ on, count, tone, onClick, className, title, children }: {
+  on?: boolean; count?: number; tone?: Tone; onClick?: () => void; className?: string; title?: string; children: ReactNode;
 }) {
   return (
     <button type="button" className={"chip" + (on ? " on" : "") + (tone && tone !== "neutral" ? " " + tone : "") + (className ? " " + className : "")}
-      aria-pressed={on} onClick={onClick}>
+      aria-pressed={on} onClick={onClick} title={title}>
       {children}{count !== undefined && <span className="n">{count}</span>}
     </button>
   );

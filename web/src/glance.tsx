@@ -12,6 +12,7 @@ import { Link } from "./router";
 import { Avatar, Badge, Icon, type Tone } from "./ui";
 import { detailLabel, kindSaid, nameBreaks, resolved, shortId, type Detail, type Named as NamedId, type Part, type Said } from "./audit_names";
 import { shown, type CertificateView, type Count } from "./overview";
+import { when, whenTitle } from "./words";
 
 /**
  * One number the page read, as a tile: what it counts, the number, and a line under it. A tile that
@@ -246,7 +247,7 @@ function KV({ k, children }: { k: string; children: ReactNode }) {
 /** A locator's or a detail's value, drawn by what it is. */
 function valueOf(p: Detail | Part): ReactNode {
   if ("named" in p) return <Named n={p.named} />;
-  if ("at" in p) return <span title={new Date(p.at).toString()}>{whenOf(p.at)}</span>;
+  if ("at" in p) return <span title={whenTitle(p.at)}>{whenOf(p.at)}</span>;
   if ("items" in p) {
     return <>{p.items.map((x, i) => <span key={i}>{i > 0 && ", "}{typeof x === "string" ? <Breakable text={x} /> : <Named n={x} />}</span>)}</>;
   }
@@ -320,15 +321,9 @@ export function Details({ said }: { said: Said }) {
 }
 
 /**
- * When, said for a trail read from the present backwards: the time for today, the weekday and time
- * within the week, the date after that. The tooltip beside it carries the whole instant.
+ * When, said for a trail: words.ts's `when`, with the clock kept on a date — a detail's time is part of
+ * what it says. The title beside it (`whenTitle`) carries the whole instant, zone and all.
  */
 export function whenOf(ms: number, now = Date.now()): string {
-  const d = new Date(ms);
-  const today = new Date(now);
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const days = (today.getTime() - d.getTime()) / 86_400_000;
-  if (days > 0 && days < 6) return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  if (d.getFullYear() === today.getFullYear()) return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+  return when(ms, now, true);
 }

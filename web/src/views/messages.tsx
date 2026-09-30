@@ -9,15 +9,19 @@ import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } 
 import { Link, navigate } from "../router";
 import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolAction, toolLabel, trustWord, type IconName } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
-import { IdText, whenOf } from "../glance";
+import { IdText } from "../glance";
+import { actionWord, ago, fileSize, mediaKind, undeliveredReason, when, whenTitle } from "../words";
 import type { Schema, Values } from "../schema_form";
 
 type Person = {
   fingerprint: string; label: string; status: string; preview: string;
-  selected: boolean; unread: number; presence: string; since: string;
+  selected: boolean; unread: number; presence: string;
+  /** When they were last seen to be reachable (unix seconds): what the presence dot is evidence of. */
+  last_seen?: number;
 };
 type Media = { filename: string; mime: string; size?: number; hash?: string; url?: string };
-type Msg = { mine: boolean; body: string; who: string; when: string; bad: string; state?: string; media?: Media };
+/** `ts` is when it was written and `until` when a message still being tried stops being tried (unix seconds). */
+type Msg = { mine: boolean; body: string; who: string; ts: number; until?: number; state?: string; media?: Media };
 type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string };
 
 type PermRow = { name: string; on: boolean };
@@ -129,7 +133,7 @@ export function Messages() {
     // takes as long as reaching their node takes. Show the bubble with a clock
     // straight away, as a messenger does, rather than leaving the thread empty
     // until the round trip finishes and the message appears already delivered.
-    setPending({ mine: true, body, who: "human", when: "now", bad: "", state: "sending" });
+    setPending({ mine: true, body, who: "human", ts: Math.floor(Date.now() / 1000), state: "sending" });
     const r = await postForm("/messages/send", { contact: sel, text: body, msg_id: d.new_msg_id });
     const err = r.url.searchParams?.get("err") ?? "";
     setSendErr(r.ok ? err ?? "" : "send failed");
@@ -192,7 +196,7 @@ export function Messages() {
               <button key={p.fingerprint} className={"conv" + (p.fingerprint === sel ? " sel" : "")} onClick={() => pick(p.fingerprint)}>
                 <Avatar name={p.label} />
                 <span className="who">
-                  <b><span>{p.label}</span>{p.presence && <span className={"dot " + p.presence} title={p.since || p.presence} />}</b>
+                  <b><span>{p.label}</span>{p.presence && <span className={"dot " + p.presence} title={presenceWords(p)} aria-label={presenceWords(p)} />}</b>
                   <span className="preview">{p.preview || (p.status === "active" ? "No messages yet" : p.status)}</span>
                 </span>
                 <span className="end">
@@ -217,7 +221,7 @@ export function Messages() {
                 <div className="who">
                   <div className="name" title={current.label}>{current.label}</div>
                   <div className="meta">
-                    {current.presence && <><span className={"dot " + current.presence} />{current.presence}{current.since ? ` · ${current.since}` : ""}</>}
+                    {current.presence && <><span className={"dot " + current.presence} />{presenceWords(current)}</>}
                     {!current.presence && <span>{current.status}</span>}
                   </div>
                 </div>
@@ -251,14 +255,14 @@ export function Messages() {
                               long name over every message wrapped to four lines on a phone. Said to a reader. */}
                           <span className="sr-only">{m.mine ? "You" : current.label}</span>
                           <span className={"tag " + (m.who === "agent" ? "agent" : "human")}>{m.who || "human"}</span>
-                          <span>{m.when}</span>
+                          <time dateTime={new Date(m.ts * 1000).toISOString()} title={whenTitle(m.ts * 1000)}>{when(m.ts * 1000, Date.now(), true)}</time>
                           {m.mine && <DeliveryMark state={m.state} />}
                         </div>
                         <div className="bubble">
                           {m.body}
                           {m.media && <MediaBubble m={m.media} onFetched={load} />}
                         </div>
-                        {m.bad && <span className="bad"><Icon name="warn" size={14} /> {m.bad}</span>}
+                        {m.mine && <Undelivered m={m} />}
                       </div>
                     </div>
                   ))}
@@ -459,9 +463,9 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
           <div className="audit-mini">
             {audit.map((r) => (
               <div key={r.Seq}>
-                <b title={r.Action}>{r.Action.replace(/_/g, " ")}</b>
+                <b title={r.Action}>{actionWord(r.Action)}</b>
                 <Badge status={r.Outcome} />
-                <time dateTime={new Date(r.TS * 1000).toISOString()} title={new Date(r.TS * 1000).toString()}>{whenOf(r.TS * 1000)}</time>
+                <time dateTime={new Date(r.TS * 1000).toISOString()} title={whenTitle(r.TS * 1000)}>{when(r.TS * 1000)}</time>
               </div>
             ))}
           </div>
@@ -488,7 +492,8 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const name = m.filename || "attachment";
-  const size = m.size ? ` · ${Math.max(1, Math.round(m.size / 1024))} KB` : "";
+  // What the file is, in words ('Excel spreadsheet · 2.2 MB'); its MIME type is in the title.
+  const kind = [mediaKind(m.mime, m.filename), fileSize(m.size)].filter(Boolean).join(" · ");
 
   if (m.hash) {
     const href = "/media/" + encodeURIComponent(m.hash) +
@@ -498,14 +503,14 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
     return (
       <span className="media">
         <Icon name="clip" size={15} /> <a href={href} download={name}>{name}</a>
-        <span className="muted">{m.mime}{size}</span>
+        <span className="muted" title={m.mime}>{kind}</span>
       </span>
     );
   }
   return (
     <span className="media">
       <Icon name="link" size={15} /> <span>{name}</span>
-      <span className="muted">{m.mime}{size} — not downloaded</span>
+      <span className="muted" title={m.mime}>{kind} — not downloaded</span>
       <Button variant="secondary" busy={busy}
         onClick={async () => {
           setBusy(true);
@@ -520,6 +525,30 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
       {err && <span className="bad">{err}</span>}
     </span>
   );
+}
+
+/**
+ * Whether they are around, in words, for the dot's title and the header: the dot is evidence (a
+ * message they sent, or one of ours their node took), so the words say when that evidence is from.
+ */
+function presenceWords(p: Pick<Person, "presence" | "last_seen">): string {
+  if (p.presence === "online") return "Online";
+  return p.last_seen ? `Away · last seen ${ago(p.last_seen * 1000)}` : "Away · no contact yet";
+}
+
+/**
+ * One line under a message of ours that has not landed: 'Not delivered yet — trying again until
+ * Mon 14:05', or 'Not delivered — <why>' (words.ts's reasons, shared with the cloud). A send still
+ * in flight says nothing: the clock beside the time is enough, and words would only alarm. The node
+ * has no retry of its own to offer; the sweep keeps trying until the deadline it says.
+ */
+function Undelivered({ m }: { m: Msg }) {
+  let text = "";
+  if (m.state === "retrying") text = m.until ? `Not delivered yet — trying again until ${when(m.until * 1000, Date.now(), true)}` : "Not delivered yet — trying again";
+  else if (m.state === "expired") text = `Not delivered — ${undeliveredReason("expired")}`;
+  else if (m.state === "failed") text = `Not delivered — ${undeliveredReason(null)}`;
+  if (!text) return null;
+  return <span className="bad" title={m.state}><Icon name="warn" size={14} /> {text}</span>;
 }
 
 // Keep the old deep link working: /messages?contact=… is what the contacts page

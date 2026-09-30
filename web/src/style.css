@@ -126,7 +126,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent-ui);width:1
 /* ---------------------------------------------------------------- surfaces */
 .card{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.1rem 1.25rem;margin:1rem 0;box-shadow:var(--shadow-sm)}
 .card h2{margin-top:0;font-size:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
-.card h2 .meta{display:inline-flex;gap:.35rem;font-weight:500}
+.card h2 .meta{display:inline-flex;flex-wrap:wrap;gap:.35rem;font-weight:500;min-width:0;max-width:100%}
 .card > :last-child{margin-bottom:0}
 .card.danger{border-color:color-mix(in srgb,var(--red) 35%,var(--line))}
 .card.danger h2{color:var(--red)}
@@ -294,7 +294,11 @@ main.tables{max-width:72rem}
 .pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap;max-width:100%}
 /* A pill never wraps; one wider than its box ends in an ellipsis, the whole of it in its title. */
 .pill-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.pill.ok{background:var(--accent-soft);color:var(--accent-ink)}
+/* A good state is quiet: ink on the neutral fill, with a small check, so a trail that is mostly 'ok' does not
+   read as a page of orange warnings and the red of a refusal is the colour that stands out. Colour is kept for
+   waiting (amber) and refused (red). A count and a pill that carries its own icon draw no check. */
+.pill.ok{background:var(--bg-3);color:var(--ink-2)}
+.pill.ok:not(.count):not(:has(> .ic))::before{content:"";flex:0 0 auto;width:.5em;height:.26em;margin:-.18em .05em 0 .05em;border:solid currentColor;border-width:0 0 1.5px 1.5px;transform:rotate(-45deg);opacity:.75}
 .pill.warn{background:var(--amber-soft);color:var(--amber)}
 .pill.bad{background:var(--red-soft);color:var(--red)}
 .pill.mono{font-family:var(--mono);font-weight:500}
@@ -307,7 +311,7 @@ main.tables{max-width:72rem}
 .av.me{background:var(--ink);color:var(--bg)}
 .av.anon{background:var(--bg-3);color:var(--muted)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:0 0 8px}
-.dot.online{background:var(--accent-ui)}
+.dot.online{background:var(--online)}
 .dot.away{background:var(--amber)}
 .rowline{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .center{max-width:26rem;margin:10vh auto 0;padding:0 1.5rem}
@@ -722,3 +726,39 @@ form.add-row .toolbar{margin:0}
 .chips.has-picks .chip-pick{display:inline-block;flex:1 1 0;width:0;min-width:5.5rem}
 .chips.phone-pick{display:none}
 }
+/* Presence: online is its own colour, not the brand orange beside away's amber (colour was the only signal,
+   and the two were nearly one). Not text, so held to 3:1 against the page in both themes; the dot's title
+   says it in words. */
+:root{--online:#1B873F}
+@media (prefers-color-scheme: dark){:root{--online:#46C46E}}
+/* A number in a table column: right-aligned, in tabular figures, its heading with it. */
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* Mono words in running text: a slug, a key, a day. */
+.mono{font-family:var(--mono);font-size:.86em}
+/* The audit trail's day headings: the cell says the clock, the heading the day. */
+.audit-t tr.day td{padding:.45rem .85rem;background:var(--bg-2);color:var(--faint);font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+/* The entry's number answers no question of its own; it is for checking the chain. Right-aligned and quiet
+   where there is room; under the table's width it goes (it is in the time's title, and a chain link keeps
+   its number, the button that opens its hashes). */
+.audit-t td.c-seq{text-align:right;color:var(--faint);font-size:.82rem}
+@container (max-width:62rem){
+.audit-t tbody tr{grid-template-columns:auto 6.6rem 10.5rem minmax(0,1fr) auto}
+.audit-t tbody td.c-seq:not(:has(.seq-btn)){display:none}
+.audit-t tbody tr:not(:has(.seq-btn)) td.c-when{margin-left:-.9rem}
+.audit-t tbody tr.day{display:block;padding:0;border-bottom:1px solid var(--line)}
+.audit-t tbody tr.day td{display:block;padding:.4rem .85rem;background:var(--bg-2)}
+}
+@container (max-width:40rem){
+.audit-t tbody tr{grid-template-columns:minmax(0,1fr) auto}
+.audit-t tbody tr:not(:has(.seq-btn)) td.c-when{margin-left:0}
+.audit-t tbody tr.day{border:0;margin:.4rem 0 .35rem;background:none}
+.audit-t tbody tr.day td{padding:0 .2rem;background:none}
+}
+/* The actions a row of chips has no room for, in one select at its end: 'More' with each one's count. */
+.chip-more{height:30px;width:auto;max-width:9.5rem;padding:0 .6rem;border:1px solid var(--line-2);border-radius:999px;background:var(--bg);color:var(--text);font-size:.85rem}
+.chip-more.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+/* An audit row's action, in words (the code in its title): one line, quieter than who did it. */
+.audit-t td.c-act .act{white-space:nowrap;font-size:.86rem;color:var(--text)}
+/* A readout of whole lines (commands, one a line): each line kept whole, scrolled sideways on a phone. */
+.readout.block.pre{min-width:0}
+.readout.block.pre code{white-space:pre;word-break:normal;overflow-x:auto;min-width:0;line-height:1.7}

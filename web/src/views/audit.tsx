@@ -9,10 +9,11 @@
 // tooltip and its copy button, and in view only where no name could be found:
 // the trail stays verifiable, it just stops reading like a list of UUIDs.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { currentAccount, failureOf, getJSON } from "../api";
+import { accountName, currentAccount, failureOf, getJSON } from "../api";
 import { aboutParts, actorOf, namedIn, resourceParts, searchText, type Directory, type Named as NamedId, type Part } from "../audit_names";
-import { Locator, Named, whenOf } from "../glance";
+import { Locator, Named } from "../glance";
 import { Badge, Button, Chip, ChipPick, Chips, EmptyState, Notice, PageHeader, Table, Toolbar, toneOf } from "../ui";
+import { actionWord, CHIPS_SHOWN, clockOf, kindLabel, whenTitle, withDays } from "../words";
 
 type Row = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
 type Data = { rows: Row[] | null; actor: string; limit?: number; names?: Directory };
@@ -35,8 +36,8 @@ export function Audit() {
 
   const said = useMemo<Said[]>(() => {
     const names = d?.names ?? {};
-    // The trail is the selected identity's (getJSON sends it as `account`): a row's own
-    // `account:<it>` only repeats the page, so it is not drawn. A node-level row names none.
+    // The trail is the selected identity's (getJSON sends it as `account`), named in the header: a
+    // row's own `account:<it>` only repeats it, so it is not drawn. A node-level row names none.
     const here = currentAccount();
     return (d?.rows ?? []).map((row) => {
       const actor = actorOf({ kind: row.ActorKind, id: row.ActorID, action: row.Action, resource: row.Resource }, names);
@@ -58,7 +59,9 @@ export function Audit() {
   const actions = useMemo(() => {
     const n: Record<string, number> = {};
     for (const { row: r } of said) n[r.Action] = (n[r.Action] ?? 0) + 1;
-    return Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+    // Every one: the commonest have chips, and the rest are in 'More' (they were cut at twelve, and the
+    // commonest refusal on a busy node was not among them).
+    return Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [said]);
   const refusals = useMemo(() => said.filter((s) => isRefusal(s.row)).length, [said]);
 
@@ -72,8 +75,11 @@ export function Audit() {
     });
   }, [said, q, kind, action, refusedOnly]);
 
+  // The trail is one identity's, and the header says whose: the row's own account is left out of each
+  // row because this names it (a node-level trail, with no identity chosen, names none).
+  const here = currentAccount();
   const header = (
-    <PageHeader title="Audit" sub="Append-only and hash-chained; refusals are recorded as loudly as successes."
+    <PageHeader title="Audit" meta={here ? <Badge>{accountName()}</Badge> : undefined} sub="Append-only and hash-chained; refusals are recorded as loudly as successes."
       actions={<Button variant="secondary" icon="refresh" onClick={load}>Refresh</Button>} />
   );
   if (err) return <main className="wide">{header}<Notice kind="err" title="Could not read the audit trail" action={<Button variant="secondary" onClick={load}>Try again</Button>}>{err}</Notice></main>;
@@ -90,15 +96,19 @@ export function Audit() {
       <Chips aria-label="Filter by actor and outcome" className="has-picks">
         <Chip on={refusedOnly} tone="bad" count={refusals} onClick={() => setRefusedOnly((v) => !v)}>Refusals</Chip>
         {kinds.map(([k, n]) => (
-          <Chip key={k} className="picked" on={kind === k} count={n} onClick={() => setKind(kind === k ? null : k)}>{k}</Chip>
+          <Chip key={k} className="picked" on={kind === k} count={n} title={k} onClick={() => setKind(kind === k ? null : k)}>{kindLabel(k)}</Chip>
         ))}
-        <ChipPick label="Filter by actor" all="Anyone" value={kind} options={kinds} onChange={setKind} />
-        <ChipPick label="Filter by action" all="Any action" value={action} options={actions} onChange={setAction} />
+        <ChipPick label="Filter by actor" all="Anyone" value={kind} options={kinds} onChange={setKind} say={(k) => kindLabel(k)} />
+        <ChipPick label="Filter by action" all="Any action" value={action} options={actions} onChange={setAction} say={actionWord} />
       </Chips>
       <Chips aria-label="Filter by action" className="phone-pick">
-        {actions.map(([a, n]) => (
-          <Chip key={a} on={action === a} count={n} onClick={() => setAction(action === a ? null : a)}>{a}</Chip>
+        {actions.slice(0, CHIPS_SHOWN).map(([a, n]) => (
+          <Chip key={a} on={action === a} count={n} title={a} onClick={() => setAction(action === a ? null : a)}>{actionWord(a)}</Chip>
         ))}
+        {actions.length > CHIPS_SHOWN && (
+          <ChipPick className="chip-more" label="More actions" all={`More (${actions.length - CHIPS_SHOWN})`} value={action}
+            options={actions.slice(CHIPS_SHOWN)} onChange={setAction} say={actionWord} />
+        )}
       </Chips>
       <p className="muted">
         {shown.length === said.length ? `${said.length} entries` : `${shown.length} of ${said.length} entries`}
@@ -109,14 +119,18 @@ export function Audit() {
       <div className="audit-t">
         <Table stack={false} head={["Seq", "When", "Outcome", "Who", "Action", "About"]}
           empty={<EmptyState title={filtering ? "Nothing matches those filters" : "Nothing recorded yet"} />}>
-          {shown.map(({ row: r, actor, about }) => (
-            <tr key={r.Seq}>
-              <td className="c-seq">{r.Seq}</td>
-              <td className="c-when" title={new Date(r.TS * 1000).toString()}>{whenOf(r.TS * 1000)}</td>
-              <td className="c-out"><Badge status={r.Outcome} /></td>
-              <td className="c-who"><Named n={actor} note={r.ActorKind || "system"} /></td>
-              <td className="c-act"><code>{r.Action}</code></td>
-              <td className="c-about" data-resource={r.Resource}><Locator parts={about} /></td>
+          {/* A heading for each day; the cell says the clock. The entry's number is in the time's title
+              beside the whole instant: it is for checking the chain, not a question of its own. */}
+          {withDays(shown, (s) => s.row.TS * 1000).map((x) => "day" in x ? (
+            <tr key={x.key} className="day"><td colSpan={6}>{x.day}</td></tr>
+          ) : (
+            <tr key={x.row.row.Seq}>
+              <td className="c-seq">{x.row.row.Seq}</td>
+              <td className="c-when" title={`#${x.row.row.Seq} · ${whenTitle(x.row.row.TS * 1000)}`}>{clockOf(x.row.row.TS * 1000, true)}</td>
+              <td className="c-out"><Badge status={x.row.row.Outcome} /></td>
+              <td className="c-who"><Named n={x.row.actor} note={kindLabel(x.row.row.ActorKind || "system").toLowerCase()} /></td>
+              <td className="c-act"><span className="act" title={x.row.row.Action}>{actionWord(x.row.row.Action)}</span></td>
+              <td className="c-about" data-resource={x.row.row.Resource}><Locator parts={x.row.about} /></td>
             </tr>
           ))}
         </Table>
