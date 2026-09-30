@@ -183,7 +183,7 @@ export function Toolbar({ children, end, className }: { children?: ReactNode; en
   return <div className={"toolbar" + (className ? " " + className : "")}>{children}{end && <span className="end">{end}</span>}</div>;
 }
 
-export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "link";
+export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "link" | "emergency";
 // `busy`: at work — disabled, aria-busy, a spinner in the icon's place, the label kept. `done`: what it
 // did has just happened — a check in the icon's place, the label kept, and `doneText` said once to a
 // screen reader. A status is never a button's label.
