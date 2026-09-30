@@ -72,6 +72,16 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
   every port.
 - **P4 (release).** pact-identity 0.5.0 (a minor bump: stricter reading changes answers). `gate.sh`, the
   pin, `make release`, `publish`, `verify-release`.
+  - **Cards already stored, read by the stricter core.** The node's intake (`contacts.ValidateInbound`)
+    and its seal policy (`contacts.SealOf`) both read a card with the core's `DecodeCard`, today
+    0.4.1's. A card 0.4.1 accepted at intake and 0.5.0 refuses stays on file after the node's bump
+    (P5), and `SealOf` then answers an error for it: that contact cannot be written to (`node.PeerOf`
+    refuses it) until a card of theirs that reads arrives. So the node's bump carries a migration
+    check: `SealOf`, under 0.5.0, over every stored card (every account, every status), run before
+    the bump is pushed, naming each card it refuses with its contact and the reason. The owner then
+    refreshes each of those contacts (the on-demand refresh of ONE contact, standing rule 5) or
+    re-adds it from a new card, and the bump ships when the list is empty or the owner has accepted
+    what is left on it.
 - **P5 (node), after the two-layer node PR lands.** Bump to 0.5.0; S8's node lint; S9 (one decision for
   both doors); N4 (card signatures through the port); N5 (the port's private-address list); N9 (the
   port's card decode); every node finding; the new leads that verify.
