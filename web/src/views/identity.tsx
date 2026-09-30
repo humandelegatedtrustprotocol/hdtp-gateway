@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { failureOf, fetchSession, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Failed, Field, Notice, PageHeader, Readout, Section, type Note } from "../ui";
+import { Badge, Button, EmptyState, Failed, Field, HelpTip, Notice, PageHeader, Readout, Section, type Note } from "../ui";
 
 type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string; web_wallet?: boolean; root_fingerprint?: string };
 type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
@@ -40,10 +40,12 @@ export function Identity() {
 
       {d.can_create && (
         <Section title="Add an identity"
-          description="A second identity is how one node serves two people, or keeps work and home apart. Each has its own keypair, contacts and inbox — nothing is shared between them. The slug becomes the endpoint path people reach you on, so it is public; pick it as deliberately as a username."
+          description={<>Its own keypair, contacts and inbox; nothing is shared.<HelpTip label="About identities">
+            A second identity is how one node serves two people, or keeps work and home apart.
+          </HelpTip></>}
           footer={<Button onClick={create} disabled={!slug.trim() || !name.trim()}>Create identity</Button>}>
           <div className="fields">
-            <Field label="Slug" id="slug"><input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="work" /></Field>
+            <Field label="Slug" id="slug" tip="The slug becomes the endpoint path people reach you on, so it is public; pick it as deliberately as a username."><input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="work" /></Field>
             <Field label="Display name" id="name"><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Alice (work)" /></Field>
             <Field label="Key algorithm" id="algo">
               <select value={algo} onChange={(e) => setAlgo(e.target.value)}>
