@@ -3,11 +3,22 @@
 // rest quiet — with the add form, credentials and OAuth client behind
 // disclosures so the page reads as a list, not a wall of forms.
 import { useCallback, useEffect, useState } from "react";
-import { csrf, currentAccount, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
+import { csrf, currentAccount, failureOf, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
+import { CopyId, UrlText } from "../glance";
 
 type Row = { ID: string; Slug: string; Transport: string; Endpoint: string; Command: string; AuthKind: string; Status: string };
 type Data = { rows: Row[] | null; can_set_static: boolean; can_set_oauth: boolean };
+
+const AUTH: Record<string, string> = { none: "None", static: "A header the node attaches", oauth: "OAuth" };
+
+/**
+ * A supervised command, as short as a row can hold: the program and what follows, cut at the row's edge,
+ * the whole of it in the tooltip and one click from the clipboard (the row's details show it whole).
+ */
+function CommandText({ command }: { command: string }) {
+  return <span className="nm-url cmd"><code title={command}>{command}</code><CopyId id={command} /></span>;
+}
 
 export function Integrations() {
   const [d, setD] = useState<Data | null>(null);
@@ -22,7 +33,8 @@ export function Integrations() {
   const [oauth, setOauth] = useState<Record<string, { id: string; secret: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [watching, setWatching] = useState<string | null>(null);
-  const load = useCallback(() => getJSON<Data>("/api/integrations").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/integrations").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
   // The provider's sign-in opens in a NEW tab, so this one stays on the list
   // and updates itself: while a flow is out, the row is re-read every two
@@ -94,7 +106,7 @@ export function Integrations() {
       actions={<Button icon="plus" onClick={() => setAdding((v) => !v)} aria-pressed={adding}>Add integration</Button>}
     />
   );
-  if (!d) return <main>{header}<EmptyState loading /></main>;
+  if (!d) return <main>{header}{err ? <Failed what="the integrations" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const addForm = (
     <Section title="New integration" description="Give it a short name; the transport and address are what the node dials."
@@ -129,20 +141,32 @@ export function Integrations() {
         <List aria-label="Integrations">
           {rows.map((row) => {
             const trouble = row.Status === "auth_error" || row.Status === "unreachable";
+            // The filled button only where something needs doing: a healthy row's Reconnect is there for
+            // when you want it, not a call to action.
+            const variant = row.Status === "ok" ? "secondary" : "primary";
             const primary = row.AuthKind === "oauth"
-              ? <Button busy={busy === row.ID} onClick={() => authorize(row.ID)}>{trouble ? "Reconnect & authorize" : row.Status === "ok" ? "Reconnect" : "Connect & authorize"}</Button>
-              : <Button variant={row.Status === "ok" ? "secondary" : "primary"} onClick={() => act(`/integrations/${row.ID}/connect`)}>{trouble || row.Status === "ok" ? "Reconnect" : "Connect"}</Button>;
+              ? <Button variant={variant} busy={busy === row.ID} onClick={() => authorize(row.ID)}>{trouble ? "Reconnect & authorize" : row.Status === "ok" ? "Reconnect" : "Connect & authorize"}</Button>
+              : <Button variant={variant} onClick={() => act(`/integrations/${row.ID}/connect`)}>{trouble || row.Status === "ok" ? "Reconnect" : "Connect"}</Button>;
+            const where = row.Endpoint || row.Command;
             return (
               <ListRow key={row.ID}
                 leading={<span className="av" aria-hidden="true">{row.Slug.slice(0, 2).toUpperCase()}</span>}
                 title={<>{row.Slug}<Badge status={row.Status} /></>}
-                meta={<><Badge mono>{row.Transport}</Badge><Badge mono>{row.AuthKind === "none" ? "no auth" : row.AuthKind}</Badge>{(row.Endpoint || row.Command) && <Readout value={row.Endpoint || row.Command} />}</>}
+                meta={where && (row.Endpoint ? <UrlText url={row.Endpoint} /> : <CommandText command={row.Command} />)}
                 trailing={<Toolbar>
                   {primary}
                   <Button variant="secondary" to={`/integrations/${row.ID}/exposure`} icon="tool">Exposure</Button>
                   <Button variant="quiet" icon="refresh" aria-label="Refresh catalog" title="Refresh catalog" onClick={() => act(`/integrations/${row.ID}/refresh`)} />
                   <Button variant="quiet" icon="trash" aria-label={`Remove ${row.Slug}`} title="Remove" confirm={`Remove ${row.Slug}? Its exposures stop serving.`} onClick={() => act(`/integrations/${row.ID}/remove`)} />
                 </Toolbar>}>
+                <details className="row-more">
+                  <summary>Connection</summary>
+                  <dl className="facts">
+                    <dt>Transport</dt><dd>{row.Transport}</dd>
+                    <dt>Authentication</dt><dd>{AUTH[row.AuthKind] ?? row.AuthKind}</dd>
+                    {where && <><dt>{row.Endpoint ? "Address" : "Command"}</dt><dd><Readout value={where} copy dots /></dd></>}
+                  </dl>
+                </details>
                 {row.Status === "auth_error" && (
                   <Notice kind="warn" action={row.AuthKind !== "oauth" && (
                     <Button variant="secondary" onClick={async () => {

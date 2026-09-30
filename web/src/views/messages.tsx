@@ -5,18 +5,23 @@
 // of the audit trail, so "what may this contact do" is answered next to what
 // they are doing.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { accountName, currentAccount, getJSON, postForm, subscribe } from "../api";
+import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } from "../api";
 import { Link, navigate } from "../router";
-import { Avatar, Badge, Button, EmptyState, Icon, Notice, PLUMBING_TOOLS, Readout, Toolbar, permLabel, toolLabel, type IconName } from "../ui";
+import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolAction, toolLabel, trustWord, type IconName } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
+import { IdText } from "../glance";
+import { actionWord, ago, fileSize, mediaKind, undeliveredReason, when, whenTitle } from "../words";
 import type { Schema, Values } from "../schema_form";
 
 type Person = {
   fingerprint: string; label: string; status: string; preview: string;
-  selected: boolean; unread: number; presence: string; since: string;
+  selected: boolean; unread: number; presence: string;
+  /** When they were last seen to be reachable (unix seconds): what the presence dot is evidence of. */
+  last_seen?: number;
 };
 type Media = { filename: string; mime: string; size?: number; hash?: string; url?: string };
-type Msg = { mine: boolean; body: string; who: string; when: string; bad: string; state?: string; media?: Media };
+/** `ts` is when it was written and `until` when a message still being tried stops being tried (unix seconds). */
+type Msg = { mine: boolean; body: string; who: string; ts: number; until?: number; state?: string; media?: Media };
 type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string };
 
 type PermRow = { name: string; on: boolean };
@@ -27,6 +32,8 @@ type Contact = {
 type ContactTool = { name: string; description?: string; input_schema?: Schema };
 // The protocol's own plumbing is callable but not something a person invokes by hand.
 const PANEL_KEY = "pact.inbox.panel";
+/** The narrowest window the contact panel stands beside the conversation in; style.css makes it a drawer below (held equal by test/style_test.mjs). */
+const PANEL_BESIDE = 1360;
 const FOCUS_KEY = "pact.inbox.focus";
 
 type AuditRow = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
@@ -42,12 +49,19 @@ export function Messages() {
   const [pending, setPending] = useState<Msg | null>(null);
   const [q, setQ] = useState("");
   const [pane, setPane] = useState<Pane>(sel ? "thread" : "list");
-  // The contact panel is the owner's to keep or dismiss; the choice persists.
+  // The contact panel is the owner's to keep or dismiss; the choice persists — from PANEL_BESIDE up,
+  // where it stands beside the conversation. Narrower (above a phone) it is a drawer over the
+  // conversation (style.css), so the page opens without it whatever was saved, and opening or closing
+  // it there is for now, not kept: as a third column there it left the conversation 252px at 1100.
   const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    if (window.innerWidth < PANEL_BESIDE) return false;
     try { const v = localStorage.getItem(PANEL_KEY); if (v !== null) return v === "1"; } catch { /* no storage */ }
-    return window.innerWidth > 1180;
+    return true;
   });
-  const togglePanel = () => setPanelOpen((v) => { try { localStorage.setItem(PANEL_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+  const togglePanel = () => setPanelOpen((v) => {
+    if (window.innerWidth >= PANEL_BESIDE) { try { localStorage.setItem(PANEL_KEY, v ? "0" : "1"); } catch { /* ignore */ } }
+    return !v;
+  });
   // Focus: the thread alone, full width. Both side columns step aside until asked back.
   const [focus, setFocus] = useState<boolean>(() => { try { return localStorage.getItem(FOCUS_KEY) === "1"; } catch { return false; } });
   const toggleFocus = () => setFocus((v) => { try { localStorage.setItem(FOCUS_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
@@ -67,9 +81,12 @@ export function Messages() {
   const logRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // A first read that failed is said as one: the Inbox drew a blank content area, with no list, no
+  // heading and no error, for as long as the node refused.
+  const [err, setErr] = useState("");
   const load = useCallback(() => {
     const params = sel ? { contact: sel } : undefined;
-    return getJSON<Data>("/api/conversations", params).then(setD).catch(() => {});
+    return getJSON<Data>("/api/conversations", params).then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e)));
   }, [sel]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe(load), [load]); // SSE: deliveries and inbound messages refresh the view
@@ -116,7 +133,7 @@ export function Messages() {
     // takes as long as reaching their node takes. Show the bubble with a clock
     // straight away, as a messenger does, rather than leaving the thread empty
     // until the round trip finishes and the message appears already delivered.
-    setPending({ mine: true, body, who: "human", when: "now", bad: "", state: "sending" });
+    setPending({ mine: true, body, who: "human", ts: Math.floor(Date.now() / 1000), state: "sending" });
     const r = await postForm("/messages/send", { contact: sel, text: body, msg_id: d.new_msg_id });
     const err = r.url.searchParams?.get("err") ?? "";
     setSendErr(r.ok ? err ?? "" : "send failed");
@@ -159,7 +176,7 @@ export function Messages() {
     setRunning(false);
   };
 
-  if (!d) return <main className="wide"><EmptyState loading /></main>;
+  if (!d) return <main className="wide">{err ? <><PageHeader title="Inbox" /><Failed what="your conversations" error={err} retry={load} /></> : <EmptyState loading />}</main>;
 
   const missing = active ? missingRequired(active.input_schema ?? {}, args) : [];
   const cls = "inbox" + (panelOpen ? "" : " panel-off") + (focus ? " focus" : "");
@@ -179,7 +196,7 @@ export function Messages() {
               <button key={p.fingerprint} className={"conv" + (p.fingerprint === sel ? " sel" : "")} onClick={() => pick(p.fingerprint)}>
                 <Avatar name={p.label} />
                 <span className="who">
-                  <b><span>{p.label}</span>{p.presence && <span className={"dot " + p.presence} title={p.since || p.presence} />}</b>
+                  <b><span>{p.label}</span>{p.presence && <span className={"dot " + p.presence} title={presenceWords(p)} aria-label={presenceWords(p)} />}</b>
                   <span className="preview">{p.preview || (p.status === "active" ? "No messages yet" : p.status)}</span>
                 </span>
                 <span className="end">
@@ -201,15 +218,15 @@ export function Messages() {
               <div className="thread-h">
                 <Toolbar className="back"><Button variant="quiet" icon="back" aria-label="Back to conversations" onClick={() => setPane("list")} /></Toolbar>
                 <Avatar name={current.label} />
-                <div>
-                  <div className="name">{current.label}</div>
+                <div className="who">
+                  <div className="name" title={current.label}>{current.label}</div>
                   <div className="meta">
-                    {current.presence && <><span className={"dot " + current.presence} />{current.presence}{current.since ? ` · ${current.since}` : ""}</>}
+                    {current.presence && <><span className={"dot " + current.presence} />{presenceWords(current)}</>}
                     {!current.presence && <span>{current.status}</span>}
                   </div>
                 </div>
                 <div className="end">
-                  <Badge tone="ok" mono title="Pinned key fingerprint">{shortFpr(current.fingerprint)} pinned</Badge>
+                  <Badge tone="ok" title={`Their key is pinned: a message that does not verify against it is refused.\n${current.fingerprint}`}><Icon name="shield" size={12} /> pinned</Badge>
                   <Toolbar className="details">
                     <Button variant="quiet" icon="panel" aria-pressed={panelOpen && !focus} title={panelOpen && !focus ? "Hide contact panel" : "Show contact panel"} aria-label="Contact panel"
                       onClick={() => { if (window.innerWidth <= 900) setPane(pane === "panel" ? "thread" : "panel"); else { if (focus) toggleFocus(); if (!panelOpen || focus) { if (!panelOpen) togglePanel(); } else togglePanel(); } }} />
@@ -234,16 +251,18 @@ export function Messages() {
                       {m.mine ? <Avatar me name={accountName()} size="sm" /> : <Avatar name={current.label} size="sm" />}
                       <div className="body">
                         <div className="meta">
-                          <span>{m.mine ? "You" : current.label}</span>
+                          {/* One contact per thread, and the avatar and the side say whose each message is: a
+                              long name over every message wrapped to four lines on a phone. Said to a reader. */}
+                          <span className="sr-only">{m.mine ? "You" : current.label}</span>
                           <span className={"tag " + (m.who === "agent" ? "agent" : "human")}>{m.who || "human"}</span>
-                          <span>{m.when}</span>
+                          <time dateTime={new Date(m.ts * 1000).toISOString()} title={whenTitle(m.ts * 1000)}>{when(m.ts * 1000, Date.now(), true)}</time>
                           {m.mine && <DeliveryMark state={m.state} />}
                         </div>
                         <div className="bubble">
                           {m.body}
                           {m.media && <MediaBubble m={m.media} onFetched={load} />}
                         </div>
-                        {m.bad && <span className="bad"><Icon name="warn" size={14} /> {m.bad}</span>}
+                        {m.mine && <Undelivered m={m} />}
                       </div>
                     </div>
                   ))}
@@ -253,9 +272,9 @@ export function Messages() {
               {toolsOpen && (
                 <div className="tooldock" aria-label="Contact tools">
                   <div className="tooldock-h">
-                    <strong>{active ? active.name : "Tools this contact lets you call"}</strong>
+                    <strong title={active?.name}>{active ? <>{toolLabel(active.name)} <code>{active.name}</code></> : "Tools this contact lets you call"}</strong>
                     <Toolbar>
-                      {active && <Button variant="quiet" icon="back" onClick={() => { setActive(null); setArgs({}); setResult(""); }}>All tools</Button>}
+                      {active && <Button variant="quiet" icon="back" aria-label="All tools" title="All tools" onClick={() => { setActive(null); setArgs({}); setResult(""); }} />}
                       <Button variant="quiet" icon="close" aria-label="Close tools" onClick={() => setToolsOpen(false)} />
                     </Toolbar>
                   </div>
@@ -263,7 +282,7 @@ export function Messages() {
                     <div className="toollist">
                       {tools.map((t) => (
                         <button key={t.name} className="toolitem" onClick={() => { setActive(t); setArgs({}); setResult(""); }}>
-                          <code>{t.name}</code>{t.description && <span>{t.description}</span>}
+                          <b title={t.name}>{toolLabel(t.name)}</b>{t.description && <span>{t.description}</span>}
                         </button>
                       ))}
                     </div>
@@ -272,7 +291,7 @@ export function Messages() {
                       {active.description && <p className="help">{active.description}</p>}
                       <SchemaForm schema={active.input_schema ?? {}} values={args} onChange={setArgs} />
                       <Toolbar>
-                        <Button busy={running} disabled={missing.length > 0} onClick={run}>Call {active.name}</Button>
+                        <Button busy={running} disabled={missing.length > 0} onClick={run} title={`Call ${active.name}`}>{toolAction(active.name)}</Button>
                         {missing.length > 0 && <span className="muted">required: {missing.join(", ")}</span>}
                       </Toolbar>
                       {result && <pre className="toolresult">{result}</pre>}
@@ -283,7 +302,7 @@ export function Messages() {
               <div className="composer">
                 <input ref={fileRef} type="file" hidden accept={accept || undefined} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
                 <div className="plus-wrap">
-                  <button className={"quiet icon plus" + (menuOpen ? " on" : "")} title="Add" aria-label="Add" aria-expanded={menuOpen} aria-haspopup="menu" aria-busy={uploading} disabled={uploading} onClick={() => setMenuOpen((v) => !v)}>
+                  <button className={"btn quiet icon plus" + (menuOpen ? " on" : "")} title="Add" aria-label="Add" aria-expanded={menuOpen} aria-haspopup="menu" aria-busy={uploading} disabled={uploading} onClick={() => setMenuOpen((v) => !v)}>
                     <Icon name="plus" size={20} />
                   </button>
                   {menuOpen && (
@@ -292,12 +311,12 @@ export function Messages() {
                         const canMedia = allTools.some((t) => t.name === "send_media");
                         const pick = (acc: string) => { setAccept(acc); setMenuOpen(false); setTimeout(() => fileRef.current?.click(), 0); };
                         const open = (t: ContactTool) => { setMenuOpen(false); setActive(t); setArgs({}); setResult(""); setToolsOpen(true); };
-                        const tiles: { key: string; label: string; icon: IconName; on: () => void }[] = [];
+                        const tiles: { key: string; label: string; icon: IconName; on: () => void; title?: string }[] = [];
                         if (canMedia) {
                           tiles.push({ key: "file", label: "File", icon: "file", on: () => pick("") });
                           tiles.push({ key: "photo", label: "Photo", icon: "image", on: () => pick("image/*") });
                         }
-                        for (const t of tools) tiles.push({ key: t.name, label: toolLabel(t.name), icon: toolIcon(t.name), on: () => open(t) });
+                        for (const t of tools) tiles.push({ key: t.name, label: toolLabel(t.name), icon: toolIcon(t.name), on: () => open(t), title: t.name });
                         if (tiles.length === 0) {
                           if (toolsState === "loading") return <p className="muted plus-empty">Asking {current.label}'s node what you may do there…</p>;
                           if (toolsState === "failed") {
@@ -311,9 +330,9 @@ export function Messages() {
                           return <p className="muted plus-empty">{current.label} has not enabled files or tools for you yet.</p>;
                         }
                         return tiles.map((t) => (
-                          <button key={t.key} className="tile" role="menuitem" onClick={t.on} title={t.key}>
+                          <button key={t.key} className="tile" role="menuitem" onClick={t.on} title={t.title}>
                             <span className="circ"><Icon name={t.icon} size={22} /></span>
-                            <span>{t.label}</span>
+                            <span className="lbl">{t.label}</span>
                           </button>
                         ));
                       })()}
@@ -333,7 +352,7 @@ export function Messages() {
           )}
         </section>
 
-        {current && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => setPane("thread")} />}
+        {current && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }} />}
       </div>
     </main>
   );
@@ -360,11 +379,6 @@ function toolIcon(name: string): "calendar" | "calendarCheck" | "calendarX" | "a
   if (name === "get_status") return "activity";
   if (name.startsWith("integration.")) return "plug";
   return "spark";
-}
-
-function shortFpr(f: string): string {
-  const s = f.replace(/^sha256:/, "");
-  return "sha256:" + s.slice(0, 4) + "…" + s.slice(-3);
 }
 
 // The right-hand panel: who this is, what they may do here (live switches),
@@ -417,20 +431,20 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         <Avatar name={label} size="lg" />
         <div>
           <b>{label}</b>
-          <small>{c?.status ?? ""}{c?.trust && <> · trust: <code>{c.trust}</code></>}</small>
+          <small>{c?.status ?? ""}{c?.trust && <> · {trustWord(c.trust)}</>}</small>
         </div>
       </div>
       <div>
         <h3>Identity</h3>
-        <Readout value={fpr} block copy />
+        <IdText id={fpr} />
       </div>
       <div>
         <h3>What they may do here</h3>
         {note && <Notice kind="err">{note}</Notice>}
         {c ? c.permissions.map((p) => (
           <div className="perm" key={p.name}>
-            <span><span className="k">{permLabel(p.name)}</span><small>{p.name}</small></span>
-            <button type="button" role="switch" aria-checked={p.on} aria-label={p.name}
+            <span className="k" title={p.name}>{permLabel(p.name)}</span>
+            <button type="button" role="switch" aria-checked={p.on} aria-label={permLabel(p.name)} title={p.name}
               className={"sw" + (p.on ? " on" : "")} disabled={busy === p.name}
               onClick={() => toggle(p.name, !p.on)} />
           </div>
@@ -440,7 +454,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       {c && (c.their_permissions ?? []).length > 0 && (
         <div>
           <h3>What they let you do there</h3>
-          <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} mono>{p}</Badge>)}</div>
+          <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} title={p}>{permLabel(p)}</Badge>)}</div>
         </div>
       )}
       <div>
@@ -448,7 +462,11 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         {audit.length === 0 ? <p className="muted">Nothing recorded for this contact yet.</p> : (
           <div className="audit-mini">
             {audit.map((r) => (
-              <div key={r.Seq}><b>{r.Action}</b><span className={r.Outcome === "ok" || r.Outcome === "allowed" ? "ok" : "deny"}>{r.Outcome} · {when(r.TS)}</span></div>
+              <div key={r.Seq}>
+                <b title={r.Action}>{actionWord(r.Action)}</b>
+                <Badge status={r.Outcome} />
+                <time dateTime={new Date(r.TS * 1000).toISOString()} title={whenTitle(r.TS * 1000)}>{when(r.TS * 1000)}</time>
+              </div>
             ))}
           </div>
         )}
@@ -459,11 +477,6 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       </div>
     </aside>
   );
-}
-
-function when(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function csrfCookie(): string {
@@ -479,7 +492,8 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const name = m.filename || "attachment";
-  const size = m.size ? ` · ${Math.max(1, Math.round(m.size / 1024))} KB` : "";
+  // What the file is, in words ('Excel spreadsheet · 2.2 MB'); its MIME type is in the title.
+  const kind = [mediaKind(m.mime, m.filename), fileSize(m.size)].filter(Boolean).join(" · ");
 
   if (m.hash) {
     const href = "/media/" + encodeURIComponent(m.hash) +
@@ -489,14 +503,14 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
     return (
       <span className="media">
         <Icon name="clip" size={15} /> <a href={href} download={name}>{name}</a>
-        <span className="muted">{m.mime}{size}</span>
+        <span className="muted" title={m.mime}>{kind}</span>
       </span>
     );
   }
   return (
     <span className="media">
       <Icon name="link" size={15} /> <span>{name}</span>
-      <span className="muted">{m.mime}{size} — not downloaded</span>
+      <span className="muted" title={m.mime}>{kind} — not downloaded</span>
       <Button variant="secondary" busy={busy}
         onClick={async () => {
           setBusy(true);
@@ -511,6 +525,30 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
       {err && <span className="bad">{err}</span>}
     </span>
   );
+}
+
+/**
+ * Whether they are around, in words, for the dot's title and the header: the dot is evidence (a
+ * message they sent, or one of ours their node took), so the words say when that evidence is from.
+ */
+function presenceWords(p: Pick<Person, "presence" | "last_seen">): string {
+  if (p.presence === "online") return "Online";
+  return p.last_seen ? `Away · last seen ${ago(p.last_seen * 1000)}` : "Away · no contact yet";
+}
+
+/**
+ * One line under a message of ours that has not landed: 'Not delivered yet — trying again until
+ * Mon 14:05', or 'Not delivered — <why>' (words.ts's reasons, shared with the cloud). A send still
+ * in flight says nothing: the clock beside the time is enough, and words would only alarm. The node
+ * has no retry of its own to offer; the sweep keeps trying until the deadline it says.
+ */
+function Undelivered({ m }: { m: Msg }) {
+  let text = "";
+  if (m.state === "retrying") text = m.until ? `Not delivered yet — trying again until ${when(m.until * 1000, Date.now(), true)}` : "Not delivered yet — trying again";
+  else if (m.state === "expired") text = `Not delivered — ${undeliveredReason("expired")}`;
+  else if (m.state === "failed") text = `Not delivered — ${undeliveredReason(null)}`;
+  if (!text) return null;
+  return <span className="bad" title={m.state}><Icon name="warn" size={14} /> {text}</span>;
 }
 
 // Keep the old deep link working: /messages?contact=… is what the contacts page

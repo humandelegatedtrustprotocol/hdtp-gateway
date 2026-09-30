@@ -1,7 +1,10 @@
 /* PACT gateway portal — the layout, on the brand's tokens.
  * The palette, the fonts, the display face and the motion are brand.css (pact-web-kit's, held to the
  * vendored kit by tools/kit.mjs check), loaded before this file. Light and dark; the whole portal is
- * built from those variables. */
+ * built from those variables.
+ * PACT Cloud's portal carries this file byte for byte (its gateway/scripts/check-harvested.mjs holds
+ * the copy to this one at the node commit its portal/HARVESTED records); its own rules are its
+ * cloud.css. A table, a pill or a pane is laid out here once, for both. */
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -72,7 +75,6 @@ strong{color:var(--ink);font-weight:600}
 .topbar{display:none}
 
 main{padding:1.6rem 2rem 3rem;max-width:56rem;width:100%;margin:0 auto}
-main.wide{max-width:none;padding:0;flex:1;display:flex;flex-direction:column;min-height:0}
 .page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem 1.5rem;margin-bottom:1.2rem;flex-wrap:wrap}
 .page-h h1{margin:0;min-height:var(--ctl-h);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .page-h h1 .meta{display:inline-flex;gap:.35rem;align-items:center;font-size:.8rem;font-weight:500;letter-spacing:0}
@@ -124,7 +126,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent-ui);width:1
 /* ---------------------------------------------------------------- surfaces */
 .card{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.1rem 1.25rem;margin:1rem 0;box-shadow:var(--shadow-sm)}
 .card h2{margin-top:0;font-size:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
-.card h2 .meta{display:inline-flex;gap:.35rem;font-weight:500}
+.card h2 .meta{display:inline-flex;flex-wrap:wrap;gap:.35rem;font-weight:500;min-width:0;max-width:100%}
 .card > :last-child{margin-bottom:0}
 .card.danger{border-color:color-mix(in srgb,var(--red) 35%,var(--line))}
 .card.danger h2{color:var(--red)}
@@ -166,8 +168,12 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .row .meta{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--muted)}
 .row .desc{color:var(--muted);font-size:.9rem;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .row .desc.open{display:block}
-.row .trail{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto}
-.row .body{flex-basis:100%;padding-top:.4rem}
+/* The trail wraps inside the row rather than running out of it: on a phone the list's overflow:hidden
+   clipped Refresh and Remove past the row's edge, out of reach. */
+.row .trail{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+/* min-width:0, or the body takes its widest child's width (a deliveries table, 1491px) and the list's
+   overflow:hidden clips it with no way to scroll: the table-wrap inside must be the one that scrolls. */
+.row .body{flex-basis:100%;padding-top:.4rem;min-width:0}
 .row .body > .card{border:0;border-radius:0;box-shadow:none;margin:.4rem 0 0;padding:0;border-top:1px solid var(--line)}
 .row .body > details.card > summary{padding:.6rem 0}
 .row .body > details.card > .card-body{padding:0 0 .6rem}
@@ -177,7 +183,14 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .readout{font-family:var(--mono);font-size:.82em;color:var(--muted);word-break:break-all}
 .readout code{background:none;border:0;padding:0;color:inherit;font-size:1em}
 .readout.block{display:flex;gap:.6rem;align-items:flex-start;justify-content:space-between;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:.45rem .6rem;font-size:.76rem}
-.empty.loading{min-height:8rem;padding:0}
+/* Loading is not broken: a skeleton, two bars shaped like what is coming, rather than an empty box
+   that looks exactly like a page that failed. PACT Cloud's sheet carries the same rules. */
+.empty.loading{min-height:8rem;padding:1.4rem 1rem;display:flex;flex-direction:column;gap:.65rem;align-items:stretch}
+.empty.loading::before,.empty.loading::after{content:"";display:block;height:.7rem;border-radius:999px;background:var(--bg-3);animation:skeleton 1.3s ease-in-out infinite}
+.empty.loading::before{width:62%}
+.empty.loading::after{width:38%;animation-delay:.18s}
+@keyframes skeleton{0%,100%{opacity:.45}50%{opacity:.95}}
+@media (prefers-reduced-motion:reduce){.empty.loading::before,.empty.loading::after{animation:none;opacity:.7}}
 .grid{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin:1rem 0}
 .cell{border:1px solid var(--line);border-radius:var(--r-lg);padding:.85rem 1rem;background:var(--bg);box-shadow:var(--shadow-sm)}
 .card .cell{background:var(--bg-2);border-color:transparent;box-shadow:none;border-radius:var(--r)}
@@ -203,26 +216,89 @@ table{display:table}
 thead th{text-align:left;font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);background:var(--bg-2);padding:.55rem .85rem;border-bottom:1px solid var(--line)}
 td{padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
 td .empty{white-space:normal}
-td .readout{white-space:normal;overflow-wrap:anywhere;word-break:normal;min-width:12rem;display:inline-block}
-td .pill{white-space:normal;overflow-wrap:normal;word-break:keep-all;line-height:1.35;text-align:left}
+/* What a pill in a cell cannot say in a word or two: a line of its own under it, which may wrap. */
+td .cell-note{display:block;white-space:normal;max-width:24rem;margin-top:.25rem;font-size:.8rem;color:var(--muted);line-height:1.4}
+td .readout{white-space:normal;overflow-wrap:anywhere;word-break:normal;min-width:8.5rem;max-width:26rem;display:inline-block;line-height:1.45}
+/* A readout in a cell is text to read and copy whole, not a chip: `table code` below is for a code word. */
+td .readout code{font:inherit;background:none;border-radius:0;padding:0;color:var(--ink)}
+/* A cell's note that is a quotation (an endpoint's answer): two lines at most, the whole of it in its title. */
+td .cell-note.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+td.num{font-variant-numeric:tabular-nums}
 td:last-child > .toolbar{justify-content:flex-end}
 thead th.actions{width:1%}
+/* Row actions stay on one line. `.toolbar` wraps by default, which is right in a page header and wrong
+   in a table cell: a wrapping flex box has a min-content width of ONE button, so the layout gave the
+   actions column that width and stacked Approve / Reject / Block down three lines ('Approv' / 'Rejec'
+   on the node). Not wrapping makes the column's min-content width the whole group, which is what
+   `th.actions{width:1%}` shrinks to. Each action keeps its slot: a row without one leaves the slot
+   empty, so the buttons of every row line up. */
+td > .toolbar{flex-wrap:nowrap;gap:.4rem}
+td.actions,td:last-child{white-space:nowrap}
+td > .toolbar.slots{display:grid;grid-auto-flow:column;grid-auto-columns:7.5rem;justify-items:start;justify-content:end}
+/* A name or a label wraps, two lines at most, the whole of it in its title: `td{white-space:nowrap}`
+   let one long name ('Dubai investor dinner — table 4 guests and their executive assistants', 515px)
+   set the whole table's width and push the actions off the page. A trust or kind pill sits beside it. */
+td:has(> .name),td:has(> .who-l){white-space:normal;min-width:10rem}
+td .name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;max-width:22rem;overflow-wrap:break-word;color:var(--ink);font-weight:500}
+/* "Unnamed contact": the page's words where they gave no name, in a quieter face than a name. */
+.unnamed{color:var(--muted);font-style:italic}
+td .name.unnamed{color:var(--muted);font-weight:400;padding-right:.15em}
+/* A cell that holds words that may wrap (an event name broken after its dots and underscores). */
+td.wrap{white-space:normal;min-width:8rem}
+/* The name and what kind of request it is, on one line while they fit. */
+td .who-l{display:flex;flex-wrap:wrap;align-items:center;gap:.2rem .45rem}
+/* An address in a cell breaks after its dots and slashes (glance.tsx UrlText), so it never sets the table's width. */
+td:has(> .nm-url){white-space:normal;min-width:8rem}
+/* The id under a name: short, with its copy button (glance.tsx IdText). */
+td .sub-id{display:block;margin-top:.15rem}
+/* A preset name has to be readable: squeezed, the select drew as one letter and a chevron. */
+td select{min-width:7.5rem}
 table code{font:500 .74rem/1.2 var(--mono);background:var(--bg-3);border:0;border-radius:999px;padding:.2rem .6rem;color:var(--muted)}
 tr:last-child td{border-bottom:0}
 tbody tr:hover td{background:var(--bg-2)}
 td button{margin:0}
 .table-wrap{overflow-x:auto;margin:1rem 0}
 .card .table-wrap{margin:.6rem 0 0}
+/* A page of tables gets the room a table needs (the People tabs): 56rem left ~500px of a 1440 window
+   unused while the Requests table scrolled sideways inside it. */
+main.tables{max-width:72rem}
+/* On a phone a table is a list of cards: each row one card, its first cell the title, its actions last,
+   and each cell between said with its column's name (`data-label`, which Table sets from its head). The
+   audit tables lay themselves out (their `.audit-t` block) and are not `.stack`. */
+@media (max-width:700px){
+  .table-wrap.stack{overflow:visible}
+  .table-wrap.stack > table,.table-wrap.stack > table > tbody{display:block;border:0;background:none;border-radius:0}
+  .table-wrap.stack > table > thead{display:none}
+  .table-wrap.stack > table > tbody > tr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.5rem 1.1rem;padding:.75rem .85rem;margin:0 0 .5rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg)}
+  .table-wrap.stack > table > tbody > tr > td{display:block;padding:0;border:0;white-space:normal;min-width:0;background:none}
+  .table-wrap.stack > table > tbody > tr:hover > td{background:none}
+  .table-wrap.stack > table > tbody > tr > td:first-child,.table-wrap.stack > table > tbody > tr > td:last-child,.table-wrap.stack > table > tbody > tr > td[colspan]{flex:1 1 100%}
+  .table-wrap.stack > table > tbody > tr > td[data-label]:not(:first-child):not(:last-child)::before{content:attr(data-label);display:block;margin-bottom:.15rem;font-size:.68rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .table-wrap.stack > table > tbody > tr > td:last-child > .toolbar{justify-content:flex-start;flex-wrap:wrap}
+  .table-wrap.stack > table > tbody > tr > td:last-child > .toolbar.slots{display:flex}
+  .table-wrap.stack td .name{max-width:none}
+}
 
-.tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--line);margin:0 0 1.2rem}
+/* Tabs that do not fit scroll sideways, a tab at a time, rather than running off the page (the fourth of
+   four ran off a phone). The rule under them is drawn inside the box, since a scroller clips what hangs
+   below it, and the active tab's underline sits on it. */
+.tabs{display:flex;gap:.25rem;margin:0 0 1.2rem;box-shadow:inset 0 -1px 0 var(--line);overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
 .toolbar + .tabs{margin-top:.8rem}
-.tabs .tab{height:auto;padding:.55rem .8rem;color:var(--muted);font-weight:500;font-size:.92rem;background:none;border:0;border-radius:0;border-bottom:2px solid transparent;margin-bottom:-1px;text-decoration:none!important;display:inline-flex;gap:.45rem;align-items:center}
+.tabs .tab{height:auto;padding:.55rem .8rem;color:var(--muted);font-weight:500;font-size:.92rem;background:none;border:0;border-radius:0;border-bottom:2px solid transparent;text-decoration:none!important;display:inline-flex;gap:.45rem;align-items:center;flex:0 0 auto;scroll-snap-align:start;white-space:nowrap}
 .tabs .tab:hover{filter:none;background:none}
 .tabs .tab:hover{color:var(--ink)}
+.tabs .tab:focus-visible{outline-offset:-2px}
 .tabs .tab.on{color:var(--ink);border-bottom-color:var(--ink)}
 
-.pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap}
-.pill.ok{background:var(--accent-soft);color:var(--accent-ink)}
+.pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;border-radius:999px;padding:.2rem .6rem;background:var(--bg-3);color:var(--muted);white-space:nowrap;max-width:100%}
+/* A pill never wraps; one wider than its box ends in an ellipsis, the whole of it in its title. */
+.pill-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* A good state is quiet: ink on the neutral fill, with a small check, so a trail that is mostly 'ok' does not
+   read as a page of orange warnings and the red of a refusal is the colour that stands out. Colour is kept for
+   waiting (amber) and refused (red). A count and a pill that carries its own icon draw no check. */
+.pill.ok{background:var(--bg-3);color:var(--ink-2)}
+.pill.ok:not(.count):not(:has(> .ic))::before{content:"";flex:0 0 auto;width:.5em;height:.26em;margin:-.18em .05em 0 .05em;border:solid currentColor;border-width:0 0 1.5px 1.5px;transform:rotate(-45deg);opacity:.75}
 .pill.warn{background:var(--amber-soft);color:var(--amber)}
 .pill.bad{background:var(--red-soft);color:var(--red)}
 .pill.mono{font-family:var(--mono);font-weight:500}
@@ -233,8 +309,9 @@ td button{margin:0}
 .av.sm{width:26px;height:26px;flex-basis:26px;font-size:.68rem}
 .av.lg{width:44px;height:44px;flex-basis:44px;font-size:1rem}
 .av.me{background:var(--ink);color:var(--bg)}
+.av.anon{background:var(--bg-3);color:var(--muted)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:0 0 8px}
-.dot.online{background:var(--accent-ui)}
+.dot.online{background:var(--online)}
 .dot.away{background:var(--amber)}
 .rowline{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .center{max-width:26rem;margin:10vh auto 0;padding:0 1.5rem}
@@ -268,6 +345,7 @@ td button{margin:0}
 .thread > .empty{margin:auto}
 .thread > .notice{margin:.6rem 1.2rem}
 .thread-h .who,.panel .who > div{min-width:0}
+.thread-h .who{flex:1 1 auto}
 .thread-h{display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem;border-bottom:1px solid var(--line);min-height:56px}
 .thread-h .name{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thread-h .meta{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--muted);min-width:0}
@@ -315,10 +393,9 @@ td button{margin:0}
 .perm .k{color:var(--ink);font-weight:500}
 .perm small{display:block;font-family:var(--mono);font-size:.72rem;color:var(--muted)}
 .audit-mini{display:flex;flex-direction:column;gap:.35rem}
-.audit-mini div{display:flex;justify-content:space-between;gap:.5rem;font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.audit-mini div{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted)}
 .audit-mini div b{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.audit-mini .ok,.audit-mini .deny{border-radius:999px;padding:.05rem .45rem;font-size:.68rem;font-weight:500}
-.audit-mini .ok{color:var(--accent-ink);background:var(--accent-soft)} .audit-mini .deny{color:var(--red);background:var(--red-soft)}
+.audit-mini time{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:.74rem}
 .panel .links{display:flex;flex-direction:column;gap:.4rem;font-size:.88rem}
 .panel .cardbox{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem}
 
@@ -346,10 +423,14 @@ td button{margin:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* panel back button is a mobile affordance; the fingerprint pill yields to the name on narrow screens */
 .panel .back{display:none}
+.panel > .back{align-self:flex-start}
 @media (max-width:900px){.panel .back{display:inline-flex}.inbox.panel-off .panel{display:none}.inbox[data-pane="panel"] .panel{display:flex}}
 @media (max-width:600px){.thread-h .end .pill{display:none}.thread-h .name{max-width:40vw}}
 main.wide{max-width:80rem;margin:0 auto;padding:1.6rem 2rem 3rem}
-main.wide:has(.inbox){max-width:none;padding:0}
+/* Only the Inbox is a column that fills the window, so its panes can scroll inside it. Every other
+   wide page (Audit, Usage) is a page in normal flow that scrolls as one: as a flex column with
+   min-height:0, each table's scroll box was squeezed to whatever height the chips above it left. */
+main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-direction:column;min-height:0}
 @media (max-width:900px){main.wide{padding:1.2rem 1.1rem 2.5rem}main.wide:has(.inbox){padding:0}}
 
 /* ---- composer extras, tool dock, collapsible panel ---- */
@@ -376,7 +457,6 @@ main.wide:has(.inbox){max-width:none;padding:0}
 .sform fieldset.sub{border:1px solid var(--line);border-radius:9px;padding:.4rem .8rem .6rem;margin:0 0 .6rem}
 .sform legend{font-size:.8rem;font-weight:600;color:var(--ink);padding:0 .3rem}
 .sform .req{color:var(--accent-ink)}
-@media (max-width:1180px){.inbox{grid-template-columns:300px minmax(0,1fr) 300px}}
 .ic{vertical-align:-3px;flex:0 0 auto}
 .media .ic{vertical-align:-2px}
 .bad .ic{color:var(--red)}
@@ -388,7 +468,20 @@ main.wide:has(.inbox){max-width:none;padding:0}
 .inbox.focus{grid-template-columns:minmax(0,1fr)}
 .inbox.focus .convs,.inbox.focus .panel{display:none}
 .inbox.focus .msg{max-width:70%}
-@media (max-width:900px){.thread-h .expand{display:none}.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}}
+/* Between a phone and 1360px the contact panel is a drawer over the conversation, not a third column: as
+   a column it left the conversation 252px at 1100 and 412px at 1280 (measured in PACT Cloud's Inbox, a
+   95px message box at 1100). Each Inbox opens without it below PANEL_BESIDE (messages.tsx), and the
+   drawer carries its own close button, since it covers the header's. */
+@media (min-width:901px) and (max-width:1359px){
+  .inbox{grid-template-columns:300px minmax(0,1fr);position:relative}
+  .inbox .panel{position:absolute;top:0;right:0;bottom:0;width:min(340px,calc(100% - 300px));z-index:5;box-shadow:var(--shadow)}
+  .panel .back{display:inline-flex}
+}
+/* A phone shows one pane at a time, the whole width. This comes after every rule that sets the inbox's
+   columns (the drawer's two, panel-off's two, focus's one), or one of them re-imposes columns: the phone
+   drew 300px 0px 300px, every pane 300px wide in a 390px screen. The panel pane shows whether or not the
+   panel is kept open at desktop widths: panel-off and focus hide it only beside a thread. */
+@media (max-width:900px){.thread-h .expand{display:none}.inbox,.inbox.panel-off,.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}.inbox[data-pane="panel"] .panel{display:flex}}
 /* the + menu: round tiles, like a phone's attach sheet, anchored above the composer */
 .composer{position:relative}
 .plus-wrap{position:relative;flex:0 0 auto}
@@ -399,6 +492,9 @@ main.wide:has(.inbox){max-width:none;padding:0}
 .tile{display:flex;flex-direction:column;align-items:center;gap:.45rem;font:inherit;font-size:.78rem;font-weight:500;color:var(--text);background:none;border:0;padding:0;margin:0;height:auto;white-space:normal;cursor:pointer;line-height:1.2;text-align:center}
 .tile .circ{width:58px;height:58px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line);display:grid;place-items:center;color:var(--accent-ink);transition:background .12s,transform .12s}
 .tile:hover{filter:none}
+/* A tile's label is two lines at most, then an ellipsis, the tool's own name in the title: a label
+   wider than its 88px column ran into the next tile's. */
+.tile .lbl{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;max-width:100%;overflow-wrap:break-word}
 .tile:hover .circ{background:var(--accent-soft);transform:translateY(-1px)}
 .tile:focus-visible{outline:none}
 .tile:focus-visible .circ{outline:2px solid var(--accent-ui);outline-offset:2px}
@@ -444,3 +540,225 @@ main.wide:has(.inbox){max-width:none;padding:0}
 .chip.bad{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,var(--line-2))}
 .chip.bad.on{background:var(--red);border-color:var(--red);color:var(--on-fill)}
 .chip.warn.on{background:var(--amber);border-color:var(--amber);color:var(--on-fill)}
+
+/* ---- the overview at a glance, the audit tables, and an id said by its name (glance.tsx). Tokens only:
+   the orange is never text or state here. Widths are the page's own (container queries), never the window's: the sidebar takes 248px of it. ---- */
+main.glance{max-width:80rem;container-type:inline-size}
+.gl-flow{display:flex;flex-direction:column}
+.gl-strip{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;align-items:baseline;padding:.65rem 1rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);margin:0 0 1rem;font-size:.88rem}
+.gl-strip > div{display:flex;gap:.5rem;align-items:baseline;min-width:0}
+.gl-strip .k{font-size:.7rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.gl-strip .v{color:var(--ink);font-weight:500;min-width:0;overflow-wrap:anywhere}
+.gl-strip .v .readout{font-size:.86rem;color:var(--ink)}
+.gl-strip .gl-warn .v{color:var(--amber)}
+.gl-strip .gl-bad .v{color:var(--red)}
+.gl-tiles{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));margin:0 0 1.2rem}
+.gl-tile{display:flex;flex-direction:column;gap:.15rem;padding:.9rem 1.05rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);box-shadow:var(--shadow-sm);color:var(--text);text-decoration:none!important;min-width:0}
+a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
+.gl-tile .k{font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.gl-tile .v{font-family:var(--display);font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;color:var(--ink);font-variant-numeric:tabular-nums}
+.gl-tile .v small{font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:0;color:var(--muted);margin-left:.35rem}
+.gl-tile .h{font-size:.84rem;color:var(--muted)}
+.gl-tile.gl-warn .v{color:var(--amber)}
+.gl-tile.gl-bad .v,.gl-tile.gl-bad .h{color:var(--red)}
+.gl-ids{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));margin:0 0 1rem}
+.gl-ids > .gl-id:only-child{flex-direction:row;flex-wrap:wrap;align-items:center;gap:.7rem 2rem}
+.gl-ids > .gl-id:only-child > *{flex:1 1 14rem;margin:0}
+.gl-ids > .gl-id:only-child > .top{flex:2 1 18rem}
+.gl-ids > .gl-id:only-child > .foot{flex:0 0 auto}
+.gl-id{display:flex;flex-direction:column;gap:.65rem;padding:1rem 1.1rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);box-shadow:var(--shadow-sm);min-width:0}
+.gl-id .top{display:flex;gap:.7rem;align-items:center;min-width:0}
+.gl-id .who{flex:1;min-width:0;line-height:1.3}
+.gl-id .who b{display:block;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gl-id .who small{display:flex;align-items:center;gap:.3rem;color:var(--muted);font-family:var(--mono);font-size:.74rem;white-space:nowrap;overflow:hidden;min-width:0}
+.gl-id .who small > .gl-slug{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.gl-id .who small > .nm-idt{flex:none}
+.gl-id .addr{font-size:.86rem;min-width:0;overflow:hidden}
+.gl-id .addr .readout{font-size:.84rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gl-cert{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;font-size:.86rem}
+.gl-cert.muted{color:var(--muted)}
+.gl-id .counts{display:flex;flex-wrap:wrap;gap:.4rem;border-top:1px solid var(--line);padding-top:.65rem}
+.gl-id .counts > *{flex:1 0 auto;display:flex;flex-direction:column;gap:.05rem;padding:.35rem .5rem;border-radius:8px;color:var(--text);text-decoration:none!important}
+.gl-id .counts > a:hover{background:var(--bg-2)}
+.gl-id .counts b{font-family:var(--display);font-size:1.3rem;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.15}
+.gl-id .counts b small{font-family:var(--sans);font-size:.8rem;font-weight:500;color:var(--muted)}
+.gl-id .counts span{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.gl-id .counts .gl-warn b{color:var(--amber)}
+.gl-id .counts .gl-bad b,.gl-id .counts .gl-bad span{color:var(--red)}
+.gl-id .foot{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:-.2rem}
+.gl-needs{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);padding:.8rem 1rem .9rem;margin:0 0 1.2rem}
+.gl-needs h2{font-size:.95rem;margin:0 0 .6rem}
+.gl-needs ul{list-style:none;margin:0;padding:0;display:grid;gap:.55rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,23rem),1fr))}
+.gl-needs li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.45rem .8rem;padding:.55rem .6rem .55rem .75rem;border-radius:var(--r);background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--line-2);font-size:.88rem}
+.gl-needs li.gl-warn{border-left-color:var(--amber)}
+.gl-needs li.gl-bad{border-left-color:var(--red)}
+.gl-needs li .t{min-width:0;color:var(--text);line-height:1.4;overflow-wrap:break-word}
+.gl-quiet{margin:-.5rem 0 1.2rem;color:var(--muted);font-size:.88rem}
+.gl-skel{background:var(--bg-3);border-radius:var(--r-lg);min-height:5.6rem}
+.gl-skel.strip{min-height:2.7rem;margin:0 0 1rem}
+.gl-skel.card{min-height:12.5rem}
+main.glance .page-h .sub code{display:inline-block;max-width:100%;vertical-align:bottom;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@container (max-width:40rem){.gl-tile .v{font-size:1.6rem}.gl-strip{gap:.35rem 1rem}.gl-flow > .gl-strip{order:9;margin-top:.2rem}main.glance .page-h .actions{flex:1 1 100%}main.glance .page-h .actions > *{flex:1 1 auto}.gl-needs li{grid-template-columns:minmax(0,1fr)}.gl-needs li > :not(.t){justify-self:start}}
+.nm{display:inline-flex;align-items:baseline;gap:.25rem;min-width:0;max-width:100%;vertical-align:baseline;white-space:normal}
+.nm-t{min-width:0;overflow-wrap:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.nm-name{color:var(--ink);font-weight:500}
+.nm-t.quiet,.nm-t.whole{-webkit-line-clamp:none;line-clamp:none;overflow:visible}
+.nm-t.quiet .nm-name{color:var(--muted);font-style:italic}
+.nm-long{overflow-wrap:anywhere}
+.nm-note{margin-left:.35rem;font-size:.74rem;color:var(--faint)}
+.nm-id,.nm-idt{font:400 .74rem/1.3 var(--mono);color:var(--faint);white-space:nowrap}
+.nm-t .nm-id{margin-left:.35rem}
+.nm-idt{display:inline-flex;align-items:baseline;gap:.25rem}
+.nm-url{overflow-wrap:break-word}
+.nm-url button.nm-copy{margin-left:.25rem;vertical-align:middle}
+button.nm-copy{flex:0 0 auto;height:auto;min-height:0;padding:.1rem;margin:0;border:0;border-radius:4px;background:none;color:var(--faint);cursor:copy;opacity:0;line-height:0;align-self:center}
+button.nm-copy:hover,button.nm-copy:focus-visible{filter:none;opacity:1;color:var(--ink);background:var(--bg-3)}
+button.nm-copy.done{opacity:1;color:var(--accent-ink)}
+:is(tr,.row,.nm-kv,.gl-id .who,.page-h .sub,.panel):hover button.nm-copy,:is(tr,.row,.gl-id .who,.page-h .sub,.panel):focus-within button.nm-copy{opacity:1}
+@media (hover:none){button.nm-copy{opacity:1}}
+.nm-parts,.nm-det{display:flex;flex-wrap:wrap;gap:.2rem .95rem;align-items:baseline;white-space:normal;min-width:0}
+.nm-kv{min-width:0;max-width:100%;line-height:1.4;color:var(--text);overflow-wrap:break-word}
+.nm-k{font-size:.72rem;color:var(--faint);margin-right:.35rem}
+.nm-kv .nm,.nm-kv .nm-t{display:inline}
+.nm-kv button.nm-copy{display:inline-block;vertical-align:-1px;margin-left:.2rem}
+.nm-det{max-height:calc(2.8em + .25rem);overflow:hidden}
+.nm-det.open{max-height:none}
+.nm-det-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;min-width:0}
+button.nm-more{height:auto;min-height:0;padding:0;border:0;background:none;color:var(--accent-ink);font-size:.78rem;cursor:pointer}
+.audit-t{container-type:inline-size;margin:1rem 0}
+.audit-t .table-wrap{margin:0}
+.audit-t td{font-variant-numeric:tabular-nums;vertical-align:top}
+.audit-t td.c-seq,.audit-t td.c-when{color:var(--muted)}
+.audit-t td.c-seq,.audit-t td.c-when,.audit-t td.c-out,.audit-t td.c-act,.audit-t td.c-kind{width:1%}
+.audit-t td.c-who{min-width:12rem;white-space:normal}
+.audit-t td.c-about,.audit-t td.c-det{white-space:normal;min-width:12rem;width:38%}
+.audit-t td.c-act code{white-space:nowrap}
+.audit-t .seq-btn{height:auto;min-height:0;padding:0;border:0;background:none;color:var(--muted);font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:.2rem}
+.audit-t .seq-btn:hover{color:var(--ink);filter:none}
+.audit-t .seq-btn .ic{transition:none}
+.audit-t .seq-btn[aria-expanded="true"] .ic{transform:rotate(90deg)}
+.audit-t tr.link-hash td{background:var(--bg-2);white-space:normal}
+.audit-t .hashes{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.25rem .8rem;font-size:.8rem}
+.audit-t .hashes .nm-k{align-self:baseline}
+.audit-t .hashes code{font:400 .76rem/1.4 var(--mono);background:none;padding:0;border-radius:0;color:var(--text);overflow-wrap:anywhere}
+/* Narrower than the whole table (the Audit page beside the sidebar at 1100): each entry is two lines,
+   the outcome still beside the time, what it was about under who did it. No sideways scroll. The outcome's
+   track is 10.5rem: at 9.5rem "idempotency mismatch" stood 8px into the next column. */
+@container (max-width:62rem){
+.audit-t table,.audit-t tbody{display:block}
+.audit-t thead{display:none}
+.audit-t tbody tr{display:grid;grid-template-columns:3.4rem 6.6rem 10.5rem minmax(0,1fr) auto;gap:.3rem .9rem;align-items:baseline;padding:.6rem .85rem;border-bottom:1px solid var(--line)}
+.audit-t tbody tr:last-child{border-bottom:0}
+.audit-t tbody td,.audit-t tbody td:is(.c-seq,.c-when,.c-out,.c-act,.c-kind,.c-about,.c-det){display:block;padding:0;border:0;min-width:0;width:auto;white-space:normal;background:none}
+.audit-t tbody tr:hover{background:var(--bg-2)}
+.audit-t tbody tr:hover td{background:none}
+.audit-t td.c-seq{grid-column:1;grid-row:1}
+.audit-t td.c-when{grid-column:2;grid-row:1}
+.audit-t td.c-out{grid-column:3;grid-row:1}
+.audit-t td.c-who{grid-column:4;grid-row:1}
+.audit-t td.c-act,.audit-t td.c-kind{grid-column:5;grid-row:1;justify-self:end}
+.audit-t td.c-about,.audit-t td.c-det{grid-column:4 / -1;grid-row:2}
+.audit-t td.c-about:has(> .muted:only-child){display:none}
+.audit-t tr:not(:has(.c-out)) td.c-who{grid-column:3 / 5}
+.audit-t tr:not(:has(.c-out)) td.c-det{grid-column:3 / -1}
+.audit-t tr.link-hash td,.audit-t td:only-child{grid-column:1 / -1;grid-row:auto}
+}
+/* A phone: each entry a card — when and how it ended, who and what, and what it was about. */
+@container (max-width:40rem){
+.audit-t table{border:0;background:none}
+.audit-t tbody tr{grid-template-columns:minmax(0,1fr) auto;gap:.3rem .6rem;padding:.7rem .8rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);margin:0 0 .5rem}
+.audit-t tbody tr:last-child{border-bottom:1px solid var(--line)}
+.audit-t tbody td.c-seq{display:none}
+.audit-t tbody td.c-seq:has(.seq-btn){display:block;grid-column:1 / -1;grid-row:4;font-size:.8rem}
+.audit-t td.c-when{grid-column:1;grid-row:1;font-size:.82rem}
+.audit-t td.c-out,.audit-t td.c-kind{grid-column:2;grid-row:1;justify-self:end}
+.audit-t td.c-who,.audit-t tr:not(:has(.c-out)) td.c-who{grid-column:1;grid-row:2}
+.audit-t td.c-act{grid-column:2;grid-row:2;justify-self:end}
+.audit-t td.c-about,.audit-t td.c-det,.audit-t tr:not(:has(.c-out)) td.c-det{grid-column:1 / -1;grid-row:3}
+.audit-t tr.link-hash{border-style:dashed}
+}
+/* ---- end of the overview at a glance ---- */
+
+/* ---- the design review's should items (2026-09-30) ---- */
+/* Text for a screen reader only: a thread's sender, said once per message without drawing it. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* A list of facts: a faint label, then its value. */
+dl.facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.45rem 1rem;margin:0;font-size:.9rem;align-items:baseline}
+dl.facts dt{color:var(--muted);font-size:.82rem}
+dl.facts dd{margin:0;min-width:0;color:var(--ink)}
+@media (max-width:600px){dl.facts{grid-template-columns:minmax(0,1fr);gap:.1rem}dl.facts dd{margin-bottom:.45rem}}
+/* The raw material behind the facts (a vCard, a row's connection), one click away. */
+details.raw,details.row-more{margin-top:.8rem}
+details.raw > summary,details.row-more > summary{cursor:pointer;color:var(--muted);font-size:.85rem;width:max-content}
+details.raw[open] > summary,details.row-more[open] > summary{margin-bottom:.5rem}
+details.row-more{margin-top:.2rem}
+/* A form whose one field and its button sit on one line. */
+form.add-row{display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap;margin:0 0 .8rem}
+form.add-row .field{flex:1 1 16rem;margin:0}
+form.add-row .toolbar{margin:0}
+/* A supervised command in a row: one line, cut at the row's edge. */
+.nm-url.cmd{min-width:0;max-width:100%}
+.nm-url.cmd code{font:inherit;font-family:var(--mono);font-size:.8rem;background:none;padding:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* A tool's name in a row breaks after its dots and underscores (Breakable), never off the row. */
+.row .title .tool-name{min-width:0;max-width:100%;overflow-wrap:anywhere;font-family:var(--mono);font-size:.88em}
+/* The pinned save bar: on a phone it would cover the list it saves (590px of 844), so it scrolls with the page. */
+@media (max-width:600px){.card.sticky{position:static;box-shadow:none}main:has(> .card.sticky){padding-bottom:3rem}}
+/* The + sheet's tiles line up by their tops however many lines a label takes. */
+.plusmenu{align-items:start}
+/* The tool dock: its title is the tool's words, the raw name small beside it, on one line with its buttons. */
+.tooldock-h{flex-wrap:nowrap;min-width:0}
+.tooldock-h strong{font-family:inherit;font-size:.92rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tooldock-h strong code{font:400 .74rem var(--mono);color:var(--muted);background:none;border:0;padding:0;margin-left:.3rem}
+.tooldock-h .toolbar{flex:0 0 auto;flex-wrap:nowrap;margin:0}
+.toolitem b{font-weight:600;font-size:.86rem;color:var(--ink)}
+/* A schema field's own name, beside the words it is labelled with. */
+.sform .sf-key{font:400 .72rem var(--mono);color:var(--faint);background:none;border:0;padding:0;margin-left:.4rem}
+/* The message box's placeholder stays on its one line ('Message Dr. Maximiliana Oyelaran-Westbrook…' wrapped and clipped). */
+.composer textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The composer's foot-note is for a screen with room: on a phone it took five lines under the box. */
+@media (max-width:600px){.thread .foot-note{display:none}}
+/* A thread's topic is one line in its header, the whole of it in the title. */
+.thread-h .meta .topic{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Filters: chips on a screen with room; on a phone, Refusals and two selects in their place. */
+.chip-pick{display:none;height:30px;width:auto;max-width:11rem;padding:0 .6rem;border-radius:999px;font-size:.85rem}
+@media (max-width:700px){
+.chips.has-picks .chip.picked{display:none}
+.chips.has-picks .chip-pick{display:inline-block;flex:1 1 0;width:0;min-width:5.5rem}
+.chips.phone-pick{display:none}
+}
+/* Presence: online is its own colour, not the brand orange beside away's amber (colour was the only signal,
+   and the two were nearly one). Not text, so held to 3:1 against the page in both themes; the dot's title
+   says it in words. */
+:root{--online:#1B873F}
+@media (prefers-color-scheme: dark){:root{--online:#46C46E}}
+/* A number in a table column: right-aligned, in tabular figures, its heading with it. */
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* Mono words in running text: a slug, a key, a day. */
+.mono{font-family:var(--mono);font-size:.86em}
+/* The audit trail's day headings: the cell says the clock, the heading the day. */
+.audit-t tr.day td{padding:.45rem .85rem;background:var(--bg-2);color:var(--faint);font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+/* The entry's number answers no question of its own; it is for checking the chain. Right-aligned and quiet
+   where there is room; under the table's width it goes (it is in the time's title, and a chain link keeps
+   its number, the button that opens its hashes). */
+.audit-t td.c-seq{text-align:right;color:var(--faint);font-size:.82rem}
+@container (max-width:62rem){
+.audit-t tbody tr{grid-template-columns:auto 6.6rem 10.5rem minmax(0,1fr) auto}
+.audit-t tbody td.c-seq:not(:has(.seq-btn)){display:none}
+.audit-t tbody tr:not(:has(.seq-btn)) td.c-when{margin-left:-.9rem}
+.audit-t tbody tr.day{display:block;padding:0;border-bottom:1px solid var(--line)}
+.audit-t tbody tr.day td{display:block;padding:.4rem .85rem;background:var(--bg-2)}
+}
+@container (max-width:40rem){
+.audit-t tbody tr{grid-template-columns:minmax(0,1fr) auto}
+.audit-t tbody tr:not(:has(.seq-btn)) td.c-when{margin-left:0}
+.audit-t tbody tr.day{border:0;margin:.4rem 0 .35rem;background:none}
+.audit-t tbody tr.day td{padding:0 .2rem;background:none}
+}
+/* The actions a row of chips has no room for, in one select at its end: 'More' with each one's count. */
+.chip-more{height:30px;width:auto;max-width:9.5rem;padding:0 .6rem;border:1px solid var(--line-2);border-radius:999px;background:var(--bg);color:var(--text);font-size:.85rem}
+.chip-more.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+/* An audit row's action, in words (the code in its title): one line, quieter than who did it. */
+.audit-t td.c-act .act{white-space:nowrap;font-size:.86rem;color:var(--text)}
+/* A readout of whole lines (commands, one a line): each line kept whole, scrolled sideways on a phone. */
+.readout.block.pre{min-width:0}
+.readout.block.pre code{white-space:pre;word-break:normal;overflow-x:auto;min-width:0;line-height:1.7}

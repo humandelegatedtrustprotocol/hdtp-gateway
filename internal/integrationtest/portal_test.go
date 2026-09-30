@@ -130,7 +130,7 @@ func portal(t *testing.T, n *node) (*httptest.Server, *http.Client) {
 		func(mux *http.ServeMux) {
 			internalui.MountInboxPages(mux, internalui.InboxDeps{Store: n.st, Msg: n.msg, Bus: n.bus})
 		},
-		func(mux *http.ServeMux) { internalui.MountAuditPages(mux, n.st) },
+		func(mux *http.ServeMux) { internalui.MountAuditPages(mux, internalui.AuditDeps{Store: n.st}) },
 	)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
