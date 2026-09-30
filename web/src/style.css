@@ -153,14 +153,15 @@ details.card > .card-body > :last-child{margin-bottom:0}
    screen, the top of the stack on a phone — with the secondaries before it; a destructive action in a
    row of its own or behind a confirm. One line on a wide screen: a row that does not fit has too many
    buttons, and wrapping it drew rows of different widths. At 480px and below, a full-width stack in a
-   fixed order. What an action has done is `.acts-status` beside the row — a check and a few words —
-   never the button's label. The cloud's wallet page states the same rule in its own sheet, and
+   fixed order. What an action has done is `.acts-status` beside the row — a check and a few words, in
+   the ok tone of `.pill.ok` (ink, not orange: the orange marks and never carries state) — never the
+   button's label. The cloud's wallet page states the same rule in its own sheet, and
    pact-cloud's gateway/e2e/layout/action-rows.mjs holds every row to it in a browser. */
 .acts{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;gap:.5rem}
 .acts > .btn,.acts > button{flex:0 0 auto}
-.acts-status{margin-right:auto;display:inline-flex;align-items:center;gap:.35rem;font-size:.86rem;color:var(--accent-ink);min-width:0}
+.acts-status{margin-right:auto;display:inline-flex;align-items:center;gap:.35rem;font-size:.86rem;color:var(--ink-2);min-width:0}
 .acts-status:empty{display:none}
-.acts-status::before{content:"\2713";color:var(--accent-ui);font-weight:700}
+.acts-status::before{content:"\2713";font-weight:700}
 .notice .act.acts{flex:0 0 auto}
 /* A card that holds several forms (Settings' storage and presets): a form's closing row is followed by
    the next form's heading, which it used to butt against. */
