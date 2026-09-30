@@ -210,34 +210,30 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *Recip
 	return ns, nil
 }
 
-// pinState is a contact row's status as the core's pin says it. A pin has three states (CONTRACT
-// `Pin`: active, pending_out, blocked), and pact-identity 0.4.2 refuses any other as this node's
-// unreadable state, where 0.4.1 read it as active. A request the owner has not answered
-// (`pending_in`) is handed over as `active`: the leaf it pins is the one the requester's signature
-// is verified under, and whether the owner has answered is this node's own tier, decided after
-// Decide (policy.TierFor: a pending_in caller stays a guest; tools.go: its next `request_contact`
-// is `pending_approval`; SPEC §5.4) — what 0.4.1 read, so nothing on the wire moves. PACT Cloud
-// hands the core no pin for such a row (its `pinsOf`), a divergence the owner has not decided.
-// Any other status goes as it is, for the core to refuse and the owner to be told.
-func pinState(status string) string {
-	if status == "pending_in" {
-		return "active"
-	}
-	return status
-}
+// pinStates are the states a pin has (CONTRACT `Pin`): the rows handed to Decide, as PACT Cloud's
+// `pinsOf` hands them (gateway/src/identity/wire.ts), so both hosts decide one envelope alike.
+// pact-identity 0.4.2 refuses any other state as unreadable host state, where 0.4.1 read it as
+// active. A request the owner has not answered (`pending_in`) is therefore NO pin: its requester is
+// the guest SPEC §5.4 says it is — its small form names a leaf nobody pinned and is refused
+// `chain_required`, its chain form is decided as a stranger's (a repeated `request_contact` is then
+// `pending_approval`, tools.go), the audit row is a guest's (actorOf), and the effects Decide
+// returns for an active pin — the newer leaf a chain carries, a new address under `auto` — reach
+// no row the owner has not approved. The owner decided it on 2026-09-30, taking the cloud's side;
+// TestAPendingRequestIsHandedToDecideWithNoPin holds it.
+var pinStates = map[string]bool{"active": true, "pending_out": true, "blocked": true}
 
-// pinsOf is Decide's pins, from contact rows: every row that holds a leaf, in the state pinState
-// gives it.
+// pinsOf is Decide's pins, from contact rows: every row that holds a leaf, in a state the core
+// reads (pinStates); the others are left out.
 func pinsOf(contacts []store.Contact) []pactidentity.Pin {
 	var pins []pactidentity.Pin
 	for _, c := range contacts {
-		if len(c.Leaf) > 0 {
+		if len(c.Leaf) > 0 && pinStates[c.Status] {
 			// The pin says which leaf it holds (PACT 2.1.3, CONTRACT §5), so a small-form envelope —
 			// from a sender who has proved nothing yet — is matched on a string and ONE pinned leaf is
 			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
 			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
 			// certificate: a row where the two disagree is unreadable state, and is said.
-			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: pinState(c.Status)}
+			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: c.Status}
 			if len(c.SPKI) > 0 {
 				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
 			}
