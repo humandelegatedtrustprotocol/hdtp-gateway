@@ -53,9 +53,12 @@ type Leaf struct {
 	CreatedAt int64
 	// RequestStateHash is the SHA-256 of the state a web wallet's answer to this pending request
 	// must carry, nil once consumed or for a leaf that is not pending (migration 0041).
+	// AnsweredStateHash is that hash once an answer carrying it was installed: consuming the
+	// request moves it here (migration 0051), so an answer that arrives again is known for one.
 	// WalletOrigin is the wallet the request went to; "" for one handed over by the CLI.
-	RequestStateHash []byte
-	WalletOrigin     string
+	RequestStateHash  []byte
+	AnsweredStateHash []byte
+	WalletOrigin      string
 	// Moved is whether installing this leaf moved the identity, as the install decided it
 	// (migration 0043): a move's campaign tells every active contact, any other leaf's campaign
 	// only the contacts an import left owed the handshake.
@@ -555,7 +558,8 @@ type AccountStore interface {
 	LockAccount(ctx context.Context, accountID string) error
 	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (PACT §9.1,
 	// migration 0041): the state's hash goes on with the request and comes off, in one statement
-	// that also checks it, when an answer carrying it is installed.
+	// that also checks it, when an answer carrying it is installed. That statement keeps it as the
+	// leaf's AnsweredStateHash (migration 0051).
 	SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error
 	ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error)
 

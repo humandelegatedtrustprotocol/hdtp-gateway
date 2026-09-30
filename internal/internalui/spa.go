@@ -7,6 +7,7 @@ package internalui
 import (
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/pact-cloud/pact-gateway/web"
@@ -77,3 +78,19 @@ func serveShell(w http.ResponseWriter, r *http.Request) {
 	r2.URL.Path = "/"
 	fileServer.ServeHTTP(w, r2)
 }
+
+// portalStylesheet is the path of the SPA's built stylesheet, as the embedded index.html links it: a
+// server-rendered page on the portal's origin that links it (the web wallet's return page) is laid
+// out by the portal's own rules, not by a copy of them. Vite names the file by its content, so the
+// path is read from the build, never written down.
+var portalStylesheet = func() string {
+	b, err := fs.ReadFile(web.Dist, "dist/index.html")
+	if err != nil {
+		panic("webui: embedded dist missing: " + err.Error()) // build-time invariant
+	}
+	m := regexp.MustCompile(`<link rel="stylesheet"[^>]*href="(/assets/[^"]+\.css)"`).FindSubmatch(b)
+	if m == nil {
+		panic("webui: the embedded index.html links no stylesheet under /assets/") // build-time invariant
+	}
+	return string(m[1])
+}()
