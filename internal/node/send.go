@@ -211,8 +211,9 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 // before `expires` is a reported failure, not a message handed to a third party.
 func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.Contact, in messaging.Input, threadID string, expiry time.Time) error {
 	// The endpoint is the pin's (PACT §14.1), never a card property, and whether the call is
-	// sealed is the card's to say (PeerOf). A contact with no card on file — one an import brought,
-	// PACT §9.2 — is written to like any other; this refused it as "that contact's card is
+	// sealed is the card's to say (PeerOf). A contact with no card on file — one an import brought
+	// (PACT §9.2), or a returned root the owner approved (contacts.DecideAddress) — is written to
+	// like any other; this refused it as "that contact's card is
 	// unreadable", parsing the card for an endpoint it then overwrote with the pin's.
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {

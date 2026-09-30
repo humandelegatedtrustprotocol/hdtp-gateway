@@ -108,10 +108,12 @@ func displayName(s string) string {
 //   - A card on file that does not read is an error. Its policy is not known, and neither guess is
 //     safe on the wire: a call sealed to a `none` recipient is one it said not to send, and a
 //     plaintext call to a `required` one is refused `seal_required`.
-//   - No card on file is a contact that arrived in an export, whose contacts.csv carries neither a
-//     card nor a policy (PACT §9.2). It is sealed to, as such a contact always was here: the SPEC
-//     does not say what a host assumes for it, and that is named as a gap in the node's
-//     docs/release/port-parity-2026-09-29.md.
+//   - No card on file is a contact written without one. Two paths write such a row: an import,
+//     whose contacts.csv carries neither a card nor a policy (PACT §9.2), and the owner approving a
+//     root that returned after a removal (DecideAddress), which re-adds it from the pending
+//     address — a leaf and an endpoint, no card. It is sealed to, as such a contact always was
+//     here: the SPEC does not say what a host assumes for it, and that is named as a gap in the
+//     node's docs/release/port-parity-2026-09-29.md.
 func SealOf(card string, now time.Time) (string, error) {
 	if card == "" {
 		return "required", nil
