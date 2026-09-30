@@ -24,6 +24,8 @@ package portable
 import (
 	"errors"
 	"fmt"
+
+	"github.com/pact-cloud/pact-gateway/internal/core/store"
 )
 
 // ErrRefused marks a file this host will not take, or an export it will not write, and says why.
@@ -49,6 +51,12 @@ const ImportCeiling = 16 << 30
 // before a byte of it is read. (The contacts and threads members are bounded by the format, at
 // 4 MiB and 16 MiB.)
 const ImportMessagesCeiling = 128 << 20
+
+// aRequest says a held row is a stranger's request to THIS host (pending_in): the person has not
+// accepted it, so it is not one of their contacts. It stays with the host it was made to (PACT
+// §9.2: "a request received and not yet decided stays with the host that received it"): an export
+// leaves it out, and an import merges nothing into it.
+func aRequest(c store.Contact) bool { return c.Status == "pending_in" }
 
 // Result says what an export wrote or an import took in.
 type Result struct {
