@@ -19,6 +19,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/identity"
 	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
@@ -291,7 +292,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if err != nil || !strings.HasSuffix(got["expires"], "Z") || !exp.After(time.Now()) || exp.After(time.Now().Add(600*time.Second)) {
 		t.Errorf("expires %q is not UTC, after now and at most 600 s ahead", got["expires"])
 	}
-	csrDER := pactidentity.FromB64url(got["csr"])
+	csrDER := testid.DER(t, got["csr"])
 	firstState := got["state"]
 	if p := pending(); len(p) != 1 || p[0].WalletOrigin != "https://ceremony.pact.contact" {
 		t.Fatalf("pending after start: %+v", p)
@@ -310,7 +311,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		got[f[0]] = f[1]
 	}
 	state := got["state"]
-	csrDER2 := pactidentity.FromB64url(got["csr"])
+	csrDER2 := testid.DER(t, got["csr"])
 	if state == firstState {
 		t.Fatal("the replacement carries the replaced request's state")
 	}
@@ -363,6 +364,12 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if res, body := install(signedIn, "not-a-chain", state); res.StatusCode != 400 || code(body) != "malformed" {
 		t.Fatalf("a malformed chain: %d %s", res.StatusCode, body)
 	}
+	// A character outside base64url is refused as the identity core refuses it (pact-identity
+	// 0.4.2's DecodeB64url), before the request is looked up. The reader this replaced skipped
+	// the character, so this call installed the chain and spent the request the pass below needs.
+	if res, body := install(signedIn, "!"+good, state); res.StatusCode != 400 || code(body) != "malformed" {
+		t.Fatalf("a chain with a character outside base64url: %d %s", res.StatusCode, body)
+	}
 	// The one that must pass.
 	res, body := install(signedIn, good, state)
 	if res.StatusCode != 200 {
@@ -373,7 +380,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatalf("install answered %s", body)
 	}
 	// The validity is the installed leaf's, as the chain gives it.
-	leafCert, err := pactidentity.Parse(pactidentity.FromB64url(strings.Split(good, ".")[0]))
+	leafCert, err := pactidentity.Parse(testid.DER(t, strings.Split(good, ".")[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +396,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	}
 	// The running node presents the leaf just installed: the install went through the service
 	// that reloads it, not only into the store.
-	leafDER := pactidentity.FromB64url(strings.Split(good, ".")[0])
+	leafDER := testid.DER(t, strings.Split(good, ".")[0])
 	c := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "alice.pact.example"}}}
 	hres, err := c.Get("https://" + r.public + "/a/alice/mcp")
 	if err != nil {
@@ -419,7 +426,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		}
 	}
 	want := "account_csr/ok,account_csr/refused,account_csr/ok,account_leaf_install_refused/refused,account_leaf_install_refused/refused," +
-		"account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install/ok,account_leaf_install_refused/refused," +
+		"account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install_refused/refused,account_leaf_install/ok,account_leaf_install_refused/refused," +
 		"account_leaf_install_refused/refused"
 	if strings.Join(seen, ",") != want {
 		t.Fatalf("audit rows\n got %s\nwant %s", strings.Join(seen, ","), want)

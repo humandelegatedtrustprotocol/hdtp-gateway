@@ -133,9 +133,15 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 			var chain [][]byte
 			if cs, ok := data["chain"].([]any); ok {
 				for _, s := range cs {
-					if str, ok := s.(string); ok {
-						chain = append(chain, pactidentity.FromB64url(str))
+					str, ok := s.(string)
+					if !ok {
+						continue
 					}
+					der, err := pactidentity.DecodeB64url(str)
+					if err != nil {
+						return nil, refusal, errors.New("outbound: certificate_renewed not followed: the chain is not base64url")
+					}
+					chain = append(chain, der)
 				}
 			}
 			ok, why, leaf := pactidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
@@ -304,7 +310,12 @@ func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error
 	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil || len(out.Chain) != 2 {
 		return nil, errors.New("get_card carried no chain")
 	}
-	chain := [][]byte{pactidentity.FromB64url(out.Chain[0]), pactidentity.FromB64url(out.Chain[1])}
+	leafDER, errLeaf := pactidentity.DecodeB64url(out.Chain[0])
+	rootDER, errRoot := pactidentity.DecodeB64url(out.Chain[1])
+	if errLeaf != nil || errRoot != nil {
+		return nil, errors.New("get_card's chain is not base64url")
+	}
+	chain := [][]byte{leafDER, rootDER}
 	ok2, why, leaf := pactidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
 	if !ok2 {
 		return nil, fmt.Errorf("get_card's chain: %s", why)
