@@ -55,3 +55,31 @@ test("a card's handle: a long slug gives way to the fingerprint and its copy but
   // The shape it exists to catch: the slug as bare text beside the id.
   assert.doesNotMatch("handle={a.fingerprint ? <>{a.slug} · <IdText id={a.fingerprint} /></> : a.slug}", /className="gl-slug"/);
 });
+
+test("the whole card opens the identity's card page, and its Certificate button is a plain button beside it", () => {
+  // The owner (2026-09-30): "on card clicked should take to the vcard page than just key clicked. just
+  // remove key icon with certificate button." The card's own link selects its identity like every other.
+  const card = cardOf(src);
+  assert.match(card, /^\s*to="\/card" onClick=\{pickThis\}$/m);
+  const footer = card.split("\n").find((l) => /^\s*footer=/.test(l));
+  assert.ok(footer, "the card has no footer; this test reads nothing");
+  assert.match(footer, /<Button variant="secondary" to="\/identity" onClick=\{pickThis\}>Certificate<\/Button>/);
+  assert.doesNotMatch(footer, /\bicon=/);
+  // The shape it exists to catch: the key icon back on a quiet button.
+  assert.match('footer={<Button variant="quiet" to="/identity" onClick={pickThis} icon="key">Certificate</Button>}', /\bicon=/);
+});
+
+test("the card's link is stretched over the card, and every other control in it sits above that", () => {
+  // Read from the sheet: a browser lays this out in the cloud's portal-layout suite, which clicks the card
+  // and its button at their coordinates. Here, the three rules that make it one link and not a trap.
+  const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
+  const glance = readFileSync(new URL("../src/glance.tsx", import.meta.url), "utf8");
+  assert.match(css, /\n\.gl-id\{position:relative;/);
+  assert.match(css, /\.gl-id \.gl-open::after\{content:"";position:absolute;inset:0;/);
+  assert.match(css, /\.gl-go :is\(a,button\):not\(\.gl-open\)\{position:relative;z-index:1\}/);
+  assert.match(css, /\.gl-go:has\(\.gl-open:focus-visible\)\{outline:/);
+  // The link is the name, never a wrapper around the card's controls.
+  assert.match(glance, /<Link to=\{to\} onClick=\{onClick\} className="gl-open">\{name\}<\/Link>/);
+  // Nothing in the card lays out its details as a row across it any more.
+  assert.doesNotMatch(css, /\.gl-id:only-child/);
+});
