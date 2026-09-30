@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { PresetGrid, type GridRow } from "../preset_grid";
-import { presetColumns, samePerms, withPerm } from "../presets";
+import { PresetGrid, usePresetDrafts, type GridRow } from "../preset_grid";
+import { presetColumns } from "../presets";
 import { csrf, currentAccount, failureOf, getJSON } from "../api";
 import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
@@ -89,7 +89,7 @@ export function Settings() {
         </Section>
       )}
 
-      {d.show_presets && <Presets d={d} onSaved={(j) => (j ? setD(j) : load())} />}
+      {d.show_presets && <Presets d={d} onSaved={setD} />}
     </main>
   );
 }
@@ -150,69 +150,74 @@ type PresetRow = { name: string; perms: string[] };
 
 // The presets as one grid (preset_grid.tsx, shared with PACT Cloud): a row per preset, a column per
 // permission. The node saves a preset whole (`POST /settings/presets`, its name and every `perm`), so
-// a row's switches are a draft until its Save; the last row names and adds a new one.
-function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data | null) => void }) {
+// a row's ticks are a draft (usePresetDrafts) until its Save; the last row names and adds a new one.
+// A save that fails says so inside this section and keeps the row's ticks.
+const NEW = "New preset";
+
+function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   const presets = d.presets ?? [];
   const columns = presetColumns(d.preset_perms ?? [], presets);
-  const [drafts, setDrafts] = useState<Record<string, string[]>>({});
+  const drafts = usePresetDrafts(presets);
   const [newName, setNewName] = useState("");
-  const [newPerms, setNewPerms] = useState<string[]>([]);
   const [busy, setBusy] = useState("");
-  const post = async (path: string, body: URLSearchParams) => {
-    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
+  const [failed, setFailed] = useState("");
+  // The node answers a settings post with the page's data, `error` set when it refused.
+  const post = async (path: string, body: URLSearchParams): Promise<{ page: Data | null; say: string }> => {
     try {
-      const j = (await r.json()) as Data;
-      if (j && j.reach !== undefined) return j;
-    } catch { /* not the page's answer: read it again */ }
-    return null;
+      const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
+      let page: Data | null = null;
+      try {
+        const j = (await r.json()) as Data;
+        if (j && j.reach !== undefined) page = j;
+      } catch { /* not the page's answer */ }
+      if (r.ok && page && !page.error) return { page, say: "" };
+      return { page: null, say: page?.error ? page.notice : r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
+    } catch {
+      return { page: null, say: "the node could not be reached" };
+    }
   };
-  const save = async (name: string, perms: readonly string[], isNew: boolean) => {
-    setBusy(isNew ? "" : name);
+  const save = async (row: string, name: string) => {
+    setBusy(row);
+    setFailed("");
     const body = new URLSearchParams({ csrf: csrf(), name });
-    for (const p of perms) body.append("perm", p);
-    const j = await post("/settings/presets", body);
+    for (const p of drafts.perms(row)) body.append("perm", p);
+    const a = await post("/settings/presets", body);
     setBusy("");
-    if (isNew) { if (j && !j.error) { setNewName(""); setNewPerms([]); } }
-    else setDrafts(({ [name]: _, ...rest }) => rest);
-    onSaved(j);
+    if (!a.page) { setFailed(`Could not save the ${name} preset: ${a.say}.`); return; }
+    drafts.settle(row);
+    if (row === NEW) setNewName("");
+    onSaved(a.page);
   };
   const del = async (name: string) => {
-    const j = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
-    setDrafts(({ [name]: _, ...rest }) => rest);
-    onSaved(j);
+    setFailed("");
+    const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
+    if (!a.page) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
+    drafts.settle(name);
+    onSaved(a.page);
   };
-  const NEW = "New preset";
-  const rows: GridRow[] = presets.map((p) => {
-    const perms = drafts[p.name] ?? p.perms;
-    const changed = !samePerms(perms, p.perms);
-    return {
-      name: p.name, perms,
-      actions: (
-        <Actions>
-          <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={() => del(p.name)}>Delete</Button>
-          <Button onClick={() => save(p.name, perms, false)} busy={busy === p.name} disabled={!changed}>Save</Button>
-        </Actions>
-      ),
-    };
-  });
+  const rows: GridRow[] = presets.map((p) => ({
+    name: p.name, perms: drafts.perms(p.name),
+    actions: (
+      <Actions inline>
+        <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={() => del(p.name)}>Delete</Button>
+        <Button onClick={() => save(p.name, p.name)} busy={busy === p.name} disabled={!drafts.changed(p.name)}>Save</Button>
+      </Actions>
+    ),
+  }));
   rows.push({
-    name: NEW, perms: newPerms,
+    name: NEW, perms: drafts.perms(NEW),
     title: <input className="pg-new" aria-label="New preset's name" placeholder="new preset" title="a-z, 0-9, dash, underscore"
       value={newName} onChange={(e) => setNewName(e.target.value)} />,
-    actions: <Actions><Button onClick={() => save(newName.trim(), newPerms, true)} disabled={!newName.trim()}>Add preset</Button></Actions>,
+    actions: <Actions inline><Button onClick={() => save(NEW, newName.trim())} busy={busy === NEW} disabled={!newName.trim()}>Add preset</Button></Actions>,
   });
-  const toggle = (name: string, perm: string, on: boolean) => {
-    if (name === NEW) { setNewPerms((x) => withPerm(x, perm, on)); return; }
-    const saved = presets.find((p) => p.name === name)?.perms ?? [];
-    setDrafts((all) => ({ ...all, [name]: withPerm(all[name] ?? saved, perm, on) }));
-  };
   return (
     <Section title="Contact presets"
       description={<>The bundles offered when you approve someone.<HelpTip label="About contact presets">
         Tick what each preset grants, then Save its row. Editing applies from the next approval or apply;
         grants already made keep their switches. Deleting the last preset restores the documented four.
       </HelpTip></>}>
-      <PresetGrid aria-label="Contact presets" rows={rows} columns={columns} label={permLabel} onToggle={toggle} />
+      {failed && <Notice kind="err">{failed}</Notice>}
+      <PresetGrid aria-label="Contact presets" rows={rows} columns={columns} label={permLabel} onToggle={drafts.toggle} />
     </Section>
   );
 }
