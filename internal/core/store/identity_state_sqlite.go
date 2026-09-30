@@ -84,7 +84,7 @@ func (s *SQLite) ListLeaves(ctx context.Context, accountID string) ([]Leaf, erro
 	for _, r := range rows {
 		out = append(out, Leaf{AccountID: r.AccountID, Kid: r.Kid, Leaf: r.Leaf, KeySealed: r.KeySealed,
 			NotBefore: r.NotBefore, NotAfter: r.NotAfter, State: r.State, Endpoint: r.Endpoint, CreatedAt: r.CreatedAt,
-			RequestStateHash: r.RequestStateHash, WalletOrigin: r.WalletOrigin, Moved: r.Moved != 0})
+			RequestStateHash: r.RequestStateHash, AnsweredStateHash: r.AnsweredStateHash, WalletOrigin: r.WalletOrigin, Moved: r.Moved != 0})
 	}
 	return out, nil
 }
@@ -272,7 +272,8 @@ func (s *SQLite) SetLeafRequest(ctx context.Context, accountID, kid string, stat
 }
 
 // ConsumeLeafRequest takes the state off the pending request for `kid` if, and only if, it is the
-// one given; false when it is not there (never minted, another state, or already used).
+// one given, and keeps it as the leaf's answered state; false when it is not there (never minted,
+// another state, or already used).
 func (s *SQLite) ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error) {
 	n, err := s.q.ConsumeLeafRequest(ctx, sqlitedb.ConsumeLeafRequestParams{AccountID: accountID, Kid: kid, RequestStateHash: stateHash})
 	if err != nil {

@@ -40,7 +40,7 @@ func (q *Queries) ClearChainSentKids(ctx context.Context, accountID string) (int
 }
 
 const consumeLeafRequest = `-- name: ConsumeLeafRequest :execrows
-UPDATE leaves SET request_state_hash = NULL
+UPDATE leaves SET answered_state_hash = request_state_hash, request_state_hash = NULL
 WHERE account_id = ? AND kid = ? AND state = 'pending' AND request_state_hash = ?
 `
 
@@ -51,7 +51,8 @@ type ConsumeLeafRequestParams struct {
 }
 
 // An answer is accepted once: the check and the consumption are one statement, so two answers
-// carrying the same state cannot both see it.
+// carrying the same state cannot both see it. The consumed hash moves to answered_state_hash
+// (migration 0051; SET reads the row as it was), so an answer that arrives again can be told apart.
 func (q *Queries) ConsumeLeafRequest(ctx context.Context, arg ConsumeLeafRequestParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, consumeLeafRequest, arg.AccountID, arg.Kid, arg.RequestStateHash)
 	if err != nil {
@@ -302,7 +303,7 @@ func (q *Queries) ListKidsExcept(ctx context.Context, accountID string) ([]ListK
 }
 
 const listLeaves = `-- name: ListLeaves :many
-SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at, request_state_hash, wallet_origin, moved FROM leaves WHERE account_id = ? ORDER BY created_at, kid
+SELECT account_id, kid, leaf, key_sealed, not_before, not_after, state, endpoint, created_at, request_state_hash, wallet_origin, moved, answered_state_hash FROM leaves WHERE account_id = ? ORDER BY created_at, kid
 `
 
 func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, error) {
@@ -327,6 +328,7 @@ func (q *Queries) ListLeaves(ctx context.Context, accountID string) ([]Leaf, err
 			&i.RequestStateHash,
 			&i.WalletOrigin,
 			&i.Moved,
+			&i.AnsweredStateHash,
 		); err != nil {
 			return nil, err
 		}

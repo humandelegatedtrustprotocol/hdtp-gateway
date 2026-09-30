@@ -24,8 +24,27 @@ var ErrEndpointRefused = errors.New("the endpoint is not an address a wallet cer
 
 // ErrRequestState marks an answer that does not carry the pending request's state, or carries one
 // already used (PACT §9.1). It is a refusal too, and says the request is not in the state the answer
-// assumes.
+// assumes. Two of its cases come with a sentinel of their own (ErrRequestAnswered, ErrNoRequest);
+// without either, a request IS pending and the answer is not for it (a request that was replaced,
+// or one this identity never had).
 var ErrRequestState = errors.New("the answer's state is not a pending request's")
+
+// ErrRequestAnswered marks an answer whose state was installed already: the leaf it installed keeps
+// the state's hash (store.Leaf.AnsweredStateHash). It comes with ErrRequestState.
+var ErrRequestAnswered = errors.New("the answer was installed already")
+
+// ErrNoRequest marks an answer that arrived when no request was pending and that was never
+// installed here. It comes with ErrRequestState.
+var ErrNoRequest = errors.New("no certificate request is pending")
+
+// The chain refusals a person can act on, each with ErrLeafRefused: a leaf under a root other than
+// the identity's (another wallet), over a key other than the request's, or not newer than the
+// current leaf (PACT §14.3). Any other refusal of the chain is ErrLeafRefused alone.
+var (
+	ErrWrongRoot = errors.New("the chain's root is not this identity's")
+	ErrWrongKey  = errors.New("the leaf carries another key than the request's")
+	ErrNotNewer  = errors.New("the leaf is not newer than the current one")
+)
 
 // newRequestState is 32 random bytes, base64url without padding: the 43 characters a signing
 // request's `state` must be.
