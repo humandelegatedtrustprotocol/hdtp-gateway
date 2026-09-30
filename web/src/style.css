@@ -824,7 +824,7 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
 .preset-grid table{min-width:100%}
 .preset-grid thead th.pg-col{text-align:center;padding:.5rem .45rem;min-width:4.5rem;line-height:1.35}
 .preset-grid .pg-h{cursor:help}
-.preset-grid tbody th.pg-name{text-align:left;font-weight:600;color:var(--ink);padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:normal;overflow-wrap:anywhere;min-width:7rem}
+.preset-grid tbody th.pg-name{text-align:left;font-weight:600;color:var(--ink);padding:.6rem .85rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:normal;overflow-wrap:anywhere;min-width:10rem}
 .preset-grid tr:last-child th.pg-name{border-bottom:0}
 .preset-grid tbody tr:hover th.pg-name{background:var(--bg-2)}
 .preset-grid .pg-note{display:block;font-size:.8rem;font-weight:400;color:var(--muted)}
