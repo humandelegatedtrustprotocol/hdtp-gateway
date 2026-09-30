@@ -66,21 +66,24 @@ func TestAddressClaimFollowsTheCoresRule(t *testing.T) {
 	const moved = "https://old.example/mcp"
 	within := e.clock.Add(-pactidentity.ClaimWindow + time.Hour).Unix()
 	past := e.clock.Add(-pactidentity.ClaimWindow - time.Hour).Unix()
-	if err := e.st.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: e.account, Root: "sha256:recent", Endpoint: moved, At: within}); err != nil {
+	// Real roots, as every writer of a former endpoint has one: the same rows are what the core's
+	// Decide reads for a sealed guest, and it holds a root to being a fingerprint.
+	recent, longAgo, stranger := testid.NewWallet(t, "Recent").Fpr, testid.NewWallet(t, "Long Ago").Fpr, testid.NewWallet(t, "Stranger").Fpr
+	if err := e.st.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: e.account, Root: recent, Endpoint: moved, At: within}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.st.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: e.account, Root: "sha256:long-ago", Endpoint: "https://ancient.example/mcp", At: past}); err != nil {
+	if err := e.st.InsertFormerEndpoint(ctx, store.FormerEndpoint{AccountID: e.account, Root: longAgo, Endpoint: "https://ancient.example/mcp", At: past}); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
 		name, endpoint, root, want string
 	}{
-		{"another root pinned there", bharat.Host.Endpoint, "sha256:stranger", bharat.Fingerprint},
+		{"another root pinned there", bharat.Host.Endpoint, stranger, bharat.Fingerprint},
 		{"the pinned root itself", bharat.Host.Endpoint, bharat.Fingerprint, ""},
-		{"a former address inside the window", moved, "sha256:stranger", "sha256:recent"},
-		{"the root that moved away, at its former address", moved, "sha256:recent", ""},
-		{"a former address past the window", "https://ancient.example/mcp", "sha256:stranger", ""},
-		{"an address nobody held", "https://fresh.example/mcp", "sha256:stranger", ""},
+		{"a former address inside the window", moved, stranger, recent},
+		{"the root that moved away, at its former address", moved, recent, ""},
+		{"a former address past the window", "https://ancient.example/mcp", stranger, ""},
+		{"an address nobody held", "https://fresh.example/mcp", stranger, ""},
 	} {
 		got, err := e.m.AddressClaim(ctx, e.account, c.endpoint, c.root)
 		if err != nil || got != c.want {
