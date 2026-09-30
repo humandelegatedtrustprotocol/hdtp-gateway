@@ -148,11 +148,20 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		// identifier refuses every envelope as "does not speak 2.0" — which is the
 		// right answer for an identity with no leaf, and the wrong one here.
 		RecipientState: func(context.Context) (*public.RecipientState, error) {
+			// The key in every form a LeafKey holds, as the host's own read opens it.
+			der, err := identity.MarshalPKCS8(kp)
+			if err != nil {
+				return nil, err
+			}
+			lib, err := pactidentity.ParsePKCS8(der)
+			if err != nil {
+				return nil, err
+			}
 			return &public.RecipientState{
 				HasRoot: true, Endpoint: n.endpoint, AcceptNewHosts: "auto",
 				Chain: [][]byte{n.leafDER, n.rootCert},
 				Keys: []identity.LeafKey{{
-					Kid: kp.Fingerprint, Leaf: n.leafDER, KP: kp, Current: true,
+					Kid: kp.Fingerprint, Leaf: n.leafDER, KP: kp, PKCS8: der, Lib: lib, Current: true,
 					NotAfter: time.Now().AddDate(1, 0, 0), Endpoint: n.endpoint,
 				}},
 			}, nil
@@ -162,8 +171,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	n.pool.Gate = ident.PoolGate()
 	reg.Add(public.SealedEntries(public.SealedDeps{
 		Pool: n.pool, Identifier: ident, AccountID: a.ID,
-		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
-		Idem:    st,
+		Idem: st,
 	})...)
 
 	// the public surface: MCP over TLS, per-caller server chosen by client cert

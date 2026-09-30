@@ -887,6 +887,10 @@ func TestASealedContactIsNotBudgetedAsAGuest(t *testing.T) {
 	}
 	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:asked"}), acct.ID, public.ChargeCaller)
 	want("a pending_out root", c, k, ip, limits.GuestIn("sha256:asked", ip, true))
+	// The same root at the guest charge — its sealed call answered pending_approval before its answer
+	// (public.signerOf names the root): still a proven pending contact, known, no total.
+	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:asked"}), acct.ID, public.ChargeGuest)
+	want("a pending_out root at the guest charge", c, k, ip, limits.GuestIn("sha256:asked", ip, true))
 	c, k = charged(public.WithEnvelopeFacts(edge, &public.EnvelopeFacts{From: "sha256:knocked"}), acct.ID, public.ChargeCaller)
 	want("a pending_in root", c, k, "", limits.GuestIn("sha256:knocked", ip, true), limits.GuestTotal())
 	// A plaintext call opens nothing: never the total, never known, even from an active contact's

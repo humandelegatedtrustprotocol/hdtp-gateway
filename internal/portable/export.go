@@ -35,10 +35,8 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	}
 	carried, requested := map[string]bool{}, map[string]bool{}
 	for _, c := range held {
-		if c.Status == "pending_in" {
+		if aRequest(c) {
 			requested[c.Fingerprint] = true
-			// A stranger's request to THIS host: the person has not accepted it, so it is not one
-			// of their contacts, and it stays with the host it was made to.
 			res.LeftOut = append(res.LeftOut, "a request from "+c.Fingerprint+" that was never accepted")
 			continue
 		}
