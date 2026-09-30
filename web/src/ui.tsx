@@ -102,6 +102,9 @@ export function Icon({ name, size }: { name: keyof typeof PATHS; size?: number }
  * primitive, not the view — the rule the lint on inline styles enforces.
  * ---------------------------------------------------------------------- */
 import { Children, cloneElement, Fragment, isValidElement, useEffect, useId, useRef, useState, type MouseEvent, type ReactElement } from "react";
+import { HelpTip } from "./help";
+// The `?` and its popover, for a line of text or a heading: help.tsx, shared by both portals.
+export { HelpTip };
 import { Link } from "./router";
 import { statusWord, toneOf, type Tone } from "./words";
 
@@ -205,23 +208,25 @@ export function Button({ variant = "primary", to, href, download, icon, busy, do
 }
 
 // Field: label above the control, help below it. `check` puts a checkbox
-// or switch inline with its text.
-export function Field({ label, help, mono, check, id, children }: { label: ReactNode; help?: ReactNode; mono?: boolean; check?: boolean; id?: string; children: ReactElement }) {
+// or switch inline with its text. `tip` is the longer explanation, behind a `?` beside the label
+// (help.tsx) — never inside the <label>, where a click on it would toggle the control.
+export function Field({ label, help, tip, mono, check, id, children }: { label: ReactNode; help?: ReactNode; tip?: ReactNode; mono?: boolean; check?: boolean; id?: string; children: ReactElement }) {
   const helpCls = "help" + (mono ? " mono" : "");
   const auto = useId();
   const fid = id ?? auto;
   const control = isValidElement(children) ? cloneElement(children as ReactElement<{ id?: string }>, { id: fid }) : children;
+  const tipped = (l: ReactElement) => tip ? <div className="field-l">{l}<HelpTip label={typeof label === "string" ? `About ${label}` : undefined}>{tip}</HelpTip></div> : l;
   if (check) {
     return (
       <div className="field check">
-        <label className="inline" htmlFor={fid}>{control}<span>{label}</span></label>
+        {tipped(<label className="inline" htmlFor={fid}>{control}<span>{label}</span></label>)}
         {help && <p className={helpCls}>{help}</p>}
       </div>
     );
   }
   return (
     <div className="field">
-      <label htmlFor={fid}>{label}</label>
+      {tipped(<label htmlFor={fid}>{label}</label>)}
       {control}
       {help && <p className={helpCls}>{help}</p>}
     </div>

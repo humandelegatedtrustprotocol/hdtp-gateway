@@ -3,7 +3,7 @@
 // so that response is the page state rather than a re-fetch.
 import { useCallback, useEffect, useState } from "react";
 import { failureOf, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, type Note } from "../ui";
+import { Badge, Button, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, type Note } from "../ui";
 import { dateOf, whenTitle } from "../words";
 
 type Passkey = { id: string; tag: string; created_at: number };
@@ -65,11 +65,12 @@ export function Owners() {
       )}
       <Section title="Passkeys"
         description={<>
-          Each is a way into this portal, and a passkey is now the <em>only</em> way in — every bind
-          requires a session, loopback included. Register a second on another device: there is deliberately
-          no online recovery path, and the last one cannot be removed here. If you lose them all, recovery
-          needs shell access on the host — <code>pact-gateway passkey reset-wizard</code> mints a one-time
-          link that re-opens registration.
+          The only way in. Register a second on another device.
+          <HelpTip label="About passkeys and recovery">
+            Every bind requires a session, loopback included. There is deliberately no online recovery path,
+            and the last passkey cannot be removed here. If you lose them all, recovery needs shell access on
+            the host — <code>pact-gateway passkey reset-wizard</code> mints a one-time link that re-opens registration.
+          </HelpTip>
         </>}>
         {passkeys.length === 0 ? <EmptyState title="No passkeys" /> : (
           <List aria-label="Passkeys">
@@ -84,7 +85,7 @@ export function Owners() {
           </List>
         )}
       </Section>
-      <Section title="Agent tokens" description="Named, revocable bearer tokens for the owner MCP — how your own agent runs this node.">
+      <Section title="Agent tokens" description="Revocable bearer tokens your own agent uses for the owner MCP.">
         <form className="add-row" onSubmit={(e) => { e.preventDefault(); if (label.trim()) create(); }}>
           <Field label="Label"><input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="my laptop agent" /></Field>
           <Toolbar><Button type="submit" disabled={!label.trim()}>Create</Button></Toolbar>
