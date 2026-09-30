@@ -6,7 +6,7 @@
 // filterable, and a row that is filtered out must still be saved as chosen.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { csrf, currentAccount, getJSON } from "../api";
-import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Section, Tabs, Toolbar, type Note } from "../ui";
+import { Badge, Button, EmptyState, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Tabs, Toolbar, type Note } from "../ui";
 import { Breakable } from "../glance";
 
 type Tool = { name: string; description: string; risk: { write?: boolean; reasons?: string[] }; suggestion: string; exposed: boolean };
@@ -104,7 +104,10 @@ export function Exposure({ id }: { id: string }) {
       {/* The catalogue's version is the node's bookkeeping (which listing the exposures were confirmed
           against), not something an owner decides by: it is in the heading's tooltip, not a pill. */}
       <PageHeader parent={PARENT} title={<span title={`Tool listing v${d.catalog.Version}`}>Exposure <span className="muted">·</span> {d.integration.Slug}</span>}
-        sub={<>Nothing is exposed by default. Expose only what the use-case needs, and prefer the <strong>narrowest credential that works</strong>. Read-only tools are the safe default; write-capable ones let contacts change things upstream.</>} />
+        sub={<>Nothing is exposed by default; expose only what you need.<HelpTip label="About exposing tools">
+          Prefer the narrowest credential that works. Read-only tools are the safe default; write-capable
+          ones let contacts change things upstream.
+        </HelpTip></>} />
 
       {d.has_stale && (
         <Notice kind="warn" action={<Button variant="secondary" busy={reconfirming} onClick={reconfirm}>Reconfirm all stale</Button>}>
