@@ -72,7 +72,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		return res, nil
 	}
 
-	exp := time.Now().Add(DefaultExpiry)
+	exp := time.Now().Add(store.DefaultMessageExpiry)
 	if in.ExpiresAt > 0 {
 		exp = time.Unix(in.ExpiresAt, 0)
 	}
@@ -281,9 +281,6 @@ func refusal(res *mcp.CallToolResult) error {
 // recorded and the retry loop owns it.
 const deliveryBudget = 30 * time.Second
 
-// DefaultExpiry is PACT §7's outbound deadline: retries stop after 24 hours.
-const DefaultExpiry = 24 * time.Hour
-
 // RetrySweep is the interval between passes over undelivered outbound messages.
 // The pass itself is cheap — a bounded query that usually returns nothing — and
 // backoffDue, not this, decides how often any given message is actually retried.
@@ -291,14 +288,6 @@ const RetrySweep = 15 * time.Second
 
 // MaxRetryBatch bounds one pass, so a large backlog cannot monopolise a tick.
 const MaxRetryBatch = 128
-
-// expiryOf reads a message's deadline, applying the default when unset.
-func expiryOf(m store.Message) int64 {
-	if m.ExpiresAt > 0 {
-		return m.ExpiresAt
-	}
-	return m.CreatedAt + int64(DefaultExpiry/time.Second)
-}
 
 // MaxRetryDelay caps the gap between attempts, so a long-lived message still
 // gets a regular chance before its deadline.
@@ -346,7 +335,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 		return 0, 0
 	}
 	for _, m := range pending {
-		expiredNow := now >= expiryOf(m)
+		expiredNow := now >= m.Deadline()
 		if expiredNow {
 			// Nothing carried it. Say so on the row: an owner is owed the truth
 			// that this one never arrived.
@@ -383,7 +372,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			continue
 		}
 		if err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,
-			time.Unix(expiryOf(m), 0)); err != nil {
+			time.Unix(m.Deadline(), 0)); err != nil {
 			continue // still unreachable; the next scheduled attempt tries again
 		}
 		status, detail := StatusDelivered, "delivered_on_retry"

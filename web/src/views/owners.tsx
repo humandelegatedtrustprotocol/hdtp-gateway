@@ -4,14 +4,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { failureOf, getJSON, postForm } from "../api";
 import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, type Note } from "../ui";
+import { dateOf, whenTitle } from "../words";
 
 type Passkey = { id: string; tag: string; created_at: number };
 type Token = { id: string; label: string; account_id?: string; created_at: number; revoked: boolean };
 type Data = { notice: string; new_token: string; passkeys: Passkey[] | null; tokens: Token[] | null; accounts: { id: string; label: string }[] | null };
 
-/** A day, said the one way this page says one ('12 Sep 2026'), from the Unix seconds the node stores. */
+/** A day, said as every date in the portal is (words.ts `dateOf`), from the Unix seconds the node stores. */
 function day(unix: number): string {
-  return new Date(unix * 1000).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+  return dateOf(unix * 1000);
 }
 
 export function Owners() {
@@ -75,7 +76,7 @@ export function Owners() {
             {passkeys.map((p) => (
               <ListRow key={p.id}
                 title={p.tag || <span className="muted">(untagged)</span>}
-                meta={<span className="muted" title={new Date(p.created_at * 1000).toString()}>added {day(p.created_at)}</span>}
+                meta={<span className="muted" title={whenTitle(p.created_at * 1000)}>added {day(p.created_at)}</span>}
                 trailing={<Button variant="quiet" aria-label={`Remove ${p.tag || "the untagged passkey"}`}
                   confirm={`Remove the passkey ${p.tag ? `“${p.tag}”` : "with no tag"}, added ${day(p.created_at)}? It no longer opens this portal.`}
                   onClick={() => post(`/owners/passkeys/${encodeURIComponent(p.id)}/remove`)}>Remove</Button>} />
@@ -92,7 +93,7 @@ export function Owners() {
           {tokens.map((t) => (
             <ListRow key={t.id}
               title={t.label}
-              meta={<><Badge status={t.revoked ? "revoked" : "live"} /><span className="muted">acting as {acting(t)} · made {day(t.created_at)}</span></>}
+              meta={<><Badge status={t.revoked ? "revoked" : "active"} /><span className="muted">acting as {acting(t)} · made {day(t.created_at)}</span></>}
               trailing={!t.revoked && <Button variant="quiet" aria-label={`Revoke ${t.label}`}
                 confirm={`Revoke “${t.label}”? The agent using it is refused from its next call.`}
                 onClick={() => post(`/owners/tokens/${encodeURIComponent(t.id)}/revoke`)}>Revoke</Button>} />

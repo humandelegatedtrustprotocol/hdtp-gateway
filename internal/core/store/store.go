@@ -263,6 +263,19 @@ type Message struct {
 	NextAttemptAt int64
 }
 
+// DefaultMessageExpiry is PACT §7's outbound deadline: retries stop after 24 hours.
+const DefaultMessageExpiry = 24 * time.Hour
+
+// Deadline is when the retry sweep gives an outbound message up (unix seconds): its own expiry, or
+// created_at + DefaultMessageExpiry when it has none (0 is unset, SPEC §7.1). The sweep and the
+// inbox's "trying again until" line both read it here, so they cannot disagree.
+func (m Message) Deadline() int64 {
+	if m.ExpiresAt > 0 {
+		return m.ExpiresAt
+	}
+	return m.CreatedAt + int64(DefaultMessageExpiry/time.Second)
+}
+
 // Integration is one upstream MCP server row (SPEC §6.1). Status is node-local
 // and never wire-visible; credentials live keyring-sealed, never in this row.
 type Integration struct {
