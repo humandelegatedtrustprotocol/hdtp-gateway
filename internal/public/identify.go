@@ -103,6 +103,9 @@ type EnvelopeFacts struct {
 	Why          string
 	AddressClaim string
 	Refusal      string
+	// state is the recipient state the open was decided against: the answer is sealed under the
+	// key it holds, and reads none of its own (sealed.go, sealResult).
+	state *RecipientState
 }
 
 // IdempotencyStore records msg_id acknowledgments (SPEC §4.4 step 8).
