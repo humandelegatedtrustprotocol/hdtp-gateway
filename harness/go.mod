@@ -60,7 +60,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pact-cloud/pact-gateway v0.0.0
-	github.com/pact-cloud/pact-identity/go v0.4.1
+	github.com/pact-cloud/pact-identity/go v0.4.2
 	modernc.org/sqlite v1.57.0
 	sigs.k8s.io/yaml v1.6.0
 )

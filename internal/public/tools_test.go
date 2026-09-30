@@ -411,7 +411,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the card it returned does not validate: %v", err)
 	}
-	chain := [][]byte{pactidentity.FromB64url(out.Chain[0]), pactidentity.FromB64url(out.Chain[1])}
+	chain := [][]byte{testid.DER(t, out.Chain[0]), testid.DER(t, out.Chain[1])}
 	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issued.Key, ExpectedEndpoint: issued.Endpoint})
 	if !vr.OK {
 		t.Fatalf("the chain it returned fails rule %d: %s", vr.Rule, vr.Reason)

@@ -81,7 +81,11 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
     the bump is pushed, naming each card it refuses with its contact and the reason. The owner then
     refreshes each of those contacts (the on-demand refresh of ONE contact, standing rule 5) or
     re-adds it from a new card, and the bump ships when the list is empty or the owner has accepted
-    what is left on it.
+    what is left on it. **Built at the 0.4.2 bump instead** (pact-gateway #28, 2026-09-30, since
+    0.4.2's `DecodeB64url` is already the stricter reading): `internal/storecheck` reads every card
+    (`SealOf`) and every certificate held as DER (`Parse`) the store holds — accounts, leaves,
+    contacts, tombstones, pending addresses — and names each refusal; `pact-gateway check store`
+    exits 1 on one, and `serve` prints the same lines in its banner. It stays for 0.5.0.
 - **P5 (node), after the two-layer node PR lands.** Bump to 0.5.0; S8's node lint; S9 (one decision for
   both doors); N4 (card signatures through the port); N5 (the port's private-address list); N9 (the
   port's card decode); every node finding; the new leads that verify.
