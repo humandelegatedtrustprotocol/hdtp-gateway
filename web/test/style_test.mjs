@@ -9,6 +9,11 @@
 //   - Only the Inbox is a column that fills the window. Any other wide page as a flex column with
 //     `min-height:0` squeezes each table's scroll box to what the chips above it leave (the owner:
 //     "audit log table too tight"), so no `main.wide` rule but the Inbox's may make it one.
+//   - Every text field is styled as one (the owner's screenshot of 2026-09-30: "Pick your name." drew
+//     its inputs as the browser's boxes, because they had no `type` and the sheet named types). Each
+//     rule that styles `input[type="text"]` names, in the same context, every input the browser draws
+//     as a text field, an input with no `type` first. The fields a page actually draws are held by the
+//     cloud's e2e/layout/field-style.mjs, in a browser.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -187,4 +192,25 @@ test("an ok pill is not coloured, and online is not the brand's orange beside aw
 test("a number column's cells and heading are right-aligned together", () => {
   const num = rules(css).filter(([sel, d]) => /\btd\.num\b/.test(sel) && /\bth\.num\b/.test(sel) && value(d, "text-align") === "right");
   assert.ok(num.length > 0, "no rule aligns td.num and th.num right");
+});
+
+/** Every input the browser draws as a text field, as a selector: no `type` is type text. */
+export const TEXT_FIELDS = [':not([type])', '[type="text"]', '[type="number"]', '[type="password"]', '[type="url"]',
+  '[type="email"]', '[type="search"]', '[type="tel"]', '[type="datetime-local"]'];
+
+test("every rule for a text field names every text field, an input with no type among them", () => {
+  let seen = 0;
+  for (const [sel] of rules(css)) {
+    const list = sel.split(",").map((s) => s.trim());
+    for (const s of list) {
+      const at = s.lastIndexOf('input[type="text"]');
+      if (at < 0 || at + 'input[type="text"]'.length !== s.length) continue;
+      seen++;
+      const ctx = s.slice(0, at);
+      const missing = TEXT_FIELDS.filter((t) => !list.includes(`${ctx}input${t}`));
+      assert.deepEqual(missing, [], `${JSON.stringify(sel.slice(0, 80))} misses ${missing.join(" ")}`);
+    }
+  }
+  // The control: the sheet's base rule, its phone rule and the schema form's were all read.
+  assert.ok(seen >= 3, `only ${seen} text-field rules were found`);
 });
