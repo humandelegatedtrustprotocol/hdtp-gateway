@@ -115,6 +115,22 @@ func TestALostMasterKeyIsRecoveredByExportingAndImporting(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "keep  "+peer.Fpr) || !strings.Contains(out, "0 contact(s)") || !strings.Contains(out, "a request for a new leaf is waiting: renew at "+endpoint) {
 		t.Fatalf("a second import into the same identity: code=%d out=%q err=%q", code, out, errb)
 	}
+	// A root this identity holds as a stranger's request is not a contact: the review says the file
+	// does not decide it, and keeps nothing and reports no conflict for it.
+	got = openStoreAt(t, fresh.dir)
+	if ok, err := got.MoveContactStatus(ctx, b.ID, peer.Fpr, "active", "pending_in"); err != nil || !ok {
+		t.Fatalf("making the contact a request: %v %v", ok, err)
+	}
+	got.Close()
+	code, out, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice")
+	if code != 0 || !strings.Contains(out, "skip  "+peer.Fpr) || strings.Contains(out, "keep  "+peer.Fpr) || strings.Contains(out, "the file says "+peer.Fpr) {
+		t.Fatalf("the review of a file naming a held request: code=%d out=%q err=%q", code, out, errb)
+	}
+	got = openStoreAt(t, fresh.dir)
+	if ok, err := got.MoveContactStatus(ctx, b.ID, peer.Fpr, "pending_in", "active"); err != nil || !ok {
+		t.Fatalf("making the request a contact again: %v %v", ok, err)
+	}
+	got.Close()
 	// Into a slug that is somebody else: refused, audited, nothing written.
 	code, _, errb = run(t, "import", file, "-config", fresh.cfg, "-slug", "alice-two", "-yes")
 	if code == 0 || !strings.Contains(errb, `already on this node as "alice"`) || !strings.Contains(errb, "nothing was written") {
