@@ -8,7 +8,7 @@ below is how it will work when it opens, and how it works now.
 
 - [`SPEC.md`](SPEC.md) is the single source of truth for behaviour. Wire-visible
   changes need a spec edit first, and protocol-level changes belong in the
-  [PACT protocol spec](https://github.com/tech-sumit/pact-protocol), not here.
+  [PACT protocol spec](https://github.com/pact-cloud/pact-protocol), not here.
 - Minimalism: no speculative features, no new dependencies without a stated reason.
 - Every change touching the public surface, authorization, envelope or audit paths
   needs tests, and the conformance suite must stay green on **both** storage engines.
