@@ -254,18 +254,30 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 
 // sealLimited seals a budget's refusal as a tool error inside `result`, where the client keeps its
 // `retry_after`; an `error` member is reduced to its code (PACT §12, as the cloud seals it).
+//
+// A refusal that cannot be sealed goes out as itself, in the clear (sealBackErr says when), never
+// as another code.
 func (d SealedDeps) sealLimited(ctx context.Context, facts *EnvelopeFacts, limited *mcp.CallToolResult) (*mcp.CallToolResult, error) {
 	body, err := json.Marshal(limited)
 	if err != nil {
-		return errEnvelope("unavailable"), nil
+		return limited, nil
 	}
-	return d.sealBack(ctx, facts, body)
+	res, err := d.sealResult(ctx, facts, body, false)
+	if err != nil {
+		return limited, nil
+	}
+	return res, nil
 }
 
 // sealBack seals the inner result to the caller (PACT §13.2: a sealed request
-// MUST get a sealed result — same format, the request's msg_id).
+// MUST get a sealed result — same format, the request's msg_id). A result is never sent in the
+// clear: one that cannot be sealed is answered `unavailable`.
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
-	return d.sealResult(ctx, facts, inner, false)
+	res, err := d.sealResult(ctx, facts, inner, false)
+	if err != nil {
+		return errEnvelope("unavailable"), nil
+	}
+	return res, nil
 }
 
 // sealBackErr seals a wrapper-level refusal — one of §12's codes, in §13.2's
@@ -284,11 +296,16 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 // answer it was never meant to be able to read. That correlation is precisely
 // what sealing denies it (PACT §13.5, §12).
 //
-// Falling back to plaintext when sealing itself fails is deliberate: at that
-// point the caller cannot be answered at all, and a bare code beats a hang.
+// When the refusal cannot be sealed it goes out as itself, in plaintext: the caller cannot be
+// answered at all otherwise, and the code it is owed beats another. This fallback never ran:
+// sealResult answered a failed seal with a code of its own (`envelope_invalid` for a missing key,
+// `unavailable` otherwise) and no error, so a pending contact's call, whose facts carry no key, was
+// told its envelope was invalid. That call is the one it runs for today: pact-identity's Decide
+// answers `pending_approval` with no root and no leaf, so there is nothing to seal toward until it
+// names the signer (docs/release/port-parity-2026-09-29.md, §5).
 func (d SealedDeps) sealBackErr(ctx context.Context, facts *EnvelopeFacts, body json.RawMessage) *mcp.CallToolResult {
 	res, err := d.sealResult(ctx, facts, body, true)
-	if err != nil || res == nil {
+	if err != nil {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}
 	}
 	return res
@@ -307,6 +324,9 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 // It seals under the state the open was decided against (EnvelopeFacts.state), which every facts
 // decideEnvelope returns carries. It read the state again here — the account row, the chain, every
 // held key decrypted and parsed — on every sealed answer, for the one key it uses.
+//
+// An answer it cannot seal is an error, and the caller decides what goes out instead: a result is
+// answered `unavailable` (sealBack), a refusal goes as itself (sealBackErr, sealLimited).
 func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage, asError bool) (*mcp.CallToolResult, error) {
 	st := facts.state
 	key := (*identity.LeafKey)(nil)
@@ -314,12 +334,12 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 		key = st.current()
 	}
 	if key == nil || key.Lib == nil || len(st.Chain) != 2 {
-		return errEnvelope("unavailable"), nil
+		return nil, errors.New("seal: no current key and chain to answer under")
 	}
 	sender := key.Lib
 	recipient, err := pactidentity.ParseSPKI(facts.SPKI)
 	if err != nil {
-		return errEnvelope("envelope_invalid"), nil
+		return nil, fmt.Errorf("seal: the caller's key is not in hand: %w", err)
 	}
 	ourKid := key.KP.Fingerprint
 	form, pinned := "chain", false
@@ -342,14 +362,14 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 	}
 	out, err := pactidentity.SealResult(opts)
 	if err != nil {
-		return errEnvelope("unavailable"), nil
+		return nil, fmt.Errorf("seal: %w", err)
 	}
 	if pinned && form == "chain" {
 		_ = d.Identifier.Store.SetContactChainSentKid(ctx, d.AccountID, facts.From, ourKid)
 	}
 	body, err := json.Marshal(out)
 	if err != nil {
-		return errEnvelope("unavailable"), nil
+		return nil, fmt.Errorf("seal: %w", err)
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
 }
