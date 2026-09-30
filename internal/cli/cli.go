@@ -52,6 +52,8 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return exportCmd(rest, version, stdout, stderr)
 	case "import":
 		return importCmd(rest, stdout, stderr)
+	case "check":
+		return checkCmd(rest, stdout, stderr)
 	case "__child":
 		// hidden: the resource-cap shim for supervised stdio children (SPEC §6.2)
 		if err := integrations.RunChildShim(rest); err != nil {
@@ -81,6 +83,7 @@ commands:
   audit     verify|export|archive|repair|erase-archive the hash chain (offline; node must be stopped)
   export    write contacts and chats, and nothing else, to a file (offline; node must be stopped)
   import    take an export in; each identity then needs a new certificate from its wallet (offline)
+  check     store — read every card and certificate the store holds by the identity core's rule and name each that does not; exit 1 when one does not (read-only; runs beside a serving node)
   version   print the version
 `)
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/services/presence"
 	"github.com/pact-cloud/pact-gateway/internal/services/retention"
 	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/pact-cloud/pact-gateway/internal/storecheck"
 	"github.com/pact-cloud/pact-gateway/internal/tunnel"
 )
 
@@ -426,6 +427,17 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 			if line := addressDriftLine(nd.PublicURL(), a.Slug, settings.LeafAddress(ctx, st, a.ID)); line != "" {
 				fmt.Fprintf(stdout, "address: %s\n", line)
 			}
+		}
+	}
+	// Every card and certificate the store holds, read by the identity core's rule (storecheck):
+	// what the core will refuse where it reads it, named here first, the lines `check store`
+	// prints. It stops nothing, as no line of this banner does, and like the rest of the banner it
+	// writes no audit row: nothing changed.
+	if rep, rerr := storecheck.Run(ctx, st, time.Now()); rerr != nil {
+		fmt.Fprintf(stdout, "store:   NOT CHECKED — %v\n", rerr)
+	} else {
+		for _, line := range rep.Lines() {
+			fmt.Fprintln(stdout, line)
 		}
 	}
 	if passkeys == 0 {
