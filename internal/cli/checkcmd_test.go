@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +89,82 @@ func TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne(t *testing.T) {
 	}
 }
 
+// plantContactInAStateNoPinHas writes one contact of the account at slug — created when the store
+// holds none — whose card, leaf and root certificate read, then puts it in a state the store's own
+// API cannot write (the schema's CHECK, migration 0002, refuses the move: shown first), as a
+// hand-edited store would: raw SQL, in a test only, with the constraint switched off for the one
+// connection that writes it. It answers the contact's root.
+func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) {
+	t.Helper()
+	ctx := context.Background()
+	st := openStoreAt(t, dir)
+	defer st.Close()
+	a, err := st.GetAccountBySlug(ctx, slug)
+	if errors.Is(err, store.ErrNotFound) {
+		idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}
+		a, err = idm.CreateAccount(ctx, slug, "Me", identity.AlgoEd25519)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testid.NewWallet(t, "frozen")
+	h := w.Issue(t, "https://frozen.example/mcp")
+	leaf, _ := pactidentity.Parse(h.LeafDER)
+	if _, err := st.InsertContact(ctx, store.Contact{
+		AccountID: a.ID, Fingerprint: w.Fpr, SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"},
+		Endpoint: h.Endpoint, Card: h.Card("frozen", "required"), Leaf: h.LeafDER, RootCert: w.RootDER,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateContactStatus(ctx, a.ID, w.Fpr, "frozen"); err == nil {
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "pact.db")+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE contacts SET status = ? WHERE account_id = ? AND fingerprint = ?`, "frozen", a.ID, w.Fpr); err != nil {
+		t.Fatal(err)
+	}
+	return w.Fpr
+}
+
+// `check store` names a contact in a state neither a pin nor a request has — a row the store's
+// own API cannot write, so a hand-edited store's or a later binary's — and exits 1 though every
+// card and certificate reads; once the owner removes the contact (what `remove_contact` writes),
+// exit 0 and the clause is gone. It writes nothing: the row is in the state it was found in.
+//
+// Shown red with the exit status held at 0 for such a row (the mutation).
+func TestCheckStoreNamesTheContactInAStateNoPinHasAndExitsOne(t *testing.T) {
+	n := newIDNode(t, "n")
+	root := plantContactInAStateNoPinHas(t, n.dir, "me")
+	var out, errb bytes.Buffer
+	code := Run([]string{"check", "store", "-config", n.cfg}, "test", &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1:\n%s%s", code, out.String(), errb.String())
+	}
+	want := "NO PIN contacts account:me contact:" + root + ` status: "frozen" is neither a state a pin has (active, pending_out, blocked) nor a request awaiting the owner (pending_in); the identity core is handed no pin for this row`
+	if !strings.Contains(out.String(), "store:   3 cards and certificates read by the identity core's rule (contacts.card 1, contacts.leaf 1, contacts.root_cert 1); all read; 1 contact in a state neither a pin nor a request has\n") || !strings.Contains(out.String(), want+"\n") {
+		t.Fatalf("the report:\n%s%s", out.String(), errb.String())
+	}
+	ctx := context.Background()
+	st := openStoreAt(t, n.dir)
+	id := accountIDOf(t, st, "me")
+	if c, err := st.GetContact(ctx, id, root); err != nil || c.Status != "frozen" {
+		t.Fatalf("the check changed the store: %v %+v", err, c)
+	}
+	if err := st.DeleteContact(ctx, id, root); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"check", "store", "-config", n.cfg}, "test", &out, &errb); code != 0 || !strings.HasSuffix(strings.TrimSpace(out.String()), "; all read") || errb.Len() != 0 {
+		t.Fatalf("after the contact was removed: exit %d\n%s%s", code, out.String(), errb.String())
+	}
+}
+
 func accountIDOf(t *testing.T, st store.Store, slug string) string {
 	t.Helper()
 	a, err := st.GetAccountBySlug(context.Background(), slug)
@@ -132,17 +210,19 @@ func TestCheckStoreRefusals(t *testing.T) {
 }
 
 // `serve` prints the same report in its banner and serves whatever it says: the node whose store
-// holds a card that does not read comes up, and its banner names the card.
+// holds a card that does not read and a contact in a state neither a pin nor a request has comes
+// up, and its banner names the card and the contact.
 func TestServeNamesTheCardThatDoesNotReadInItsBannerAndServes(t *testing.T) {
-	var slug, badRoot string
+	var slug, badRoot, frozenRoot string
 	r := runServe(t, func(t *testing.T, dir string) {
 		st := migrated(t, dir)
 		st.Close()
 		slug, badRoot = plantContactCards(t, dir)
+		frozenRoot = plantContactInAStateNoPinHas(t, dir, slug)
 	})
 	r.stop()
 	out := r.out.String()
-	if !strings.Contains(out, "pact-gateway serving:") || !strings.Contains(out, "store:   6 cards and certificates read by the identity core's rule (contacts.card 2, contacts.leaf 2, contacts.root_cert 2); 1 does NOT read\n") || !strings.Contains(out, "NOT READ contacts account:"+slug+" contact:"+badRoot+" card: ") {
+	if !strings.Contains(out, "pact-gateway serving:") || !strings.Contains(out, "store:   9 cards and certificates read by the identity core's rule (contacts.card 3, contacts.leaf 3, contacts.root_cert 3); 1 does NOT read; 1 contact in a state neither a pin nor a request has\n") || !strings.Contains(out, "NOT READ contacts account:"+slug+" contact:"+badRoot+" card: ") || !strings.Contains(out, "NO PIN contacts account:"+slug+" contact:"+frozenRoot+` status: "frozen" is neither`) {
 		t.Fatalf("the banner:\n%s", out)
 	}
 }

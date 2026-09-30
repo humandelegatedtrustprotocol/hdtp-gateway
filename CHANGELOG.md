@@ -33,7 +33,8 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
   with a `doctor` that derives the deployment mode and probes the endpoint.
 - **Storage** — SQLite by default, PostgreSQL when wanted, with backup and restore;
   `check store` and the `serve` banner read every card and certificate the store holds
-  by the identity core's rule and name each that does not read.
+  by the identity core's rule and name each that does not read, and name each contact
+  in a state neither a pin nor a request has.
 - **Audit** — an append-only hash-chained trail over every public call and every
   configuration change. The rows naming an identity that left the node move to an
   archive file of its own after `audit_archive_after` (90 days by default), and verify
