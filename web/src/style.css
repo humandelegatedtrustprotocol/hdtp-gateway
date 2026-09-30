@@ -166,6 +166,7 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .acts > .btn,.acts > button{flex:0 0 auto}
 .acts-status{margin-right:auto;display:inline-flex;align-items:center;gap:.35rem;font-size:.86rem;color:var(--ink-2);min-width:0}
 .acts-status:empty{display:none}
+.acts.start{justify-content:flex-start;flex-wrap:wrap}
 .acts-status::before{content:"\2713";font-weight:700}
 .notice .act.acts{flex:0 0 auto}
 /* A card that holds several forms (Settings' storage, one per identity): a form's closing row is followed by
