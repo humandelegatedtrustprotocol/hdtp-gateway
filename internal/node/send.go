@@ -28,7 +28,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/store"
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
@@ -152,9 +151,9 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 
 // deliverMedia is one direct attempt at the peer's send_media (PACT §6.2).
 func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Contact, msgID, threadID, sender, filename, mime string, data []byte) error {
-	peer, err := n.peerOf(accountID, c)
+	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: media needs a direct endpoint, and that contact publishes none")
+		return fmt.Errorf("send: %w", err)
 	}
 	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
@@ -211,20 +210,15 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 // only direct (PACT §9): there is no relay role, so a peer that cannot be reached
 // before `expires` is a reported failure, not a message handed to a third party.
 func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.Contact, in messaging.Input, threadID string, expiry time.Time) error {
-	card, err := contacts.ParseCard(c.Card)
+	// The endpoint is the pin's (PACT §14.1), never a card property, and whether the call is
+	// sealed is the card's to say (PeerOf). A contact with no card on file — one an import brought,
+	// PACT §9.2 — is written to like any other; this refused it as "that contact's card is
+	// unreadable", parsing the card for an endpoint it then overwrote with the pin's.
+	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: that contact's card is unreadable")
+		return fmt.Errorf("send: %w", err)
 	}
-	// The endpoint is the leaf's (PACT §14.1), never a card property.
-	peer, perr := n.peerOf(accountID, c)
-	if perr != nil {
-		return perr
-	}
-	card.Endpoint = peer.Endpoint
-	if card.Endpoint == "" {
-		return fmt.Errorf("send: that contact publishes no endpoint")
-	}
-	if err := checkEndpoint(card.Endpoint, len(c.SPKI) > 0); err != nil {
+	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
 		return err
 	}

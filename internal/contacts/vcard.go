@@ -100,6 +100,29 @@ func displayName(s string) string {
 	return cleaned
 }
 
+// SealOf is the X-PACT-SEAL policy of a contact this node holds, read off the card on file the way
+// the identity core reads a card (pactidentity.DecodeCard), so the node and the core have one
+// reading: the property's value, and `none` for a card with no such line (PACT §3: "Absent =
+// none"; §13.4: "senders MUST NOT seal").
+//
+//   - A card on file that does not read is an error. Its policy is not known, and neither guess is
+//     safe on the wire: a call sealed to a `none` recipient is one it said not to send, and a
+//     plaintext call to a `required` one is refused `seal_required`.
+//   - No card on file is a contact that arrived in an export, whose contacts.csv carries neither a
+//     card nor a policy (PACT §9.2). It is sealed to, as such a contact always was here: the SPEC
+//     does not say what a host assumes for it, and that is named as a gap in the node's
+//     docs/release/port-parity-2026-09-29.md.
+func SealOf(card string, now time.Time) (string, error) {
+	if card == "" {
+		return "required", nil
+	}
+	dc, err := pactidentity.DecodeCard(card, now)
+	if err != nil {
+		return "", fmt.Errorf("the card on file does not read (%v), so its sealing policy is not known", err)
+	}
+	return dc.Seal, nil
+}
+
 // ValidateInbound is PACT §3's intake rule, shared by every path that accepts a
 // peer's card (redeem, request, accept, update). The certificate IS the card: it
 // carries the root to pin, the address to reach and the validity, and the library's
