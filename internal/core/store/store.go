@@ -755,7 +755,8 @@ type MessageStore interface {
 	//
 	// PutIdempotency records msg_id's acknowledgment once (SPEC §11.2): the
 	// first writer wins; every caller gets back the stored ack and whether it
-	// pre-existed. expiresAt 0 = no expiry.
+	// pre-existed. expiresAt 0 writes an undated record, which the sweep removes once it is older
+	// than UndatedIdempotencyWindow (DeleteExpiredIdempotency).
 	PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (stored string, existed bool, err error)
 
 	// UpdateIdempotencyAck upgrades an in-flight reservation to the final ack.

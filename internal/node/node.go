@@ -707,7 +707,6 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 	// group the way integration tools come and go.
 	a.sealedEntries = public.SealedEntries(public.SealedDeps{
 		Pool: a.pool, Identifier: ident, AccountID: rec.ID,
-		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
 		Idem:    n.opts.Store,
 		Now:     n.opts.Now,
 		AuditAs: n.opts.auditAs,

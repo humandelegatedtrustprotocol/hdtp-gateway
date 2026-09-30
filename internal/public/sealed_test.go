@@ -11,7 +11,6 @@ import (
 
 	"github.com/pact-cloud/pact-gateway/internal/core"
 	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
@@ -54,8 +53,7 @@ func newSealedEnv(t testing.TB) *sealedEnv {
 	pool := NewPool(reg, StoreResolver(e.st), 8)
 	deps := SealedDeps{
 		Pool: pool, Identifier: e.id, AccountID: e.acct.ID,
-		Keypair: func(ctx context.Context) (*identity.Keypair, error) { return e.keypair(ctx) },
-		Idem:    e.st, Now: func() time.Time { return e.nowAt },
+		Idem: e.st, Now: func() time.Time { return e.nowAt },
 	}
 	reg.Add(SealedEntries(deps)...)
 	return &sealedEnv{recvEnv: e, pool: pool, deps: deps}
