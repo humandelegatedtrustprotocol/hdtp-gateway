@@ -117,7 +117,9 @@ export function Dashboard() {
                     { label: "active contacts", value: a.contacts, to: "/contacts", onClick: pickThis },
                     { label: "waiting", value: a.pending, tone: a.pending ? "warn" : undefined, to: "/requests", onClick: pickThis },
                   ]}
-                  footer={<Button variant="quiet" to="/identity" onClick={pickThis} icon="key">Certificate</Button>}
+                  // The card opens the identity's card page; its certificate is the button on its right.
+                  to="/card" onClick={pickThis}
+                  footer={<Button variant="secondary" to="/identity" onClick={pickThis}>Certificate</Button>}
                 />
               );
             })}
