@@ -26,6 +26,7 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/messaging"
 	"github.com/pact-cloud/pact-gateway/internal/outbound"
 	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/pact-cloud/pact-gateway/internal/testid"
 	pactidentity "github.com/pact-cloud/pact-identity/go"
 )
 
@@ -320,7 +321,7 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 	if err != nil {
 		t.Fatalf("the landing page served a card that does not validate: %v", err)
 	}
-	chain := [][]byte{pactidentity.FromB64url(doc.Chain[0]), pactidentity.FromB64url(doc.Chain[1])}
+	chain := [][]byte{testid.DER(t, doc.Chain[0]), testid.DER(t, doc.Chain[1])}
 	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issuer.Key, ExpectedEndpoint: issuer.Endpoint})
 	if !vr.OK {
 		t.Fatalf("the landing's chain fails rule %d: %s", vr.Rule, vr.Reason)
@@ -395,7 +396,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			if len(redeemed.Chain) != 2 {
 				t.Fatalf("the redemption answer must carry A's [leaf, root], got %d certificates", len(redeemed.Chain))
 			}
-			answeredChain := [][]byte{pactidentity.FromB64url(redeemed.Chain[0]), pactidentity.FromB64url(redeemed.Chain[1])}
+			answeredChain := [][]byte{testid.DER(t, redeemed.Chain[0]), testid.DER(t, redeemed.Chain[1])}
 			avr := pactidentity.ValidateChain(answeredChain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: answered.Key, ExpectedEndpoint: answered.Endpoint})
 			if !avr.OK {
 				t.Fatalf("the redemption answer's chain fails rule %d: %s", avr.Rule, avr.Reason)

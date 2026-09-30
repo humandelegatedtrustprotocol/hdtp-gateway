@@ -3,6 +3,7 @@ package public
 import (
 	"context"
 	"crypto/x509"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -30,6 +31,7 @@ const (
 
 type recvEnv struct {
 	st      store.Store
+	dbPath  string // the SQLite file, for a test that writes what the store's API cannot
 	m       *identity.Manager
 	id      *Identifier
 	acct    store.Account
@@ -93,7 +95,8 @@ func newPeer(t testing.TB, at time.Time) *peer {
 
 func newRecvEnv(t testing.TB) *recvEnv {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "recv.db"))
+	dbPath := filepath.Join(t.TempDir(), "recv.db")
+	st, err := store.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +114,7 @@ func newRecvEnv(t testing.TB) *recvEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &recvEnv{st: st, m: m, nowAt: fixedNow, root: newTestRoot(t, "Me", fixedNow)}
+	e := &recvEnv{st: st, dbPath: dbPath, m: m, nowAt: fixedNow, root: newTestRoot(t, "Me", fixedNow)}
 	e.install(t, identity.PurposeSignup, endpointMe)
 	e.acct, _ = st.GetAccountByID(ctx, a.ID)
 	e.id = &Identifier{
@@ -688,5 +691,147 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 		if _, err := e.open(t, env, TransportFacts{}); Code(err) != "envelope_invalid" {
 			t.Errorf("%s: opened (%v); a second spelling of an envelope must be refused", name, err)
 		}
+	}
+}
+
+// The core's pin has three states (CONTRACT `Pin`; pact-identity 0.4.2 refuses any other as this
+// node's unreadable state). A request the owner has not answered is handed to Decide as NO pin —
+// what PACT Cloud's `pinsOf` hands, the owner's decision of 2026-09-30 — so its requester is decided
+// as the stranger SPEC §5.4 says it is: the small form names a leaf nobody pinned and is refused
+// `chain_required`; the chain form is decided as a guest's and audited as one; and the effects
+// Decide returns for an active pin — the newer leaf a chain carries, a new address under `auto` —
+// reach no row the owner has not approved. The three states the core names go as themselves.
+//
+// Shown red with the mapping this replaced (`pending_in` handed as `active`): one pin, the small
+// form `ok`, the actor `contact`, and the renewed leaf written onto the unanswered request.
+func TestAPendingRequestIsHandedToDecideWithNoPin(t *testing.T) {
+	ctx := context.Background()
+	e := newRecvEnv(t)
+	p := newPeer(t, fixedNow)
+	e.pin(t, p, "pending_in")
+	all, err := e.st.ListContacts(ctx, e.acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pins := pinsOf(all); len(pins) != 0 {
+		t.Fatalf("a pending_in row was handed to Decide as a pin: %+v", pins)
+	}
+	for _, status := range []string{"active", "pending_out", "blocked"} {
+		row := all[0]
+		row.Status = status
+		if pins := pinsOf([]store.Contact{row}); len(pins) != 1 || pins[0].Root != p.fpr() || pins[0].State != status {
+			t.Fatalf("a %s row's pin: %+v", status, pins)
+		}
+	}
+	// The small form: nothing here holds the leaf it names.
+	_, err = e.open(t, e.sealFrom(t, p, "leaf", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if Code(err) != "chain_required" {
+		t.Fatalf("the small form from a requester the owner has not answered: %v; want chain_required, as the cloud answers it", err)
+	}
+	// The chain form: a guest, on the envelope's own proof, and audited as one.
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if err != nil || !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || f.Form != "chain" || f.Endpoint != endpointA || f.Demote {
+		t.Fatalf("the chain form from a requester the owner has not answered: %v %+v", err, f)
+	}
+	if actor := actorOf(f); actor != "guest" {
+		t.Fatalf("the audit row's actor for that requester: %q, want guest", actor)
+	}
+	// Decide's pin effects reach no unanswered request: a renewed leaf, then a leaf for a new
+	// address under `auto` (the account's setting as made), each carried by a chain form, and the
+	// row is as it was — no repin, no pending address for the owner to answer.
+	before, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := e.st.GetAccountByID(ctx, e.acct.ID); a.AcceptNewHosts != "auto" {
+		t.Fatalf("the account's new-host policy is %q; the case below needs auto", a.AcceptNewHosts)
+	}
+	for _, c := range []struct {
+		name     string
+		endpoint string
+	}{{"renewed", endpointA}, {"moved", endpointA2}} {
+		newer := &peer{root: p.root, host: p.host, leaf: p.leafFor(t, c.endpoint, fixedNow)}
+		withID := func(o *pactidentity.SealOpts) { o.MsgID = "m-" + c.name }
+		f, err := e.open(t, e.sealFrom(t, newer, "chain", "request_contact", map[string]any{"card": cardOf(newer)}, withID), TransportFacts{})
+		if err != nil || !f.Guest || f.Endpoint != c.endpoint {
+			t.Fatalf("the %s leaf's chain form from that requester: %v %+v", c.name, err, f)
+		}
+	}
+	after, err := e.st.GetContact(ctx, e.acct.ID, p.fpr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after.Leaf) != string(before.Leaf) || after.Endpoint != before.Endpoint || after.Status != before.Status || after.PinnedAt != before.PinnedAt {
+		t.Fatalf("Decide's effects reached a request the owner has not answered:\n before %+v\n after  %+v", before, after)
+	}
+	if pending, _ := e.st.ListPendingAddresses(ctx, e.acct.ID); len(pending) != 0 {
+		t.Fatalf("a new address was noted for a request the owner has not answered: %+v", pending)
+	}
+}
+
+// forceContactStatus puts a contact in a state the store's own API cannot write: the schema holds
+// a contact's status to the four (migration 0002's CHECK, both engines), so a row in any other
+// state is a hand-edited store's, and this is that hand — raw SQL, in a test only, with the
+// constraint switched off for the one connection that writes it.
+func forceContactStatus(t testing.TB, dbPath, accountID, root, status string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE contacts SET status = ? WHERE account_id = ? AND fingerprint = ?`, status, accountID, root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A contact row in a state this node does not know — neither a state a pin has nor a request
+// awaiting the owner — is handed to Decide as no pin, as a request is: the store's probe still
+// finds the row (PinCandidates), pinsOf leaves it out, its small form is `chain_required` and its
+// chain form is decided as a stranger's, and no effect reaches the row. The store's own API
+// cannot write such a row (the schema's CHECK refuses the move, shown first), so the test writes
+// it as a hand-edited store would. UnknownContactState, the reading internal/storecheck counts
+// by, is held to pinsOf here: true for that row's state, false for each state pinsOf hands over
+// or leaves out as a request.
+//
+// Shown red with pinsOf's state filter removed (the mutation): the row is handed over as a pin in
+// state frozen.
+func TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin(t *testing.T) {
+	ctx := context.Background()
+	e := newRecvEnv(t)
+	p := newPeer(t, fixedNow)
+	e.pin(t, p, "active")
+	// The control: as an active contact, the row is one pin and the small form is decided on it.
+	if f, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); err != nil || f.Tier != policy.TierContact {
+		t.Fatalf("the control, an active contact's small form: %v %+v", err, f)
+	}
+	if err := e.st.UpdateContactStatus(ctx, e.acct.ID, p.fpr(), "frozen"); err == nil {
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+	}
+	forceContactStatus(t, e.dbPath, e.acct.ID, p.fpr(), "frozen")
+	leaf, _ := pactidentity.Parse(p.leaf)
+	cands, err := e.st.PinCandidates(ctx, e.acct.ID, "", "", pactidentity.Fingerprint(leaf.SPKI))
+	if err != nil || len(cands) != 1 || cands[0].Status != "frozen" {
+		t.Fatalf("the store's probe for the leaf the small form names: %v %+v; want the row, in state frozen", err, cands)
+	}
+	if pins := pinsOf(cands); len(pins) != 0 {
+		t.Fatalf("a row in state frozen was handed to Decide as a pin: %+v", pins)
+	}
+	for status, unknown := range map[string]bool{"active": false, "pending_out": false, "blocked": false, "pending_in": false, "frozen": true, "": true} {
+		if UnknownContactState(status) != unknown {
+			t.Errorf("UnknownContactState(%q) = %v, want %v", status, !unknown, unknown)
+		}
+	}
+	withID := func(id string) sealOpt { return func(o *pactidentity.SealOpts) { o.MsgID = id } }
+	_, err = e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}, withID("m-frozen-leaf")), TransportFacts{})
+	if Code(err) != "chain_required" {
+		t.Fatalf("the small form from the row's holder: %v; want chain_required, as for a request the owner has not answered", err)
+	}
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}, withID("m-frozen-chain")), TransportFacts{})
+	if err != nil || !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || f.Form != "chain" {
+		t.Fatalf("the chain form from the row's holder: %v %+v; want a stranger's", err, f)
+	}
+	if c, err := e.st.GetContact(ctx, e.acct.ID, p.fpr()); err != nil || c.Status != "frozen" || string(c.Leaf) != string(p.leaf) {
+		t.Fatalf("an effect reached the row: %v %+v", err, c)
 	}
 }
