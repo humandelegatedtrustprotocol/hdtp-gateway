@@ -94,8 +94,14 @@ func text(t testing.TB, res *mcp.CallToolResult) string {
 // msgIDFor mirrors what sealFrom stamps on a request, so a result can be correlated.
 func msgIDFor(tool, form string) string { return "m-" + tool + "-" + form }
 
-// opened unseals the answer to a peer and reports the inner result and error.
+// opened unseals the answer to a peer's full-form call and reports the inner result and error.
 func (s *sealedEnv) opened(t testing.TB, res *mcp.CallToolResult, p *peer, tool string) (result, errObj json.RawMessage) {
+	t.Helper()
+	return s.openedWith(t, res, p, msgIDFor(tool, "chain"))
+}
+
+// openedWith is opened for the answer to the request that carried msgID.
+func (s *sealedEnv) openedWith(t testing.TB, res *mcp.CallToolResult, p *peer, msgID string) (result, errObj json.RawMessage) {
 	t.Helper()
 	if res.IsError {
 		t.Fatalf("a refusal that could be sealed came back in plaintext: %s", text(t, res))
@@ -109,7 +115,7 @@ func (s *sealedEnv) opened(t testing.TB, res *mcp.CallToolResult, p *peer, tool 
 		t.Fatal(err)
 	}
 	out, err := pactidentity.OpenResult(wire, pactidentity.OpenOpts{
-		Recipient: p.host, RecipientPublic: p.host.Public(), MsgID: msgIDFor(tool, "chain"), Now: s.nowAt,
+		Recipient: p.host, RecipientPublic: p.host.Public(), MsgID: msgID, Now: s.nowAt,
 		Pins: []pactidentity.Pin{{
 			Root: s.root.fpr, Endpoint: endpointMe,
 			Leaf: pactidentity.B64url(st.Chain[0]), State: "active",

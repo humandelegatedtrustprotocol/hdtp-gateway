@@ -296,13 +296,13 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 // answer it was never meant to be able to read. That correlation is precisely
 // what sealing denies it (PACT §13.5, §12).
 //
-// When the refusal cannot be sealed it goes out as itself, in plaintext: the caller cannot be
-// answered at all otherwise, and the code it is owed beats another. This fallback never ran:
-// sealResult answered a failed seal with a code of its own (`envelope_invalid` for a missing key,
-// `unavailable` otherwise) and no error, so a pending contact's call, whose facts carry no key, was
-// told its envelope was invalid. That call is the one it runs for today: pact-identity's Decide
-// answers `pending_approval` with no root and no leaf, so there is nothing to seal toward until it
-// names the signer (docs/release/port-parity-2026-09-29.md, §5).
+// Plaintext past the open is for one case: there is no key to seal to — the facts name no caller's
+// key, or this identity holds no current key and chain to answer under — or the seal itself fails.
+// The refusal then goes out as itself: the caller cannot be answered at all otherwise, and the code
+// it is owed beats another. Every path that reaches here names the caller's key: an `ok` decision
+// names the leaf that signed, and a `pending_approval` is sealed to the leaf decideEnvelope reads
+// with signerOf (pact-identity's Decide answers that code with no leaf of its own). A facts with no
+// key is signerOf finding no `pending_out` pin for the proof, which Decide's answer rules out.
 func (d SealedDeps) sealBackErr(ctx context.Context, facts *EnvelopeFacts, body json.RawMessage) *mcp.CallToolResult {
 	res, err := d.sealResult(ctx, facts, body, true)
 	if err != nil {
