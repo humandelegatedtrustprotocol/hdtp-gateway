@@ -28,6 +28,8 @@ type Contact = {
 type ContactTool = { name: string; description?: string; input_schema?: Schema };
 // The protocol's own plumbing is callable but not something a person invokes by hand.
 const PANEL_KEY = "pact.inbox.panel";
+/** The narrowest window the contact panel stands beside the conversation in; style.css makes it a drawer below (held equal by test/style_test.mjs). */
+const PANEL_BESIDE = 1360;
 const FOCUS_KEY = "pact.inbox.focus";
 
 type AuditRow = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
@@ -43,15 +45,19 @@ export function Messages() {
   const [pending, setPending] = useState<Msg | null>(null);
   const [q, setQ] = useState("");
   const [pane, setPane] = useState<Pane>(sel ? "thread" : "list");
-  // The contact panel is the owner's to keep or dismiss; the choice persists — above 1180px. Narrower,
-  // the panel is a third column that leaves the conversation about 250px, so the page opens without it
-  // whatever was saved, and the panel button brings it back for as long as it is wanted.
+  // The contact panel is the owner's to keep or dismiss; the choice persists — from PANEL_BESIDE up,
+  // where it stands beside the conversation. Narrower (above a phone) it is a drawer over the
+  // conversation (style.css), so the page opens without it whatever was saved, and opening or closing
+  // it there is for now, not kept: as a third column there it left the conversation 252px at 1100.
   const [panelOpen, setPanelOpen] = useState<boolean>(() => {
-    if (window.innerWidth <= 1180) return false;
+    if (window.innerWidth < PANEL_BESIDE) return false;
     try { const v = localStorage.getItem(PANEL_KEY); if (v !== null) return v === "1"; } catch { /* no storage */ }
     return true;
   });
-  const togglePanel = () => setPanelOpen((v) => { try { localStorage.setItem(PANEL_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+  const togglePanel = () => setPanelOpen((v) => {
+    if (window.innerWidth >= PANEL_BESIDE) { try { localStorage.setItem(PANEL_KEY, v ? "0" : "1"); } catch { /* ignore */ } }
+    return !v;
+  });
   // Focus: the thread alone, full width. Both side columns step aside until asked back.
   const [focus, setFocus] = useState<boolean>(() => { try { return localStorage.getItem(FOCUS_KEY) === "1"; } catch { return false; } });
   const toggleFocus = () => setFocus((v) => { try { localStorage.setItem(FOCUS_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
@@ -340,7 +346,7 @@ export function Messages() {
           )}
         </section>
 
-        {current && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => setPane("thread")} />}
+        {current && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }} />}
       </div>
     </main>
   );
