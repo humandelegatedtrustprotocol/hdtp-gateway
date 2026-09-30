@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, currentAccount, failureOf, getJSON } from "../api";
-import { Button, EmptyState, Failed, Notice, PageHeader, Readout, Section } from "../ui";
+import { Button, EmptyState, Failed, Notice, PageHeader, Readout, Section, useFlash } from "../ui";
 import { CopyId, IdText, UrlText } from "../glance";
 
 // endpoint, root_fingerprint and kid are read by the node from the card's own certificate
@@ -11,7 +11,7 @@ export function CardView() {
   const [d, setD] = useState<Data | null>(null);
   // "none": the identity has no certificate yet (404); any other refusal is said as the failure it is.
   const [err, setErr] = useState<"none" | string>("");
-  const [copied, setCopied] = useState(false);
+  const [copied, flash] = useFlash();
   const load = useCallback(() => {
     setErr("");
     getJSON<Data>("/api/card").then(setD).catch((e) => setErr(e instanceof ApiError && e.status === 404 ? "none" : failureOf(e)));
@@ -28,15 +28,16 @@ export function CardView() {
   if (err) return <main>{header}<Failed what="your card" error={err} retry={load} /></main>;
   if (!d) return <main>{header}<EmptyState loading /></main>;
   const copy = () => {
-    navigator.clipboard?.writeText(d.card).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+    navigator.clipboard?.writeText(d.card).then(flash);
   };
   return (
     <main>
       {header}
       <Section title="What it says"
+        footerStatus={copied ? "Copied" : null}
         footer={<>
+          <Button variant="secondary" icon="copy" onClick={copy}>Copy vCard</Button>
           <Button href={download} download={`${d.slug}.vcf`}>Download</Button>
-          <Button variant="secondary" icon="copy" onClick={copy}>{copied ? "Copied" : "Copy vCard"}</Button>
         </>}>
         <dl className="facts">
           <dt>Address</dt><dd><UrlText url={d.endpoint} /></dd>

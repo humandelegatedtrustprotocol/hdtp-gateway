@@ -30,12 +30,13 @@ h1,h2{color:var(--ink);font-family:var(--display);font-optical-sizing:auto;lette
 h1{font-size:1.75rem;font-weight:700;letter-spacing:-.03em} h2{font-size:1.15rem}
 a{color:var(--accent-ink)}
 code,pre{font-family:var(--mono)}
+code{overflow-wrap:anywhere}
 strong{color:var(--ink)}
 .muted{color:var(--muted);font-size:14px}
 .brand{display:flex;align-items:center;gap:.55rem;margin:0 0 28px;color:var(--ink);font-weight:700;letter-spacing:-.02em}
 .brand img{display:block;height:28px;width:auto}
 .brand svg{display:block;width:30px;height:30px}
-button{font:inherit;font-weight:600;padding:8px 16px;border-radius:9px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button{font:inherit;font-size:.9rem;font-weight:600;height:36px;padding:0 .95rem;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;border-radius:9px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
 :focus-visible{outline:2px solid var(--accent-ui);outline-offset:2px}
 @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes lift{from{transform:translateY(10px)}to{transform:none}}
