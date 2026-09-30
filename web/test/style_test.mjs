@@ -116,8 +116,9 @@ test("on a phone the Inbox is one column, whatever the panel and focus say", () 
   for (const sel of [".inbox", ".inbox.panel-off", ".inbox.focus"]) {
     assert.equal(lastAt(css, sel, "grid-template-columns", 390), "1fr", `${sel} at 390`);
   }
-  // Between a phone and a desktop the panel narrows, and a desktop keeps three.
-  assert.equal(lastAt(css, ".inbox", "grid-template-columns", 1100), "300px minmax(0,1fr) 300px");
+  // Between a phone and PANEL_BESIDE the panel is a drawer over the conversation, never a column;
+  // from there up a desktop keeps three.
+  assert.equal(lastAt(css, ".inbox", "grid-template-columns", 1100), "300px minmax(0,1fr)");
   assert.equal(lastAt(css, ".inbox", "grid-template-columns", 1440), "300px minmax(0,1fr) 320px");
   // On a phone the panel pane shows even with the panel kept closed beside a thread.
   assert.equal(lastAt(css, '.inbox[data-pane="panel"] .panel', "display", 390), "flex");
@@ -125,4 +126,21 @@ test("on a phone the Inbox is one column, whatever the panel and focus say", () 
   const old = ".inbox{grid-template-columns:a}@media (max-width:900px){.inbox{grid-template-columns:1fr}}@media (max-width:1180px){.inbox{grid-template-columns:b}}";
   assert.equal(lastAt(old, ".inbox", "grid-template-columns", 390), "b");
   assert.equal(lastAt("@container (max-width:40rem){.inbox{grid-template-columns:c}}.inbox{grid-template-columns:d}", ".inbox", "grid-template-columns", 390), "d");
+});
+
+test("between a phone and PANEL_BESIDE the contact panel is a drawer, and the Inbox opens without it there", () => {
+  // As a third column at 1100 it left the conversation 252px (M-F2). The drawer's range and the width
+  // each Inbox opens the panel from are one number: PANEL_BESIDE in messages.tsx is the drawer's max + 1.
+  const beside = Number(/const PANEL_BESIDE = (\d+);/.exec(readFileSync(new URL("../src/views/messages.tsx", import.meta.url), "utf8"))?.[1]);
+  assert.ok(beside > 900, `PANEL_BESIDE is ${beside}`);
+  for (const w of [901, 1100, 1280, beside - 1]) {
+    assert.equal(lastAt(css, ".inbox .panel", "position", w), "absolute", `the panel at ${w}`);
+    assert.equal(lastAt(css, ".inbox", "grid-template-columns", w), "300px minmax(0,1fr)", `the columns at ${w}`);
+    assert.equal(lastAt(css, ".panel .back", "display", w), "inline-flex", `the drawer's close at ${w}`);
+  }
+  for (const w of [beside, 1440]) {
+    assert.equal(lastAt(css, ".inbox .panel", "position", w), null, `the panel at ${w} is a column`);
+    assert.equal(lastAt(css, ".panel .back", "display", w), "none", `no close button beside the conversation at ${w}`);
+  }
+  assert.equal(lastAt(css, ".inbox .panel", "position", 390), null, "a phone's panel is a pane of its own");
 });
