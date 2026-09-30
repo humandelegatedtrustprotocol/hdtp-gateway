@@ -194,6 +194,28 @@ test("a number column's cells and heading are right-aligned together", () => {
   assert.ok(num.length > 0, "no rule aligns td.num and th.num right");
 });
 
+test("the presets' grid is a grid on a screen and wrapping chips on a phone", () => {
+  // A screen: the head shows, each cell is a bare checkbox (the permission's name is the column's), and
+  // a grid wider than the page scrolls in its own box (.table-wrap), not the page.
+  assert.equal(lastAt(css, ".preset-grid > table > thead", "display", 1280), null);
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 1280), "none");
+  assert.equal(lastAt(css, ".table-wrap", "overflow-x", 1280), "auto");
+  // A phone: no head, each preset a card of chips that wrap, each chip saying its permission and
+  // standing one line high.
+  assert.equal(lastAt(css, ".preset-grid > table > thead", "display", 390), "none");
+  assert.equal(lastAt(css, ".preset-grid > table > tbody > tr", "display", 390), "flex");
+  assert.equal(lastAt(css, ".preset-grid > table > tbody > tr", "flex-wrap", 390), "wrap");
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 390), "inline");
+  assert.equal(lastAt(css, ".preset-grid .pg-chip", "white-space", 390), "nowrap");
+  // A row's buttons are ui.tsx's Actions with `inline`: a row of their own width beside the preset's
+  // name on a phone, where every other row of actions is a full-width stack.
+  assert.equal(lastAt(css, ".acts", "flex-direction", 390), "column-reverse");
+  assert.equal(lastAt(css, ".acts.inline", "flex-direction", 390), "row");
+  assert.equal(lastAt(css, ".acts.inline", "width", 390), "auto");
+  // The phone's rules end at 480: at 481 it is the grid again.
+  assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 481), "none");
+});
+
 /** Every input the browser draws as a text field, as a selector: no `type` is type text. */
 export const TEXT_FIELDS = [':not([type])', '[type="text"]', '[type="number"]', '[type="password"]', '[type="url"]',
   '[type="email"]', '[type="search"]', '[type="tel"]', '[type="datetime-local"]'];
