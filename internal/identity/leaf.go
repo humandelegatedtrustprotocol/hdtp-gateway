@@ -322,8 +322,13 @@ func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error)
 			return [][]byte{l.Leaf, a.RootCert}, nil
 		}
 	}
-	return nil, fmt.Errorf("identity: account %s is 2.0 but holds no current leaf", accountID)
+	return nil, fmt.Errorf("%w: account %s is 2.0 but holds no current leaf", ErrNoCertificate, accountID)
 }
+
+// ErrNoCertificate says an identity holds no current leaf, so it has no card to hand out: its wallet
+// has not issued one, or the one it issued has lapsed. It is a state the identity is in, not a fault,
+// and the portal says it as one ("no card yet"); every other failure to build a card is a failure.
+var ErrNoCertificate = errors.New("identity: no current certificate")
 
 // CSRResult is what the host hands the wallet.
 type CSRResult struct {
