@@ -91,7 +91,7 @@ func TestTwoAnswersTogetherInstallOnce(t *testing.T) {
 		switch err := <-errs; {
 		case err == nil:
 			ok++
-		case errors.Is(err, ErrRequestState):
+		case errors.Is(err, ErrRequestAnswered) && errors.Is(err, ErrRequestState):
 			stale++
 		default:
 			t.Fatalf("an answer failed otherwise: %v", err)
