@@ -110,6 +110,18 @@ button:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:default;filter:none
 .btn.busy > svg{display:none}
 .btn.busy::before{content:"";flex:0 0 auto;width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* Spinner (save_mark.tsx): a ring in the line colour with one arc in the accent, turning. Asked for
+   reduced motion, it and the busy button's ring stand still: the arc still says "at work". */
+.spinner{display:inline-block;flex:0 0 auto;width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);border-top-color:var(--accent-ui);animation:spin .7s linear infinite;vertical-align:middle}
+@media (prefers-reduced-motion:reduce){.spinner,.btn.busy::before{animation:none}}
+/* SaveMark (save_mark.tsx): what a row that saves itself shows where its Save was — the spinner, then a
+   check that fades over AUTOSAVE.savedMs (presets.ts), and a small Undo. The slot keeps its width, so
+   the row does not move as they come and go. */
+.save-mark{display:inline-flex;align-items:center;justify-content:flex-end;gap:.2rem;min-width:3.6rem;min-height:28px;vertical-align:middle}
+.save-done{display:inline-flex;color:var(--accent-ink);animation:save-fade 1.5s var(--ease-out) forwards}
+@keyframes save-fade{0%,55%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.save-done{animation:none}}
+.save-mark .btn.icon{width:28px;height:28px;min-height:28px}
 label{display:block;margin:0 0 .3rem;font-weight:600;font-size:.86rem;color:var(--ink)}
 label.inline{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;font-size:.9rem;color:var(--text)}
 label.inline input[type="checkbox"],label.inline input[type="radio"]{margin:.28rem 0 0;flex:0 0 auto}
@@ -848,7 +860,14 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
 .preset-grid .pg-chip input{margin:0}
 .preset-grid .pg-chip-t{display:none}
 .preset-grid input.pg-new{width:100%;min-width:7rem;max-width:12rem;font-weight:400}
-.preset-grid td.pg-acts{text-align:right;padding-left:.45rem}
+.preset-grid td.pg-acts{text-align:right;padding-left:.45rem;white-space:nowrap}
+.preset-grid td.pg-acts > *{vertical-align:middle}
+.preset-grid td.pg-acts > .acts.inline{display:inline-flex;margin-left:.25rem}
+/* A row whose save is out: its checkboxes are disabled until the answer. A refused save's reason is a
+   line of its own under the row (preset_grid.tsx), the row back as it is saved. */
+.preset-grid tr.pg-saving .pg-chip{cursor:progress;opacity:.6}
+.preset-grid tbody tr.pg-fail > td{padding:0 .85rem .6rem;text-align:left;white-space:normal}
+.preset-grid tbody tr.pg-fail .notice{margin:0}
 @media (max-width:480px){
   .preset-grid{overflow:visible}
   .preset-grid > table,.preset-grid > table > tbody{display:block;border:0;background:none;border-radius:0;min-width:0}
@@ -864,4 +883,8 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
   .preset-grid .pg-chip{min-height:30px;gap:.25rem;padding:.15rem .5rem .15rem .35rem;border:1px solid var(--line-2);border-radius:999px;background:var(--bg);font-size:.82rem;white-space:nowrap;color:var(--ink)}
   .preset-grid .pg-chip:has(input:checked){border-color:var(--accent-ui);background:color-mix(in srgb,var(--accent-ui) 10%,var(--bg))}
   .preset-grid .pg-chip-t{display:inline}
+  /* A refusal's line is no card of its own: it hangs under the card it is about. */
+  .preset-grid > table > tbody > tr.pg-fail{display:block;padding:0;margin:-.25rem 0 .5rem;border:0;background:none}
+  .preset-grid > table > tbody > tr.pg-fail::after{content:none}
+  .preset-grid tbody tr.pg-fail > td{display:block;padding:0;border:0}
 }
