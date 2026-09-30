@@ -9,7 +9,7 @@ with no platform in the middle deciding who may talk to whom.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
-[![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/tech-sumit/pact-protocol)
+[![Protocol](https://img.shields.io/badge/protocol-PACT%202.0-5b47b3)](https://github.com/pact-cloud/pact-protocol)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
@@ -353,7 +353,7 @@ Claims are cheap, so here is what is actually checked.
 
 **The spec comes first.** [`SPEC.md`](SPEC.md) is normative, and a wire-visible
 change needs a spec edit before code. The protocol lives in a
-[separate repository](https://github.com/tech-sumit/pact-protocol) so other
+[separate repository](https://github.com/pact-cloud/pact-protocol) so other
 implementations can exist.
 
 **Tests that run the product rather than a mock.** More than 500 test functions,
