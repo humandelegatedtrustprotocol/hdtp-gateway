@@ -105,7 +105,7 @@ export function Audit() {
       {/* The outcome sits beside the time, where it cannot scroll out of view: this page's promise is
           that a refusal is as loud as a success. */}
       <div className="audit-t">
-        <Table head={["Seq", "When", "Outcome", "Who", "Action", "About"]}
+        <Table stack={false} head={["Seq", "When", "Outcome", "Who", "Action", "About"]}
           empty={<EmptyState title={filtering ? "Nothing matches those filters" : "Nothing recorded yet"} />}>
           {shown.map(({ row: r, actor, about }) => (
             <tr key={r.Seq}>

@@ -62,3 +62,67 @@ test("only the Inbox makes a wide page a column", () => {
   assert.deepEqual(widePagesAsColumns("main.wide{max-width:none;padding:0;flex:1;display:flex;flex-direction:column;min-height:0}main.wide:has(.inbox){display:flex;min-height:0}"),
     ["main.wide"]);
 });
+
+/**
+ * The sheet's rules in source order, each with the width range its @media wraps it in ([min, max] px;
+ * Infinity when open). Nested blocks narrow the range. Rules inside anything but a width @media (a
+ * container query, a reduced-motion or colour-scheme query) are kept out: they do not decide a column.
+ */
+export function rulesByWidth(sheet) {
+  const body = sheet.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out = [];
+  const stack = [];
+  let i = 0;
+  let head = "";
+  for (; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "{") {
+      const sel = head.trim();
+      head = "";
+      if (sel.startsWith("@")) {
+        const at = stack.length ? stack[stack.length - 1] : { min: 0, max: Infinity, other: false };
+        const min = /min-width:\s*(\d+)px/.exec(sel), max = /max-width:\s*(\d+)px/.exec(sel);
+        const widthOnly = /^@media\s*(\((min|max)-width:\s*\d+px\)\s*(and\s*)?)+$/.test(sel);
+        stack.push({ min: min ? Math.max(at.min, +min[1]) : at.min, max: max ? Math.min(at.max, +max[1]) : at.max, other: at.other || !widthOnly, at: true });
+        continue;
+      }
+      const end = body.indexOf("}", i);
+      const at = stack.length ? stack[stack.length - 1] : { min: 0, max: Infinity, other: false };
+      if (!at.other) out.push({ sel, decls: body.slice(i + 1, end), min: at.min, max: at.max });
+      i = end;
+      continue;
+    }
+    if (ch === "}") { stack.pop(); head = ""; continue; }
+    head += ch;
+  }
+  return out;
+}
+
+/** The last value `prop` is given for exactly `selector` among the rules that apply at `width`. */
+export function lastAt(sheet, selector, prop, width) {
+  let v = null;
+  for (const r of rulesByWidth(sheet)) {
+    if (width < r.min || width > r.max) continue;
+    if (!r.sel.split(",").map((s) => s.trim()).includes(selector)) continue;
+    const got = value(r.decls, prop);
+    if (got !== null) v = got;
+  }
+  return v;
+}
+
+test("on a phone the Inbox is one column, whatever the panel and focus say", () => {
+  // Every class combination that sets the inbox's columns: at 390 each must end at one column, or the
+  // phone draws three 300px panes in a 390px screen (M-F1).
+  for (const sel of [".inbox", ".inbox.panel-off", ".inbox.focus"]) {
+    assert.equal(lastAt(css, sel, "grid-template-columns", 390), "1fr", `${sel} at 390`);
+  }
+  // Between a phone and a desktop the panel narrows, and a desktop keeps three.
+  assert.equal(lastAt(css, ".inbox", "grid-template-columns", 1100), "300px minmax(0,1fr) 300px");
+  assert.equal(lastAt(css, ".inbox", "grid-template-columns", 1440), "300px minmax(0,1fr) 320px");
+  // On a phone the panel pane shows even with the panel kept closed beside a thread.
+  assert.equal(lastAt(css, '.inbox[data-pane="panel"] .panel', "display", 390), "flex");
+  // The evaluator sees what it exists for: a later ≤1180 rule re-imposing columns on a phone.
+  const old = ".inbox{grid-template-columns:a}@media (max-width:900px){.inbox{grid-template-columns:1fr}}@media (max-width:1180px){.inbox{grid-template-columns:b}}";
+  assert.equal(lastAt(old, ".inbox", "grid-template-columns", 390), "b");
+  assert.equal(lastAt("@container (max-width:40rem){.inbox{grid-template-columns:c}}.inbox{grid-template-columns:d}", ".inbox", "grid-template-columns", 390), "d");
+});

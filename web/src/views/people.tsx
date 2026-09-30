@@ -5,10 +5,11 @@
 // The three routes are kept: /contacts, /requests and /invites each open this
 // page on the matching tab, so old links, the dashboard's "waiting" link and the
 // nav all still land where they say they will.
-import { useCallback, useEffect, useState } from "react";
-import { getJSON, postForm } from "../api";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { failureOf, getJSON, postForm } from "../api";
 import { usePath } from "../router";
-import { Avatar, Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Readout, Section, Table, Tabs, Toolbar, type Note } from "../ui";
+import { Avatar, Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Table, Tabs, Toolbar, type Note } from "../ui";
+import { IdText, UrlText } from "../glance";
 
 type Contact = { fingerprint: string; label: string; status: string };
 type ContactsData = { contacts: Contact[] | null; presets: string[]; can_add: boolean };
@@ -45,24 +46,31 @@ export function People() {
     return said ? { kind: "ok", text: said } : null;
   });
 
+  // A read that failed is kept as its refusal, one per tab: it is never drawn as loading, or as a tab
+  // with nothing in it.
+  const [cErr, setCErr] = useState("");
+  const [rErr, setRErr] = useState("");
+  const [iErr, setIErr] = useState("");
+
   // All three load together: the Requests tab carries a count, and a count you
   // only learn by visiting the tab is not a count worth having.
   const load = useCallback(() => {
-    getJSON<ContactsData>("/api/contacts").then(setC).catch(() => {});
-    getJSON<RequestsData>("/api/requests").then(setR).catch(() => {});
-    getJSON<InvitesData>("/api/invites").then(setI).catch(() => {});
+    getJSON<ContactsData>("/api/contacts").then((x) => { setC(x); setCErr(""); }).catch((e) => setCErr(failureOf(e)));
+    getJSON<RequestsData>("/api/requests").then((x) => { setR(x); setRErr(""); }).catch((e) => setRErr(failureOf(e)));
+    getJSON<InvitesData>("/api/invites").then((x) => { setI(x); setIErr(""); }).catch((e) => setIErr(failureOf(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const header = <PageHeader title="People" sub="Who can reach you, who wants to, and the links that let them." />;
-  if (!c || !r || !i) return <main>{header}<EmptyState loading /></main>;
+  if (!(c || cErr) || !(r || rErr) || !(i || iErr)) return <main className="tables">{header}<EmptyState loading /></main>;
 
-  const contacts = (c.contacts ?? []).length;
-  const waiting = (r.pending ?? []).length + (r.addresses ?? []).length;
-  const live = (i.invites ?? []).filter((x) => !x.RevokedAt).length;
+  // A tab whose read failed carries no count: nothing was counted.
+  const contacts = c ? (c.contacts ?? []).length : 0;
+  const waiting = r ? (r.pending ?? []).length + (r.addresses ?? []).length : 0;
+  const live = i ? (i.invites ?? []).filter((x) => !x.RevokedAt).length : 0;
 
   return (
-    <main>
+    <main className="tables">
       {header}
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
 
@@ -74,9 +82,9 @@ export function People() {
         { key: "invites", label: "Invites", to: TAB_PATH.invites, count: live || undefined },
       ]} />
 
-      {tab === "contacts" && <ContactsTab d={c} onNote={setNote} reload={load} />}
-      {tab === "requests" && <RequestsTab d={r} reload={load} onNote={setNote} />}
-      {tab === "invites" && <InvitesTab d={i} reload={load} onNote={setNote} />}
+      {tab === "contacts" && (c ? <ContactsTab d={c} onNote={setNote} reload={load} /> : <Failed what="your contacts" error={cErr} retry={load} />)}
+      {tab === "requests" && (r ? <RequestsTab d={r} reload={load} onNote={setNote} /> : <Failed what="your requests" error={rErr} retry={load} />)}
+      {tab === "invites" && (i ? <InvitesTab d={i} reload={load} onNote={setNote} /> : <Failed what="your invites" error={iErr} retry={load} />)}
     </main>
   );
 }
@@ -177,11 +185,10 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
           {moved.map((a) => (
             <tr key={a.root}>
               <td>
-                {a.name || <span className="muted">—</span>}
-                <Readout value={a.root} />
+                <Who name={a.name} id={a.root} />
               </td>
-              <td>{a.pinned_endpoint ? <Readout value={a.pinned_endpoint} /> : <span className="muted">not pinned (removed)</span>}</td>
-              <td><Readout value={a.endpoint} /></td>
+              <td>{a.pinned_endpoint ? <UrlText url={a.pinned_endpoint} /> : <span className="muted">not pinned (removed)</span>}</td>
+              <td><UrlText url={a.endpoint} /></td>
               <td>
                 <Toolbar>
                   <Button onClick={async () => {
@@ -205,18 +212,20 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
     )}
     <Section title="Waiting for approval"
       description="Approving pins their key and lets them use whatever the preset grants. The fingerprint is the identity — the name is only what they claim.">
-      <Table head={["Who", "Fingerprint", "Grant", ""]} empty={<EmptyState title="Nobody is waiting" />}>
+      <Table head={["Who", "Grant", ""]} empty={<EmptyState title="Nobody is waiting" />}>
         {rows.map((p) => (
           <tr key={p.fingerprint}>
             <td>
-              {p.display_name || <span className="muted">—</span>}
-              {/* A pill says what kind of request it is, in a word or two; the words after it are a line of their own. */}
-              {p.via_invite && <> <Badge>via invite</Badge></>}
-              {p.address_claim && <> <Badge tone="warn" title={p.address_claim.root}>address claim</Badge></>}
+              {/* The fingerprint IS who is being approved, so it sits under their name, short and copyable,
+                  rather than in a column of its own that pushed Approve off the page. A pill says what kind
+                  of request it is, in a word or two; the words after it are a line of their own. */}
+              <Who name={p.display_name} id={p.fingerprint}>
+                {p.via_invite && <Badge>via invite</Badge>}{" "}
+                {p.address_claim && <Badge tone="warn" title={p.address_claim.root}>address claim</Badge>}
+              </Who>
               {p.via_invite && p.invite_label && <span className="cell-note">Invite: {p.invite_label}</span>}
               {p.address_claim && <span className="cell-note">At the address of {p.address_claim.name}: not them unless they say so.</span>}
             </td>
-            <td><Readout value={p.fingerprint} /></td>
             <td>
               <select aria-label="Grant preset" value={preset[p.fingerprint] ?? (p.via_invite ? "" : d.presets[0])}
                 onChange={(e) => setPreset({ ...preset, [p.fingerprint]: e.target.value })}>
@@ -249,6 +258,23 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
         ))}
       </Table>
     </Section>
+    </>
+  );
+}
+
+/**
+ * Who a row is about: the name they gave (two lines at most, the whole of it in the title), or
+ * "Unnamed contact" when they gave none; any pills beside it; and under it their fingerprint, short,
+ * with its copy button — the one handle that is theirs whatever they call themselves.
+ */
+function Who({ name, id, children }: { name?: string; id: string; children?: ReactNode }) {
+  return (
+    <>
+      <span className="who-l">
+        {name ? <span className="name" title={name}>{name}</span> : <span className="name unnamed">Unnamed contact</span>}
+        {children}
+      </span>
+      <span className="sub-id"><IdText id={id} /></span>
     </>
   );
 }
@@ -323,14 +349,15 @@ function InvitesTab({ d, reload, onNote }: {
           </Field>
         </div>
       </Section>
-      <Table head={["Label", "Uses", "Preset", "Auto", "State", ""]} empty={<EmptyState title="No invites yet" />}>
+      <Table head={["Label", "Uses", "Preset", "State", ""]} empty={<EmptyState title="No invites yet" />}>
         {(d.invites ?? []).map((x) => (
           <tr key={x.ID}>
-            <td>{x.Label || <span className="muted">—</span>}</td>
+            <td>{x.Label ? <span className="name" title={x.Label}>{x.Label}</span> : <span className="muted">—</span>}</td>
             <td>{x.Uses}/{x.MaxUses}</td>
             <td>{x.Preset}</td>
-            <td>{x.AutoAccept ? <Badge tone="ok">auto</Badge> : <span className="muted">—</span>}</td>
-            <td><Badge status={x.RevokedAt ? "revoked" : "live"} /></td>
+            {/* Auto-accept is a fact about how the invite works, so it is said under its state rather than
+                in a column of its own. */}
+            <td><Badge status={x.RevokedAt ? "revoked" : "live"} />{x.AutoAccept && <span className="cell-note">auto‑accept</span>}</td>
             <td>
               {!x.RevokedAt && (
                 <Toolbar>

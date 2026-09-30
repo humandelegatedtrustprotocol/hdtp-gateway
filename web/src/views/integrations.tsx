@@ -3,8 +3,8 @@
 // rest quiet — with the add form, credentials and OAuth client behind
 // disclosures so the page reads as a list, not a wall of forms.
 import { useCallback, useEffect, useState } from "react";
-import { csrf, currentAccount, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
+import { csrf, currentAccount, failureOf, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
 
 type Row = { ID: string; Slug: string; Transport: string; Endpoint: string; Command: string; AuthKind: string; Status: string };
 type Data = { rows: Row[] | null; can_set_static: boolean; can_set_oauth: boolean };
@@ -22,7 +22,8 @@ export function Integrations() {
   const [oauth, setOauth] = useState<Record<string, { id: string; secret: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [watching, setWatching] = useState<string | null>(null);
-  const load = useCallback(() => getJSON<Data>("/api/integrations").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/integrations").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
   // The provider's sign-in opens in a NEW tab, so this one stays on the list
   // and updates itself: while a flow is out, the row is re-read every two
@@ -94,7 +95,7 @@ export function Integrations() {
       actions={<Button icon="plus" onClick={() => setAdding((v) => !v)} aria-pressed={adding}>Add integration</Button>}
     />
   );
-  if (!d) return <main>{header}<EmptyState loading /></main>;
+  if (!d) return <main>{header}{err ? <Failed what="the integrations" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const addForm = (
     <Section title="New integration" description="Give it a short name; the transport and address are what the node dials."

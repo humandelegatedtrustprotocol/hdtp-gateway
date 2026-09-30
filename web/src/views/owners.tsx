@@ -2,8 +2,8 @@
 // runs the node with. Token creation answers with the plaintext exactly once,
 // so that response is the page state rather than a re-fetch.
 import { useCallback, useEffect, useState } from "react";
-import { getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Field, List, ListRow, Notice, PageHeader, Section, type Note } from "../ui";
+import { failureOf, getJSON, postForm } from "../api";
+import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, type Note } from "../ui";
 
 type Passkey = { id: string; tag: string; created_at: number };
 type Token = { id: string; label: string; account_id?: string; revoked: boolean };
@@ -14,11 +14,12 @@ export function Owners() {
   const [label, setLabel] = useState("");
   const [note, setNote] = useState<Note | null>(null);
   const [fresh, setFresh] = useState("");
-  const load = useCallback(() => getJSON<Data>("/api/owners").then(setD).catch(() => {}), []);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => getJSON<Data>("/api/owners").then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e))), []);
   useEffect(() => { load(); }, [load]);
 
   const header = <PageHeader title="Owners" />;
-  if (!d) return <main>{header}<EmptyState loading /></main>;
+  if (!d) return <main>{header}{err ? <Failed what="the owners" error={err} retry={load} /> : <EmptyState loading />}</main>;
 
   const post = async (path: string, fields: Record<string, string> = {}) => {
     const r = await postForm(path, fields);
