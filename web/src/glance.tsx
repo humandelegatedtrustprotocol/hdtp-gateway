@@ -99,8 +99,15 @@ function CertificateLine({ c }: { c: CertificateView | { failed: string } }) {
  * their numbers — each a link to where it is explained. `onClick` on a count is how a card for an
  * identity other than the selected one selects it before the link lands. A page that shows the same
  * numbers in its tiles (one identity) passes no counts.
+ *
+ * With `to`, the whole card opens it (the owner, 2026-09-30: "on card clicked should take to the vcard
+ * page"): the name is the one link, and the sheet stretches it over the card, so the card is one tab stop
+ * with a link's semantics rather than a clickable box. `onClick` runs before it lands, as a count's does.
+ * The card's other controls — the footer's button, the counts, the fingerprint's copy button — sit above
+ * the stretched link and are never inside it. The details stand one under another beside the avatar
+ * (name, fingerprint, address, certificate), and the footer sits on the right.
  */
-export function IdentityCard({ name, handle, address, status, certificate, counts, footer }: {
+export function IdentityCard({ name, handle, address, status, certificate, counts, footer, to, onClick }: {
   name: string;
   handle?: ReactNode;
   address?: ReactNode;
@@ -109,16 +116,23 @@ export function IdentityCard({ name, handle, address, status, certificate, count
   certificate: CertificateView | { failed: string };
   counts: CardCount[];
   footer?: ReactNode;
+  /** Where the card opens: its name is a link there, stretched over the card. */
+  to?: string;
+  /** What runs before `to` lands: selecting the card's identity. */
+  onClick?: () => void;
 }) {
   return (
-    <article className="gl-id" aria-label={name}>
+    <article className={"gl-id" + (to ? " gl-go" : "")} aria-label={name}>
       <div className="top">
         <Avatar name={name} />
-        <div className="who"><b title={name}>{name}</b>{handle && <small>{handle}</small>}</div>
-        {status}
+        <div className="who">
+          <div className="nm"><b title={name}>{to ? <Link to={to} onClick={onClick} className="gl-open">{name}</Link> : name}</b>{status}</div>
+          {handle && <small>{handle}</small>}
+          {address && <div className="addr">{address}</div>}
+          <div className="cert"><CertificateLine c={certificate} /></div>
+        </div>
+        {footer && <div className="foot">{footer}</div>}
       </div>
-      {address && <div className="addr">{address}</div>}
-      <div className="cert"><CertificateLine c={certificate} /></div>
       {counts.length > 0 && <div className="counts">
         {counts.map((c) => {
           const failed = c.value === null;
@@ -129,12 +143,11 @@ export function IdentityCard({ name, handle, address, status, certificate, count
             : <div key={c.label} className={cls}>{body}</div>;
         })}
       </div>}
-      {footer && <div className="foot">{footer}</div>}
     </article>
   );
 }
 
-/** The cards, as many across as fit; a lone card is not stretched across the page. */
+/** The cards, as many across as fit; a lone card takes the row, its button at the far right. */
 export function IdentityCards({ children }: { children: ReactNode }) {
   return <div className="gl-ids">{children}</div>;
 }
