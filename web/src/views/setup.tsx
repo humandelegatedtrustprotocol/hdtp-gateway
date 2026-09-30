@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { passkeyRegister } from "../webauthn";
-import { Brand, Button, Field, Notice, Toolbar, type Note } from "../ui";
+import { Brand, Button, Field, HelpTip, Notice, Toolbar, type Note } from "../ui";
 
 export function Setup() {
   const [tag, setTag] = useState("this device");
@@ -14,9 +14,12 @@ export function Setup() {
         claim the node — so do it now, on the device you will use.
       </p>
       <p className="muted">
-        The passkey is bound to the address in your browser's address bar. If you later move the portal
-        to a different hostname you will need to register again (<code>passkey reset-wizard</code> mints
-        a fresh link).
+        The passkey is bound to this address.
+        <HelpTip label="About the passkey's address">
+          The passkey is bound to the address in your browser's address bar. If you later move the portal
+          to a different hostname you will need to register again (<code>passkey reset-wizard</code> mints
+          a fresh link).
+        </HelpTip>
       </p>
       <Field label="Name this passkey" id="tag">
         <input type="text" maxLength={64} value={tag} onChange={(e) => setTag(e.target.value)} />

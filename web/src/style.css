@@ -795,3 +795,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 /* A readout of whole lines (commands, one a line): each line kept whole, scrolled sideways on a phone. */
 .readout.block.pre{min-width:0}
 .readout.block.pre code{white-space:pre;word-break:normal;overflow-x:auto;min-width:0;line-height:1.7}
+
+/* ---- the help tip (help.tsx): a `?` beside a short line, the longer explanation in a popover ---- */
+/* The button is the same size open or shut, and the popover is fixed and portalled to <body>, so opening
+   it moves nothing on the page. Its hit area is 26px (::after) around an 18px mark. */
+button.tip-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;min-height:0;padding:0;margin:0 0 0 .3rem;vertical-align:-.2em;border:1px solid var(--line-2);border-radius:50%;background:var(--bg);color:var(--muted);font:600 .72rem/1 var(--sans);cursor:help;flex:0 0 auto;white-space:nowrap}
+button.tip-btn::after{content:"";position:absolute;inset:-4px;border-radius:50%}
+button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(--ink);border-color:var(--muted);background:var(--bg-3)}
+.tip-pop{position:fixed;z-index:80;top:0;left:0;width:max-content;max-width:min(22rem,calc(100vw - 16px));padding:.55rem .7rem;border:1px solid var(--line-2);border-radius:10px;background:var(--raise);color:var(--text);box-shadow:var(--shadow);font:400 .85rem/1.5 var(--sans);letter-spacing:0;text-transform:none;white-space:normal;overflow-wrap:anywhere;text-align:left}
+.tip-pop:not(.placed){visibility:hidden}
+.tip-pop[hidden]{display:none}
+.tip-pop code{font-size:.82em}
+/* A field's label with its tip beside it (ui.tsx Field `tip`): the tip is outside the <label>. */
+.field-l{display:flex;align-items:center;gap:0;margin:0 0 .3rem;min-width:0}
+.field-l > label{margin:0}
+.field.check .field-l{align-items:flex-start;margin:0}
+.field.check .field-l button.tip-btn{margin-top:.2rem}

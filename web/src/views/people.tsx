@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { failureOf, getJSON, postForm } from "../api";
 import { usePath } from "../router";
-import { Avatar, Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Table, Tabs, Toolbar, type Note } from "../ui";
+import { Avatar, Badge, Button, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Table, Tabs, Toolbar, type Note } from "../ui";
 import { IdText, UrlText } from "../glance";
 import { ago, contactPill, contactStatusWord, dateOf, inviteState, usesText, whenTitle } from "../words";
 
@@ -149,13 +149,17 @@ function ContactsTab({ d, onNote, reload }: {
       </List>
       {d.can_add && (
         <Section title="Accept an invite" collapsible open={rows.length === 0}
-          description="Your node fetches their card, checks the key matches the fingerprint it claims, and only then redeems — pinning them as a contact."
+          description={<>Paste the link someone sent you.<HelpTip label="About accepting an invite">
+            Your node fetches their card, checks the key matches the fingerprint it claims, and only then
+            redeems — pinning them as a contact.
+          </HelpTip></>}
           footer={<Button onClick={accept} disabled={!invite.trim()}>Accept invite</Button>}>
           <Field label="Invite link" id="inv">
             <input type="text" placeholder="https://their.node/i/…" value={invite} onChange={(e) => setInvite(e.target.value)} />
           </Field>
           <Field label="What may they do here?" id="grant"
-            help={<>Their invite decides what YOU may do on their node; this is the other half.{" "}<strong>basic</strong> lets them message you, which is what accepting an invite usually means.</>}>
+            help={<><strong>basic</strong> lets them message you.</>}
+            tip="Their invite decides what you may do on their node; this is the other half. basic lets them message you, which is what accepting an invite usually means.">
             <select value={grant} onChange={(e) => setGrant(e.target.value)}>
               {d.presets.map((p) => <option key={p}>{p}</option>)}
               <option value="none">none — they cannot reach me</option>
@@ -165,7 +169,9 @@ function ContactsTab({ d, onNote, reload }: {
       )}
       {d.can_add && (
         <Section title="Connect from a card" collapsible open={rows.length === 0}
-          description="Somebody gave you their contact card — a .vcf file, or its text — instead of an invite link. Your node asks them at the address their card names; they are listed as waiting until they approve."
+          description={<>Use a .vcf card instead of an invite link.<HelpTip label="About connecting from a card">
+            Your node asks them at the address their card names; they are listed as waiting until they approve.
+          </HelpTip></>}
           footer={<Button onClick={askFromCard} disabled={!card.trim()}
             confirm="Connect our agents? Your node sends them your card and asks to be added.">Ask to connect</Button>}>
           <Field label="Their card (.vcf)" id="cardfile">
@@ -191,7 +197,9 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
     <>
     {moved.length > 0 && (
       <Section title="Waiting at a new address"
-        description="A contact is answering from an address you have not approved. Approving moves the pin there, or re-adds a contact you removed; rejecting leaves the pin as it was.">
+        description={<>A contact is answering from an address you have not approved.<HelpTip label="About a new address">
+          Approving moves the pin there, or re-adds a contact you removed; rejecting leaves the pin as it was.
+        </HelpTip></>}>
         <Table head={["Who", "Pinned at", "Now at", ""]}>
           {moved.map((a) => (
             <tr key={a.root}>
@@ -222,7 +230,9 @@ function RequestsTab({ d, reload, onNote }: { d: RequestsData; reload: () => voi
       </Section>
     )}
     <Section title="Waiting for approval"
-      description="Approving pins their key and lets them use whatever the preset grants. The fingerprint is the identity — the name is only what they claim.">
+      description={<>The fingerprint is who they are; the name is only a claim.<HelpTip label="About approving">
+        Approving pins their key and lets them use whatever the preset grants.
+      </HelpTip></>}>
       <Table head={["Who", "Grant", ""]} empty={<EmptyState title="Nobody is waiting" />}>
         {rows.map((p) => (
           <tr key={p.fingerprint}>
@@ -333,7 +343,9 @@ function InvitesTab({ d, reload, onNote }: {
         <Notice kind="ok" title="Share this link — it is shown once"
           action={<Button variant="secondary" onClick={() => navigator.clipboard?.writeText(link(fresh))}>Copy</Button>}>
           <pre>{link(fresh)}</pre>
-          <p className="muted">Your node keeps only a hash of the link, so it cannot show it again. Lost it? Revoke this invite below and create another.</p>
+          <p className="muted">Lost it? Revoke it and create another.<HelpTip label="Why only once">
+            Your node keeps only a hash of the link, so it cannot show it again.
+          </HelpTip></p>
         </Notice>
       )}
       {fresh && !link(fresh) && (

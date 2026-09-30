@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, failureOf, getJSON, postForm } from "../api";
 import { navigate } from "../router";
-import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, trustWord, type Note } from "../ui";
+import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, trustWord, type Note } from "../ui";
 import { IdText } from "../glance";
 import { contactPill, contactStatusWord } from "../words";
 
@@ -134,7 +134,9 @@ export function ContactDetail({ fpr }: { fpr: string }) {
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
 
       <Section title="Your name for them"
-        description="Optional, and yours alone — they are never told, and no contact can change it. Leave it empty to use the name on their card."
+        description={<>Private to you. Empty uses the name on their card.<HelpTip label="About your name for them">
+          They are never told, and no contact can change it.
+        </HelpTip></>}
         footer={<Button onClick={saveName}>Save name</Button>}>
         <Field label="Name">
           <input type="text" maxLength={64} placeholder={d.display_name} value={petname ?? d.petname} onChange={(e) => setPetname(e.target.value)} />
@@ -143,7 +145,7 @@ export function ContactDetail({ fpr }: { fpr: string }) {
 
       <PermForm d={d} onSubmit={savePerms} />
 
-      <Section title="Trust" description="Whether things they send may INSTRUCT your agent, or are only messages to read.">
+      <Section title="Trust" description="May what they send instruct your agent, or only be read?">
         {TRUST.map((t) => (
           <Field key={t} check label={<span title={t}>{trustWord(t)}</span>}>
             <input type="radio" name="trust" value={t} checked={trust === t} onChange={() => setTrust(t)} />
@@ -169,21 +171,33 @@ export function ContactDetail({ fpr }: { fpr: string }) {
       </Section>
 
       <Section title="Their card"
-        description="Your node learns a renewed certificate or a changed name the next time the two of you talk, and checks nothing in the background. Ask now if you want it sooner: this reaches this one contact and nobody else. Who they are and where they answer cannot change this way."
+        description={<>Fetch their latest certificate and name now.<HelpTip label="About refreshing a card">
+          Your node learns a renewed certificate or a changed name the next time the two of you talk, and
+          checks nothing in the background. This reaches this one contact and nobody else. Who they are and
+          where they answer cannot change this way.
+        </HelpTip></>}
         footer={<Button variant="secondary" busy={refreshing} onClick={refresh}>Refresh now</Button>} />
 
       {d.status === "blocked"
         ? <Section title="Unblock"
             description={d.was_contact
-              ? "They come back as a contact, with the permissions and trust they had. They are not told, as they were not told of the block."
-              : "They were never a contact: this is a request you rejected, or an approach of yours they declined. Unblocking forgets them, so they are a stranger again and may ask again."}
+              ? "They come back with the permissions and trust they had. They are not told."
+              : <>Unblocking forgets them; they may ask again.<HelpTip label="About unblocking">
+                  They were never a contact: this is a request you rejected, or an approach of yours they declined.
+                  Unblocking makes them a stranger again.
+                </HelpTip></>}
             footer={<Button variant="secondary" onClick={() => act(`${base}/unblock`, !d.was_contact)}>Unblock</Button>} />
         : <Section tone="danger" title="Block"
-            description="Silent: they are not told, and from now on they see exactly what a stranger sees and reach nothing. You can unblock them."
+            description={<>They are not told, and reach nothing. You can unblock them.<HelpTip label="About blocking">
+              From now on they see exactly what a stranger sees.
+            </HelpTip></>}
             footer={<Button variant="danger" confirm={`Block ${shownName}? They are not told.`} onClick={() => act(`${base}/block`, false)}>Block</Button>} />}
 
       <Section tone="danger" title="Remove contact"
-        description="Deletes the pin, so they can reach nothing. An active contact is told, so their node lets you go too; the removal stands here even if they cannot be reached. A request, or a blocked contact, is removed without telling them."
+        description={<>Deletes the pin, so they can reach nothing.<HelpTip label="About removing a contact">
+          An active contact is told, so their node lets you go too; the removal stands here even if they cannot
+          be reached. A request, or a blocked contact, is removed without telling them.
+        </HelpTip></>}
         footer={<Button variant="danger" confirm={d.status === "active"
           ? `Remove ${shownName}? Their node is told, and their pin is deleted here even if it cannot be reached.`
           : `Remove ${shownName}? Their pin is deleted. They are not told.`} onClick={() => act(`${base}/remove`, true)}>Remove contact</Button>} />
