@@ -24,9 +24,14 @@ func TestTheTwoAddressClaimsAgree(t *testing.T) {
 	m := &contacts.Manager{Store: e.st, Now: func() time.Time { return e.nowAt }}
 
 	const recent, stale, fresh = "https://recent.example/mcp", "https://stale.example/mcp", "https://fresh.example/mcp"
+	// Roots that moved away: real fingerprints, as every writer of a former endpoint takes one from a
+	// verified chain or a pin. Decide reads each former endpoint's root, and the core's stricter
+	// reading (pact-identity's port-parity branch) refuses a root that is not a fingerprint, which
+	// failed every sealed call to the account as "recipient state unavailable".
+	movedLately, movedLongAgo := newPeer(t, fixedNow).fpr(), newPeer(t, fixedNow).fpr()
 	for _, f := range []store.FormerEndpoint{
-		{AccountID: e.acct.ID, Root: "sha256:moved-lately", Endpoint: recent, At: fixedNow.Add(-pactidentity.ClaimWindow + time.Hour).Unix()},
-		{AccountID: e.acct.ID, Root: "sha256:moved-long-ago", Endpoint: stale, At: fixedNow.Add(-pactidentity.ClaimWindow - time.Hour).Unix()},
+		{AccountID: e.acct.ID, Root: movedLately, Endpoint: recent, At: fixedNow.Add(-pactidentity.ClaimWindow + time.Hour).Unix()},
+		{AccountID: e.acct.ID, Root: movedLongAgo, Endpoint: stale, At: fixedNow.Add(-pactidentity.ClaimWindow - time.Hour).Unix()},
 	} {
 		if err := e.st.InsertFormerEndpoint(ctx, f); err != nil {
 			t.Fatal(err)

@@ -72,19 +72,70 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
   every port.
 - **P4 (release).** pact-identity 0.5.0 (a minor bump: stricter reading changes answers). `gate.sh`, the
   pin, `make release`, `publish`, `verify-release`.
+  - **Cards already stored, read by the stricter core.** The node's intake (`contacts.ValidateInbound`)
+    and its seal policy (`contacts.SealOf`) both read a card with the core's `DecodeCard`, today
+    0.4.1's. A card 0.4.1 accepted at intake and 0.5.0 refuses stays on file after the node's bump
+    (P5), and `SealOf` then answers an error for it: that contact cannot be written to (`node.PeerOf`
+    refuses it) until a card of theirs that reads arrives. So the node's bump carries a migration
+    check: `SealOf`, under 0.5.0, over every stored card (every account, every status), run before
+    the bump is pushed, naming each card it refuses with its contact and the reason. The owner then
+    refreshes each of those contacts (the on-demand refresh of ONE contact, standing rule 5) or
+    re-adds it from a new card, and the bump ships when the list is empty or the owner has accepted
+    what is left on it.
 - **P5 (node), after the two-layer node PR lands.** Bump to 0.5.0; S8's node lint; S9 (one decision for
   both doors); N4 (card signatures through the port); N5 (the port's private-address list); N9 (the
   port's card decode); every node finding; the new leads that verify.
 - **P6 (cloud), after the two-layer cloud PR lands.** Bump to 0.5.0; S8's cloud lint; R37/CW-01 (the
   core sees the members as received); CW-02; R38 (`media_holds_private_key` from the core); every cloud
   finding; the new leads that verify (the 60 s proof lifetime; redeeming a node's invite).
+  - **A cloud lead to fix: PACT Cloud seals to every contact, whatever its card says.** Its outbound
+    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-PACT-SEAL`, so a
+    contact whose card says `none`, or has no such line (PACT §3: "Absent = none"), is sent an
+    envelope it said it would not take — PACT §13.4's "senders MUST NOT seal", broken. The node
+    reads the policy off the card on file (`contacts.SealOf`, fix/parity-leads). The cloud's fix is
+    the same reading, from the core's `DecodeCard`, on every outbound door, with a test that a `none`
+    card and a card with no line are called in plaintext.
 
 **(owner) N1:** SPEC §5.3 (SPEC.md:307) reads a removal tombstone only when there is no pin; the node's
 TLS door also applies it to a pinned root. The plan makes the TLS door follow the SPEC and the seed.
 If the owner wants a pinned root to be refused after a removal too, that is a SPEC change instead.
+
+**(owner) A contact with no card on file** (found closing lead 4, 2026-09-30). SPEC §3 reads a card
+with no `X-PACT-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
+`DecodeCard` reading). Two paths write a contact with no card at all: an import, whose contacts.csv
+carries neither a card nor a policy (§9.2), and the owner approving a root that returned after a
+removal (`contacts.DecideAddress`), which re-adds it from the pending address — a leaf and an
+endpoint, no card. Either way the host does not know whether the contact accepts envelopes until a
+card of theirs reaches it. The SPEC does not say what a host assumes then. The node seals to such a
+contact, as it always did; PACT Cloud seals to every contact whatever its card says, which breaks
+§13.4 for a card that says `none` and is a cloud lead to fix (P6). If the owner wants something else
+(plaintext, or asking the contact's plain `tools/list` whether it lists `sealed_call`), that is a
+SPEC sentence first.
 
 ## 4. What this plan does not do
 
 - It does not change the wire format or any SPEC MUST, except where §2.4 of the report shows the seed
   and a MUST disagree; each such case is named in its commit.
 - It does not touch the rate-limit work in flight.
+
+## 5. What the node's leads leave for pact-identity (fix/parity-leads, 2026-09-30)
+
+- **Lead 2: `pending_approval` names no signer.** A `pending_out` contact's sealed call is decided
+  `pending_approval`, and Decide's result is `{code}` alone, in both ports and in the contract
+  (`$defs` Decision, `additionalProperties: false`), at 0.4.1 and at the port-parity branch
+  (d029713). The signature has verified by then (Go's `Decide` at 0.4.1: in the small form after
+  `VerifyDetached` under the pinned leaf, in the full form after `ValidateChain` and `VerifyDetached`
+  under the chain's leaf), but the node is not told under which leaf. The node now reads it itself
+  (`public.signerOf`: the peeked chain's leaf, or the pinned leaf the small form names, matched as
+  `pinHolding` matches it, and only for a `pending_out` pin) and seals the refusal to it, and the
+  budget's refusal on that path too, and charges the call to the root that signed, which pays as a
+  proven pending contact: the guest bucket of that root at its address, no guest total, its source
+  known (`TestAPendingContactsSealedCallIsAnsweredPendingApproval`; `node.chargeOf`, held by
+  `TestASealedContactIsNotBudgetedAsAGuest`'s "a pending_out root at the guest charge"). It still
+  cannot apply the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address under
+  `auto`, is dropped: `decideEnvelope` returns before `apply`). What the node
+  needs: `pending_approval` carrying `root`, `endpoint`, `leaf` and `form`, as `ok` does, in Go's
+  `pendingApproval`, Rust's `envelope/decide.rs` (both places) and the contract. Reading the signer
+  from that answer instead of `signerOf` is a simplification, not a change in what the node answers;
+  applying the effects it carries IS a change (the pin follows), and is a commit of its own with
+  its own test.
