@@ -313,7 +313,8 @@ func nextLeaf(ctx context.Context, cfg *core.Config, st store.Store, auditFn fun
 }
 
 // review is what the person sees before anything is written: every contact the file would write,
-// what this identity already holds and keeps, and where the file disagrees with it.
+// what this identity already holds and keeps, the requests it leaves undecided, and where the file
+// disagrees with it.
 func review(w io.Writer, p *portable.Plan) {
 	if p.New {
 		fmt.Fprintf(w, "a new identity %s, root %s (%q)\n", p.Slug, p.Owner, p.OwnerName)
@@ -337,6 +338,9 @@ func review(w io.Writer, p *portable.Plan) {
 	}
 	for _, root := range p.Keep {
 		fmt.Fprintf(w, "  keep  %s as this host holds it\n", root)
+	}
+	for _, root := range p.Skip {
+		fmt.Fprintf(w, "  skip  %s: a request from them this host holds and nobody has decided; the file does not decide it\n", root)
 	}
 	for _, c := range p.Conflicts {
 		fmt.Fprintf(w, "  the file says %s's %s is %v; this host's %v stands\n", c.Root, c.Field, c.Row, c.Held)

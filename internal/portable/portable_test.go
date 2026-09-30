@@ -648,7 +648,14 @@ func TestTheCorpusIntoANewSlugIsRefusedInTheSameWords(t *testing.T) {
 // A stranger's request this host holds (pending_in), and a file that says the same root is a
 // contact: the held row stands. The person decides the request here, as any other; the file does
 // not accept it for them, and the row is not marked as owed a handshake.
-func TestAHeldRequestIsKeptWhenTheFileNamesTheSameRoot(t *testing.T) {
+//
+// A request is not a contact (PACT §9.2: "a request received and not yet decided stays with the
+// host that received it"), so export_merge is not asked to merge the file's row into it: the root
+// is SKIPPED, and said to be, with no keep and no conflicts. It was handed to export_merge as a
+// held contact, which kept it and reported a conflict for every field the file said otherwise —
+// `status` among them, a stranger's request shown as a contact the file disagreed with — where the
+// cloud skips it (pact-cloud portable.ts). The control is every other row of the file, written.
+func TestAHeldRequestIsSkippedWhenTheFileNamesTheSameRoot(t *testing.T) {
 	ctx := context.Background()
 	raw, _ := fs.ReadFile(exportcorpus.FS, "cases.json")
 	var idx exportcorpus.Index
@@ -660,36 +667,55 @@ func TestAHeldRequestIsKeptWhenTheFileNamesTheSameRoot(t *testing.T) {
 	must(t, err)
 	var row pactidentity.ContactRow
 	for _, r := range contents.Contacts {
-		if r.Leaf != nil {
+		if r.Leaf != nil && r.Status == "active" {
 			row = r
 		}
 	}
 	if row.Root == "" {
-		t.Fatal("the corpus's valid export must hold a row whose leaf pins")
+		t.Fatal("the corpus's valid export must hold an active row whose leaf pins")
 	}
-	e := newEnv(t, sqliteStore)
-	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
-	must(t, err)
-	must(t, e.st.SetAccountRoot(ctx, a.ID, idx.Owner, nil))
-	_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: row.Root, SPKI: []byte("req-spki"), Status: "pending_in",
-		Endpoint: "https://asker.example/a/x/mcp", Leaf: []byte("request-leaf"), PinnedAt: 5})
-	must(t, err)
+	for _, eng := range engines(t) {
+		t.Run(eng.name, func(t *testing.T) {
+			e := newEnv(t, eng.open)
+			a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina", Algo: "p256"})
+			must(t, err)
+			must(t, e.st.SetAccountRoot(ctx, a.ID, idx.Owner, nil))
+			_, err = e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: row.Root, SPKI: []byte("req-spki"), Status: "pending_in",
+				Endpoint: "https://asker.example/a/x/mcp", Leaf: []byte("request-leaf"), PinnedAt: 5})
+			must(t, err)
 
-	p, _, err := importFile(t, e, valid, "alina", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	kept := false
-	for _, root := range p.Keep {
-		kept = kept || root == row.Root
-	}
-	if !kept {
-		t.Fatalf("the held request was not kept: keep=%v", p.Keep)
-	}
-	c, err := e.st.GetContact(ctx, a.ID, row.Root)
-	must(t, err)
-	if c.Status != "pending_in" || string(c.Leaf) != "request-leaf" || c.Endpoint != "https://asker.example/a/x/mcp" || c.HandshakeDue {
-		t.Fatalf("a held request was changed by a file: %+v", c)
+			p, res, err := importFile(t, e, valid, "alina", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, root := range p.Keep {
+				if root == row.Root {
+					t.Fatalf("a held request was kept as if it were a contact: keep=%v", p.Keep)
+				}
+			}
+			for _, c := range p.Conflicts {
+				if c.Root == row.Root {
+					t.Fatalf("a held request was reported as a contact the file disagrees with: %+v", c)
+				}
+			}
+			for _, r := range p.Write {
+				if r.Root == row.Root {
+					t.Fatalf("a held request is in the rows the import writes: %+v", r)
+				}
+			}
+			if len(p.Skip) != 1 || p.Skip[0] != row.Root {
+				t.Fatalf("the held request must be skipped, and said to be: skip=%v", p.Skip)
+			}
+			c, err := e.st.GetContact(ctx, a.ID, row.Root)
+			must(t, err)
+			if c.Status != "pending_in" || string(c.Leaf) != "request-leaf" || c.Endpoint != "https://asker.example/a/x/mcp" || c.HandshakeDue {
+				t.Fatalf("a held request was changed by a file: %+v", c)
+			}
+			// The control: every other contact the file carries is written.
+			if res.Contacts != len(contents.Contacts)-1 || res.PinsFilled != 0 {
+				t.Fatalf("wrote %d contacts and filled %d pins; want every row but the request (%d), and none", res.Contacts, res.PinsFilled, len(contents.Contacts)-1)
+			}
+		})
 	}
 }
 

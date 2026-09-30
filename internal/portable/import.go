@@ -39,10 +39,13 @@ type Plan struct {
 	Contents  *pactidentity.ExportContents
 	// Write are the contacts Apply writes: every row not held, and every row held with no leaf
 	// that the file gives one. Fill names the second kind: held here, with no leaf, and the file's
-	// pin fills it. Keep are the roots held already, left as they are.
+	// pin fills it. Keep are the roots held already, left as they are. Skip are the roots of file
+	// rows this host holds as a stranger's request (aRequest): not a contact, so not merged, and
+	// left as they are.
 	Write     []pactidentity.ContactRow
 	Fill      []string
 	Keep      []string
+	Skip      []string
 	Conflicts []Conflict
 	zr        *zip.Reader
 }
@@ -112,13 +115,20 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 		}
 	}
 	held := []pactidentity.ContactRow{}
-	heldRoots := map[string]bool{}
+	heldRoots, requests := map[string]bool{}, map[string]bool{}
 	if !p.New {
 		cs, err := st.ListContacts(ctx, p.AccountID)
 		if err != nil {
 			return nil, fmt.Errorf("import: %w", err)
 		}
 		for _, c := range cs {
+			// A request is not a contact, so export_merge is not handed one. It was, and it kept the
+			// request and reported every field the file said otherwise as a conflict, where the
+			// cloud skips it (pact-cloud portable.ts).
+			if aRequest(c) {
+				requests[c.Fingerprint] = true
+				continue
+			}
 			held = append(held, contactRow(c))
 			heldRoots[c.Fingerprint] = true
 		}
@@ -131,11 +141,21 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 	if err := merge(held, p.Contents.Contacts, p); err != nil {
 		return nil, err
 	}
+	// Unheld, a request's root comes back from export_merge as a row to write: it is skipped here,
+	// or Apply would write a contact over the request (ImportContactPin refuses a row that holds a
+	// leaf, and the import would fail).
+	write := p.Write[:0]
 	for _, r := range p.Write {
-		if heldRoots[r.Root] {
+		switch {
+		case requests[r.Root]:
+			p.Skip = append(p.Skip, r.Root)
+			continue
+		case heldRoots[r.Root]:
 			p.Fill = append(p.Fill, r.Root)
 		}
+		write = append(write, r)
 	}
+	p.Write = write
 	return p, nil
 }
 
