@@ -97,3 +97,17 @@ owner wants something else (plaintext, or asking the contact's plain `tools/list
 - It does not change the wire format or any SPEC MUST, except where §2.4 of the report shows the seed
   and a MUST disagree; each such case is named in its commit.
 - It does not touch the rate-limit work in flight.
+
+## 5. What the node's leads leave for pact-identity (fix/parity-leads, 2026-09-30)
+
+- **Lead 2: `pending_approval` names no signer.** A `pending_out` contact's sealed call is decided
+  `pending_approval`, and Decide's result is `{code}` alone, in both ports and in the contract
+  (`$defs` Decision, `additionalProperties: false`), at 0.4.1 and at the port-parity branch
+  (d029713). The signature has verified by then, but the node is not told under which leaf, so it
+  has no key to seal the refusal to (§13.2 wants it sealed), no root to charge it to, and it cannot
+  apply the pin effects Decide returns beside it (a pending contact's newer leaf, or its new address
+  under `auto`, is dropped: `decideEnvelope` returns before `apply`). Rebuilding the signer from the
+  node's own peek would re-implement `pinHolding`. What the node needs: `pending_approval` carrying
+  `root`, `endpoint`, `leaf` and `form`, as `ok` does, in Go's `pendingApproval`, Rust's
+  `envelope/decide.rs` (both places) and the contract. Until then the node answers the code itself in
+  plaintext (it answered `envelope_invalid`), and charges the call as a stranger.
