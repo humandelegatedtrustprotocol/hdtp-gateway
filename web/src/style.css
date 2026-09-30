@@ -177,6 +177,8 @@ details.card > .card-body > :last-child{margin-bottom:0}
   .acts-status{margin:0;justify-content:center}
   .notice .act.acts,.page-h .actions.acts,.row .trail:has(> .acts){flex:1 1 100%}
   .row .trail:has(> .acts){margin-left:0}
+  .acts.inline{flex-direction:row;align-items:center;width:auto}
+  .acts.inline > .btn,.acts.inline > button{width:auto}
 }
 .field{margin:0 0 .9rem}
 .field:not(.check){max-width:420px}
@@ -837,8 +839,6 @@ button.tip-btn:hover,button.tip-btn[aria-expanded="true"]{filter:none;color:var(
   .preset-grid > table > tbody > tr{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;padding:.6rem .55rem;margin:0 0 .5rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg)}
   .preset-grid tbody th.pg-name{display:block;flex:1 1 auto;order:0;align-self:center;padding:0;border:0;background:none;min-width:0;overflow-wrap:break-word}
   .preset-grid td.pg-acts{display:block;flex:0 0 auto;order:1;padding:0;border:0;background:none}
-  .preset-grid td.pg-acts .acts{flex-direction:row;width:auto}
-  .preset-grid td.pg-acts .acts > .btn,.preset-grid td.pg-acts .acts > button{width:auto}
   .preset-grid td.pg-cell{display:block;order:2;padding:0;border:0;background:none}
   /* The line break between the name's line and the chips: an empty item a whole line wide. */
   .preset-grid > table > tbody > tr::after{content:"";order:1;flex:0 0 100%;height:0;margin-top:-.35rem}

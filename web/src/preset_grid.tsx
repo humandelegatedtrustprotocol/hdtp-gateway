@@ -1,8 +1,8 @@
 // PresetGrid: the permission presets as one grid — a preset a row, a permission a column, a checkbox
 // where they meet. It replaced a checkbox per line with its scope id on a line under it, which made
 // four presets a page long (owner, 2026-09-30). Shared with PACT Cloud's portal byte for byte
-// (scripts/check-harvested.mjs there): each portal saves in its own way (the node a row at a time, the
-// cloud a switch at a time), so saving is the caller's, passed in as `onToggle` and a row's `actions`.
+// (scripts/check-harvested.mjs there). Both portals keep a row's ticks as a draft (usePresetDrafts) until
+// the row's Save; the save itself is each portal's own call, passed in as a row's `actions`.
 //
 //   - The columns are presets.ts's presetColumns: the vocabulary, then anything a preset holds that
 //     it lacks — never a fixed list here.
@@ -13,9 +13,27 @@
 //   - The grid scrolls inside its own box when it is wider than the page, never the page itself. On a
 //     phone (style.css, ≤480px) the head is hidden and each preset is a card of wrapping chips, each
 //     chip the same checkbox with the permission's name beside it and the scope id in its title.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { HelpTip } from "./help";
-import { cellLabel } from "./presets";
+import { cellLabel, samePerms, withPerm, type GridPreset } from "./presets";
+
+/**
+ * The grid's rows as drafts: a click changes a row's draft, never what is saved, until the row's Save
+ * (both portals: a stray tap on a phone's chip grants nothing). `perms` is what a row shows, `changed`
+ * whether its Save has anything to do, `toggle` the grid's onToggle, and `settle` drops a row's draft
+ * once its save is answered — kept on a failure, so the ticks the owner made are still there to retry.
+ * A row that is not saved yet (a new preset) is a name `saved` does not hold.
+ */
+export function usePresetDrafts(saved: readonly GridPreset[]) {
+  const [drafts, setDrafts] = useState<Readonly<Record<string, readonly string[]>>>({});
+  const savedOf = (name: string) => saved.find((p) => p.name === name)?.perms ?? [];
+  return {
+    perms: (name: string): readonly string[] => drafts[name] ?? savedOf(name),
+    changed: (name: string) => name in drafts && !samePerms(drafts[name], savedOf(name)),
+    toggle: (name: string, perm: string, on: boolean) => setDrafts((all) => ({ ...all, [name]: withPerm(all[name] ?? savedOf(name), perm, on) })),
+    settle: (name: string) => setDrafts(({ [name]: _settled, ...rest }) => rest),
+  };
+}
 
 export type GridRow = {
   /** The preset's name, as its checkboxes are called ("New preset" for a row not yet named). */
