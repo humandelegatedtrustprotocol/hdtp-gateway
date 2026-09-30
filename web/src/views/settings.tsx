@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { csrf, currentAccount, failureOf, getJSON } from "../api";
-import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
+import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
 type SettingRow = {
   key: string; value: string; locked: boolean; reason: string; restart: boolean;
@@ -70,7 +70,7 @@ export function Settings() {
       </form>
 
       {(d.adapter_settings ?? []).length > 0 && (
-        <Section title="Tunnel adapter settings" description="Values are stored sealed when secret, and never rendered back.">
+        <Section title="Tunnel adapter settings" description="Secret values are stored sealed and never shown again.">
           <List aria-label="Tunnel adapter settings">
             {(d.adapter_settings ?? []).map((a) => (
               <AdapterRow key={a.key} a={a} onSaved={load} />
@@ -89,7 +89,10 @@ export function Settings() {
 
       {d.show_presets && (
         <Section title="Contact presets"
-          description="The bundles offered when you approve someone. Editing applies from the next approval or apply; grants already made keep their switches. Deleting the last preset restores the documented four.">
+          description={<>The bundles offered when you approve someone.<HelpTip label="About contact presets">
+            Editing applies from the next approval or apply; grants already made keep their switches.
+            Deleting the last preset restores the documented four.
+          </HelpTip></>}>
           {(d.presets ?? []).map((p) => (
             <PresetForm key={p.name} p={p} allPerms={d.preset_perms ?? []} onSaved={load} />
           ))}
@@ -105,12 +108,14 @@ function Group({ title, rows }: { title: string; rows: SettingRow[] }) {
   return (
     <Section title={title}>
       {rows.map((r) => {
+        // What the knob's state is stays in view (locked, a restart owed, a save not yet running);
+        // what the knob is for, and why it is locked, is behind its `?`.
         const help = [
-          r.locked && `locked: ${r.reason}`,
-          r.help,
+          r.locked && "locked",
           r.restart && "applies on restart",
           r.pending && `saved; node still runs “${r.running}”`,
         ].filter(Boolean).join(" · ");
+        const tip = [r.help, r.locked && `Locked: ${r.reason}`].filter(Boolean).join(" ");
         const control = r.kind === "bool" ? (
           <input type="checkbox" name={r.key} value="1" defaultChecked={r.value === "true" || r.value === "1"} disabled={r.locked} />
         ) : r.kind === "select" ? (
@@ -121,7 +126,7 @@ function Group({ title, rows }: { title: string; rows: SettingRow[] }) {
           <input type="text" name={r.key} defaultValue={r.value} disabled={r.locked} />
         );
         return (
-          <Field key={r.key} id={r.key} label={r.label || r.key} help={help || undefined} check={r.kind === "bool"}>
+          <Field key={r.key} id={r.key} label={r.label || r.key} help={help || undefined} tip={tip || undefined} check={r.kind === "bool"}>
             {control}
           </Field>
         );
@@ -213,7 +218,7 @@ function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
       <div className="fields">
         <Field label="Quota GiB"><input type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} /></Field>
         <Field label="Retention days" help="0 = keep forever"><input type="number" min={0} value={days} onChange={(e) => setDays(e.target.value)} /></Field>
-        <Field label="Requests expire after (days)" help="A contact request nobody answers, theirs or yours, is dropped after this many days (1–365; 30 by default)">
+        <Field label="Requests expire after (days)" help="1–365; 30 by default" tip="A contact request nobody answers, theirs or yours, is dropped after this many days.">
           <input type="number" min={1} max={365} value={expiry} onChange={(e) => setExpiry(e.target.value)} />
         </Field>
       </div>
@@ -236,9 +241,12 @@ function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: strin
   return (
     <Section title="Own-domain ingress"
       description={<>
-        Pair with an ingress you run on your own domain, so people reach you at a name you own rather
-        than a tunnel provider's. You need the ingress's pairing URL and a one-time token from it
-        (<code>pact-gateway ingress token</code> on that host).
+        Be reached at a name on your own domain.
+        <HelpTip label="About own-domain ingress">
+          Pair with an ingress you run on your own domain, so people reach you at a name you own rather
+          than a tunnel provider's. You need the ingress's pairing URL and a one-time token from it
+          (<code>pact-gateway ingress token</code> on that host).
+        </HelpTip>
       </>}>
       {paired.length > 0 && (
         <List aria-label="Paired ingresses">
@@ -265,7 +273,8 @@ function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: strin
             <option value="terminate">terminate — the ingress holds the certificate and re-originates</option>
           </select>
         </Field>
-        <Field label="Ingress key fingerprint" help="Optional." id="ingress_fingerprint">
+        <Field label="Ingress key fingerprint" help="Optional." id="ingress_fingerprint"
+          tip="Empty: trust on first use — the key that answers is pinned, and the node reports it back for you to check. Filled in: a different key is refused.">
           <input name="ingress_fingerprint" type="text" placeholder="sha256:… — leave empty to trust on first use" />
         </Field>
         {many ? (

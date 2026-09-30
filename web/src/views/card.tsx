@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, currentAccount, failureOf, getJSON } from "../api";
-import { Button, EmptyState, Failed, Notice, PageHeader, Readout, Section, useFlash } from "../ui";
+import { Button, EmptyState, Failed, HelpTip, Notice, PageHeader, Readout, Section, useFlash } from "../ui";
 import { CopyId, IdText, UrlText } from "../glance";
 
 // endpoint, root_fingerprint and kid are read by the node from the card's own certificate
@@ -21,7 +21,9 @@ export function CardView() {
   const header = (
     <PageHeader
       title="Your card"
-      sub="This vCard is your address: hand it to people the way you would a phone number. The certificate inside names your identity — the root you hold in your wallet — and that is what everyone pins."
+      sub={<>Your address: share it like a phone number.<HelpTip label="About your card">
+        The certificate inside names your identity — the root you hold in your wallet — and that is what everyone pins.
+      </HelpTip></>}
     />
   );
   if (err === "none") return <main>{header}<Notice kind="warn">No card yet — this identity has no certificate, so it has nothing to hand out. The Identity page says how its wallet makes one.</Notice></main>;
