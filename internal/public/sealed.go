@@ -303,20 +303,25 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 // caller's leaf key, the plaintext carries our chain until this contact has
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.
+//
+// It seals under the state the open was decided against (EnvelopeFacts.state), which every facts
+// decideEnvelope returns carries. It read the state again here — the account row, the chain, every
+// held key decrypted and parsed — on every sealed answer, for the one key it uses.
 func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage, asError bool) (*mcp.CallToolResult, error) {
-	st, err := d.Identifier.RecipientState(ctx)
-	if err != nil || st == nil || st.currentKey() == nil || len(st.Chain) != 2 {
+	st := facts.state
+	key := (*identity.LeafKey)(nil)
+	if st != nil {
+		key = st.current()
+	}
+	if key == nil || key.Lib == nil || len(st.Chain) != 2 {
 		return errEnvelope("unavailable"), nil
 	}
-	sender, err := identity.ToLib(st.currentKey())
-	if err != nil {
-		return errEnvelope("unavailable"), nil
-	}
+	sender := key.Lib
 	recipient, err := pactidentity.ParseSPKI(facts.SPKI)
 	if err != nil {
 		return errEnvelope("envelope_invalid"), nil
 	}
-	ourKid := st.currentKey().Fingerprint
+	ourKid := key.KP.Fingerprint
 	form, pinned := "chain", false
 	if !facts.Guest && !facts.Demote && facts.From != "" {
 		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil {

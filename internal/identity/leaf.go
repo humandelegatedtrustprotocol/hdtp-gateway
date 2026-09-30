@@ -110,11 +110,17 @@ func EndpointFor(publicURL, slug string) string {
 	return strings.TrimRight(publicURL, "/") + "/a/" + slug + "/mcp"
 }
 
-// LeafKey is one leaf this host serves an account under, with its key open.
+// LeafKey is one leaf this host serves an account under, with its key open. The key is held in
+// every form its readers take, each made once when the key is opened: KP signs and presents it,
+// PKCS8 is what the identity library's Decide is handed, and Lib is the library's own form, which
+// an envelope is opened and an answer sealed with. Each used to be re-encoded from KP at every use,
+// on every sealed call.
 type LeafKey struct {
 	Kid      string
 	Leaf     []byte
 	KP       *Keypair
+	PKCS8    []byte
+	Lib      *pactidentity.PrivateKey
 	Current  bool
 	NotAfter time.Time
 	Endpoint string
@@ -129,11 +135,20 @@ func (m *Manager) sealLeafKey(kp *Keypair) ([]byte, error) {
 }
 
 func (m *Manager) openLeafKey(sealed []byte) (*Keypair, error) {
+	der, err := m.unsealLeafKey(sealed)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePKCS8(der)
+}
+
+// unsealLeafKey is a sealed leaf key's PKCS#8 DER.
+func (m *Manager) unsealLeafKey(sealed []byte) ([]byte, error) {
 	der, err := m.Keyring.Decrypt(sealed, []byte(leafKeyAAD))
 	if err != nil {
 		return nil, fmt.Errorf("identity: unseal leaf key: %w", err)
 	}
-	return ParsePKCS8(der)
+	return der, nil
 }
 
 // ActiveLeafKeypairs returns the current leaf's key first and every superseded key not yet past
@@ -151,9 +166,10 @@ func (m *Manager) ActiveLeafKeypairs(ctx context.Context, accountID string, now 
 	return m.ActiveLeafKeypairsFor(ctx, a, now)
 }
 
-// ActiveLeafKeypairsFor is the same read for a caller that already holds the
-// account row. The one on the inbound path does — it is read to answer the
-// envelope — and reading it twice per message bought nothing.
+// ActiveLeafKeypairsFor is the same read for a caller that already holds the account row: the
+// node's recipient state reads the row for its own fields and hands it here, so building the state
+// reads the row once. A sealed call's answer is sealed under the state its open built
+// (public.EnvelopeFacts), so the answer builds none of its own.
 func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, now time.Time) ([]LeafKey, error) {
 	accountID := a.ID
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
@@ -184,12 +200,20 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
 			continue
 		}
-		kp, err := m.openLeafKey(l.KeySealed)
+		der, err := m.unsealLeafKey(l.KeySealed)
 		if err != nil {
 			return nil, err
 		}
+		kp, err := ParsePKCS8(der)
+		if err != nil {
+			return nil, err
+		}
+		lib, err := pactidentity.ParsePKCS8(der)
+		if err != nil {
+			return nil, fmt.Errorf("identity: %w", err)
+		}
 		kp.Leaf, kp.Root = l.Leaf, a.RootCert
-		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
+		lk := LeafKey{Kid: l.Kid, Leaf: l.Leaf, KP: kp, PKCS8: der, Lib: lib, Current: l.State == LeafCurrent, NotAfter: time.Unix(l.NotAfter, 0), Endpoint: l.Endpoint}
 		if lk.Current {
 			out = append([]LeafKey{lk}, out...)
 		} else {
