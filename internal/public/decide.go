@@ -222,8 +222,20 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *Recip
 // TestAPendingRequestIsHandedToDecideWithNoPin holds it.
 var pinStates = map[string]bool{"active": true, "pending_out": true, "blocked": true}
 
+// UnknownContactState says whether a contact row's status is one this node does not know: neither
+// a state a pin has (pinStates) nor a request awaiting the owner (`pending_in`). pinsOf hands
+// Decide no pin for such a row, exactly as for a request — where pact-identity 0.4.2 would refuse
+// the state as unreadable and the owner would be told on the call (`identity_state_unreadable`).
+// The schema admits no such row (migration 0002's CHECK holds a contact's status to the four, on
+// both engines), so one is a hand-edited store's or a later binary's; the walk of
+// internal/storecheck counts and names each, so the owner is told at `serve` and by `check store`
+// rather than never. TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin holds the two
+// readings to each other.
+func UnknownContactState(status string) bool { return !pinStates[status] && status != "pending_in" }
+
 // pinsOf is Decide's pins, from contact rows: every row that holds a leaf, in a state the core
-// reads (pinStates); the others are left out.
+// reads (pinStates); the others — a request awaiting the owner, and a row in a state this node does
+// not know (UnknownContactState) — are left out.
 func pinsOf(contacts []store.Contact) []pactidentity.Pin {
 	var pins []pactidentity.Pin
 	for _, c := range contacts {
