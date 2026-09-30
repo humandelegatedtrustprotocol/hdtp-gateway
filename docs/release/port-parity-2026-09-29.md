@@ -83,6 +83,15 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
 TLS door also applies it to a pinned root. The plan makes the TLS door follow the SPEC and the seed.
 If the owner wants a pinned root to be refused after a removal too, that is a SPEC change instead.
 
+**(owner) A contact with no card on file** (found closing lead 4, 2026-09-30). SPEC §3 reads a card
+with no `X-PACT-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
+`DecodeCard` reading). A contact that arrived in an export has no card at all: contacts.csv carries
+neither a card nor a policy (§9.2), so the host does not know whether the contact accepts envelopes
+until a card of theirs reaches it. The SPEC does not say what a host assumes then. The node seals to
+such a contact, as it always did; PACT Cloud seals to every contact whatever its card says. If the
+owner wants something else (plaintext, or asking the contact's plain `tools/list` whether it lists
+`sealed_call`), that is a SPEC sentence first.
+
 ## 4. What this plan does not do
 
 - It does not change the wire format or any SPEC MUST, except where §2.4 of the report shows the seed

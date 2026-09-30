@@ -45,6 +45,7 @@ func newContactInitiator(st store.Store, nd *node.Node,
 		manager:  contactsManager(st, nd),
 		card:     nd.Card,
 		outbound: nd.OutboundClient,
+		peer:     nd.PeerOf,
 		request:  nd.RequestContact,
 		audit:    auditFn,
 		contact: func(ctx context.Context, accountID, fpr string) (store.Contact, error) {
@@ -228,6 +229,9 @@ type contactInitiator struct {
 	manager  *contacts.Manager
 	card     func(ctx context.Context, accountID string) (string, error)
 	outbound func(accountID string) (*outbound.Client, error)
+	// peer is the outbound view of a stored contact: node.PeerOf, the one reading of where a contact
+	// answers and whether its card asks for sealing.
+	peer func(accountID string, c store.Contact) (outbound.Peer, error)
 	// request sends request_contact: node.RequestContact, which the move campaign's fallback
 	// calls too.
 	request func(ctx context.Context, accountID string, peer outbound.Peer, note, callID string) error
@@ -499,17 +503,19 @@ func (ci *contactInitiator) notifyAsker(ctx context.Context, accountID, peerFpr,
 	}
 	// The stored PIN, not the card, is the authority on where this contact answers: `update_contact`
 	// and a move both write the row, and a card kept from the first exchange can be older than
-	// either. It also means a decision reaches a contact whose card this node never parsed.
+	// either. It also means a decision reaches a contact with no card on file.
 	if c.Endpoint == "" || len(c.Leaf) == 0 {
 		return fmt.Errorf("that contact has no certificate on file, so there is no address to reach it at; add them again from their card")
+	}
+	// Sealed or not as their card says (node.PeerOf): this sealed to every asker, whatever their
+	// card said, so one whose card says `none` was sent an envelope it had not agreed to take.
+	peer, err := ci.peer(accountID, c)
+	if err != nil {
+		return err
 	}
 	client, err := ci.outbound(accountID)
 	if err != nil {
 		return err
-	}
-	peer := outbound.Peer{
-		Endpoint: c.Endpoint, Seal: "required",
-		Root: peerFpr, Leaf: c.Leaf,
 	}
 	if _, err := client.Call(ctx, peer, tool, args, newCallID()); err != nil {
 		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "unreachable")

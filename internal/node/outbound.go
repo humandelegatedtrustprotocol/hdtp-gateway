@@ -23,22 +23,23 @@ import (
 	"github.com/pact-cloud/pact-gateway/internal/public"
 )
 
-// peerOf is the outbound view of a pinned contact: it dials the endpoint the pinned leaf names
+// PeerOf is the outbound view of a pinned contact: it dials the endpoint the pinned leaf names
 // and is recognised by its root (PACT §2). A contact with no leaf on file cannot be dialled —
 // there is no key-pinned kind of contact to fall back to, and the branch that built one from a
 // card's endpoint went with the column that selected it.
-func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) {
-	card, err := contacts.ParseCard(c.Card)
-	endpoint := c.Endpoint
-	if endpoint == "" && err == nil {
-		endpoint = card.Endpoint
-	}
-	if endpoint == "" || len(c.Leaf) == 0 {
+//
+// Whether the call is sealed is the contact's card's to say (contacts.SealOf): a card with no
+// X-PACT-SEAL line says `none` (PACT §3, §13.4), and a card on file that does not read is refused
+// here rather than given a policy. This read an absent line, and a card that did not parse, as
+// `required`, so a recipient that left the line out was sent envelopes it had not agreed to take
+// and could not be reached at all.
+func (n *Node) PeerOf(accountID string, c store.Contact) (outbound.Peer, error) {
+	if c.Endpoint == "" || len(c.Leaf) == 0 {
 		return outbound.Peer{}, fmt.Errorf("contact %s has no endpoint on file", c.Fingerprint)
 	}
-	seal := "required"
-	if err == nil && card.Seal != "" {
-		seal = card.Seal
+	seal, err := contacts.SealOf(c.Card, n.now())
+	if err != nil {
+		return outbound.Peer{}, fmt.Errorf("contact %s: %w", c.Fingerprint, err)
 	}
 	ourKid := ""
 	n.mu.RLock()
@@ -47,7 +48,7 @@ func (n *Node) peerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 	}
 	n.mu.RUnlock()
 	return outbound.Peer{
-		Endpoint: endpoint, Seal: seal,
+		Endpoint: c.Endpoint, Seal: seal,
 		Root: c.Fingerprint, Leaf: c.Leaf, ChainSeen: ourKid != "" && c.ChainSentKid == ourKid,
 	}, nil
 }
