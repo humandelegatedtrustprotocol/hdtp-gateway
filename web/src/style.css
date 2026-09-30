@@ -96,6 +96,9 @@ button:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:default;filter:none
 .btn.quiet{border-color:transparent;background:transparent;color:var(--muted);font-weight:500}
 .btn.quiet:hover{background:var(--bg-3);color:var(--ink)}
 .btn.danger{background:var(--red);border-color:var(--red);color:var(--on-fill)}
+.btn.emergency{background:var(--emergency);border-color:var(--emergency-ring);color:var(--on-emergency)}
+.btn.emergency:hover{filter:none;background:var(--emergency-hover)}
+.btn.emergency .ic{color:var(--sign-warn)}
 .btn.link{height:auto;padding:0;border:0;background:none;color:var(--accent-ink);font-weight:500;text-decoration:underline!important;text-underline-offset:3px}
 .btn.link:hover{filter:none;color:var(--ink)}
 .btn.icon{width:var(--ctl-h);padding:0}
