@@ -28,6 +28,9 @@
   --amber:#7A5A00; --amber-soft:#FBF3D9; --red:#B3261E; --red-soft:#FBECEA;
   /* text on a coloured fill (a count, a danger button); an accent link on the ink fill (an own message) */
   --on-fill:#FFFFFF; --accent-on-ink:var(--accent-2);
+  /* the emergency button (the owner, 2026-09-30): black, white words, a yellow warning sign, in both themes;
+     --emergency-ring is its edge, which on the dark theme's grounds must show against them */
+  --emergency:#000000; --emergency-hover:#2B2B2B; --on-emergency:#FFFFFF; --sign-warn:#FACC15; --emergency-ring:var(--emergency);
   --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
   --display:'Bricolage Grotesque',var(--sans);
@@ -49,6 +52,7 @@
     --accent:#F38020; --accent-2:#FFA552; --accent-soft:#33261A; --accent-ink:#FFA552; --accent-ui:#F38020;
     --amber:#E9B949; --amber-soft:#2E2714; --red:#FF9C8A; --red-soft:#3A211D;
     --on-fill:#15181E; --accent-on-ink:#AB5309;
+    --emergency:#000000; --emergency-hover:#2B2B2B; --on-emergency:#FFFFFF; --sign-warn:#FACC15; --emergency-ring:var(--faint);
     --raise:var(--bg-3);
     --shadow-sm:0 1px 2px rgb(0 0 0 / .3); --shadow:0 16px 40px -20px rgb(0 0 0 / .7);
     --scrim:rgb(0 0 0 / .5);
