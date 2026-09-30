@@ -202,6 +202,11 @@ test("the presets' grid is a grid on a screen and wrapping chips on a phone", ()
   assert.equal(lastAt(css, ".preset-grid > table > tbody > tr", "flex-wrap", 390), "wrap");
   assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 390), "inline");
   assert.equal(lastAt(css, ".preset-grid .pg-chip", "white-space", 390), "nowrap");
+  // A row's buttons are ui.tsx's Actions with `inline`: a row of their own width beside the preset's
+  // name on a phone, where every other row of actions is a full-width stack.
+  assert.equal(lastAt(css, ".acts", "flex-direction", 390), "column-reverse");
+  assert.equal(lastAt(css, ".acts.inline", "flex-direction", 390), "row");
+  assert.equal(lastAt(css, ".acts.inline", "width", 390), "auto");
   // The phone's rules end at 480: at 481 it is the grid again.
   assert.equal(lastAt(css, ".preset-grid .pg-chip-t", "display", 481), "none");
 });
