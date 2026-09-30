@@ -169,18 +169,19 @@ type Invite struct {
 }
 
 type Leaf struct {
-	AccountID        string
-	Kid              string
-	Leaf             []byte
-	KeySealed        []byte
-	NotBefore        int64
-	NotAfter         int64
-	State            string
-	Endpoint         string
-	CreatedAt        int64
-	RequestStateHash []byte
-	WalletOrigin     string
-	Moved            int64
+	AccountID         string
+	Kid               string
+	Leaf              []byte
+	KeySealed         []byte
+	NotBefore         int64
+	NotAfter          int64
+	State             string
+	Endpoint          string
+	CreatedAt         int64
+	RequestStateHash  []byte
+	WalletOrigin      string
+	Moved             int64
+	AnsweredStateHash []byte
 }
 
 type Lease struct {

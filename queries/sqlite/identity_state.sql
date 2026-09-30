@@ -112,8 +112,9 @@ UPDATE leaves SET request_state_hash = ?, wallet_origin = ? WHERE account_id = ?
 
 -- name: ConsumeLeafRequest :execrows
 -- An answer is accepted once: the check and the consumption are one statement, so two answers
--- carrying the same state cannot both see it.
-UPDATE leaves SET request_state_hash = NULL
+-- carrying the same state cannot both see it. The consumed hash moves to answered_state_hash
+-- (migration 0051; SET reads the row as it was), so an answer that arrives again can be told apart.
+UPDATE leaves SET answered_state_hash = request_state_hash, request_state_hash = NULL
 WHERE account_id = ? AND kid = ? AND state = 'pending' AND request_state_hash = ?;
 
 -- name: UpsertVacatedAddress :exec
