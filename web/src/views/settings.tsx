@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { PresetGrid, type GridRow } from "../preset_grid";
+import { presetColumns, samePerms, withPerm } from "../presets";
 import { csrf, currentAccount, failureOf, getJSON } from "../api";
 import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
@@ -87,18 +89,7 @@ export function Settings() {
         </Section>
       )}
 
-      {d.show_presets && (
-        <Section title="Contact presets"
-          description={<>The bundles offered when you approve someone.<HelpTip label="About contact presets">
-            Editing applies from the next approval or apply; grants already made keep their switches.
-            Deleting the last preset restores the documented four.
-          </HelpTip></>}>
-          {(d.presets ?? []).map((p) => (
-            <PresetForm key={p.name} p={p} allPerms={d.preset_perms ?? []} onSaved={load} />
-          ))}
-          <PresetForm p={{ name: "", perms: [] }} allPerms={d.preset_perms ?? []} onSaved={load} isNew />
-        </Section>
-      )}
+      {d.show_presets && <Presets d={d} onSaved={(j) => (j ? setD(j) : load())} />}
     </main>
   );
 }
@@ -157,49 +148,72 @@ function AdapterRow({ a, onSaved }: { a: AdapterSetting; onSaved: () => void }) 
 
 type PresetRow = { name: string; perms: string[] };
 
-function PresetForm({ p, allPerms, onSaved, isNew }: { p: PresetRow; allPerms: string[]; onSaved: () => void; isNew?: boolean }) {
-  const [name, setName] = useState(p.name);
-  const [perms, setPerms] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(p.perms.map((x) => [x, true])));
-  const [note, setNote] = useState("");
-  const save = async () => {
-    const body = new URLSearchParams({ csrf: csrf(), name });
-    for (const [k, on] of Object.entries(perms)) if (on) body.append("perm", k);
-    const r = await fetch("/settings/presets", {
-      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString(),
-    });
-    setNote(r.ok ? "" : "could not save");
-    onSaved();
+// The presets as one grid (preset_grid.tsx, shared with PACT Cloud): a row per preset, a column per
+// permission. The node saves a preset whole (`POST /settings/presets`, its name and every `perm`), so
+// a row's switches are a draft until its Save; the last row names and adds a new one.
+function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data | null) => void }) {
+  const presets = d.presets ?? [];
+  const columns = presetColumns(d.preset_perms ?? [], presets);
+  const [drafts, setDrafts] = useState<Record<string, string[]>>({});
+  const [newName, setNewName] = useState("");
+  const [newPerms, setNewPerms] = useState<string[]>([]);
+  const [busy, setBusy] = useState("");
+  const post = async (path: string, body: URLSearchParams) => {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
+    try {
+      const j = (await r.json()) as Data;
+      if (j && j.reach !== undefined) return j;
+    } catch { /* not the page's answer: read it again */ }
+    return null;
   };
-  const del = async () => {
-    const body = new URLSearchParams({ csrf: csrf() });
-    await fetch(`/settings/presets/${encodeURIComponent(p.name)}/delete`, {
-      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString(),
-    });
-    onSaved();
+  const save = async (name: string, perms: readonly string[], isNew: boolean) => {
+    setBusy(isNew ? "" : name);
+    const body = new URLSearchParams({ csrf: csrf(), name });
+    for (const p of perms) body.append("perm", p);
+    const j = await post("/settings/presets", body);
+    setBusy("");
+    if (isNew) { if (j && !j.error) { setNewName(""); setNewPerms([]); } }
+    else setDrafts(({ [name]: _, ...rest }) => rest);
+    onSaved(j);
+  };
+  const del = async (name: string) => {
+    const j = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
+    setDrafts(({ [name]: _, ...rest }) => rest);
+    onSaved(j);
+  };
+  const NEW = "New preset";
+  const rows: GridRow[] = presets.map((p) => {
+    const perms = drafts[p.name] ?? p.perms;
+    const changed = !samePerms(perms, p.perms);
+    return {
+      name: p.name, perms,
+      actions: (
+        <Actions>
+          <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={() => del(p.name)}>Delete</Button>
+          <Button onClick={() => save(p.name, perms, false)} busy={busy === p.name} disabled={!changed}>Save</Button>
+        </Actions>
+      ),
+    };
+  });
+  rows.push({
+    name: NEW, perms: newPerms,
+    title: <input className="pg-new" aria-label="New preset's name" placeholder="new preset" title="a-z, 0-9, dash, underscore"
+      value={newName} onChange={(e) => setNewName(e.target.value)} />,
+    actions: <Actions><Button onClick={() => save(newName.trim(), newPerms, true)} disabled={!newName.trim()}>Add preset</Button></Actions>,
+  });
+  const toggle = (name: string, perm: string, on: boolean) => {
+    if (name === NEW) { setNewPerms((x) => withPerm(x, perm, on)); return; }
+    const saved = presets.find((p) => p.name === name)?.perms ?? [];
+    setDrafts((all) => ({ ...all, [name]: withPerm(all[name] ?? saved, perm, on) }));
   };
   return (
-    <>
-      <h3>{isNew ? "New preset" : p.name}</h3>
-      {note && <Notice kind="err">{note}</Notice>}
-      <div className="fields">
-        {isNew && (
-          <Field label="Name" help="a-z, 0-9, dash, underscore">
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-        )}
-        {allPerms.map((x) => (
-          <Field key={x} check label={permLabel(x)} help={x} mono>
-            <input type="checkbox" checked={!!perms[x]}
-              onChange={(e) => setPerms({ ...perms, [x]: e.target.checked })} />
-          </Field>
-        ))}
-      </div>
-      <Actions foot>
-        {!isNew && <Button variant="quiet" icon="trash" confirm={`Delete the ${p.name} preset? Contacts wearing it keep their switches.`} onClick={del}>Delete</Button>}
-        <Button onClick={save}>{isNew ? "Add preset" : "Save"}</Button>
-      </Actions>
-    </>
+    <Section title="Contact presets"
+      description={<>The bundles offered when you approve someone.<HelpTip label="About contact presets">
+        Tick what each preset grants, then Save its row. Editing applies from the next approval or apply;
+        grants already made keep their switches. Deleting the last preset restores the documented four.
+      </HelpTip></>}>
+      <PresetGrid aria-label="Contact presets" rows={rows} columns={columns} label={permLabel} onToggle={toggle} />
+    </Section>
   );
 }
 
