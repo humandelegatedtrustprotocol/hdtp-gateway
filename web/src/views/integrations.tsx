@@ -4,7 +4,7 @@
 // disclosures so the page reads as a list, not a wall of forms.
 import { useCallback, useEffect, useState } from "react";
 import { csrf, currentAccount, failureOf, getJSON, postForm } from "../api";
-import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, Toolbar, type Note } from "../ui";
+import { Badge, Button, EmptyState, Failed, Field, List, ListRow, Notice, PageHeader, Readout, Section, type Note, Actions } from "../ui";
 import { CopyId, UrlText } from "../glance";
 
 type Row = { ID: string; Slug: string; Transport: string; Endpoint: string; Command: string; AuthKind: string; Status: string };
@@ -110,7 +110,7 @@ export function Integrations() {
 
   const addForm = (
     <Section title="New integration" description="Give it a short name; the transport and address are what the node dials."
-      footer={<><Button onClick={add} disabled={!slug.trim()}>Add</Button>{rows.length > 0 && <Button variant="quiet" onClick={() => setAdding(false)}>Cancel</Button>}</>}>
+      footer={<>{rows.length > 0 && <Button variant="quiet" onClick={() => setAdding(false)}>Cancel</Button>}<Button onClick={add} disabled={!slug.trim()}>Add</Button></>}>
       <div className="fields">
         <Field label="Name (slug)"><input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="calendar" /></Field>
         <Field label="Transport">
@@ -153,12 +153,13 @@ export function Integrations() {
                 leading={<span className="av" aria-hidden="true">{row.Slug.slice(0, 2).toUpperCase()}</span>}
                 title={<>{row.Slug}<Badge status={row.Status} /></>}
                 meta={where && (row.Endpoint ? <UrlText url={row.Endpoint} /> : <CommandText command={row.Command} />)}
-                trailing={<Toolbar>
-                  {primary}
+                // Two buttons in the row, the connect last (the row's rule, ui.tsx Actions): the refresh
+                // and the destructive remove sat beside them as icons, and the four wrapped on a phone
+                // with the trash can on a line of its own. They live with the connection's details.
+                trailing={<Actions>
                   <Button variant="secondary" to={`/integrations/${row.ID}/exposure`} icon="tool">Exposure</Button>
-                  <Button variant="quiet" icon="refresh" aria-label="Refresh catalog" title="Refresh catalog" onClick={() => act(`/integrations/${row.ID}/refresh`)} />
-                  <Button variant="quiet" icon="trash" aria-label={`Remove ${row.Slug}`} title="Remove" confirm={`Remove ${row.Slug}? Its exposures stop serving.`} onClick={() => act(`/integrations/${row.ID}/remove`)} />
-                </Toolbar>}>
+                  {primary}
+                </Actions>}>
                 <details className="row-more">
                   <summary>Connection</summary>
                   <dl className="facts">
@@ -166,6 +167,10 @@ export function Integrations() {
                     <dt>Authentication</dt><dd>{AUTH[row.AuthKind] ?? row.AuthKind}</dd>
                     {where && <><dt>{row.Endpoint ? "Address" : "Command"}</dt><dd><Readout value={where} copy dots /></dd></>}
                   </dl>
+                  <Actions>
+                    <Button variant="quiet" icon="trash" aria-label={`Remove ${row.Slug}`} confirm={`Remove ${row.Slug}? Its exposures stop serving.`} onClick={() => act(`/integrations/${row.ID}/remove`)}>Remove</Button>
+                    <Button variant="secondary" icon="refresh" onClick={() => act(`/integrations/${row.ID}/refresh`)}>Refresh catalog</Button>
+                  </Actions>
                 </details>
                 {row.Status === "auth_error" && (
                   <Notice kind="warn" action={row.AuthKind !== "oauth" && (

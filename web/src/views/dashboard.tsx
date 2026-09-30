@@ -27,8 +27,8 @@ export function Dashboard() {
     <PageHeader
       title="Overview"
       actions={<>
-        <Button to="/messages">Open inbox</Button>
         <Button variant="secondary" to="/invites">Invite someone</Button>
+        <Button to="/messages">Open inbox</Button>
       </>}
     />
   );

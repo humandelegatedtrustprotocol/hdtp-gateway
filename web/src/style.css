@@ -101,9 +101,11 @@ button:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:default;filter:none
 .btn.icon{width:var(--ctl-h);padding:0}
 .btn.icon.quiet{color:var(--muted)}
 .btn[aria-pressed="true"]{color:var(--accent-ink);background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
-.btn.busy{position:relative;color:transparent!important}
-.btn.busy::after{content:"";position:absolute;width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;color:var(--bg);animation:spin .7s linear infinite}
-.btn.secondary.busy::after,.btn.quiet.busy::after,.btn.link.busy::after{color:var(--ink)}
+/* A busy button keeps its words: a spinner takes the icon's place (or stands before the label), and
+   aria-busy says it to a screen reader (ui.tsx Button). */
+.btn.busy{cursor:progress}
+.btn.busy > svg{display:none}
+.btn.busy::before{content:"";flex:0 0 auto;width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 label{display:block;margin:0 0 .3rem;font-weight:600;font-size:.86rem;color:var(--ink)}
 label.inline{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;font-size:.9rem;color:var(--text)}
@@ -145,6 +147,36 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .toolbar input:not([type="checkbox"]),.toolbar select{flex:1 1 220px;max-width:none;width:auto}
 .toolbar.foot{margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--line)}
 .toolbar.center{justify-content:center}
+/* ---------------------------------------------------------------- action rows
+   The one rule for a row of buttons, in both portals (ui.tsx `Actions`, and Section's footer, a
+   notice's actions, a page header's): at most one primary and it LAST — the right end on a wide
+   screen, the top of the stack on a phone — with the secondaries before it; a destructive action in a
+   row of its own or behind a confirm. One line on a wide screen: a row that does not fit has too many
+   buttons, and wrapping it drew rows of different widths. At 480px and below, a full-width stack in a
+   fixed order. What an action has done is `.acts-status` beside the row — a check and a few words —
+   never the button's label. The cloud's wallet page states the same rule in its own sheet, and
+   pact-cloud's gateway/e2e/layout/action-rows.mjs holds every row to it in a browser. */
+.acts{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;gap:.5rem}
+.acts > .btn,.acts > button{flex:0 0 auto}
+.acts-status{margin-right:auto;display:inline-flex;align-items:center;gap:.35rem;font-size:.86rem;color:var(--accent-ink);min-width:0}
+.acts-status:empty{display:none}
+.acts-status::before{content:"\2713";color:var(--accent-ui);font-weight:700}
+.notice .act.acts{flex:0 0 auto}
+/* A card that holds several forms (Settings' storage and presets): a form's closing row is followed by
+   the next form's heading, which it used to butt against. */
+.acts.foot + h3{margin-top:1.6rem}
+/* A field and the one button that saves it, side by side: the field gives way, the button never
+   drops under it. */
+.toolbar.field-save{flex-wrap:nowrap}
+.toolbar.field-save input{flex:1 1 10rem;min-width:0}
+.page-h .actions.acts{flex-wrap:nowrap}
+@media (max-width:480px){
+  .acts{flex-direction:column-reverse;align-items:stretch;width:100%}
+  .acts > .btn,.acts > button{width:100%}
+  .acts-status{margin:0;justify-content:center}
+  .notice .act.acts,.page-h .actions.acts,.row .trail:has(> .acts){flex:1 1 100%}
+  .row .trail:has(> .acts){margin-left:0}
+}
 .field{margin:0 0 .9rem}
 .field:not(.check){max-width:420px}
 .field:not(.check) input,.field:not(.check) select{max-width:none}
