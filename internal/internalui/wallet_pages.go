@@ -498,8 +498,8 @@ func parseWalletChain(s string) ([][]byte, error) {
 	}
 	var out [][]byte
 	for _, p := range parts {
-		b := pactidentity.FromB64url(p)
-		if len(b) == 0 {
+		b, err := pactidentity.DecodeB64url(p)
+		if err != nil || len(b) == 0 {
 			return nil, errors.New("the chain is not base64url DER")
 		}
 		out = append(out, b)

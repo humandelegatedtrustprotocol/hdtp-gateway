@@ -139,3 +139,14 @@ func (w *Wallet) IssueOver(t testing.TB, endpoint string, hostSPKI []byte) *Host
 		Kid: pactidentity.Fingerprint(hostSPKI), RootFpr: w.Fpr,
 	}
 }
+
+// DER is the bytes a base64url string carries, read by the rule the identity core reads them with
+// (pact-identity's DecodeB64url); a test that hands it a string that does not read fails there.
+func DER(t testing.TB, s string) []byte {
+	t.Helper()
+	b, err := pactidentity.DecodeB64url(s)
+	if err != nil {
+		t.Fatalf("not base64url: %q", s)
+	}
+	return b
+}

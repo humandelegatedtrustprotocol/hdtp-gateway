@@ -690,3 +690,29 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 		}
 	}
 }
+
+// The core's pin has three states (CONTRACT `Pin`; pact-identity 0.4.2 refuses any other as this
+// node's unreadable state, where 0.4.1 read it as active). A request the owner has not answered is
+// handed over as `active`, as 0.4.1 read it — the small form from that requester still decides, on
+// the leaf it pinned — and the node's other statuses go as themselves.
+func TestAPendingRequestIsHandedToDecideAsAnActivePin(t *testing.T) {
+	for status, want := range map[string]string{"active": "active", "pending_out": "pending_out", "blocked": "blocked", "pending_in": "active", "removed": "removed"} {
+		if got := pinState(status); got != want {
+			t.Errorf("pinState(%q) = %q, want %q", status, got, want)
+		}
+	}
+	e := newRecvEnv(t)
+	p := newPeer(t, fixedNow)
+	e.pin(t, p, "pending_in")
+	all, err := e.st.ListContacts(context.Background(), e.acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pins := pinsOf(all); len(pins) != 1 || pins[0].Root != p.fpr() || pins[0].State != "active" {
+		t.Fatalf("the pin of a pending_in row: %+v", pins)
+	}
+	f, err := e.open(t, e.sealFrom(t, p, "leaf", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if err != nil || f.From != p.fpr() || f.Form != "leaf" || f.Endpoint != endpointA {
+		t.Fatalf("the small form from a requester the owner has not answered: %v %+v", err, f)
+	}
+}
