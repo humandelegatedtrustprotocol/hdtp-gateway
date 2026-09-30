@@ -171,8 +171,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	n.pool.Gate = ident.PoolGate()
 	reg.Add(public.SealedEntries(public.SealedDeps{
 		Pool: n.pool, Identifier: ident, AccountID: a.ID,
-		Keypair: func(context.Context) (*identity.Keypair, error) { return kp, nil },
-		Idem:    st,
+		Idem: st,
 	})...)
 
 	// the public surface: MCP over TLS, per-caller server chosen by client cert
