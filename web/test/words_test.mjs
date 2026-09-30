@@ -124,7 +124,8 @@ test("a tool and a permission are said as an owner reads them, the integration's
 });
 
 // What the module answers for an avatar, a tool's button, a trust flag and a field's label. PACT Cloud's
-// portal/test/words.test.ts runs its verbatim copy of the module against these same cases.
+// portal/test/words.test.ts runs its verbatim copy of the module against the same initials and some of
+// the other cases.
 export const INITIALS = [
   ["Aarav Mehta", "AM"],
   ["Research assistant (bot)", "RA"],
