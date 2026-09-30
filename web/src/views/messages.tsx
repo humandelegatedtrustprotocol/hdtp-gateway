@@ -5,11 +5,11 @@
 // of the audit trail, so "what may this contact do" is answered next to what
 // they are doing.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { accountName, currentAccount, getJSON, postForm, subscribe } from "../api";
+import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } from "../api";
 import { Link, navigate } from "../router";
-import { Avatar, Badge, Button, EmptyState, Icon, Notice, PLUMBING_TOOLS, Readout, Toolbar, permLabel, toolLabel, type IconName } from "../ui";
+import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolLabel, type IconName } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
-import { whenOf } from "../glance";
+import { IdText, whenOf } from "../glance";
 import type { Schema, Values } from "../schema_form";
 
 type Person = {
@@ -43,10 +43,13 @@ export function Messages() {
   const [pending, setPending] = useState<Msg | null>(null);
   const [q, setQ] = useState("");
   const [pane, setPane] = useState<Pane>(sel ? "thread" : "list");
-  // The contact panel is the owner's to keep or dismiss; the choice persists.
+  // The contact panel is the owner's to keep or dismiss; the choice persists — above 1180px. Narrower,
+  // the panel is a third column that leaves the conversation about 250px, so the page opens without it
+  // whatever was saved, and the panel button brings it back for as long as it is wanted.
   const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    if (window.innerWidth <= 1180) return false;
     try { const v = localStorage.getItem(PANEL_KEY); if (v !== null) return v === "1"; } catch { /* no storage */ }
-    return window.innerWidth > 1180;
+    return true;
   });
   const togglePanel = () => setPanelOpen((v) => { try { localStorage.setItem(PANEL_KEY, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
   // Focus: the thread alone, full width. Both side columns step aside until asked back.
@@ -68,9 +71,12 @@ export function Messages() {
   const logRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // A first read that failed is said as one: the Inbox drew a blank content area, with no list, no
+  // heading and no error, for as long as the node refused.
+  const [err, setErr] = useState("");
   const load = useCallback(() => {
     const params = sel ? { contact: sel } : undefined;
-    return getJSON<Data>("/api/conversations", params).then(setD).catch(() => {});
+    return getJSON<Data>("/api/conversations", params).then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e)));
   }, [sel]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe(load), [load]); // SSE: deliveries and inbound messages refresh the view
@@ -160,7 +166,7 @@ export function Messages() {
     setRunning(false);
   };
 
-  if (!d) return <main className="wide"><EmptyState loading /></main>;
+  if (!d) return <main className="wide">{err ? <><PageHeader title="Inbox" /><Failed what="your conversations" error={err} retry={load} /></> : <EmptyState loading />}</main>;
 
   const missing = active ? missingRequired(active.input_schema ?? {}, args) : [];
   const cls = "inbox" + (panelOpen ? "" : " panel-off") + (focus ? " focus" : "");
@@ -202,15 +208,15 @@ export function Messages() {
               <div className="thread-h">
                 <Toolbar className="back"><Button variant="quiet" icon="back" aria-label="Back to conversations" onClick={() => setPane("list")} /></Toolbar>
                 <Avatar name={current.label} />
-                <div>
-                  <div className="name">{current.label}</div>
+                <div className="who">
+                  <div className="name" title={current.label}>{current.label}</div>
                   <div className="meta">
                     {current.presence && <><span className={"dot " + current.presence} />{current.presence}{current.since ? ` · ${current.since}` : ""}</>}
                     {!current.presence && <span>{current.status}</span>}
                   </div>
                 </div>
                 <div className="end">
-                  <Badge tone="ok" mono title="Pinned key fingerprint">{shortFpr(current.fingerprint)} pinned</Badge>
+                  <Badge tone="ok" title={`Their key is pinned: a message that does not verify against it is refused.\n${current.fingerprint}`}><Icon name="shield" size={12} /> pinned</Badge>
                   <Toolbar className="details">
                     <Button variant="quiet" icon="panel" aria-pressed={panelOpen && !focus} title={panelOpen && !focus ? "Hide contact panel" : "Show contact panel"} aria-label="Contact panel"
                       onClick={() => { if (window.innerWidth <= 900) setPane(pane === "panel" ? "thread" : "panel"); else { if (focus) toggleFocus(); if (!panelOpen || focus) { if (!panelOpen) togglePanel(); } else togglePanel(); } }} />
@@ -293,12 +299,12 @@ export function Messages() {
                         const canMedia = allTools.some((t) => t.name === "send_media");
                         const pick = (acc: string) => { setAccept(acc); setMenuOpen(false); setTimeout(() => fileRef.current?.click(), 0); };
                         const open = (t: ContactTool) => { setMenuOpen(false); setActive(t); setArgs({}); setResult(""); setToolsOpen(true); };
-                        const tiles: { key: string; label: string; icon: IconName; on: () => void }[] = [];
+                        const tiles: { key: string; label: string; icon: IconName; on: () => void; title?: string }[] = [];
                         if (canMedia) {
                           tiles.push({ key: "file", label: "File", icon: "file", on: () => pick("") });
                           tiles.push({ key: "photo", label: "Photo", icon: "image", on: () => pick("image/*") });
                         }
-                        for (const t of tools) tiles.push({ key: t.name, label: toolLabel(t.name), icon: toolIcon(t.name), on: () => open(t) });
+                        for (const t of tools) tiles.push({ key: t.name, label: toolLabel(t.name), icon: toolIcon(t.name), on: () => open(t), title: t.name });
                         if (tiles.length === 0) {
                           if (toolsState === "loading") return <p className="muted plus-empty">Asking {current.label}'s node what you may do there…</p>;
                           if (toolsState === "failed") {
@@ -312,9 +318,9 @@ export function Messages() {
                           return <p className="muted plus-empty">{current.label} has not enabled files or tools for you yet.</p>;
                         }
                         return tiles.map((t) => (
-                          <button key={t.key} className="tile" role="menuitem" onClick={t.on} title={t.key}>
+                          <button key={t.key} className="tile" role="menuitem" onClick={t.on} title={t.title}>
                             <span className="circ"><Icon name={t.icon} size={22} /></span>
-                            <span>{t.label}</span>
+                            <span className="lbl">{t.label}</span>
                           </button>
                         ));
                       })()}
@@ -361,11 +367,6 @@ function toolIcon(name: string): "calendar" | "calendarCheck" | "calendarX" | "a
   if (name === "get_status") return "activity";
   if (name.startsWith("integration.")) return "plug";
   return "spark";
-}
-
-function shortFpr(f: string): string {
-  const s = f.replace(/^sha256:/, "");
-  return "sha256:" + s.slice(0, 4) + "…" + s.slice(-3);
 }
 
 // The right-hand panel: who this is, what they may do here (live switches),
@@ -423,7 +424,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       </div>
       <div>
         <h3>Identity</h3>
-        <Readout value={fpr} block copy />
+        <IdText id={fpr} />
       </div>
       <div>
         <h3>What they may do here</h3>
@@ -441,7 +442,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       {c && (c.their_permissions ?? []).length > 0 && (
         <div>
           <h3>What they let you do there</h3>
-          <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} mono>{p}</Badge>)}</div>
+          <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} title={p}>{permLabel(p)}</Badge>)}</div>
         </div>
       )}
       <div>

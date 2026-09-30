@@ -3,9 +3,10 @@
 // out. Every change posts straight to the node and the page re-reads itself
 // afterwards.
 import { useCallback, useEffect, useState } from "react";
-import { getJSON, postForm } from "../api";
+import { ApiError, failureOf, getJSON, postForm } from "../api";
 import { navigate } from "../router";
-import { Avatar, Badge, Button, CsrfFields, EmptyState, Field, Notice, PLUMBING_TOOLS, PageHeader, Readout, Section, permLabel, toolLabel, type Note } from "../ui";
+import { Avatar, Badge, Button, CsrfFields, EmptyState, Failed, Field, Notice, PLUMBING_TOOLS, PageHeader, Section, permLabel, toolLabel, type Note } from "../ui";
+import { IdText } from "../glance";
 
 type PermRow = { name: string; on: boolean };
 type Data = {
@@ -40,8 +41,12 @@ export function ContactDetail({ fpr }: { fpr: string }) {
   // grants are a snapshot taken when you paired and are never refreshed, so a
   // capability granted since — an integration, say — would never appear here.
   const [live, setLive] = useState<{ state: "loading" | "ok" | "off"; tools: string[] }>({ state: "loading", tools: [] });
+  // A read that failed is said as a failure, and a contact this node does not hold as that: neither is
+  // left on the loading box.
+  const [err, setErr] = useState<{ missing: boolean; text: string } | null>(null);
   const load = useCallback(
-    () => getJSON<Data>(`/api/contacts/${encodeURIComponent(fpr)}`).then((x) => { setD(x); setPetname(null); }).catch(() => {}),
+    () => getJSON<Data>(`/api/contacts/${encodeURIComponent(fpr)}`).then((x) => { setD(x); setPetname(null); setErr(null); })
+      .catch((e) => setErr({ missing: e instanceof ApiError && e.status === 404, text: failureOf(e) })),
     [fpr],
   );
   useEffect(() => { load(); }, [load]);
@@ -53,9 +58,21 @@ export function ContactDetail({ fpr }: { fpr: string }) {
       .catch(() => { if (alive) setLive({ state: "off", tools: [] }); });
     return () => { alive = false; };
   }, [fpr]);
-  if (!d) return <main><PageHeader parent={PARENT} title="Contact" /><EmptyState loading /></main>;
+  if (!d) {
+    return (
+      <main>
+        <PageHeader parent={PARENT} title="Contact" />
+        {!err ? <EmptyState loading />
+          : err.missing ? <EmptyState title="No such contact" action={<Button variant="secondary" to="/contacts">Back to People</Button>}>This node holds no contact with that fingerprint.</EmptyState>
+          : <Failed what="this contact" error={err.text} retry={load} />}
+      </main>
+    );
+  }
   const base = `/contacts/${encodeURIComponent(fpr)}`;
-  const shownName = d.petname || d.display_name || d.fingerprint;
+  // The name you gave them, else theirs; a contact with neither is "Unnamed contact", and its
+  // fingerprint is said once, under it, short and copyable.
+  const named = d.petname || d.display_name;
+  const shownName = named || "this contact";
   const trust = d.trust || "messages_only";
   const theirs = d.their_permissions ?? [];
 
@@ -109,9 +126,9 @@ export function ContactDetail({ fpr }: { fpr: string }) {
 
   return (
     <main>
-      <PageHeader parent={PARENT} leading={<Avatar name={shownName} size="lg" />} title={shownName}
+      <PageHeader parent={PARENT} leading={<Avatar name={named} size="lg" />} title={named || <span className="unnamed">Unnamed contact</span>}
         meta={<><Badge status={d.status} /><Badge>{d.preset || "custom"}</Badge><Badge>{trust.replace(/_/g, " ")}</Badge></>}
-        sub={<><Readout value={d.fingerprint} copy />{d.petname && <> · they call themselves “{d.display_name}”</>}</>} />
+        sub={<><IdText id={d.fingerprint} />{d.petname && d.display_name && <> · they call themselves “{d.display_name}”</>}</>} />
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
 
       <Section title="Your name for them"
