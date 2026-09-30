@@ -205,7 +205,7 @@ of it, and are listed so a reader can tell the two apart.
 
 ## PACT 2.0: the person is the certificate authority
 
-PACT 2.2.3 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
+PACT 2.2.5 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
 `github.com/pact-cloud/pact-identity/go` (the version `go.mod` requires), proven against
 Appendix B by its own tests; these are the node's.
 
