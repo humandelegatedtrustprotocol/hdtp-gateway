@@ -124,15 +124,16 @@ export function PageHeader({ title, sub, parent, meta, leading, actions }: {
           </div>
         </div>
       </div>
-      {actions && <div className="actions">{actions}</div>}
+      {actions && <div className="actions acts">{actions}</div>}
     </header>
   );
 }
 
-// Section: the one card. `footer` is its action row; `sticky` pins it to the
-// bottom of the viewport (a save bar); `collapsible` renders a disclosure.
-export function Section({ title, description, meta, footer, tone, collapsible, open, sticky, className, children }: {
-  title?: ReactNode; description?: ReactNode; meta?: ReactNode; footer?: ReactNode; tone?: "danger"; collapsible?: boolean; open?: boolean; sticky?: boolean; className?: string; children?: ReactNode;
+// Section: the one card. `footer` is its action row (the rule of `Actions`), `footerStatus` what the
+// row's last action did; `sticky` pins it to the bottom of the viewport (a save bar); `collapsible`
+// renders a disclosure.
+export function Section({ title, description, meta, footer, footerStatus, tone, collapsible, open, sticky, className, children }: {
+  title?: ReactNode; description?: ReactNode; meta?: ReactNode; footer?: ReactNode; footerStatus?: ReactNode; tone?: "danger"; collapsible?: boolean; open?: boolean; sticky?: boolean; className?: string; children?: ReactNode;
 }) {
   const cls = "card" + (tone ? " " + tone : "") + (sticky ? " sticky" : "") + (className ? " " + className : "");
   const head = title && <>{title}{meta && <span className="meta">{meta}</span>}</>;
@@ -140,7 +141,7 @@ export function Section({ title, description, meta, footer, tone, collapsible, o
     <>
       {description && <p className="help">{description}</p>}
       {children}
-      {footer && <div className="toolbar foot">{footer}</div>}
+      {footer && <Actions foot status={footerStatus}>{footer}</Actions>}
     </>
   );
   if (collapsible) {
@@ -154,27 +155,53 @@ export function Section({ title, description, meta, footer, tone, collapsible, o
   return <section className={cls}>{head && <h2>{head}</h2>}{body}</section>;
 }
 
-// Toolbar: the only container buttons live in. `end` is right-aligned.
+/**
+ * Actions: a row of buttons, as style.css's `.acts` lays one out — at most one primary and it last,
+ * secondaries before it, one line on a wide screen and a full-width stack (primary on top) on a phone.
+ * `foot` is a card's closing row (a rule above it, as Section's footer). `status` is what the row's last action did, a check and a few words beside the buttons ("Copied",
+ * "Saved"): the button keeps its label. The status is a live region, there before it has words, so a
+ * screen reader hears it arrive.
+ */
+export function Actions({ children, status, foot, className }: { children?: ReactNode; status?: ReactNode; foot?: boolean; className?: string }) {
+  return <div className={"acts" + (foot ? " toolbar foot" : "") + (className ? " " + className : "")}><span className="acts-status" role="status">{status}</span>{children}</div>;
+}
+
+/** A done action's moment: `flash()` sets it for a second and a half, then it clears itself. */
+export function useFlash(ms = 1500): [boolean, () => void] {
+  const [on, setOn] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return [on, () => { setOn(true); clearTimeout(timer.current); timer.current = setTimeout(() => setOn(false), ms); }];
+}
+
+// Toolbar: a bar of controls — filters, a search, a table row's buttons. A row of ACTIONS is `Actions`.
+// `end` is right-aligned.
 export function Toolbar({ children, end, className }: { children?: ReactNode; end?: ReactNode; className?: string }) {
   return <div className={"toolbar" + (className ? " " + className : "")}>{children}{end && <span className="end">{end}</span>}</div>;
 }
 
 export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "link";
-export function Button({ variant = "primary", to, href, download, icon, busy, confirm, disabled, type = "button", form, onClick, title, id, className, children, ...rest }: {
-  variant?: ButtonVariant; to?: string; href?: string; download?: string; icon?: IconName; busy?: boolean; confirm?: string;
+// `busy`: at work — disabled, aria-busy, a spinner in the icon's place, the label kept. `done`: what it
+// did has just happened — a check in the icon's place, the label kept, and `doneText` said once to a
+// screen reader. A status is never a button's label.
+export function Button({ variant = "primary", to, href, download, icon, busy, done, doneText, confirm, disabled, type = "button", form, onClick, title, id, className, children, ...rest }: {
+  variant?: ButtonVariant; to?: string; href?: string; download?: string; icon?: IconName; busy?: boolean; done?: boolean; doneText?: string; confirm?: string;
   disabled?: boolean; type?: "button" | "submit"; form?: string; onClick?: (e: MouseEvent) => void; title?: string; id?: string;
   // className is for behaviour hooks the stylesheet already keys on (.back, .signout…), never for looks.
   className?: string; "aria-label"?: string; "aria-pressed"?: boolean; children?: ReactNode;
 }) {
   const cls = "btn " + variant + (icon && !children ? " icon" : "") + (busy ? " busy" : "") + (className ? " " + className : "");
-  const inner = <>{icon && <Icon name={icon} size={16} />}{children}</>;
+  const shown = done ? "check" : icon;
+  const inner = <>{shown && <Icon name={shown} size={16} />}{children}</>;
   const click = (e: MouseEvent) => {
     if (confirm && !window.confirm(confirm)) { e.preventDefault(); return; }
     onClick?.(e);
   };
   if (to) return <Link to={to} className={cls} onClick={click} title={title} {...rest}>{inner}</Link>;
   if (href) return <a href={href} download={download} className={cls} onClick={click} title={title} id={id} {...rest}>{inner}</a>;
-  return <button type={type} form={form} className={cls} onClick={click} disabled={disabled || busy} aria-busy={busy || undefined} title={title} id={id} {...rest}>{inner}</button>;
+  const button = <button type={type} form={form} className={cls} onClick={click} disabled={disabled || busy} aria-busy={busy || undefined} title={title} id={id} {...rest}>{inner}</button>;
+  if (done === undefined) return button;
+  return <>{button}<span className="sr-only" role="status">{done ? doneText ?? "Done" : ""}</span></>;
 }
 
 // Field: label above the control, help below it. `check` puts a checkbox
@@ -291,7 +318,7 @@ export function Notice({ kind, title, action, id, children }: { kind: NoticeKind
   return (
     <div className={"notice " + kind} role={kind === "err" ? "alert" : "status"} id={id}>
       <div className="body">{title && <strong className="title">{title}</strong>}{children}</div>
-      {action && <div className="act">{action}</div>}
+      {action && <div className="act acts">{action}</div>}
     </div>
   );
 }
@@ -313,7 +340,7 @@ export function EmptyState({ title, action, loading, children }: { title?: React
     <div className="empty">
       {title && <h3>{title}</h3>}
       {children && <p>{children}</p>}
-      {action && <div className="toolbar center">{action}</div>}
+      {action && <div className="toolbar center acts">{action}</div>}
     </div>
   );
 }
@@ -322,10 +349,10 @@ export function EmptyState({ title, action, loading, children }: { title?: React
 // optionally copyable. `dots`: a name read in pieces (a DNS name, a host) breaks after its dots first.
 // `pre`: lines kept whole (commands, one a line), scrolled sideways rather than broken mid-token.
 export function Readout({ value, copy, block, dots, pre }: { value: string; copy?: boolean; block?: boolean; dots?: boolean; pre?: boolean }) {
-  const [done, setDone] = useState(false);
+  const [done, flash] = useFlash();
   const btn = copy && (
-    <Button variant="link" title="Copy to clipboard" onClick={() => { navigator.clipboard?.writeText(value).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
-      {done ? "Copied" : "Copy"}
+    <Button variant="link" title="Copy to clipboard" done={done} doneText="Copied" onClick={() => { navigator.clipboard?.writeText(value).then(flash); }}>
+      Copy
     </Button>
   );
   const text = dots ? value.split(/(?<=\.)(?=.)/).map((b, i) => <Fragment key={i}>{i > 0 && <wbr />}{b}</Fragment>) : value;

@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -109,7 +110,7 @@ Continuing replaces it: a wallet's answer to that one will then be refused.</p>{
 <form method="post" action="/identity/{{.Slug}}/wallet/start">
 <input type="hidden" name="csrf" value="{{.CSRF}}"/>
 {{if .Pending}}<input type="hidden" name="replace" value="1"/>{{end}}
-<button type="submit">{{if .Pending}}Replace it and continue to my wallet{{else}}Continue to my wallet{{end}}</button>
+<button type="submit">{{if .Pending}}Replace and continue{{else}}Continue to my wallet{{end}}</button>
 </form>
 <p class="muted">The wallet sends its answer back to this node's /wallet/return, in this browser.</p>
 </main></body></html>`))
@@ -122,7 +123,8 @@ var walletSubmitTmpl = template.Must(template.New("submit").Parse(`<!DOCTYPE htm
 <h1>Opening your wallet…</h1>
 <form id="wallet-form" method="post" action="{{.Action}}">
 {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}"/>
-{{end}}<button type="submit">Continue to {{.Wallet}}</button>
+{{end}}<p class="muted">Your wallet is at {{.Wallet}}.</p>
+<button type="submit">Continue to my wallet</button>
 </form>
 <script src="/wallet/submit.js"></script>
 </main></body></html>`))
@@ -400,7 +402,7 @@ func (d WalletDeps) getWallet(w http.ResponseWriter, r *http.Request) {
 		"Wallet": d.WalletOrigin, "CSRF": csrf,
 	}
 	if ask.pending != nil {
-		data["Pending"] = d.now().Sub(time.Unix(ask.pending.CreatedAt, 0)).Round(time.Minute).String() + " ago"
+		data["Pending"] = agoWords(d.now().Sub(time.Unix(ask.pending.CreatedAt, 0)))
 		data["PendingWallet"] = ask.pending.WalletOrigin
 	}
 	_ = walletAskTmpl.Execute(w, data)
@@ -586,4 +588,21 @@ func walletRefusal(err error) (int, string, string) {
 		return http.StatusBadRequest, "chain", msg
 	}
 	return http.StatusInternalServerError, "failed", "the certificate could not be installed"
+}
+
+// agoWords says how long ago, in words ("4 minutes ago"), not as a Go duration ("4m0s ago"), which is
+// what the replace notice printed.
+func agoWords(d time.Duration) string {
+	switch m := int(d.Round(time.Minute) / time.Minute); {
+	case m < 1:
+		return "moments ago"
+	case m == 1:
+		return "a minute ago"
+	case m < 60:
+		return fmt.Sprintf("%d minutes ago", m)
+	case m < 120:
+		return "an hour ago"
+	default:
+		return fmt.Sprintf("%d hours ago", m/60)
+	}
 }

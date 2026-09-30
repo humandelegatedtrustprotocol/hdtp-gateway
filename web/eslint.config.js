@@ -27,7 +27,7 @@ export default [
         // own scroll container was className="list", so the List primitive drew
         // a bordered white card around the conversation pane. Use the component,
         // or give your element a name of its own.
-        selector: "JSXAttribute[name.name='className'] > Literal[value=/(^|\\s)(list|card|toolbar|notice|empty|readout|crumb|page-h|menu|menu-item)(\\s|$)/]",
+        selector: "JSXAttribute[name.name='className'] > Literal[value=/(^|\\s)(list|card|toolbar|notice|empty|readout|crumb|page-h|menu|menu-item|acts|acts-status)(\\s|$)/]",
         message: "That class belongs to a primitive in ui.tsx — use the component (List, Section, Toolbar, Notice, EmptyState, Readout, Menu) or pick another name.",
       }],
     },
