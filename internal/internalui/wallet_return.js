@@ -42,7 +42,7 @@
   var werr = answer.get("error");
   if (werr) {
     var known = Object.prototype.hasOwnProperty.call(walletCodes, werr);
-    show(known ? walletCodes[werr] : "wallet_other", werr === "cancelled" ? "" : "err", ["sign"], known ? "wallet: " + werr : "");
+    show(known ? walletCodes[werr] : "wallet_other", werr === "cancelled" ? "" : "err", ["sign"], "");
     return;
   }
   var chain = answer.get("chain"), state = answer.get("state");
@@ -88,11 +88,14 @@
     var code = j && typeof j.code === "string" && /^[a-z_]+$/.test(j.code) ? j.code : "";
     var msg = j && typeof j.error === "string" ? j.error : "";
     if (code && el("st-r-" + code)) {
-      var detail = (code === "chain" || code === "malformed") && msg ? msg : code;
+      // A state the page explains in words shows no code (the owner, 2026-09-30: "what is no_request
+      // here?"). The chain and malformed refusals add the node's own sentence, which names the rule;
+      // a failure nobody expected keeps a labelled reference, which is what helps someone diagnose.
+      var detail = (code === "chain" || code === "malformed") && msg ? msg : code === "failed" ? "Reference: HTTP " + status : "";
       show("r-" + code, code === "answered" ? "ok" : "err", noSign[code] ? [] : ["sign"], detail);
       return;
     }
-    show("refused", "err", ["sign"], "HTTP " + status + (msg ? ": " + msg : ""));
+    show("refused", "err", ["sign"], "Reference: HTTP " + status + (msg ? " — " + msg : ""));
   }
 
   fetch("/identity/" + encodeURIComponent(slug) + "/wallet/install", {
@@ -102,8 +105,8 @@
     body: new URLSearchParams({ chain: chain, state: state }).toString(),
   }).then(function (r) {
     // The portal refuses before the install, as text: no session (401), the CSRF check (403).
-    if (r.status === 401) return show("signed_out", "err", ["login"], "HTTP 401");
-    if (r.status === 403) return show("forbidden", "err", ["sign"], "HTTP 403");
+    if (r.status === 401) return show("signed_out", "err", ["login"], "");
+    if (r.status === 403) return show("forbidden", "err", ["sign"], "");
     return r.json().then(function (j) {
       if (r.ok) installed(j);
       else refused(r.status, j);
