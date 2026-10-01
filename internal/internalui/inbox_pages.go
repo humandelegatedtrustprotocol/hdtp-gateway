@@ -67,8 +67,11 @@ func (d InboxDeps) getAPIThreadsID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// opening a thread reads it (local state only, SPEC §7.6)
-	_ = d.Store.MarkThreadRead(r.Context(), account, id)
+	// Opening a thread reads it, through the newest message it shows (local state only, SPEC
+	// §7.6): what arrives after this answer stays unread.
+	if n := len(msgs); n > 0 {
+		_, _ = d.Store.MarkThreadReadThrough(r.Context(), account, id, msgs[n-1].Seq)
+	}
 	contact := ""
 	if len(msgs) > 0 {
 		contact = msgs[0].ContactFpr
