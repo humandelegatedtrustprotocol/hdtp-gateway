@@ -224,8 +224,8 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 			Presence: presence, LastSeen: seen,
 		})
 	}
-	// Past the page the total is a floor only if something there is unread too: one probe per
-	// thread, not a count. "More than N" for a backlog that is all on the page would be false.
+	// Past the page the total is a floor only if something there is unread too: for each thread, a
+	// walk from its marker to its first unread message, not a count. "More than N" for a backlog that is all on the page would be false.
 	if !total.Capped && len(all) > len(page) {
 		withUnread, err := d.Store.ListContactsWithUnread(r.Context(), account)
 		if err != nil {

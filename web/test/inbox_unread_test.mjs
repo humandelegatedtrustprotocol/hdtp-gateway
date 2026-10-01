@@ -37,7 +37,9 @@ test("the sidebar's Inbox chip is the node's total, never a sum of the rows", ()
 
 test("showing a conversation marks it read through the newest message shown, and only when there is something to read", () => {
   const view = src("views/messages.tsx");
-  assert.match(view, /if \(!sel \|\| selUnread === 0 \|\| through === 0 \|\| document\.visibilityState !== "visible"\) return;/);
+  assert.match(view, /if \(!sel \|\| selUnread === 0 \|\| through === 0 \|\| !visible\) return;/);
+  // Coming back to a hidden page reads what is on screen: the effect runs again when visibility changes.
+  assert.match(view, /\}, \[sel, selUnread, through, visible, load\]\);/);
   assert.match(view, /postForm\("\/messages\/read", \{ contact: sel, through: String\(through\) \}\)/);
   assert.match(view, /dispatchEvent\(new Event\("pact:counts"\)\)/);
 });

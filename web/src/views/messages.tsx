@@ -101,9 +101,11 @@ export function Messages() {
   }, [sel, search]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe(load), [load]); // SSE: deliveries and inbound messages refresh the view
-  // Back on the page: look again, so a conversation on screen is read now that it is seen.
+  // Whether the page is seen. Coming back to it reads the conversation on screen (the effect below runs
+  // again on the change) and looks again for what moved while it was hidden.
+  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
-    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    const onVis = () => { const v = document.visibilityState === "visible"; setVisible(v); if (v) load(); };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [load]);
@@ -113,13 +115,13 @@ export function Messages() {
   const selUnread = tallyCount((d?.contacts ?? []).find((p) => p.fingerprint === sel)?.unread ?? 0);
   const through = d?.through ?? 0;
   useEffect(() => {
-    if (!sel || selUnread === 0 || through === 0 || document.visibilityState !== "visible") return;
+    if (!sel || selUnread === 0 || through === 0 || !visible) return;
     postForm("/messages/read", { contact: sel, through: String(through) }).then((r) => {
       if (!r.ok) return;
       dispatchEvent(new Event("pact:counts"));
       load();
     }).catch(() => { /* the count stays until the next look */ });
-  }, [sel, selUnread, through, load]);
+  }, [sel, selUnread, through, visible, load]);
   // What this contact lets us call on their server — asked once per conversation.
   useEffect(() => {
     setPending(null); setTools([]); setAllTools([]); setToolsState("loading"); setMenuOpen(false); setToolsOpen(false); setActive(null); setArgs({}); setResult("");

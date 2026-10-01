@@ -64,7 +64,8 @@ SELECT COUNT(*) FROM (
 ) AS u;
 
 -- name: ListContactsWithUnread :many
--- The contacts with at least one unread message: one index probe per thread, never a count.
+-- The contacts with at least one unread message, never a count: for each thread, messages_thread
+-- is walked from the thread's marker until the first inbound message, past any of ours.
 SELECT DISTINCT t.contact_fpr FROM threads t
 WHERE t.account_id = $1 AND EXISTS (
   SELECT 1 FROM messages m
