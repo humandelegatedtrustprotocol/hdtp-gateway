@@ -761,7 +761,23 @@ type MessageStore interface {
 	CountBlobRefs(ctx context.Context, hash string) (int64, error)
 	ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error)
 	UnreadCount(ctx context.Context, accountID, threadID string) (int64, error)
-	MarkThreadRead(ctx context.Context, accountID, threadID string) error
+
+	// Read state (SPEC §7.6): local, never wire-visible. The marker is threads.last_read_seq, a
+	// high-water mark that is only ever raised; the count of what is unread is never stored, it
+	// is read from the marker when it is asked for.
+	//
+	// MarkThreadReadThrough raises one thread's marker to `through`, the seq of the newest
+	// message its reader was shown; MarkConversationReadThrough raises every thread of one
+	// contact's. Each answers how many threads moved: 0 when nothing was unread through it.
+	MarkThreadReadThrough(ctx context.Context, accountID, threadID string, through int64) (int64, error)
+	MarkConversationReadThrough(ctx context.Context, accountID, contactFpr string, through int64) (int64, error)
+	// ConversationHasMessage says whether `seq` is a message of this account's conversation with
+	// this contact: the only thing a conversation's read marker may name.
+	ConversationHasMessage(ctx context.Context, accountID, contactFpr string, seq int64) (bool, error)
+	// UnreadWithContactUpTo counts a conversation's unread messages no further than upTo.
+	UnreadWithContactUpTo(ctx context.Context, accountID, contactFpr string, upTo int) (int64, error)
+	// ListContactsWithUnread is every contact with at least one unread message.
+	ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error)
 
 	// Two callers share this table and MUST NOT share a key. An envelope's
 	// replay guard reserves public.EnvelopeKey(msg_id); a tool that carries its

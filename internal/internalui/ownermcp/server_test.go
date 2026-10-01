@@ -133,6 +133,39 @@ func TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable(t *testing.T)
 	}
 }
 
+// read_thread is the owner MCP's read action: the agent reading is the owner reading, as PACT
+// Cloud's read_thread is, so it marks the thread read through the newest message it hands over,
+// and what lands after stays unread. The thread of another identity it is not scoped to moves
+// nothing.
+func TestReadThreadMarksTheThreadReadThroughWhatItReturned(t *testing.T) {
+	e := newEnv(t)
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	ctx := context.Background()
+	const threadID = "t-read"
+	for _, id := range []string{"m1", "m2"} {
+		if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn,
+			messaging.Input{Origin: messaging.OriginPeer, MsgID: id, ThreadID: threadID, Text: id, Sender: messaging.SenderAgent}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := e.st.UnreadCount(ctx, e.acctA, threadID); n != 2 {
+		t.Fatalf("before reading: %d unread, want 2", n)
+	}
+	if text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": threadID}); isErr || !strings.Contains(text, `"m2"`) {
+		t.Fatalf("read_thread: %s", text)
+	}
+	if n, _ := e.st.UnreadCount(ctx, e.acctA, threadID); n != 0 {
+		t.Fatalf("after read_thread: %d unread, want 0", n)
+	}
+	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m3", ThreadID: threadID, Text: "m3", Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := e.st.UnreadCount(ctx, e.acctA, threadID); n != 1 {
+		t.Fatalf("a message after the read: %d unread, want 1", n)
+	}
+}
+
 func TestSendToContactStoresAgentLabel(t *testing.T) {
 	e := newEnv(t)
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
