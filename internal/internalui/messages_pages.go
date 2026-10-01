@@ -18,7 +18,9 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +46,9 @@ type convContact struct {
 	Status   string `json:"status"`
 	Preview  string `json:"preview"`
 	Selected bool   `json:"selected"`
-	Unread   int    `json:"unread"`
+	// Unread is this conversation's unread messages, counted at runtime from the read marker and
+	// no further than UnreadCap: `{count: 50, capped: true}` reads "50+" (web/src/words.ts Tally).
+	Unread tally `json:"unread"`
 	// Presence is "", "online" or "away".
 	//
 	// Empty means they have NOT granted us `status.view`, and then nothing is
@@ -94,14 +98,55 @@ type convMedia struct {
 // MountMessagePages registers the conversation view.
 func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
 	mux.HandleFunc("GET /api/conversations", d.getAPIConversations)
+	mux.HandleFunc("POST /messages/read", d.postMessagesRead)
 	mux.HandleFunc("POST /messages/send_media", d.postMessagesSendMedia)
 	mux.HandleFunc("POST /messages/send", d.postMessagesSend)
 }
 
+// ConversationsPage is how many conversations one answer of `GET /api/conversations` lists, most
+// recently active first: the page PACT Cloud's thread list answers by default (its
+// `GET /v1/identities/:slug/threads`, limit 50). A search narrows the list before it is cut, so a
+// conversation past the page is one search away; the selected one is always on it.
+const ConversationsPage = 50
+
+// UnreadCap is where a conversation's unread count stops: past it the row says "50+". It is PACT
+// Cloud's BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
+// reads every row's count on every visit, which is why a count is bounded rather than exact.
+const UnreadCap = 50
+
+// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape PACT
+// Cloud's GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
+// `count`.
+type tally struct {
+	Count  int64 `json:"count"`
+	Capped bool  `json:"capped"`
+}
+
+// unreadWith counts a conversation's unread messages, no further than UnreadCap. Nothing is
+// stored: the count is read from the threads' read markers (threads.last_read_seq) each time.
+func unreadWith(ctx context.Context, st store.MessageStore, account, fpr string) (tally, error) {
+	n, err := st.UnreadWithContactUpTo(ctx, account, fpr, UnreadCap+1)
+	if err != nil {
+		return tally{}, err
+	}
+	if n > UnreadCap {
+		return tally{Count: UnreadCap, Capped: true}, nil
+	}
+	return tally{Count: n}, nil
+}
+
 // getAPIConversations serves `GET /api/conversations`.
+//
+// It answers one page of conversations (ConversationsPage), each with its unread count, and
+// `unread`, the page's total, for the sidebar's Inbox chip. The total is the sum of the page's
+// counts, and `capped` when it is a floor rather than the whole: a row on the page stopped at
+// UnreadCap, or a conversation past the page holds an unread message too. `more` says there are
+// conversations past the page. Reading this changes nothing: a conversation is marked read by
+// `POST /messages/read`, which the view sends when it shows one.
 func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
 	selected := r.URL.Query().Get("contact")
+	needle := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 
 	list, err := d.Store.ListContacts(r.Context(), account)
 	if err != nil {
@@ -121,26 +166,83 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	// the owner needs the fingerprint on the row they can see.
 	labels := labelContacts(list)
 
-	var people []convContact
+	var all []store.Contact
 	for _, c := range list {
 		// Only somebody you have actually accepted can be written to; a
 		// pending request is not yet a correspondent.
 		if c.Status != "active" {
 			continue
 		}
-		name := labels[c.Fingerprint]
+		all = append(all, c)
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		a, b := lastByContact[all[i].Fingerprint], lastByContact[all[j].Fingerprint]
+		return a.LastAt > b.LastAt // most recently active first
+	})
+
+	// The page: the search first, then the cut, so nobody is out of reach; then the selected
+	// conversation, wherever it falls, because the view is showing it.
+	var page []store.Contact
+	more, onPage := false, map[string]bool{}
+	for _, c := range all {
+		if needle != "" && !strings.Contains(strings.ToLower(labels[c.Fingerprint]), needle) {
+			continue
+		}
+		if len(page) == ConversationsPage {
+			more = true
+			continue
+		}
+		page = append(page, c)
+		onPage[c.Fingerprint] = true
+	}
+	if selected != "" && !onPage[selected] {
+		for _, c := range all {
+			if c.Fingerprint == selected {
+				page = append(page, c)
+				onPage[selected] = true
+			}
+		}
+	}
+
+	people := []convContact{}
+	total := tally{}
+	for _, c := range page {
+		unread, err := unreadWith(r.Context(), d.Store, account, c.Fingerprint)
+		if err != nil {
+			// A count that could not be read is not a count of zero.
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		total.Count += unread.Count
+		total.Capped = total.Capped || unread.Capped
 		presence, seen := presenceOf(r.Context(), d.Store, account, threads, c)
 		people = append(people, convContact{
-			Fpr: c.Fingerprint, Name: name, Status: c.Status,
+			Fpr: c.Fingerprint, Name: labels[c.Fingerprint], Status: c.Status,
 			Preview:  previewOf(r.Context(), d.Store, account, threads, c.Fingerprint),
 			Selected: c.Fingerprint == selected,
+			Unread:   unread,
 			Presence: presence, LastSeen: seen,
 		})
 	}
-	sort.SliceStable(people, func(i, j int) bool {
-		a, b := lastByContact[people[i].Fpr], lastByContact[people[j].Fpr]
-		return a.LastAt > b.LastAt // most recently active first
-	})
+	// Past the page the total is a floor only if something there is unread too: one probe per
+	// thread, not a count. "More than N" for a backlog that is all on the page would be false.
+	if !total.Capped && len(all) > len(page) {
+		withUnread, err := d.Store.ListContactsWithUnread(r.Context(), account)
+		if err != nil {
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		active := map[string]bool{}
+		for _, c := range all {
+			active[c.Fingerprint] = true
+		}
+		for _, fpr := range withUnread {
+			if active[fpr] && !onPage[fpr] {
+				total.Capped = true
+				break
+			}
+		}
+	}
 
 	var chosen *convContact
 	for i := range people {
@@ -149,12 +251,16 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		}
 	}
 	var msgs []convMessage
+	// through is the newest message of the selected conversation this answer shows: what the view
+	// marks read through (POST /messages/read), so a message that lands after it stays unread.
+	var through int64
 	if chosen != nil {
 		// EVERY thread with this contact, merged in time order. A conversation
 		// is with a person, not with a thread id: PACT threads are a shared
 		// grouping a peer can start at will (§7), and reading only the newest
 		// showed a history one message long.
 		for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
+			through = max(through, m.Seq)
 			cm := convMessage{
 				Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
 				TS: m.CreatedAt, State: deliveryState(m),
@@ -175,11 +281,66 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		}
 	}
 	apiJSON(w, map[string]any{
-		"contacts": people, "messages": msgs,
+		"contacts": people, "messages": msgs, "through": through,
+		"unread": total, "more": more,
 		// A fresh idempotency key per load: the send form posts it, so a
 		// double-submit acknowledges rather than re-sends (PACT §7).
 		"new_msg_id": newUIMsgID(),
 	})
+}
+
+// postMessagesRead serves `POST /messages/read`: the owner has read a conversation, through the
+// message `through` names (the `through` of the `GET /api/conversations` that showed it).
+//
+// The marker is the reader's own and never wire-visible (SPEC §7.6), so it writes no audit row,
+// as PACT Cloud's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
+// reading a conversation writes none here: the trail records what was said and done, not every
+// glance. It is a high-water mark, never lowered, so a repeat, or a stale mark arriving after a
+// newer one, changes nothing. A contact this identity does not hold as an active correspondent
+// (unknown, pending, blocked, or another identity's) is 404, and so is a `through` that is not a
+// message of this conversation.
+func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+		return
+	}
+	account := formOrQuery(r, "account")
+	contact := r.PostForm.Get("contact")
+	through, err := strconv.ParseInt(r.PostForm.Get("through"), 10, 64)
+	if contact == "" || err != nil || through <= 0 {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+		return
+	}
+	// The list, not GetContact: its "no such row" is each engine's own error, and a store that
+	// failed must not answer as a contact that does not exist.
+	list, err := d.Store.ListContacts(r.Context(), account)
+	if err != nil {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	if !slices.ContainsFunc(list, func(c store.Contact) bool { return c.Fingerprint == contact && c.Status == "active" }) {
+		apiJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not_found"})
+		return
+	}
+	ok, err := d.Store.ConversationHasMessage(r.Context(), account, contact, through)
+	if err != nil {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	if !ok {
+		apiJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not_found"})
+		return
+	}
+	if _, err := d.Store.MarkConversationReadThrough(r.Context(), account, contact, through); err != nil {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	unread, err := unreadWith(r.Context(), d.Store, account, contact)
+	if err != nil {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	apiJSON(w, map[string]any{"contact": contact, "unread": unread})
 }
 
 // postMessagesSendMedia serves `POST /messages/send_media`.
