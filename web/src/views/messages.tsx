@@ -7,22 +7,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } from "../api";
 import { Link, navigate } from "../router";
-import { Avatar, Badge, Button, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, toolAction, toolLabel, trustWord, type IconName } from "../ui";
+import { Avatar, Badge, Button, CountChip, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, tallyCount, toolAction, toolLabel, trustWord, type IconName, type Tally } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
 import { IdText } from "../glance";
 import { actionWord, ago, fileSize, mediaKind, undeliveredReason, when, whenTitle } from "../words";
 import type { Schema, Values } from "../schema_form";
 
+/** `unread` is counted by the node at runtime from the conversation's read marker, and capped: `{ count: 50, capped: true }` reads "50+". */
 type Person = {
   fingerprint: string; label: string; status: string; preview: string;
-  selected: boolean; unread: number; presence: string;
+  selected: boolean; unread: Tally; presence: string;
   /** When they were last seen to be reachable (unix seconds): what the presence dot is evidence of. */
   last_seen?: number;
 };
 type Media = { filename: string; mime: string; size?: number; hash?: string; url?: string };
 /** `ts` is when it was written and `until` when a message still being tried stops being tried (unix seconds). */
 type Msg = { mine: boolean; body: string; who: string; ts: number; until?: number; state?: string; media?: Media };
-type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string };
+/**
+ * One page of conversations, most recently active first (the node's ConversationsPage); `more` when there
+ * are others past it, which a search reaches. `through` is the newest message of the selected conversation
+ * this answer shows: what showing it marks read through (POST /messages/read).
+ */
+type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string; unread: Tally; more: boolean; through: number };
 
 type PermRow = { name: string; on: boolean };
 type Contact = {
@@ -84,12 +90,38 @@ export function Messages() {
   // A first read that failed is said as one: the Inbox drew a blank content area, with no list, no
   // heading and no error, for as long as the node refused.
   const [err, setErr] = useState("");
+  // The search is the node's too: the list is one page, and a conversation past it is found by asking.
+  const [search, setSearch] = useState("");
+  useEffect(() => { const t = setTimeout(() => setSearch(q.trim()), 250); return () => clearTimeout(t); }, [q]);
   const load = useCallback(() => {
-    const params = sel ? { contact: sel } : undefined;
+    const params: Record<string, string> = {};
+    if (sel) params.contact = sel;
+    if (search) params.q = search;
     return getJSON<Data>("/api/conversations", params).then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e)));
-  }, [sel]);
+  }, [sel, search]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe(load), [load]); // SSE: deliveries and inbound messages refresh the view
+  // Whether the page is seen. Coming back to it reads the conversation on screen (the effect below runs
+  // again on the change) and looks again for what moved while it was hidden.
+  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
+  useEffect(() => {
+    const onVis = () => { const v = document.visibilityState === "visible"; setVisible(v); if (v) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [load]);
+  // Showing a conversation reads it, through the newest message shown and no further: one that lands after
+  // stays unread. Only while the page is seen, and only when the row says there is something to read, so a
+  // read that changes nothing is never sent. The sidebar hears of it at once (Counts, "pact:counts").
+  const selUnread = tallyCount((d?.contacts ?? []).find((p) => p.fingerprint === sel)?.unread ?? 0);
+  const through = d?.through ?? 0;
+  useEffect(() => {
+    if (!sel || selUnread === 0 || through === 0 || !visible) return;
+    postForm("/messages/read", { contact: sel, through: String(through) }).then((r) => {
+      if (!r.ok) return;
+      dispatchEvent(new Event("pact:counts"));
+      load();
+    }).catch(() => { /* the count stays until the next look */ });
+  }, [sel, selUnread, through, visible, load]);
   // What this contact lets us call on their server — asked once per conversation.
   useEffect(() => {
     setPending(null); setTools([]); setAllTools([]); setToolsState("loading"); setMenuOpen(false); setToolsOpen(false); setActive(null); setArgs({}); setResult("");
@@ -200,11 +232,12 @@ export function Messages() {
                   <span className="preview">{p.preview || (p.status === "active" ? "No messages yet" : p.status)}</span>
                 </span>
                 <span className="end">
-                  {p.unread > 0 && <span className="unread">{p.unread}</span>}
+                  {tallyCount(p.unread) > 0 && <CountChip n={p.unread} noun="unread" tone="ok" />}
                 </span>
               </button>
             ))}
-            {people.length === 0 && ((d.contacts ?? []).length === 0 ? (
+            {d.more && <p className="muted">Showing the most recent conversations. Search to find anyone else.</p>}
+            {people.length === 0 && ((d.contacts ?? []).length === 0 && !search ? (
               <EmptyState title="No contacts yet" action={<Button to="/invites">Create an invite</Button>}>Invite someone, or accept an invite you were given.</EmptyState>
             ) : (
               <EmptyState>Nobody matches “{q}”.</EmptyState>
