@@ -140,9 +140,25 @@ func (s *Postgres) UnreadCount(ctx context.Context, accountID, threadID string) 
 	return s.q.UnreadCount(ctx, pgdb.UnreadCountParams{AccountID: accountID, ThreadID: threadID})
 }
 
-func (s *Postgres) MarkThreadRead(ctx context.Context, accountID, threadID string) error {
-	_, err := s.q.MarkThreadRead(ctx, pgdb.MarkThreadReadParams{AccountID: accountID, ThreadID: threadID, AccountID_2: accountID, ID: threadID})
-	return err
+func (s *Postgres) MarkThreadReadThrough(ctx context.Context, accountID, threadID string, through int64) (int64, error) {
+	return s.q.MarkThreadReadThrough(ctx, pgdb.MarkThreadReadThroughParams{LastReadSeq: through, AccountID: accountID, ID: threadID})
+}
+
+func (s *Postgres) MarkConversationReadThrough(ctx context.Context, accountID, contactFpr string, through int64) (int64, error) {
+	return s.q.MarkConversationReadThrough(ctx, pgdb.MarkConversationReadThroughParams{LastReadSeq: through, AccountID: accountID, ContactFpr: contactFpr})
+}
+
+func (s *Postgres) ConversationHasMessage(ctx context.Context, accountID, contactFpr string, seq int64) (bool, error) {
+	n, err := s.q.ConversationHasMessage(ctx, pgdb.ConversationHasMessageParams{AccountID: accountID, ContactFpr: contactFpr, Seq: seq})
+	return n > 0, err
+}
+
+func (s *Postgres) UnreadWithContactUpTo(ctx context.Context, accountID, contactFpr string, upTo int) (int64, error) {
+	return s.q.UnreadWithContactUpTo(ctx, pgdb.UnreadWithContactUpToParams{AccountID: accountID, ContactFpr: contactFpr, Limit: pgLimit(upTo)})
+}
+
+func (s *Postgres) ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error) {
+	return s.q.ListContactsWithUnread(ctx, accountID)
 }
 
 func (s *Postgres) ImportThread(ctx context.Context, t Thread) (bool, error) {
