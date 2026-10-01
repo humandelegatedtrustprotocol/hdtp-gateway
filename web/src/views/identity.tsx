@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { failureOf, fetchSession, getJSON, postForm } from "../api";
 import { Badge, Button, EmptyState, Failed, Field, HelpTip, Notice, PageHeader, Readout, Section, type Note } from "../ui";
+import { KeyFacts } from "../glance";
 
-type Row = { id: string; slug: string; display_name: string; fingerprint: string; algo: string; web_wallet?: boolean; root_fingerprint?: string };
+type Row = { id: string; slug: string; display_name: string; fingerprint: string; web_wallet?: boolean; root_fingerprint?: string };
 type Data = { rows: Row[]; notice: string; error: string; can_create: boolean };
 
 export function Identity() {
@@ -58,12 +59,13 @@ export function Identity() {
       )}
       {d.rows.map((a) => (
         // An identity with no root has no certificate, and so no card and no address: that is its status,
-        // said as a warning. The key algorithm answers no question an owner asks; it is in the details line.
+        // said as a warning. Its keys are the certificate's, drawn as the card page draws them (KeyFacts): the
+        // root once there is one, and this node's key (the account's fingerprint, which the card names as its
+        // kid). The key algorithm answers no question an owner asks.
         <Section key={a.id} title={a.display_name}
           meta={<><Badge mono>{a.slug}</Badge>{!a.root_fingerprint && <Badge tone="warn">no certificate yet</Badge>}</>}
           footer={a.web_wallet ? <Button variant="secondary" href={"/identity/" + encodeURIComponent(a.slug) + "/wallet"}>Sign with my web wallet</Button> : undefined}>
-          <p><Readout value={a.fingerprint} copy /></p>
-          <p className="help">Host key · {a.algo}</p>
+          <dl className="facts"><KeyFacts root={a.root_fingerprint} kid={a.fingerprint} /></dl>
           {!a.root_fingerprint && (
             <>
               <p className="muted">Its first certificate comes from your command-line wallet. Run these three, in order:</p>

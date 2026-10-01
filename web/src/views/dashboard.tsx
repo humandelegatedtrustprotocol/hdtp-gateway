@@ -8,7 +8,7 @@
 // never drawn as zeros. The pieces are glance.tsx, which PACT Cloud's overview is built from too.
 import { useEffect, useState } from "react";
 import { failureOf, getJSON, setAccount } from "../api";
-import { Attention, GlanceSkeleton, IdText, IdentityCard, IdentityCards, StatTile, StatTiles, StatusStrip } from "../glance";
+import { Attention, GlanceSkeleton, IdentityCard, IdentityCards, StatTile, StatTiles, StatusStrip } from "../glance";
 import { certificateView } from "../overview";
 import { navigate } from "../router";
 import { Button, EmptyState, Notice, PageHeader, Readout, Section } from "../ui";
@@ -107,8 +107,9 @@ export function Dashboard() {
               return (
                 <IdentityCard key={a.id}
                   name={a.display_name || a.slug}
-                  // A long slug gives way (an ellipsis, the whole of it in the tooltip); the fingerprint and its copy button do not.
-                  handle={a.fingerprint ? <><span className="gl-slug" title={a.slug}>{a.slug} ·</span><IdText id={a.fingerprint} /></> : <span className="gl-slug" title={a.slug}>{a.slug}</span>}
+                  // A long slug gives way (an ellipsis, the whole of it in the tooltip). No key: the card page it opens
+                  // draws the identity's keys, where they are needed (KeyFacts).
+                  handle={<span className="gl-slug" title={a.slug}>{a.slug}</span>}
                   // No address line for an identity with no current certificate: its pill says why.
                   address={endpoint ? <span title={endpoint}><Readout value={addressOf(endpoint, d.posture.public_url)} /></span> : undefined}
                   certificate={certificateView(a.certificate, now)}
