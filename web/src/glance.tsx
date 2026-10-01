@@ -104,12 +104,13 @@ function CertificateLine({ c }: { c: CertificateView | { failed: string } }) {
  * With `to`, the whole card opens it (the owner, 2026-09-30: "on card clicked should take to the vcard
  * page"): the name is the one link, and the sheet stretches it over the card, so the card is one tab stop
  * with a link's semantics rather than a clickable box. `onClick` runs before it lands, as a count's does.
- * The card's other controls — the footer's, the counts — sit above the stretched link and are never
- * inside it. The details stand one under another beside the avatar (name, handle, address,
- * certificate), and the footer sits on the right. No key is drawn on it: a key is on the card page it
- * opens, where it is needed (`KeyFacts`).
+ * The card's other controls — the footer's, the counts, the `help` tip — sit above the stretched link and
+ * are never inside it. The details stand one under another beside the avatar (name, handle, address,
+ * certificate), and the footer sits on the right, vertically centred on them. `help` is the card's one
+ * `?`, in its top-right corner (the owner, 2026-10-01: "move ? to top right on card"). No key is drawn on
+ * it: a key is on the card page it opens, where it is needed (`KeyFacts`).
  */
-export function IdentityCard({ name, handle, address, status, certificate, counts, footer, to, onClick }: {
+export function IdentityCard({ name, handle, address, status, certificate, counts, footer, help, to, onClick }: {
   name: string;
   handle?: ReactNode;
   address?: ReactNode;
@@ -118,13 +119,16 @@ export function IdentityCard({ name, handle, address, status, certificate, count
   certificate: CertificateView | { failed: string };
   counts: CardCount[];
   footer?: ReactNode;
+  /** The card's `?` (a `HelpTip`), drawn in its top-right corner. */
+  help?: ReactNode;
   /** Where the card opens: its name is a link there, stretched over the card. */
   to?: string;
   /** What runs before `to` lands: selecting the card's identity. */
   onClick?: () => void;
 }) {
   return (
-    <article className={"gl-id" + (to ? " gl-go" : "")} aria-label={name}>
+    <article className={"gl-id" + (to ? " gl-go" : "") + (help ? " gl-has-help" : "")} aria-label={name}>
+      {help && <div className="gl-help">{help}</div>}
       <div className="top">
         <Avatar name={name} />
         <div className="who">
