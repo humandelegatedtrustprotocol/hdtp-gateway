@@ -155,9 +155,25 @@ func (s *SQLite) UnreadCount(ctx context.Context, accountID, threadID string) (i
 	return s.q.UnreadCount(ctx, sqlitedb.UnreadCountParams{AccountID: accountID, ThreadID: threadID})
 }
 
-func (s *SQLite) MarkThreadRead(ctx context.Context, accountID, threadID string) error {
-	_, err := s.q.MarkThreadRead(ctx, sqlitedb.MarkThreadReadParams{AccountID: accountID, ThreadID: threadID, AccountID_2: accountID, ID: threadID})
-	return err
+func (s *SQLite) MarkThreadReadThrough(ctx context.Context, accountID, threadID string, through int64) (int64, error) {
+	return s.q.MarkThreadReadThrough(ctx, sqlitedb.MarkThreadReadThroughParams{LastReadSeq: through, AccountID: accountID, ID: threadID, LastReadSeq_2: through})
+}
+
+func (s *SQLite) MarkConversationReadThrough(ctx context.Context, accountID, contactFpr string, through int64) (int64, error) {
+	return s.q.MarkConversationReadThrough(ctx, sqlitedb.MarkConversationReadThroughParams{LastReadSeq: through, AccountID: accountID, ContactFpr: contactFpr, LastReadSeq_2: through})
+}
+
+func (s *SQLite) ConversationHasMessage(ctx context.Context, accountID, contactFpr string, seq int64) (bool, error) {
+	n, err := s.q.ConversationHasMessage(ctx, sqlitedb.ConversationHasMessageParams{AccountID: accountID, ContactFpr: contactFpr, Seq: seq})
+	return n > 0, err
+}
+
+func (s *SQLite) UnreadWithContactUpTo(ctx context.Context, accountID, contactFpr string, upTo int) (int64, error) {
+	return s.q.UnreadWithContactUpTo(ctx, sqlitedb.UnreadWithContactUpToParams{AccountID: accountID, ContactFpr: contactFpr, Limit: int64(upTo)})
+}
+
+func (s *SQLite) ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error) {
+	return s.q.ListContactsWithUnread(ctx, accountID)
 }
 
 func (s *SQLite) ImportThread(ctx context.Context, t Thread) (bool, error) {
