@@ -618,8 +618,8 @@ a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
 .gl-tile.gl-bad .v,.gl-tile.gl-bad .h{color:var(--red)}
 .gl-ids{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));margin:0 0 1rem}
 /* An identity's card (glance.tsx IdentityCard): the avatar, its details one under another (name, fingerprint,
-   address, certificate), and the footer's button on the right — under them, at the right, when the card is
-   too narrow for both. A card with somewhere to open is that link: the name's ::after covers the card (the
+   address, certificate), and the footer on the right, vertically centred — under them, at the right, when
+   the card is too narrow for both; its `?` in the top-right corner. A card with somewhere to open is that link: the name's ::after covers the card (the
    card is its containing block, so nothing between them may be positioned), and every other control in it
    is lifted above that. */
 .gl-id{position:relative;display:flex;flex-direction:column;gap:.65rem;padding:1rem 1.1rem;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);box-shadow:var(--shadow-sm);min-width:0;transition:border-color .12s}
@@ -650,7 +650,11 @@ a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
 .gl-id .counts span{font-size:.78rem;color:var(--muted);white-space:nowrap}
 .gl-id .counts .gl-warn b{color:var(--amber)}
 .gl-id .counts .gl-bad b,.gl-id .counts .gl-bad span{color:var(--red)}
-.gl-id .foot{display:flex;gap:.5rem;flex-wrap:wrap;margin-left:auto}
+.gl-id .foot{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;justify-content:flex-end;margin-left:auto}
+/* The card's `?` (IdentityCard `help`): its top-right corner, above the stretched link. The name's line,
+   the one level with it, keeps clear of it; the footer stays at the card's right, centred below it. */
+.gl-id .gl-help{position:absolute;top:.45rem;right:.5rem;z-index:1;line-height:0}
+.gl-id.gl-has-help .who .nm{padding-right:1.4rem}
 .gl-needs{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg-2);padding:.8rem 1rem .9rem;margin:0 0 1.2rem}
 .gl-needs h2{font-size:.95rem;margin:0 0 .6rem}
 .gl-needs ul{list-style:none;margin:0;padding:0;display:grid;gap:.55rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,23rem),1fr))}
