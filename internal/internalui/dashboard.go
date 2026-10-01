@@ -13,10 +13,6 @@ package internalui
 // could not read fails the answer rather than counting as zero: "0 waiting" for a read that failed
 // tells an owner nobody is waiting.
 //
-// Unread messages are not here, although the overview has room for them: the portal's inbox never
-// marks a thread read (it reads /api/conversations, which does not), so the store's unread count
-// only ever grows and a number built on it would be false.
-//
 // It replaces the first-run shell but not the first-run behaviour: with no passkey registered, the
 // page still leads to the setup wizard, because that is the §8.3 gate and skipping it would leave a
 // node anyone could claim.

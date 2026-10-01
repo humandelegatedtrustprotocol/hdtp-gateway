@@ -311,7 +311,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts"},
 		ot.getInboxTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first"},
+	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
 		ot.readThreadTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)"},
@@ -500,6 +500,14 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 		}
 		// SPEC §7.6: every payload handed to the agent carries the trust label.
 		out = append(out, row{Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
+	}
+	// The agent reading is the owner reading, as PACT Cloud's read_thread is: the thread is read
+	// through the newest message this answer hands over (oldest first, so the last), and what
+	// lands after it stays unread. The marker is local and never wire-visible (SPEC §7.6).
+	if n := len(msgs); n > 0 {
+		if _, err := ot.d.Store.MarkThreadReadThrough(ctx, a.AccountID, a.ThreadID, msgs[n-1].Seq); err != nil {
+			return nil, nil, err
+		}
 	}
 	r, err := jsonResult(out)
 	return r, nil, err

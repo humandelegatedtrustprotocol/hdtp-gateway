@@ -158,18 +158,23 @@ function NavLink({ it, path, badge, warn }: { it: Item; path: string; badge?: Ta
 // a message that arrives while you are looking elsewhere gets a toast that
 // opens it — the sidebar badge alone is easy to miss mid-task.
 type Toast = { id: number; fpr: string; label: string };
-function Counts({ children }: { children: (c: { unread: number; pending: number }) => ReactElement }) {
-  const [c, setC] = useState({ unread: 0, pending: 0 });
+//
+// `unread` is the Inbox chip as the node counted it (GET /api/conversations `unread`): the sum over the
+// page of conversations, `capped` when that is a floor — a conversation stopped at its cap, or one past
+// the page has unread too — so it reads "50+". It used to be summed here from the rows' numbers, which
+// the node never filled.
+function Counts({ children }: { children: (c: { unread: Tally; pending: number }) => ReactElement }) {
+  const [c, setC] = useState<{ unread: Tally; pending: number }>({ unread: 0, pending: 0 });
   const [toasts, setToasts] = useState<Toast[]>([]);
   useEffect(() => {
     let alive = true;
     let labels: Record<string, string> = {};
     const load = (e?: LiveEvent) => {
       Promise.all([
-        getJSON<{ contacts: { fingerprint: string; label: string; unread: number }[] | null }>("/api/conversations").then((d) => {
+        getJSON<{ contacts: { fingerprint: string; label: string }[] | null; unread: Tally }>("/api/conversations").then((d): Tally => {
           labels = Object.fromEntries((d.contacts ?? []).map((p) => [p.fingerprint, p.label]));
-          return (d.contacts ?? []).reduce((n, p) => n + (p.unread || 0), 0);
-        }).catch(() => 0),
+          return d.unread ?? 0;
+        }).catch((): Tally => 0),
         getJSON<{ pending: unknown[] | null }>("/api/requests").then((d) => (d.pending ?? []).length).catch(() => 0),
       ]).then(([unread, pending]) => {
         if (!alive) return;
@@ -188,7 +193,10 @@ function Counts({ children }: { children: (c: { unread: number; pending: number 
     load();
     const off = subscribe(load);
     const offAcct = onAccountChange(() => load());
-    return () => { alive = false; off(); offAcct(); };
+    // The Inbox marked a conversation read (views/messages.tsx): the chip drops now, not at the next event.
+    const onRead = () => load();
+    addEventListener("pact:counts", onRead);
+    return () => { alive = false; off(); offAcct(); removeEventListener("pact:counts", onRead); };
   }, []);
   useEffect(() => {
     document.title = titleWithTally(document.title, c.unread);
