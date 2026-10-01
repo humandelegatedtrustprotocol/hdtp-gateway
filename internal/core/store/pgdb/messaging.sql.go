@@ -9,6 +9,26 @@ import (
 	"context"
 )
 
+const conversationHasMessage = `-- name: ConversationHasMessage :one
+SELECT COUNT(*) FROM messages m JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
+WHERE m.account_id = $1 AND t.contact_fpr = $2 AND m.seq = $3
+`
+
+type ConversationHasMessageParams struct {
+	AccountID  string
+	ContactFpr string
+	Seq        int64
+}
+
+// Whether `seq` is a message of this account's conversation with this contact: what a read
+// marker may name. Another identity's message, or one of another contact, is not.
+func (q *Queries) ConversationHasMessage(ctx context.Context, arg ConversationHasMessageParams) (int64, error) {
+	row := q.db.QueryRow(ctx, conversationHasMessage, arg.AccountID, arg.ContactFpr, arg.Seq)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countBlobRefs = `-- name: CountBlobRefs :one
 SELECT COUNT(*) FROM blobs WHERE hash = $1
 `
@@ -382,6 +402,37 @@ func (q *Queries) ListBlobs(ctx context.Context, accountID string) ([]Blob, erro
 	return items, nil
 }
 
+const listContactsWithUnread = `-- name: ListContactsWithUnread :many
+SELECT DISTINCT t.contact_fpr FROM threads t
+WHERE t.account_id = $1 AND EXISTS (
+  SELECT 1 FROM messages m
+  WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.direction = 'in' AND m.seq > t.last_read_seq
+)
+ORDER BY t.contact_fpr
+`
+
+// The contacts with at least one unread message, never a count: for each thread, messages_thread
+// is walked from the thread's marker until the first inbound message, past any of ours.
+func (q *Queries) ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listContactsWithUnread, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var contact_fpr string
+		if err := rows.Scan(&contact_fpr); err != nil {
+			return nil, err
+		}
+		items = append(items, contact_fpr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMediaBodies = `-- name: ListMediaBodies :many
 SELECT body FROM messages WHERE account_id = $1 AND kind = 'media' ORDER BY seq
 `
@@ -549,26 +600,44 @@ func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([
 	return items, nil
 }
 
-const markThreadRead = `-- name: MarkThreadRead :execrows
-UPDATE threads SET last_read_seq = (
-  SELECT COALESCE(MAX(m.seq), 0) FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2
-) WHERE threads.account_id = $3 AND threads.id = $4
+const markConversationReadThrough = `-- name: MarkConversationReadThrough :execrows
+UPDATE threads SET last_read_seq = $1
+WHERE account_id = $2 AND contact_fpr = $3 AND last_read_seq < $1
 `
 
-type MarkThreadReadParams struct {
+type MarkConversationReadThroughParams struct {
+	LastReadSeq int64
 	AccountID   string
-	ThreadID    string
-	AccountID_2 string
+	ContactFpr  string
+}
+
+// Every thread with one contact, through one message: a conversation is with a person, not a
+// thread id, and seq is one sequence over every message, so every message of the conversation
+// at or below `through` was on the page the reader was shown.
+func (q *Queries) MarkConversationReadThrough(ctx context.Context, arg MarkConversationReadThroughParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markConversationReadThrough, arg.LastReadSeq, arg.AccountID, arg.ContactFpr)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markThreadReadThrough = `-- name: MarkThreadReadThrough :execrows
+UPDATE threads SET last_read_seq = $1
+WHERE account_id = $2 AND id = $3 AND last_read_seq < $1
+`
+
+type MarkThreadReadThroughParams struct {
+	LastReadSeq int64
+	AccountID   string
 	ID          string
 }
 
-func (q *Queries) MarkThreadRead(ctx context.Context, arg MarkThreadReadParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markThreadRead,
-		arg.AccountID,
-		arg.ThreadID,
-		arg.AccountID_2,
-		arg.ID,
-	)
+// The read marker is a high-water mark, never lowered: a reader marks through the newest message
+// it was shown (`through`), so what arrived after it stays unread, and marking again
+// changes nothing.
+func (q *Queries) MarkThreadReadThrough(ctx context.Context, arg MarkThreadReadThroughParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markThreadReadThrough, arg.LastReadSeq, arg.AccountID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -671,6 +740,30 @@ type UnreadCountParams struct {
 
 func (q *Queries) UnreadCount(ctx context.Context, arg UnreadCountParams) (int64, error) {
 	row := q.db.QueryRow(ctx, unreadCount, arg.AccountID, arg.ThreadID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const unreadWithContactUpTo = `-- name: UnreadWithContactUpTo :one
+SELECT COUNT(*) FROM (
+  SELECT 1 FROM threads t JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+  WHERE t.account_id = $1 AND t.contact_fpr = $2
+    AND m.direction = 'in' AND m.seq > t.last_read_seq
+  LIMIT $3
+) AS u
+`
+
+type UnreadWithContactUpToParams struct {
+	AccountID  string
+	ContactFpr string
+	Limit      int32
+}
+
+// A conversation's unread, counted no further than a bound: the inbox reads it for every
+// row of a page on every visit, so it stops at a bound instead of walking every unread message.
+func (q *Queries) UnreadWithContactUpTo(ctx context.Context, arg UnreadWithContactUpToParams) (int64, error) {
+	row := q.db.QueryRow(ctx, unreadWithContactUpTo, arg.AccountID, arg.ContactFpr, arg.Limit)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
