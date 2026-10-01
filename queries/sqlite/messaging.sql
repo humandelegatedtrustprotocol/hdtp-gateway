@@ -33,10 +33,45 @@ SELECT * FROM threads WHERE account_id = ? ORDER BY last_at DESC, id;
 SELECT COUNT(*) FROM messages m JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
 WHERE m.account_id = ? AND m.thread_id = ? AND m.direction = 'in' AND m.seq > t.last_read_seq;
 
--- name: MarkThreadRead :execrows
-UPDATE threads SET last_read_seq = (
-  SELECT COALESCE(MAX(m.seq), 0) FROM messages m WHERE m.account_id = ? AND m.thread_id = ?
-) WHERE threads.account_id = ? AND threads.id = ?;
+-- name: MarkThreadReadThrough :execrows
+-- The read marker is a high-water mark, never lowered: a reader marks through the newest message
+-- it was shown (`through`), so what arrived after it stays unread, and marking again
+-- changes nothing.
+UPDATE threads SET last_read_seq = ?
+WHERE account_id = ? AND id = ? AND last_read_seq < ?;
+
+-- name: MarkConversationReadThrough :execrows
+-- Every thread with one contact, through one message: a conversation is with a person, not a
+-- thread id, and seq is one sequence over every message, so every message of the conversation
+-- at or below `through` was on the page the reader was shown.
+UPDATE threads SET last_read_seq = ?
+WHERE account_id = ? AND contact_fpr = ? AND last_read_seq < ?;
+
+-- name: ConversationHasMessage :one
+-- Whether `seq` is a message of this account's conversation with this contact: what a read
+-- marker may name. Another identity's message, or one of another contact, is not.
+SELECT COUNT(*) FROM messages m JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
+WHERE m.account_id = ? AND t.contact_fpr = ? AND m.seq = ?;
+
+-- name: UnreadWithContactUpTo :one
+-- A conversation's unread, counted no further than a bound: the inbox reads it for every
+-- row of a page on every visit, so it stops at a bound instead of walking every unread message.
+SELECT COUNT(*) FROM (
+  SELECT 1 FROM threads t JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+  WHERE t.account_id = ? AND t.contact_fpr = ?
+    AND m.direction = 'in' AND m.seq > t.last_read_seq
+  LIMIT ?
+) AS u;
+
+-- name: ListContactsWithUnread :many
+-- The contacts with at least one unread message, never a count: for each thread, messages_thread
+-- is walked from the thread's marker until the first inbound message, past any of ours.
+SELECT DISTINCT t.contact_fpr FROM threads t
+WHERE t.account_id = ? AND EXISTS (
+  SELECT 1 FROM messages m
+  WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.direction = 'in' AND m.seq > t.last_read_seq
+)
+ORDER BY t.contact_fpr;
 
 -- name: DeleteMessagesBefore :execrows
 DELETE FROM messages WHERE account_id = ? AND created_at < ?;

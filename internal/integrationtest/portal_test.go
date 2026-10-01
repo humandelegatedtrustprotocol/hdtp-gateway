@@ -326,7 +326,15 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 		t.Fatalf("agent answer: %+v", msgs[1])
 	}
 
-	// 8. The portal inbox shows the exchange (and opening marks it read).
+	// 8. The portal inbox shows the exchange (and opening marks it read). read_thread above already
+	// read the thread, so one more arrives first: only the portal's open can clear it.
+	if _, err := alice.msg.Record(ctx, alice.acct.ID, bella.kp.Fingerprint, messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "b2", ThreadID: threads[0].ID, Text: "still on?", Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := alice.st.UnreadCount(ctx, alice.acct.ID, threads[0].ID); n != 1 {
+		t.Fatalf("unread before portal open: %d, want 1", n)
+	}
 	if code, body := get(t, clientA, srvA.URL+"/api/threads/"+threads[0].ID+"?account="+alice.acct.ID); code != 200 ||
 		!strings.Contains(body, "dinner friday") || !strings.Contains(body, "friday works") {
 		t.Fatalf("thread payload: %d\n%s", code, body)
