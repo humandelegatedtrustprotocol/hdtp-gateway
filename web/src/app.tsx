@@ -7,7 +7,7 @@ import { Link, RouterProvider, usePath, navigate } from "./router";
 import { currentAccount, fetchSession, getJSON, onAccountChange, onSessionChange, postForm, setAccount, subscribe } from "./api";
 import type { LiveEvent } from "./api";
 import type { Session } from "./api";
-import { Avatar, Badge, Brand, Button, EmptyState, Icon, Menu, MenuHead, MenuItem, MenuSep, PageHeader } from "./ui";
+import { Avatar, Brand, Button, CountChip, EmptyState, Icon, Menu, MenuHead, MenuItem, MenuSep, PageHeader, tallyCount, titleWithTally, type Tally } from "./ui";
 import { Dashboard } from "./views/dashboard";
 import { People } from "./views/people";
 import { ContactDetail } from "./views/contact_detail";
@@ -22,10 +22,11 @@ import { Audit } from "./views/audit";
 import { Login } from "./views/login";
 import { Setup } from "./views/setup";
 
-type Item = { to: string; label: string; icon: string; match?: string[] };
+// `counts` is what the link's badge counts, as a screen reader hears it after the number ('7 unread').
+type Item = { to: string; label: string; icon: string; match?: string[]; counts?: string };
 const PLACES: Item[] = [
-  { to: "/messages", label: "Inbox", icon: "inbox" },
-  { to: "/contacts", label: "People", icon: "people", match: ["/contacts", "/requests", "/invites"] },
+  { to: "/messages", label: "Inbox", icon: "inbox", counts: "unread" },
+  { to: "/contacts", label: "People", icon: "people", match: ["/contacts", "/requests", "/invites"], counts: "requests waiting" },
   { to: "/card", label: "My card", icon: "card" },
   { to: "/integrations", label: "Integrations", icon: "plug" },
 ];
@@ -141,13 +142,13 @@ function Root() {
   );
 }
 
-function NavLink({ it, path, badge, warn }: { it: Item; path: string; badge?: number; warn?: boolean }) {
+function NavLink({ it, path, badge, warn }: { it: Item; path: string; badge?: Tally; warn?: boolean }) {
   const active = it.to === "/" ? path === "/" : (it.match ?? [it.to]).some((p) => path.startsWith(p));
   return (
     <Link to={it.to} className={active ? "active" : undefined} title={it.label}>
       <Icon name={it.icon} />
       <span className="lbl">{it.label}</span>
-      {badge ? <Badge count tone={warn ? "warn" : "ok"}>{badge}</Badge> : null}
+      {badge !== undefined && tallyCount(badge) > 0 ? <CountChip n={badge} noun={it.counts} tone={warn ? "warn" : "ok"} /> : null}
     </Link>
   );
 }
@@ -190,8 +191,7 @@ function Counts({ children }: { children: (c: { unread: number; pending: number 
     return () => { alive = false; off(); offAcct(); };
   }, []);
   useEffect(() => {
-    const base = document.title.replace(/^\(\d+\) /, "");
-    document.title = c.unread > 0 ? `(${c.unread}) ${base}` : base;
+    document.title = titleWithTally(document.title, c.unread);
   }, [c.unread]);
   return (
     <>
