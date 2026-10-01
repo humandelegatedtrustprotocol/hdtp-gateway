@@ -14,7 +14,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   actionWord, ago, clockOf, contactPill, contactStatusWord, dateOf, dayOf, fieldLabel, fileSize, initialsOf, inviteState, kindLabel, mediaKind, num,
-  permLabel, statusWord, toneOf, toolAction, toolLabel, trustWord, undeliveredReason, usesText, when, whenTitle, withDays,
+  permLabel, statusWord, tallyCount, tallyLabel, tallyText, titleWithTally, toneOf, toolAction, toolLabel, trustWord, undeliveredReason, usesText,
+  when, whenTitle, withDays,
 } from "../src/words.ts";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
@@ -286,4 +287,31 @@ test("every contact state the node stores has an owner's word, and only the ordi
   assert.equal(contactStatusWord("pending_in"), "asked you");
   assert.equal(contactStatusWord("pending_out"), "you asked");
   assert.deepEqual(states.filter(contactPill).sort(), ["blocked", "pending_in", "pending_out"]);
+});
+
+// A count chip (ui.tsx `CountChip`) says a count the server capped as the cap and a plus, and an exact
+// count as its number: PACT Cloud's sidebar said "50" over 2,000 unread because the read it summed was a
+// page of fifty threads (owner, 2026-10-01: "show 50+ if more than 50"). The cap is the answer's.
+test("a capped tally reads as its cap and a plus; an exact one as its number", () => {
+  assert.equal(tallyText({ count: 50, capped: true }), "50+");
+  assert.equal(tallyText({ count: 50, capped: false }), "50");
+  assert.equal(tallyText({ count: 7, capped: false }), "7");
+  assert.equal(tallyText(7), "7");
+  assert.equal(tallyText({ count: 1000, capped: true }), "1,000+");
+  assert.equal(tallyCount({ count: 50, capped: true }), 50);
+  assert.equal(tallyCount(0), 0);
+});
+
+test("a screen reader hears how many, and that a capped count is more", () => {
+  assert.equal(tallyLabel({ count: 50, capped: true }, "unread"), "more than 50 unread");
+  assert.equal(tallyLabel({ count: 3, capped: false }, "unread"), "3 unread");
+  assert.equal(tallyLabel(3), "3");
+});
+
+test("the tab title carries the tally once, replacing any earlier one", () => {
+  assert.equal(titleWithTally("PACT", { count: 50, capped: true }), "(50+) PACT");
+  assert.equal(titleWithTally("(50+) PACT", { count: 4, capped: false }), "(4) PACT");
+  assert.equal(titleWithTally("(4) PACT", { count: 50, capped: true }), "(50+) PACT");
+  assert.equal(titleWithTally("(1,000+) PACT", 0), "PACT");
+  assert.equal(titleWithTally("(12) PACT", 0), "PACT");
 });
