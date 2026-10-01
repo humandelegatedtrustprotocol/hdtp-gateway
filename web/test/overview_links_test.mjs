@@ -36,24 +36,25 @@ test("every link on an identity's card selects that identity", () => {
   assert.equal(unselected('footer={<Button variant="quiet" to="/identity" icon="key">Certificate</Button>}').length, 1);
 });
 
-/** The card's `handle=` attribute: the slug, then the fingerprint. */
+/** The card's `handle=` attribute. */
 export function handleOf(card) {
   const line = card.split("\n").find((l) => /^\s*handle=/.test(l));
   assert.ok(line, "the card has no handle; this test reads nothing");
   return line;
 }
 
-test("a card's handle: a long slug gives way to the fingerprint and its copy button, never the other way", () => {
-  // The verifier's case (2026-09-30): a long slug pushed the fingerprint and its copy button out of the
-  // card with no ellipsis. The slug is its own element that the sheet ellipsises; the id does not shrink.
-  const handle = handleOf(cardOf(src));
-  assert.match(handle, /<span className="gl-slug" title=\{a\.slug\}>\{a\.slug\}/);
-  assert.match(handle, /<IdText id=\{a\.fingerprint\} \/>/);
+test("a card's handle is its slug, which gives way, and the card draws no key", () => {
+  // The verifier's case (2026-09-30): a long slug ran out of the card with no ellipsis; the slug is its own
+  // element that the sheet ellipsises. The owner (2026-10-01): "show key just there if required" — the
+  // fingerprint the handle carried answered no question here; the card page it opens draws the keys.
+  const card = cardOf(src);
+  const handle = handleOf(card);
+  assert.match(handle, /^\s*handle=\{<span className="gl-slug" title=\{a\.slug\}>\{a\.slug\}<\/span>\}$/);
+  assert.doesNotMatch(card, /<IdText|\.fingerprint|<KeyFacts/);
   const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
   assert.match(css, /\.gl-id \.who small > \.gl-slug\{min-width:0;overflow:hidden;text-overflow:ellipsis\}/);
-  assert.match(css, /\.gl-id \.who small > \.nm-idt\{flex:none\}/);
-  // The shape it exists to catch: the slug as bare text beside the id.
-  assert.doesNotMatch("handle={a.fingerprint ? <>{a.slug} · <IdText id={a.fingerprint} /></> : a.slug}", /className="gl-slug"/);
+  // The shape it exists to catch: the key back beside the slug.
+  assert.match('handle={<><span className="gl-slug" title={a.slug}>{a.slug} ·</span><IdText id={a.fingerprint} /></>}', /IdText/);
 });
 
 test("the whole card opens the identity's card page, and its Certificate button is a plain button beside it", () => {

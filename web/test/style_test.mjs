@@ -117,9 +117,11 @@ export function lastAt(sheet, selector, prop, width) {
 
 test("on a phone the Inbox is one column, whatever the panel and focus say", () => {
   // Every class combination that sets the inbox's columns: at 390 each must end at one column, or the
-  // phone draws three 300px panes in a 390px screen (M-F1).
+  // phone draws three 300px panes in a 390px screen (M-F1). And that column is minmax(0,1fr), not 1fr:
+  // 1fr's floor is the pane's widest line, and a long slug in the Inbox's header made the list wider
+  // than the phone, New and every preview's end off the screen (2026-10-01).
   for (const sel of [".inbox", ".inbox.panel-off", ".inbox.focus"]) {
-    assert.equal(lastAt(css, sel, "grid-template-columns", 390), "1fr", `${sel} at 390`);
+    assert.equal(lastAt(css, sel, "grid-template-columns", 390), "minmax(0,1fr)", `${sel} at 390`);
   }
   // Between a phone and PANEL_BESIDE the panel is a drawer over the conversation, never a column;
   // from there up a desktop keeps three.

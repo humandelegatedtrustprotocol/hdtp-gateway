@@ -534,7 +534,9 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
    columns (the drawer's two, panel-off's two, focus's one), or one of them re-imposes columns: the phone
    drew 300px 0px 300px, every pane 300px wide in a 390px screen. The panel pane shows whether or not the
    panel is kept open at desktop widths: panel-off and focus hide it only beside a thread. */
-@media (max-width:900px){.thread-h .expand{display:none}.inbox,.inbox.panel-off,.inbox.focus{grid-template-columns:1fr}.inbox.focus[data-pane="list"] .convs{display:flex}.inbox[data-pane="panel"] .panel{display:flex}}
+/* On a phone one pane fills the width: minmax(0,1fr), not 1fr, whose floor is the pane's widest line — a long
+   slug or name made the list wider than the phone, and New and every preview's end ran off it (2026-10-01). */
+@media (max-width:900px){.thread-h .expand{display:none}.inbox,.inbox.panel-off,.inbox.focus{grid-template-columns:minmax(0,1fr)}.inbox.focus[data-pane="list"] .convs{display:flex}.inbox[data-pane="panel"] .panel{display:flex}}
 /* the + menu: round tiles, like a phone's attach sheet, anchored above the composer */
 .composer{position:relative}
 .plus-wrap{position:relative;flex:0 0 auto}
@@ -636,7 +638,6 @@ a.gl-tile:hover{border-color:var(--line-2);background:var(--bg-2)}
 .gl-go:has(.gl-open:focus-visible){outline:2px solid var(--accent-ui);outline-offset:2px}
 .gl-id .who small{display:flex;align-items:center;gap:.3rem;color:var(--muted);font-family:var(--mono);font-size:.74rem;white-space:nowrap;overflow:hidden;min-width:0}
 .gl-id .who small > .gl-slug{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.gl-id .who small > .nm-idt{flex:none}
 .gl-id .addr{font-size:.86rem;min-width:0;overflow:hidden}
 .gl-id .addr .readout{font-size:.84rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gl-cert{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;font-size:.86rem}

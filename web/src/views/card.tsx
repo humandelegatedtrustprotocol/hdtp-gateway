@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, currentAccount, failureOf, getJSON } from "../api";
 import { Button, EmptyState, Failed, HelpTip, Notice, PageHeader, Readout, Section, useFlash } from "../ui";
-import { CopyId, IdText, UrlText } from "../glance";
+import { CopyId, KeyFacts, UrlText } from "../glance";
 
 // endpoint, root_fingerprint and kid are read by the node from the card's own certificate
 // (manage_pages.go getAPICard), under the names the cloud's card read uses.
@@ -43,8 +43,7 @@ export function CardView() {
         </>}>
         <dl className="facts">
           <dt>Address</dt><dd><UrlText url={d.endpoint} /></dd>
-          <dt>Root</dt><dd><IdText id={d.root_fingerprint} /><span className="muted"> — your identity: what contacts pin</span></dd>
-          <dt>Host key</dt><dd><IdText id={d.kid} /><span className="muted"> — this node's key, which a renewal replaces</span></dd>
+          <KeyFacts root={d.root_fingerprint} kid={d.kid} />
         </dl>
         <details className="raw">
           <summary>Show vCard</summary>
