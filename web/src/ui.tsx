@@ -108,7 +108,7 @@ import { HelpTip } from "./help";
 // The `?` and its popover, for a line of text or a heading: help.tsx, shared by both portals.
 export { HelpTip };
 import { Link } from "./router";
-import { statusWord, toneOf, type Tone } from "./words";
+import { statusWord, tallyLabel, tallyText, toneOf, type Tally, type Tone } from "./words";
 
 export type IconName = keyof typeof PATHS;
 
@@ -240,24 +240,33 @@ export function Field({ label, help, tip, mono, check, id, children }: { label: 
 }
 
 // A status's tone and its words are words.ts's, shared with PACT Cloud's portal: one table for both.
-export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, when, whenTitle, ago, num, type Tone } from "./words";
+export { toneOf, statusWord, permLabel, toolLabel, toolAction, trustWord, when, whenTitle, ago, num, titleWithTally, tallyCount, type Tally, type Tone } from "./words";
 // Badge: four tones × {text, mono, count}. `status` derives tone and label.
-export function Badge({ tone, mono, count, status, title, children }: { tone?: Tone; mono?: boolean; count?: boolean; status?: string; title?: string; children?: ReactNode }) {
+// `ariaHidden` is for a pill whose words a screen reader hears from elsewhere (CountChip).
+export function Badge({ tone, mono, count, status, title, ariaHidden, children }: { tone?: Tone; mono?: boolean; count?: boolean; status?: string; title?: string; ariaHidden?: boolean; children?: ReactNode }) {
   const t = tone ?? (status ? toneOf(status) : "neutral");
   const cls = "pill" + (t !== "neutral" ? " " + t : "") + (mono ? " mono" : "") + (count ? " count" : "");
   // Words are held in a span of their own so a pill wider than its box ends in an ellipsis (the whole
   // of it in `title`) rather than running past the box or breaking onto a second line.
   const body = children ?? (status !== undefined ? statusWord(status) : null);
-  return <span className={cls} title={title}>{typeof body === "string" ? <span className="pill-t">{body}</span> : body}</span>;
+  return <span className={cls} title={title} aria-hidden={ariaHidden || undefined}>{typeof body === "string" ? <span className="pill-t">{body}</span> : body}</span>;
+}
+
+// CountChip: a count as a counting Badge, the one way a count chip is drawn. A tally the server capped
+// reads '50+' (words.ts `tallyText`; the cap is the answer's, never the view's), an exact one its number.
+// The pill's figure is hidden from a screen reader, which hears `tallyLabel` beside it instead: 'more
+// than 50 unread', '7 unread'.
+export function CountChip({ n, noun, tone = "neutral" }: { n: Tally; noun?: string; tone?: Tone }) {
+  return <><Badge count tone={tone} ariaHidden>{tallyText(n)}</Badge><span className="sr-only">{tallyLabel(n, noun)}</span></>;
 }
 
 // Tabs: route tabs (`to`) and state filters (`onSelect`) are the same control.
-export function Tabs({ items, active, onSelect }: { items: { key: string; label: ReactNode; to?: string; count?: number; urgent?: boolean }[]; active: string; onSelect?: (k: string) => void }) {
+export function Tabs({ items, active, onSelect }: { items: { key: string; label: ReactNode; to?: string; count?: Tally; urgent?: boolean }[]; active: string; onSelect?: (k: string) => void }) {
   return (
     <nav className="tabs">
       {items.map((it) => {
         const cls = "tab" + (it.key === active ? " on" : "");
-        const body = <>{it.label}{it.count !== undefined && <Badge count tone={it.urgent ? "warn" : "neutral"}>{it.count}</Badge>}</>;
+        const body = <>{it.label}{it.count !== undefined && <CountChip n={it.count} tone={it.urgent ? "warn" : "neutral"} />}</>;
         return it.to
           ? <Link key={it.key} to={it.to} className={cls}>{body}</Link>
           : <button key={it.key} type="button" className={cls} onClick={() => onSelect?.(it.key)} aria-pressed={it.key === active}>{body}</button>;

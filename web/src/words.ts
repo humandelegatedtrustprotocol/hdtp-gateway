@@ -365,3 +365,41 @@ export function withDays<T>(rows: readonly T[], msOf: (r: T) => number, now = Da
 
 /** How many of a filter's options a row of chips shows before the rest go into 'More'. */
 export const CHIPS_SHOWN = 8;
+
+// ---------------------------------------------------------------- a count the server may have capped
+
+/**
+ * A count as a chip shows it. A number is exact. `{ count, capped }` is how an API answers a count it
+ * stops at a cap of its own on a hot read (PACT Cloud's GET /v1/identities/:slug/badges, `unread`):
+ * `capped` says there were more than `count`, and `count` is then that cap. The view never knows the
+ * cap; it is whatever the answer says.
+ */
+export type Tally = number | { count: number; capped: boolean };
+
+function tallyOf(t: Tally): { count: number; capped: boolean } {
+  return typeof t === "number" ? { count: t, capped: false } : t;
+}
+
+/** How many, as a number to test against: a capped tally is at least its cap. */
+export function tallyCount(t: Tally): number {
+  return tallyOf(t).count;
+}
+
+/** The chip's figure: '50+' when the server stopped counting at 50, '7' when it counted 7. */
+export function tallyText(t: Tally): string {
+  const { count, capped } = tallyOf(t);
+  return capped ? `${num(count)}+` : num(count);
+}
+
+/** What a screen reader hears for the chip: 'more than 50 unread', '7 unread' ('7' with no noun). */
+export function tallyLabel(t: Tally, noun?: string): string {
+  const { count, capped } = tallyOf(t);
+  const n = capped ? `more than ${num(count)}` : num(count);
+  return noun ? `${n} ${noun}` : n;
+}
+
+/** The tab title with the count in front, '(50+) Inbox', or without one at none; any earlier count is replaced. */
+export function titleWithTally(title: string, t: Tally): string {
+  const base = title.replace(/^\(\d[\d,]*\+?\) /, "");
+  return tallyCount(t) > 0 ? `(${tallyText(t)}) ${base}` : base;
+}
