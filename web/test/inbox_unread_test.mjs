@@ -28,7 +28,12 @@ test("a conversation's row draws its count with CountChip, from the node's tally
 });
 
 test("the sidebar's Inbox chip is the node's total, never a sum of the rows", () => {
+  // The node stops the total at its cap (UnreadCap): the screenshot's 63 + 1 unread is answered as
+  // { count: 50, capped: true }, and the chip says "50+", as PACT Cloud's does.
+  assert.equal(tallyText({ count: 50, capped: true }), "50+");
   const app = src("app.tsx");
+  // The cap is the answer's: the view neither sums nor caps.
+  assert.doesNotMatch(app, /Math\.min\([^)]*unread|> ?50\b/);
   assert.match(app, /return d\.unread \?\? 0;/);
   assert.doesNotMatch(app, /reduce\(\(n, p\) => n \+ \(p\.unread/);
   // And a read made in the Inbox drops it at once.

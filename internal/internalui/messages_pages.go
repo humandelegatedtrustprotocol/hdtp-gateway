@@ -109,7 +109,8 @@ func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
 // conversation past the page is one search away; the selected one is always on it.
 const ConversationsPage = 50
 
-// UnreadCap is where a conversation's unread count stops: past it the row says "50+". It is PACT
+// UnreadCap is where a conversation's unread count stops, and the page's total too: past it the
+// row, or the sidebar's Inbox chip, says "50+". It is PACT
 // Cloud's BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
 // reads every row's count on every visit, which is why a count is bounded rather than exact.
 const UnreadCap = 50
@@ -139,8 +140,9 @@ func unreadWith(ctx context.Context, st store.MessageStore, account, fpr string)
 //
 // It answers one page of conversations (ConversationsPage), each with its unread count, and
 // `unread`, the page's total, for the sidebar's Inbox chip. The total is the sum of the page's
-// counts, and `capped` when it is a floor rather than the whole: a row on the page stopped at
-// UnreadCap, or a conversation past the page holds an unread message too. `more` says there are
+// counts, stopped at UnreadCap as PACT Cloud's Inbox chip is: past it, or when a row stopped at
+// its cap, it is `{count: 50, capped: true}`, "50+". Under it, it is exact, or `capped` (a floor,
+// "N+") when a conversation past the page holds an unread message too. `more` says there are
 // conversations past the page. Reading this changes nothing: a conversation is marked read by
 // `POST /messages/read`, which the view sends when it shows one.
 func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +227,8 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		})
 	}
 	// Past the page the total is a floor only if something there is unread too: for each thread, a
-	// walk from its marker to its first unread message, not a count. "More than N" for a backlog that is all on the page would be false.
+	// walk from its marker to its first unread message, not a count. "More than N" for a backlog
+	// that is all on the page would be false.
 	if !total.Capped && len(all) > len(page) {
 		withUnread, err := d.Store.ListContactsWithUnread(r.Context(), account)
 		if err != nil {
@@ -242,6 +245,13 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 				break
 			}
 		}
+	}
+
+	// The chip stops at the same cap as a row and as PACT Cloud's ("show 50+ if more than 50"). A row
+	// that stopped at the cap puts the sum at it or past it, so it lands here or is 50 capped already;
+	// a floor under the cap stays its sum: "50+" for two unread and one past the page would be false.
+	if total.Count > UnreadCap {
+		total = tally{Count: UnreadCap, Capped: true}
 	}
 
 	var chosen *convContact
