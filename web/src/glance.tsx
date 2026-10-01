@@ -10,6 +10,7 @@
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "./router";
 import { Avatar, Badge, Icon, type Tone } from "./ui";
+import { HelpTip } from "./help";
 import { detailLabel, kindSaid, nameBreaks, resolved, shortId, type Detail, type Named as NamedId, type Part, type Said } from "./audit_names";
 import { shown, type CertificateView, type Count } from "./overview";
 import { when, whenTitle } from "./words";
@@ -103,9 +104,10 @@ function CertificateLine({ c }: { c: CertificateView | { failed: string } }) {
  * With `to`, the whole card opens it (the owner, 2026-09-30: "on card clicked should take to the vcard
  * page"): the name is the one link, and the sheet stretches it over the card, so the card is one tab stop
  * with a link's semantics rather than a clickable box. `onClick` runs before it lands, as a count's does.
- * The card's other controls — the footer's button, the counts, the fingerprint's copy button — sit above
- * the stretched link and are never inside it. The details stand one under another beside the avatar
- * (name, fingerprint, address, certificate), and the footer sits on the right.
+ * The card's other controls — the footer's, the counts — sit above the stretched link and are never
+ * inside it. The details stand one under another beside the avatar (name, handle, address,
+ * certificate), and the footer sits on the right. No key is drawn on it: a key is on the card page it
+ * opens, where it is needed (`KeyFacts`).
  */
 export function IdentityCard({ name, handle, address, status, certificate, counts, footer, to, onClick }: {
   name: string;
@@ -210,6 +212,30 @@ export function CopyId({ id }: { id: string }) {
 /** An id that has no name to stand in for it: its head and tail, the whole of it in the tooltip, and a copy button. */
 export function IdText({ id }: { id: string }) {
   return <span className="nm-idt"><span className="nm-id" title={id}>{shortId(id)}</span><CopyId id={id} /></span>;
+}
+
+/**
+ * An identity's two keys, inside a `<dl className="facts">`: the Root and this host's key, each short with
+ * its copy button and the whole id in its title, and what each one IS in its `?` rather than in a line
+ * beside it (owner, 2026-10-01: "show text that tells whether its to be replaced when renewal or its a
+ * root, these in `?` icon than inline"). A row is drawn only for a key the caller has: no host key yet
+ * is no line, not an empty one. Drawn where a key is needed and nowhere else ("show key just there if
+ * required"): the card page and the certificate — the node's Identity page, the cloud's certificate
+ * section. `kid` is only ever the certificate's: the node's account fingerprint is that key (its card
+ * names it as the kid), but the cloud's identity `fingerprint` is its ROOT's, and the cloud's Identities
+ * page once printed it under "Host key" (2026-10-01).
+ */
+export function KeyFacts({ root, kid }: { root?: string | null; kid?: string | null }) {
+  return (
+    <>
+      {root && <><dt>Root</dt><dd><IdText id={root} /><HelpTip label="About the root">
+        Your identity: what your contacts pin. A renewal never changes it.
+      </HelpTip></dd></>}
+      {kid && <><dt>Host key</dt><dd><IdText id={kid} /><HelpTip label="About the host key">
+        This host's key, certified under your root. Every renewal replaces it with a new one.
+      </HelpTip></dd></>}
+    </>
+  );
 }
 
 /** Text that may break after its dots and underscores (a tool's name, an action), and nowhere else. */

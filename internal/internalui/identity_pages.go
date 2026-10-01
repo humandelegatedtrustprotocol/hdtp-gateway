@@ -49,7 +49,6 @@ type identityRow struct {
 	Slug            string `json:"slug"`
 	DisplayName     string `json:"display_name"`
 	Fingerprint     string `json:"fingerprint"`
-	Algo            string `json:"algo"`
 	ID              string `json:"id"`
 	RootFingerprint string `json:"root_fingerprint,omitempty"`
 	Endpoint        string `json:"endpoint,omitempty"`
@@ -71,7 +70,7 @@ func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 		for _, a := range accts {
 			row := identityRow{
 				ID: a.ID, Slug: a.Slug, DisplayName: a.DisplayName,
-				Algo: a.Algo, Fingerprint: a.Fingerprint,
+				Fingerprint: a.Fingerprint,
 			}
 			row.WebWallet = a.HasRoot() && d.Wallet != nil
 			if a.HasRoot() && d.Certificate != nil {
