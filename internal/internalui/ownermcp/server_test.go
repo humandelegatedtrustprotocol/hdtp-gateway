@@ -135,8 +135,7 @@ func TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable(t *testing.T)
 
 // read_thread is the owner MCP's read action: the agent reading is the owner reading, as PACT
 // Cloud's read_thread is, so it marks the thread read through the newest message it hands over,
-// and what lands after stays unread. The thread of another identity it is not scoped to moves
-// nothing.
+// and what lands after stays unread.
 func TestReadThreadMarksTheThreadReadThroughWhatItReturned(t *testing.T) {
 	e := newEnv(t)
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)

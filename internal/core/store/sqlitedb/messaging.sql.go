@@ -414,7 +414,8 @@ WHERE t.account_id = ? AND EXISTS (
 ORDER BY t.contact_fpr
 `
 
-// The contacts with at least one unread message: one index probe per thread, never a count.
+// The contacts with at least one unread message, never a count: for each thread, messages_thread
+// is walked from the thread's marker until the first inbound message, past any of ours.
 func (q *Queries) ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listContactsWithUnread, accountID)
 	if err != nil {
