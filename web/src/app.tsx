@@ -160,9 +160,9 @@ function NavLink({ it, path, badge, warn }: { it: Item; path: string; badge?: Ta
 type Toast = { id: number; fpr: string; label: string };
 //
 // `unread` is the Inbox chip as the node counted it (GET /api/conversations `unread`): the sum over the
-// page of conversations, `capped` when that is a floor — a conversation stopped at its cap, or one past
-// the page has unread too — so it reads "50+". It used to be summed here from the rows' numbers, which
-// the node never filled.
+// page of conversations, stopped at the node's cap as PACT Cloud's chip is — `{ count: 50, capped: true }`
+// reads "50+" — and `capped` under it when one past the page has unread too. The cap is the answer's,
+// never this view's. It used to be summed here from the rows' numbers, which the node never filled.
 function Counts({ children }: { children: (c: { unread: Tally; pending: number }) => ReactElement }) {
   const [c, setC] = useState<{ unread: Tally; pending: number }>({ unread: 0, pending: 0 });
   const [toasts, setToasts] = useState<Toast[]>([]);

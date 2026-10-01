@@ -161,6 +161,33 @@ func TestAConversationOverTheCapSaysCapped(t *testing.T) {
 	if a.Unread != (tally{Count: UnreadCap, Capped: true}) {
 		t.Fatalf("a capped row leaves the total exact: %+v", a.Unread)
 	}
+	// A second conversation: the total stays at the cap, "50+", as PACT Cloud's Inbox chip does.
+	u.contact(t, u.acct, "sha256:bharat", "active", 50)
+	u.msgs(t, u.acct, "sha256:bharat", "in", 1)
+	if a := u.list(t, nil); a.Unread != (tally{Count: UnreadCap, Capped: true}) || a.row(t, "sha256:bharat") != (tally{Count: 1}) {
+		t.Fatalf("a capped row and one more: total %+v, bharat %+v; want %d capped and 1", a.Unread, a.row(t, "sha256:bharat"), UnreadCap)
+	}
+}
+
+// The sidebar's total stops at UnreadCap even when no row does: rows under the cap that sum past it
+// read "50+" (owner: "show 50+ if more than 50"), and a sum at the cap is exact.
+func TestThePagesTotalStopsAtTheCap(t *testing.T) {
+	u := newUnreadEnv(t)
+	u.contact(t, u.acct, "sha256:alina", "active", 200)
+	u.msgs(t, u.acct, "sha256:alina", "in", UnreadCap-10)
+	u.contact(t, u.acct, "sha256:bharat", "active", 100)
+	u.msgs(t, u.acct, "sha256:bharat", "in", 10)
+	if a := u.list(t, nil); a.Unread != (tally{Count: UnreadCap}) {
+		t.Fatalf("a sum of exactly the cap: %+v, want %d exact", a.Unread, UnreadCap)
+	}
+	u.msgs(t, u.acct, "sha256:bharat", "in", 1)
+	a := u.list(t, nil)
+	if a.Unread != (tally{Count: UnreadCap, Capped: true}) {
+		t.Fatalf("rows of %d and 11 summed to %+v, want %d capped", UnreadCap-10, a.Unread, UnreadCap)
+	}
+	if a.row(t, "sha256:alina") != (tally{Count: UnreadCap - 10}) || a.row(t, "sha256:bharat") != (tally{Count: 11}) {
+		t.Fatalf("the rows stay exact under their own cap: %+v", a.Contacts)
+	}
 }
 
 func TestUnreadPastThePageMakesTheTotalAFloor(t *testing.T) {
@@ -289,6 +316,7 @@ func TestTheSpecSaysTheInboxPageAndCap(t *testing.T) {
 	for _, want := range []string{
 		fmt.Sprintf("one page of the %d most recently active conversations", ConversationsPage),
 		fmt.Sprintf("stopped at %d (\"%d+\")", UnreadCap, UnreadCap),
+		fmt.Sprintf("the sidebar's Inbox count the page's sum, stopped at the same %d", UnreadCap),
 	} {
 		if !strings.Contains(string(spec), want) {
 			t.Errorf("SPEC.md does not say %q", want)
