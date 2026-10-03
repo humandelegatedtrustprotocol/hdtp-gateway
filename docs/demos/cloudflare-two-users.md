@@ -5,7 +5,7 @@ Two nodes, each behind its own Cloudflare tunnel on a subdomain of a real zone,
 pairing and messaging across the public internet.
 
 Executed against `hdtp.dev` — `Last manual run: 2026-09-18`; the first run, on `hdtp.io`, was 2026-08-26. It found
-E17 on its first attempt, and F9 through F11 on the run that proved pre-HDTP 1.x was gone (see
+E17 on its first attempt, and F9 through F11 on the run that proved the protocol's first generation was gone (see
 `batondeck/docs/release/findings-2026-09-18-rig.md`).
 
 It is worth the setup because edge mode cannot be faked convincingly. Cloudflare

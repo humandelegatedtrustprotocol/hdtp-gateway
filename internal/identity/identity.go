@@ -1,7 +1,7 @@
 // Package identity implements accounts' cryptographic identity (SPEC §3, HDTP §2):
 // one keypair per account — P-256 default, Ed25519 permitted — whose SPKI fingerprint
 // IS the identity, presented as a self-signed long-lived TLS client certificate and,
-// from pre-HDTP 1.1, as the signing key of sealed envelopes.
+// from the first generation, as the signing key of sealed envelopes.
 package identity
 
 import (

@@ -15,7 +15,7 @@ package integrationtest
 //     dependency graph at all);
 //   - a CONSTRUCTOR whose only callers are tests (P10-02's rate limiter and
 //     P10-03's session binder both shipped this way — built, tested, named in
-//     PLAN.md's build goal as load-bearing, and never installed);
+//     the build goal as load-bearing, and never installed);
 //   - an exported METHOD with no production caller, which is how most of this
 //     project's unwired machinery actually looks: `ACME.Manage` never manages a
 //     name, `Exposures.Reconcile` never runs the §6.5 stale guard,

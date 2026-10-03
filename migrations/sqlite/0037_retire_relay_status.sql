@@ -3,7 +3,7 @@
 --
 -- 0024 gave an outbound message a fourth state for "handed to the contact's store-and-forward
 -- relay": a fallback, not an arrival, because a relay is a third party holding ciphertext for a
--- peer who may never collect it. The relay role went with pre-HDTP 1.x (0030 dropped its tables), and
+-- peer who may never collect it. The relay role went with the protocol's first generation (0030 dropped its tables), and
 -- the state outlived it: no code writes it, the retry sweep reads `pending` and so never touches
 -- such a row, and the portal went on labelling it "queued at their relay" about a relay that does
 -- not exist.

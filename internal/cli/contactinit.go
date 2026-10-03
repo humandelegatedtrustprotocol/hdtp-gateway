@@ -172,7 +172,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	}
 	// The key to seal to is the validated leaf's, read from the chain and from nowhere else.
 	// An offer used to have to carry it a second time as `spki` and was refused without it —
-	// pre-HDTP 1.2's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
+	// the first generation's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
 	// three members and that is not one of them, so demanding it made every invite from a
 	// spec-exact issuer unredeemable here.
 	spki = v.LeafKey.SPKI

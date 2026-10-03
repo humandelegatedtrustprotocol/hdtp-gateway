@@ -28,7 +28,7 @@ declared (SPEC §10.1).
 | a paid ngrok plan | `tunnel: ngrok` — `tls://` endpoint | direct |
 | a Cloudflare account | `cloudflare` edge adapter (P4-05) — Cloudflare terminates TLS | edge |
 | a domain of your own | run a second hdtp-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
-| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went with pre-HDTP 1.x on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
+| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went with the protocol's first generation on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
 
 Direct mode keeps mTLS end to end: callers' client certificates reach the node. Edge
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
