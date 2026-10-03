@@ -1,9 +1,9 @@
-// Package testid builds real HDTP 1.0 identities for tests: a person's root, the
+// Package testid builds real HDTP identities for tests: a person's root, the
 // leaf it issues to a host, and the card that carries that leaf.
 //
-// It exists because the protocol's first generation is gone. A test used to reach a peer's card in one
+// It exists because a card is a certificate. A test used to reach a peer's card in one
 // line — `contacts.BuildCard(contacts.Card{Key: fpr, Endpoint: url})` — because a
-// 1.x card was just a key and an address spelled out as properties. A 2.0 card IS
+// card was just a key and an address spelled out as properties. A card IS
 // a certificate (HDTP §3), so the same line now needs a root, a host key, a leaf
 // naming the endpoint, and a signature over the chain. Nine test files across six
 // packages needed that, which is how a suite starts growing six slightly different
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Wallet is the person's side of HDTP §9: a root key, and the certificate for it.

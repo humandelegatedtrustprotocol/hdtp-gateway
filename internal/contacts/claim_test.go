@@ -7,7 +7,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // HDTP §5.2: "A stranger whose leaf names an endpoint the receiver has pinned for another root,

@@ -9,7 +9,7 @@ import (
 )
 
 // HDTP 1.0 state: the account's root and leaf ledger, the
-// 2.0 pins, the removal tombstone, former endpoints and pending addresses.
+// pins, the removal tombstone, former endpoints and pending addresses.
 
 func (s *Postgres) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
 	n, err := s.q.SetAccountRoot(ctx, pgdb.SetAccountRootParams{

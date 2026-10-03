@@ -1,8 +1,7 @@
 package node
 
-// The phase-1 exit demonstration (batondeck/docs/superpowers/specs/
-// 2026-09-14-hdtp-2.0-go-node-design.md §9): two Go nodes pair as 2.0
-// identities through an invite, message both ways in both envelope forms,
+// The phase-1 exit demonstration of the Go node's design of 2026-09-14 (§9): two Go nodes pair
+// through an invite, message both ways in both envelope forms,
 // one renews (the other learns the leaf from the chain, and follows
 // certificate_renewed once its old pin has expired), one moves to a new
 // address with the other following under `auto`. Hermetic: every node is a
@@ -26,7 +25,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // demoClock is one clock for every node, so a renewal and an expiry can be
@@ -215,7 +214,7 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 	return d
 }
 
-// pinPeer is the owner's side of accepting a 2.0 contact from its card and chain.
+// pinPeer is the owner's side of accepting a contact from its card and chain.
 func (d *demoNode) pinPeer(peer *demoNode) {
 	d.t.Helper()
 	if _, err := d.st.InsertContact(context.Background(), store.Contact{
@@ -272,7 +271,7 @@ func TestExitDemo(t *testing.T) {
 	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 30)
 	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)
 
-	// --- pairing through an invite: Bharat redeems Alina's, as a 2.0 guest ---
+	// --- pairing through an invite: Bharat redeems Alina's, as a guest ---
 	token := alina.invite(true)
 	clientB, _ := bharat.n.OutboundClient(bharat.acct.ID)
 	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "required", Root: alina.rootFpr(), Leaf: alina.leaf()}

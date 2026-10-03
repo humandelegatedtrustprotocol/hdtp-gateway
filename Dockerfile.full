@@ -9,7 +9,7 @@
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7), a static binary beside the node's. Its crates are
 # `make limitd-vendor`'s, received as the named context `limitdvendor` (the Makefile's
 # --build-context, compose.yaml's additional_contexts), so this build fetches nothing and holds no
-# credential: hdtp-identity's pact-limits crate is private. Alpine's Rust links against musl, so the
+# credential: hdtp-identity's hdtp-limits crate is private. Alpine's Rust links against musl, so the
 # binary is static and runs on distroless's static base.
 FROM rust:1.92-alpine AS limitd
 COPY --from=limitdvendor . /vendor
@@ -20,7 +20,7 @@ RUN sed 's#^directory = .*#directory = "/vendor/crates"#' /vendor/config.toml > 
 
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-# The node requires the PRIVATE module github.com/pact-cloud/pact-identity/go by version, and
+# The node requires the PRIVATE module github.com/humandelegatedtrustprotocol/hdtp-identity/go by version, and
 # no credential enters this build. `make identity-proxy` fetches that one module on the host
 # (over SSH) into .build/identity-proxy, laid out as a Go module proxy, and the build receives
 # it as the named context `identityproxy` (the Makefile's --build-context, compose.yaml's

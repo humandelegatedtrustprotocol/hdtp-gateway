@@ -58,7 +58,7 @@ func TestRelativeLinksInTheDocsResolve(t *testing.T) {
 }
 
 // D2. SPEC.md's version line and docs/conformance.md name one HDTP version: they are two copies of
-// one fact (SPEC.md said 2.1.3 and the conformance map 2.1).
+// one fact (they once named two different versions).
 func TestSpecAndTheConformanceMapNameOneHDTPVersion(t *testing.T) {
 	root := repoRoot(t)
 	spec := regexp.MustCompile(`implements HDTP (\d+\.\d+\.\d+)`).FindStringSubmatch(readDoc(t, root, "SPEC.md"))

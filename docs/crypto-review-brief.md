@@ -8,7 +8,7 @@ suspect are problems.
 Nothing here has been reviewed by anyone outside the project. That is the gap this document
 is meant to close, not one it closes by itself.
 
-The normative text is `hdtp-spec/SPEC.md` (§2, §13, §14 and Appendix B). This page is a
+The normative text is the HDTP specification (`hdtp-spec`, `docs/specification/1.0/`: §2, §13, §14 and Appendix B). This page is a
 reading order for it, not a second copy; where the two disagree, the specification is right
 and this page has a bug.
 
@@ -21,8 +21,8 @@ naming the one address it may be served at; the chain is always `[leaf, root]`, 
 certificate names nobody (HDTP §2, §14.2). Two algorithms: ECDSA P-256 and Ed25519.
 
 **A root derived from a passkey** (HDTP §2.1). `seed = HKDF-SHA256(ikm = prf, salt = "",
-info = "pact/root/1", L = 32)` where `prf` is the WebAuthn PRF extension's output for the
-fixed salt `SHA-256("pact/vault/1")`; the seed is an Ed25519 private key. Two more `info`
+info = "hdtp/root/1", L = 32)` where `prf` is the WebAuthn PRF extension's output for the
+fixed salt `SHA-256("hdtp/vault/1")`; the seed is an Ed25519 private key. Two more `info`
 strings derive the key and the address of the wallet's own encrypted record.
 
 **Sealed envelope** (HDTP §13.1). Four base64url wire members:
@@ -42,10 +42,10 @@ receiver holds that leaf, the leaf's fingerprint — travels inside the cipherte
 
 | Suite | KEM | KDF | AEAD |
 |---|---|---|---|
-| `PACT-SEAL-P256` | DHKEM(P-256, HKDF-SHA256) | HKDF-SHA256 | AES-128-GCM |
-| `PACT-SEAL-X25519` | DHKEM(X25519, HKDF-SHA256) | HKDF-SHA256 | ChaCha20-Poly1305 |
+| `HDTP-SEAL-P256` | DHKEM(P-256, HKDF-SHA256) | HKDF-SHA256 | AES-128-GCM |
+| `HDTP-SEAL-X25519` | DHKEM(X25519, HKDF-SHA256) | HKDF-SHA256 | ChaCha20-Poly1305 |
 
-HPKE **Base mode** (RFC 9180), `info = "PACT-SEAL-v2"`, AAD = the raw `protected` bytes.
+HPKE **Base mode** (RFC 9180), `info = "HDTP-SEAL-v1"`, AAD = the raw `protected` bytes.
 Signatures: ECDSA is ASN.1 DER over SHA-256; Ed25519 is pure RFC 8032.
 
 **Key conversion.** An Ed25519 leaf key is converted to X25519 for the KEM — RFC 7748 §4.1
@@ -107,7 +107,7 @@ conforming validator accepts that it should not?**
 
 ## What is already checked, so you need not
 
-- **Test vectors**: HDTP Appendix B — `v: 2` envelopes, certificates, chain cases and the
+- **Test vectors**: HDTP Appendix B — `v: 1` envelopes, certificates, chain cases and the
   derivation. The Rust core, its Wasm build and an independently written Go port open and
   reproduce them: the core
   (`hdtp-identity/crates/hdtp-identity/tests/vectors.rs`), the Wasm
@@ -120,8 +120,8 @@ conforming validator accepts that it should not?**
   strings, moved `enc`/`ct` boundaries, small-order points, malformed DER — run against the
   Wasm core and the Go port, verdict by verdict.
 - **This node's decision**: `internal/public/decide_test.go` and `sealed_test.go`
-  (`TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer`,
-  `TestV2StaleKidIsAnsweredWithTheCurrentChain`, `TestSealedReplayReturnsRecordedResult`).
+  (`TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer`,
+  `TestStaleKidIsAnsweredWithTheCurrentChain`, `TestSealedReplayReturnsRecordedResult`).
 - **Parsers**: four fuzz targets (`make fuzz`), including the sealed payload.
 - Full claim-to-test map in [threat-model.md](threat-model.md).
 

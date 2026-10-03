@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // leafKeyAAD binds a sealed leaf key to its column (SPEC §3.7, keyring AAD rule).
@@ -198,7 +198,7 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		}
 		// A row with a key and no leaf is not a leaf's key, and nothing can have been sealed to it:
 		// a card carries a leaf, so a key that never had one was never anybody's target. Installs
-		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for 1.x
+		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for key-pinned
 		// contacts); a store from before then may still hold one, and it is not served.
 		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
 			continue
@@ -349,7 +349,7 @@ func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error)
 			return [][]byte{l.Leaf, a.RootCert}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: account %s is 2.0 but holds no current leaf", ErrNoCertificate, accountID)
+	return nil, fmt.Errorf("%w: account %s has a root but holds no current leaf", ErrNoCertificate, accountID)
 }
 
 // ErrNoCertificate says an identity holds no current leaf, so it has no card to hand out: its wallet
@@ -386,7 +386,7 @@ type CSRResult struct {
 // dies with its leaf (§9). The endpoint is the account's own unless the purpose is move. One
 // pending request at a time: a new one replaces the last.
 //
-// `upgrade` was the fourth purpose and went with 1.x: it carried the identity's existing key so
+// `upgrade` was the fourth purpose and went with key-pinned identities: it carried the identity's existing key so
 // that every pin of that key stayed valid, and there is no such pin any more.
 func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint string, now time.Time) (CSRResult, error) {
 	return m.issueCSR(ctx, accountID, purpose, endpoint, "", now)
@@ -501,7 +501,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 		}
 		replaced = n
 		if err := tx.InsertLeaf(ctx, store.Leaf{AccountID: accountID, Kid: kp.Fingerprint, KeySealed: sealed, State: LeafPending, Endpoint: endpoint, CreatedAt: now.Unix()}); err != nil {
-			// The key already names a leaf of this account (an upgrade of a key
+			// The key already names a leaf of this account (a request for a key
 			// that is already a leaf's, or a renewal that generated no new key).
 			return fmt.Errorf("identity: a leaf for key %s already exists: %w", kp.Fingerprint, err)
 		}
@@ -678,9 +678,9 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		// Either way there is nothing to retire. HDTP §14.4 keeps a superseded LEAF's key until
 		// its notAfter, so an envelope sealed to it is answered `certificate_renewed` — and the
 		// key being replaced here was never a leaf. Before the first leaf an identity has no card
-		// and cannot be served, so no 2.0 sender can have sealed anything to it. It used to be
-		// kept for a year anyway, as a leafless ledger row that was loaded and served, "so 1.x
-		// contacts still reach us while they re-pin"; those were the only callers who ever held
+		// and cannot be served, so no sender can have sealed anything to it. It used to be
+		// kept for a year anyway, as a leafless ledger row that was loaded and served so that contacts
+		// who had pinned the key could reach us while they re-pinned; those were the only callers who ever held
 		// it. `SetAccountLeafKey` below overwrites the sealed key, which is what destroys it.
 		res.KeyChanged = true
 	}
@@ -712,9 +712,9 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	//
 	// Until 2026-09-19 this was a dead end instead. The install unsealed the outgoing leaf's key
 	// into `InstallResult.OldKP` and failed if it could not; nothing read that field — it fed the
-	// 1.x rotation fan-out, which signed with the old key — so a node that had lost its master key
+	// key-rotation fan-out, which signed with the old key — so a node that had lost its master key
 	// could not install the one thing that recovers it, for the sake of a value nobody used. Under
-	// 2.0 that recovery is real: the identity is the root, the root is in the wallet, and the
+	// HDTP that recovery is real: the identity is the root, the root is in the wallet, and the
 	// wallet can certify this host again.
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
@@ -816,8 +816,8 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 
 // CertificateInfo is `account certificate`'s answer.
 type CertificateInfo struct {
-	// Certified is whether the wallet has issued this identity a leaf yet. It was `Protocol`, 1
-	// or 2, a generation number that had come to mean exactly this.
+	// Certified is whether the wallet has issued this identity a leaf yet. It was a `Protocol`
+	// number that had come to mean exactly this.
 	Certified       bool
 	RootFingerprint string
 	Chain           [][]byte

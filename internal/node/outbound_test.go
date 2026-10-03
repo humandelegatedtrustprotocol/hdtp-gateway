@@ -19,7 +19,7 @@ func TestHostOfEndpointDropsThePort(t *testing.T) {
 	for endpoint, want := range map[string]string{
 		"https://agent.alina.example/a/alina/mcp":      "agent.alina.example",
 		"https://agent.alina.example:8443/a/alina/mcp": "agent.alina.example",
-		"https://alina.id.batondeck.com/alina/mcp":     "alina.id.batondeck.com",
+		"https://alina.batondeck.com/alina/mcp":        "alina.batondeck.com",
 		"https://[2001:db8::1]:8443/a/alina/mcp":       "2001:db8::1",
 		"https://[2001:db8::1]/a/alina/mcp":            "2001:db8::1",
 	} {
@@ -30,7 +30,7 @@ func TestHostOfEndpointDropsThePort(t *testing.T) {
 }
 
 func TestIndexHostRefusesToTakeAnotherAccountsHost(t *testing.T) {
-	// Two 2.0 accounts naming one host cannot both present their chain on it.
+	// Two accounts naming one host cannot both present their chain on it.
 	// The first keeps it and the clash is audited; it used to be an overwrite in
 	// silence, so whichever account was indexed last answered for both and a
 	// peer validating to its own pinned root refused whatever arrived.

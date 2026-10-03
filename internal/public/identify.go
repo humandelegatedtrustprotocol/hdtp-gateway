@@ -23,7 +23,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
@@ -78,12 +78,12 @@ type Payload struct {
 // EnvelopeFacts is what a successfully opened envelope yields (SPEC §5.3).
 type EnvelopeFacts struct {
 	Header  envelope.Header
-	From    string // the signer's fingerprint — the caller identity (2.0: the root's)
+	From    string // the signer's fingerprint — the caller identity (the root's)
 	SPKI    []byte // the sender's key: the leaf's, from the chain or the pin
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
-	// HDTP 1.0 (decide.go). Protocol is 2 for a `v: 2` envelope; Tier is
+	// What decide.go fills. Tier is
 	// what Decide resolved; Demote says a pin exists for From but the leaf
 	// proved nothing for it (blocked, superseded), so the caller is a guest
 	// whatever the pool would resolve; Endpoint and Leaf are the proven
@@ -124,7 +124,7 @@ type Identifier struct {
 	Now    func() time.Time
 	// Audit records refusals; nil discards.
 	Audit func(action, resource, outcome string)
-	// RecipientState supplies what a `v: 2` envelope is decided against (HDTP §13.3):
+	// RecipientState supplies what a `v: 1` envelope is decided against (HDTP §13.3):
 	// the keys this endpoint holds, the chain, the owner's settings. Read per
 	// call, so a setting the owner
 	// changes takes effect without a restart.
@@ -176,7 +176,7 @@ func (id *Identifier) seal() core.Seal {
 // `sealed_call` and `tools/list`, which always answer with whatever identity
 // the transport earned.
 // The request's context carries the node's one-per-request resolution of a
-// 2.0 chain (ResolveTransport); the gate enforces that resolution rather than
+// chain (ResolveTransport); the gate enforces that resolution rather than
 // re-deciding, so a re-pin or a pending address is recorded once per request,
 // not once per tool call.
 func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, tool string, substantive bool) (string, error) {
@@ -196,7 +196,7 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "seal_required")
 		return "", fmt.Errorf("%w: this node requires sealed calls", ErrSealRequired)
 	}
-	// A 2.0 chain as the client certificate (HDTP §2): the root is the caller
+	// A chain as the client certificate (HDTP §2): the root is the caller
 	// once the pin checks the sealed path makes have run (ResolveTransport):
 	// a leaf older than the pinned one proves nothing (§14.3) and a blocked
 	// root is a stranger — both an anonymous guest here; another address is
@@ -268,7 +268,7 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf Trans
 	if id.seal() == core.SealNone {
 		return nil, fmt.Errorf("%w: this recipient does not accept sealed calls", ErrSealNotAccepted)
 	}
-	// Every envelope is `v: 2` (HDTP §13.1): the header has no `from` and no `to`,
+	// Every envelope is `v: 1` (HDTP §13.1): the header has no `from` and no `to`,
 	// and the open order is the library's (§13.3). A header whose `v` is anything
 	// else is refused there.
 	return id.decideEnvelope(ctx, accountID, tf, e)

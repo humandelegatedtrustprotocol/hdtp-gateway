@@ -86,4 +86,4 @@ func identityModuleDir(t *testing.T, root string) string {
 }
 
 // identityModule is the import path of the identity library this node requires.
-const identityModule = "github.com/pact-cloud/pact-identity/go"
+const identityModule = "github.com/humandelegatedtrustprotocol/hdtp-identity/go"

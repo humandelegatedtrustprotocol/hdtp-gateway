@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // guestTotalEnv is a sealed env whose key loader counts its calls, and whose budgets record what

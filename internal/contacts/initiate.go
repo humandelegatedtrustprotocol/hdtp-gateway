@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Initiated records a contact the owner started: we called the peer's
@@ -32,8 +32,8 @@ import (
 // names would let a tampered invite bind us to an attacker under the peer's name,
 // and every later chain check would then pass for the wrong party.
 //
-// `spki` is the LEAF key the peer proved on this exchange, not the identity: in
-// 1.x the two were the same value and this checked that they hashed to each other.
+// `spki` is the LEAF key the peer proved on this exchange, not the identity: the
+// two used to be the same value, and this checked that they hashed to each other.
 // A leaf key changes at every renewal, so what is checked now is the root.
 func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string,
 	spki []byte, accepted bool, permissions []string) error {
@@ -49,7 +49,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
 	// And the key proved on this exchange must be the one the card's leaf carries.
-	// In 1.x this read "the key hashes to the fingerprint being pinned", because
+	// This used to read "the key hashes to the fingerprint being pinned", because
 	// the pin and the key were one value; the pin is the root now, so the leaf is
 	// what the card is checked against.
 	leaf, perr := hdtpidentity.Parse(c.Cert)
@@ -82,7 +82,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 // card and pin the root it names, the address its leaf names, the leaf, and the leaf's KEY.
 //
 // The key was left out, on the reasoning that it "arrives with the first chain that validates".
-// That was true when a card carried only a key's hash. A 2.0 card carries the leaf certificate,
+// That was true when a card carried only a key's hash. A card carries the leaf certificate,
 // and the key is in it — this function already stored that leaf. Storing the leaf without its key
 // left a contact that, once the peer accepted, was active with no key to seal to: every later
 // call went PLAINTEXT to a `seal: optional` peer and failed outright to a `required` one

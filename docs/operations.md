@@ -28,7 +28,7 @@ declared (SPEC §10.1).
 | a paid ngrok plan | `tunnel: ngrok` — `tls://` endpoint | direct |
 | a Cloudflare account | `cloudflare` edge adapter (P4-05) — Cloudflare terminates TLS | edge |
 | a domain of your own | run a second hdtp-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
-| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went with the protocol's first generation on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
+| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
 
 Direct mode keeps mTLS end to end: callers' client certificates reach the node. Edge
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
@@ -59,7 +59,7 @@ On the VPS run the ingress; on the node pair with a one-time token:
 Every call counts against a budget of the account it is addressed to, sized by
 how many contacts that account may hold (HDTP §12). The budgets are not the
 node's to decide: the **limits sidecar**, `hdtp-limitd`, holds their numbers and
-their counters and decides each call with hdtp-identity's `pact-limits` crate,
+their counters and decides each call with hdtp-identity's `hdtp-limits` crate,
 the decision the hosted cloud makes (SPEC §5.7). The node asks it over a unix
 socket, `limits_socket` (`HDTP_LIMITS_SOCKET`, default `<data_dir>/limits.sock`),
 on one connection it keeps open; nothing but the charge — the account, the

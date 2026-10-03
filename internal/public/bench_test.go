@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // BenchmarkOpenSealedSmallForm is the common case: a pinned contact naming its

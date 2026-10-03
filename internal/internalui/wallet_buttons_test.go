@@ -10,8 +10,8 @@ import (
 // The wallet pages' buttons keep the one rule for a button (web/src/style.css `.acts`, and batondeck's
 // gateway/e2e/layout/action-rows.mjs, which holds the portals to it in a browser): a few words, never a
 // sentence and never an address. The ask page's replace button read "Replace it and continue to my
-// wallet", and the submit page's "Continue to https://wallet.batondeck.com", which wrapped onto two
-// lines on a phone; the address is now a line of its own.
+// wallet", and the submit page's button read "Continue to" and then the wallet's whole address,
+// which wrapped onto two lines on a phone; the address is now a line of its own.
 const walletButtonMax = 32
 
 var buttonText = regexp.MustCompile(`(?s)<button[^>]*>(.*?)</button>`)

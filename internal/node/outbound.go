@@ -29,7 +29,7 @@ import (
 // card's endpoint went with the column that selected it.
 //
 // Whether the call is sealed is the contact's card's to say (contacts.SealOf): a card with no
-// X-PACT-SEAL line says `none` (HDTP §3, §13.4), and a card on file that does not read is refused
+// X-HDTP-SEAL line says `none` (HDTP §3, §13.4), and a card on file that does not read is refused
 // here rather than given a policy. This read an absent line, and a card that did not parse, as
 // `required`, so a recipient that left the line out was sent envelopes it had not agreed to take
 // and could not be reached at all.

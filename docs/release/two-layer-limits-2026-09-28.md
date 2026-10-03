@@ -28,7 +28,7 @@ numbers decided by the owner 2026-09-29** (§6).
   - The local rate-limit filter works per IP and per path; there are connection limits.
   - Numbers live in the Envoy config.
 
-**Layer 2, the middleware. After the envelope is opened, keyed on the caller.** One Rust crate, `pact-limits`, owns every per-caller budget of HDTP SPEC §12:
+**Layer 2, the middleware. After the envelope is opened, keyed on the caller.** One Rust crate, `hdtp-limits`, owns every per-caller budget of HDTP SPEC §12:
 - per contact: 1/s, burst 10;
 - per identity: contacts × 1/s, capped by the measured capacity;
 - guest: 10/h per root and source;
@@ -76,7 +76,7 @@ The table is the middleware's state, not application logic.
 
 ### hdtp-identity (`humandelegatedtrustprotocol/hdtp-identity`)
 
-- **M-I1** New crate `crates/pact-limits`:
+- **M-I1** New crate `crates/hdtp-limits`:
   - token buckets (§12's shapes), the rule set as data, and the decision function;
   - a `StateStore` trait (get/put per key with a clock seam);
   - property tests: refill, burst and the retry-after arithmetic;
@@ -123,7 +123,7 @@ The table is the middleware's state, not application logic.
   - the node reads the client certificate from XFCC only when it comes from the configured proxy address;
   - a compose file that runs Envoy, the sidecar and the node;
   - a hermetic test that boots them and floods, with a control.
-- **M-N2** The sidecar (`pact-limits` native) per the owner's choice at M-N0, with its config file. Envoy calls it through `ext_authz`, or the node calls it, per the choice.
+- **M-N2** The sidecar (`hdtp-limits` native) per the owner's choice at M-N0, with its config file. Envoy calls it through `ext_authz`, or the node calls it, per the choice.
 - **M-N3** Remove `internal/public/limits.go`, its uses and the budget settings. Node SPEC §12 text now says where limits are enforced.
 - **M-N4** Proof: `make check`, `analyze`, `sqlc-check`, `harness`, and `harness-nightly` with the Envoy compose.
 

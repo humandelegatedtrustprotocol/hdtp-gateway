@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // testServer starts a real TLS listener with two SNI accounts and an echo handler
@@ -99,8 +99,8 @@ func get(t *testing.T, addr, sni, path string, clientCert *tls.Certificate) (int
 // only a chain that validates (§14.2) says who is calling — the ROOT, never the
 // leaf and never a certificate that names no root.
 //
-// The retired generation read a lone self-signed certificate as an identity,
-// because there the identity WAS a key. Under 2.0 anyone mints one in a second,
+// A lone self-signed certificate used to be read as an identity,
+// because the identity WAS a key. Under HDTP anyone mints one in a second,
 // so believing it made `client_cert: required` a door anybody walks through and
 // handed every caller a fresh guest budget per certificate.
 func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {

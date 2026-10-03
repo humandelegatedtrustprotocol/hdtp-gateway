@@ -134,7 +134,7 @@ func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
 // pinned to the ROOT the card's certificate names; the leaf and its key arrive
 // with the first chain that validates (HDTP §14.3). This used to end in BindSPKI,
 // which recorded the key when a rotation had left the row fingerprint-only — a
-// state 2.0 cannot produce.
+// state nothing can produce now.
 func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 	m, st, ctx, acct := newInitEnv(t)
 	card, fpr, spki := peerCard(t, "Bob")
@@ -149,7 +149,7 @@ func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 		t.Errorf("status=%q, want pending_out", c.Status)
 	}
 	// This asserted the OPPOSITE — "want pending_out with no key yet" — on the reasoning that a
-	// card carries only a key's hash and the key arrives later. A 2.0 card carries the leaf, the
+	// card carries only a key's hash and the key arrives later. A card carries the leaf, the
 	// key is in it, and the pin is incomplete without it.
 	if !bytes.Equal(c.SPKI, spki) {
 		t.Errorf("the pin holds %d bytes of key, want the %d-byte key in the card's own certificate", len(c.SPKI), len(spki))

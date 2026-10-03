@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // FuzzSealedEnvelope feeds arbitrary bytes down the path a sealed_call's argument takes in

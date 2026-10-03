@@ -161,7 +161,7 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 // mustFpr is the identity a contact pins: the node's ROOT fingerprint.
 //
 // It used to read `account list`, whose fingerprint column is the account's own
-// KEY. That was the identity in 1.x; it is the leaf key now and changes at every
+// KEY. That was once the identity; it is the leaf key now and changes at every
 // renewal, so it is `account certificate` that answers the question — and a node
 // with no leaf yet has no identity to pin at all, which this says plainly rather
 // than handing back a key that pins nothing.

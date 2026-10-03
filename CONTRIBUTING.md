@@ -25,7 +25,7 @@ identity module ([below](#the-identity-module)).
 
 ```
 make build      # static binary
-make check      # fmt, vet, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
+make check      # fmt, vet, the name guard, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
 make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)
@@ -76,7 +76,7 @@ Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
 
 ## The identity module
 
-The node requires `github.com/pact-cloud/pact-identity/go` **by version**: `go.mod` names a
+The node requires `github.com/humandelegatedtrustprotocol/hdtp-identity/go` **by version**: `go.mod` names a
 release (the tag `go/vX.Y.Z` in the hdtp-identity repository) and carries no `replace`. The
 repository is private and is fetched over SSH, from this machine only; no CI key exists for it.
 So the go command needs to be told two things, which the Makefile's fetching targets and the

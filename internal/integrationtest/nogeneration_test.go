@@ -12,11 +12,12 @@ import (
 	"testing"
 )
 
-// generationSuffix is a name that says which HDTP generation it belongs to: a letter, then "20",
-// then the end of the name or the next word of it (seal20, State20, seal20Opt, hdtp20_demo). There
-// is one generation, so a name that carries one says nothing true — and it is how the `…20` names
-// outlived the `v: 1` code they were once told apart from.
-var generationSuffix = regexp.MustCompile(`[A-Za-z]20($|[A-Z_.])`)
+// generationSuffix is a name that says which generation of the protocol it belongs to. Two forms
+// have been written here: a letter, then "20", then the end of the name or the next word of it
+// (seal20, State20, seal20Opt), and a word that is `V` and a number (TestV2PinnedContact, sealV1).
+// There is one generation, so a name that carries one says nothing true — and it is how the `…20`
+// names outlived the code they were once told apart from.
+var generationSuffix = regexp.MustCompile(`[A-Za-z]20($|[A-Z_.])|(^|[a-z_])V[0-9]+($|[A-Z_.])`)
 
 // cipherName is the one kind of "20" that is not a generation: ChaCha20, a cipher's own name.
 var cipherName = regexp.MustCompile(`(?i)chacha20`)
@@ -25,10 +26,19 @@ func generational(name string) bool {
 	return generationSuffix.MatchString(cipherName.ReplaceAllString(name, ""))
 }
 
+// generationFile is the form a FILE name takes and an identifier must not be held to: a word
+// that is a lower-case `v` and a number (decide_v2.go). `v1` and `v2` are ordinary variables.
+var generationFile = regexp.MustCompile(`(^|_)v[0-9]+[_.]`)
+
+func generationalFile(name string) bool {
+	return generational(name) || generationFile.MatchString(name)
+}
+
 // No Go identifier and no file name under internal/, harness/ or queries/ carries a generation
-// suffix. Identifiers are read with go/parser, so a date, a string or a comment is never one; the
-// migrations are append-only and are not scanned. Red on 9f27f67, where it listed 75 names and
-// files, from harness/peer/peer.go's BuildCard20 to queries/*/hdtp20.sql.
+// suffix. Identifiers are read with go/parser, so a date, a string or a comment is never one.
+// Red on 9f27f67, where it listed 75 names and files, from harness/peer/peer.go's BuildCard20 to a
+// query file named for the generation; and red again on 1bbcbce for the `V2` form, with the eight
+// TestV2… names of internal/public/decide_test.go.
 func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 	root := repoRoot(t)
 	var found []string
@@ -49,7 +59,7 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 				}
 				return nil
 			}
-			if generational(d.Name()) {
+			if generationalFile(d.Name()) {
 				found = append(found, rel+" (file name)")
 			}
 			if dir == "queries" {
@@ -90,12 +100,28 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 
 // The pattern itself: what it must catch and what it must leave alone.
 func TestTheGenerationPatternCatchesTheOldNamesAndSparesTheCipher(t *testing.T) {
-	for _, name := range []string{"seal20", "State20", "seal20Opt", "BenchmarkState20OneAccount", "hdtp20_demo_test.go", "client20.go", "TestHDTP20ExitDemo", "HDTP20StateRoundTrips"} {
+	for _, name := range []string{
+		"seal20", "State20", "seal20Opt", "BenchmarkState20OneAccount", "demo20_test.go", "client20.go", "TestNode20ExitDemo", "Node20StateRoundTrips",
+		"TestV2PinnedContactBothForms", "sealV1", "V2Envelope", "openV2",
+	} {
 		if !generational(name) {
 			t.Errorf("%s: not caught", name)
 		}
 	}
-	for _, name := range []string{"chacha20poly1305", "ChaCha20Poly1305", "XChaCha20", "chacha20", "2026", "Ed25519", "migration0020", "P256", "sha256"} {
+	for _, file := range []string{"decide_v2.go", "v1_test.go", "seal_v2_test.go", "client20.go"} {
+		if !generationalFile(file) {
+			t.Errorf("%s: a file name that was not caught", file)
+		}
+	}
+	for _, name := range []string{"v1", "v2", "pgxv5"} {
+		if generational(name) {
+			t.Errorf("%s: caught, and it is an ordinary identifier", name)
+		}
+	}
+	for _, name := range []string{
+		"chacha20poly1305", "ChaCha20Poly1305", "XChaCha20", "chacha20", "2026", "Ed25519", "migration0020", "P256", "sha256",
+		"IPv4", "IPv6Only", "VersionTLS12", "CSV2", "UUIDv4", "X25519",
+	} {
 		if generational(name) {
 			t.Errorf("%s: caught, and it is not a generation", name)
 		}

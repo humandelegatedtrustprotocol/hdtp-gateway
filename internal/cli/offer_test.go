@@ -4,20 +4,21 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // What an invite offer is, and what it takes to be one worth pinning (SPEC §9.2, §14.2).
 //
 // There was no positive test for `verifyOffer` at all — only a fuzz target, which asserts
 // properties of offers that VERIFY and is therefore silent when nothing verifies. That is how the
-// 2.0 break went unnoticed: `verifyOffer` required the card to carry `X-PACT-KEY`, which no 2.0
+// break went unnoticed: `verifyOffer` required the card to carry a key property, which no
 // card does, so `hdtp-gateway contact init <invite-url>` refused every real invite and the suite
 // stayed green. A positive case is what makes the negatives below mean anything.
 
-// offerFor builds the document a 2.0 node's landing page serves: the card, the `[leaf, root]`
+// offerFor builds the document a node's landing page serves: the card, the `[leaf, root]`
 // chain that proves it, the leaf's key, and the leaf key's signature over the card bytes.
 func offerFor(t testing.TB, p *testPeer, fn string) inviteOffer {
 	t.Helper()
@@ -37,7 +38,7 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	p := newTestPeer(t, "Alina Rao", "https://agent.alina.example/mcp")
 	card, spki, rootCert, err := verifyOffer(offerFor(t, p, "Alina Rao"))
 	if err != nil {
-		t.Fatalf("a real 2.0 offer was refused: %v", err)
+		t.Fatalf("a real offer was refused: %v", err)
 	}
 	// What the pin is made of: the ROOT is the identity, the address comes from the leaf's own
 	// subjectAltName rather than from a property anybody could write, and the key is the leaf's.
@@ -57,7 +58,7 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 		t.Error("the offer verified and returned no root certificate to pin")
 	}
 	// And the peer that describes: called at that address, pinned by that root, sealed to that
-	// leaf. `Protocol: 2` is what `outbound.Client` requires before it will speak at all.
+	// leaf. A known peer (`Peer.Known`) is what `outbound.Client` requires before it will speak at all.
 	peer := peerOfCard(card)
 	if !peer.Known() || peer.Root != p.Root() || peer.Endpoint != p.Endpoint || len(peer.Leaf) == 0 {
 		t.Errorf("the peer built from the card is %+v", peer)
@@ -70,8 +71,8 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 // equal the one in the chain's leaf, which it had validated a few lines earlier and already held.
 // So the member was pure redundancy, and the demand for it meant this node could not redeem an
 // invite from any implementation that follows §4 to the letter. It interoperated with the cloud
-// only because the cloud carries the same leftover: `spki` is the first generation's "SPKI distribution",
-// from when a card carried a key's HASH and the key had to travel beside it. A 2.0 card carries
+// only because the cloud carries the same leftover: `spki` is an "SPKI distribution" left
+// from when a card carried a key's HASH and the key had to travel beside it. A card carries
 // the leaf certificate, and the key is in it.
 func TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries(t *testing.T) {
 	p := newTestPeer(t, "Alina Rao", "https://alina.example/mcp")
@@ -119,32 +120,35 @@ func TestVerifyOfferRefusals(t *testing.T) {
 	p := newTestPeer(t, "Alina Rao", "https://agent.alina.example/mcp")
 	other := newTestPeer(t, "Someone Else", "https://agent.alina.example/mcp")
 
+	// reason, where a case gives one, is what the refusal must say: the card cases are both refused
+	// at intake, and each must be refused for what its name says and not for the other's reason.
 	for _, tc := range []struct {
-		name string
-		why  string
-		mut  func(*inviteOffer)
+		name   string
+		why    string
+		mut    func(*inviteOffer)
+		reason string
 	}{
-		{"no chain", "there is no root to pin without one", func(o *inviteOffer) { o.Chain = nil }},
-		{"a chain of one", "a chain is exactly [leaf, root]", func(o *inviteOffer) { o.Chain = o.Chain[:1] }},
+		{"no chain", "there is no root to pin without one", func(o *inviteOffer) { o.Chain = nil }, ""},
+		{"a chain of one", "a chain is exactly [leaf, root]", func(o *inviteOffer) { o.Chain = o.Chain[:1] }, ""},
 		{
 			"a chain whose leaf is not the card's certificate",
 			"the card and the chain would be two peers' documents assembled into a plausible pair",
-			func(o *inviteOffer) { o.Chain[0] = hdtpidentity.B64url(other.Host.LeafDER) },
+			func(o *inviteOffer) { o.Chain[0] = hdtpidentity.B64url(other.Host.LeafDER) }, "",
 		},
 		{
 			"a root that did not sign the leaf",
 			"the root is the identity: accepting an unrelated one pins the wrong person",
-			func(o *inviteOffer) { o.Chain[1] = hdtpidentity.B64url(other.Wallet.RootDER) },
+			func(o *inviteOffer) { o.Chain[1] = hdtpidentity.B64url(other.Wallet.RootDER) }, "",
 		},
 		{
 			"a chain with a character outside base64url",
-			"it is refused as the identity core refuses it, never skipped (the identity core 0.4.2's DecodeB64url)",
-			func(o *inviteOffer) { o.Chain[0] = "!" + o.Chain[0] },
+			"it is refused as the identity core refuses it, never skipped (the identity core's DecodeB64url)",
+			func(o *inviteOffer) { o.Chain[0] = "!" + o.Chain[0] }, "",
 		},
 		// "a key that is not the leaf's" was a case here: the offer carried the key a second time
 		// as `spki`, and swapping it was refused. There is no second key now — the one sealed to is
 		// read from the validated leaf — so the swap cannot be attempted rather than being caught.
-		{"no signature", "SPEC §9.2 serves a SIGNED card", func(o *inviteOffer) { o.CardSig = "" }},
+		{"no signature", "SPEC §9.2 serves a SIGNED card", func(o *inviteOffer) { o.CardSig = "" }, ""},
 		{
 			"a signature over something else",
 			"the card and the key must be proven to belong together",
@@ -154,18 +158,31 @@ func TestVerifyOfferRefusals(t *testing.T) {
 					t.Fatal(err)
 				}
 				o.CardSig = base64.RawURLEncoding.EncodeToString(sig)
-			},
+			}, "",
 		},
-		{"a 1.x card", "the generation is gone; its card names a bare key", func(o *inviteOffer) {
-			o.Card = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Old\r\nX-PACT-VERSION:1\r\n" +
-				"X-PACT-ENDPOINT:https://old.example/mcp\r\nX-PACT-KEY:sha256:AAA\r\nEND:VCARD\r\n"
-		}},
+		{"a card with no certificate", "the certificate is the card: without one there is nobody to pin", func(o *inviteOffer) {
+			o.Card = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Nobody\r\nX-HDTP-VERSION:1\r\nEND:VCARD\r\n"
+		}, "the card's certificate"},
+		{"a card of a version this node does not speak", "the version is 1 and nothing else", func(o *inviteOffer) {
+			o.Card = strings.Replace(o.Card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1)
+		}, "names protocol version \"2\""},
 	} {
 		t.Run(tc.name+" is refused", func(t *testing.T) {
 			off := offerFor(t, p, "Alina Rao")
+			before := off.Card
 			tc.mut(&off)
-			if _, _, _, err := verifyOffer(off); err == nil {
-				t.Errorf("accepted an offer with %s — %s", tc.name, tc.why)
+			_, _, _, err := verifyOffer(off)
+			if err == nil {
+				t.Fatalf("accepted an offer with %s — %s", tc.name, tc.why)
+			}
+			if tc.reason == "" {
+				return
+			}
+			if off.Card == before {
+				t.Fatalf("the case changed nothing in the card, so it refuses nothing of its own")
+			}
+			if !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("an offer with %s was refused for another reason than %q: %v", tc.name, tc.reason, err)
 			}
 		})
 	}

@@ -8,16 +8,16 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// HDTP §3 and §13.4: a card's X-PACT-SEAL is the recipient's policy, and a card with no such line
+// HDTP §3 and §13.4: a card's X-HDTP-SEAL is the recipient's policy, and a card with no such line
 // says `none` — "senders MUST NOT seal". The node read an absent line as `required`, so a recipient
 // that left the line out was sent a sealed_call it had said it would not take, and could not be
 // reached at all: a node at `none` has no sealed_call on its surface and answers it
 // permission_denied, in plaintext, which the sender then discards as not the peer's answer.
 //
-// Bharat's node does not accept envelopes, and the card Alina holds for him has no X-PACT-SEAL
+// Bharat's node does not accept envelopes, and the card Alina holds for him has no X-HDTP-SEAL
 // line, as hdtp-identity's EncodeCard writes it for a seal of "". Alina's message must go to him
 // in plaintext and arrive; the control is the same message to the card his node serves, which
 // says `none` in so many words, and which the node read correctly before.
@@ -33,16 +33,16 @@ func TestACardWithNoSealLineIsCalledInPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(absent, "X-PACT-SEAL") {
-		t.Fatalf("the card under test must carry no X-PACT-SEAL line:\n%s", absent)
+	if strings.Contains(absent, "X-HDTP-SEAL") {
+		t.Fatalf("the card under test must carry no X-HDTP-SEAL line:\n%s", absent)
 	}
-	if served := bharat.card(); !strings.Contains(served, "X-PACT-SEAL:none") {
+	if served := bharat.card(); !strings.Contains(served, "X-HDTP-SEAL:none") {
 		t.Fatalf("bharat's node must serve a card that says none:\n%s", served)
 	}
 	// Sequential, not subtests: alina.send fails the test it was started under.
 	for _, tc := range []struct{ name, card, msgID string }{
-		{"X-PACT-SEAL:none (the control)", bharat.card(), "none-1"},
-		{"no X-PACT-SEAL line", absent, "absent-1"},
+		{"X-HDTP-SEAL:none (the control)", bharat.card(), "none-1"},
+		{"no X-HDTP-SEAL line", absent, "absent-1"},
 	} {
 		_ = alina.st.DeleteContact(ctx, alina.acct.ID, bharat.rootFpr())
 		if _, err := alina.st.InsertContact(ctx, store.Contact{
@@ -86,12 +86,12 @@ func TestAContactsSealIsWhatItsCardOnFileSays(t *testing.T) {
 	for _, tc := range []struct {
 		name, card, want string
 	}{
-		{"no X-PACT-SEAL line", card(""), "none"},
+		{"no X-HDTP-SEAL line", card(""), "none"},
 		{"none", card("none"), "none"},
 		{"optional", card("optional"), "optional"},
 		{"required", card("required"), "required"},
 		{"no card on file", "", "required"},
-		{"a card with no certificate", "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Bharat\r\nX-PACT-VERSION:2\r\nEND:VCARD\r\n", ""},
+		{"a card with no certificate", "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Bharat\r\nX-HDTP-VERSION:1\r\nEND:VCARD\r\n", ""},
 		{"text that is not a card", "not a card", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

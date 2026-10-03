@@ -1,6 +1,6 @@
 package public
 
-// HDTP 1.0 receiving (HDTP §13.3, §6.1, §5.3, §14.3, §14.4): a `v: 2`
+// HDTP 1.0 receiving (HDTP §13.3, §6.1, §5.3, §14.3, §14.4): a `v: 1`
 // envelope is decided by the library's pure Decide over the state this node
 // supplies, and the effects it returns are applied here — the pin that
 // follows a newer leaf or a new address, the former endpoint, the pending
@@ -19,7 +19,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // ErrChainRequired is HDTP §13.2's uniform answer to a small-form envelope the
@@ -126,7 +126,7 @@ func peekProof(now time.Time, e *hdtpidentity.Envelope, st *RecipientState) peek
 		if err != nil {
 			return none
 		}
-		plaintext, err := hdtpidentity.Open(suite, priv, leaf.PublicKey, []byte(hdtpidentity.InfoV2), aad, enc, ct)
+		plaintext, err := hdtpidentity.Open(suite, priv, leaf.PublicKey, []byte(hdtpidentity.Info), aad, enc, ct)
 		if err != nil {
 			return none
 		}
@@ -319,7 +319,7 @@ func signerOf(p peeked, pins []hdtpidentity.Pin) (signer, bool) {
 	return signer{}, false
 }
 
-// decideEnvelope is the `v: 2` half of OpenSealed.
+// decideEnvelope is the `v: 1` half of OpenSealed.
 func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *hdtpidentity.Envelope) (*EnvelopeFacts, error) {
 	if id.RecipientState == nil {
 		return nil, fmt.Errorf("%w: this identity does not speak 2.0", envelope.ErrInvalid)
@@ -548,7 +548,7 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 	return nil
 }
 
-// TransportCaller is what a 2.0 client certificate chain earned once the pin
+// TransportCaller is what a client certificate chain earned once the pin
 // checks of HDTP §14.3 and §5.3 have run — the same outcomes the sealed path
 // reaches through Decide, so a chain presented at the TLS layer can do nothing
 // an envelope carrying it could not. Fingerprint is the identity the per-caller

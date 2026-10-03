@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries:

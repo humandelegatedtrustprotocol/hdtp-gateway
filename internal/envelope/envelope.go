@@ -5,7 +5,7 @@
 // The wire object — the four members and their one spelling — is hdtp-identity's `Envelope`,
 // which the library decides as it arrives. This package used to decode the members itself, with a
 // lenient decoder, and hand the library a canonical re-encoding, so the library's one-spelling
-// refusal never ran; and it used to carry the crypto of the `v: 1` generation, which is gone.
+// refusal never ran; and it used to carry an older envelope's crypto, which is gone.
 package envelope
 
 import "errors"

@@ -1,5 +1,5 @@
 -- HDTP 1.0 state (SPEC sec. 2, sec. 14): the account's root and leaf
--- ledger, 2.0 pins, the removal tombstone, former endpoints, and the
+-- ledger, pins, the removal tombstone, former endpoints, and the
 -- addresses awaiting the owner under `accept_new_hosts = ask`.
 
 -- name: SetAccountRoot :execrows
@@ -86,7 +86,7 @@ SELECT * FROM pending_addresses WHERE account_id = $1 AND root = $2;
 DELETE FROM pending_addresses WHERE account_id = $1 AND root = $2;
 
 -- name: RepinContactAddress :execrows
--- The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
+-- The pin moves: a renewal at the pinned endpoint or an accepted new
 -- address replaces the leaf, its key and the endpoint; the root (the
 -- fingerprint column) never moves (HDTP sec. 14.3, sec. 5.3).
 UPDATE contacts SET endpoint = $1, leaf = $2, leaf_fingerprint = $3, spki = $4, pinned_at = $5 WHERE account_id = $6 AND fingerprint = $7;

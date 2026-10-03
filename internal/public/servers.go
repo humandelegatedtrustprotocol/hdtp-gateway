@@ -394,7 +394,7 @@ func calledTool(req mcp.Request) string {
 // because a blocked caller resolves to guest and must be indistinguishable from
 // somebody this node has never met (§5.4). A contact, by contrast, is known — so
 // a tool their switchboard does not grant is an honest `permission_denied`.
-// resolveCaller is Resolve with one override: a `v: 2` envelope whose chain
+// resolveCaller is Resolve with one override: a `v: 1` envelope whose chain
 // proved nothing for the pinned root — a blocked contact, or a leaf older than
 // the pinned one (HDTP §14.3) — is a guest whatever row the root has. The
 // envelope decided that before dispatch, and the store must not undo it.

@@ -16,7 +16,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // HDTP 1.0 receiving (HDTP §13.3, §6.1, §5.3, §14.3, §14.4) against a node
@@ -26,7 +26,7 @@ import (
 const (
 	endpointMe = "https://me.example/a/me/mcp"
 	endpointA  = "https://agent.alina.example/mcp"
-	endpointA2 = "https://alina.id.batondeck.com/alina/mcp"
+	endpointA2 = "https://alina.batondeck.com/alina/mcp"
 )
 
 type recvEnv struct {
@@ -59,7 +59,7 @@ func newTestRoot(t testing.TB, cn string, at time.Time) *testRoot {
 	return &testRoot{key: key, cert: cert, fpr: hdtpidentity.Fingerprint(key.Public().SPKI)}
 }
 
-// peer is a 2.0 identity elsewhere: a root and the host key of its current leaf.
+// peer is a identity elsewhere: a root and the host key of its current leaf.
 type peer struct {
 	root *testRoot
 	host *hdtpidentity.PrivateKey
@@ -166,7 +166,7 @@ func (e *recvEnv) state(ctx context.Context) (*RecipientState, error) {
 }
 
 // keypair is the account's current leaf key. The tests used to fetch it through
-// `Identifier.Keypair`, a field production code set and never read — it outlived the 1.x path
+// `Identifier.Keypair`, a field production code set and never read — it outlived the path
 // that recorded a re-pinned contact's key on connect.
 func (e *recvEnv) keypair(ctx context.Context) (*identity.Keypair, error) {
 	keys, err := e.m.ActiveLeafKeypairs(ctx, e.acct.ID, e.nowAt)
@@ -190,7 +190,7 @@ func (e *recvEnv) currentKey(t testing.TB) *identity.Keypair {
 
 type sealOpt func(*hdtpidentity.SealOpts)
 
-// sealFrom seals a `v: 2` request from a peer to our current leaf key.
+// sealFrom seals a `v: 1` request from a peer to our current leaf key.
 func (e *recvEnv) sealFrom(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...sealOpt) *hdtpidentity.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
@@ -219,7 +219,7 @@ func (e *recvEnv) open(t testing.TB, env *hdtpidentity.Envelope, tf TransportFac
 	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
 }
 
-// pin records a 2.0 contact as a first chain would have.
+// pin records a contact as a first chain would have.
 func (e *recvEnv) pin(t testing.TB, p *peer, status string) {
 	t.Helper()
 	leaf, _ := hdtpidentity.Parse(p.leaf)
@@ -239,7 +239,7 @@ func cardOf(p *peer) string {
 	return card
 }
 
-func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
+func TestFirstContactMustRedeemOrRequest(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	_, err := e.open(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
@@ -296,7 +296,7 @@ func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 	}
 }
 
-func TestV2PinnedContactBothForms(t *testing.T) {
+func TestPinnedContactBothForms(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -314,7 +314,7 @@ func TestV2PinnedContactBothForms(t *testing.T) {
 	}
 }
 
-func TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
+func TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
 	e := newRecvEnv(t)
 	stranger := newPeer(t, fixedNow)
 	if _, err := e.open(t, e.sealFrom(t, stranger, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
@@ -338,7 +338,7 @@ func TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
 	}
 }
 
-func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
+func TestStaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -372,7 +372,7 @@ func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
 	}
 }
 
-func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
+func TestNewestLeafWinsAndNewAddresses(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
@@ -457,7 +457,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 // times it calls. Every request used to append an audit-chain row and wake the
 // owner: a host holding a still-valid leaf for a pinned root — a former host
 // after a move — grew both without bound just by continuing to call.
-func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
+func TestAnUnapprovedAddressIsToldOnce(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow.Add(-time.Hour))
@@ -494,7 +494,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 	}
 }
 
-func TestV2TombstoneForcesTheQuestion(t *testing.T) {
+func TestTombstoneForcesTheQuestion(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
@@ -504,7 +504,7 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ts, _ := e.st.ListTombstones(ctx, e.acct.ID); len(ts) != 1 {
-		t.Fatal("removing a 2.0 contact must leave a tombstone")
+		t.Fatal("removing a contact must leave a tombstone")
 	}
 	// The same leaf again: a stranger (its leaf is not newer than the one that removed us).
 	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
@@ -529,8 +529,8 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 	}
 }
 
-func TestV2TransportPinChecks(t *testing.T) {
-	// The transport path — a chain as the client certificate — resolves a 2.0
+func TestTransportPinChecks(t *testing.T) {
+	// The transport path — a chain as the client certificate — resolves a
 	// caller through the same pin checks as the sealed path (HDTP §2, §14.3,
 	// §5.3), and what it resolves is what dispatch sees: the composed server's
 	// identity, not the gate's discarded return value.

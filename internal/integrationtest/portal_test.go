@@ -222,7 +222,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}
 	lbody, _ := io.ReadAll(lresp.Body)
 	lresp.Body.Close()
-	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-PACT-CERT:") {
+	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-HDTP-CERT:") {
 		t.Fatalf("landing page: %d\n%s", lresp.StatusCode, lbody)
 	}
 
@@ -239,7 +239,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.root); err != nil || !strings.Contains(c.Card, "X-PACT-CERT:") {
+	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.root); err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:") {
 		t.Fatalf("alice not in bella's contacts: %+v %v", c, err)
 	}
 

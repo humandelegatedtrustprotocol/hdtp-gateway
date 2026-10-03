@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-identity/go/exportcorpus"
+	"github.com/humandelegatedtrustprotocol/hdtp-identity/go/exportcorpus"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // HDTP §13.3: "Idempotency records for seen msg_ids MUST be retained until min(exp, ts + 300 s) —

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The recovery table in docs/operations.md says a lost master key costs a node its leaves and not

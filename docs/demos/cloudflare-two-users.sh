@@ -15,10 +15,10 @@ TOKEN="${CF_API_TOKEN:?set CF_API_TOKEN with Zone.DNS:Edit on $DOMAIN}"
 IMAGE="${HDTP_IMAGE:-hdtp-gateway:harness}"
 WORK="${HDTP_CF_WORK:-$(mktemp -d)}"
 mkdir -p "$WORK"   # a named HDTP_CF_WORK may not exist yet; `install` below does not create it
-# The wallet. An account is created with no certificate (HDTP §2.0), so a rig whose nodes
+# The wallet. An account is created with no certificate (HDTP 1.0), so a rig whose nodes
 # are never taken to a wallet has no identity to pin and the scenario stops at
 # "has no certificate yet". `hdtp` is the wallet here, the way a person's is.
-WALLET="${HDTP_WALLET:-../hdtp-identity/target/release/pact}"
+WALLET="${HDTP_WALLET:-../hdtp-identity/target/release/hdtp}"
 # A public resolver, on purpose: Docker Desktop forwards the host's resolver into
 # containers, so one NXDOMAIN cached before the record existed makes the name
 # unresolvable for the whole negative TTL — long after the record is live.
@@ -119,7 +119,7 @@ for who in alice bob; do
     --slug "$who" --name "$name" >/dev/null 2>&1 \
     || true  # already there on a re-run against a kept volume
 
-  # THE WALLET STEP, and the rig is not a 2.0 rig without it. An account holds a key and
+  # THE WALLET STEP, and the rig does not work without it. An account holds a key and
   # no certificate; the person's root is what makes it an identity, and it lives in a
   # vault this script owns because the two users here are fictional. A real owner does
   # these three commands themselves, which is the point of the separation.
@@ -129,15 +129,15 @@ for who in alice bob; do
   # re-run minted a fresh leaf for an identity that already had one.
   if ! docker exec "hdtpcf-$who" /hdtp-gateway account certificate -slug "$who" 2>/dev/null | grep -q "^$who: root sha256:"; then
     if [ ! -x "$WALLET" ]; then
-      echo "  ($who has no certificate and no wallet at $WALLET: build it with 'cargo build --release -p pact' in hdtp-identity, or set HDTP_WALLET)"
+      echo "  ($who has no certificate and no wallet at $WALLET: build it with 'cargo build --release -p hdtp' in hdtp-identity, or set HDTP_WALLET)"
     else
       if [ ! -e "$WORK/$who.vault" ]; then
         printf 'rig-%s-passphrase' "$who" > "$WORK/$who.pass"
         chmod 600 "$WORK/$who.pass"   # the wallet refuses a passphrase file others can read
-        PACT_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id create --name "$name" --vault "$WORK/$who.vault" >/dev/null
+        HDTP_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id create --name "$name" --vault "$WORK/$who.vault" >/dev/null
       fi
       docker exec "hdtpcf-$who" /hdtp-gateway account csr -slug "$who" > "$WORK/$who.csr"
-      PACT_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id issue --vault "$WORK/$who.vault" \
+      HDTP_PASSPHRASE_FILE="$WORK/$who.pass" "$WALLET" id issue --vault "$WORK/$who.vault" \
         --csr "$WORK/$who.csr" --yes --chain-out "$WORK/$who.chain.pem" >/dev/null
       docker cp "$WORK/$who.chain.pem" "hdtpcf-$who:/tmp/chain.pem" >/dev/null
       docker exec "hdtpcf-$who" /hdtp-gateway account install-leaf -slug "$who" -chain /tmp/chain.pem

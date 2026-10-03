@@ -242,7 +242,7 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := getBody(t, insecureGet(t, "https://"+r.public+"/i/"+token))
-	if !strings.Contains(body, "X-PACT-CERT") {
+	if !strings.Contains(body, "X-HDTP-CERT") {
 		t.Fatalf("landing page: %s", firstLine(body))
 	}
 
@@ -626,7 +626,7 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 // AC (F-rig, 2026-09-18): a node holding accounts it cannot serve SAYS so on the
 // banner, naming each slug and the two commands that end the wait.
 //
-// The plan for removing 1.x asked boot to "refuse to start with a message naming
+// The plan for removing key-pinned identities asked boot to "refuse to start with a message naming
 // the slug". Refusing takes every OTHER account on the node down with it, so the
 // node serves what it can and reports what it cannot — but an audit row is not a
 // message to the person running `serve`, and without this line a just-restored
@@ -660,7 +660,7 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := st.InsertLeaf(ctx, store.Leaf{AccountID: bob.ID, Kid: "sha256:bob-there", Leaf: []byte("leaf-der"), NotBefore: 5, NotAfter: 50,
-			State: identity.LeafFormer, Endpoint: "https://bob.id.batondeck.com/mcp"}); err != nil {
+			State: identity.LeafFormer, Endpoint: "https://bob.batondeck.com/mcp"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := st.ClearAccountKey(ctx, bob.ID); err != nil {

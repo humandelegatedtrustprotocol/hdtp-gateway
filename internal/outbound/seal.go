@@ -20,7 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // chain is [leaf, root] for a certified key, nil for one the wallet has not issued a leaf to.
@@ -38,7 +38,7 @@ func (c *Client) now() time.Time {
 	return time.Now()
 }
 
-// canSeal reports whether this exchange is a 2.0 one: our identity holds a
+// canSeal reports whether this exchange is a one: our identity holds a
 // chain and the peer is pinned by its root.
 func (c *Client) canSeal(peer Peer) bool { return peer.Known() && c.chain() != nil }
 
@@ -105,7 +105,7 @@ func (c *Client) repin(peer Peer, leaf []byte) (Peer, []byte, error) {
 	return peer, parsed.SPKI, nil
 }
 
-// sealedExchange is one 2.0 request and its answer, with the three
+// sealedExchange is one sealed request and its answer, with the three
 // one-time follow-ups of HDTP §13.2 and §14.4 applied.
 func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	form := "chain"

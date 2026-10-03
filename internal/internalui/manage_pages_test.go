@@ -199,13 +199,13 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.FN != "Sumit" || c.Version != "2" {
+	if c.FN != "Sumit" || c.Version != "1" {
 		t.Fatalf("card fields: %+v", c)
 	}
 	// The API hands the SPA the same card + its signature
 	rr2 := httptest.NewRecorder()
 	mux.ServeHTTP(rr2, httptest.NewRequest("GET", "/api/card?account="+acct, nil))
-	if !strings.Contains(rr2.Body.String(), "X-PACT-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
+	if !strings.Contains(rr2.Body.String(), "X-HDTP-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
 		t.Fatalf("card payload: %s", rr2.Body.String())
 	}
 	// The facts beside it are the card's own: its certificate's address and root, and this host's key.

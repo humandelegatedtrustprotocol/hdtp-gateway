@@ -99,7 +99,7 @@ func (d ManageDeps) buildCard(r *http.Request, accountID string) (string, store.
 	}
 	// There is no card without a leaf: the certificate IS the card (HDTP §3), so an
 	// account whose wallet has not issued one yet has nothing to serve rather than a
-	// key to spell out. This used to fall back to a 1.x card built from the bare
+	// key to spell out. This used to fall back to a card built from the bare
 	// fingerprint, which is exactly the shape that no longer exists.
 	return "", a, fmt.Errorf("%w: its card exists once a wallet has issued a leaf", identity.ErrNoCertificate)
 }

@@ -103,7 +103,7 @@ do, or, for a host with none yet, why (`node_pending`, `cloud_pending`):
 - node: `harness/journeys` holds every node entry to a scenario the registry scans, and an empty
   one to a reason;
 - cloud: `gateway/e2e/tables/journeys.json` is a byte-identical copy, held to the node's by the
-  node's guard when the sibling is checked out (the 1.x markers' pattern), and `test/journeys.test.ts`
+  node's guard when the sibling is checked out (the name guard's pattern for its list), and `test/journeys.test.ts`
   holds every cloud entry to a pair scenario or a driver file.
 
 ### 2.3 The node's own doors under attack
@@ -156,7 +156,7 @@ Each item: built, mutation-checked (red on broken code), gated, pushed, PR opene
 | After a move, doctor told the owner to have the wallet sign again for imported contacts the new leaf's campaign owed; the install notice said `account announce` | S20 (batondeck's live-local L5), then e2e-suite-staging's L5 | first `HandshakesTried` (the walk's progress rows), which read differently either side of the walk; now `HandshakesUnderWay` (the ledger: `Campaign.Owes`), which the walk does not change |
 | `TestSubscribeInboxReceivesResourceUpdated` and `TestP2ExitPortalPairing` flaked under load | the gate | fixed on main by PR #11 (the tests wait for the server to hold the subscription); this branch's own fixes were dropped at the merge in favour of #11's |
 
-### 3.2 The v0.3.3 and v0.3.4 corpus (the specification before HDTP 1.0, versions 2.2.2 and 2.2.3, 44 cases)
+### 3.2 The v0.3.3 and v0.3.4 corpus (44 cases)
 
 v0.3.4 is this round's final hdtp-identity release (the same API as 0.3.3, 44 corpus cases). S22
 reads the corpus of the version the harness requires, and `make identity-bump VERSION=0.3.4` moves

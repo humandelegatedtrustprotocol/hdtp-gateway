@@ -136,8 +136,8 @@ func exportCard(ctx context.Context, t *testing.T, o *Owned) string {
 	if err := o.Owner.CallJSON(ctx, "export_card", map[string]any{"account_id": o.AccountID}, &got); err != nil {
 		t.Fatalf("export_card: %v", err)
 	}
-	if !strings.Contains(got.Card, "X-PACT-CERT") {
-		t.Fatalf("export_card gave no 2.0 card: %q", got.Card)
+	if !strings.Contains(got.Card, "X-HDTP-CERT") {
+		t.Fatalf("export_card gave no card: %q", got.Card)
 	}
 	return got.Card
 }

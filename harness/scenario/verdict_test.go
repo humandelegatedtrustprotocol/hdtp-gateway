@@ -48,7 +48,7 @@ func TestIntrudeSummaryReadsTheToolsLastLine(t *testing.T) {
 	if m == nil || m[1] != "28" || m[2] != "27" || m[3] != "0" || m[4] != "1" {
 		t.Fatalf("read %v from %q", m, out)
 	}
-	if intrudeSummary.FindStringSubmatch("the target's card is not a 2.0 card: nothing to aim at") != nil {
+	if intrudeSummary.FindStringSubmatch("the target's card is not a card: nothing to aim at") != nil {
 		t.Error("a run that never started read as a summary")
 	}
 }

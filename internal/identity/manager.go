@@ -12,14 +12,14 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // signBytes signs with the encodings HDTP §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1
 // DER, Ed25519 per RFC 8032. It is the counterpart of VerifyBytes.
 //
 // It had an exported twin, `SignBytes`, "what produces the old-key endorsement a peer checks in
-// `update_contact`" — 1.x key rotation, where a successor key had to be signed by its predecessor.
+// `update_contact`" — key rotation, where a successor key had to be signed by its predecessor.
 // Nothing endorses a key now; two tests were its last callers, and they sign with the library, as
 // the peer they are playing would.
 func signBytes(kp *Keypair, msg []byte) ([]byte, error) {

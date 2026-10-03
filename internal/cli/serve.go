@@ -492,8 +492,8 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// Undelivered outbound messages retry with backoff until their deadline.
 	// Without this a send that failed once stayed failed forever and the owner had to
 	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
-	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted with
-	// 1.x on 2026-09-18; there is no mail to fetch, only sends to retry.
+	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted
+	// on 2026-09-18; there is no mail to fetch, only sends to retry.
 	background.Go(func() { nd.RunRetries(bgCtx, leases.leading("retries")) })
 
 	// There is no contact sweep here. There was: every active contact of every account had its

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // ErrWrongState: the contact exists and is not in a state the action applies to.

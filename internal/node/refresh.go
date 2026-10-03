@@ -34,7 +34,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // What a refresh of one contact found, in the words the portal and the owner MCP both show.
@@ -167,8 +167,8 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 // key, and a peer that had renewed signs its card with the new one — so the honest case
 // came back "the card signature does not verify under the pinned key" and was audited as
 // though the endpoint were compromised. The rule being enforced, "key changes go through
-// update_contact", belongs to the generation where the identity WAS a key and a successor
-// had to be signed by its predecessor. Under 2.0 a leaf signed by the pinned root
+// update_contact", belongs to when the identity WAS a key and a successor
+// had to be signed by its predecessor. Under HDTP a leaf signed by the pinned root
 // authorizes itself: HDTP §2, "because the endpoint is unchanged it needs no one's
 // approval to accept it."
 //
@@ -219,7 +219,7 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 	case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
 		return nil, fmt.Errorf("two different leaves claim the same notBefore (§14.3)")
 	}
-	// The card must carry the leaf the chain proved, as `update_contact` has required since 2.0
+	// The card must carry the leaf the chain proved, as `update_contact` requires
 	// (contacts.Manager.UpdateContact). Signed by the right key is not enough: the same host key
 	// can sign a card that embeds some other certificate, and that card would be stored, shown
 	// and re-shared as this contact's.

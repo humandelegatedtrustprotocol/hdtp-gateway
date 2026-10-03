@@ -34,7 +34,7 @@ type Account struct {
 
 // HasRoot reports whether the wallet has issued this identity a leaf yet. An account is made
 // with a host key and no root; the first leaf installed names the root, and only then can it be
-// served (HDTP §2). This used to be asked as `Protocol == 2`, a generation number that had come
+// served (HDTP §2). This used to be asked of a `Protocol` number that had come
 // to stand for it.
 func (a Account) HasRoot() bool { return a.RootFingerprint != "" }
 
@@ -171,9 +171,8 @@ type Contact struct {
 	Card      string
 	CreatedAt int64
 	PinnedAt  int64
-	// HDTP 1.0 pins: Protocol 2 means Fingerprint is the ROOT
-	// fingerprint, SPKI the pinned leaf's key, Endpoint and Leaf the pin of
-	// §14.3. ChainSentKid is our own leaf kid last carried to this contact.
+	// The pin (HDTP §14.3): Fingerprint above is the ROOT's, SPKI the pinned
+	// leaf's key, and Endpoint and Leaf the address and the leaf pinned. ChainSentKid is our own leaf kid last carried to this contact.
 	Endpoint     string
 	Leaf         []byte
 	ChainSentKid string
@@ -513,7 +512,7 @@ type OwnerStore interface {
 }
 
 // AccountStore holds the identities this node answers for: the account rows, their keys, the HDTP
-// 2.0 root and leaf ledger, and a move's campaign (SPEC §3, HDTP §5.3, §9).
+// root and leaf ledger, and a move's campaign (SPEC §3, HDTP §5.3, §9).
 type AccountStore interface {
 	CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error)
 
@@ -525,7 +524,7 @@ type AccountStore interface {
 	GetAccountByID(ctx context.Context, id string) (Account, error)
 	GetAccountSealedKey(ctx context.Context, id string) ([]byte, error)
 
-	// UpdateAccountSeal sets the account's X-PACT-SEAL policy (SPEC §4.6).
+	// UpdateAccountSeal sets the account's X-HDTP-SEAL policy (SPEC §4.6).
 	UpdateAccountSeal(ctx context.Context, accountID, seal string) error
 	UpsertMoveFanout(ctx context.Context, f MoveFanout) error
 	ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error)

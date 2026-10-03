@@ -20,7 +20,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // walletBrowser is a browser on the node's portal: a session cookie (or none) and the CSRF cookie.
@@ -244,14 +244,14 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if got := res.Header.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
 		t.Errorf("the form page's Referrer-Policy is %q: under no-referrer the wallet sees Origin: null", got)
 	}
-	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://ceremony.batondeck.com;") || !strings.Contains(csp, "script-src 'self';") {
+	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://ceremony.hdtp.io;") || !strings.Contains(csp, "script-src 'self';") {
 		t.Errorf("the form page's CSP: %q", csp)
 	}
 	if res.Header.Get("Cache-Control") != "no-store" {
 		t.Errorf("the form page may be stored: %q", res.Header.Get("Cache-Control"))
 	}
 	action, fields := formFields(t, page)
-	if action != "https://ceremony.batondeck.com/sign" {
+	if action != "https://ceremony.hdtp.io/sign" {
 		t.Fatalf("the form goes to %q", action)
 	}
 	got := map[string]string{}
@@ -294,7 +294,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	}
 	csrDER := testid.DER(t, got["csr"])
 	firstState := got["state"]
-	if p := pending(); len(p) != 1 || p[0].WalletOrigin != "https://ceremony.batondeck.com" {
+	if p := pending(); len(p) != 1 || p[0].WalletOrigin != "https://ceremony.hdtp.io" {
 		t.Fatalf("pending after start: %+v", p)
 	}
 
@@ -419,7 +419,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 			if e.AccountID != alice.ID {
 				t.Errorf("%s names account %q", e.Action, e.AccountID)
 			}
-			if e.Action == "account_csr" && e.Outcome == "ok" && !strings.Contains(e.Resource, "wallet_origin:https://ceremony.batondeck.com") {
+			if e.Action == "account_csr" && e.Outcome == "ok" && !strings.Contains(e.Resource, "wallet_origin:https://ceremony.hdtp.io") {
 				continue // the seed's own requests, made before the node started, are not audited here
 			}
 			seen = append(seen, e.Action+"/"+e.Outcome)

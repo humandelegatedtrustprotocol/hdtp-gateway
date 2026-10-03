@@ -7,8 +7,9 @@ tests that hold each claim. The protocol it implements is HDTP 1.0: the
 person's self-signed root is the identity, the host holds a leaf that root
 issued it, and a chain is what proves anything.
 
-Read it with SECURITY.md's hardening-status table, which says what has **not**
-been done yet. Nothing here has had independent cryptographic review.
+Nothing here has had independent cryptographic review.
+[`crypto-review-brief.md`](crypto-review-brief.md) states the construction and the questions a
+reviewer is asked.
 
 ## Assets
 
@@ -117,7 +118,7 @@ address not be reassigned until the last leaf for it has expired.
 | A refusal past the open is sealed, so a carrier cannot tell a pinned sender from a stranger | `TestARefusalPastTheOpenIsSealed` |
 | A carrier's forged plaintext answer is not the peer's answer | `TestAPlaintextRefusalPastTheOpenIsNotThePeersAnswer` |
 | A key-pinned server is not an identity; the chain to the pinned root is | `TestASelfSignedServerCertificateIsNotAnIdentity`, `TestChainAsServerCertificateValidatesToThePinnedRoot` |
-| Chain confusion, leaves and envelopes outside their time, forged headers and the retired generation are all refused — offline in both ports at the exact boundaries, and live against a running node, with one control that a receiver refusing everything fails | `hdtp-identity/js/intrude.mjs` (132 scenarios, offline, measured 2026-09-27); `hdtp vectors intrude --against` and `hdtp-identity/js/live.mjs` (the same 28, one list both drivers read, `js/live-scenarios.json`; 28 blocked by this node and by the hosted platform, 2026-09-20) |
+| Chain confusion, leaves and envelopes outside their time, forged headers and an envelope of an unknown version are all refused — offline in both ports at the exact boundaries, and live against a running node, with one control that a receiver refusing everything fails | `hdtp-identity/js/intrude.mjs` (132 scenarios, offline, measured 2026-09-27); `hdtp vectors intrude --against` and `hdtp-identity/js/live.mjs` (the same 28, one list both drivers read, `js/live-scenarios.json`; 28 blocked by this node and by the hosted platform, 2026-09-20) |
 
 ## Explicitly out of scope
 

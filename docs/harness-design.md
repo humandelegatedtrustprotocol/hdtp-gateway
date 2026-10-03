@@ -114,7 +114,7 @@ same check on its own node after its probes. It is not run after every scenario.
 Designed and never built, and removed from the code on 2026-09-27 rather than kept as
 checks that report nothing: nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
 after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
-the protocol's first generation.
+the relay role.
 
 ---
 
@@ -124,7 +124,7 @@ the protocol's first generation.
 |---|---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path | `topology.LAN`, used by F4; the scenarios' own networks are this shape |
 | **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel | `topology.BehindNAT`, used by F3 only |
-| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode the protocol's first generation had and this node refuses; it went on 2026-09-19 |
+| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in a relay mode this node refuses; it went on 2026-09-19 |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) | no local topology; T7 runs through Cloudflare's real edge |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME | scenario T5 |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing | scenario T6 |
@@ -186,7 +186,7 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
   every address is RFC 1918 and the SSRF guard would refuse a redirector at the first hop, for the
   wrong reason.
 - **S5**, the reachability matrix (T1–T6 × {direct, edge}), is not planned. Of its rows, T3 cannot
-  be built (its only builder needed the relay mode 2.x refuses, §3) and T4 has no local edge: the
+  be built (its only builder needed the relay mode this node refuses, §3) and T4 has no local edge: the
   edge column exists only through Cloudflare's, which T7 already runs. What remains of the matrix
   is already a scenario each — T1 under every S, T5, T6, T7 — except T2, where F3 proves the NAT
   and nothing pairs across it; that gap is named above (P10-12i) rather than filed under S5.
@@ -196,8 +196,8 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
   S9's envelope tampering and audit tamper → `repair` refuses
   (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
   each page's light and dark renders with each other).
-- **S6** was relay semantics, withdrawn with the protocol's first generation on 2026-09-18; its number is not reused.
-  **S10** was key rotation, which 2.x does not have; the number now names the MOVE campaign.
+- **S6** was relay semantics, withdrawn with the relay role on 2026-09-18; its number is not reused.
+  **S10** was key rotation, which HDTP does not have; the number now names the MOVE campaign.
 
 ---
 

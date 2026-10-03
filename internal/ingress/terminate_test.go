@@ -24,7 +24,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // stubDNS answers every A query with 127.0.0.1 so Pebble's validator reaches
@@ -186,7 +186,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 					return
 				}
 				plain, err := hdtpidentity.Open(suite, nodePriv, nodePriv.Public(),
-					[]byte(hdtpidentity.InfoV2), protected, enc, ct)
+					[]byte(hdtpidentity.Info), protected, enc, ct)
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
 					return
@@ -222,18 +222,18 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	// A caller seals a call to the node's key and sends it through the public name.
 	// What this proves is that a SEALED payload survives a terminating edge intact —
 	// which is the whole reason sealing exists (HDTP §13) — so the envelope is built
-	// from the 2.0 primitives rather than the `v: 1` sealer that used to be here.
+	// from the library's primitives.
 	nodePub, err := hdtpidentity.ParseSPKI(nodeSPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
-	protected := []byte(`{"cty":"application/pact-call+json","v":2}`)
+	protected := []byte(`{"cty":"application/hdtp-call+json","v":1}`)
 	suite, err := hdtpidentity.SuiteForKey(nodePub)
 	if err != nil {
 		t.Fatal(err)
 	}
 	enc, ct, err := hdtpidentity.Seal(suite, nodePub,
-		[]byte(hdtpidentity.InfoV2), protected, []byte(`{"tool":"send_message"}`))
+		[]byte(hdtpidentity.Info), protected, []byte(`{"tool":"send_message"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

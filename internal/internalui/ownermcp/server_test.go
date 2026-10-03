@@ -488,9 +488,10 @@ func TestTrustFlagRejectsUnknownValues(t *testing.T) {
 	}
 }
 
-// refresh_contact names ONE contact and says what was found. There was a `sync_contacts` here that
-// took an account and swept every contact it had; the tool that replaced it has no form that names
-// nobody, and a token narrowed to one identity reaches no contact of another.
+// refresh_contact names ONE contact and says what was found. There was a tool here that took an
+// account and swept every contact it had; the tool that replaced it has no form that names nobody,
+// and a token narrowed to one identity reaches no contact of another. The old tool's name is on the
+// name guard's retired list (scripts/hdtp-names.txt, run by `make check`), so no tool can be registered under it.
 func TestRefreshContactNamesOneContactOfTheCallersAccount(t *testing.T) {
 	e := newEnv(t)
 	type asked struct{ account, fpr string }
@@ -503,16 +504,6 @@ func TestRefreshContactNamesOneContactOfTheCallersAccount(t *testing.T) {
 		return "refused", "the chain it answered with fails rule 5", nil
 	}
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner, AccountID: e.acctA}, nil)
-
-	tools, err := cs.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tool := range tools.Tools {
-		if tool.Name == "sync_contacts" {
-			t.Fatal("sync_contacts is still offered: no tool refreshes more than one contact")
-		}
-	}
 
 	text, isErr := callJSON(t, cs, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:alina"})
 	if isErr {

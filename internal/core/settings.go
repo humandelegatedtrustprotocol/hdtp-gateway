@@ -188,7 +188,7 @@ func ValidateSetting(key, value string) error {
 // EffectiveSeal is the ONE answer to "does this account require sealing?".
 //
 // It exists because there are two places the policy could be read from — the
-// account row, which the card advertises as `X-PACT-SEAL`, and the node config,
+// account row, which the card advertises as `X-HDTP-SEAL`, and the node config,
 // which the gate used to enforce — and a card advertising `required` while the
 // gate accepts plaintext is a wire-visible lie. Both now call this.
 //

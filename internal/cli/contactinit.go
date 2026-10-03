@@ -30,7 +30,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // newContactInitiator builds the one initiator every surface uses.
@@ -64,8 +64,8 @@ const maxOfferBytes = 64 << 10
 // inviteOffer is the landing page's machine view (SPEC §9.2): the issuer's card, the
 // `[leaf, root]` chain that proves it, the card's signature, and the leaf's public key.
 //
-// `Chain` is the 2.0 addition and it is the load-bearing one. A 1.x offer was a card naming a
-// KEY plus that key, so the three fields above were the whole proof. A 2.0 card carries a
+// `Chain` is the load-bearing member. An offer used to be a card naming a
+// KEY plus that key, so the three fields above were the whole proof. A card carries a
 // certificate, and what a peer pins is the ROOT that signed it — which is inside the chain and
 // nowhere else in this document.
 type inviteOffer struct {
@@ -172,7 +172,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	}
 	// The key to seal to is the validated leaf's, read from the chain and from nowhere else.
 	// An offer used to have to carry it a second time as `spki` and was refused without it —
-	// the first generation's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
+	// an "SPKI distribution" left from when a card held only a key's hash. §4 gives a landing
 	// three members and that is not one of them, so demanding it made every invite from a
 	// spec-exact issuer unredeemable here.
 	spki = v.LeafKey.SPKI
@@ -190,7 +190,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	return card, spki, chain[1], nil
 }
 
-// peerOfCard is the peer a validated 2.0 card describes: pinned by its ROOT, called at the
+// peerOfCard is the peer a validated card describes: pinned by its ROOT, called at the
 // address its leaf names, and sealed to that leaf's key. The root and the leaf are what let
 // `outbound.Client` speak at all — it refuses a peer it holds neither for (`Peer.Known`).
 func peerOfCard(card contacts.Card) outbound.Peer {
@@ -432,17 +432,17 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	if len(peerCardText) > maxOfferBytes || len(note) > 1024 {
 		return out, fmt.Errorf("that card or note is too large")
 	}
-	// `ValidateInbound`, not `ParseCard`: a 2.0 card's identity and address are inside its
+	// `ValidateInbound`, not `ParseCard`: a card's identity and address are inside its
 	// certificate, and reading them is the difference between pinning a root and pinning
 	// nothing. With `ParseCard` this path refused every real card as having no key.
 	peerCard, err := contacts.ValidateInbound(peerCardText)
 	if err != nil {
 		return out, fmt.Errorf("that card cannot be pinned: %w", err)
 	}
-	// **The key comes with the card now.** In 1.x a card named a fingerprint and nothing more, so
-	// this call went out in plain text and the key was bound on first contact. A 2.0 card carries
+	// **The key comes with the card now.** A card used to name a fingerprint and nothing more, so
+	// this call went out in plain text and the key was bound on first contact. A card carries
 	// the certificate, so the key is here — and the request is sealed to it, which is the only way
-	// to reach a peer whose card says `X-PACT-SEAL:required`.
+	// to reach a peer whose card says `X-HDTP-SEAL:required`.
 	// The contact cap: the pending_out row this writes counts, so it is checked before the call.
 	if err := ci.manager.Room(ctx, ci.manager.Store, accountID); err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "contact_cap")

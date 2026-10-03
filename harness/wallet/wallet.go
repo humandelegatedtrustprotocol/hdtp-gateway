@@ -5,8 +5,8 @@
 // address it answers at (HDTP §2, §9). `account create` therefore makes an account that has no
 // certificate to present, and a node asked to serve it ends the handshake.
 //
-// Every scenario here used to create an account and call it, which was the whole ceremony in
-// 1.x, where the key the node minted WAS the identity. None of them could run after 1.x went,
+// Every scenario here used to create an account and call it, which was the whole ceremony
+// while the key the node minted WAS the identity. None of them could run after that went,
 // and none of them said so: the live scenarios are skipped unless HDTP_HARNESS_LIVE is set, and
 // the hook that runs this module does not set it.
 //
@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Wallet is one person's root.

@@ -68,7 +68,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	}
 
 	// And a node that was DOWN when the leaf ran out boots the account as what it is: awaiting a
-	// leaf. It used to boot it as broken — "is 2.0 but holds no current leaf" — and, being the only
+	// leaf. It used to boot it as broken — "has a root but holds no current leaf" — and, being the only
 	// account, that refused the whole node.
 	bharat2 := startDemoNode(t, clock, dn, "carol", "Carol", 30)
 	clock.advance(31 * 24 * time.Hour)

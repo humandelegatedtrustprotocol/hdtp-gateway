@@ -8,7 +8,7 @@ package internalui
 // There is nothing here to rotate: the identity is a root this node does not hold,
 // and a leaf is replaced by the wallet signing a new one. This header described a
 // slug-guarded rotation button, and an `update_contact` "signed by the OLD key", for
-// as long after 1.x went as it took somebody to read it.
+// as long after key rotation went as it took somebody to read it.
 
 import (
 	"context"
