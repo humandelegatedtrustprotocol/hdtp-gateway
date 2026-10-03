@@ -31,8 +31,7 @@ type Keypair struct {
 	Fingerprint string
 	// When the key is a leaf's: the leaf and the root that issued it, DER (HDTP §2, §14).
 	// Both empty for a key the wallet has not certified, which can present nothing and
-	// speak for nobody. HasChain is the question; there used to be a `Protocol` field
-	// beside these that said 2 exactly when they were filled.
+	// speak for nobody. HasChain is the question.
 	Leaf, Root []byte
 }
 

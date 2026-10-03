@@ -34,7 +34,7 @@ ct          HPKE ciphertext
 sig         detached signature by the sender's LEAF key over protected ‖ enc ‖ ct
 ```
 
-The header carries `v` (= 2), `suite`, `kid` (the recipient leaf key's fingerprint),
+The header carries `v` (= 1), `suite`, `kid` (the recipient leaf key's fingerprint),
 `msg_id`, `ts`, `exp`, `cty`. There is no sender in it: the sender's chain — or, once the
 receiver holds that leaf, the leaf's fingerprint — travels inside the ciphertext.
 
