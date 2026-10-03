@@ -12,7 +12,7 @@ const b64 = (b: ArrayBuffer) =>
     .replace(/=+$/, "");
 
 export async function passkeyLogin(): Promise<void> {
-  const begin = await fetch("/login/begin", { method: "POST", headers: { "X-Pact-Csrf": csrf() } });
+  const begin = await fetch("/login/begin", { method: "POST", headers: { "X-HDTP-Csrf": csrf() } });
   if (!begin.ok) throw new Error("no passkeys are registered on this node");
   const { ceremony, options } = await begin.json();
   const o = options.publicKey;
@@ -33,7 +33,7 @@ export async function passkeyLogin(): Promise<void> {
   };
   const fin = await fetch("/login/finish?ceremony=" + encodeURIComponent(ceremony), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Pact-Csrf": csrf() },
+    headers: { "Content-Type": "application/json", "X-HDTP-Csrf": csrf() },
     body: JSON.stringify(body),
   });
   if (!fin.ok) throw new Error("that passkey was not accepted");
@@ -44,7 +44,7 @@ export async function passkeyRegister(tag: string): Promise<void> {
   // on begin and consumes it on finish (SPEC §8.6).
   const begin = await fetch("/setup/begin" + location.search, {
     method: "POST",
-    headers: { "X-Pact-Csrf": csrf() },
+    headers: { "X-HDTP-Csrf": csrf() },
   });
   if (!begin.ok) throw new Error("setup is closed on this node, or this address cannot register passkeys");
   const { ceremony, options } = await begin.json();
@@ -68,7 +68,7 @@ export async function passkeyRegister(tag: string): Promise<void> {
   q.set("tag", tag || "this device");
   const fin = await fetch("/setup/finish?" + q.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Pact-Csrf": csrf() },
+    headers: { "Content-Type": "application/json", "X-HDTP-Csrf": csrf() },
     body: JSON.stringify(body),
   });
   if (!fin.ok) throw new Error("that passkey was not accepted — try again, or check the node logs");

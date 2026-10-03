@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // FuzzSealedEnvelope feeds arbitrary bytes down the path a sealed_call's argument takes in
@@ -20,7 +20,7 @@ import (
 // and the node builds Payload from its result — so that target fuzzed a parser nothing runs.
 //
 // Two properties hold on every input: the open never panics, and a refusal is always one of the
-// PACT §12 codes an envelope can earn — never `unavailable`, which is what Code answers for an
+// HDTP §12 codes an envelope can earn — never `unavailable`, which is what Code answers for an
 // error it does not recognise. An envelope that does open was sealed by one of the two peers the
 // seeds come from — the contact or the stranger: a mutation that still verifies cannot speak for
 // anybody else.
@@ -44,14 +44,14 @@ func FuzzSealedEnvelope(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var env pactidentity.Envelope
+		var env hdtpidentity.Envelope
 		if json.Unmarshal(data, &env) != nil {
 			return // the wrapper answers envelope_invalid before OpenSealed is reached
 		}
 		facts, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, &env)
 		if err != nil {
 			if c := Code(err); c == "unavailable" {
-				t.Fatalf("an envelope refusal is not a PACT §12 code: %v", err)
+				t.Fatalf("an envelope refusal is not a HDTP §12 code: %v", err)
 			}
 			return
 		}

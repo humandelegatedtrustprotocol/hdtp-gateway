@@ -12,7 +12,7 @@ import (
 // literal, and at most a trailing slash.
 func TestTheWalletURLIsAStrictOrigin(t *testing.T) {
 	for _, ok := range []string{
-		"https://ceremony.pact.contact", "https://ceremony.pact.contact/", "https://wallet.example:8443",
+		"https://ceremony.batondeck.com", "https://ceremony.batondeck.com/", "https://wallet.example:8443",
 		"http://127.0.0.1:9000", "http://localhost:9000", "http://[::1]:9000", "https://203.0.113.7",
 	} {
 		if err := validWalletURL(ok); err != nil {

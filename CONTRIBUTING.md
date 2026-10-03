@@ -8,7 +8,7 @@ below is how it will work when it opens, and how it works now.
 
 - [`SPEC.md`](SPEC.md) is the single source of truth for behaviour. Wire-visible
   changes need a spec edit first, and protocol-level changes belong in the
-  [PACT protocol spec](https://github.com/pact-cloud/pact-protocol), not here.
+  [HDTP protocol spec](https://github.com/humandelegatedtrustprotocol/hdtp-spec), not here.
 - Minimalism: no speculative features, no new dependencies without a stated reason.
 - Every change touching the public surface, authorization, envelope or audit paths
   needs tests, and the conformance suite must stay green on **both** storage engines.
@@ -25,7 +25,7 @@ identity module ([below](#the-identity-module)).
 
 ```
 make build      # static binary
-make check      # fmt, vet, race tests (Postgres too when PACT_TEST_POSTGRES_DSN is set), the page scripts under node --test
+make check      # fmt, vet, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
 make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)
@@ -60,16 +60,16 @@ its own copy):
   commit is styled before it exists. A partly staged Go file is refused, not styled.
 - **pre-push** runs, in order: `make web` and a check that it left `web/dist`
   unchanged (only when the push touches `web/`); `make check` with
-  `PACT_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
-  `pact-gateway-prepush-pg-<pid>` and removes on every exit (no Docker, no push);
+  `HDTP_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
+  `hdtp-gateway-prepush-pg-<pid>` and removes on every exit (no Docker, no push);
   `make analyze`; `make sqlc-check`; `make fuzz`; and `make harness`, the harness's
   hermetic tier. Everything runs with `GOWORK=off`, so the gate proves the committed
   `go.mod` and `go.sum`, whatever workspace your shell has. The live scenarios need a
   real Chrome and a real container fabric, so they are opt-in from the same hook:
 
 ```
-PACT_PREPUSH_LIVE=1 git push      # the PR tier (make harness-pr, needs Docker and Chrome)
-PACT_PREPUSH_LIVE=full git push   # every scenario (make harness-nightly)
+HDTP_PREPUSH_LIVE=1 git push      # the PR tier (make harness-pr, needs Docker and Chrome)
+HDTP_PREPUSH_LIVE=full git push   # every scenario (make harness-nightly)
 ```
 
 Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
@@ -77,13 +77,13 @@ Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
 ## The identity module
 
 The node requires `github.com/pact-cloud/pact-identity/go` **by version**: `go.mod` names a
-release (the tag `go/vX.Y.Z` in the pact-identity repository) and carries no `replace`. The
+release (the tag `go/vX.Y.Z` in the hdtp-identity repository) and carries no `replace`. The
 repository is private and is fetched over SSH, from this machine only; no CI key exists for it.
 So the go command needs to be told two things, which the Makefile's fetching targets and the
 pre-push hook set for their own process and nothing else:
 
 ```
-export GOPRIVATE='github.com/pact-cloud/*'      # not through the public proxy or checksum DB
+export GOPRIVATE='github.com/humandelegatedtrustprotocol/*'      # not through the public proxy or checksum DB
 # and git over SSH rather than HTTPS, for this process only:
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
 ```
@@ -112,7 +112,7 @@ dependencies can never reach the product's `go.mod` or `govulncheck`.
 ```
 make harness                  # hermetic: unit tests for the harness itself
 make harness-image            # build the node image the scenarios run
-PACT_HARNESS_LIVE=1 go test ./scenario/...   # from harness/, needs Docker
+HDTP_HARNESS_LIVE=1 go test ./scenario/...   # from harness/, needs Docker
 ```
 
 Some scenarios need extra images: `make harness-shaper` (traffic shaping),
@@ -134,7 +134,7 @@ by review, which is the argument for adding a scenario when you add a surface.
 - **`internal/` is enforced by Go's import rules**, and the harness sits inside the
   module path on purpose so it can import `internal/outbound` and talk to a node as a
   real peer would.
-- **Docs are linted.** `TestDocsOnlyQuoteRealCommands` walks every `pact-gateway …`
+- **Docs are linted.** `TestDocsOnlyQuoteRealCommands` walks every `hdtp-gateway …`
   invocation in the README, this file, `docs/` and the repository's `.github/`, and fails when a
   pasteable command line names a subcommand the binary does not have. Documentation
   that quotes an invented command is worse than none. Its flag check is weaker than it

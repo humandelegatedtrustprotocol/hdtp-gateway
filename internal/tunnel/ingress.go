@@ -1,6 +1,6 @@
 package tunnel
 
-// Ingress-fronted adapters (SPEC §10.6): a node paired with a pact-gateway
+// Ingress-fronted adapters (SPEC §10.6): a node paired with a hdtp-gateway
 // ingress reaches it over the embedded frp client, but WHICH deployment mode
 // it derives depends on the subdomain's serving mode — so pairing yields one
 // of two adapter names, each with a fixed TerminatesAtEdge:
@@ -52,6 +52,6 @@ func ingressFRP(o Options, terminate bool) (Adapter, error) {
 	return New("frp", Options{PublicBind: o.PublicBind, Extra: map[string]string{
 		"server_addr": get("data_plane_addr"), "server_port": port, "token": get("data_plane_token"),
 		"proxy_type": "https", "custom_domain": sni, "name": get("subdomain"),
-		"meta_pact_node": get("node_fpr"), "meta_pact_secret": get("node_secret"),
+		"meta_hdtp_node": get("node_fpr"), "meta_hdtp_secret": get("node_secret"),
 	}})
 }

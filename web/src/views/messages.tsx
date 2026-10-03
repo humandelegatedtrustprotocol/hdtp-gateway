@@ -1,6 +1,6 @@
 // The inbox: conversations on the left, one conversation in the middle, the
 // contact on the right — every thread with that person merged in time order,
-// because a conversation is with a person, not with a thread id (PACT §7).
+// because a conversation is with a person, not with a thread id (HDTP §7).
 // The right-hand panel is the contact's permission switchboard and their slice
 // of the audit trail, so "what may this contact do" is answered next to what
 // they are doing.
@@ -37,10 +37,10 @@ type Contact = {
 };
 type ContactTool = { name: string; description?: string; input_schema?: Schema };
 // The protocol's own plumbing is callable but not something a person invokes by hand.
-const PANEL_KEY = "pact.inbox.panel";
+const PANEL_KEY = "hdtp.inbox.panel";
 /** The narrowest window the contact panel stands beside the conversation in; style.css makes it a drawer below (held equal by test/style_test.mjs). */
 const PANEL_BESIDE = 1360;
-const FOCUS_KEY = "pact.inbox.focus";
+const FOCUS_KEY = "hdtp.inbox.focus";
 
 type AuditRow = { Seq: number; TS: number; ActorKind: string; ActorID: string; Action: string; Resource: string; Outcome: string };
 
@@ -111,14 +111,14 @@ export function Messages() {
   }, [load]);
   // Showing a conversation reads it, through the newest message shown and no further: one that lands after
   // stays unread. Only while the page is seen, and only when the row says there is something to read, so a
-  // read that changes nothing is never sent. The sidebar hears of it at once (Counts, "pact:counts").
+  // read that changes nothing is never sent. The sidebar hears of it at once (Counts, "hdtp:counts").
   const selUnread = tallyCount((d?.contacts ?? []).find((p) => p.fingerprint === sel)?.unread ?? 0);
   const through = d?.through ?? 0;
   useEffect(() => {
     if (!sel || selUnread === 0 || through === 0 || !visible) return;
     postForm("/messages/read", { contact: sel, through: String(through) }).then((r) => {
       if (!r.ok) return;
-      dispatchEvent(new Event("pact:counts"));
+      dispatchEvent(new Event("hdtp:counts"));
       load();
     }).catch(() => { /* the count stays until the next look */ });
   }, [sel, selUnread, through, visible, load]);
@@ -182,7 +182,7 @@ export function Messages() {
     fd.append("contact", sel); fd.append("msg_id", d.new_msg_id);
     fd.append("csrf", csrfCookie()); if (currentAccount()) fd.append("account", currentAccount());
     try {
-      const r = await fetch("/messages/send_media", { method: "POST", headers: { "X-Pact-Csrf": csrfCookie() }, body: fd });
+      const r = await fetch("/messages/send_media", { method: "POST", headers: { "X-HDTP-Csrf": csrfCookie() }, body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setSendErr(j.error || "the file was not sent");
     } catch { setSendErr("could not reach this node"); }
@@ -199,7 +199,7 @@ export function Messages() {
     body.set("tool", active.name); body.set("args", JSON.stringify(args));
     try {
       const r = await fetch(`/contacts/${encodeURIComponent(sel)}/call`, {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": csrfCookie() }, body: body.toString(),
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": csrfCookie() }, body: body.toString(),
       });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j) setResult("✖ " + (j?.error || `the call failed (${r.status})`));
@@ -450,7 +450,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
     if (currentAccount()) body.set("account", currentAccount());
     for (const p of c.permissions) if (p.name === name ? on : p.on) body.append("perm", p.name);
     const r = await fetch(`${base}/permissions`, {
-      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": csrfCookie() }, body: body.toString(),
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": csrfCookie() }, body: body.toString(),
     });
     setBusy(null);
     setNote(r.ok ? "" : "could not save permissions");
@@ -514,7 +514,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
 
 function csrfCookie(): string {
   const jar = document.cookie.split("; ");
-  return jar.find((c) => c.startsWith("pact_csrf"))?.split("=").slice(1).join("=") ?? "";
+  return jar.find((c) => c.startsWith("hdtp_csrf"))?.split("=").slice(1).join("=") ?? "";
 }
 
 // A media message. Two shapes, and the difference is the point: bytes this node

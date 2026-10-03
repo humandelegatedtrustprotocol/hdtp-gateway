@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Two identities on one node, each with a web-wallet request waiting. An answer is accepted only by
 // the account whose request minted its state: one identity's state, carried to the other, is
 // refused as a state that is not that request's — never installed — and a leaf that carries the
-// request's key but names another endpoint is refused by the chain rules (PACT §9.1: "only a chain
+// request's key but names another endpoint is refused by the chain rules (HDTP §9.1: "only a chain
 // whose leaf carries that request's key and validates at its endpoint"). The control: each
 // identity's own answer, afterwards, goes in.
 func TestAWalletAnswerCannotCrossIdentitiesOrEndpoints(t *testing.T) {
@@ -60,11 +60,11 @@ func TestAWalletAnswerCannotCrossIdentitiesOrEndpoints(t *testing.T) {
 	}
 
 	// The request's own key, under the right root, naming an address that is not the request's.
-	info := pactidentity.CSRCheck(reqA.CSR, [][]byte{wa.key.Public().SPKI})
+	info := hdtpidentity.CSRCheck(reqA.CSR, [][]byte{wa.key.Public().SPKI})
 	if !info.OK {
 		t.Fatalf("the request does not read: %s", info.Why)
 	}
-	elsewhere, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	elsewhere, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: info.CN, RootCN: "Alina Rao", RootKey: wa.key, HostPub: info.Key, Endpoint: "https://elsewhere.example/a/alina/mcp",
 		NotBefore: later.Add(-time.Minute).Truncate(time.Second), NotAfter: later.Add(365 * 24 * time.Hour),
 	})

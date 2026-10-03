@@ -15,8 +15,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Initiated records a contact the owner started: we called the peer's
@@ -27,7 +27,7 @@ import (
 // for; anything else lands `pending_out` until they approve, at which point
 // their `answer_request` reaches ContactAccepted.
 //
-// The identity check is not ceremony. The pin IS the identity (PACT §2), so
+// The identity check is not ceremony. The pin IS the identity (HDTP §2), so
 // recording a contact whose pinned ROOT is not the root its card's certificate
 // names would let a tampered invite bind us to an attacker under the peer's name,
 // and every later chain check would then pass for the wrong party.
@@ -52,7 +52,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	// In 1.x this read "the key hashes to the fingerprint being pinned", because
 	// the pin and the key were one value; the pin is the root now, so the leaf is
 	// what the card is checked against.
-	leaf, perr := pactidentity.Parse(c.Cert)
+	leaf, perr := hdtpidentity.Parse(c.Cert)
 	if perr != nil || !bytes.Equal(leaf.SPKI, spki) {
 		return fmt.Errorf("%w: the proven key is not the one this card's certificate carries", ErrIdentityRequired)
 	}
@@ -88,7 +88,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 // call went PLAINTEXT to a `seal: optional` peer and failed outright to a `required` one
 // ("only their fingerprint is pinned"), while the key sat inside the certificate on file.
 // Nothing fills it in later either: `contact_accepted` writes the card and the grant, and a
-// chain presenting the SAME leaf is the pinned leaf, so it re-pins nothing (PACT §14.3).
+// chain presenting the SAME leaf is the pinned leaf, so it re-pins nothing (HDTP §14.3).
 func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr, card string) error {
 	if peerFpr == "" {
 		return fmt.Errorf("%w: a contact needs a fingerprint", ErrIdentityRequired)
@@ -100,7 +100,7 @@ func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr
 	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
-	leaf, err := pactidentity.Parse(c.Cert)
+	leaf, err := hdtpidentity.Parse(c.Cert)
 	if err != nil {
 		return fmt.Errorf("%w: the card's certificate does not parse: %v", ErrBadRequest, err)
 	}

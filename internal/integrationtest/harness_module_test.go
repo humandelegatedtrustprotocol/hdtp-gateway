@@ -35,7 +35,7 @@ func TestHarnessIsASeparateModule(t *testing.T) {
 		t.Fatalf("harness/go.mod is missing, so the harness would share the root module "+
 			"and its dependencies would land in the shipped artifact: %v", err)
 	}
-	want := "module github.com/pact-cloud/pact-gateway/harness"
+	want := "module github.com/humandelegatedtrustprotocol/hdtp-gateway/harness"
 	if !strings.Contains(string(b), want) {
 		t.Errorf("harness/go.mod does not declare %q", want)
 	}

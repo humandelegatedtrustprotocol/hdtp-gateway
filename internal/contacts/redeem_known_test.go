@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // A root this account already holds a row for redeems one of its invites (review N-08, P-22).
 //
 // It used to spend a use and then fail the insert: every such caller was told `invite_invalid`
-// with the use gone. For a blocked root that answer is an oracle — PACT §12: blocked MUST be
+// with the use gone. For a blocked root that answer is an oracle — HDTP §12: blocked MUST be
 // indistinguishable from never-met, and a stranger holding the same link is let in — and for a
 // root whose request is still waiting it threw away a one-time link that was meant for them.
 func TestRedeemByARootThisAccountAlreadyHolds(t *testing.T) {

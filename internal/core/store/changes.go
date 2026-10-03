@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
 func changeOf(r sqlitedb.Change) Change { return Change(r) }

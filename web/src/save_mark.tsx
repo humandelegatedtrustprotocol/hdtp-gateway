@@ -1,6 +1,6 @@
 // The pieces a control that saves itself shows beside what it saved: a spinner while the save is out,
 // a check when it is kept, and an Undo while the step back is on offer (the presets grid's rows,
-// preset_grid.tsx). Shared with PACT Cloud's portal byte for byte (scripts/check-harvested.mjs there),
+// preset_grid.tsx). Shared with BatonDeck's portal byte for byte (scripts/check-harvested.mjs there),
 // so both portals draw a save in progress, and a save done, the same way. The looks are style.css's
 // (`.spinner`, `.save-mark`), from the theme's tokens; nothing here names a colour.
 import { Button, Icon } from "./ui";

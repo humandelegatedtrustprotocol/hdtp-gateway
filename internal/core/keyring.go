@@ -1,7 +1,7 @@
 package core
 
 // Keyring: the node's master key and the ONLY write path for secrets at rest
-// (SPEC §3.7, §11.3). Master key sourcing chain: PACT_MASTER_KEY env var (base64,
+// (SPEC §3.7, §11.3). Master key sourcing chain: HDTP_MASTER_KEY env var (base64,
 // 32 bytes) > 0600 key file, generated on first run. (SPEC §12.2 also permits an OS
 // keyring where one exists; distroless containers have none, and v1 ships env+file —
 // the chain leaves room for that source without an interface change.)
@@ -19,7 +19,7 @@ import (
 	"os"
 )
 
-const masterKeyEnv = "PACT_MASTER_KEY"
+const masterKeyEnv = "HDTP_MASTER_KEY"
 
 type Keyring struct {
 	aead cipher.AEAD

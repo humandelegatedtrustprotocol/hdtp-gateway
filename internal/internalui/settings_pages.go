@@ -20,8 +20,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 type SettingsDeps struct {
@@ -57,7 +57,7 @@ type SettingsDeps struct {
 	// SaveStorage records one account's storage policy.
 	SaveStorage func(ctx context.Context, accountID string, quotaGiB int64, retentionDays, requestExpiryDays int) error
 	// Presets/SavePreset/DeletePreset edit the owner's permission bundles
-	// (PACT §8: presets are owner-editable). nil hides the section.
+	// (HDTP §8: presets are owner-editable). nil hides the section.
 	Presets      func(ctx context.Context) (map[string][]string, error)
 	SavePreset   func(ctx context.Context, name string, perms []string) error
 	DeletePreset func(ctx context.Context, name string) error
@@ -103,7 +103,7 @@ const (
 	MaxQuotaGiB          = 1 << 20 // 1 PiB
 	MaxRetentionDaysForm = 36500   // 100 years
 	// MaxRequestExpiryDays bounds how long an unanswered contact request waits (SPEC §9.1).
-	// PACT caps an invite at 90 days; a request left longer than a year is not being decided.
+	// HDTP caps an invite at 90 days; a request left longer than a year is not being decided.
 	MaxRequestExpiryDays = 365
 )
 

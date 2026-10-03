@@ -1,5 +1,5 @@
 // The web wallet's answer arrives in this page's fragment: #chain=<leaf>.<root>&state=<state>, or
-// #error=<code>&state=<state> (PACT §9.1). A fragment never reaches a server or a Referer. The
+// #error=<code>&state=<state> (HDTP §9.1). A fragment never reaches a server or a Referer. The
 // script takes it out of the address bar at once, then POSTs it to this node same-site, where the
 // session and CSRF cookies (SameSite=Strict, so absent on the wallet's cross-site navigation here)
 // are sent, and the install goes through the portal's one authorisation.
@@ -34,7 +34,7 @@
     card.setAttribute("aria-busy", "false");
   }
 
-  // A wallet's refusal is a code (PACT §9.1 names `cancelled`; PACT Cloud's wallet also sends
+  // A wallet's refusal is a code (HDTP §9.1 names `cancelled`; BatonDeck's wallet also sends
   // `failed`), shown by a fixed state and never as the text the fragment carries: anyone can link
   // here with any fragment, and the page must not say what a link tells it to. A code the page does
   // not know is not even repeated in the detail line.
@@ -101,7 +101,7 @@
   fetch("/identity/" + encodeURIComponent(slug) + "/wallet/install", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": readCsrf() },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": readCsrf() },
     body: new URLSearchParams({ chain: chain, state: state }).toString(),
   }).then(function (r) {
     // The portal refuses before the install, as text: no session (401), the CSRF check (403).
@@ -118,7 +118,7 @@
   });
 
   function readCsrf() {
-    var name = document.querySelector('meta[name="pact-csrf-cookie"]').content + "=";
+    var name = document.querySelector('meta[name="hdtp-csrf-cookie"]').content + "=";
     var csrf = "";
     document.cookie.split("; ").forEach(function (c) { if (c.indexOf(name) === 0) csrf = c.slice(name.length); });
     return csrf;

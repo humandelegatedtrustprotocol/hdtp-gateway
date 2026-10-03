@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 func landingEnv(t *testing.T) (http.Handler, *contacts.Manager, string) {
@@ -35,9 +35,9 @@ func landingEnv(t *testing.T) (http.Handler, *contacts.Manager, string) {
 	mux.Handle("/i/{token}", LandingHandler(LandingDeps{
 		Store: st,
 		SignCard: func(accountID string) (string, string, error) {
-			return testid.CardFor(t, "Sumit", "https://pact.example/mcp"), "c2ln", nil
+			return testid.CardFor(t, "Sumit", "https://hdtp.example/mcp"), "c2ln", nil
 		},
-		PublicURL: func() string { return "https://pact.example" },
+		PublicURL: func() string { return "https://hdtp.example" },
 	}))
 	_ = a
 	return mux, cm, a.ID

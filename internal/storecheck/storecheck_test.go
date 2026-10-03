@@ -9,22 +9,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // A store with every field a certificate or a card lives in, planted through the store's own
 // API: one row of each that reads, one of each that does not. The run names each refusal by its
 // table, its row and its field, with the reader's reason, counts what it read, and changes
-// nothing. The card is the field pact-identity 0.4.2's reading changed: a stray character before
+// nothing. The card is the field the identity core 0.4.2's reading changed: a stray character before
 // its certificate, which 0.4.1 skipped, is `not base64url` now.
 //
 // Shown red with the card's reading removed from the run (the mutation): the card's refusal is not
 // named and the count of cards read is nought.
 func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	} {
 		w := testid.NewWallet(t, p.name)
 		h := w.Issue(t, "https://"+p.name+".example/mcp")
-		leaf, _ := pactidentity.Parse(h.LeafDER)
+		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		fprs[p.name] = w.Fpr
 		if _, err := st.InsertContact(ctx, store.Contact{
 			AccountID: alina.ID, Fingerprint: w.Fpr, SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"},
@@ -172,7 +172,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 // The control: a store where everything reads says so, and a store with nothing to read says that.
 func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 	}
 	peer := testid.NewWallet(t, "Peer")
 	h := peer.Issue(t, "https://peer.example/mcp")
-	leaf, _ := pactidentity.Parse(h.LeafDER)
+	leaf, _ := hdtpidentity.Parse(h.LeafDER)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: a.ID, Fingerprint: peer.Fpr, SPKI: leaf.SPKI, Status: "pending_in", Permissions: []string{"message.text"},
 		Endpoint: h.Endpoint, Card: h.Card("Peer", "required"), Leaf: h.LeafDER, RootCert: peer.RootDER,
@@ -239,7 +239,7 @@ func forceContactStatus(t *testing.T, dbPath, accountID, root, status string) {
 // no line names it.
 func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "pact.db")
+	path := filepath.Join(t.TempDir(), "hdtp.db")
 	st, err := store.OpenSQLite(path)
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
 	for _, name := range []string{"active", "pending_out", "blocked", "pending_in", "odd", "odder"} {
 		w := testid.NewWallet(t, name)
 		h := w.Issue(t, "https://"+name+".example/mcp")
-		leaf, _ := pactidentity.Parse(h.LeafDER)
+		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		status := name
 		if name == "odd" || name == "odder" {
 			status = "active"

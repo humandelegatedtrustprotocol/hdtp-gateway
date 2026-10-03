@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // loadFixture parses a committed PKCS#8 PEM and its openssl-computed fingerprint.
@@ -96,7 +96,7 @@ func TestSelfSignedCertPresentsSameSPKI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// PACT §2: identity is the SPKI fingerprint of the presented certificate.
+	// HDTP §2: identity is the SPKI fingerprint of the presented certificate.
 	got, err := Fingerprint(cert.PublicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -140,8 +140,8 @@ func TestPKCS8RoundTrip(t *testing.T) {
 // itself under a fingerprint nobody computed for it. The names are held equal too, since this
 // package passes its own to the library.
 func TestGenerateIsTheLibrarysKeyUnderOneSPKI(t *testing.T) {
-	if string(AlgoP256) != pactidentity.AlgP256 || string(AlgoEd25519) != pactidentity.AlgEd25519 {
-		t.Fatalf("algorithm names drifted: %q/%q vs %q/%q", AlgoP256, AlgoEd25519, pactidentity.AlgP256, pactidentity.AlgEd25519)
+	if string(AlgoP256) != hdtpidentity.AlgP256 || string(AlgoEd25519) != hdtpidentity.AlgEd25519 {
+		t.Fatalf("algorithm names drifted: %q/%q vs %q/%q", AlgoP256, AlgoEd25519, hdtpidentity.AlgP256, hdtpidentity.AlgEd25519)
 	}
 	for _, algo := range []Algo{AlgoP256, AlgoEd25519} {
 		kp, err := Generate(algo)
@@ -152,14 +152,14 @@ func TestGenerateIsTheLibrarysKeyUnderOneSPKI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		pub, err := pactidentity.ParseSPKI(spki)
+		pub, err := hdtpidentity.ParseSPKI(spki)
 		if err != nil {
 			t.Fatalf("%s: the library does not read what x509 marshals: %v", algo, err)
 		}
-		if got, _ := pactidentity.AlgorithmOf(pub); got != string(algo) {
+		if got, _ := hdtpidentity.AlgorithmOf(pub); got != string(algo) {
 			t.Fatalf("%s: the library reads it as %q", algo, got)
 		}
-		if want := pactidentity.Fingerprint(spki); kp.Fingerprint != want {
+		if want := hdtpidentity.Fingerprint(spki); kp.Fingerprint != want {
 			t.Fatalf("%s: fingerprint %s is not the one over the SPKI a certificate presents (%s)", algo, kp.Fingerprint, want)
 		}
 		if f, _ := Fingerprint(kp.Signer.Public()); f != kp.Fingerprint {

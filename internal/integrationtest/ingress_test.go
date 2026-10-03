@@ -22,10 +22,10 @@ import (
 	"github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/miekg/dns"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/ingress"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 func freePort(t *testing.T) int {
@@ -192,7 +192,7 @@ func TestP5ExitOwnDomainPassthroughAndTerminate(t *testing.T) {
 	_ = adapterFor(alpha, alphaPair, ingress.ModePassthrough)
 	_ = adapterFor(beta, betaPair, ingress.ModeTerminate)
 	if derived, err := core.Load("", func(k string) (string, bool) {
-		v, ok := map[string]string{"PACT_DATA_DIR": t.TempDir(), "PACT_TUNNEL": "ingress-terminate"}[k]
+		v, ok := map[string]string{"HDTP_DATA_DIR": t.TempDir(), "HDTP_TUNNEL": "ingress-terminate"}[k]
 		return v, ok
 	}); err != nil || derived.Mode != core.ModeEdge {
 		t.Fatalf("terminate pairing must derive edge mode: %v", err)

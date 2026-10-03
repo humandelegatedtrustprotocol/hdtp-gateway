@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // AuthDeps is what the ceremonies and the session gate need.
@@ -51,9 +51,9 @@ func SetCookieTag(tag string) { cookieTag = tag }
 // sessionCookieName is the session cookie for THIS node.
 func sessionCookieName() string {
 	if cookieTag == "" {
-		return "pact_session"
+		return "hdtp_session"
 	}
-	return "pact_session_" + cookieTag
+	return "hdtp_session_" + cookieTag
 }
 
 // csrfCookieName is the CSRF cookie for THIS node. It needs the same treatment:
@@ -61,9 +61,9 @@ func sessionCookieName() string {
 // while the page still holds the old value.
 func csrfCookieName() string {
 	if cookieTag == "" {
-		return "pact_csrf"
+		return "hdtp_csrf"
 	}
-	return "pact_csrf_" + cookieTag
+	return "hdtp_csrf_" + cookieTag
 }
 
 func (d AuthDeps) audit(action, resource, outcome string) {

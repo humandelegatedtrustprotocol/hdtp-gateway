@@ -1,5 +1,5 @@
 -- +goose Up
--- Key rotation went with PACT 1.x on 2026-09-18: under 2.0 a root is never rotated and a leaf is
+-- Key rotation went with pre-HDTP 1.x on 2026-09-18: under 2.0 a root is never rotated and a leaf is
 -- renewed by the wallet, so there is no retiring key to keep live and no grace window to run.
 -- The removal plan called for this migration and it was never written — the slot it named,
 -- 0029, went to contact_root_cert — so these three columns outlived every line that read them.

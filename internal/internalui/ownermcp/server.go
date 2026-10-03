@@ -1,5 +1,5 @@
 // Package ownermcp is the owner's MCP surface (SPEC §8.4): bearer-token-authed
-// tools mirroring the portal, plus readable pact:// resources; what changes is
+// tools mirroring the portal, plus readable hdtp:// resources; what changes is
 // waited for with `wait_for_updates` (SPEC §8.5). Every authorization decision routes
 // through policy (Cedar): a token narrowed to one account acts on that account
 // alone, and every tool that names an account re-checks AllowOwnerManage.
@@ -17,23 +17,23 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 const (
-	URIInbox    = "pact://inbox"
-	URIRequests = "pact://requests"
-	URIPending  = "pact://pending"
+	URIInbox    = "hdtp://inbox"
+	URIRequests = "hdtp://requests"
+	URIPending  = "hdtp://pending"
 	// URIThreadPrefix is the per-thread resource SPEC §8.5 lists alongside the
 	// three collection resources: one conversation, read without reading the
 	// whole inbox.
-	URIThreadPrefix = "pact://thread/"
+	URIThreadPrefix = "hdtp://thread/"
 )
 
 type Deps struct {
@@ -64,7 +64,7 @@ type Deps struct {
 	Bus        *messaging.Bus
 	Contacts   *contacts.Manager
 	// Pending serves agent-answered dispatch (SPEC §6.8); nil disables the
-	// list_pending / answer_request pair and pact://pending stays empty.
+	// list_pending / answer_request pair and hdtp://pending stays empty.
 	Pending *integrations.AgentAnswered
 	// Send delivers a message to a contact AND records it. `internal/messaging`
 	// has no path to the wire, so a tool wired straight to Msg.Record recorded
@@ -220,7 +220,7 @@ type ContactArgs struct {
 	Preset     string `json:"preset,omitempty" jsonschema:"approve_contact only: the preset to grant; empty keeps the grant the request holds"`
 }
 
-// AddressArgs names a contact waiting at a new address, by its root (PACT §5.3).
+// AddressArgs names a contact waiting at a new address, by its root (HDTP §5.3).
 type AddressArgs struct {
 	AccountID string `json:"account_id"`
 	Root      string `json:"root" jsonschema:"the waiting contact's root fingerprint, as list_pending_addresses gives it"`
@@ -260,7 +260,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	// Tools and resources, and neither a list-change notification nor resource subscriptions:
 	// the surface is stateless (SPEC §8.5), so nothing would carry either, and a client told it
 	// might would open `subscriptions/listen` for them.
-	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway-owner", Version: "1"}, &mcp.ServerOptions{
+	s := mcp.NewServer(&mcp.Implementation{Name: "hdtp-gateway-owner", Version: "1"}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}, Resources: &mcp.ResourceCapabilities{}},
 	})
 
@@ -501,7 +501,7 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 		// SPEC §7.6: every payload handed to the agent carries the trust label.
 		out = append(out, row{Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
 	}
-	// The agent reading is the owner reading, as PACT Cloud's read_thread is: the thread is read
+	// The agent reading is the owner reading, as BatonDeck's read_thread is: the thread is read
 	// through the newest message this answer hands over (oldest first, so the last), and what
 	// lands after it stays unread. The marker is local and never wire-visible (SPEC §7.6).
 	if n := len(msgs); n > 0 {
@@ -551,7 +551,7 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	for _, c := range list {
 		v := contactOf(c)
 		// A request from an address that belongs, or lately belonged, to another contact names
-		// that contact (PACT §5.2), in the cloud's shape: {root, name}, the owner's name for them
+		// that contact (HDTP §5.2), in the cloud's shape: {root, name}, the owner's name for them
 		// first. Derived when read, by the rule the redemption applied.
 		if c.Status == "pending_in" && ot.d.Contacts != nil {
 			if claim, err := ot.d.Contacts.AddressClaim(ctx, a.AccountID, c.Endpoint, c.Fingerprint); err == nil && claim != "" {
@@ -571,10 +571,10 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 }
 
 // contactView is a contact as the owner MCP answers it (building rule 10: project, never spread):
-// the cloud's names for what this node holds (pact-cloud api/v1/routes/shared.ts `Contact`), and
+// the cloud's names for what this node holds (batondeck api/v1/routes/shared.ts `Contact`), and
 // the grant the contact made us. Not the row id, the account id, the pinned key, the card, the
 // invite or the chain mark. The cloud's last_seen_at and acceptance_unheard_since are not here:
-// this node keeps neither. address_claim is derived when read (PACT §5.2).
+// this node keeps neither. address_claim is derived when read (HDTP §5.2).
 type contactView struct {
 	Fingerprint      string   `json:"fingerprint"`
 	DisplayName      string   `json:"display_name"`
@@ -588,7 +588,7 @@ type contactView struct {
 	Endpoint         string   `json:"endpoint"`
 	Leaf             string   `json:"leaf,omitempty"`
 	RootCert         string   `json:"root_cert,omitempty"`
-	// AddressClaim is, on a waiting request, the contact whose address it comes from (PACT §5.2);
+	// AddressClaim is, on a waiting request, the contact whose address it comes from (HDTP §5.2);
 	// null otherwise, as the cloud answers it.
 	AddressClaim *addressClaim `json:"address_claim"`
 }
@@ -603,10 +603,10 @@ func contactOf(c store.Contact) contactView {
 		Permissions: nonNil(c.Permissions), TheirPermissions: nonNil(c.TheirPermissions), TrustFlag: c.TrustFlag,
 		Petname: c.Petname, CreatedAt: c.CreatedAt, Endpoint: c.Endpoint}
 	if len(c.Leaf) > 0 {
-		v.Leaf = pactidentity.B64url(c.Leaf)
+		v.Leaf = hdtpidentity.B64url(c.Leaf)
 	}
 	if len(c.RootCert) > 0 {
-		v.RootCert = pactidentity.B64url(c.RootCert)
+		v.RootCert = hdtpidentity.B64url(c.RootCert)
 	}
 	return v
 }
@@ -620,7 +620,7 @@ func nonNil(s []string) []string {
 
 // listPendingAddressesTool is the `list_pending_addresses` tool.
 //
-// A pinned contact now answering at a new address, held for the owner under `ask` (PACT §5.3,
+// A pinned contact now answering at a new address, held for the owner under `ask` (HDTP §5.3,
 // SPEC §9.1): the portal's Requests tab and the CLI's `account address` make the same decision
 // through contacts.Owner.DecideAddress, audited under the same names.
 func (ot ownerTools) listPendingAddressesTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
@@ -914,7 +914,7 @@ func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadR
 
 // threadResource reads the `thread` resource.
 //
-// pact://thread/<id> (SPEC §8.5): one conversation. A template, because the id
+// hdtp://thread/<id> (SPEC §8.5): one conversation. A template, because the id
 // is not known until a thread exists.
 func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	id := strings.TrimPrefix(req.Params.URI, URIThreadPrefix)

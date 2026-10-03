@@ -3,7 +3,7 @@
 #
 # Style is applied BEFORE the commit and automatically, never "fixed for style" afterwards:
 # every staged *.go file is run through gofmt, and every staged *.rs file (the limits sidecar,
-# cmd/pact-limitd, under its rustfmt.toml) through rustfmt, and re-staged, so the commit carries
+# cmd/hdtp-limitd, under its rustfmt.toml) through rustfmt, and re-staged, so the commit carries
 # the styled text and `make check`'s fmt and limitd-check steps (run again by the pre-push hook)
 # have nothing to find.
 #

@@ -14,10 +14,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 type auditRec struct {
@@ -380,7 +380,7 @@ func TestSwitchboardOffersWhatTheNodeServes(t *testing.T) {
 	}
 }
 
-// PACT §5: removal notifies the peer and deletes the pin — effective locally
+// HDTP §5: removal notifies the peer and deletes the pin — effective locally
 // regardless. The remove route had no coverage at all until this.
 func TestRemoveNotifiesThePeerBestEffort(t *testing.T) {
 	type call struct{ fpr, tool string }

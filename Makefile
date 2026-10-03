@@ -1,7 +1,7 @@
-BINARY := pact-gateway
+BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: limitd limitd-check limitd-vendor harness-pact-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -44,8 +44,8 @@ deadcode:
 	@report=$$(mktemp) && \
 	go run golang.org/x/tools/cmd/deadcode@v0.49.0 \
 		-f '{{range .Funcs}}{{$$.Path}} {{.Name}}{{"\n"}}{{end}}' \
-		-filter '^github.com/pact-cloud/pact-gateway/(cmd|internal)/' ./... > "$$report" && \
-	PACT_DEADCODE_REPORT="$$report" go test ./internal/integrationtest \
+		-filter '^github.com/humandelegatedtrustprotocol/hdtp-gateway/(cmd|internal)/' ./... > "$$report" && \
+	HDTP_DEADCODE_REPORT="$$report" go test ./internal/integrationtest \
 		-run '^TestDeadcodeFindsOnlyWhatTheTableExcuses$$' -count=1 -v; \
 	status=$$?; rm -f "$$report"; exit $$status
 
@@ -56,14 +56,14 @@ deadcode:
 #     ran them: they were a comment with a command in it;
 #   - an import of 40,000 threads against one of 10,000 (internal/portable/scale_test.go), which
 #     fails when reading, or writing, four times the threads costs more than six times as long.
-#     pact-identity v0.3.0's quadratic threads.csv reader measured 10.8x and 17.7x here.
+#     hdtp-identity v0.3.0's quadratic threads.csv reader measured 10.8x and 17.7x here.
 # The status is carried by hand: make 3.81 ignores .SHELLFLAGS, so a pipeline or a later command
 # would otherwise decide whether this failed.
 scale:
 	@dir=$$(mktemp -d); \
-	PACT_SCALE_DB="$$dir/scale.db" go test ./internal/core/store/ -run '^$$' -bench '^BenchmarkScale' -benchtime 3x -count=1; \
+	HDTP_SCALE_DB="$$dir/scale.db" go test ./internal/core/store/ -run '^$$' -bench '^BenchmarkScale' -benchtime 3x -count=1; \
 	status=$$?; rm -rf "$$dir"; test $$status -eq 0 || exit $$status; \
-	PACT_EXPORT_SCALE=40000 go test ./internal/portable/ -run '^TestAnImportGrowsLinearlyWithItsThreads$$' -count=1 -v -timeout 20m
+	HDTP_EXPORT_SCALE=40000 go test ./internal/portable/ -run '^TestAnImportGrowsLinearlyWithItsThreads$$' -count=1 -v -timeout 20m
 
 # Every parser that meets untrusted input, 30s each. Deliberately not part of
 # `all`: two minutes of wall clock that finds nothing on most runs. The pre-push
@@ -76,7 +76,7 @@ fuzz:
 	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 30s
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/pact-gateway
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/hdtp-gateway
 
 # PLATFORMS is what a release ships. CGO is off and -trimpath is set for every
 # one, so the binary depends on no host libc and embeds no build paths — which is
@@ -93,7 +93,7 @@ dist:
 		os=$${p%/*}; arch=$${p#*/}; out=dist/$(BINARY)_$(VERSION)_$${os}_$${arch}; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath \
-			-ldflags "-s -w -X main.version=$(VERSION)" -o $$out ./cmd/pact-gateway || exit 1; \
+			-ldflags "-s -w -X main.version=$(VERSION)" -o $$out ./cmd/hdtp-gateway || exit 1; \
 	done
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
@@ -117,7 +117,7 @@ web:
 sbom:
 	@mkdir -p dist
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
-		app -json -licenses=false -main cmd/pact-gateway -output dist/sbom.cdx.json .
+		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .
 	@echo "wrote dist/sbom.cdx.json"
 
 # check covers the PRODUCT only. The harness is a separate module (harness/go.mod),
@@ -126,11 +126,11 @@ sbom:
 # dependency and vulnerability surface. Run `make harness` for that module.
 check: fmt vet dependents limitd-check test test-js
 
-# The limits sidecar (cmd/pact-limitd, SPEC §5.7): PACT §12's budgets, decided by pact-identity's
+# The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # pact-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and
-# fetched over SSH with this machine's agent (cmd/pact-limitd/.cargo/config.toml), locally only;
+# fetched over SSH with this machine's agent (cmd/hdtp-limitd/.cargo/config.toml), locally only;
 # the image builds read it from `limitd-vendor` instead, with no credential inside Docker.
-LIMITD := cmd/pact-limitd
+LIMITD := cmd/hdtp-limitd
 LIMITD_VENDOR := .build/limitd-vendor
 limitd:
 	cargo build --release --locked --manifest-path $(LIMITD)/Cargo.toml
@@ -154,7 +154,7 @@ limitd-vendor:
 # usual because v1.30.0 slices statements out of the query files by a RUNE offset
 # while reading BYTES — one em dash in a comment silently corrupts every statement
 # after it (see TestQuerySourcesAreASCII, and F8 in
-# pact-cloud/docs/release/findings-2026-09-18-rig.md). v1.27.0 and below do not
+# batondeck/docs/release/findings-2026-09-18-rig.md). v1.27.0 and below do not
 # build on a current macOS SDK at all (strchrnul, pg_query_go v5).
 SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
@@ -211,7 +211,7 @@ vet:
 # repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two
 # removals broke it the same day, and the fix above — made for the cloud's battery — walked past it.
 # It is always on disk, so it is always vetted.
-CLOUD_BATTERY := ../pact-cloud/gateway/conformance
+CLOUD_BATTERY := ../batondeck/gateway/conformance
 dependents:
 	@echo "go vet ./harness/..."
 	@(cd harness && go vet ./...) || { \
@@ -249,7 +249,7 @@ test: limitd
 # already requires, and a machine without it fails here rather than skipping. The same run takes the
 # SPA's pure modules as they ship (web/test: the audit page's names, the overview's numbers), their
 # types stripped by Node itself. Then the brand, which is
-# JavaScript for the same reason: web/tools/kit.mjs check holds the vendored pact-web-kit (web/kit/,
+# JavaScript for the same reason: web/tools/kit.mjs check holds the vendored hdtp-web-kit (web/kit/,
 # web/public/{brand,fonts}) to its release manifest and the portal's palette to the kit, contrast included.
 test-js:
 	@command -v node >/dev/null || { echo "test-js: node is not installed; it is what make web needs too"; exit 1; }
@@ -270,7 +270,7 @@ harness: limitd
 # (never in anybody's git config), makes the go command's git use SSH instead of HTTPS.
 # GOWORK=off: these targets are about the version go.mod names, not a workspace's checkout.
 IDENTITY_MODULE := github.com/pact-cloud/pact-identity/go
-PRIVATE_FETCH := GOWORK=off GOPRIVATE='github.com/pact-cloud/*' GIT_CONFIG_COUNT=1 \
+PRIVATE_FETCH := GOWORK=off GOPRIVATE='github.com/humandelegatedtrustprotocol/*' GIT_CONFIG_COUNT=1 \
 	GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
 IDENTITY_PROXY := .build/identity-proxy
 
@@ -305,32 +305,32 @@ identity-bump:
 
 # The node image the harness stands topologies up from: the shipped artifact,
 # built from the repo's own Dockerfile. HARNESS_IMAGE is its tag, exported to the harness as
-# PACT_HARNESS_IMAGE (harness/images): two worktrees on one machine each take a tag of their own
-# (`make harness-nightly HARNESS_IMAGE=pact-gateway:harness-mine`), or each tests whichever binary
+# HDTP_HARNESS_IMAGE (harness/images): two worktrees on one machine each take a tag of their own
+# (`make harness-nightly HARNESS_IMAGE=hdtp-gateway:harness-mine`), or each tests whichever binary
 # the other built last.
-HARNESS_IMAGE ?= pact-gateway:harness
-export PACT_HARNESS_IMAGE := $(HARNESS_IMAGE)
+HARNESS_IMAGE ?= hdtp-gateway:harness
+export HDTP_HARNESS_IMAGE := $(HARNESS_IMAGE)
 harness-image: identity-proxy limitd-vendor
 	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -t $(HARNESS_IMAGE) .
 
 # The live batteries that are DATA in the sibling repositories, run against a node by the nightly
-# tier: pact-identity's intrusion battery through its `pact` CLI (S18), the cloud's Go conformance
+# tier: hdtp-identity's intrusion battery through its `hdtp` CLI (S18), the cloud's Go conformance
 # battery (S19), and the cloud's local cloud with the real wallet page (S20; it also needs the WorkOS
 # test pair in the environment, which this Makefile does not read from any file). Each is a Need (harness/registry); the tier promises it when the
 # sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
-# when it is not. Override either with PACT_CLI or PACT_CLOUD_BATTERY in the environment.
-PACT_IDENTITY ?= $(CURDIR)/../pact-identity
-PACT_CLI_BIN := $(PACT_IDENTITY)/target/release/pact
-harness-pact-cli:
-	@if [ -n "$$PACT_CLI" ]; then echo "harness-pact-cli: PACT_CLI=$$PACT_CLI"; \
-	elif [ -f "$(PACT_IDENTITY)/Cargo.toml" ]; then \
-		cargo build --release -q -p pact --manifest-path "$(PACT_IDENTITY)/Cargo.toml" || exit 1; \
-		echo "harness-pact-cli: $(PACT_CLI_BIN)"; \
-	else echo "!! harness-pact-cli: no pact-identity checkout at $(PACT_IDENTITY): S18 will be NOT PROMISED"; fi
+# when it is not. Override either with HDTP_CLI or HDTP_CLOUD_BATTERY in the environment.
+HDTP_IDENTITY ?= $(CURDIR)/../hdtp-identity
+HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/pact
+harness-hdtp-cli:
+	@if [ -n "$$HDTP_CLI" ]; then echo "harness-hdtp-cli: HDTP_CLI=$$HDTP_CLI"; \
+	elif [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
+		cargo build --release -q -p pact --manifest-path "$(HDTP_IDENTITY)/Cargo.toml" || exit 1; \
+		echo "harness-hdtp-cli: $(HDTP_CLI_BIN)"; \
+	else echo "!! harness-hdtp-cli: no hdtp-identity checkout at $(HDTP_IDENTITY): S18 will be NOT PROMISED"; fi
 # The environment a live tier runs under: the two siblings' paths when they are on disk.
-LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_CLI_BIN)')}" \
-	PACT_CLOUD_BATTERY="$${PACT_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}" \
-	PACT_LOCAL_CLOUD="$${PACT_LOCAL_CLOUD:-$$(test -f '$(abspath $(CLOUD_BATTERY))/../e2e/local-run.mjs' && echo '$(abspath $(CLOUD_BATTERY)/..)')}"
+LIVE_ENV = HDTP_CLI="$${HDTP_CLI:-$$(test -x '$(HDTP_CLI_BIN)' && echo '$(HDTP_CLI_BIN)')}" \
+	HDTP_CLOUD_BATTERY="$${HDTP_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}" \
+	HDTP_LOCAL_CLOUD="$${HDTP_LOCAL_CLOUD:-$$(test -f '$(abspath $(CLOUD_BATTERY))/../e2e/local-run.mjs' && echo '$(abspath $(CLOUD_BATTERY)/..)')}"
 
 # The calendar scenario (S4) needs the -FULL image — node and uv, so a supervised
 # stdio child can run in-container (SPEC §12.3) — with the upstream MCP server
@@ -338,10 +338,10 @@ LIVE_ENV = PACT_CLI="$${PACT_CLI:-$$(test -x '$(PACT_CLI_BIN)' && echo '$(PACT_C
 # time so the scenario does not depend on reaching a package registry mid-test,
 # and so what it exercises is a pinned version.
 # Its tags follow HARNESS_IMAGE's reason: HARNESS_FULL_IMAGE and HARNESS_CALDAV_IMAGE (exported to
-# the harness as PACT_HARNESS_CALDAV_IMAGE), so S4 runs the binary of the tree under test.
-HARNESS_FULL_IMAGE ?= pact-gateway:harness-full
-HARNESS_CALDAV_IMAGE ?= pact-gateway:harness-caldav
-export PACT_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)
+# the harness as HDTP_HARNESS_CALDAV_IMAGE), so S4 runs the binary of the tree under test.
+HARNESS_FULL_IMAGE ?= hdtp-gateway:harness-full
+HARNESS_CALDAV_IMAGE ?= hdtp-gateway:harness-caldav
+export HDTP_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)
 harness-image-caldav: identity-proxy limitd-vendor
 	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
 	printf 'FROM $(HARNESS_FULL_IMAGE)\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
@@ -356,15 +356,15 @@ harness-shaper:
 
 # An aarch64 Linux kernel for the VM topology (S8): Alpine's linux-virt package,
 # installed into the pinned arm64 Alpine image (so it needs the package mirror once)
-# and copied out; no host toolchain. Export PACT_HARNESS_KERNEL to the printed path
-# to enable the VM scenario. $(CURDIR), not $(PWD): `make -C pact-gateway` leaves
+# and copied out; no host toolchain. Export HDTP_HARNESS_KERNEL to the printed path
+# to enable the VM scenario. $(CURDIR), not $(PWD): `make -C hdtp-gateway` leaves
 # PWD at the caller's directory, and the kernel landed outside the repository.
 KERNEL_DIR ?= .harness-kernel
 harness-kernel:
 	@mkdir -p $(KERNEL_DIR)
 	@docker run --rm --platform linux/arm64 -v "$(CURDIR)/$(KERNEL_DIR):/out" alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc \
 	  sh -c 'apk add --no-cache linux-virt >/dev/null 2>&1 && cp /boot/vmlinuz-virt /out/'
-	@echo "export PACT_HARNESS_KERNEL=$(CURDIR)/$(KERNEL_DIR)/vmlinuz-virt"
+	@echo "export HDTP_HARNESS_KERNEL=$(CURDIR)/$(KERNEL_DIR)/vmlinuz-virt"
 
 # ---- run tiers (docs/harness-design.md §6) --------------------------------
 # A tier is a set of scenarios read from the registry (harness/registry: each
@@ -382,9 +382,9 @@ harness-live: harness-image
 harness-pr: harness harness-image
 	cd harness && go run ./cmd/harness run -tier pr
 
-# Nightly tier: every scenario. It promises S8 only when PACT_HARNESS_KERNEL is
-# set and T7 only when PACT_CF_DOMAIN is set, and says so when they are not.
-harness-nightly: harness harness-image harness-image-caldav harness-shaper harness-pact-cli
+# Nightly tier: every scenario. It promises S8 only when HDTP_HARNESS_KERNEL is
+# set and T7 only when HDTP_CF_DOMAIN is set, and says so when they are not.
+harness-nightly: harness harness-image harness-image-caldav harness-shaper harness-hdtp-cli
 	cd harness && $(LIVE_ENV) go run ./cmd/harness run -tier nightly
 
 # Report whether this host can run each fabric (container, vm).
@@ -396,7 +396,7 @@ harness-preflight:
 # cannot quietly stop matching the product.
 screenshots: harness-image
 	@tmp=$$(mktemp -d) && cd harness && \
-	  { PACT_HARNESS_ARTIFACTS=$$tmp go run ./cmd/harness run -id S11 >$$tmp/run.log || \
+	  { HDTP_HARNESS_ARTIFACTS=$$tmp go run ./cmd/harness run -id S11 >$$tmp/run.log || \
 	    { tail -40 $$tmp/run.log; exit 1; }; } && \
 	  for n in dashboard card audit; do cp $$tmp/$$n-light.png ../docs/images/$$n.png; done && \
 	  echo "docs/images updated from a live node"

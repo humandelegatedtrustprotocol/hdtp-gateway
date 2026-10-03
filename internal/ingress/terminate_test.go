@@ -22,9 +22,9 @@ import (
 	"github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/miekg/dns"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // stubDNS answers every A query with 127.0.0.1 so Pebble's validator reaches
@@ -163,30 +163,30 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				var env pactidentity.Envelope
+				var env hdtpidentity.Envelope
 				if err := json.NewDecoder(c).Decode(&env); err != nil {
 					fmt.Fprintf(c, "decode: %v", err)
 					return
 				}
-				nodePriv, perr := pactidentity.ParsePKCS8(nodePKCS8)
+				nodePriv, perr := hdtpidentity.ParsePKCS8(nodePKCS8)
 				if perr != nil {
 					fmt.Fprintf(c, "key: %v", perr)
 					return
 				}
-				suite, serr := pactidentity.SuiteForKey(nodePriv.Public())
+				suite, serr := hdtpidentity.SuiteForKey(nodePriv.Public())
 				if serr != nil {
 					fmt.Fprintf(c, "suite: %v", serr)
 					return
 				}
-				protected, errP := pactidentity.DecodeB64url(env.Protected)
-				enc, errE := pactidentity.DecodeB64url(env.Enc)
-				ct, errC := pactidentity.DecodeB64url(env.Ct)
+				protected, errP := hdtpidentity.DecodeB64url(env.Protected)
+				enc, errE := hdtpidentity.DecodeB64url(env.Enc)
+				ct, errC := hdtpidentity.DecodeB64url(env.Ct)
 				if errP != nil || errE != nil || errC != nil {
 					fmt.Fprint(c, "decode: the envelope is not base64url")
 					return
 				}
-				plain, err := pactidentity.Open(suite, nodePriv, nodePriv.Public(),
-					[]byte(pactidentity.InfoV2), protected, enc, ct)
+				plain, err := hdtpidentity.Open(suite, nodePriv, nodePriv.Public(),
+					[]byte(hdtpidentity.InfoV2), protected, enc, ct)
 				if err != nil {
 					fmt.Fprintf(c, "open: %v", err)
 					return
@@ -221,23 +221,23 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 
 	// A caller seals a call to the node's key and sends it through the public name.
 	// What this proves is that a SEALED payload survives a terminating edge intact —
-	// which is the whole reason sealing exists (PACT §13) — so the envelope is built
+	// which is the whole reason sealing exists (HDTP §13) — so the envelope is built
 	// from the 2.0 primitives rather than the `v: 1` sealer that used to be here.
-	nodePub, err := pactidentity.ParseSPKI(nodeSPKI)
+	nodePub, err := hdtpidentity.ParseSPKI(nodeSPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
 	protected := []byte(`{"cty":"application/pact-call+json","v":2}`)
-	suite, err := pactidentity.SuiteForKey(nodePub)
+	suite, err := hdtpidentity.SuiteForKey(nodePub)
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc, ct, err := pactidentity.Seal(suite, nodePub,
-		[]byte(pactidentity.InfoV2), protected, []byte(`{"tool":"send_message"}`))
+	enc, ct, err := hdtpidentity.Seal(suite, nodePub,
+		[]byte(hdtpidentity.InfoV2), protected, []byte(`{"tool":"send_message"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := &pactidentity.Envelope{Protected: pactidentity.B64url(protected), Enc: pactidentity.B64url(enc), Ct: pactidentity.B64url(ct), Sig: pactidentity.B64url([]byte("sig"))}
+	env := &hdtpidentity.Envelope{Protected: hdtpidentity.B64url(protected), Enc: hdtpidentity.B64url(enc), Ct: hdtpidentity.B64url(ct), Sig: hdtpidentity.B64url([]byte("sig"))}
 	body, _ := json.Marshal(env)
 	var reply string
 	deadline := time.Now().Add(30 * time.Second)

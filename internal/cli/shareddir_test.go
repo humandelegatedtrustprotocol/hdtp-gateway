@@ -31,7 +31,7 @@ func TestTwoServesShareOneDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := startServeAt(t, first.dir, cfg2, internal, public)
-	if !strings.Contains(second.out.String(), "is served by another pact-gateway process on this data dir") {
+	if !strings.Contains(second.out.String(), "is served by another hdtp-gateway process on this data dir") {
 		t.Fatalf("the second serve did not say who serves the admin socket:\n%s", second.out.String())
 	}
 	if strings.Contains(first.out.String(), "is served by another") {

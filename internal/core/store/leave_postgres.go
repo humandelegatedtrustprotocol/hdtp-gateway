@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
 )
 
-// An identity leaving this host (PACT §9; migration 0040): the account's rows and the addresses it
+// An identity leaving this host (HDTP §9; migration 0040): the account's rows and the addresses it
 // leaves reserved. identity.Manager.Leave is the one caller that erases, inside Atomically.
 
 func (s *Postgres) DeleteAccount(ctx context.Context, accountID string) (int64, error) {

@@ -1,4 +1,4 @@
-// An identity's two keys are drawn by one piece, KeyFacts (glance.tsx, shared with PACT Cloud's portal),
+// An identity's two keys are drawn by one piece, KeyFacts (glance.tsx, shared with BatonDeck's portal),
 // with what each key IS in its `?` rather than in words beside it — the owner (2026-10-01): "show text
 // that tells whether its to be replaced when renewal or its a root, these in `?` icon than inline. show
 // key just there if required". Read from the source, because the portal has no DOM test harness; the

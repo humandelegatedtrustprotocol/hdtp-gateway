@@ -1,6 +1,6 @@
 package public
 
-// `client_cert: required` is PACT §13.4's front-door posture: "a node MAY
+// `client_cert: required` is HDTP §13.4's front-door posture: "a node MAY
 // additionally require transport client certificates and refuse a
 // certificate-less `sealed_call` with `identity_required`". It is a statement
 // about who may knock at all, so what satisfies it has to be something a
@@ -16,7 +16,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func TestClientCertRequiredTakesAChainAndNothingElse(t *testing.T) {

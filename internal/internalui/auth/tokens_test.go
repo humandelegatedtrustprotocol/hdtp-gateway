@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func tokenEnv(t *testing.T) (*TokenService, string) {
@@ -36,7 +36,7 @@ func TestTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(plain, "pact_") {
+	if !strings.HasPrefix(plain, "hdtp_") {
 		t.Fatalf("token shape: %q", plain)
 	}
 	ident, err := svc.Validate(ctx, plain)
@@ -67,11 +67,11 @@ func TestTokenScopingAndUnknowns(t *testing.T) {
 	if err != nil || ident.AccountID != "acct-42" {
 		t.Fatalf("scope lost: %v %+v", err, ident)
 	}
-	if _, err := svc.Validate(ctx, "pact_"+strings.Repeat("0", 48)); err == nil {
+	if _, err := svc.Validate(ctx, "hdtp_"+strings.Repeat("0", 48)); err == nil {
 		t.Fatal("unknown token validates")
 	}
 	if _, err := svc.Validate(ctx, "bearer-something-else"); err == nil {
-		t.Fatal("non-pact token validates")
+		t.Fatal("non-hdtp token validates")
 	}
 	if _, _, err := svc.Create(ctx, owner, "", ""); err == nil {
 		t.Fatal("unlabeled token accepted")

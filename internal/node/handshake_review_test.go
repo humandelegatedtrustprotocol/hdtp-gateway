@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
-// The review of 2026-09-28 on the campaign after an import (PACT §9.2) and after a move (§5.3).
+// The review of 2026-09-28 on the campaign after an import (HDTP §9.2) and after a move (§5.3).
 
 // importInto writes one contact as an import does, owed this host's handshake from `at`.
 func importInto(t *testing.T, d *demoNode, c store.Contact, at time.Time) {

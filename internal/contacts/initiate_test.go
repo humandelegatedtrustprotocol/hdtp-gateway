@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-import "github.com/pact-cloud/pact-gateway/internal/core/store"
+import "github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 
 // newInitEnv and peerCard reuse the existing manager-test helpers so the two
 // suites cannot drift on what a card or a keypair looks like.
@@ -88,7 +88,7 @@ func TestInitiatedHonoursAnAutoAcceptedInvite(t *testing.T) {
 }
 
 // The key a peer proved on the exchange must be the one its card's leaf carries
-// (PACT §2) — otherwise a tampered invite could bind us to an attacker's key under
+// (HDTP §2) — otherwise a tampered invite could bind us to an attacker's key under
 // the peer's name.
 func TestInitiatedRefusesAKeyThatDoesNotMatchTheCard(t *testing.T) {
 	m, _, ctx, acct := newInitEnv(t)
@@ -132,7 +132,7 @@ func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
 
 // The request_contact path holds the peer's card but not their key. The row is
 // pinned to the ROOT the card's certificate names; the leaf and its key arrive
-// with the first chain that validates (PACT §14.3). This used to end in BindSPKI,
+// with the first chain that validates (HDTP §14.3). This used to end in BindSPKI,
 // which recorded the key when a rotation had left the row fingerprint-only — a
 // state 2.0 cannot produce.
 func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
@@ -165,7 +165,7 @@ func TestInitiatedByFingerprintPinsTheNameAndTheRoot(t *testing.T) {
 // The consequence the missing key had, walked end to end: we send `request_contact`, the peer
 // accepts, and the contact is ACTIVE — and must still be sealable. `contact_accepted` writes the
 // card and the grant and never touched the key, and a chain presenting the same leaf re-pins
-// nothing (PACT §14.3), so a key not stored at the start was never stored at all. Every later call
+// nothing (HDTP §14.3), so a key not stored at the start was never stored at all. Every later call
 // then went plaintext to a `seal: optional` peer and failed outright to a `required` one.
 func TestAContactWeRequestedIsSealableOnceTheyAccept(t *testing.T) {
 	m, st, ctx, acct := newInitEnv(t)

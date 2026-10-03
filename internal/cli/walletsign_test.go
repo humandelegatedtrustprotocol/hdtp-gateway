@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // walletBrowser is a browser on the node's portal: a session cookie (or none) and the CSRF cookie.
@@ -60,7 +60,7 @@ func (p *walletBrowser) do(method, path string, form url.Values, header map[stri
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
 	for _, c := range res.Cookies() {
-		if strings.HasPrefix(c.Name, "pact_csrf") {
+		if strings.HasPrefix(c.Name, "hdtp_csrf") {
 			p.csrf = c
 		}
 	}
@@ -86,7 +86,7 @@ func formFields(t *testing.T, page string) (string, [][2]string) {
 }
 
 // The web wallet's signing request, end to end on a running node, with a test playing the wallet
-// (PACT §9.1): the page that asks changes nothing; starting mints a request whose form is exactly
+// (HDTP §9.1): the page that asks changes nothing; starting mints a request whose form is exactly
 // what a wallet accepts; the answer is refused without a session, with another state, over another
 // key, under another root, and a second time; the one answer that must pass is installed and the
 // LIVE node serves the new chain.
@@ -94,25 +94,25 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	ctx := context.Background()
 	var alice store.Account
 	var ownerID string
-	key, err := pactidentity.GenerateKey("ed25519")
+	key, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootDER, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alice", Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+	rootDER, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alice", Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	issue := func(csr []byte, prev *time.Time, k *pactidentity.PrivateKey, root []byte) string {
-		iss, err := pactidentity.IssueFromCSR(csr, pactidentity.IssueOpts{RootCN: "Alice", RootKey: k, RootSPKIs: [][]byte{k.Public().SPKI},
+	issue := func(csr []byte, prev *time.Time, k *hdtpidentity.PrivateKey, root []byte) string {
+		iss, err := hdtpidentity.IssueFromCSR(csr, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: k, RootSPKIs: [][]byte{k.Public().SPKI},
 			Now: time.Now(), PreviousNotBefore: prev, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return pactidentity.B64url(iss.DER) + "." + pactidentity.B64url(root)
+		return hdtpidentity.B64url(iss.DER) + "." + hdtpidentity.B64url(root)
 	}
 	// A public address the wallet's address guard accepts (a loopback one it refuses to certify).
-	r := runServeWith(t, map[string]any{"public_url": "https://alice.pact.example"}, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	r := runServeWith(t, map[string]any{"public_url": "https://alice.hdtp.example"}, func(t *testing.T, dir string) {
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +135,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
+		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "http://" + r.internal
-	signedIn := &walletBrowser{t: t, base: base, session: &http.Cookie{Name: "pact_session_" + cfg.Tag(), Value: token}}
+	signedIn := &walletBrowser{t: t, base: base, session: &http.Cookie{Name: "hdtp_session_" + cfg.Tag(), Value: token}}
 	pending := func() []store.Leaf {
 		leaves, err := st.ListLeaves(ctx, alice.ID)
 		if err != nil {
@@ -196,14 +196,14 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outsider := &walletBrowser{t: t, base: base, session: &http.Cookie{Name: "pact_session_" + cfg.Tag(), Value: otherToken}}
+	outsider := &walletBrowser{t: t, base: base, session: &http.Cookie{Name: "hdtp_session_" + cfg.Tag(), Value: otherToken}}
 	if res, _ := outsider.do("GET", "/identity/alice/wallet", nil, nil); res.StatusCode != 404 {
 		t.Fatalf("another owner's view of alice's request: %d", res.StatusCode)
 	}
 	if res, _ := outsider.do("POST", "/identity/alice/wallet/start", url.Values{"csrf": {outsider.csrf.Value}}, nil); res.StatusCode != 404 {
 		t.Fatalf("another owner starting alice's request: %d", res.StatusCode)
 	}
-	if res, _ := outsider.do("POST", "/identity/alice/wallet/install", url.Values{"chain": {"a.b"}, "state": {"s"}}, map[string]string{"X-Pact-Csrf": outsider.csrf.Value}); res.StatusCode != 404 {
+	if res, _ := outsider.do("POST", "/identity/alice/wallet/install", url.Values{"chain": {"a.b"}, "state": {"s"}}, map[string]string{"X-HDTP-Csrf": outsider.csrf.Value}); res.StatusCode != 404 {
 		t.Fatalf("another owner installing into alice: %d", res.StatusCode)
 	}
 	if got := pending(); len(got) != 0 {
@@ -244,14 +244,14 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if got := res.Header.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
 		t.Errorf("the form page's Referrer-Policy is %q: under no-referrer the wallet sees Origin: null", got)
 	}
-	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://ceremony.pact.contact;") || !strings.Contains(csp, "script-src 'self';") {
+	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://ceremony.batondeck.com;") || !strings.Contains(csp, "script-src 'self';") {
 		t.Errorf("the form page's CSP: %q", csp)
 	}
 	if res.Header.Get("Cache-Control") != "no-store" {
 		t.Errorf("the form page may be stored: %q", res.Header.Get("Cache-Control"))
 	}
 	action, fields := formFields(t, page)
-	if action != "https://ceremony.pact.contact/sign" {
+	if action != "https://ceremony.batondeck.com/sign" {
 		t.Fatalf("the form goes to %q", action)
 	}
 	got := map[string]string{}
@@ -260,14 +260,14 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		got[f[0]] = f[1]
 		names = append(names, f[0])
 	}
-	// The wallet's own check, from the released pact-identity: the node's form and the wallet's list
+	// The wallet's own check, from the released hdtp-identity: the node's form and the wallet's list
 	// of members are two copies of one list, and this holds them together. The origin is the one the
 	// browser sends with the form: the portal's.
 	request := map[string]any{}
 	for _, f := range fields {
 		request[f[0]] = f[1]
 	}
-	if _, err := pactidentity.SigningRequestCheck(request, base, time.Now(), [][]byte{key.Public().SPKI}); err != nil {
+	if _, err := hdtpidentity.SigningRequestCheck(request, base, time.Now(), [][]byte{key.Public().SPKI}); err != nil {
 		t.Fatalf("the wallet refuses the request this node sends: %v", err)
 	}
 	sort.Strings(names)
@@ -282,7 +282,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		!regexp.MustCompile(`^sha256:[A-Za-z0-9_-]{43}$`).MatchString(got["expect_root"]) {
 		t.Errorf("purpose %q valid_days %q expect_root %q (root %q)", got["purpose"], got["valid_days"], got["expect_root"], alice.RootFingerprint)
 	}
-	if !b64.MatchString(got["csr"]) || len(got["csr"]) > 4096 || !b64.MatchString(got["root_cert"]) || got["root_cert"] != pactidentity.B64url(rootDER) {
+	if !b64.MatchString(got["csr"]) || len(got["csr"]) > 4096 || !b64.MatchString(got["root_cert"]) || got["root_cert"] != hdtpidentity.B64url(rootDER) {
 		t.Errorf("csr or root_cert is not base64url DER: %q %q", got["csr"], got["root_cert"])
 	}
 	if got["redirect"] != base+"/wallet/return?slug=alice" || len([]rune(got["recipient"])) > 200 || got["recipient"] == "" {
@@ -294,7 +294,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	}
 	csrDER := testid.DER(t, got["csr"])
 	firstState := got["state"]
-	if p := pending(); len(p) != 1 || p[0].WalletOrigin != "https://ceremony.pact.contact" {
+	if p := pending(); len(p) != 1 || p[0].WalletOrigin != "https://ceremony.batondeck.com" {
 		t.Fatalf("pending after start: %+v", p)
 	}
 
@@ -328,7 +328,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	good := issue(csrDER2, &prev, key, rootDER)
 	install := func(p *walletBrowser, chain, state string) (*http.Response, string) {
 		return p.do("POST", "/identity/alice/wallet/install", url.Values{"chain": {chain}, "state": {state}},
-			map[string]string{"X-Pact-Csrf": signedIn.csrf.Value})
+			map[string]string{"X-HDTP-Csrf": signedIn.csrf.Value})
 	}
 	// No session: refused, and the request is still answerable afterwards.
 	stranger := &walletBrowser{t: t, base: base, csrf: signedIn.csrf}
@@ -356,15 +356,15 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	if res, body := install(signedIn, issue(csrDER, &prev, key, rootDER), state); res.StatusCode != 400 || code(body) != "wrong_key" {
 		t.Fatalf("a leaf over the replaced request's key: %d %s", res.StatusCode, body)
 	}
-	mallory, _ := pactidentity.GenerateKey("ed25519")
-	malloryRoot, _ := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alice", Key: mallory, NotBefore: time.Now().Add(-time.Hour)})
+	mallory, _ := hdtpidentity.GenerateKey("ed25519")
+	malloryRoot, _ := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alice", Key: mallory, NotBefore: time.Now().Add(-time.Hour)})
 	if res, body := install(signedIn, issue(csrDER2, &prev, mallory, malloryRoot), state); res.StatusCode != 400 || code(body) != "wrong_root" {
 		t.Fatalf("a leaf under another root: %d %s", res.StatusCode, body)
 	}
 	if res, body := install(signedIn, "not-a-chain", state); res.StatusCode != 400 || code(body) != "malformed" {
 		t.Fatalf("a malformed chain: %d %s", res.StatusCode, body)
 	}
-	// A character outside base64url is refused as the identity core refuses it (pact-identity
+	// A character outside base64url is refused as the identity core refuses it (hdtp-identity
 	// 0.4.2's DecodeB64url), before the request is looked up. The reader this replaced skipped
 	// the character, so this call installed the chain and spent the request the pass below needs.
 	if res, body := install(signedIn, "!"+good, state); res.StatusCode != 400 || code(body) != "malformed" {
@@ -380,7 +380,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatalf("install answered %s", body)
 	}
 	// The validity is the installed leaf's, as the chain gives it.
-	leafCert, err := pactidentity.Parse(testid.DER(t, strings.Split(good, ".")[0]))
+	leafCert, err := hdtpidentity.Parse(testid.DER(t, strings.Split(good, ".")[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 	// The running node presents the leaf just installed: the install went through the service
 	// that reloads it, not only into the store.
 	leafDER := testid.DER(t, strings.Split(good, ".")[0])
-	c := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "alice.pact.example"}}}
+	c := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "alice.hdtp.example"}}}
 	hres, err := c.Get("https://" + r.public + "/a/alice/mcp")
 	if err != nil {
 		t.Fatal(err)
@@ -419,7 +419,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 			if e.AccountID != alice.ID {
 				t.Errorf("%s names account %q", e.Action, e.AccountID)
 			}
-			if e.Action == "account_csr" && e.Outcome == "ok" && !strings.Contains(e.Resource, "wallet_origin:https://ceremony.pact.contact") {
+			if e.Action == "account_csr" && e.Outcome == "ok" && !strings.Contains(e.Resource, "wallet_origin:https://ceremony.batondeck.com") {
 				continue // the seed's own requests, made before the node started, are not audited here
 			}
 			seen = append(seen, e.Action+"/"+e.Outcome)
@@ -445,7 +445,7 @@ func TestTheWalletReturnPageNeedsNoSessionAndHoldsNoData(t *testing.T) {
 	p := &walletBrowser{t: t, base: "http://" + r.internal}
 	res, page := p.do("GET", "/wallet/return?slug=alice", nil, nil)
 	if res.StatusCode != 200 || !strings.Contains(page, `<script src="/wallet/return.js"></script>`) ||
-		!strings.Contains(page, `content="pact_csrf_`+cfg.Tag()+`"`) {
+		!strings.Contains(page, `content="hdtp_csrf_`+cfg.Tag()+`"`) {
 		t.Fatalf("return page: %d %s", res.StatusCode, page)
 	}
 	if res.Header.Get("Cache-Control") != "no-store" || res.Header.Get("Referrer-Policy") != "no-referrer" ||

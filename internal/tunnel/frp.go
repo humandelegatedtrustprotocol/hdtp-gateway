@@ -41,7 +41,7 @@ type frpOpts struct {
 // frpOptions validates the adapter configuration (pure; unit-tested). Extra
 // keys: server_addr (required), server_port (default 7000), token, proxy_type
 // (tcp default | https), remote_port (tcp, required), custom_domain (https,
-// required), vhost_https_port (https, default 443), name (default "pact").
+// required), vhost_https_port (https, default 443), name (default "hdtp").
 func frpOptions(o Options) (frpOpts, error) {
 	get := func(k string) string {
 		if o.Extra == nil {
@@ -60,7 +60,7 @@ func frpOptions(o Options) (frpOpts, error) {
 		f.ProxyType = "tcp"
 	}
 	if f.Name == "" {
-		f.Name = "pact"
+		f.Name = "hdtp"
 	}
 	num := func(key string, dst *int) error {
 		if v := get(key); v != "" {

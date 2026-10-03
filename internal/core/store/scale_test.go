@@ -4,10 +4,10 @@ package store
 // million audit rows, a million idempotency records and 100,000 media rows, across four accounts
 // of which one is heavy. Every number the round-2 plan quotes for the database comes from here.
 //
-// Seeding takes a minute, so it happens once, into the file PACT_SCALE_DB names, and every
+// Seeding takes a minute, so it happens once, into the file HDTP_SCALE_DB names, and every
 // benchmark opens that file. Nothing here runs unless the variable is set:
 //
-//	PACT_SCALE_DB=/path/scale.db go test ./internal/core/store/ -run '^$' -bench '^BenchmarkScale' -benchtime 20x
+//	HDTP_SCALE_DB=/path/scale.db go test ./internal/core/store/ -run '^$' -bench '^BenchmarkScale' -benchtime 20x
 //
 // The rows are written with plain SQL in one transaction because going through the Store a row at
 // a time would measure a million commits. What is MEASURED goes through the Store, so it is what
@@ -50,9 +50,9 @@ func scaleFpr(i int) string       { return fmt.Sprintf("sha256:contact-%06d", i)
 
 func openScale(tb testing.TB) *SQLite {
 	tb.Helper()
-	path := os.Getenv("PACT_SCALE_DB")
+	path := os.Getenv("HDTP_SCALE_DB")
 	if path == "" {
-		tb.Skip("PACT_SCALE_DB is not set: the at-scale numbers are not measured in an ordinary run")
+		tb.Skip("HDTP_SCALE_DB is not set: the at-scale numbers are not measured in an ordinary run")
 	}
 	st, err := OpenSQLite(path)
 	if err != nil {

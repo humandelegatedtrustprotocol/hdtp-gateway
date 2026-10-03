@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // importAndMove is the suite for an import lands whole or not at all, a move campaign is resumable, and an imported contact keeps what its export carried.
@@ -53,7 +53,7 @@ func importAndMove(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// A move campaign's progress (PACT §5.3, §9) is what "re-run to resume" reads: one row per
+	// A move campaign's progress (HDTP §5.3, §9) is what "re-run to resume" reads: one row per
 	// contact, replaced as the walk retries, matched on the leaf being announced. No case here
 	// touched the table until it was renamed (0036), so on Postgres nothing had ever run either
 	// statement — the campaign's tests use SQLite, and a migration that runs proves only that.
@@ -136,7 +136,7 @@ func importAndMove(t *testing.T, newStore Factory) {
 		if got.InviteID != "" || got.ChainSentKid != "" {
 			t.Fatalf("an imported contact arrived with the old host's state: invite=%q chain_sent_kid=%q", got.InviteID, got.ChainSentKid)
 		}
-		// It is owed this host's handshake (PACT §9.2), until the campaign clears the mark; a
+		// It is owed this host's handshake (HDTP §9.2), until the campaign clears the mark; a
 		// contact made here any other way is owed nothing.
 		if !got.HandshakeDue {
 			t.Fatal("an imported contact arrived without the mark that it is owed a handshake")

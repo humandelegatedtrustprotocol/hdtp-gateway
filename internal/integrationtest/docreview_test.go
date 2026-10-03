@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // The review of 2026-09-28's drift (D1, D2, D4): claims in the documents that no test held.
@@ -57,14 +57,14 @@ func TestRelativeLinksInTheDocsResolve(t *testing.T) {
 	}
 }
 
-// D2. SPEC.md's version line and docs/conformance.md name one PACT version: they are two copies of
+// D2. SPEC.md's version line and docs/conformance.md name one HDTP version: they are two copies of
 // one fact (SPEC.md said 2.1.3 and the conformance map 2.1).
-func TestSpecAndTheConformanceMapNameOnePACTVersion(t *testing.T) {
+func TestSpecAndTheConformanceMapNameOneHDTPVersion(t *testing.T) {
 	root := repoRoot(t)
-	spec := regexp.MustCompile(`implements PACT (\d+\.\d+\.\d+)`).FindStringSubmatch(readDoc(t, root, "SPEC.md"))
-	conf := regexp.MustCompile(`(?m)^PACT (\d+\.\d+(?:\.\d+)?) \(`).FindStringSubmatch(readDoc(t, root, "docs/conformance.md"))
+	spec := regexp.MustCompile(`implements HDTP (\d+\.\d+\.\d+)`).FindStringSubmatch(readDoc(t, root, "SPEC.md"))
+	conf := regexp.MustCompile(`(?m)^HDTP (\d+\.\d+(?:\.\d+)?) \(`).FindStringSubmatch(readDoc(t, root, "docs/conformance.md"))
 	if spec == nil || conf == nil || spec[1] != conf[1] {
-		t.Fatalf("SPEC.md implements PACT %v; docs/conformance.md maps PACT %v", spec, conf)
+		t.Fatalf("SPEC.md implements HDTP %v; docs/conformance.md maps HDTP %v", spec, conf)
 	}
 }
 

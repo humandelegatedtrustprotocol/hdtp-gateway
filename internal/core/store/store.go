@@ -34,11 +34,11 @@ type Account struct {
 
 // HasRoot reports whether the wallet has issued this identity a leaf yet. An account is made
 // with a host key and no root; the first leaf installed names the root, and only then can it be
-// served (PACT §2). This used to be asked as `Protocol == 2`, a generation number that had come
+// served (HDTP §2). This used to be asked as `Protocol == 2`, a generation number that had come
 // to stand for it.
 func (a Account) HasRoot() bool { return a.RootFingerprint != "" }
 
-// Leaf is one certificate this host holds for an account (PACT §2, §14):
+// Leaf is one certificate this host holds for an account (HDTP §2, §14):
 // pending (a CSR awaiting the wallet), current, superseded (key kept until
 // NotAfter), or former (key destroyed, kid kept for certificate_renewed).
 type Leaf struct {
@@ -65,7 +65,7 @@ type Leaf struct {
 	Moved bool
 }
 
-// VacatedAddress is an address an identity has left (migration 0040, PACT §9): the endpoint its
+// VacatedAddress is an address an identity has left (migration 0040, HDTP §9): the endpoint its
 // leaves named, the slug that endpoint carries on this node, and the latest notAfter among those
 // leaves. It names no identity. Until UntilAt the slug cannot be given to a new account and the
 // endpoint cannot be asked for in a signing request.
@@ -77,11 +77,11 @@ type VacatedAddress struct {
 }
 
 // ErrAddressVacated is CreateAccount's refusal of a slug an identity has left while the last
-// leaf issued for it is live (PACT §9: "An address an identity has vacated MUST NOT be assigned
+// leaf issued for it is live (HDTP §9: "An address an identity has vacated MUST NOT be assigned
 // to another identity until the last leaf issued for it has expired").
 var ErrAddressVacated = errors.New("store: that address was vacated by an identity that left this node, and stays reserved until the last leaf issued for it expires")
 
-// Tombstone remembers a removed root and the leaf that removed it (PACT §5.3).
+// Tombstone remembers a removed root and the leaf that removed it (HDTP §5.3).
 type Tombstone struct {
 	AccountID string
 	Root      string
@@ -89,7 +89,7 @@ type Tombstone struct {
 	At        int64
 }
 
-// FormerEndpoint remembers where a pinned root used to answer (PACT §5, §6.1).
+// FormerEndpoint remembers where a pinned root used to answer (HDTP §5, §6.1).
 type FormerEndpoint struct {
 	AccountID string
 	Root      string
@@ -97,7 +97,7 @@ type FormerEndpoint struct {
 	At        int64
 }
 
-// PendingAddress is a contact at a new address awaiting the owner (PACT §5.3).
+// PendingAddress is a contact at a new address awaiting the owner (HDTP §5.3).
 type PendingAddress struct {
 	AccountID string
 	Root      string
@@ -110,7 +110,7 @@ type PendingAddress struct {
 	RootCert []byte
 }
 
-// MoveFanout is per-contact progress of a move campaign's `update_contact` walk (PACT §5.3,
+// MoveFanout is per-contact progress of a move campaign's `update_contact` walk (HDTP §5.3,
 // §9). LeafKid is the leaf being announced: a re-run resumes by matching on it, so a second
 // move is a second campaign and not the tail of the first.
 type MoveFanout struct {
@@ -155,7 +155,7 @@ type Contact struct {
 	Preset      string
 	Permissions []string
 	TrustFlag   string
-	// TheirPermissions is what this contact granted US (PACT §6.2), as opposed
+	// TheirPermissions is what this contact granted US (HDTP §6.2), as opposed
 	// to Permissions, which is what we granted them.
 	TheirPermissions []string
 	DisplayName      string
@@ -171,14 +171,14 @@ type Contact struct {
 	Card      string
 	CreatedAt int64
 	PinnedAt  int64
-	// PACT 2.0 pins (migration 0027): Protocol 2 means Fingerprint is the ROOT
+	// HDTP 1.0 pins (migration 0027): Protocol 2 means Fingerprint is the ROOT
 	// fingerprint, SPKI the pinned leaf's key, Endpoint and Leaf the pin of
 	// §14.3. ChainSentKid is our own leaf kid last carried to this contact.
 	Endpoint     string
 	Leaf         []byte
 	ChainSentKid string
 	// RootCert is the DER of the root that named this contact (migration 0029).
-	// The chain travels once (PACT sec. 13.2), so without it the certificate is
+	// The chain travels once (HDTP sec. 13.2), so without it the certificate is
 	// gone the moment the envelope that carried it is - the pin keeps the root's
 	// fingerprint, and a fingerprint cannot prove a stored leaf, nor can an
 	// archive taken here prove its contacts anywhere else. Empty for a pin made
@@ -190,7 +190,7 @@ type Contact struct {
 	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
 	// HandshakeDue says this contact arrived in an import and has not yet heard from this host
-	// (migration 0042, PACT §9.2): the campaign of the identity's next leaf owes it
+	// (migration 0042, HDTP §9.2): the campaign of the identity's next leaf owes it
 	// update_contact, or request_contact if it refuses that, and clears this when it is told.
 	// HandshakeDueAt is when it became owed — the import's time (migration 0043) — so the
 	// campaign of a leaf requested before the import does not spend it; an import sets it, and
@@ -256,7 +256,7 @@ type Message struct {
 	Status     string
 	CreatedAt  int64
 	// ExpiresAt is when outbound retries stop (SPEC §7.1). 0 = unset, which the
-	// sweeper reads as created_at + 24h, PACT §7's default.
+	// sweeper reads as created_at + 24h, HDTP §7's default.
 	ExpiresAt int64
 	// Attempts and NextAttemptAt are the outbound retry schedule (SPEC §7.1).
 	// Backoff is a function of attempts MADE, so it has to survive the sweep
@@ -266,7 +266,7 @@ type Message struct {
 	NextAttemptAt int64
 }
 
-// DefaultMessageExpiry is PACT §7's outbound deadline: retries stop after 24 hours.
+// DefaultMessageExpiry is HDTP §7's outbound deadline: retries stop after 24 hours.
 const DefaultMessageExpiry = 24 * time.Hour
 
 // Deadline is when the retry sweep gives an outbound message up (unix seconds): its own expiry, or
@@ -348,7 +348,7 @@ type AuditAnchorRow struct {
 
 // UndatedIdempotencyWindow is how long an idempotency record written without an expiry is kept:
 // a `book_slot` replay's (SPEC §11). An envelope's record carries its own, the end of the window
-// it can be accepted in (PACT §13.3; public.replayWindowEnd).
+// it can be accepted in (HDTP §13.3; public.replayWindowEnd).
 const UndatedIdempotencyWindow = 30 * 24 * time.Hour
 
 // AuditPage bounds one read of the trail. Both filters are optional and empty
@@ -465,7 +465,7 @@ type Lifecycle interface {
 	Atomically(ctx context.Context, fn func(tx Store) error) error
 
 	// Scrub makes what this store has deleted unreadable from its own files, where the engine can:
-	// a leaf's key is destroyed, not only deleted (PACT §9, SPEC §3.9). SQLite can, and does; on
+	// a leaf's key is destroyed, not only deleted (HDTP §9, SPEC §3.9). SQLite can, and does; on
 	// Postgres it is a no-op, the divergence SPEC §3.9 names. It runs outside any transaction, after
 	// a leave, a retirement, an install and a replaced request.
 	Scrub(ctx context.Context) error
@@ -512,8 +512,8 @@ type OwnerStore interface {
 	RemoveMembership(ctx context.Context, ownerID, accountID string) error
 }
 
-// AccountStore holds the identities this node answers for: the account rows, their keys, the PACT
-// 2.0 root and leaf ledger, and a move's campaign (SPEC §3, PACT §5.3, §9).
+// AccountStore holds the identities this node answers for: the account rows, their keys, the HDTP
+// 2.0 root and leaf ledger, and a move's campaign (SPEC §3, HDTP §5.3, §9).
 type AccountStore interface {
 	CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error)
 
@@ -530,7 +530,7 @@ type AccountStore interface {
 	UpsertMoveFanout(ctx context.Context, f MoveFanout) error
 	ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error)
 
-	// PACT 2.0 (migration 0027): the account's root and leaf ledger. The same migration's 2.0
+	// HDTP 1.0 (migration 0027): the account's root and leaf ledger. The same migration's 2.0
 	// pins, removal tombstones, former endpoints and pending addresses are ContactStore's.
 	SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error
 	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
@@ -542,7 +542,7 @@ type AccountStore interface {
 
 	// ListKidsExcept is every leaf kid on this node that belongs to some OTHER
 	// account. One inbound envelope needs it to tell a kid held for a sibling
-	// identity from one this endpoint never held (PACT §13.3, §14.4), and it is
+	// identity from one this endpoint never held (HDTP §13.3, §14.4), and it is
 	// one query rather than one per sibling: the per-account form made the cost
 	// of every message grow with the number of identities the node hosts.
 	ListKidsExcept(ctx context.Context, accountID string) ([]string, error)
@@ -556,14 +556,14 @@ type AccountStore interface {
 	// wait until this one ends: a signing request replacing the pending one is one step, never
 	// two interleaved (migration 0044). SQLite's transactions are already one at a time.
 	LockAccount(ctx context.Context, accountID string) error
-	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (PACT §9.1,
+	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (HDTP §9.1,
 	// migration 0041): the state's hash goes on with the request and comes off, in one statement
 	// that also checks it, when an answer carrying it is installed. That statement keeps it as the
 	// leaf's AnsweredStateHash (migration 0051).
 	SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error
 	ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error)
 
-	// An identity leaving this host (PACT §9, identity.Manager.Leave). DeleteAccount deletes the
+	// An identity leaving this host (HDTP §9, identity.Manager.Leave). DeleteAccount deletes the
 	// account row and, by ON DELETE CASCADE, every row that names it by a foreign key;
 	// DeleteTokensByAccount, DeleteIdempotencyByAccount and DeleteChangesByAccount are the tables
 	// that name it without one.
@@ -616,7 +616,7 @@ type SettingStore interface {
 
 // ContactStore holds an account's contacts: the relationship, the pin, the grant both ways, and
 // what a move leaves behind (tombstones, former endpoints, addresses waiting for the owner) (SPEC
-// §9, PACT §5.3, §14.3).
+// §9, HDTP §5.3, §14.3).
 type ContactStore interface {
 	// SetContactPetname sets the owner's local name for a contact; "" clears it.
 	SetContactPetname(ctx context.Context, accountID, fingerprint, petname string) error
@@ -637,7 +637,7 @@ type ContactStore interface {
 	RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, now int64) error
 
 	// SetContactRootCert fills a pin's root certificate when it has none, and
-	// leaves an existing one alone: the root of a pin cannot change (PACT sec. 14.3).
+	// leaves an existing one alone: the root of a pin cannot change (HDTP sec. 14.3).
 	SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error
 	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
 	ClearChainSentKids(ctx context.Context, accountID string) error
@@ -680,7 +680,7 @@ type ContactStore interface {
 
 	// MarkContactRequested makes a contact of status `from` an approach of ours (pending_out)
 	// requested at `at`, and leaves EverActive as it was: the handshake's fallback to
-	// request_contact, written before the request is sent (PACT §9.2). False when the row changed.
+	// request_contact, written before the request is sent (HDTP §9.2). False when the row changed.
 	MarkContactRequested(ctx context.Context, accountID, fingerprint, from string, at int64) (bool, error)
 	// TakeBackContactRequest returns a row MarkContactRequested marked at `markedAt` to status
 	// `to` and request clock `requestedAt` (0 for none): a request that did not arrive, or was
@@ -696,7 +696,7 @@ type ContactStore interface {
 	DeleteExpiredPendingContacts(ctx context.Context, accountID string, cutoff int64) ([]ExpiredContact, error)
 
 	// SetContactAccepted records a peer's post-approval card and the permissions
-	// THEY granted US (PACT §6.2), and activates the relationship.
+	// THEY granted US (HDTP §6.2), and activates the relationship.
 	SetContactAccepted(ctx context.Context, accountID, fingerprint, card string, theirPermissions []string, now int64) error
 
 	// DeleteContact removes the row entirely (SPEC §9.1 `--> none`): the pin

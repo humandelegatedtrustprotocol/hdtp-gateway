@@ -1,11 +1,11 @@
 # Demo: crossing NAT — two ways a node behind a router stays reachable
 
-A home machine has no public IP and no port you can forward. PACT does not care where a
+A home machine has no public IP and no port you can forward. HDTP does not care where a
 node lives, only that a caller can open a TLS session to it — so there are two shapes of
 answer, and this walks both on real infrastructure. (There was a third, a store-and-forward
-relay for a node that is often off. The relay role went with PACT 1.x: it would see every
+relay for a node that is often off. The relay role went with pre-HDTP 1.x: it would see every
 sender, recipient and timestamp for its trouble, and what 2.x makes safe instead is being
-hosted — PACT §9.)
+hosted — HDTP §9.)
 
 The automated half runs in `make check`:
 `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored` drives a sealed call through a
@@ -40,26 +40,26 @@ Full setup, limits and the tailnet prerequisites are in
 ```
 
 ```
-pact-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
-PACT_TUNNEL_HOSTNAME=pact PACT_TUNNEL_AUTH_KEY=tskey-… pact-gateway serve
+hdtp-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
+HDTP_TUNNEL_HOSTNAME=hdtp HDTP_TUNNEL_AUTH_KEY=tskey-… hdtp-gateway serve
 ```
 
 Adapter settings come from the portal (*Settings → Adapter credentials*) or
-from the environment with a `PACT_TUNNEL_` prefix: `PACT_TUNNEL_AUTH_KEY`
+from the environment with a `HDTP_TUNNEL_` prefix: `HDTP_TUNNEL_AUTH_KEY`
 reaches the adapter as `auth_key`. The startup banner
 names the derived mode:
 
 ```
-pact-gateway serving: data=./data internal=127.0.0.1:8080 public=127.0.0.1:8443 mode=direct tunnel=tailscale
-public:  https://pact.<tailnet>.ts.net
+hdtp-gateway serving: data=./data internal=127.0.0.1:8080 public=127.0.0.1:8443 mode=direct tunnel=tailscale
+public:  https://hdtp.<tailnet>.ts.net
 ```
 
 Confirm that **your node's own chain** answers, not a proxy's. The node does it the way a
 peer would — the chain served at the public URL, validated to your root at the address your
-leaf names (PACT §14.2):
+leaf names (HDTP §14.2):
 
 ```
-pact-gateway doctor
+hdtp-gateway doctor
 ```
 
 `ok probe … reachable` means TLS ran end to end and the leaf names this address. `wrong_cert
@@ -80,13 +80,13 @@ token.
 {
   "tunnel": "cloudflare",
   "public_bind": "127.0.0.1:8443",
-  "public_url": "https://pact.example.com"
+  "public_url": "https://hdtp.example.com"
 }
 ```
 
 ```
-pact-limitd -config limits.json &   # the limits sidecar, as above
-TUNNEL_TOKEN=eyJ… PACT_TUNNEL_HOSTNAME=pact.example.com pact-gateway serve
+hdtp-limitd -config limits.json &   # the limits sidecar, as above
+TUNNEL_TOKEN=eyJ… HDTP_TUNNEL_HOSTNAME=hdtp.example.com hdtp-gateway serve
 ```
 
 If `cloudflared` is on `PATH` the node supervises it as a child; if not, it
@@ -106,7 +106,7 @@ services:
 Verify the derived posture and the refusals:
 
 ```
-pact-gateway doctor
+hdtp-gateway doctor
 ```
 
 Expect `ok tunnel cloudflare (mode edge, seal required, client_cert off)`. Then,
@@ -125,5 +125,5 @@ No certificate can arrive, so the knob would refuse every call.
 Replace the placeholder above with the date, and note for each path:
 
 - the public URL that answered and, for path A, `doctor`'s probe line;
-- `pact-gateway doctor`'s tunnel line verbatim;
+- `hdtp-gateway doctor`'s tunnel line verbatim;
 - for path B, the `identity_required` refusal you got for an unsealed call.

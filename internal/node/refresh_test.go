@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // verifyRefreshedCard is the whole trust decision of a card refresh: a re-fetched card must
@@ -26,8 +26,8 @@ func TestVerifyRefreshedCard(t *testing.T) {
 	h := w.Issue(t, "https://p.example/mcp")
 	card := h.Card("Peer", "required")
 	now := time.Now()
-	sign := func(key *pactidentity.PrivateKey, text string) string {
-		sig, err := pactidentity.SignDetached(key, []byte(text))
+	sign := func(key *hdtpidentity.PrivateKey, text string) string {
+		sig, err := hdtpidentity.SignDetached(key, []byte(text))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +63,7 @@ func TestVerifyRefreshedCard(t *testing.T) {
 		t.Fatal("a foreign signature verified")
 	}
 
-	// No chain, no refresh. PACT §6.1: `get_card` answers "always the chain". This used to fall
+	// No chain, no refresh. HDTP §6.1: `get_card` answers "always the chain". This used to fall
 	// back to the pinned leaf's key when the answer carried none, which made the chain something
 	// the ANSWERER could leave out — and with it the two checks that make a refresh safe to act
 	// on, the root and the address. Whoever answers at the pinned endpoint chooses what is in the
@@ -99,7 +99,7 @@ func TestVerifyRefreshedCard(t *testing.T) {
 // pinned key" and was audited as though the endpoint were compromised. The rule being
 // enforced ("key changes go through update_contact") is the key-pinned generation's, where
 // a successor had to be signed by its predecessor. Under 2.0 the root's signature is the
-// authorization: PACT §2, "because the endpoint is unchanged it needs no one's approval to
+// authorization: HDTP §2, "because the endpoint is unchanged it needs no one's approval to
 // accept it."
 //
 // The other half of this test is the reason the fix is not one line: a chain that validates
@@ -109,8 +109,8 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	w := testid.NewWallet(t, "Peer")
 	h := w.Issue(t, "https://p.example/mcp")
 	now := time.Now()
-	sign := func(key *pactidentity.PrivateKey, text string) string {
-		sig, err := pactidentity.SignDetached(key, []byte(text))
+	sign := func(key *hdtpidentity.PrivateKey, text string) string {
+		sig, err := hdtpidentity.SignDetached(key, []byte(text))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -121,11 +121,11 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 		Endpoint: h.Endpoint, Leaf: h.LeafDER,
 	}
 	// A renewal: the same root, the same address, a fresh key, a later notBefore.
-	fresh, err := pactidentity.GenerateKey("p256")
+	fresh, err := hdtpidentity.GenerateKey("p256")
 	if err != nil {
 		t.Fatal(err)
 	}
-	renewLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	renewLeaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{h.Endpoint}, NotBefore: now.Add(time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
@@ -164,7 +164,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 
 	// The SAME chain at another address: valid, signed by the pinned root, and refused,
 	// because where a contact answers is §5.3's decision and not a refresh's.
-	elsewhereLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	elsewhereLeaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{"https://moved.example/mcp"}, NotBefore: now.Add(time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
@@ -178,7 +178,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	}
 
 	// An OLDER leaf proves nothing (§14.3), even under the right root at the right address.
-	oldLeaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	oldLeaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: fresh.Public(),
 		URIs: []string{h.Endpoint}, NotBefore: now.Add(-48 * time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
@@ -193,7 +193,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 }
 
 // fillRootCert is how a pin made over a SEALED call gets the certificate of the root
-// it names (F11). The chain travels once (PACT §13.2) and a sealed sender's chain is
+// it names (F11). The chain travels once (HDTP §13.2) and a sealed sender's chain is
 // inside the ciphertext, so the pin kept a fingerprint; behind an edge no client
 // certificate ever arrives to fill it either. `get_card` has carried the peer's
 // [leaf, root] in its sealed answer all along and nothing read it.

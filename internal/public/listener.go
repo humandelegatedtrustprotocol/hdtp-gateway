@@ -1,4 +1,4 @@
-// Package public implements the PACT-facing surface (SPEC §5): the TLS listener,
+// Package public implements the HDTP-facing surface (SPEC §5): the TLS listener,
 // transport-fact extraction, and the route shell. Tiering, per-caller servers, and
 // dispatch land in later tasks; this file owns everything at and below the connection.
 package public
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // TransportFacts is what the transport layer proved about a request (SPEC §5.1).
@@ -32,7 +32,7 @@ type TransportFacts struct {
 	// never a generic forwarded-for header (SPEC §5.7). Guest budgets key on it.
 	RemoteIP string
 	SrcAddr  string
-	// PACT 2.0 (PACT §2, §14.2): a client that presented a chain — a leaf and
+	// HDTP 1.0 (HDTP §2, §14.2): a client that presented a chain — a leaf and
 	// the root that issued it — that validated. ClientCertFingerprint is then
 	// the ROOT's, ClientCertSPKI the leaf's key, ClientLeaf the leaf, and
 	// ClientEndpoint the one address it names. That chain is the ONLY thing
@@ -48,7 +48,7 @@ type TransportFacts struct {
 }
 
 // ChainProven reports whether this connection's client presented a chain that validated — the
-// only thing that establishes an identity at the transport (PACT §2, §14.2). The fields above
+// only thing that establishes an identity at the transport (HDTP §2, §14.2). The fields above
 // are filled together by that one event or not at all, so the leaf's presence is the fact; a
 // `ClientProtocol` field used to sit beside them saying 2 exactly when it was there.
 func (f TransportFacts) ChainProven() bool { return len(f.ClientLeaf) > 0 }
@@ -90,7 +90,7 @@ type Server struct {
 
 	// ProxyAddress is the IP of the proxy in front of this listener (core.Config.ProxyAddress,
 	// deploy/envoy): a request whose connection comes from it carries the caller's certificate
-	// chain in X-Forwarded-Client-Cert and the caller's address in X-Pact-Client-Address, and is
+	// chain in X-Forwarded-Client-Cert and the caller's address in X-HDTP-Client-Address, and is
 	// judged by them; from any other source both headers are ignored. "" is no proxy.
 	ProxyAddress string
 
@@ -187,9 +187,9 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 		// only while the identity IS a key; under 2.0 the identity is the root,
 		// a lone certificate names no root, and anyone can mint one in a second.
 		// Reading it as identity made `client_cert: required` — the "who may
-		// knock at all" posture of PACT §13.4 — satisfiable by any self-signed
+		// knock at all" posture of HDTP §13.4 — satisfiable by any self-signed
 		// certificate, gave a caller a fresh guest budget per certificate, and
-		// gave PACT §2's "both proofs present, their leaf keys MUST match" an
+		// gave HDTP §2's "both proofs present, their leaf keys MUST match" an
 		// unproven key to compare a proven one against.
 		var chain [][]byte
 		switch {
@@ -201,7 +201,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			chain = [][]byte{r.TLS.PeerCertificates[0].Raw, r.TLS.PeerCertificates[1].Raw}
 		}
 		if len(chain) == 2 {
-			if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: s.now()}); vr.OK {
+			if vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: s.now()}); vr.OK {
 				f.ClientCertFingerprint, f.ClientCertSPKI = vr.RootFingerprint, vr.LeafKey.SPKI
 				f.ClientLeaf, f.ClientEndpoint = chain[0], vr.Endpoint
 				f.ClientRoot = chain[1]
@@ -220,7 +220,7 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 // caller as internal (internal_address_config), which is a deployment's setting, not this node's.
 const (
 	ProxyCertHeader    = "X-Forwarded-Client-Cert"
-	ProxyAddressHeader = "X-Pact-Client-Address"
+	ProxyAddressHeader = "X-HDTP-Client-Address"
 )
 
 // fromProxy reports whether r's connection comes from the configured proxy.
@@ -305,7 +305,7 @@ func (s *Server) WithFactsForTest(next http.Handler) http.Handler { return s.wit
 
 // TLSConfig: RequestClientCert — never Require, never chain-verify. Unknown and
 // absent certificates MUST complete the handshake; identity decisions happen above
-// the transport (PACT §2, SPEC §5.1).
+// the transport (HDTP §2, SPEC §5.1).
 func (s *Server) TLSConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS12,

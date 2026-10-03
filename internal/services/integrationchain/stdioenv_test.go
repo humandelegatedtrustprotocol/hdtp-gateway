@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // `StdioConfigFor` had ZERO production callers — only stdio_test.go set it — so
@@ -63,7 +63,7 @@ func TestStdioChildGetsItsConfiguredEnvironment(t *testing.T) {
 // The allow-list is still an allow-list: an owner-set PATH wins, and nothing
 // else from this process's environment is passed through.
 func TestStdioEnvIsAnAllowListNotAnInheritance(t *testing.T) {
-	t.Setenv("PACT_SHOULD_NOT_LEAK", "leaked")
+	t.Setenv("HDTP_SHOULD_NOT_LEAK", "leaked")
 	values := func(context.Context) (map[string]string, error) {
 		return map[string]string{"integration.cal.env.PATH": "/opt/custom/bin"}, nil
 	}
@@ -71,7 +71,7 @@ func TestStdioEnvIsAnAllowListNotAnInheritance(t *testing.T) {
 	if env["PATH"] != "/opt/custom/bin" {
 		t.Errorf("an owner-set PATH did not win: %q", env["PATH"])
 	}
-	if _, ok := env["PACT_SHOULD_NOT_LEAK"]; ok {
+	if _, ok := env["HDTP_SHOULD_NOT_LEAK"]; ok {
 		t.Error("the child inherited this process's environment; the allow-list is gone")
 	}
 	if len(env) > 3 { // PATH + HOME at most, plus nothing else

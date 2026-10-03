@@ -69,7 +69,7 @@ export function Owners() {
           <HelpTip label="About passkeys and recovery">
             Every bind requires a session, loopback included. There is deliberately no online recovery path,
             and the last passkey cannot be removed here. If you lose them all, recovery needs shell access on
-            the host — <code>pact-gateway passkey reset-wizard</code> mints a one-time link that re-opens registration.
+            the host — <code>hdtp-gateway passkey reset-wizard</code> mints a one-time link that re-opens registration.
           </HelpTip>
         </>}>
         {passkeys.length === 0 ? <EmptyState title="No passkeys" /> : (

@@ -18,16 +18,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 type fakeCalendar struct {
@@ -93,7 +93,7 @@ func newToolEnv(t *testing.T) *toolEnv {
 	}
 	e := &toolEnv{t: t, st: st, acct: acct, kp: kp, cal: &fakeCalendar{}, status: &fakeStatus{s: "available"}}
 	// The card AND the chain that proves it, from one wallet: `redeem_invite` and `get_card` both
-	// answer with the chain (PACT §6.1). This fixture used to wire a `spki` and no chain at all,
+	// answer with the chain (HDTP §6.1). This fixture used to wire a `spki` and no chain at all,
 	// and every test of those two results passed against an answer no caller could have verified.
 	card, _, host := testid.Card(t, "Me", "https://me.example/a/me/mcp", "")
 	// This host's limits sidecar, as the node wires it: the pending-request cap, and get_card's
@@ -190,14 +190,14 @@ func (e *toolEnv) call(fpr, tool string, args map[string]any, spki []byte) (*mcp
 }
 
 // callAs is call with a proven 2.0 identity: `guest` is the peer whose chain the
-// caller presented, which is what the guest tools pin (PACT §14.2 rule 6). A bare
+// caller presented, which is what the guest tools pin (HDTP §14.2 rule 6). A bare
 // key proves nothing now, so a guest tool reached without one answers
 // identity_required — which is why every guest-tier test here has to bring a peer.
 func (e *toolEnv) callAs(guest *testid.Host, fpr, tool string, args map[string]any, spki []byte) (*mcp.CallToolResult, error) {
 	e.t.Helper()
 	ctx := context.Background()
 	if spki != nil {
-		ctx = WithFacts(ctx, TransportFacts{ClientCertSPKI: spki, ClientCertFingerprint: pactidentity.Fingerprint(spki)})
+		ctx = WithFacts(ctx, TransportFacts{ClientCertSPKI: spki, ClientCertFingerprint: hdtpidentity.Fingerprint(spki)})
 	}
 	if guest != nil {
 		ctx = WithEnvelopeFacts(ctx, &EnvelopeFacts{
@@ -400,7 +400,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if out.Status != "accepted" || out.Card == "" {
 		t.Fatalf("redeem result: %+v", out)
 	}
-	// PACT §6.1: `redeem_invite` answers with the issuer's signed card AND its chain, so the
+	// HDTP §6.1: `redeem_invite` answers with the issuer's signed card AND its chain, so the
 	// redeemer pins a root it can verify. This asserted a `spki` member instead — 1.2's key beside
 	// the card — and the result carried no chain at all, which no test noticed because the
 	// fixture never wired one.
@@ -412,7 +412,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 		t.Fatalf("the card it returned does not validate: %v", err)
 	}
 	chain := [][]byte{testid.DER(t, out.Chain[0]), testid.DER(t, out.Chain[1])}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issued.Key, ExpectedEndpoint: issued.Endpoint})
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issued.Key, ExpectedEndpoint: issued.Endpoint})
 	if !vr.OK {
 		t.Fatalf("the chain it returned fails rule %d: %s", vr.Rule, vr.Reason)
 	}
@@ -420,7 +420,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 		t.Fatal("the chain's leaf is not the certificate on the card it came with")
 	}
 	if strings.Contains(body(t, res), `"spki"`) {
-		t.Fatal("the result still carries `spki`, a member PACT §6.1 does not define")
+		t.Fatal("the result still carries `spki`, a member HDTP §6.1 does not define")
 	}
 	// the contact is pinned with the FULL proven key, not just its hash
 	c, err := e.st.GetContact(ctx, e.acct.ID, peerHost.RootFpr)
@@ -434,7 +434,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if !dropped {
 		t.Fatalf("pool not invalidated: %v", e.drops)
 	}
-	// a second redemption of a one-time token fails with the PACT code
+	// a second redemption of a one-time token fails with the HDTP code
 	res, _ = e.callAs(peerHost, "", "redeem_invite", map[string]any{"token": token, "card": peerCard}, peerSPKI)
 	if !res.IsError || !strings.Contains(body(t, res), "invite_invalid") {
 		t.Fatalf("token reuse: %s", body(t, res))
@@ -446,7 +446,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	}
 }
 
-// AC: calendar tools speak PACT's vocabulary and the ≤5-slot cap holds.
+// AC: calendar tools speak HDTP's vocabulary and the ≤5-slot cap holds.
 func TestCalendarToolsRespectSlotCapAndBookIdempotently(t *testing.T) {
 	e := newToolEnv(t)
 	base := time.Now().UTC().Truncate(time.Hour)
@@ -543,7 +543,7 @@ func TestUnconfiguredCapabilityIsUnavailable(t *testing.T) {
 	}
 	defer cs.Close()
 	// The tools are still listed (the switchboard grants them) but answer
-	// `unavailable` — the PACT code for a capability an implementation is
+	// `unavailable` — the HDTP code for a capability an implementation is
 	// currently withholding.
 	for _, tool := range []string{"book_slot", "get_status", "send_media"} {
 		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: map[string]any{"msg_id": "x"}})
@@ -647,7 +647,7 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 	}
 }
 
-// AC (P9-04): PACT §12 names `blocked_or_unknown` as the guest-tier catch-all,
+// AC (P9-04): HDTP §12 names `blocked_or_unknown` as the guest-tier catch-all,
 // and it was specified everywhere and emitted nowhere — a guest got
 // `permission_denied` on the sealed path and the SDK's own unknown-tool error
 // on the plaintext one. The two paths must agree, and at guest tier the answer
@@ -778,7 +778,7 @@ func TestAuditOutcomesAreSingleVerdicts(t *testing.T) {
 	}
 }
 
-// PACT §6.2: get_status answers from a fixed four-value vocabulary, and an
+// HDTP §6.2: get_status answers from a fixed four-value vocabulary, and an
 // upstream presence source that knows richer states maps them to busy — at the
 // wire, so every StatusSource implementation is covered by the one clamp.
 func TestGetStatusClampsToTheSpecVocabulary(t *testing.T) {
@@ -799,7 +799,7 @@ func TestGetStatusClampsToTheSpecVocabulary(t *testing.T) {
 	}
 }
 
-// PACT §12: the limits in force are advertised on get_card — a peer discovers
+// HDTP §12: the limits in force are advertised on get_card — a peer discovers
 // an operator-tuned budget from the card, not from rate_limited.
 func TestGetCardAdvertisesTheLimitsInForce(t *testing.T) {
 	e := newToolEnv(t)
@@ -842,12 +842,12 @@ func TestGetCardAdvertisesTheLimitsInForce(t *testing.T) {
 		t.Fatalf("get_card with the sidecar down: %v %s, want unavailable", err, body(t, res))
 	}
 	if strings.Contains(body(t, res), "contact_calls_per_hour") {
-		t.Fatalf("the hourly contact budget is gone from PACT §12 and is still advertised: %s", body(t, res))
+		t.Fatalf("the hourly contact budget is gone from HDTP §12 and is still advertised: %s", body(t, res))
 	}
 }
 
 // A blocked root holding a live link of ours reads it exactly as a stranger holding the same
-// link does (PACT §12, review N-08 / P-22). It used to spend a use, fail the insert and answer
+// link does (HDTP §12, review N-08 / P-22). It used to spend a use, fail the insert and answer
 // `invite_invalid` — which told the caller it was known here, and cost the owner the use.
 func TestRedeemByABlockedRootReadsAsAStrangersRedemption(t *testing.T) {
 	ctx := context.Background()

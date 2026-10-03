@@ -1,16 +1,16 @@
-// Package testid builds real PACT 2.0 identities for tests: a person's root, the
+// Package testid builds real HDTP 1.0 identities for tests: a person's root, the
 // leaf it issues to a host, and the card that carries that leaf.
 //
-// It exists because PACT 1.x is gone. A test used to reach a peer's card in one
+// It exists because pre-HDTP 1.x is gone. A test used to reach a peer's card in one
 // line — `contacts.BuildCard(contacts.Card{Key: fpr, Endpoint: url})` — because a
 // 1.x card was just a key and an address spelled out as properties. A 2.0 card IS
-// a certificate (PACT §3), so the same line now needs a root, a host key, a leaf
+// a certificate (HDTP §3), so the same line now needs a root, a host key, a leaf
 // naming the endpoint, and a signature over the chain. Nine test files across six
 // packages needed that, which is how a suite starts growing six slightly different
 // wallets, so there is one here.
 //
 // Nothing in it is a shape invented for tests: every certificate comes from
-// pact-identity's own builders, the same ones the wallet and the node use, so a
+// hdtp-identity's own builders, the same ones the wallet and the node use, so a
 // test that passes here passed against the real certificate profile.
 //
 // The parameter is `testing.TB`, not `*testing.T`, so a fuzz target can build a real identity for
@@ -22,48 +22,48 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// Wallet is the person's side of PACT §9: a root key, and the certificate for it.
+// Wallet is the person's side of HDTP §9: a root key, and the certificate for it.
 type Wallet struct {
 	CN      string
-	Key     *pactidentity.PrivateKey
+	Key     *hdtpidentity.PrivateKey
 	RootDER []byte
-	// Fpr is the root fingerprint — the identity's name everywhere (PACT §2).
+	// Fpr is the root fingerprint — the identity's name everywhere (HDTP §2).
 	Fpr string
 }
 
 // NewWallet makes a person's root. Ed25519 by default, which is what a derived
-// root is (PACT §2.1); pass "p256" for the other curve.
+// root is (HDTP §2.1); pass "p256" for the other curve.
 func NewWallet(t testing.TB, cn string, alg ...string) *Wallet {
 	t.Helper()
 	a := "ed25519"
 	if len(alg) > 0 && alg[0] != "" {
 		a = alg[0]
 	}
-	key, err := pactidentity.GenerateKey(a)
+	key, err := hdtpidentity.GenerateKey(a)
 	if err != nil {
 		t.Fatalf("testid: root key: %v", err)
 	}
-	root, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+	root, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{
 		CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("testid: root certificate: %v", err)
 	}
-	return &Wallet{CN: cn, Key: key, RootDER: root, Fpr: pactidentity.Fingerprint(key.Public().SPKI)}
+	return &Wallet{CN: cn, Key: key, RootDER: root, Fpr: hdtpidentity.Fingerprint(key.Public().SPKI)}
 }
 
 // Host is a host the root has issued to: its own key, its leaf, and the chain.
 type Host struct {
-	Key      *pactidentity.PrivateKey
+	Key      *hdtpidentity.PrivateKey
 	LeafDER  []byte
-	Chain    [][]byte // leaf then root, as PACT §14.2 requires
+	Chain    [][]byte // leaf then root, as HDTP §14.2 requires
 	Endpoint string
 	// Kid is the leaf key's fingerprint — what a peer names in an envelope's `kid`.
 	Kid string
-	// RootFpr is the identity this host serves under: what a contact pins (PACT §2).
+	// RootFpr is the identity this host serves under: what a contact pins (HDTP §2).
 	RootFpr string
 }
 
@@ -74,12 +74,12 @@ func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 	if len(alg) > 0 && alg[0] != "" {
 		a = alg[0]
 	}
-	hostKey, err := pactidentity.GenerateKey(a)
+	hostKey, err := hdtpidentity.GenerateKey(a)
 	if err != nil {
 		t.Fatalf("testid: host key: %v", err)
 	}
 	now := time.Now()
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: hostKey.Public(),
 		URIs: []string{endpoint}, NotBefore: now.Add(-time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
@@ -88,13 +88,13 @@ func (w *Wallet) Issue(t testing.TB, endpoint string, alg ...string) *Host {
 	}
 	return &Host{
 		Key: hostKey, LeafDER: leaf, Chain: [][]byte{leaf, w.RootDER},
-		Endpoint: endpoint, Kid: pactidentity.Fingerprint(hostKey.Public().SPKI), RootFpr: w.Fpr,
+		Endpoint: endpoint, Kid: hdtpidentity.Fingerprint(hostKey.Public().SPKI), RootFpr: w.Fpr,
 	}
 }
 
-// Card renders the host's card (PACT §3): the leaf, the version, the seal.
+// Card renders the host's card (HDTP §3): the leaf, the version, the seal.
 func (h *Host) Card(fn, seal string) string {
-	card, err := pactidentity.EncodeCard(fn, h.LeafDER, seal, nil)
+	card, err := hdtpidentity.EncodeCard(fn, h.LeafDER, seal, nil)
 	if err != nil {
 		panic("testid: " + err.Error()) // a test's own name, which carries no control character
 	}
@@ -122,12 +122,12 @@ func CardFor(t testing.TB, fn, endpoint string) string {
 // ordinary order: `account create` then `account csr` then `install-leaf`.
 func (w *Wallet) IssueOver(t testing.TB, endpoint string, hostSPKI []byte) *Host {
 	t.Helper()
-	pub, err := pactidentity.ParseSPKI(hostSPKI)
+	pub, err := hdtpidentity.ParseSPKI(hostSPKI)
 	if err != nil {
 		t.Fatalf("testid: host key: %v", err)
 	}
 	now := time.Now()
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: w.CN, RootCN: w.CN, RootKey: w.Key, HostPub: pub,
 		URIs: []string{endpoint}, NotBefore: now.Add(-time.Hour), NotAfter: now.AddDate(1, 0, 0),
 	})
@@ -136,15 +136,15 @@ func (w *Wallet) IssueOver(t testing.TB, endpoint string, hostSPKI []byte) *Host
 	}
 	return &Host{
 		LeafDER: leaf, Chain: [][]byte{leaf, w.RootDER}, Endpoint: endpoint,
-		Kid: pactidentity.Fingerprint(hostSPKI), RootFpr: w.Fpr,
+		Kid: hdtpidentity.Fingerprint(hostSPKI), RootFpr: w.Fpr,
 	}
 }
 
 // DER is the bytes a base64url string carries, read by the rule the identity core reads them with
-// (pact-identity's DecodeB64url); a test that hands it a string that does not read fails there.
+// (hdtp-identity's DecodeB64url); a test that hands it a string that does not read fails there.
 func DER(t testing.TB, s string) []byte {
 	t.Helper()
-	b, err := pactidentity.DecodeB64url(s)
+	b, err := hdtpidentity.DecodeB64url(s)
 	if err != nil {
 		t.Fatalf("not base64url: %q", s)
 	}

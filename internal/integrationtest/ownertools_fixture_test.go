@@ -15,7 +15,7 @@ import (
 )
 
 // The cloud holds itself to this node's owner MCP: every tool here is exactly one action there
-// (`pact-cloud/gateway/test/mcp-owner.test.ts`, "parity with the Go node"). What it compares
+// (`batondeck/gateway/test/mcp-owner.test.ts`, "parity with the Go node"). What it compares
 // against is a JSON list of this node's tool names, and that list was a copy somebody typed. It
 // had no `identity_certificate`, which this node has served since 2.0, and it would have kept a
 // tool this node removed for as long as nobody looked — the parity test was green throughout,
@@ -26,10 +26,10 @@ import (
 // of them are registered with `Name:` on its own line, which is how a pattern missed them once.
 func TestTheCloudsCopyOfTheOwnerToolsIsCurrent(t *testing.T) {
 	root := repoRoot(t)
-	fixture := filepath.Join(root, "..", "pact-cloud", "gateway", "test", "fixtures", "go-owner-tools.json")
+	fixture := filepath.Join(root, "..", "batondeck", "gateway", "test", "fixtures", "go-owner-tools.json")
 	raw, err := os.ReadFile(fixture)
 	if err != nil {
-		t.Skipf("SKIPPED, and so the cloud's copy is unchecked: no pact-cloud beside this repo (%v)", err)
+		t.Skipf("SKIPPED, and so the cloud's copy is unchecked: no batondeck beside this repo (%v)", err)
 	}
 	var doc struct {
 		Tools []string `json:"tools"`
@@ -90,7 +90,7 @@ func TestTheCloudsCopyOfTheOwnerToolsIsCurrent(t *testing.T) {
 	got := append([]string(nil), doc.Tools...)
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("pact-cloud/gateway/test/fixtures/go-owner-tools.json is not this node's owner tools.\n  the fixture: %v\n  this node:   %v\n"+
+		t.Fatalf("batondeck/gateway/test/fixtures/go-owner-tools.json is not this node's owner tools.\n  the fixture: %v\n  this node:   %v\n"+
 			"Change the fixture to match, and then the cloud's parity test will say what the cloud owes.", got, want)
 	}
 }

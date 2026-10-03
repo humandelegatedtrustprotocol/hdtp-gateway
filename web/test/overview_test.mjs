@@ -1,6 +1,6 @@
 // The node's overview, held to its source: each tile is one field of GET /api/dashboard
 // (internal/internalui/dashboard.go, whose Go test holds those fields to the store), and a certificate
-// is the reader's own flags. web/src/overview.ts is shared with PACT Cloud's overview.
+// is the reader's own flags. web/src/overview.ts is shared with BatonDeck's overview.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { certificateView, daysUntil, plural, shown, total } from "../src/overview.ts";

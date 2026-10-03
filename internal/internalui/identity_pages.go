@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // IdentityDeps is what the identity page needs.
@@ -29,7 +29,7 @@ type IdentityDeps struct {
 	// offering a button that cannot work.
 	Create func(ctx context.Context, slug, displayName, algo string) (store.Account, error)
 	Audit  func(action, resource, outcome string)
-	// Certificate reports an account's leaf (PACT §2): the root that is
+	// Certificate reports an account's leaf (HDTP §2): the root that is
 	// the identity, the endpoint, the dates, and whether renewal is due —
 	// the thirty-day prompt a host owes the person. nil hides the columns.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
@@ -134,8 +134,8 @@ func (d IdentityDeps) postIdentityCreate(render func(w http.ResponseWriter, r *h
 		}
 		d.audit("account_create", "account:"+a.ID+" slug:"+a.Slug, "ok")
 		// Not "servable now". It said that, and a new identity is not: it has a key and no
-		// certificate, and answers nobody until its wallet has signed one (PACT §2).
-		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is not served yet: run `pact-gateway account csr -slug "+a.Slug+
-			"`, have your wallet sign it, then `pact-gateway account install-leaf`. No restart is needed for either.", "")
+		// certificate, and answers nobody until its wallet has signed one (HDTP §2).
+		render(w, r, "Created "+a.DisplayName+" ("+a.Slug+"). It is not served yet: run `hdtp-gateway account csr -slug "+a.Slug+
+			"`, have your wallet sign it, then `hdtp-gateway account install-leaf`. No restart is needed for either.", "")
 	}
 }

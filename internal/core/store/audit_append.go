@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
 )
 
 // AuditAppender is a store seen as audit.Sink: the chain's writer seals an audit.Event on the head

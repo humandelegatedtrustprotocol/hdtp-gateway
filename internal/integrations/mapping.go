@@ -13,7 +13,7 @@ import (
 )
 
 // Recipe is one per-server map (SPEC §6.7): which upstream tools implement
-// which PACT capabilities, and how fields line up.
+// which HDTP capabilities, and how fields line up.
 type Recipe struct {
 	Name         string             `json:"name"`
 	Server       string             `json:"server"`
@@ -22,7 +22,7 @@ type Recipe struct {
 	Capabilities map[string]Binding `json:"capabilities"`
 }
 
-// Binding maps one PACT capability onto one upstream tool.
+// Binding maps one HDTP capability onto one upstream tool.
 type Binding struct {
 	Tool string `json:"tool"`
 	// Kind tells the provider which computation applies:

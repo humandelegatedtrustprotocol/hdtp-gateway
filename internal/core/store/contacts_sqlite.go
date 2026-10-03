@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
 func permsToJSON(perms []string) string {

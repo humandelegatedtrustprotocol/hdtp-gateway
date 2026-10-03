@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func TestSplitCommandTokenizesAndRefusesShell(t *testing.T) {
@@ -41,7 +41,7 @@ func TestBackoffLadder(t *testing.T) {
 // AC: env not in the allow-list never reaches the child — proven by running the
 // child itself as an env echo (/usr/bin/env prints exactly its environment).
 func TestChildEnvIsExactlyTheAllowList(t *testing.T) {
-	t.Setenv("PACT_NODE_SECRET", "must-not-leak")
+	t.Setenv("HDTP_NODE_SECRET", "must-not-leak")
 	sup := &Supervisor{Config: StdioConfig{
 		Command: "/usr/bin/env",
 		Env:     map[string]string{"FOO": "bar"},

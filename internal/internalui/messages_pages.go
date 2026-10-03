@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 // MessagesDeps is what the conversation view needs.
@@ -64,7 +64,7 @@ type convContact struct {
 type convMessage struct {
 	Mine bool   `json:"mine"` // right-hand side: we sent it
 	Body string `json:"body"`
-	Who  string `json:"who"` // agent | human, per PACT §6.2's mandatory labelling
+	Who  string `json:"who"` // agent | human, per HDTP §6.2's mandatory labelling
 	// TS is when it was written (unix seconds). The view says it (web/src/words.ts `when`): a time
 	// formatted here was the host's clock and the host's words, one format of five on the page.
 	TS int64 `json:"ts"`
@@ -104,18 +104,18 @@ func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
 }
 
 // ConversationsPage is how many conversations one answer of `GET /api/conversations` lists, most
-// recently active first: the page PACT Cloud's thread list answers by default (its
+// recently active first: the page BatonDeck's thread list answers by default (its
 // `GET /v1/identities/:slug/threads`, limit 50). A search narrows the list before it is cut, so a
 // conversation past the page is one search away; the selected one is always on it.
 const ConversationsPage = 50
 
 // UnreadCap is where a conversation's unread count stops, and the page's total too: past it the
-// row, or the sidebar's Inbox chip, says "50+". It is PACT
+// row, or the sidebar's Inbox chip, says "50+". It is HDTP
 // Cloud's BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
 // reads every row's count on every visit, which is why a count is bounded rather than exact.
 const UnreadCap = 50
 
-// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape PACT
+// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape HDTP
 // Cloud's GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
 // `count`.
 type tally struct {
@@ -140,7 +140,7 @@ func unreadWith(ctx context.Context, st store.MessageStore, account, fpr string)
 //
 // It answers one page of conversations (ConversationsPage), each with its unread count, and
 // `unread`, the page's total, for the sidebar's Inbox chip. The total is the sum of the page's
-// counts, stopped at UnreadCap as PACT Cloud's Inbox chip is: past it, or when a row stopped at
+// counts, stopped at UnreadCap as BatonDeck's Inbox chip is: past it, or when a row stopped at
 // its cap, it is `{count: 50, capped: true}`, "50+". Under it, it is exact, or `capped` (a floor,
 // "N+") when a conversation past the page holds an unread message too. `more` says there are
 // conversations past the page. Reading this changes nothing: a conversation is marked read by
@@ -247,7 +247,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// The chip stops at the same cap as a row and as PACT Cloud's ("show 50+ if more than 50"). A row
+	// The chip stops at the same cap as a row and as BatonDeck's ("show 50+ if more than 50"). A row
 	// that stopped at the cap puts the sum at it or past it, so it lands here or is 50 capped already;
 	// a floor under the cap stays its sum: "50+" for two unread and one past the page would be false.
 	if total.Count > UnreadCap {
@@ -266,7 +266,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	var through int64
 	if chosen != nil {
 		// EVERY thread with this contact, merged in time order. A conversation
-		// is with a person, not with a thread id: PACT threads are a shared
+		// is with a person, not with a thread id: HDTP threads are a shared
 		// grouping a peer can start at will (§7), and reading only the newest
 		// showed a history one message long.
 		for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
@@ -294,7 +294,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		"contacts": people, "messages": msgs, "through": through,
 		"unread": total, "more": more,
 		// A fresh idempotency key per load: the send form posts it, so a
-		// double-submit acknowledges rather than re-sends (PACT §7).
+		// double-submit acknowledges rather than re-sends (HDTP §7).
 		"new_msg_id": newUIMsgID(),
 	})
 }
@@ -303,7 +303,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 // message `through` names (the `through` of the `GET /api/conversations` that showed it).
 //
 // The marker is the reader's own and never wire-visible (SPEC §7.6), so it writes no audit row,
-// as PACT Cloud's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
+// as BatonDeck's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
 // reading a conversation writes none here: the trail records what was said and done, not every
 // glance. It is a high-water mark, never lowered, so a repeat, or a stale mark arriving after a
 // newer one, changes nothing. A contact this identity does not hold as an active correspondent
@@ -355,7 +355,7 @@ func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 
 // postMessagesSendMedia serves `POST /messages/send_media`.
 //
-// A file from the composer. Multipart, capped at PACT §12's 5 MiB before the
+// A file from the composer. Multipart, capped at HDTP §12's 5 MiB before the
 // body is read in full; the MIME type is sniffed from the bytes rather than
 // trusted from the browser, and the filename is the browser's base name only.
 // Answers JSON: an upload is a fetch, not a form the page navigates with.
@@ -454,7 +454,7 @@ func (d MessagesDeps) postMessagesSend(w http.ResponseWriter, r *http.Request) {
 	in := messaging.Input{
 		ThreadID: latestThreadWith(r.Context(), d.Store, account, contact),
 		MsgID:    r.PostForm.Get("msg_id"), Text: text,
-		// The portal is a person typing (PACT §6.2's mandatory labelling);
+		// The portal is a person typing (HDTP §6.2's mandatory labelling);
 		// the owner MCP is what labels a message `agent`.
 		Origin: messaging.OriginPortal,
 	}
@@ -476,7 +476,7 @@ const presenceWindow = 5 * time.Minute
 // presenceOf answers "can I show whether they are around, and are they?"
 //
 // The permission comes first and is not ours to assume: `status.view` in what
-// THEY granted US (PACT §6.2). Without it there is nothing to show.
+// THEY granted US (HDTP §6.2). Without it there is nothing to show.
 //
 // With it, the signal is evidence rather than a guess — a message we delivered to
 // them, or one they sent us, is proof they were reachable at that moment. No

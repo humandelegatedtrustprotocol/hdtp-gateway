@@ -20,7 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // DefaultWithholdAfter matches SPEC §6.10: withhold after 5 consecutive failures.
@@ -250,7 +250,7 @@ func (m *Manager) newClient(in store.Integration) *mcp.Client {
 			},
 		}
 	}
-	return mcp.NewClient(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, opts)
+	return mcp.NewClient(&mcp.Implementation{Name: "hdtp-gateway", Version: "1"}, opts)
 }
 
 // StdioSupervisor returns (creating if needed) the restart supervisor for a

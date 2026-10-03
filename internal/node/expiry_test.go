@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 // "Until one date" has to be true of the KEY, not only of the certificate. A leaf that runs out

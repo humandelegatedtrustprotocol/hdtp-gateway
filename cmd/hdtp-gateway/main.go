@@ -1,11 +1,11 @@
-// Command pact-gateway is a self-hosted personal node for the PACT protocol.
+// Command hdtp-gateway is a self-hosted personal node for the HDTP protocol.
 // See SPEC.md for the product specification and PLAN.md for the build plan.
 package main
 
 import (
 	"os"
 
-	"github.com/pact-cloud/pact-gateway/internal/cli"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/cli"
 )
 
 // version is stamped by the release build via -ldflags; the default marks dev builds.

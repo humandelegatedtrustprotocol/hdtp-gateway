@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // Rejecting a request must reach the requester, and unblocking a rejected request must let them
@@ -32,11 +32,11 @@ func TestRejectingAContactReachesThePeerAndUnblockLetsThemAskAgain(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
+	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: map[string]string{"HDTP_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	bob, err := w.Node(ctx, NodeOpts{Slug: "bob", Net: net, Env: map[string]string{"PACT_SEAL": "optional"}})
+	bob, err := w.Node(ctx, NodeOpts{Slug: "bob", Net: net, Env: map[string]string{"HDTP_SEAL": "optional"}})
 	if err != nil {
 		t.Fatalf("bob: %v", err)
 	}

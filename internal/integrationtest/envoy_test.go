@@ -11,7 +11,7 @@ package integrationtest
 //   - every route is limited per source address, by a bucket of each address's own and no bucket
 //     the sources share, and the listener's connections to the node's own cap
 //     (public.DefaultMaxConns: two copies of one number);
-//   - a request is held to the node listener's own bounds (pactnode.Public*: the headers, the request,
+//   - a request is held to the node listener's own bounds (hdtpnode.Public*: the headers, the request,
 //     the answer, an idle connection, the size of the headers);
 //   - the compose file's node trusts exactly the address envoy is given, is the upstream envoy
 //     dials, and has its limits sidecar on the shared /data; only envoy is published.
@@ -26,8 +26,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	pactnode "github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/public"
+	hdtpnode "github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 func readYAML(t *testing.T, path string) map[string]any {
@@ -155,12 +155,12 @@ func TestTheEnvoyComposeTrustsEnvoyAloneAndRunsTheSidecar(t *testing.T) {
 	if node == nil || envoy == nil || limitd == nil {
 		t.Fatal("deploy/envoy/compose.yaml has no node, envoy or limitd service")
 	}
-	if proxy := at(node, "environment", "PACT_PROXY_ADDRESS"); proxy == nil || proxy != at(envoy, "networks", "edge", "ipv4_address") {
+	if proxy := at(node, "environment", "HDTP_PROXY_ADDRESS"); proxy == nil || proxy != at(envoy, "networks", "edge", "ipv4_address") {
 		t.Errorf("the node trusts %v; envoy is at %v", proxy, at(envoy, "networks", "edge", "ipv4_address"))
 	}
 	// Envoy dials the node by its service name, at the port the node listens on.
 	upstream := at(cluster, "load_assignment", "endpoints", 0, "lb_endpoints", 0, "endpoint", "address", "socket_address")
-	bind, _ := at(node, "environment", "PACT_PUBLIC_BIND").(string)
+	bind, _ := at(node, "environment", "HDTP_PUBLIC_BIND").(string)
 	port, _ := at(upstream, "port_value").(float64)
 	if at(upstream, "address") != "node" || !strings.HasSuffix(bind, ":"+strconv.Itoa(int(port))) {
 		t.Errorf("envoy dials %v:%v; the node binds %q", at(upstream, "address"), at(upstream, "port_value"), bind)
@@ -170,9 +170,9 @@ func TestTheEnvoyComposeTrustsEnvoyAloneAndRunsTheSidecar(t *testing.T) {
 			t.Errorf("%s publishes a port: behind envoy, only envoy is reached from outside", name)
 		}
 	}
-	// The sidecar: the image's /pact-limitd, sharing the /data the node's socket is in.
-	if at(limitd, "entrypoint", 0) != "/pact-limitd" || at(limitd, "volumes", 0) != at(node, "volumes", 0) {
-		t.Error("the limits sidecar must run /pact-limitd on the node's /data volume")
+	// The sidecar: the image's /hdtp-limitd, sharing the /data the node's socket is in.
+	if at(limitd, "entrypoint", 0) != "/hdtp-limitd" || at(limitd, "volumes", 0) != at(node, "volumes", 0) {
+		t.Error("the limits sidecar must run /hdtp-limitd on the node's /data volume")
 	}
 }
 
@@ -187,21 +187,21 @@ func TestEnvoyHoldsARequestToTheListenersOwnBounds(t *testing.T) {
 		got  time.Duration
 		want time.Duration
 	}{
-		{"request_headers_timeout", duration(at(hcm, "request_headers_timeout")), pactnode.PublicHeaderTimeout},
-		{"request_timeout", duration(at(hcm, "request_timeout")), pactnode.PublicRequestTimeout},
-		{"common_http_protocol_options.idle_timeout", duration(at(hcm, "common_http_protocol_options", "idle_timeout")), pactnode.PublicIdleTimeout},
+		{"request_headers_timeout", duration(at(hcm, "request_headers_timeout")), hdtpnode.PublicHeaderTimeout},
+		{"request_timeout", duration(at(hcm, "request_timeout")), hdtpnode.PublicRequestTimeout},
+		{"common_http_protocol_options.idle_timeout", duration(at(hcm, "common_http_protocol_options", "idle_timeout")), hdtpnode.PublicIdleTimeout},
 	} {
 		if c.got != c.want {
 			t.Errorf("envoy's %s is %s; the node's listener holds %s", c.what, c.got, c.want)
 		}
 	}
-	if kb, _ := at(hcm, "max_request_headers_kb").(float64); int(kb)<<10 != pactnode.PublicMaxHeaderBytes {
-		t.Errorf("envoy takes %v KiB of headers; the node's listener takes %d bytes", at(hcm, "max_request_headers_kb"), pactnode.PublicMaxHeaderBytes)
+	if kb, _ := at(hcm, "max_request_headers_kb").(float64); int(kb)<<10 != hdtpnode.PublicMaxHeaderBytes {
+		t.Errorf("envoy takes %v KiB of headers; the node's listener takes %d bytes", at(hcm, "max_request_headers_kb"), hdtpnode.PublicMaxHeaderBytes)
 	}
 	routes, _ := at(hcm, "route_config", "virtual_hosts", 0, "routes").([]any)
 	for i, r := range routes {
-		if got := duration(at(r, "route", "timeout")); got != pactnode.PublicAnswerTimeout {
-			t.Errorf("route %d (%v) waits %s for the node's answer; the node's listener gives it %s", i, at(r, "match"), got, pactnode.PublicAnswerTimeout)
+		if got := duration(at(r, "route", "timeout")); got != hdtpnode.PublicAnswerTimeout {
+			t.Errorf("route %d (%v) waits %s for the node's answer; the node's listener gives it %s", i, at(r, "match"), got, hdtpnode.PublicAnswerTimeout)
 		}
 	}
 }

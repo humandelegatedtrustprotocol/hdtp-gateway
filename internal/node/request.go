@@ -1,23 +1,23 @@
 package node
 
-// Asking to become somebody's contact (PACT §6.2, SPEC §9): `request_contact` with this identity's
+// Asking to become somebody's contact (HDTP §6.2, SPEC §9): `request_contact` with this identity's
 // card. It has two callers, and this is the one implementation both use:
 //
 //   - the owner, who has a peer's card out of band and asks to be added
 //     (internal/cli contactInitiator.RequestContact, which then records the pending_out pin);
 //   - the move campaign, when a contact an import brought refuses `update_contact` because it
-//     does not pin this identity (PACT §9.2): the peer then decides under its own policy.
+//     does not pin this identity (HDTP §9.2): the peer then decides under its own policy.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
 // ErrRequestRefused is a peer's answer refusing `request_contact`. Code names why, in the peer's
-// words (PACT §12); `pending_approval` means the peer already holds a request from us.
+// words (HDTP §12); `pending_approval` means the peer already holds a request from us.
 type ErrRequestRefused struct{ Code string }
 
 func (e ErrRequestRefused) Error() string {

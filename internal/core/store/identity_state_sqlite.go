@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
-// PACT 2.0 state (migration 0027): the account's root and leaf ledger, the
+// HDTP 1.0 state (migration 0027): the account's root and leaf ledger, the
 // 2.0 pins, the removal tombstone, former endpoints and pending addresses.
 
 func (s *SQLite) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
@@ -244,7 +244,7 @@ func (s *SQLite) ClearChainSentKids(ctx context.Context, accountID string) error
 }
 
 // SetContactRootCert fills in the root certificate of a pin that has none. A pin
-// whose cert is already stored is left alone: the root cannot change (PACT sec. 14.3),
+// whose cert is already stored is left alone: the root cannot change (HDTP sec. 14.3),
 // so the stored one is the cert that was checked when the pin was made.
 func (s *SQLite) SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error {
 	if len(cert) == 0 {

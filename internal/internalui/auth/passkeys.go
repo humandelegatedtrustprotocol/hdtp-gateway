@@ -20,8 +20,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 const sessionTTL = 12 * time.Hour
@@ -36,8 +36,8 @@ const sessionTTL = 12 * time.Hour
 // passkey registered against `localhost` will not work once the portal moves to
 // a domain. That is WebAuthn, not a defect; `passkey reset-wizard` is the way back.
 type RelyingParty struct {
-	ID     string // e.g. "localhost" or "pact.example.com"
-	Origin string // e.g. "http://localhost:8080" or "https://pact.example.com"
+	ID     string // e.g. "localhost" or "hdtp.example.com"
+	Origin string // e.g. "http://localhost:8080" or "https://hdtp.example.com"
 }
 
 // ceremony is an in-flight challenge together with the relying party it was
@@ -82,7 +82,7 @@ func ValidRelyingPartyID(host string) error {
 // fixed pairing (`localhost` with a `127.0.0.1` origin) unusable.
 func webauthnFor(rp RelyingParty) (*webauthn.WebAuthn, error) {
 	wa, err := webauthn.New(&webauthn.Config{
-		RPDisplayName: "pact-gateway",
+		RPDisplayName: "hdtp-gateway",
 		RPID:          rp.ID,
 		RPOrigins:     []string{rp.Origin},
 		// Login is discoverable (BeginLogin offers no credential list), so a passkey is useful only

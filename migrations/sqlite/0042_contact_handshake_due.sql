@@ -1,5 +1,5 @@
 -- +goose Up
--- Whether this contact is owed a handshake from this host (PACT sec. 9.2, "Import, and the
+-- Whether this contact is owed a handshake from this host (HDTP sec. 9.2, "Import, and the
 -- handshake"). An import writes its contacts pre-recognised, but the peers they name have never
 -- heard from THIS host: once the identity's next leaf is installed here, each non-blocked one is
 -- sent update_contact, or request_contact when it refuses that. The mark is set by the import and

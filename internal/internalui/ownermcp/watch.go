@@ -22,8 +22,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 // WaitArgs is a resumable cursor and a bound on how long to hold the call.
@@ -42,7 +42,7 @@ type WaitArgs struct {
 }
 
 // WaitMaxSec is the longest wait_for_updates holds a call, and its default: the
-// hosted edition's bound too (pact-cloud WATCH_WAIT_MAX_SEC, its /v1 watchChanges
+// hosted edition's bound too (batondeck WATCH_WAIT_MAX_SEC, its /v1 watchChanges
 // and its owner MCP's wait), so an agent written for one host waits the same on
 // the other. Under half a minute, so a proxy's or a platform's idle timeout does
 // not cut a call mid-wait.
@@ -107,7 +107,7 @@ type waitResult struct {
 	// only looked at messages would sit next to a blocked contact forever.
 	Waiting int64 `json:"contact_requests"`
 	Pending int64 `json:"pending_requests"`
-	// Addresses is the count of contacts waiting at a new address for the owner's answer (PACT
+	// Addresses is the count of contacts waiting at a new address for the owner's answer (HDTP
 	// §5.3, list_pending_addresses): a third queue only the owner clears, and parking one wakes
 	// this wait the way a contact request does.
 	Addresses int64 `json:"pending_addresses"`

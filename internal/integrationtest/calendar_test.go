@@ -13,13 +13,13 @@ import (
 	ics "github.com/arran4/golang-ical"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/integrations/providers"
-	"github.com/pact-cloud/pact-gateway/internal/integrations/recipes"
-	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations/providers"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations/recipes"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 // Tuesday 2026-08-25.
@@ -70,7 +70,7 @@ type bookArgs struct {
 // P3 exit (PLAN P3-10): a contact's agent calls check_availability and
 // book_slot on the owner's public surface; both are served by the Calendar
 // provider bound through the shipped nspady recipe to an in-test Google
-// Calendar MCP fake — and gated by PACT core permissions, not vendor names.
+// Calendar MCP fake — and gated by HDTP core permissions, not vendor names.
 func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 	ctx := context.Background()
 	upstream, created := fakeGCal(t)
@@ -102,7 +102,7 @@ func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	recipe := all["nspady"]
-	// mapped entries expose PACT's own capability names (SPEC §6.5/§6.6)
+	// mapped entries expose HDTP's own capability names (SPEC §6.5/§6.6)
 	if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{
 		{Tool: "get-freebusy", Mode: integrations.ModeMapped, Recipe: "nspady", ExposedName: "check_availability"},
 		{Tool: "create-event", Mode: integrations.ModeMapped, Recipe: "nspady", ExposedName: "book_slot"},
@@ -120,7 +120,7 @@ func TestP3ExitContactBooksCalendarSlot(t *testing.T) {
 		Now: func() time.Time { return demoDay },
 	}
 
-	// the public registry: PACT core permissions gate mapped capabilities
+	// the public registry: HDTP core permissions gate mapped capabilities
 	pubReg := &public.Registry{}
 	pubReg.Add(
 		public.Entry{

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// PACT §13.3: "Idempotency records for seen msg_ids MUST be retained until min(exp, ts + 300 s) —
+// HDTP §13.3: "Idempotency records for seen msg_ids MUST be retained until min(exp, ts + 300 s) —
 // the end of the window in which the envelope could be presented again and accepted. Nothing later
 // than ts + 300 s passes the skew check, so a record held past that point protects nothing, and
 // exp − ts may be thirty days: bounding retention by exp alone would let a sender choose how long
@@ -27,7 +27,7 @@ import (
 //   - exp well inside the window (ts + 60): the record is kept until exp and not a second longer.
 func TestAnEnvelopesReplayRecordIsKeptForTheWindowItCanBeAcceptedIn(t *testing.T) {
 	ctx := context.Background()
-	skew := int64(pactidentity.SkewSeconds)
+	skew := int64(hdtpidentity.SkewSeconds)
 	setup := func(t *testing.T) (*sealedEnv, *peer, *[]string) {
 		s := newSealedEnv(t)
 		p := newPeer(t, s.nowAt.Add(-time.Hour))
@@ -43,7 +43,7 @@ func TestAnEnvelopesReplayRecordIsKeptForTheWindowItCanBeAcceptedIn(t *testing.T
 	send := func(t *testing.T, s *sealedEnv, p *peer, text string, exp time.Time) string {
 		t.Helper()
 		env := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": text},
-			func(o *pactidentity.SealOpts) { o.Exp = exp.Unix() })
+			func(o *hdtpidentity.SealOpts) { o.Exp = exp.Unix() })
 		res := s.call(t, env, TransportFacts{})
 		if res.IsError {
 			t.Fatalf("the call was refused: %s", text)
@@ -73,7 +73,7 @@ func TestAnEnvelopesReplayRecordIsKeptForTheWindowItCanBeAcceptedIn(t *testing.T
 		ts := s.nowAt.Unix()
 		exp := s.nowAt.Add(30 * 24 * time.Hour)
 		env := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "once"},
-			func(o *pactidentity.SealOpts) { o.Exp = exp.Unix() })
+			func(o *hdtpidentity.SealOpts) { o.Exp = exp.Unix() })
 		if res := s.call(t, env, TransportFacts{}); res.IsError {
 			t.Fatal("the first call was refused")
 		}

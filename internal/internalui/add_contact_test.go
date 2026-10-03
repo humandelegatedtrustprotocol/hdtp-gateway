@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Reaching out to somebody — pasting the invite link they sent you — existed only
@@ -140,7 +140,7 @@ type errInviteRefused struct{}
 
 func (errInviteRefused) Error() string { return "that invite is expired or already used" }
 
-// SPEC §9.3: the portal imports a card, and on the owner's confirmation the node runs the PACT
+// SPEC §9.3: the portal imports a card, and on the owner's confirmation the node runs the HDTP
 // §5.2 manual flow — request_contact at the address the card names, landing pending_out. The
 // portal took only an invite link, so a card an owner held out of band could reach a contact
 // only through the owner MCP (review N-17). The same route now takes a card and a note, hands

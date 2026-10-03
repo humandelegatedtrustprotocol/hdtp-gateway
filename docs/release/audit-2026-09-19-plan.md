@@ -24,15 +24,15 @@ non-test code is in `internal/cli/backup.go` — `VACUUM INTO` and `stripKeys`. 
 Tokens of the retired generation were counted across live source in all four repositories
 (tests, `/test/`, docs and release records excluded). Three classes came back:
 
-1. **Legitimate.** `pact-identity/js/intrude.mjs` asserts 1.x cards and envelopes are *refused* —
+1. **Legitimate.** `hdtp-identity/js/intrude.mjs` asserts 1.x cards and envelopes are *refused* —
    those are the proof, not residue (the removal plan said to keep them). Append-only migrations
-   `0014_rotation`, `0024_*`, `0027_pact20` are history and cannot be edited.
+   `0014_rotation`, `0024_*`, `0027_root_and_leaf` are history and cannot be edited.
 2. **Live schema and code that should be gone.** The removal plan called for a
    `0029_drop_1x` migration; `0029` is `contact_root_cert` instead, so **it was never written**.
    `accounts.prev_fingerprint`, `accounts.prev_key_sealed` and `accounts.grace_until` still
    exist, generated sqlc code still names them, and `internal/cli/backup.go:399` still nulls
    them. `accept_1x` is still a column, still queried, and still typed in the cloud.
-3. **A live `v: 1` reader in the cloud.** `pact-cloud/gateway/src/envelope/envelope.ts:121` is
+3. **A live `v: 1` reader in the cloud.** `batondeck/gateway/src/envelope/envelope.ts:121` is
    `if (h.v !== 1) throw invalid(...)`. The module header still describes sealing with info
    `PACT-SEAL-v1`. Its shape codec and KEM helpers are legitimately reused by the 2.0 path and
    by `export/seal.ts`; the version check and anything only it reaches are not.
@@ -110,7 +110,7 @@ postgres conformance with the compose DSN.
 
 ### B2 · Drop `accept_1x` (node) — `DONE`
 A 1.x posture knob: whether to accept key-pinned peers, in a build that refuses them outright.
-Same migration as B1 if the schema work is identical; the query in `queries/*/pact20.sql` and its
+Same migration as B1 if the schema work is identical; the query in `queries/*/hdtp20.sql` and its
 generated accessors go with it, as does the cloud's `accept_1x: 0 | 1` in `src/identity/store.ts`.
 *Blocked by:* B1 landing first, so there is one migration and one regeneration.
 *Verify:* as B1, plus the cloud's `check:fast` and `gen-schema.mjs --check`.
@@ -229,7 +229,7 @@ the landing page's "hash it to check it matches X-PACT-KEY" sits on a `spki` mem
 the residue.
 
 ### B9 · `spki` on the wire: 1.x's "SPKI distribution", and a redeemer that depends on it — `DONE`
-Found in B5. PACT 1.2 distributed a key beside every card because a card carried only the key's
+Found in B5. Pre-HDTP 1.2 distributed a key beside every card because a card carried only the key's
 *hash*. A 2.0 card carries the leaf **certificate**, which contains the key, and §4 defines the
 invite landing's machine view as exactly `{"card","card_sig","chain"}`. The node's landing also
 emits `"spki"`, its human page tells a person to "hash it to check it matches X-PACT-KEY above" —
@@ -256,7 +256,7 @@ Following the member outward found more than the landing:
 - `node_test.go` asserted the landing HTML **contains the string "X-PACT-KEY"** — a test pinning
   the retired vocabulary in front of a person. It now requires `X-PACT-CERT` and forbids the other.
 - Dead once `spki` went: `Node.SPKI()`, `account.spki`, the marshalling that fed them, and a test
-  helper staticcheck named (`pactNode.spki`).
+  helper staticcheck named (`hdtpNode.spki`).
 - **How it spread.** The cloud emitted `spki` because the Go conformance battery *required* it —
   its failure text cites "contactinit.go:141 refuses it". The reference's defect became a
   conformance requirement. The battery now fails on any member §4 does not define.
@@ -316,7 +316,7 @@ sealed exchange in plaintext by passing a nil key:
 it silently both times. E3 runs next rather than last, since B6, F1 and F2 move it again.
 
 ### B6 · `accept_new_hosts` cannot be set by an owner — `DONE`
-Found during B2. PACT §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
+Found during B2. HDTP §5.3 gives the owner a choice — `auto` or `ask` — for what happens when a
 pinned contact turns up at a new address, and §12's checklist requires an implementation to run
 that flow "under `accept_new_hosts`". The node reads the setting and honours it, and defaults it to
 `auto`; `SetAccountHostPolicy` is called from tests and from nowhere else. So `ask` is unreachable
@@ -504,7 +504,7 @@ stops a fixture at version 34, writes one row of each kind, migrates, and finds 
 29, still restores on a node now at 35.
 
 ### B2c · The cloud still carries the node's 1.x columns and relay tables — `BLOCKED — owner's decision`
-`pact-cloud/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
+`batondeck/gateway/migrations/identity/` is a harvested copy of the node's SQLite migrations
 through goose 29, applied verbatim inside each Identity Durable Object. The node is now at 32:
 0030 dropped the relay tables, 0031 the rotation columns, 0032 `accept_1x`. `store.ts` says so in
 as many words — `accept_1x` is "vestigial… it goes when that schema next moves". It has moved.
@@ -624,7 +624,7 @@ cannot install a renewal, for the sake of a field nobody reads — the one recov
 (the root is in the wallet) is blocked by 1.x residue. Fix: drop both fields; a superseded key this
 node cannot open is retired (`RetireLeafKey`: `former`, no key) rather than kept as a guest it could
 never serve, so `ActiveLeafKeypairs` does not then fail the whole account on it.
-**And a test that proves nothing, found in the same place:** `TestPact20TransportChainResolves…`
+**And a test that proves nothing, found in the same place:** `TestHDTP20TransportChainResolves…`
 asserts "a superseded chain is a guest" with `clientFor(ren.OldKP)` — but `OldKP` carries no leaf, so
 `tlsCertOf` returns an empty certificate and the client presents NOTHING. It has been testing that
 an anonymous caller is a guest. It must present the real superseded chain, from
@@ -646,7 +646,7 @@ one before it was fixed.*
    `backup create -without-master-key`, `backup restore -data-only`. The refusal now says both
    things it can mean (wrong key: supply it, nothing is lost; lost key: the identities are roots in
    wallets, and here is the way). `TestALostMasterKeyIsRecoveredByTreatingTheNodesDataAsAnotherHosts`.
-   I had also written the variable as `PACT_KEYRING_KEY`. It is `PACT_MASTER_KEY`.
+   I had also written the variable as `HDTP_KEYRING_KEY`. It is `HDTP_MASTER_KEY`.
 3. **One awaiting account beside one broken one stopped the node.** Found by the serve-level test
    for the new banner line. "Every account failing" was tested as `len(n.accounts) == 0`, which
    counts an account that merely awaits its leaf as a failure — so the node refused to start and
@@ -657,7 +657,7 @@ one before it was fixed.*
 - **A broken account is named.** It was an audit row and nothing else, under a banner that read
   "serving". `Node.Unavailable()`, and `serve` prints `NOT SERVED: <slug> — <why>` with the renewal
   that cures it. `TestServeNamesAnAccountWhoseKeyWillNotOpen`, `TestAnAccountWhoseKeyWillNotOpenIsNamedNotHidden`.
-- **The hollow test.** `TestPact20TransportChainResolves…` now presents the real superseded chain
+- **The hollow test.** `TestHDTP20TransportChainResolves…` now presents the real superseded chain
   (from `ActiveLeafKeypairs`) and asserts it has two certificates before using it. It passes: the
   product was right and only the test was empty. Checked the other way too — with the `superseded`
   demotion removed from `identify20.go` it fails, which it could not have done before.
@@ -766,7 +766,7 @@ Specific questions to answer, not assume:
   when the run agreed now (checked both ways), and `record.mjs` removes a stale manifest before it
   starts as well as after.
 - **C5** — the inner `if moved` is gone.
-- **C6 — a real gap in PACT §9's own sequence.** A new host's first leaf for an imported identity
+- **C6 — a real gap in HDTP §9's own sequence.** A new host's first leaf for an imported identity
   started no move campaign: the caller inferred "moved" from the superseded leaf's endpoint, and an
   import has no superseded leaf — a bundle's ledger arrives as `former` rows, and the cloud's leave
   archive carries no ledger at all (probed: `leaves` is not among its tables — which also settles
@@ -792,7 +792,7 @@ Specific questions to answer, not assume:
 *Verified:* `make check` (27), `make analyze`; identity `musts.mjs`, `record.mjs --check`, parity 270/270.
 
 ### B15 · The cloud advertises 1.x arguments for `update_contact` — `DONE`
-Found answering C2. `pact-cloud/gateway/src/identity/tools.ts` lists the tool as "Replace my card
+Found answering C2. `batondeck/gateway/src/identity/tools.ts` lists the tool as "Replace my card
 after a key rotation" with `inputSchema` requiring `card`, `fingerprint` ("the new fingerprint") and
 `signature` ("the old key over the new fingerprint"). The handler reads `card` and nothing else, and
 nothing validates arguments against the schema, so no call fails — but the schema is what
@@ -841,7 +841,7 @@ All p=0.000 unless shown. Geomean −8.2% time, −7.1% bytes, −5.3% allocatio
   is what says the rest is attributable and not the machine.
 - **Decision: nothing further is taken.** A sealed call costs 840µs end to end, of which opening,
   sealing back and chain validation — signatures and HPKE — are about 750µs; the store is the small
-  part and it just got smaller. One core serves ~1,190 sealed calls a second. PACT §12 allows a
+  part and it just got smaller. One core serves ~1,190 sealed calls a second. HDTP §12 allows a
   contact 60 an hour, so one core covers some 71,000 contacts all calling at their limit at once.
   `emit_prepared_queries` stays declined for the reason given above. There is no measurement here
   that argues for a cache in front of `state20`, and a cache there is a correctness risk — it is
@@ -860,7 +860,7 @@ method, the one hand-written statement in the module, its doc naming E2's guard 
 only one. `internal/cli/backup.go` no longer imports `database/sql`.
 
 ### E3 · The Go conformance battery is in no gate, so it rots when the node moves — `DONE`
-Found in B9. `pact-cloud/gateway/conformance/` imports the node's `internal/` packages and runs
+Found in B9. `batondeck/gateway/conformance/` imports the node's `internal/` packages and runs
 from `scripts/conformance.sh` against a deployed node. Nothing compiles it otherwise, so B3c broke
 it and only an unrelated `go vet` noticed. At minimum `go vet ./...` there belongs in a gate that
 has the node on disk (the umbrella's, or `check:fast` behind an existence check that says so when

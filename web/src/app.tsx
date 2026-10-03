@@ -30,7 +30,7 @@ const PLACES: Item[] = [
   { to: "/card", label: "My card", icon: "card" },
   { to: "/integrations", label: "Integrations", icon: "plug" },
 ];
-const SIDE_KEY = "pact.side";
+const SIDE_KEY = "hdtp.side";
 const NODE: Item[] = [
   { to: "/", label: "Overview", icon: "home" },
   { to: "/identity", label: "Identity", icon: "key" },
@@ -160,7 +160,7 @@ function NavLink({ it, path, badge, warn }: { it: Item; path: string; badge?: Ta
 type Toast = { id: number; fpr: string; label: string };
 //
 // `unread` is the Inbox chip as the node counted it (GET /api/conversations `unread`): the sum over the
-// page of conversations, stopped at the node's cap as PACT Cloud's chip is — `{ count: 50, capped: true }`
+// page of conversations, stopped at the node's cap as BatonDeck's chip is — `{ count: 50, capped: true }`
 // reads "50+" — and `capped` under it when one past the page has unread too. The cap is the answer's,
 // never this view's. It used to be summed here from the rows' numbers, which the node never filled.
 function Counts({ children }: { children: (c: { unread: Tally; pending: number }) => ReactElement }) {
@@ -195,8 +195,8 @@ function Counts({ children }: { children: (c: { unread: Tally; pending: number }
     const offAcct = onAccountChange(() => load());
     // The Inbox marked a conversation read (views/messages.tsx): the chip drops now, not at the next event.
     const onRead = () => load();
-    addEventListener("pact:counts", onRead);
-    return () => { alive = false; off(); offAcct(); removeEventListener("pact:counts", onRead); };
+    addEventListener("hdtp:counts", onRead);
+    return () => { alive = false; off(); offAcct(); removeEventListener("hdtp:counts", onRead); };
   }, []);
   useEffect(() => {
     document.title = titleWithTally(document.title, c.unread);

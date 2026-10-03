@@ -19,5 +19,5 @@ SELECT CAST(COALESCE(MIN(id), 0) AS INTEGER) AS id FROM changes;
 DELETE FROM changes WHERE at < ?;
 
 -- name: DeleteChangesByAccount :execrows
--- An identity leaving (PACT sec. 9): its changes go with it.
+-- An identity leaving (HDTP sec. 9): its changes go with it.
 DELETE FROM changes WHERE account_id = ?;

@@ -18,11 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 	"github.com/pact-cloud/pact-identity/go/exportcorpus"
 )
 
@@ -55,7 +55,7 @@ func newEnv(t *testing.T, open func(t *testing.T) store.Store) env {
 
 func sqliteStore(t *testing.T) store.Store {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +71,11 @@ type engine struct {
 // engines is SQLite always, and Postgres when the pre-push hook provides one.
 func engines(t *testing.T) []engine {
 	out := []engine{{"sqlite", sqliteStore}}
-	if dsn := os.Getenv("PACT_TEST_POSTGRES_DSN"); dsn != "" {
+	if dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN"); dsn != "" {
 		out = append(out, engine{"postgres", func(t *testing.T) store.Store {
 			t.Helper()
 			pgSeq++
-			name := fmt.Sprintf("pact_portable_%d_%d", os.Getpid(), pgSeq)
+			name := fmt.Sprintf("hdtp_portable_%d_%d", os.Getpid(), pgSeq)
 			admin, err := pgx.Connect(context.Background(), dsn)
 			if err != nil {
 				t.Fatal(err)
@@ -191,7 +191,7 @@ var exportedAt = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 func exportOf(t *testing.T, e env, slug string) ([]byte, Result) {
 	t.Helper()
 	var buf bytes.Buffer
-	res, err := Export(context.Background(), e.st, e.blobs, &buf, slug, "pact-gateway test", exportedAt)
+	res, err := Export(context.Background(), e.st, e.blobs, &buf, slug, "hdtp-gateway test", exportedAt)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestAnExportCarriesContactsChatsAndFilesAndNothingElse(t *testing.T) {
 		}
 	}
 	// It is a file the core reads whole, as its owner's.
-	got, err := pactidentity.ReadExportZip(zr, s.me.Fpr, time.Now(), ImportCeiling)
+	got, err := hdtpidentity.ReadExportZip(zr, s.me.Fpr, time.Now(), ImportCeiling)
 	if err != nil {
 		t.Fatalf("the core refuses the node's own export: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestAnExportCarriesContactsChatsAndFilesAndNothingElse(t *testing.T) {
 		strings.Join(c.Permissions, " ") != "message.media message.text" {
 		t.Fatalf("the contact as exported: %+v", c)
 	}
-	byID := map[string]pactidentity.MessageRow{}
+	byID := map[string]hdtpidentity.MessageRow{}
 	for _, m := range got.Messages {
 		byID[m.ID] = m
 	}
@@ -285,7 +285,7 @@ func TestAnExportCarriesContactsChatsAndFilesAndNothingElse(t *testing.T) {
 	}
 }
 
-// Every file of the shared corpus (pact-identity/go/exportcorpus), imported into the identity it
+// Every file of the shared corpus (hdtp-identity/go/exportcorpus), imported into the identity it
 // belongs to: each hostile file is refused with the words cases.json names — the core's exactly,
 // and the host's (a file's bytes as decompressed, UTF-8, a media file's own hash) in the words
 // CONTRACT §6.2 gives both hosts — and nothing is written. Each valid file is taken in whole.
@@ -419,7 +419,7 @@ func TestANewSlugHoldsOnlyTheFilesRoot(t *testing.T) {
 	if _, _, err := importFile(t, e, valid, "someone", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "manifest.json: owner: the file is "+idx.Owner+"'s, not this identity's") {
 		t.Fatalf("a file imported into another identity: %v", err)
 	}
-	// A slug another identity left, while a leaf issued for it is live (PACT §9), is refused as the
+	// A slug another identity left, while a leaf issued for it is live (HDTP §9), is refused as the
 	// store refuses any new account there, and nothing is written.
 	left := newEnv(t, sqliteStore)
 	must(t, left.st.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://node.example/a/vacated/mcp", Slug: "vacated", UntilAt: time.Now().Add(24 * time.Hour).Unix()}))
@@ -437,7 +437,7 @@ func TestANewSlugHoldsOnlyTheFilesRoot(t *testing.T) {
 	}
 }
 
-// Importing into the identity the file belongs to MERGES (PACT §9.2 step 2, export_merge): a
+// Importing into the identity the file belongs to MERGES (HDTP §9.2 step 2, export_merge): a
 // contact held with a leaf keeps its pin whatever the file says, and the difference is shown; a
 // contact held with no leaf takes the file's, and is owed the handshake; what is already here —
 // threads, messages, files — is left as it is and counted as such.
@@ -449,10 +449,10 @@ func TestAnImportIntoTheSameIdentityMergesAndNeverReplacesAHeldPin(t *testing.T)
 	now, _ := time.Parse(time.RFC3339, idx.Now)
 	valid, err := fs.ReadFile(exportcorpus.FS, "valid-export.zip")
 	must(t, err)
-	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), idx.Owner, now, ImportCeiling)
+	contents, err := hdtpidentity.ReadExportZip(zipReader(t, valid), idx.Owner, now, ImportCeiling)
 	must(t, err)
-	var pinnedRow pactidentity.ContactRow
-	var others []pactidentity.ContactRow
+	var pinnedRow hdtpidentity.ContactRow
+	var others []hdtpidentity.ContactRow
 	for _, r := range contents.Contacts {
 		if r.Leaf != nil && pinnedRow.Root == "" {
 			pinnedRow = r
@@ -500,7 +500,7 @@ func TestAnImportIntoTheSameIdentityMergesAndNeverReplacesAHeldPin(t *testing.T)
 			}
 			c, err = e.st.GetContact(ctx, a.ID, pinnedRow.Root)
 			must(t, err)
-			if pactidentity.B64url(c.Leaf) != *pinnedRow.Leaf || len(c.SPKI) == 0 || !c.HandshakeDue {
+			if hdtpidentity.B64url(c.Leaf) != *pinnedRow.Leaf || len(c.SPKI) == 0 || !c.HandshakeDue {
 				t.Fatalf("a contact held with no leaf must take the file's validated pin and be owed the handshake: %+v", c)
 			}
 			if res.Contacts != len(contents.Contacts)-2 || res.PinsFilled != 1 {
@@ -649,12 +649,12 @@ func TestTheCorpusIntoANewSlugIsRefusedInTheSameWords(t *testing.T) {
 // contact: the held row stands. The person decides the request here, as any other; the file does
 // not accept it for them, and the row is not marked as owed a handshake.
 //
-// A request is not a contact (PACT §9.2: "a request received and not yet decided stays with the
+// A request is not a contact (HDTP §9.2: "a request received and not yet decided stays with the
 // host that received it"), so export_merge is not asked to merge the file's row into it: the root
 // is SKIPPED, and said to be, with no keep and no conflicts. It was handed to export_merge as a
 // held contact, which kept it and reported a conflict for every field the file said otherwise —
 // `status` among them, a stranger's request shown as a contact the file disagreed with — where the
-// cloud skips it (pact-cloud portable.ts). The control is every other row of the file, written.
+// cloud skips it (batondeck portable.ts). The control is every other row of the file, written.
 func TestAHeldRequestIsSkippedWhenTheFileNamesTheSameRoot(t *testing.T) {
 	ctx := context.Background()
 	raw, _ := fs.ReadFile(exportcorpus.FS, "cases.json")
@@ -663,9 +663,9 @@ func TestAHeldRequestIsSkippedWhenTheFileNamesTheSameRoot(t *testing.T) {
 	now, _ := time.Parse(time.RFC3339, idx.Now)
 	valid, err := fs.ReadFile(exportcorpus.FS, "valid-export.zip")
 	must(t, err)
-	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), idx.Owner, now, ImportCeiling)
+	contents, err := hdtpidentity.ReadExportZip(zipReader(t, valid), idx.Owner, now, ImportCeiling)
 	must(t, err)
-	var row pactidentity.ContactRow
+	var row hdtpidentity.ContactRow
 	for _, r := range contents.Contacts {
 		if r.Leaf != nil && r.Status == "active" {
 			row = r

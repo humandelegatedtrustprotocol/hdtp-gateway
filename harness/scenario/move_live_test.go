@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
-// S10: the MOVE campaign under a network partition (PACT §5.3, §9).
+// S10: the MOVE campaign under a network partition (HDTP §5.3, §9).
 //
 // Three real nodes. One moves to a new address while one of its two contacts is behind a
 // partition — `tc netem loss 100%` in that node's network namespace, so its packets are DROPPED
 // and a caller is left waiting, which is what a dead link does and what a refused connection does
-// not. The operator's tool for this is `pact-gateway account announce`, and it is driven here as
+// not. The operator's tool for this is `hdtp-gateway account announce`, and it is driven here as
 // an operator drives it: from a shell, inside the node.
 //
 // What must hold:
@@ -45,7 +45,7 @@ func TestAMoveCampaignSurvivesAPartition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"PACT_SEAL": "required"}
+	env := map[string]string{"HDTP_SEAL": "required"}
 	newHost := w.Fab.Name("mover-new")
 	mover, err := w.Node(ctx, NodeOpts{Slug: "mover", Net: net, Env: env, Aliases: []string{newHost}})
 	if err != nil {
@@ -175,7 +175,7 @@ var announceCounts = regexp.MustCompile(`told=(\d+) waiting=(\d+)`)
 func announce(ctx context.Context, t *testing.T, f *fabric.Fabric, o *Owned) announceReport {
 	t.Helper()
 	started := time.Now()
-	out, err := f.Exec(ctx, o.Node, "/pact-gateway", "account", "announce", "-slug", "mover")
+	out, err := f.Exec(ctx, o.Node, "/hdtp-gateway", "account", "announce", "-slug", "mover")
 	took := time.Since(started)
 	if err != nil {
 		t.Fatalf("`account announce` failed after %v: %v\n%s", took.Round(time.Second), err, out)

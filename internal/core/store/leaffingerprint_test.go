@@ -3,7 +3,7 @@ package store_test
 // Migration 0046 gives every pin the fingerprint of its leaf's key (`leaf_fingerprint`), which
 // PinCandidates finds a small form's pin by. There is no branch for a row without it: a row that
 // holds a leaf and no fingerprint is a contact whose small-form calls find no pin. So two things
-// are held here. Migrate fills every row held before 0046, on both engines, to pact-identity's
+// are held here. Migrate fills every row held before 0046, on both engines, to hdtp-identity's
 // Fingerprint (fillLeafFingerprints). And every statement that writes `leaf` writes
 // `leaf_fingerprint` with it.
 
@@ -21,9 +21,9 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/migrations"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The rows a node held before 0046: a pin with a leaf, a row with a key and no leaf (a request),
@@ -56,7 +56,7 @@ func argsFor(stmt string) []any {
 func checkFilled(t *testing.T, fingerprints map[string]sql.NullString) {
 	t.Helper()
 	want := map[string]sql.NullString{
-		"c-pin":     {String: pactidentity.Fingerprint(pinKey), Valid: true},
+		"c-pin":     {String: hdtpidentity.Fingerprint(pinKey), Valid: true},
 		"c-request": {},
 		"c-empty":   {},
 	}
@@ -127,12 +127,12 @@ func TestMigration0046FillsEveryPinsFingerprintOnSQLite(t *testing.T) {
 }
 
 func TestMigration0046FillsEveryPinsFingerprintOnPostgres(t *testing.T) {
-	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PACT_TEST_POSTGRES_DSN not set")
+		t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 	}
 	ctx := context.Background()
-	const dbName = "pact_before_0046"
+	const dbName = "hdtp_before_0046"
 	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

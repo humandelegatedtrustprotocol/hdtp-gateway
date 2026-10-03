@@ -24,7 +24,7 @@ yet been executed** — `Last manual run: —`.
 |---|---|
 | `auth_token` | ngrok authtoken (or env `NGROK_AUTHTOKEN`) |
 | `url` | `tls://<reserved-domain>` or `tls://` for an allocated hostname |
-| `name` | endpoint name (default `pact`) |
+| `name` | endpoint name (default `hdtp`) |
 
 `doctor` reports `ok tunnel ngrok (mode direct, …)` and probes
 `https://<endpoint>` pinned to the account's identity fingerprint.

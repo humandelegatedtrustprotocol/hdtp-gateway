@@ -11,22 +11,22 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pressly/goose/v3/lock"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/core/store/conformance"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/conformance"
 )
 
 // TestPostgresConformance runs the same suite as SQLite against a real Postgres,
-// gated by PACT_TEST_POSTGRES_DSN (the pre-push hook starts a named Postgres
+// gated by HDTP_TEST_POSTGRES_DSN (the pre-push hook starts a named Postgres
 // container and sets it; by hand: docker compose -f compose.test.yaml up -d). Each subtest gets a fresh database.
 func TestPostgresConformance(t *testing.T) {
-	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PACT_TEST_POSTGRES_DSN not set")
+		t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 	}
 	n := 0
 	conformance.Run(t, func(t *testing.T) conformance.Migratable {
 		n++
-		dbName := fmt.Sprintf("pact_conf_%d", n)
+		dbName := fmt.Sprintf("hdtp_conf_%d", n)
 		admin, err := pgx.Connect(context.Background(), dsn)
 		if err != nil {
 			t.Fatal(err)
@@ -63,12 +63,12 @@ func rewriteDB(dsn, db string) string {
 // session — another process migrating — a Migrate waits, touching nothing, and runs once it is
 // released; processes started together all succeed.
 func TestPostgresMigrationsTakeTurns(t *testing.T) {
-	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PACT_TEST_POSTGRES_DSN not set")
+		t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 	}
 	ctx := context.Background()
-	const dbName = "pact_migrate_turns"
+	const dbName = "hdtp_migrate_turns"
 	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

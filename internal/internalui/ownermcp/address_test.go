@@ -7,34 +7,34 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // movedLeaf is a leaf under a fresh root, naming endpoint: what a contact that moved presents.
 func movedLeaf(t *testing.T, cn, endpoint string) (root string, leaf []byte) {
 	t.Helper()
 	at := time.Now().Add(-time.Hour)
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := pactidentity.GenerateKey("ed25519")
+	host, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err = pactidentity.BuildLeaf(pactidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public(),
+	leaf, err = hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public(),
 		Endpoint: endpoint, NotBefore: at, NotAfter: at.Add(24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pactidentity.Fingerprint(rootKey.Public().SPKI), leaf
+	return hdtpidentity.Fingerprint(rootKey.Public().SPKI), leaf
 }
 
 // N-18: the owner's agent had no way to answer a contact parked at a new address under `ask`
-// (PACT §5.3) — only the CLI did. These are the names the cloud's owner MCP already serves, so its
+// (HDTP §5.3) — only the CLI did. These are the names the cloud's owner MCP already serves, so its
 // parity divergence closes: list_pending_addresses, approve_address, reject_address.
 func TestTheOwnerAgentDecidesAContactAtANewAddress(t *testing.T) {
 	e := newEnv(t)

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // LeaveResult is what an identity leaving this host erased and what it left reserved.
@@ -15,7 +15,7 @@ type LeaveResult struct {
 	AccountID string
 	Slug      string
 	// Vacated is one row per endpoint the identity's leaves named whose last leaf is still live:
-	// the address stays reserved until then (PACT §9).
+	// the address stays reserved until then (HDTP §9).
 	Vacated []store.VacatedAddress
 	// Leaves is how many leaf rows were erased. Every leaf key this host held for the identity
 	// went with them, and so did the account's own copy of its current key.
@@ -66,7 +66,7 @@ func (m *Manager) PreviewLeave(ctx context.Context, accountID string) (LeavePrev
 	return p, nil
 }
 
-// Leave erases an identity from this host (PACT §9, "What a host must do when the person leaves"):
+// Leave erases an identity from this host (HDTP §9, "What a host must do when the person leaves"):
 // the leaf keys and every record of the identity go at once, in one transaction, and the address
 // is kept reserved — by a row that holds the endpoint, its slug and a date, and nothing that
 // names the identity — until the last leaf issued for it has expired.

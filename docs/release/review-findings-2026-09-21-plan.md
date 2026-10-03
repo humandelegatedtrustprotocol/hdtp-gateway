@@ -2,17 +2,17 @@
 
 The owner's words: "fix Review findings which are not fixed … And other items from top, fix them".
 
-The 2026-09-20 review of `pact-identity` (five reviewers, five slices) produced more than was fixed
+The 2026-09-20 review of `hdtp-identity` (five reviewers, five slices) produced more than was fixed
 that week: round 2's plan fixed the blockers (its G, H and I) and listed the rest as open. This is the
 rest. Every item below was read again in the code on 2026-09-21 before it was written here.
 
-**The authority for a disagreement between the ports is the seed** (`pact-protocol/vectors/lib`,
+**The authority for a disagreement between the ports is the seed** (`hdtp-spec/vectors/lib`,
 CONTRACT §0). Where the seed is silent — it has no address guard and no `host_of` — the stricter
 reading of SPEC wins and both ports move together.
 
-**What a change costs decides the batches.** `crates/pact-identity/**` is a build input of the pinned
-Wasm core: one change there means a container re-pin, a re-vendor into `pact-cloud`, a re-pin of the
-ceremony page, the cloud's gate and a staging deploy. The Go port, the CLI (`crates/pact/**`) and the
+**What a change costs decides the batches.** `crates/hdtp-identity/**` is a build input of the pinned
+Wasm core: one change there means a container re-pin, a re-vendor into `batondeck`, a re-pin of the
+ceremony page, the cloud's gate and a staging deploy. The Go port, the CLI (`crates/hdtp/**`) and the
 JS harness are not inputs. So: everything that does not touch the core first, in two free batches, and
 then ONE batch for everything that does.
 
@@ -21,7 +21,7 @@ push. Status is written here as it happens.
 
 ---
 
-## A — the CLI (`crates/pact`): free. `DONE`
+## A — the CLI (`crates/hdtp`): free. `DONE`
 
 | # | Finding | Fix |
 |---|---|---|
@@ -32,7 +32,7 @@ push. Status is written here as it happens.
 | A5 | `issue_on_card` passes only the issuing root to the CSR's root-key refusal; the software path passes every root in the vault | collect the vault's sibling roots (from `pkcs8` and from `cert`) on the card path too; extend the both-paths test |
 | A6 | the P-256 guard on a card-held root is never reached: the test that names it passes on a different error that also contains "P-256" | a fake card reporting an Ed25519 key, asserting text only the guard produces |
 | A7 | `card_proves_it_holds` borrows the certificate-SERIAL generator for its challenge: 8 random bytes where §2.2 asks 32 of the analogous proof | 32 bytes of its own |
-| A8 | the live battery's CONTROL — the one call that must get through — passes on the presence of two JSON keys and never opens the envelope it is answered with. TWO drivers: `crates/pact/src/vectors.rs` and `js/live.mjs` | both open the result with the attacker's own leaf key and require `cty: application/pact-result+json`; the stub that pinned the shallow reading goes red first |
+| A8 | the live battery's CONTROL — the one call that must get through — passes on the presence of two JSON keys and never opens the envelope it is answered with. TWO drivers: `crates/hdtp/src/vectors.rs` and `js/live.mjs` | both open the result with the attacker's own leaf key and require `cty: application/pact-result+json`; the stub that pinned the shallow reading goes red first |
 
 **What was shown, item by item.** A1: the loop moved into a pure `gather`, and against the unbounded
 loop a transport answering `61 FF` for ever was still being asked after 10,000 rounds; bounded at 64
@@ -134,7 +134,7 @@ Appendix B or a normative sentence changes (C1 adds a refused certificate, so it
 | C12 | the SEED reads an envelope's members leniently (`Buffer.from(s, 'base64url')` skips what it does not know), so it accepts the second spelling B2 found; and the Rust core says `does not open` where a strict seed must say the same | a strict reader in the seed for `protected`, `enc`, `ct` and `sig`, in the core's words; an intrusion scenario for the stray character |
 
 Then, in the order `CLAUDE.md` gives: commit → `sh js/reproduce.sh --pin` → `node js/record.mjs` →
-`gate.sh` → commit the manifest → vendor into `pact-cloud` (four `pkg-web` files, the manifest, the
+`gate.sh` → commit the manifest → vendor into `batondeck` (four `pkg-web` files, the manifest, the
 vector fixture) → `check-wasm.mjs` → `build-ceremony.mjs --pin` → `make check wallet` → push the cloud,
 the protocol, then the umbrella → staging → the served page compared byte for byte → `make e2e-staging`.
 
@@ -193,8 +193,8 @@ Mine to do:
 | D4 | no 0.17-format stored passkey was replayed under 0.18; the guide says it decodes | replay one |
 | D5 | the staging battery skips one test by name every run | find out why, and say |
 | D6 | `/healthz` counts an index-only object migration as forbidding a gradual rollout | refine |
-| D7 | `pact-cloud/ARCHITECTURE.md` still describes 1.x in places | a 2.x pass |
-| D8 | the contract in one place, Phases 1 and 2 (`pact-identity/docs/contract-one-place.md`) | build them: both are free |
+| D7 | `batondeck/ARCHITECTURE.md` still describes 1.x in places | a 2.x pass |
+| D8 | the contract in one place, Phases 1 and 2 (`hdtp-identity/docs/contract-one-place.md`) | build them: both are free |
 
 ### What each one came to
 
@@ -216,11 +216,11 @@ instead of "deliberate".
 before the bump; the new test signs its owner in with it under 0.18.
 
 **D5. Answered; the skip is permanent, and the first answer was not the reason.** The battery skips
-*a stale kid is answered `certificate_renewed`* because it needs `PACT_LIVE_FORMER_KID`, the key id
+*a stale kid is answered `certificate_renewed`* because it needs `HDTP_LIVE_FORMER_KID`, the key id
 of a leaf the identity USED to hold. The first answer here said a renewal could only be driven
 against a deployment. That was true and beside the point: a renewal does not produce a former kid at
 all. A leaf's kid goes `former` only once the leaf is superseded AND past its `not_after`
-(`pact-cloud/gateway/src/identity/store.ts`, `retireExpiredLeaves`) — while it is merely superseded
+(`batondeck/gateway/src/identity/store.ts`, `retireExpiredLeaves`) — while it is merely superseded
 its key is still held and still answers, which is why it is held — and the shortest validity a
 wallet may issue is one day, because the lifetime is the person's choice and zero is refused. So no
 journey, however it is written, can manufacture an expired leaf inside a run without a clock it does
@@ -228,20 +228,20 @@ not own. `make e2e-staging` on 2026-09-21 skipped it too, on a freshly certified
 the proof of that.
 
 The rule is therefore proven where a clock exists, and the skip message says so rather than reading
-like a missing variable: `pact-cloud/gateway/test/public-surface-20.test.ts` drives a renewal
+like a missing variable: `batondeck/gateway/test/public-surface-20.test.ts` drives a renewal
 against a real Durable Object, retires the old leaf at a `now` it chooses, asserts `formerKids` holds
 exactly that kid, then asserts both the answer and the contact's re-seal; and `decide`'s own
 `certificate_renewed` cases are proven in both ports against Appendix B. Cloud `d63fa56`.
 
 **D6.** `/healthz`'s `identity` level is now the newest CONTRACTING migration, read from the
-migration's own SQL (`pact-cloud/gateway/src/identity/contract.ts`): one that takes a column or a
+migration's own SQL (`batondeck/gateway/src/identity/contract.ts`): one that takes a column or a
 table away, or renames, or whose author says so with a `-- contract: <why>` line, for the migration
 that rewrites data incompatibly and removes nothing. 1006 adds two indexes, so the level fell from
 1006 to 1005 and a build that only adds indexes may now roll out beside the one before it.
 `scripts/promote.mjs --selftest` holds the Worker's copy of that judgement and the deploy script's
 to the same verdict from the same text.
 
-**D7.** About thirty-five statements in `pact-cloud/ARCHITECTURE.md` were false, and almost none of
+**D7.** About thirty-five statements in `batondeck/ARCHITECTURE.md` were false, and almost none of
 them was 1.x residue: they described machinery that was designed and built differently — Workflows,
 a Secrets Store, a Cedar Wasm build, one zone, in-memory rate counters, an `/events` stream,
 customer hostnames, `fedramp`, a platform passkey. The disclaimer saying the tenancy, isolation,
@@ -254,7 +254,7 @@ otherwise" was false of the `vaults` table, whose honest claim — cannot open i
 it — is the stronger one. Two comments in the cloud's own code said "Workflows" too and were fixed
 in the same round.
 
-**D8.** Phases 1 and 2 of `pact-identity/docs/contract-one-place.md`, both built.
+**D8.** Phases 1 and 2 of `hdtp-identity/docs/contract-one-place.md`, both built.
 `contract/contract.json` is the boundary as data: 39 methods over 34 domain types, each with the
 shape of its arguments, the shape of its answer, and the error codes it may fail with.
 `CONTRACT.md` is now GENERATED from it plus a prose template, and `contract/render.mjs --check`
@@ -279,13 +279,13 @@ four `v: 1` vectors of Appendix B, which were deleted with 1.x — real residue,
 is supposed to BE the boundary. And both ports accept a value the contract does not describe:
 `profile_error`'s `kind`, where anything but `"root"` is read as a leaf, and `card_encode`'s
 `seal`, where a non-empty value is written into the card as given. Narrowing either is a change to
-`crates/pact-identity`, which costs a re-pin, so both are described honestly as declared-but-not-
+`crates/hdtp-identity`, which costs a re-pin, so both are described honestly as declared-but-not-
 enforced and recorded as Phase 4's first candidates, to be bundled with the next change that pays
 for a re-pin.
 
 ### Found, not fixed
 
-- `pact-cloud/PLAN.md` §3.1 still describes CI/CD as Workers Builds plus a Cloudflare Container
+- `batondeck/PLAN.md` §3.1 still describes CI/CD as Workers Builds plus a Cloudflare Container
   runner. ARCHITECTURE.md now says the deploy and the battery are local and that PLAN.md is stale
   in the same way; PLAN.md itself was not rewritten here.
 - ARCHITECTURE.md §12.2 claimed a test that greps the Worker bundles for the sealing primitives.
@@ -296,7 +296,7 @@ for a re-pin.
   while doing D4; not touched, because a change there is a change to sign-in.
 
 Not mine, and said so rather than worked around: the production deploy ("later") and counsel's
-answers; `pact-cloud`'s missing branch protection (a session never changes branch protection); whether
+answers; `batondeck`'s missing branch protection (a session never changes branch protection); whether
 CI runs on pull requests; deleting the stale branches and the backup bundle (deletions wait for a
 yes); the ideation phase.
 
@@ -310,11 +310,11 @@ one permanent skip (D5). The first of those two runs found a defect worth more t
 reported "done" and exited 0 with its battery never run, because `make conformance` pipes into
 `grep | tail` and macOS ships GNU make 3.81, which ignores the `.SHELLFLAGS` that would have made
 `pipefail` apply. Three ship-path recipes were unprotected the same way (`conformance`, `wallet`,
-`workers`); each now sets `pipefail` itself, and `pact-cloud/gateway/scripts/check-make-recipes.mjs`
+`workers`); each now sets `pipefail` itself, and `batondeck/gateway/scripts/check-make-recipes.mjs`
 runs each of them against stubs on every commit, in both directions, with the file's own property
 guarded for recipes nobody has stubbed yet. Cloud `dc5bcb7`.
 
-What is left is not mine: the production deploy, counsel's answers, `pact-cloud`'s branch protection, whether CI runs on
+What is left is not mine: the production deploy, counsel's answers, `batondeck`'s branch protection, whether CI runs on
 pull requests, deleting the stale branches and the backup bundle, and the ideation phase.
 
 One open item the cloud will need: a pin MAY now carry `leaf_fingerprint` (SPEC 2.1.3 §13.1), and

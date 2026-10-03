@@ -1,6 +1,6 @@
 package node
 
-// Running a move campaign, and saying how far it has got (PACT §5.3, §9).
+// Running a move campaign, and saying how far it has got (HDTP §5.3, §9).
 //
 // `AnnounceMove` walks every contact, one after another, and waits for each. A contact that is
 // simply GONE — a host that is off, a network that drops the packets — holds the walk until the
@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // MoveUnreached is one contact the current campaign has tried and not yet told.
@@ -41,7 +41,7 @@ type MoveProgress struct {
 	Unreached []MoveUnreached `json:"unreached,omitempty"`
 	// NoLeaf counts the contacts the campaign recorded as `unreached`: this host holds no leaf of
 	// theirs — any contact whose leaf is not held, whether an import brought it or not — so nothing
-	// can be sealed to them, and they are not tried again for this leaf (PACT §9.2).
+	// can be sealed to them, and they are not tried again for this leaf (HDTP §9.2).
 	NoLeaf int `json:"no_leaf"`
 	// Refused counts the contacts that answered the handshake with a refusal (identity.FanoutRefused):
 	// they are not waiting and are not asked again for this leaf.

@@ -1,12 +1,12 @@
 # Support
 
 **This repository is private and has not been released**, so there is no public issue
-tracker or discussion forum yet. Reach the maintainer at **security@pact-protocol.com** with the
-subject `[pact-gateway support]`.
+tracker or discussion forum yet. Reach the maintainer at **security@hdtp.io** with the
+subject `[hdtp-gateway support]`.
 
 **A security report is not a support question.** Send it to the same address under the subject and
 process of the organisation's
-[security policy](https://github.com/pact-cloud/.github/blob/main/SECURITY.md), which carries its
+[security policy](https://github.com/humandelegatedtrustprotocol/.github/blob/main/SECURITY.md), which carries its
 own response commitments.
 
 ## Before you ask
@@ -18,15 +18,15 @@ Most questions are answered by something already written down:
 | What is this supposed to do? | [`SPEC.md`](SPEC.md) — normative for behaviour |
 | Why does it work this way? | [`PLAN.md`](PLAN.md) — the build record, including what went wrong |
 | How do I run and operate a node? | [`docs/operations.md`](docs/operations.md) |
-| How do I make it reachable? | [`docs/operations.md`](docs/operations.md), and `pact-gateway doctor` |
+| How do I make it reachable? | [`docs/operations.md`](docs/operations.md), and `hdtp-gateway doctor` |
 | Is behaviour X covered by a test? | [`docs/conformance.md`](docs/conformance.md) — each item cites its test |
 | How do I contribute? | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## When something is not working
 
-`pact-gateway doctor` derives your deployment mode and probes your endpoint; it is the
+`hdtp-gateway doctor` derives your deployment mode and probes your endpoint; it is the
 first thing to run and usually the last thing you need. The audit trail is
-append-only and hash-chained — `pact-gateway audit` — and records every public call
+append-only and hash-chained — `hdtp-gateway audit` — and records every public call
 and every refusal, which is generally the fastest way to see what a node actually did
 rather than what it was expected to do.
 

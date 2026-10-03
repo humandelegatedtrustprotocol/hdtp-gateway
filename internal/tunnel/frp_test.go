@@ -15,7 +15,7 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/server"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 func TestFRPOptionsPlumbing(t *testing.T) {
@@ -35,8 +35,8 @@ func TestFRPOptionsPlumbing(t *testing.T) {
 	if err != nil || f.ServerPort != 7000 || f.LocalIP != "127.0.0.1" || f.LocalPort != 8443 || f.publicURL() != "https://vps.example:9443" {
 		t.Fatalf("%+v %v", f, err)
 	}
-	h, _ := frpOptions(Options{PublicBind: "127.0.0.1:8443", Extra: map[string]string{"server_addr": "vps", "proxy_type": "https", "custom_domain": "pact.example", "vhost_https_port": "8443"}})
-	if h.publicURL() != "https://pact.example:8443" {
+	h, _ := frpOptions(Options{PublicBind: "127.0.0.1:8443", Extra: map[string]string{"server_addr": "vps", "proxy_type": "https", "custom_domain": "hdtp.example", "vhost_https_port": "8443"}})
+	if h.publicURL() != "https://hdtp.example:8443" {
 		t.Fatalf("https url: %s", h.publicURL())
 	}
 	if edge, err := derivesEdge(t, "frp"); err != nil || edge {

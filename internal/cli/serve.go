@@ -13,24 +13,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/auditstore"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/services/auditsink"
-	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
-	"github.com/pact-cloud/pact-gateway/internal/services/presence"
-	"github.com/pact-cloud/pact-gateway/internal/services/retention"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
-	"github.com/pact-cloud/pact-gateway/internal/storecheck"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/auditstore"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/auditsink"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/retention"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/storecheck"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 func serve(args []string, stdout, stderr io.Writer) int {
@@ -150,7 +150,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	defer s.admin.Close()
 	if !s.admin.Serving() {
-		fmt.Fprintf(stdout, "admin:   %s is served by another pact-gateway process on this data dir\n", core.AdminSocketPath(cfg.DataDir))
+		fmt.Fprintf(stdout, "admin:   %s is served by another hdtp-gateway process on this data dir\n", core.AdminSocketPath(cfg.DataDir))
 	}
 
 	passkeys, err := st.CountCredentialsByKind(ctx, "passkey")
@@ -211,7 +211,7 @@ func (s *serveRun) openKeyring(alone bool) error {
 	}
 	if err := s.st.SchemaCurrent(s.ctx); err != nil {
 		if !alone {
-			return fmt.Errorf("%w; another pact-gateway process is serving this data dir, and a migration runs only while one process is alone with it: stop them all and start again", err)
+			return fmt.Errorf("%w; another hdtp-gateway process is serving this data dir, and a migration runs only while one process is alone with it: stop them all and start again", err)
 		}
 		return err
 	}
@@ -300,7 +300,7 @@ func (s *serveRun) startNode() error {
 		IngressFingerprint: settings.PinnedIngress(s.adapterName, s.stored),
 		AuditAs:            s.auditAs,
 		ContactCap:         s.settings.ContactCap,
-		// Every PACT §12 budget is the limits sidecar's to decide (SPEC §5.7).
+		// Every HDTP §12 budget is the limits sidecar's to decide (SPEC §5.7).
 		Limits: limits.New(s.cfg.LimitsSocketPath()),
 		// The seal an account is built with is the owner's, as the settings service holds it now.
 		SealPolicy: s.settings.SealPolicy,
@@ -364,7 +364,7 @@ func (s *serveRun) wireSurface() {
 // not serve and why, and on a first run the portal and its setup URL.
 func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	ctx, st, nd, cfg, stdout := s.ctx, s.st, s.nd, s.cfg, s.stdout
-	fmt.Fprintf(stdout, "pact-gateway serving: data=%s internal=%s public=%s mode=%s tunnel=%s\n",
+	fmt.Fprintf(stdout, "hdtp-gateway serving: data=%s internal=%s public=%s mode=%s tunnel=%s\n",
 		cfg.DataDir, cfg.InternalBind, nd.Addr(), cfg.Mode, s.adapterName)
 	if cfg.PublicURL != "" {
 		fmt.Fprintf(stdout, "public:  %s\n", cfg.PublicURL)
@@ -372,7 +372,7 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	if tst := adapter.Status(); tst.Detail != "" {
 		fmt.Fprintf(stdout, "tunnel:  %s\n", tst.Detail)
 	}
-	// The limits sidecar is a process of its own (cmd/pact-limitd), started beside the node; until it
+	// The limits sidecar is a process of its own (cmd/hdtp-limitd), started beside the node; until it
 	// answers every sealed call is refused, and an operator who reads only this banner must know why.
 	if err := nd.LimitsAnswer(ctx); err != nil {
 		fmt.Fprintf(stdout, "limits:  NOT ANSWERING — %v\n", err)
@@ -389,7 +389,7 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	}
 	sort.Strings(brokenSlugs)
 	for _, slug := range brokenSlugs {
-		fmt.Fprintf(stdout, "NOT SERVED: %s — %s. If its key was sealed under a master key this node no longer has, run `pact-gateway account csr -slug %s -purpose renew`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, unavailable[slug], slug, slug)
+		fmt.Fprintf(stdout, "NOT SERVED: %s — %s. If its key was sealed under a master key this node no longer has, run `hdtp-gateway account csr -slug %s -purpose renew`, have the wallet sign it, then `hdtp-gateway account install-leaf -slug %s -chain <file>`\n", slug, unavailable[slug], slug, slug)
 	}
 	// An account with no certificate is not served. Saying only "serving" leaves
 	// the operator of a restored identity with a host that looks healthy and
@@ -402,7 +402,7 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 	//   - no root: it has never been to a wallet, so it signs up;
 	//   - a root, and the last leaf it held named the address this node answers at: a renewal;
 	//   - a root, and the last leaf named somewhere else, or there is none on record: a move
-	//     (PACT §5.3).
+	//     (HDTP §5.3).
 	for _, slug := range nd.AwaitingLeaf() {
 		purpose := identity.PurposeSignup
 		if a, aerr := st.GetAccountBySlug(ctx, slug); aerr == nil && a.HasRoot() {
@@ -419,7 +419,7 @@ func (s *serveRun) announce(adapter tunnel.Adapter, passkeys int64) {
 				}
 			}
 		}
-		fmt.Fprintf(stdout, "awaiting a certificate, not served: %s — run `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `pact-gateway account install-leaf -slug %s -chain <file>`\n", slug, slug, purpose, slug)
+		fmt.Fprintf(stdout, "awaiting a certificate, not served: %s — run `hdtp-gateway account csr -slug %s -purpose %s`, have the wallet sign it, then `hdtp-gateway account install-leaf -slug %s -chain <file>`\n", slug, slug, purpose, slug)
 	}
 	// And an account that IS served, at an address this node no longer advertises.
 	if accts, aerr := st.ListAccounts(ctx); aerr == nil {
@@ -488,7 +488,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 			leases.leading("retention"))
 	})
 
-	// ---- outbound retries (PACT §7.1) ----
+	// ---- outbound retries (HDTP §7.1) ----
 	// Undelivered outbound messages retry with backoff until their deadline.
 	// Without this a send that failed once stayed failed forever and the owner had to
 	// notice and retype it. The heading here used to say "relay mode as a CLIENT:
@@ -498,7 +498,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
-	// a pin is confirmed when it is needed and the node does nothing proactively, and PACT 2.1
+	// a pin is confirmed when it is needed and the node does nothing proactively, and HDTP 1.0
 	// §14.3 says the same of the protocol — a newer leaf arrives ON USE (the chain in the first
 	// envelope after a renewal, `certificate_renewed`, `get_card` when somebody asks) and needs no
 	// poll. The sweep itself is gone too: what remains is `node.RefreshContact`, ONE contact, for

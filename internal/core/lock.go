@@ -27,7 +27,7 @@ type Lock struct {
 }
 
 func openLockFile(dataDir string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dataDir, "pact.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(filepath.Join(dataDir, "hdtp.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("lock: %w", err)
 	}
@@ -43,7 +43,7 @@ func AcquireLock(dataDir string) (*Lock, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("lock: data dir %s is in use by another pact-gateway process", dataDir)
+		return nil, fmt.Errorf("lock: data dir %s is in use by another hdtp-gateway process", dataDir)
 	}
 	return &Lock{f: f, exclusive: true}, nil
 }
@@ -72,7 +72,7 @@ func AcquireServeLock(dataDir string) (*Lock, error) {
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
 			f.Close()
-			return nil, fmt.Errorf("lock: data dir %s is held alone by another pact-gateway process (an offline command, or a serve migrating) and was not released in %s", dataDir, ServeLockWait)
+			return nil, fmt.Errorf("lock: data dir %s is held alone by another hdtp-gateway process (an offline command, or a serve migrating) and was not released in %s", dataDir, ServeLockWait)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

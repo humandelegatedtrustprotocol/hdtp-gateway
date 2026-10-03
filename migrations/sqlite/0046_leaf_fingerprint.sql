@@ -1,5 +1,5 @@
 -- +goose Up
--- The pins a sealed call can name, found by index (PACT sec. 13.3, 2026-09-28). decide is handed
+-- The pins a sealed call can name, found by index (HDTP sec. 13.3, 2026-09-28). decide is handed
 -- the contacts the envelope's proof could concern - the root its chain proves, the address its leaf
 -- names, the leaf a small form names - and until this every call read and handed over every contact
 -- (store.PinCandidates, public/decide.go).

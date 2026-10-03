@@ -18,22 +18,22 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// node is a whole pact-gateway node in-process: store, identity, public TLS
+// node is a whole hdtp-gateway node in-process: store, identity, public TLS
 // listener with the real per-caller server pool, the guest/contact tool set,
 // sealed_call at every tier, and the invite landing page.
-type pactNode struct {
+type hdtpNode struct {
 	leafDER  []byte
 	rootFpr  string
 	rootCert []byte
@@ -51,7 +51,7 @@ type pactNode struct {
 	seal     core.Seal
 }
 
-func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
+func startHDTPNode(t *testing.T, slug string, seal core.Seal) *hdtpNode {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), slug+".db"))
@@ -67,15 +67,15 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		t.Fatal(err)
 	}
 	// A 2.0 node serves under a leaf its person's root issued, and that leaf names
-	// the address it answers at. It CANNOT name a loopback address (PACT §14.2
-	// rule 5), so the node advertises a public-looking name and `pactNet` maps that
+	// the address it answers at. It CANNOT name a loopback address (HDTP §14.2
+	// rule 5), so the node advertises a public-looking name and `hdtpNet` maps that
 	// name to the httptest listener — the same trick internal/node's exit demo uses,
 	// and the only way to run 2.0 hermetically.
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{
 		CN: strings.ToUpper(slug), Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour),
 	})
 	if err != nil {
@@ -85,12 +85,12 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostPub, err := pactidentity.ParseSPKI(hostSPKI)
+	hostPub, err := hdtpidentity.ParseSPKI(hostSPKI)
 	if err != nil {
 		t.Fatal(err)
 	}
-	advertised := "https://" + slug + ".pact.example"
-	leafDER, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	advertised := "https://" + slug + ".hdtp.example"
+	leafDER, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: strings.ToUpper(slug), RootCN: strings.ToUpper(slug), RootKey: rootKey, HostPub: hostPub,
 		URIs: []string{advertised + "/a/" + slug + "/mcp"}, NotBefore: time.Now().Add(-time.Hour),
 		NotAfter: time.Now().AddDate(1, 0, 0),
@@ -104,7 +104,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	if err := st.SetAccountKey(ctx, a.ID, kp.Fingerprint, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAccountRoot(ctx, a.ID, pactidentity.Fingerprint(rootKey.Public().SPKI), rootCert); err != nil {
+	if err := st.SetAccountRoot(ctx, a.ID, hdtpidentity.Fingerprint(rootKey.Public().SPKI), rootCert); err != nil {
 		t.Fatal(err)
 	}
 	if seal != "" {
@@ -114,8 +114,8 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	}
 	a, _ = st.GetAccountByID(ctx, a.ID)
 
-	n := &pactNode{t: t, st: st, acct: a, kp: kp, cert: cert, seal: seal,
-		leafDER: leafDER, rootFpr: pactidentity.Fingerprint(rootKey.Public().SPKI), rootCert: rootCert,
+	n := &hdtpNode{t: t, st: st, acct: a, kp: kp, cert: cert, seal: seal,
+		leafDER: leafDER, rootFpr: hdtpidentity.Fingerprint(rootKey.Public().SPKI), rootCert: rootCert,
 		cm:  &contacts.Manager{Store: st},
 		msg: &messaging.Service{Store: st, Bus: messaging.NewBus(st)}}
 
@@ -145,7 +145,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 		Store:     st,
 		AccountID: a.ID,
 		Seal:      seal, Cert: core.ClientCertPreferred,
-		// What a `v: 2` envelope is decided against (PACT §13.3). Without it the
+		// What a `v: 2` envelope is decided against (HDTP §13.3). Without it the
 		// identifier refuses every envelope as "does not speak 2.0" — which is the
 		// right answer for an identity with no leaf, and the wrong one here.
 		RecipientState: func(context.Context) (*public.RecipientState, error) {
@@ -154,7 +154,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 			if err != nil {
 				return nil, err
 			}
-			lib, err := pactidentity.ParsePKCS8(der)
+			lib, err := hdtpidentity.ParsePKCS8(der)
 			if err != nil {
 				return nil, err
 			}
@@ -214,7 +214,7 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	// is what joins the two. Callers dial the advertised address, so the chain's
 	// subjectAltName and the endpoint agree, which is what §14.2 rule 5 requires.
 	n.endpoint = advertised + "/a/" + slug + "/mcp"
-	pactNet.set(slug+".pact.example:443", srv.Listener.Addr().String())
+	hdtpNet.set(slug+".hdtp.example:443", srv.Listener.Addr().String())
 
 	// the invite landing page (P1-13), now carrying the issuer's key
 	idm := &identity.Manager{Store: st}
@@ -234,27 +234,27 @@ func startPactNode(t *testing.T, slug string, seal core.Seal) *pactNode {
 	return n
 }
 
-func (n *pactNode) card() (string, error) {
+func (n *hdtpNode) card() (string, error) {
 	return contacts.BuildCard(n.acct.DisplayName, n.leafDER, string(n.seal))
 }
 
 // asPeer is what another node holds of this one: the root it pins, the leaf it
 // presents, and the address its leaf names.
-func (n *pactNode) asPeer(seal string) outbound.Peer {
+func (n *hdtpNode) asPeer(seal string) outbound.Peer {
 	return outbound.Peer{
 		Endpoint: n.endpoint, Root: n.rootFpr,
 		Leaf: n.leafDER, Seal: seal,
 	}
 }
 
-func (n *pactNode) client() *outbound.Client {
+func (n *hdtpNode) client() *outbound.Client {
 	pool := x509.NewCertPool()
-	return &outbound.Client{Keypair: n.kp, Cert: n.cert, Roots: pool, DialContext: pactNet.dial}
+	return &outbound.Client{Keypair: n.kp, Cert: n.cert, Roots: pool, DialContext: hdtpNet.dial}
 }
 
-// pactNet stands in for DNS: a leaf must name a routable-looking address, and these
+// hdtpNet stands in for DNS: a leaf must name a routable-looking address, and these
 // nodes listen on loopback. It maps the advertised name to the real listener.
-var pactNet = &dialMap{hosts: map[string]string{}}
+var hdtpNet = &dialMap{hosts: map[string]string{}}
 
 type dialMap struct {
 	mu    sync.Mutex
@@ -283,7 +283,7 @@ func (d *dialMap) dial(ctx context.Context, network, addr string) (net.Conn, err
 func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []byte) {
 	t.Helper()
 	req, _ := http.NewRequest("GET", landingURL+"/i/"+token, nil)
-	req.Header.Set("Accept", "application/pact-invite+json")
+	req.Header.Set("Accept", "application/hdtp-invite+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 	if resp.StatusCode != 200 {
 		t.Fatalf("landing page: %d %s", resp.StatusCode, b)
 	}
-	// PACT §4: the machine view is exactly {card, card_sig, chain}. Anything else is an
+	// HDTP §4: the machine view is exactly {card, card_sig, chain}. Anything else is an
 	// extension this redeemer must not depend on — it used to demand a fourth member, `spki`.
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(b, &members); err != nil {
@@ -301,7 +301,7 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 	}
 	for k := range members {
 		if k != "card" && k != "card_sig" && k != "chain" {
-			t.Fatalf("the landing serves a member PACT §4 does not define: %q", k)
+			t.Fatalf("the landing serves a member HDTP §4 does not define: %q", k)
 		}
 	}
 	var doc struct {
@@ -313,7 +313,7 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 		t.Fatalf("invite doc: %s", b)
 	}
 	if len(doc.Chain) != 2 {
-		t.Fatalf("the landing must serve the issuer's [leaf, root] (PACT §4), got %d certificates: %s", len(doc.Chain), b)
+		t.Fatalf("the landing must serve the issuer's [leaf, root] (HDTP §4), got %d certificates: %s", len(doc.Chain), b)
 	}
 	// The redeemer's own checks, as §4 states them: validate the chain, and require its leaf
 	// to byte-equal the card's X-PACT-CERT. The key to seal to is that leaf's.
@@ -322,12 +322,12 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 		t.Fatalf("the landing page served a card that does not validate: %v", err)
 	}
 	chain := [][]byte{testid.DER(t, doc.Chain[0]), testid.DER(t, doc.Chain[1])}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issuer.Key, ExpectedEndpoint: issuer.Endpoint})
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedRoot: issuer.Key, ExpectedEndpoint: issuer.Endpoint})
 	if !vr.OK {
 		t.Fatalf("the landing's chain fails rule %d: %s", vr.Rule, vr.Reason)
 	}
 	if !bytes.Equal(chain[0], issuer.Cert) {
-		t.Fatal("the chain's leaf is not the certificate the card carries (PACT §4)")
+		t.Fatal("the chain's leaf is not the certificate the card carries (HDTP §4)")
 	}
 	spki = vr.LeafKey.SPKI
 	return doc.Card, spki
@@ -340,8 +340,8 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 	for _, sealMode := range []core.Seal{core.SealOptional, core.SealRequired} {
 		t.Run(string(sealMode), func(t *testing.T) {
 			ctx := context.Background()
-			alice := startPactNode(t, "alice", sealMode)
-			bob := startPactNode(t, "bob", core.SealOptional)
+			alice := startHDTPNode(t, "alice", sealMode)
+			bob := startHDTPNode(t, "bob", core.SealOptional)
 
 			// A mints an auto-accepting invite
 			token, _, err := alice.cm.CreateInvite(ctx, alice.acct.ID, contacts.InviteOptions{
@@ -385,7 +385,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			if err != nil || bobOnA.Status != "active" || len(bobOnA.SPKI) == 0 {
 				t.Fatalf("A did not pin B: %+v %v", bobOnA, err)
 			}
-			// B pins A from the redemption answer, the way PACT §6.1 lays it out: the signed card,
+			// B pins A from the redemption answer, the way HDTP §6.1 lays it out: the signed card,
 			// and the CHAIN that proves it. The chain validates to the root the card names at the
 			// address it names, its leaf is the certificate on the card, and the key B pins is
 			// that leaf's. This read a `spki` member instead, which §6.1 does not define.
@@ -397,7 +397,7 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 				t.Fatalf("the redemption answer must carry A's [leaf, root], got %d certificates", len(redeemed.Chain))
 			}
 			answeredChain := [][]byte{testid.DER(t, redeemed.Chain[0]), testid.DER(t, redeemed.Chain[1])}
-			avr := pactidentity.ValidateChain(answeredChain, pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: answered.Key, ExpectedEndpoint: answered.Endpoint})
+			avr := hdtpidentity.ValidateChain(answeredChain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedRoot: answered.Key, ExpectedEndpoint: answered.Endpoint})
 			if !avr.OK {
 				t.Fatalf("the redemption answer's chain fails rule %d: %s", avr.Rule, avr.Reason)
 			}

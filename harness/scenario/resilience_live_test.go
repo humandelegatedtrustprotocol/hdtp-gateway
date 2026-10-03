@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S7 — what happens when the network misbehaves, and what must happen anyway.
@@ -25,7 +25,7 @@ func TestResilienceUnderImpairment(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	// PACT §6.2: "a call bearing an already-seen msg_id is acknowledged, not
+	// HDTP §6.2: "a call bearing an already-seen msg_id is acknowledged, not
 	// re-executed". This is what makes the retry path safe — and it is the
 	// property P12-04 found broken in the store, where an outbound id colliding
 	// with an inbound one was silently discarded.

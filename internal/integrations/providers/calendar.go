@@ -1,5 +1,5 @@
-// Package providers implements PACT core capabilities over upstream tools
-// through recipes (SPEC §6.7). Contacts see PACT's vocabulary — never a
+// Package providers implements HDTP core capabilities over upstream tools
+// through recipes (SPEC §6.7). Contacts see HDTP's vocabulary — never a
 // vendor's. All computation (slot math, ICS synthesis)
 // lives HERE, in code; recipes only line fields up.
 package providers
@@ -15,8 +15,8 @@ import (
 
 	ics "github.com/arran4/golang-ical"
 
-	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 // Caller invokes one upstream tool and returns its decoded JSON result.
@@ -28,7 +28,7 @@ type IdemStore interface {
 }
 
 // Calendar implements check_availability / book_slot / cancel_booking
-// (PACT §6.2) over one recipe.
+// (HDTP §6.2) over one recipe.
 type Calendar struct {
 	Call    Caller
 	Recipe  integrations.Recipe
@@ -278,7 +278,7 @@ func (c *Calendar) now() time.Time {
 func (c *Calendar) synthesizeICS(eventID string, slot calendar.Slot, subject string) string {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodRequest)
-	ev := cal.AddEvent(eventID + "@pact-gateway")
+	ev := cal.AddEvent(eventID + "@hdtp-gateway")
 	ev.SetCreatedTime(c.now())
 	ev.SetDtStampTime(c.now())
 	ev.SetStartAt(slot.Start)

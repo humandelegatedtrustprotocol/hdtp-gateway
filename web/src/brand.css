@@ -1,8 +1,8 @@
-/* PACT's brand in the app: pact-web-kit's palette, type and motion, for the node's portal AND PACT Cloud's.
+/* HDTP's brand in the app: hdtp-web-kit's palette, type and motion, for the node's portal AND BatonDeck's.
  *
  * ONE file. The cloud's portal takes it verbatim (gateway/scripts/harvest.sh); an edit made to one copy
  * and not the other is a drift `tools/kit.mjs check` sees in both, because each copy is held to the same
- * vendored stylesheet, kit/styles.css (pact-web-kit, pinned by release in kit/kit.lock):
+ * vendored stylesheet, kit/styles.css (hdtp-web-kit, pinned by release in kit/kit.lock):
  *   - every token this file shares with the kit carries the kit's value (light);
  *   - the dark palette is the kit's own on-dark colours (its dark band: ink, panel, text, muted, the light
  *     orange), not a second brand — the kit itself is light-only;

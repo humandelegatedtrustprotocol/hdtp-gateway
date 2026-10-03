@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // contacts is the suite for contacts: the lifecycle, the guarded writes, pending requests and their expiry, invites, and what a contact granted us.
@@ -257,7 +257,7 @@ func contacts(t *testing.T, newStore Factory) {
 	})
 
 	// The request clock (migration 0043). A contact known for years that becomes a request today
-	// (the handshake's fallback, PACT §9.2) waits the whole window from today; a request that is
+	// (the handshake's fallback, HDTP §9.2) waits the whole window from today; a request that is
 	// taken back returns to what it was, ever_active untouched; and an import names when its
 	// handshake became owed.
 	t.Run("TheExpiryWindowRunsFromTheRequest", func(t *testing.T) {
@@ -322,7 +322,7 @@ func contacts(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// `their_permissions` is what a contact granted US (PACT §6.2) — the answer to
+	// `their_permissions` is what a contact granted US (HDTP §6.2) — the answer to
 	// "what may my agent call on them", and the reason ContactAccepted records it
 	// at all. The column exists, SetContactAccepted writes it, and until now every
 	// read dropped it: the SELECTs did not fetch the column and the row struct had

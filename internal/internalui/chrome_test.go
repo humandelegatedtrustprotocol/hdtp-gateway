@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/web"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
 )
 
 // The routes the shell's navigation offers. A route here that stops serving the
@@ -64,7 +64,7 @@ func TestBundleCarriesTheViews(t *testing.T) {
 		"/invites/create",
 		"petname",
 		"/owners/tokens/create",
-		"pact_csrf", // the double-submit read
+		"hdtp_csrf", // the double-submit read
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("the compiled portal does not mention %q — the view that uses it did not ship", want)

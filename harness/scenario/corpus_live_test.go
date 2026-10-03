@@ -12,17 +12,17 @@ import (
 
 	"github.com/pact-cloud/pact-identity/go/exportcorpus"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S22 — the shared hostile export corpus through the shipped image's own door.
 //
-// pact-identity's exportcorpus is one set of files both hosts are held to (zip-slip, absolute and
+// hdtp-identity's exportcorpus is one set of files both hosts are held to (zip-slip, absolute and
 // backslash names, symlinks, encrypted entries, understated sizes, key material in a body or a
 // cell, a key as media, the wrong owner, counts that lie, …), each with the refusal it must meet
 // in words, and the valid files that must be taken whole. internal/portable reads every one of them
-// through the package. What no test did is hand them to the binary a person runs: `pact-gateway
+// through the package. What no test did is hand them to the binary a person runs: `hdtp-gateway
 // import FILE.zip -slug S`, in the image, over a real data directory. Each file goes to a slug of
 // its own data directory and a new slug, which is the door an attacker's file meets first; the file
 // that belongs to another identity is imported into the corpus owner's identity instead (the two

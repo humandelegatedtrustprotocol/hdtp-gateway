@@ -9,7 +9,7 @@ import (
 
 // AC (P10-10d): a value pinned in the CONFIG FILE outranks a row the portal
 // wrote. SPEC §12.2 states the order as `environment > file > store > defaults`,
-// and settings.go's own comment promises "an operator who pins PACT_SEAL in a
+// and settings.go's own comment promises "an operator who pins HDTP_SEAL in a
 // compose file must not have it silently overridden by a row in a database" —
 // but only the environment layer was ever tracked, so the store beat the file.
 func TestConfigFileOutranksOwnerSetSettings(t *testing.T) {

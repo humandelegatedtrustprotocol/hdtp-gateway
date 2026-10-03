@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 type ManageDeps struct {
@@ -97,7 +97,7 @@ func (d ManageDeps) buildCard(r *http.Request, accountID string) (string, store.
 		card, err := d.Card(r.Context(), accountID)
 		return card, a, err
 	}
-	// There is no card without a leaf: the certificate IS the card (PACT §3), so an
+	// There is no card without a leaf: the certificate IS the card (HDTP §3), so an
 	// account whose wallet has not issued one yet has nothing to serve rather than a
 	// key to spell out. This used to fall back to a 1.x card built from the bare
 	// fingerprint, which is exactly the shape that no longer exists.
@@ -165,7 +165,7 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 		ViaInvite   bool   `json:"via_invite"`
 		InviteLabel string `json:"invite_label,omitempty"`
 		// AddressClaim is the contact whose address this request comes from, now or within the
-		// claim window: PACT §5.2, "shown to the owner beside the name of the contact who holds or
+		// claim window: HDTP §5.2, "shown to the owner beside the name of the contact who holds or
 		// held that address". The owner MCP's list_contacts and the cloud answer the same shape.
 		AddressClaim *addressClaim `json:"address_claim,omitempty"`
 	}
@@ -200,7 +200,7 @@ func (d ManageDeps) getAPIRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		pending = append(pending, rw)
 	}
-	// Contacts waiting at a new address appear beside the requests (PACT §5.3 under `ask`).
+	// Contacts waiting at a new address appear beside the requests (HDTP §5.3 under `ask`).
 	addresses, err := d.owner().PendingAddresses(r.Context(), account)
 	if err != nil {
 		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
@@ -235,7 +235,7 @@ func (d ManageDeps) postRequestsFprApprove(w http.ResponseWriter, r *http.Reques
 func (d ManageDeps) postRequestsFprReject(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
 	fpr := r.PathValue("fpr")
-	// A demotion to blocked, not a deletion (PACT §5.1): their next request is answered as a
+	// A demotion to blocked, not a deletion (HDTP §5.1): their next request is answered as a
 	// stranger's and never reaches the owner. They are told, so they do not wait for ever.
 	dec, err := d.owner().Reject(r.Context(), account, fpr)
 	if err != nil {

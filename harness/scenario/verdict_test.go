@@ -43,7 +43,7 @@ func TestJudgeReadsTheBatterysEvents(t *testing.T) {
 // The intrusion tool's last line is what S18 reads its counts from.
 func TestIntrudeSummaryReadsTheToolsLastLine(t *testing.T) {
 	out := "scenarios (judged by the answer's code only)\n  blocked    x: envelope_invalid\n" +
-		"28 scenarios: 27 blocked, 0 reproduce, 1 never reached a PACT answer\n"
+		"28 scenarios: 27 blocked, 0 reproduce, 1 never reached a HDTP answer\n"
 	m := intrudeSummary.FindStringSubmatch(out)
 	if m == nil || m[1] != "28" || m[2] != "27" || m[3] != "0" || m[4] != "1" {
 		t.Fatalf("read %v from %q", m, out)

@@ -21,14 +21,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/ingress"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
 )
 
 // portal drives the settings page the way a browser would, carrying the CSRF
@@ -64,7 +64,7 @@ func newPortal(t *testing.T, base string) *portal {
 	// two nodes on one host do not overwrite each other's (cookies ignore
 	// ports). A driver pinned to the bare name stops finding it.
 	for _, c := range jar.cookies {
-		if strings.HasPrefix(c.Name, "pact_csrf") {
+		if strings.HasPrefix(c.Name, "hdtp_csrf") {
 			p.csrf = c.Value
 		}
 	}
@@ -84,7 +84,7 @@ func newPortal(t *testing.T, base string) *portal {
 // leaves the session cookie in the jar.
 func (p *portal) registerPasskey(t *testing.T) {
 	t.Helper()
-	rp := virtualwebauthn.RelyingParty{Name: "pact-gateway", ID: "localhost", Origin: p.base}
+	rp := virtualwebauthn.RelyingParty{Name: "hdtp-gateway", ID: "localhost", Origin: p.base}
 	authn := virtualwebauthn.NewAuthenticator()
 
 	body := p.raw(t, "POST", "/setup/begin", nil)
@@ -104,7 +104,7 @@ func (p *portal) registerPasskey(t *testing.T) {
 	p.raw(t, "POST", "/setup/finish?ceremony="+begin.Ceremony+"&tag=test+driver", []byte(att))
 
 	for _, c := range jarOf(p).cookies {
-		if strings.HasPrefix(c.Name, "pact_session") && c.Value != "" {
+		if strings.HasPrefix(c.Name, "hdtp_session") && c.Value != "" {
 			return
 		}
 	}
@@ -121,7 +121,7 @@ func (p *portal) raw(t *testing.T, method, path string, body []byte) string {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Pact-Csrf", p.csrf)
+	req.Header.Set("X-HDTP-Csrf", p.csrf)
 	for _, c := range jarOf(p).cookies {
 		req.AddCookie(c)
 	}
@@ -260,12 +260,12 @@ func TestEnvPinnedKnobIsLockedAndUnwritable(t *testing.T) {
 	}
 	seedAccount(t, dir, "alice")
 
-	t.Setenv("PACT_SEAL", "required")
+	t.Setenv("HDTP_SEAL", "required")
 	r := startServeAt(t, dir, cfgPath, internal, public)
 	p := newPortal(t, "http://"+r.internal)
 
 	page := p.get("/api/settings")
-	if !strings.Contains(page, "pinned by the environment (PACT_SEAL)") {
+	if !strings.Contains(page, "pinned by the environment (HDTP_SEAL)") {
 		t.Fatalf("env-pinned seal did not say why it is locked:\n%s", page)
 	}
 	// a POST that tries anyway changes nothing
@@ -420,7 +420,7 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 
 // NOT COVERED HERE, deliberately: an endpoint change reaching a real peer.
 //
-// The campaign needs the peer's chain to validate, and PACT §14.2 rule 5 refuses a
+// The campaign needs the peer's chain to validate, and HDTP §14.2 rule 5 refuses a
 // leaf whose subjectAltName is a loopback, link-local or private address. A test
 // that binds to 127.0.0.1 therefore cannot present a chain that validates — no
 // matter that the pin and the SAN agree — so a hermetic two-node test over real
@@ -597,7 +597,7 @@ func TestEveryCardEmitterAgreesWithTheServedCard(t *testing.T) {
 	}
 
 	// Change the endpoint live. The card must NOT follow it: a card's address comes
-	// from the leaf's subjectAltName (PACT §14.1), and a config knob cannot re-issue
+	// from the leaf's subjectAltName (HDTP §14.1), and a config knob cannot re-issue
 	// a certificate. Moving is a new leaf for a new address and an `update_contact`
 	// campaign from there (§5.3) — deliberately not something a text field can do.
 	// What must still hold is that both emitters agree, whatever the config says.
@@ -778,7 +778,7 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 		t.Fatalf("terminate pairing stored nothing: %+v", stored)
 	}
 	derived, err := core.Load("", func(k string) (string, bool) {
-		v, ok := map[string]string{"PACT_DATA_DIR": t.TempDir(), "PACT_TUNNEL": "ingress-terminate"}[k]
+		v, ok := map[string]string{"HDTP_DATA_DIR": t.TempDir(), "HDTP_TUNNEL": "ingress-terminate"}[k]
 		return v, ok
 	})
 	if err != nil || derived.Mode != core.ModeEdge {
@@ -893,7 +893,7 @@ func TestOwnersPageTokensAndPasskeys(t *testing.T) {
 	var minted struct {
 		NewToken string `json:"new_token"`
 	}
-	if err := json.Unmarshal([]byte(body), &minted); err != nil || !strings.HasPrefix(minted.NewToken, "pact_") {
+	if err := json.Unmarshal([]byte(body), &minted); err != nil || !strings.HasPrefix(minted.NewToken, "hdtp_") {
 		t.Fatalf("no token in the create response: %v\n%s", err, firstLine(body))
 	}
 	token := minted.NewToken

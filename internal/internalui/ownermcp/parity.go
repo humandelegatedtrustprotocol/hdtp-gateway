@@ -25,11 +25,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // Extra is what the parity tools need beyond Deps. Each is optional: a nil field
@@ -112,7 +112,7 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 
 	if e.Certificate != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "identity_certificate",
-			Description: "This identity's certificate state (PACT 2.0): the root that is the identity, the leaf this host serves under, its validity, and whether a renewal is due"},
+			Description: "This identity's certificate state (HDTP §2.0): the root that is the identity, the leaf this host serves under, its validity, and whether a renewal is due"},
 			ot.identityCertificateTool)
 	}
 
@@ -198,7 +198,7 @@ func (ot ownerTools) identityCertificateTool(ctx context.Context, req *mcp.CallT
 	if info.Certified {
 		chain := make([]string, 0, len(info.Chain))
 		for _, c := range info.Chain {
-			chain = append(chain, pactidentity.B64url(c))
+			chain = append(chain, hdtpidentity.B64url(c))
 		}
 		out["root_fingerprint"], out["chain"] = info.RootFingerprint, chain
 		if info.Served() {

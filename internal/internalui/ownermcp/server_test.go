@@ -12,10 +12,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 type env struct {
@@ -133,7 +133,7 @@ func TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable(t *testing.T)
 	}
 }
 
-// read_thread is the owner MCP's read action: the agent reading is the owner reading, as PACT
+// read_thread is the owner MCP's read action: the agent reading is the owner reading, as HDTP
 // Cloud's read_thread is, so it marks the thread read through the newest message it hands over,
 // and what lands after stays unread.
 func TestReadThreadMarksTheThreadReadThroughWhatItReturned(t *testing.T) {

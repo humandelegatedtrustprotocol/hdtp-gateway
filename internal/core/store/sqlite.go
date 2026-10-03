@@ -13,8 +13,8 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
-	"github.com/pact-cloud/pact-gateway/migrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
 )
 
 // SQLite is the default engine (SPEC §11.1): pure Go driver, one file, WAL mode,
@@ -39,7 +39,7 @@ import (
 //     `mmap_size` made parallel reads a third faster and was declined as well: an I/O error on a
 //     mapped file is a signal that kills the process, not an error a statement returns.
 //   - `secure_delete` ON. A leaf's private key MUST be destroyed at expiry and when the person
-//     leaves (PACT §9, SPEC §3.9), and a DELETE does not destroy bytes: SQLite leaves a deleted
+//     leaves (HDTP §9, SPEC §3.9), and a DELETE does not destroy bytes: SQLite leaves a deleted
 //     row's content in freed cell space and on free pages until something reuses them. With
 //     secure_delete it overwrites them with zeros as it frees them. What the write-ahead log still
 //     holds is Scrub's to clear.
@@ -169,7 +169,7 @@ func schemaCurrent(ctx context.Context, p *goose.Provider) error {
 	case current < target:
 		return fmt.Errorf("store: the schema is at version %d and this binary needs %d: it has not been migrated", current, target)
 	case current > target:
-		return fmt.Errorf("store: the schema is at version %d, newer than this binary's %d: a newer pact-gateway migrated it", current, target)
+		return fmt.Errorf("store: the schema is at version %d, newer than this binary's %d: a newer hdtp-gateway migrated it", current, target)
 	}
 	return nil
 }
@@ -265,7 +265,7 @@ func (s *SQLite) DeleteOwner(ctx context.Context, id string) error {
 }
 
 // CreateAccount refuses a slug an identity has vacated while the last leaf issued for it is live
-// (ErrAddressVacated, PACT §9). It is here, and not in identity.Manager, because every door that
+// (ErrAddressVacated, HDTP §9). It is here, and not in identity.Manager, because every door that
 // creates an account reaches this method and not all of them go through the manager: an import
 // (internal/portable) creates its identities in the store's own transaction.
 func (s *SQLite) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
@@ -327,7 +327,7 @@ func (s *SQLite) GetAccountSealedKey(ctx context.Context, id string) ([]byte, er
 	}
 	// No key is a STATE, not a failure: an account that arrived in a data-only
 	// archive holds its root and no key, because a leaf key belongs to the host
-	// that issued it (PACT §9). Reporting that as an error made three callers'
+	// that issued it (HDTP §9). Reporting that as an error made three callers'
 	// `len(sealed) == 0` branches unreachable — the node read it as "unavailable"
 	// and refused to start when it was the only account, `csr -purpose signup`
 	// could not mint a key, and `install-leaf` could not install the first leaf

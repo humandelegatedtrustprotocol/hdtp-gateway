@@ -1,5 +1,5 @@
 -- +goose Up
--- PACT 2.0 (PACT sec. 13.2): the chain travels ONCE. After that a contact sends its
+-- HDTP 1.0 (HDTP sec. 13.2): the chain travels ONCE. After that a contact sends its
 -- leaf fingerprint and nothing else, so the root certificate that named this contact
 -- exists nowhere on the host once the envelope that carried it is gone - the pin keeps
 -- only the root's FINGERPRINT. A node can still check an arriving chain (the root is
