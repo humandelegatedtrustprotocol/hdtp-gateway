@@ -142,7 +142,7 @@ type Pool struct {
 	// column is what scopes a narrowed token's reads (SPEC §11.6) and the
 	// portal's audit page, and a row with no account is readable by everyone.
 	AccountID string
-	// Limit, when set, charges one call to a HDTP §12 budget, which the limits sidecar decides
+	// Limit, when set, charges one call to an HDTP §12 budget, which the limits sidecar decides
 	// (internal/limits), and answers nil when the call may proceed. It runs per CALL, not per
 	// request. `as` says which budget: the caller's own (ChargeCaller: a contact's, or a guest's),
 	// a guest's whatever the caller is (ChargeGuest: a pinned root at an address not approved, the

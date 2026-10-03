@@ -57,7 +57,7 @@ const PERMS: Readonly<Record<string, string>> = {
 };
 
 /**
- * A HDTP permission (SPEC §5) as an owner reads it: `message.media` → "Media & files",
+ * An HDTP permission (SPEC §5) as an owner reads it: `message.media` → "Media & files",
  * `integration.github` → "GitHub tools". A permission that names one tool (`integration.github.search`,
  * `deepwiki_ask_wiki_question`) is that tool's label. A dotted name this does not know stays as written:
  * it is somebody's own permission, and guessing its words would say something it may not mean.
@@ -262,7 +262,7 @@ const REASONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Why an outbound message did not arrive, in words, from the code the portal was given: a HDTP §12
+ * Why an outbound message did not arrive, in words, from the code the portal was given: an HDTP §12
  * refusal (`last_refusal` on the cloud, the stored status on the node) or `expired`. A code this does not
  * know says only that it did not arrive, rather than guessing; the code itself goes in the title.
  */

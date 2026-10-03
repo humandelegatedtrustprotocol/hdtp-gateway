@@ -170,7 +170,7 @@ func guardSafe(publicURL, slug string) string {
 	return publicURL
 }
 
-// selfSigned is a plain identity key and its self-signed certificate — NOT a HDTP
+// selfSigned is a plain identity key and its self-signed certificate — NOT an HDTP
 // identity. The ingress role is pinned by its SPKI over mutually-pinned mTLS, not
 // by a root, so it is the one place here that still wants exactly this.
 func selfSigned(t *testing.T, cn string) (*identity.Keypair, tls.Certificate) {

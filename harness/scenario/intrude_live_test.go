@@ -27,7 +27,7 @@ import (
 // tests cover the same refusals one package at a time.
 //
 // What the tool judges, this scenario takes as it is: the tool exits non-zero on a scenario that
-// REPRODUCES, one that never reached a HDTP answer (UNREACHED), and a control that was refused or
+// REPRODUCES, one that never reached an HDTP answer (UNREACHED), and a control that was refused or
 // whose answer did not open. What it adds is what only the host can show: that each refusal is on
 // the node's audit trail (build rule 7), and that the node still serves its contact afterwards.
 func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
@@ -97,7 +97,7 @@ func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
 }
 
 // intrudeSummary is the tool's last line: "<n> scenarios: <b> blocked, <r> reproduce, <u> never
-// reached a HDTP answer…".
+// reached an HDTP answer…".
 var intrudeSummary = regexp.MustCompile(`(\d+) scenarios: (\d+) blocked, (\d+) reproduce, (\d+) never reached`)
 
 // intrude runs the battery and returns what it printed and its exit status.

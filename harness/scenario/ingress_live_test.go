@@ -325,7 +325,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	}
 
 	// And the terminated request must REACH the node. The ingress speaks no HTTP
-	// at all — it hands the decrypted stream to a separate TLS leg — so a HDTP
+	// at all — it hands the decrypted stream to a separate TLS leg — so an HDTP
 	// error body can only have been written by bob's own handler.
 	body := mcpInitialize(ctx, f, net.Name, dnsIP, issuanceRoot, "https://bob."+domain+"/a/bob/mcp")
 	if !strings.Contains(body, `"code"`) && !strings.Contains(body, "protocolVersion") {

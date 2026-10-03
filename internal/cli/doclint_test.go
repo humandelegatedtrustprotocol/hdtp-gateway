@@ -42,7 +42,7 @@ func TestDocsOnlyQuoteRealCommands(t *testing.T) {
 			if !known {
 				// A shell line is an instruction: an unknown command there is a
 				// broken instruction. An inline span is usually prose naming the
-				// binary ("a `hdtp-gateway node`"), so it is only checked when it
+				// binary ("an `hdtp-gateway node`"), so it is only checked when it
 				// does name a real command.
 				if inv.shellLine {
 					problems = append(problems, rel+": unknown command `hdtp-gateway "+m[1]+"`")

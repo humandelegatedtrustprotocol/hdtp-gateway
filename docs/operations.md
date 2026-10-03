@@ -1,4 +1,4 @@
-# Operating a hdtp-gateway node
+# Operating an hdtp-gateway node
 
 This is the operator's page: what runs where, how the node is reached, how it is
 backed up, and what to do when something is lost. Design rationale lives in

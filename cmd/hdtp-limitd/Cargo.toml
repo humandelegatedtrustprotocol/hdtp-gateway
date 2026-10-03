@@ -3,7 +3,7 @@ name = "hdtp-limitd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "HDTP SPEC §12's per-caller call budgets for a hdtp-gateway node: one decision, one counter, shared by every node process on the host (layer 2 of docs/release/two-layer-limits-2026-09-28.md)"
+description = "HDTP SPEC §12's per-caller call budgets for an hdtp-gateway node: one decision, one counter, shared by every node process on the host (layer 2 of docs/release/two-layer-limits-2026-09-28.md)"
 publish = false
 
 [[bin]]

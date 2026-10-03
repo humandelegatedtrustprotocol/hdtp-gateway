@@ -87,7 +87,7 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `caldav-image` | `make harness-image-caldav` | nightly |
 | `kernel` | `make harness-kernel`, then `export HDTP_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
 | `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export HDTP_CF_DOMAIN=<domain>` | nightly, when the variable is set |
-| `hdtp-cli` | hdtp-identity's `hdtp` CLI, named by `HDTP_CLI`; `make harness-hdtp-cli` builds it from a hdtp-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `HDTP_CLI`) |
+| `hdtp-cli` | hdtp-identity's `hdtp` CLI, named by `HDTP_CLI`; `make harness-hdtp-cli` builds it from an hdtp-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `HDTP_CLI`) |
 | `local-cloud` | batondeck's local cloud and its live-local runner, named by `HDTP_LOCAL_CLOUD` (`gateway/`, with `public/` built: `npm --prefix ../portal run build && node scripts/build-ceremony.mjs`), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when batondeck is checked out beside this repository and the WorkOS pair is exported |
 | `cloud-battery` | batondeck's Go conformance battery, named by `HDTP_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when batondeck is checked out beside this repository (the Makefile then sets it) |
 
