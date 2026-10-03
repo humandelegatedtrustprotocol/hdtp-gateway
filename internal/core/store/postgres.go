@@ -84,19 +84,8 @@ func (s *Postgres) Migrate(ctx context.Context) error {
 		return err
 	}
 	defer db.Close()
-	if _, err = p.Up(ctx); err != nil {
-		return err
-	}
-	return fillLeafFingerprints(ctx, func(ctx context.Context) ([]sqlitedb.ListContactLeafKeysUnfilledRow, error) {
-		rs, err := s.q.ListContactLeafKeysUnfilled(ctx)
-		out := make([]sqlitedb.ListContactLeafKeysUnfilledRow, len(rs))
-		for i, r := range rs {
-			out[i] = sqlitedb.ListContactLeafKeysUnfilledRow(r)
-		}
-		return out, err
-	}, func(ctx context.Context, fpr sql.NullString, id string) error {
-		return s.q.SetContactLeafFingerprint(ctx, pgdb.SetContactLeafFingerprintParams{LeafFingerprint: fpr, ID: id})
-	})
+	_, err = p.Up(ctx)
+	return err
 }
 
 func (s *Postgres) SchemaCurrent(ctx context.Context) error {

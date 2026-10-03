@@ -52,7 +52,7 @@ type ConsumeLeafRequestParams struct {
 
 // An answer is accepted once: the check and the consumption are one statement, so two answers
 // carrying the same state cannot both see it. The consumed hash moves to answered_state_hash
-// (migration 0051; SET reads the row as it was), so an answer that arrives again can be told apart.
+// (SET reads the row as it was), so an answer that arrives again can be told apart.
 func (q *Queries) ConsumeLeafRequest(ctx context.Context, arg ConsumeLeafRequestParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, consumeLeafRequest, arg.AccountID, arg.Kid, arg.RequestStateHash)
 	if err != nil {
@@ -549,7 +549,7 @@ type SetAccountRootParams struct {
 	ID              string
 }
 
-// HDTP 1.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
+// HDTP 1.0 state (SPEC sec. 2, sec. 14): the account's root and leaf
 // ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 // addresses awaiting the owner under `accept_new_hosts = ask`.
 // The first leaf installed names the account's root; the root never changes after (HDTP sec. 2).
@@ -611,7 +611,7 @@ type SetLeafMovedParams struct {
 	Kid       string
 }
 
-// Whether installing this leaf moved the identity, as the install decided it (migration 0043): what
+// Whether installing this leaf moved the identity, as the install decided it: what
 // a resumed campaign reads to know whom it walks.
 func (q *Queries) SetLeafMoved(ctx context.Context, arg SetLeafMovedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setLeafMoved, arg.Moved, arg.AccountID, arg.Kid)
@@ -633,7 +633,7 @@ type SetLeafRequestParams struct {
 }
 
 // The state a web wallet's answer must carry, as its SHA-256, and the wallet the request went to
-// (migration 0041). Only a pending request carries one.
+// . Only a pending request carries one.
 func (q *Queries) SetLeafRequest(ctx context.Context, arg SetLeafRequestParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setLeafRequest,
 		arg.RequestStateHash,
@@ -742,7 +742,7 @@ type UpsertVacatedAddressParams struct {
 	At       int64
 }
 
-// An address an identity has left (migration 0040, HDTP sec. 9). The row keeps the latest
+// An address an identity has left (HDTP sec. 9). The row keeps the latest
 // not_after it has been given: a second vacating of the same endpoint never shortens it.
 func (q *Queries) UpsertVacatedAddress(ctx context.Context, arg UpsertVacatedAddressParams) error {
 	_, err := q.db.ExecContext(ctx, upsertVacatedAddress,

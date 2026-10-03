@@ -13,7 +13,7 @@
 // One reading per field, the node's own: a card is read by contacts.SealOf, the reader every write
 // to a contact goes through; a certificate held as DER is read by hdtpidentity.Parse, the reader
 // the core applies to it once the node has encoded it for Decide. The fields are every column that
-// holds a certificate or a card (migrations 0002, 0027, 0029): the account's root, its leaves,
+// holds a certificate or a card: the account's root, its leaves,
 // each contact's card, leaf and root certificate, each tombstone's leaf, each pending address's
 // leaf and root certificate. Invites, pending requests and messages hold none.
 //
@@ -21,7 +21,7 @@
 // a pin has nor a request awaiting the owner (public.UnknownContactState) — and names its row. The
 // node hands the identity core no pin for such a row (public/decide.go, pinsOf), where the core
 // would refuse the state as unreadable and the owner would be told on the call; the schema admits
-// no such row (migration 0002), so one is a hand-edited store's or a later binary's, and this walk
+// no such row, so one is a hand-edited store's or a later binary's, and this walk
 // is where the owner hears of it.
 package storecheck
 
@@ -190,7 +190,7 @@ func (r *Report) state(row, status string) {
 }
 
 // der reads a certificate held as DER as the core reads it (hdtpidentity.Parse). An empty column
-// is a row that holds none — a pin made before migration 0029 kept no root certificate, an
+// is a row that holds none — a pin made over a sealed call never saw its root's certificate, an
 // account not yet certified has no root — and is not a field to read.
 func (r *Report) der(table, row, field string, der []byte) {
 	if len(der) == 0 {

@@ -256,7 +256,7 @@ func contacts(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// The request clock (migration 0043). A contact known for years that becomes a request today
+	// The request clock. A contact known for years that becomes a request today
 	// (the handshake's fallback, HDTP §9.2) waits the whole window from today; a request that is
 	// taken back returns to what it was, ever_active untouched; and an import names when its
 	// handshake became owed.

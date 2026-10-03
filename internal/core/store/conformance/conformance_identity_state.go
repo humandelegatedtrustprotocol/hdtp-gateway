@@ -12,7 +12,7 @@ import (
 
 // identityState is the suite for the HDTP 1.0 state: the root, the leaf ledger and the side tables.
 func identityState(t *testing.T, newStore Factory) {
-	// HDTP 1.0 (migration 0027): the root beside the account, the leaf ledger,
+	// HDTP 1.0: the root beside the account, the leaf ledger,
 	// 2.0 pins that move without the root moving, and the §5.3 side tables.
 	t.Run("IdentityStateRoundTrips", func(t *testing.T) {
 		s := migrated(t, newStore)
@@ -140,7 +140,7 @@ func identityState(t *testing.T, newStore Factory) {
 		if c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
 			t.Fatalf("2.0 pin fields lost: %+v", c)
 		}
-		// The ROOT's certificate is kept beside the pin (migration 0029): the chain
+		// The ROOT's certificate is kept beside the pin: the chain
 		// travels once, so a host that keeps only the fingerprint cannot prove a
 		// stored leaf afterwards, here or in an archive taken here. It fills in when
 		// a chain arrives and is never overwritten - a pin's root cannot change.
@@ -232,7 +232,7 @@ func identityState(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// One pending signing request per account (migration 0044), and replacing it is one step on
+	// One pending signing request per account, and replacing it is one step on
 	// either engine: three writers replacing the pending request together, round after round,
 	// leave exactly one and none of them fails. On Postgres it is LockAccount that makes them
 	// wait for each other; without it they meet the unique index instead.

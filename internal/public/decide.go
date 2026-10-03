@@ -226,7 +226,7 @@ var pinStates = map[string]bool{"active": true, "pending_out": true, "blocked": 
 // a state a pin has (pinStates) nor a request awaiting the owner (`pending_in`). pinsOf hands
 // Decide no pin for such a row, exactly as for a request — where the identity core 0.4.2 would refuse
 // the state as unreadable and the owner would be told on the call (`identity_state_unreadable`).
-// The schema admits no such row (migration 0002's CHECK holds a contact's status to the four, on
+// The schema admits no such row (the schema's CHECK holds a contact's status to the four, on
 // both engines), so one is a hand-edited store's or a later binary's; the walk of
 // internal/storecheck counts and names each, so the owner is told at `serve` and by `check store`
 // rather than never. TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin holds the two
@@ -509,7 +509,7 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 			// No root certificate on this path: the chain the sender carried is inside
 			// the ciphertext, and only the library's Decide ever sees it. The pending
 			// row keeps the leaf; the cert arrives if that host connects with a client
-			// certificate (migration 0029).
+			// certificate.
 			if err := id.notePendingAddress(ctx, accountID, root, endpoint, why, leafDER, nil, now); err != nil {
 				return err
 			}
@@ -605,7 +605,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 		// Served as a stranger, and indistinguishable from one (§6.1, §13.3).
 		return TransportCaller{Demote: true}
 	}
-	// This is where a pin without its root certificate gets one (migration 0029):
+	// This is where a pin without its root certificate gets one:
 	// the chain that just validated carries the root, and a pin made over a sealed
 	// call never saw it. Never overwrites — the root of a pin cannot change — and a
 	// failure is not fatal to the request, which is about the caller, not the column.

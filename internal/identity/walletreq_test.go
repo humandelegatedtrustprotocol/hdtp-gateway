@@ -160,7 +160,7 @@ func TestTheStateIsConsumedByTheStatementThatChecksIt(t *testing.T) {
 	if ok2, _ := m.Store.ConsumeLeafRequest(ctx, a.ID, req.Kid, h); ok2 {
 		t.Fatal("the state was consumed twice")
 	}
-	// The statement that consumed it kept it as the answered state (migration 0051).
+	// The statement that consumed it kept it as the answered state.
 	leaves, err := m.Store.ListLeaves(ctx, a.ID)
 	if err != nil {
 		t.Fatal(err)

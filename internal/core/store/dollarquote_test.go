@@ -17,7 +17,7 @@ import (
 // This node was not exposed, but only because two things never coincided. The SQL
 // that carries arguments — everything in queries/ and the generated pgdb code —
 // uses `$1..$N` and contains no dollar-quoted literal. The SQL that DOES contain
-// one (two migrations, `CREATE FUNCTION … AS $$`) runs through goose over
+// one (the Postgres base migration's two `CREATE FUNCTION … AS $$`) runs through goose over
 // database/sql with no arguments at all, so there is nothing to substitute.
 //
 // That is an incidental property, and safety by coincidence expires. It matters

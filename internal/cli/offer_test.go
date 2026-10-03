@@ -50,8 +50,8 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	if base64.RawURLEncoding.EncodeToString(spki) != base64.RawURLEncoding.EncodeToString(p.Host.Key.Public().SPKI) {
 		t.Error("the key returned is not the leaf's")
 	}
-	// The ROOT's own certificate comes back too, because the pin keeps it (migration
-	// 0029): the offer's chain is the one moment this host holds it, and a sealed call
+	// The ROOT's own certificate comes back too, because the pin keeps it: the offer's
+	// chain is the one moment this host holds it, and a sealed call
 	// afterwards carries the chain inside its ciphertext where only Decide sees it.
 	if len(rootCert) == 0 {
 		t.Error("the offer verified and returned no root certificate to pin")
