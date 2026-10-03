@@ -12,7 +12,7 @@ import (
 	"github.com/cedar-policy/cedar-go/types"
 )
 
-// Tier per PACT §6.1.
+// Tier per HDTP §6.1.
 type Tier string
 
 const (
@@ -68,7 +68,7 @@ permit (
 `
 
 var policies = func() *cedar.PolicySet {
-	ps, err := cedar.NewPolicySetFromBytes("pact-static.cedar", []byte(policyText))
+	ps, err := cedar.NewPolicySetFromBytes("hdtp-static.cedar", []byte(policyText))
 	if err != nil {
 		panic(fmt.Sprintf("policy: static policy set invalid: %v", err))
 	}
@@ -156,7 +156,7 @@ func AllowOwnerManage(o OwnerCtx, accountID string) bool {
 	return decision == cedar.Allow
 }
 
-// TierFor maps a contact row's status to the caller tier (PACT §6.1):
+// TierFor maps a contact row's status to the caller tier (HDTP §6.1):
 // absent/blocked → guest (silently indistinguishable), pending_out → pending
 // (the peer we asked may call contact_accepted/rejected), active → contact.
 // pending_in stays guest: someone who asked US gains nothing until approval.

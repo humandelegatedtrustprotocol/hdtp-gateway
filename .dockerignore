@@ -2,4 +2,4 @@
 # through `COPY . .`.
 .build/
 # The limits sidecar's host build: the image builds its own (Dockerfile, stage `limitd`).
-cmd/pact-limitd/target/
+cmd/hdtp-limitd/target/

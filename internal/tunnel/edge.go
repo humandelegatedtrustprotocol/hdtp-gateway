@@ -211,7 +211,7 @@ func ngrokHTTPSOptions(o Options) (ngrokHTTPSOpts, error) {
 		return n, fmt.Errorf("tunnel: ngrok-https url must be https:// (use the `ngrok` adapter for tls:// passthrough)")
 	}
 	if n.Name == "" {
-		n.Name = "pact"
+		n.Name = "hdtp"
 	}
 	return n, nil
 }

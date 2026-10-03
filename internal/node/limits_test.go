@@ -1,6 +1,6 @@
 package node
 
-// The node's budgets are the limits sidecar's to decide (internal/limits, cmd/pact-limitd): these
+// The node's budgets are the limits sidecar's to decide (internal/limits, cmd/hdtp-limitd): these
 // hold that each door the node has for one reaches the real sidecar — the pending-request cap on a
 // stranger's request, each integration's own cap, and a sidecar that is down — with numbers of their
 // own, so nothing passes by agreeing with a default.
@@ -14,11 +14,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 func TestAStrangersRequestIsHeldToTheSidecarsPendingCap(t *testing.T) {

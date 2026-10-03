@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // approveEnv is the manage pages with the peer-notification hook recorded.

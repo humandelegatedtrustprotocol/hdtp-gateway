@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 func freePort(t *testing.T) int {

@@ -1,6 +1,6 @@
 // Sign a headless browser into a RUNNING node without the owner's passkey.
 //
-// First run per node: pass a one-time setup link (from `pact-gateway passkey
+// First run per node: pass a one-time setup link (from `hdtp-gateway passkey
 // reset-wizard` inside the container); a virtual authenticator registers a passkey
 // named "claude-qa" and its credential is saved under tools/.qa/ (gitignored).
 // Later runs: the credential is re-added to a fresh virtual authenticator and the
@@ -40,7 +40,7 @@ export async function openNode (browser, name, base, setupURL) {
     await page.click('main button')
     await nav
   } else {
-    if (!setupURL) throw new Error(`${name}: no saved credential and no setup link — run \`docker exec pactcf-${name} /pact-gateway passkey reset-wizard\` and pass the URL`)
+    if (!setupURL) throw new Error(`${name}: no saved credential and no setup link — run \`docker exec hdtpcf-${name} /hdtp-gateway passkey reset-wizard\` and pass the URL`)
     const u = new URL(setupURL); const b = new URL(base); u.protocol = b.protocol; u.host = b.host
     await page.goto(u.toString(), { waitUntil: 'load' })
     await page.waitForSelector('#go', { timeout: 15000 })
@@ -61,13 +61,13 @@ export async function openNode (browser, name, base, setupURL) {
   console.log(`  ${name}: signed in, ${s.accounts.length} identit${s.accounts.length === 1 ? 'y' : 'ies'}: ${s.accounts.map(a => a.slug).join(', ')}`)
 
   const post = (path, fields) => page.evaluate(async ({ path, fields }) => {
-    const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
-    const body = new URLSearchParams({ csrf, account: localStorage.getItem('pact.account') || '', ...fields })
-    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Pact-Csrf': csrf }, body: body.toString() })
+    const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
+    const body = new URLSearchParams({ csrf, account: localStorage.getItem('hdtp.account') || '', ...fields })
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-HDTP-Csrf': csrf }, body: body.toString() })
     return { ok: r.ok, status: r.status, url: r.url, body: (await r.text()).slice(0, 400) }
   }, { path, fields })
   const get = (path) => page.evaluate(async (path) => {
-    const account = localStorage.getItem('pact.account') || ''
+    const account = localStorage.getItem('hdtp.account') || ''
     const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'account=' + encodeURIComponent(account), { headers: { Accept: 'application/json' } })
     return r.json()
   }, path)

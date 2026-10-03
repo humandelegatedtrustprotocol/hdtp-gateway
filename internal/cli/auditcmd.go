@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/auditstore"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/auditstore"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-const auditUsage = "usage: pact-gateway audit <verify|export|archive|repair|erase-archive> [flags]"
+const auditUsage = "usage: hdtp-gateway audit <verify|export|archive|repair|erase-archive> [flags]"
 
 func auditCmd(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {

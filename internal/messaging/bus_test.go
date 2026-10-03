@@ -11,11 +11,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // sharedStores opens n handles on one store — n node processes sharing it — for each engine the
-// test machine has: one SQLite file always, one Postgres database when PACT_TEST_POSTGRES_DSN is
+// test machine has: one SQLite file always, one Postgres database when HDTP_TEST_POSTGRES_DSN is
 // set (the pre-push hook sets it).
 func sharedStores(t *testing.T, n int) map[string][]store.Store {
 	t.Helper()
@@ -35,11 +35,11 @@ func sharedStores(t *testing.T, n int) map[string][]store.Store {
 		}
 		out["sqlite"] = append(out["sqlite"], st)
 	}
-	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 	if dsn == "" {
 		return out
 	}
-	db := "pact_bus_" + strings.ToLower(strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()))
+	db := "hdtp_bus_" + strings.ToLower(strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()))
 	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestAProcessDoesNotHearItsOwnEventTwice(t *testing.T) {
 func TestPostgresWakesAnotherProcessAtCommit(t *testing.T) {
 	stores, ok := sharedStores(t, 2)["postgres"]
 	if !ok {
-		t.Skip("PACT_TEST_POSTGRES_DSN not set")
+		t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

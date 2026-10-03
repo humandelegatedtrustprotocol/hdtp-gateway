@@ -1,6 +1,6 @@
 package internalui
 
-// The signing request to a web wallet (PACT §9.1; the identity-boundary design §2): the portal asks
+// The signing request to a web wallet (HDTP §9.1; the identity-boundary design §2): the portal asks
 // the person's web wallet for a leaf, and installs the answer.
 //
 //	GET  /identity/{slug}/wallet          what would be asked, and of which wallet. Changes nothing.
@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // WalletInstalled is what an install did, as the return page reports it.
@@ -78,7 +78,7 @@ func (d WalletDeps) audit(action, resource, outcome string) {
 // a margin for a wallet clock that runs ahead and still gives the person time on the page.
 const walletRequestLifetime = 8 * time.Minute
 
-// The validity a request suggests; the person chooses in the wallet (PACT §9.1).
+// The validity a request suggests; the person chooses in the wallet (HDTP §9.1).
 const walletSuggestedDays = 365
 
 //go:embed wallet_submit.js
@@ -182,8 +182,8 @@ func wrState(id, icon, pill, pillClass, title, body string) string {
 // The states the return page shows: one for each refusal the install answers, as r-<code>
 // (walletRefusals, and not_found, malformed, chain, failed; the prefix keeps a code from naming any
 // other state), for the portal's own refusals before it (signed_out, the 401; forbidden, the CSRF
-// check's 403), for no reply at all, and for the wallet's own answers (#error=<code>: PACT §9.1 names
-// `cancelled`; PACT Cloud's wallet also sends `failed`).
+// check's 403), for no reply at all, and for the wallet's own answers (#error=<code>: HDTP §9.1 names
+// `cancelled`; BatonDeck's wallet also sends `failed`).
 var walletReturnStates = wrState("r-answered", wrIconOK, "Already installed", "ok", "This answer was installed already",
 	"Your wallet&#39;s answer was installed the first time it arrived here. Arriving again changes nothing. The Identity page shows the certificate this identity has now.") +
 	wrState("r-not_this_request", wrIconErr, "Not installed", "bad", "This answer is for another request",
@@ -224,13 +224,13 @@ var walletReturnStates = wrState("r-answered", wrIconOK, "Already installed", "o
 var walletReturnTmpl = template.Must(template.New("return").Parse(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="color-scheme" content="light dark"/>
-<meta name="pact-csrf-cookie" content="{{.Cookie}}"/>
+<meta name="hdtp-csrf-cookie" content="{{.Cookie}}"/>
 <title>Your wallet's answer</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml"/>
 <link rel="stylesheet" href="{{.Stylesheet}}"/>
 ` + walletReturnStyle + `</head>
 <body><main class="center wr">
-<div class="brandline"><picture><source srcset="/brand/pact-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/><img class="logo" src="/brand/pact-gateway-inline.svg" alt="PACT gateway" width="169" height="34"/></picture></div>
+<div class="brandline"><picture><source srcset="/brand/hdtp-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/><img class="logo" src="/brand/hdtp-gateway-inline.svg" alt="HDTP Gateway" width="183" height="34"/></picture></div>
 <h1>Your wallet's answer</h1>
 <div class="card wr-card" id="answer" data-kind="working" role="status" aria-live="polite" aria-busy="true">
 <section id="st-working"><div class="wr-head"><span class="wr-icon"><span class="wr-spin" aria-hidden="true"></span></span><div><span class="pill">Working</span><h2>Installing your certificate…</h2></div></div>
@@ -305,7 +305,7 @@ func walletPortalOrigin(r *http.Request) (string, error) {
 	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost, 127.x.y.z or [::1]")
 }
 
-// walletLoopbackHost is the wallet's rule for a host it answers over http (pact-identity's
+// walletLoopbackHost is the wallet's rule for a host it answers over http (hdtp-identity's
 // loopbackHost, which the wallet applies to the redirect): localhost, a dotted quad in 127.0.0.0/8
 // in the normal form (four decimal octets, no leading zero), or [::1] — and no other spelling of
 // loopback, such as [::ffff:7f00:1], which net.ParseIP calls loopback and the wallet refuses. The
@@ -354,7 +354,7 @@ func (d WalletDeps) prepare(w http.ResponseWriter, r *http.Request, a store.Acco
 	purpose, err := d.Purpose(r, a.ID, endpoint)
 	if errors.Is(err, identity.ErrLeafRefused) {
 		http.Error(w, "The web wallet renews and moves an identity it already certified; a first certificate comes from the command-line wallet: "+
-			"`pact-gateway account csr -slug "+a.Slug+"`, `pact id issue`, `pact-gateway account install-leaf -slug "+a.Slug+"`.", http.StatusConflict)
+			"`hdtp-gateway account csr -slug "+a.Slug+"`, `hdtp id issue`, `hdtp-gateway account install-leaf -slug "+a.Slug+"`.", http.StatusConflict)
 		return walletAsk{}, false
 	}
 	if err != nil {
@@ -442,12 +442,12 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	}
 	redirect := origin + "/wallet/return?slug=" + url.QueryEscape(a.Slug)
 	fields := []walletField{
-		{"csr", pactidentity.B64url(res.CSR)},
+		{"csr", hdtpidentity.B64url(res.CSR)},
 		{"purpose", res.Purpose},
 		{"expect_root", a.RootFingerprint},
 	}
 	if len(a.RootCert) > 0 {
-		fields = append(fields, walletField{"root_cert", pactidentity.B64url(a.RootCert)})
+		fields = append(fields, walletField{"root_cert", hdtpidentity.B64url(a.RootCert)})
 	}
 	fields = append(fields,
 		walletField{"redirect", redirect},
@@ -458,7 +458,7 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	)
 	// This page, and only this one, lets its form go to the wallet, and sends the portal's origin
 	// with it: under the portal's no-referrer a cross-origin POST's Origin is `null`, which a
-	// wallet refuses (PACT §9.1).
+	// wallet refuses (HDTP §9.1).
 	h := w.Header()
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	h.Set("Content-Security-Policy", walletFormCSP(d.WalletOrigin))
@@ -475,9 +475,9 @@ func walletFormCSP(walletOrigin string) string {
 // walletRecipient is what the host calls itself in the request, shown by the wallet as the host's
 // own claim (at most 200 characters).
 func walletRecipient(endpoint string) string {
-	who := "pact-gateway"
+	who := "hdtp-gateway"
 	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
-		who = "pact-gateway at " + u.Host
+		who = "hdtp-gateway at " + u.Host
 	}
 	if r := []rune(who); len(r) > 200 {
 		who = string(r[:200])
@@ -500,7 +500,7 @@ func parseWalletChain(s string) ([][]byte, error) {
 	}
 	var out [][]byte
 	for _, p := range parts {
-		b, err := pactidentity.DecodeB64url(p)
+		b, err := hdtpidentity.DecodeB64url(p)
 		if err != nil || len(b) == 0 {
 			return nil, errors.New("the chain is not base64url DER")
 		}

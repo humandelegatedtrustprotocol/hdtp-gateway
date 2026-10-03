@@ -2,8 +2,8 @@
 //
 // It reuses the product's own outbound client rather than reimplementing mTLS.
 // That is possible even though the harness is a separate module: Go's internal
-// rule is by IMPORT-PATH tree, and `…/pact-gateway/harness` sits inside
-// `…/pact-gateway`, so `internal/outbound` is importable here. Reimplementing the
+// rule is by IMPORT-PATH tree, and `…/hdtp-gateway/harness` sits inside
+// `…/hdtp-gateway`, so `internal/outbound` is importable here. Reimplementing the
 // dialling would have meant a scenario could pass against a peer that the real
 // product could never have talked to.
 package peer
@@ -21,16 +21,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Agent is one contact's agent: an identity plus the client that speaks for it.
 //
-// A 2.0 identity is a person's self-signed ROOT and a leaf the root issued to the
-// host, and it is the root a node pins (PACT §2). The leaf names the address this
+// An identity is a person's self-signed ROOT and a leaf the root issued to the
+// host, and it is the root a node pins (HDTP §2). The leaf names the address this
 // agent answers at — it never actually serves, but a leaf must name one, and it
 // MUST NOT be a loopback address (§14.2 rule 5), so it names a routable-looking one.
 type Agent struct {
@@ -80,7 +80,7 @@ func (a *Agent) route(t Target) {
 }
 
 // NewAgent mints a fresh identity and the client that presents it. Each scenario
-// gets its own, because identity IS the caller in PACT — sharing one between two
+// gets its own, because identity IS the caller in HDTP — sharing one between two
 // simulated contacts would make every tier and permission assertion meaningless.
 func NewAgent(name string) (*Agent, error) {
 	if name == "" {
@@ -90,11 +90,11 @@ func NewAgent(name string) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("peer: generating identity: %w", err)
 	}
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		return nil, fmt.Errorf("peer: generating root: %w", err)
 	}
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{
 		CN: name, Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour),
 	})
 	if err != nil {
@@ -104,12 +104,12 @@ func NewAgent(name string) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("peer: host key: %w", err)
 	}
-	hostPub, err := pactidentity.ParseSPKI(spki)
+	hostPub, err := hdtpidentity.ParseSPKI(spki)
 	if err != nil {
 		return nil, fmt.Errorf("peer: host key: %w", err)
 	}
 	endpoint := "https://" + name + ".harness.example/a/" + name + "/mcp"
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: name, RootCN: name, RootKey: rootKey, HostPub: hostPub, URIs: []string{endpoint},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(1, 0, 0),
 	})
@@ -119,12 +119,12 @@ func NewAgent(name string) (*Agent, error) {
 	kp.Leaf, kp.Root = leaf, rootCert
 	cert := tls.Certificate{Certificate: [][]byte{leaf, rootCert}, PrivateKey: kp.Signer}
 	a := &Agent{
-		Keypair: kp, Root: pactidentity.Fingerprint(rootKey.Public().SPKI),
+		Keypair: kp, Root: hdtpidentity.Fingerprint(rootKey.Public().SPKI),
 		Leaf: leaf, Endpoint: endpoint, rootCert: rootCert, name: name,
 		routes: map[string]string{},
 	}
 	// Roots is empty on purpose: a peer trusts the node by its PINNED ROOT, not
-	// by WebPKI (PACT §2). An empty pool means a mis-pinned peer fails closed.
+	// by WebPKI (HDTP §2). An empty pool means a mis-pinned peer fails closed.
 	a.Client = &outbound.Client{Keypair: kp, Cert: cert, Roots: x509.NewCertPool(), DialContext: a.dial}
 	return a, nil
 }
@@ -138,8 +138,8 @@ func (a *Agent) Card(seal string) string {
 	return card
 }
 
-// Fingerprint is this agent's PACT §2 identity — its ROOT. It used to be the
-// identity key's, because in 1.x the key WAS the identity; a leaf key changes at
+// Fingerprint is this agent's HDTP §2 identity — its ROOT. It used to be the
+// identity key's, because the key WAS the identity; a leaf key changes at
 // every renewal and a root does not, so the root is what a node pins.
 func (a *Agent) Fingerprint() string { return a.Root }
 
@@ -149,14 +149,14 @@ func (a *Agent) LeafKid() string { return a.Keypair.Fingerprint }
 // Target names a node this agent calls.
 type Target struct {
 	// Endpoint is the node's MCP URL as its LEAF names it, e.g. https://alice.harness.example/a/alice/mcp.
-	// A chain is validated against the address dialled (PACT §14.2 rule 5), and a wallet does not
+	// A chain is validated against the address dialled (HDTP §14.2 rule 5), and a wallet does not
 	// issue a leaf for a loopback address, so this is a name even when the node is a container
 	// published on localhost.
 	Endpoint string
 	// Dial is where that name is really listening, e.g. 127.0.0.1:18443 — what DNS would say
 	// for a real caller. Empty dials the endpoint as written.
 	Dial string
-	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
+	// Seal mirrors the peer's X-HDTP-SEAL, which decides whether Call seals.
 	Seal string
 	// Root and Leaf are the node's identity: the fingerprint of the root its chain must validate
 	// to, and the leaf it presents — whose key is the one a call is sealed to. Without them
@@ -167,7 +167,7 @@ type Target struct {
 
 // Peer is the outbound view of a target.
 //
-// This set a `Protocol: 2` when the root was known and passed the node's key beside the call; the
+// This set a `Protocol` number when the root was known and passed the node's key beside the call; the
 // node dropped both on 2026-09-19 (a pin is a root and a leaf, and the key is the leaf's). This
 // module is compiled by no gate of the node's, so it went on not compiling for the rest of that
 // day, until the pre-push hook — the only thing that builds it — refused the push.
@@ -177,7 +177,7 @@ func (t Target) Peer() outbound.Peer {
 
 // Call invokes one tool on the target and returns the decoded result content.
 //
-// msgID is the caller-supplied idempotency key of PACT §6.2 — the SAME value must
+// msgID is the caller-supplied idempotency key of HDTP §6.2 — the SAME value must
 // be reused across retries, which is what makes a retry safe.
 func (a *Agent) Call(ctx context.Context, t Target, tool string, args map[string]any, msgID string) (string, error) {
 	a.route(t)

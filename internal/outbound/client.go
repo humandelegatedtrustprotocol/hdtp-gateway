@@ -2,7 +2,7 @@
 // as client certificate — sent unconditionally via GetClientCertificate, because an
 // edge's CertificateRequest may advertise CAs a self-signed identity cannot satisfy
 // and Go's default selection would then silently send nothing — server validation
-// per PACT §2 (pinned fingerprint first, else WebPKI for the hostname), and the
+// per HDTP §2 (pinned fingerprint first, else WebPKI for the hostname), and the
 // outbound half of the seal policy (SPEC §4.6).
 package outbound
 
@@ -21,14 +21,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 var ErrSealRequired = errors.New("seal_required")
 
 // RateLimited is a call this host refused to send because the calling identity's outbound budget
-// is spent (PACT §12's buckets, applied to what an identity sends as well as what it receives).
+// is spent (HDTP §12's buckets, applied to what an identity sends as well as what it receives).
 // Nothing left the host. RetryAfter is how long until the budget holds a call again.
 type RateLimited struct{ RetryAfter time.Duration }
 
@@ -39,14 +39,14 @@ func (e *RateLimited) Error() string {
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
-	Endpoint string // the address the pinned leaf names (PACT §2) — a card carries no separate one
-	Seal     string // X-PACT-SEAL: none | optional | required ("" = none)
-	// A contact is pinned by its root (PACT §2, §14.3). Root is that root's fingerprint — the
+	Endpoint string // the address the pinned leaf names (HDTP §2) — a card carries no separate one
+	Seal     string // X-HDTP-SEAL: none | optional | required ("" = none)
+	// A contact is pinned by its root (HDTP §2, §14.3). Root is that root's fingerprint — the
 	// identity — Leaf is the latest leaf accepted, whose key is what the call is sealed to and
 	// the answer verified under, and ChainSeen says this contact has already seen OUR current
 	// leaf, so the call carries our leaf's fingerprint rather than the chain (§13.2).
 	//
-	// There was a `Fingerprint` beside `Root`, holding the same value. In 1.x it was the pinned
+	// There was a `Fingerprint` beside `Root`, holding the same value. It was once the pinned
 	// KEY's, and it was what TLS and the envelope were checked against; by the time it went,
 	// two error messages were all that read it.
 	Root      string
@@ -65,22 +65,22 @@ func (p Peer) name() string {
 
 // Known reports whether we hold what it takes to recognise this peer: the root it is pinned by
 // and a leaf under it. Every peer built from a pin or a card has both; the zero Peer has
-// neither. It used to be asked as `Protocol == 2`, a field every construction set to 2.
+// neither. It used to be asked of a `Protocol` field that every construction set alike.
 func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
 
 type Client struct {
 	Keypair *identity.Keypair
 	Cert    tls.Certificate
 	Roots   *x509.CertPool // nil = system roots; injectable for tests
-	// Now is the clock the 2.0 exchange dates envelopes and validates chains
+	// Now is the clock the exchange dates envelopes and validates chains
 	// by; nil means time.Now.
 	Now func() time.Time
 	// OnChainSent is told that a peer has been sent our chain, so the host
-	// records that the next call may carry the fingerprint (PACT §13.2).
+	// records that the next call may carry the fingerprint (HDTP §13.2).
 	OnChainSent func(peer Peer)
 	// OnRepin is told of a newer leaf accepted for a peer — from a result, a
 	// certificate_renewed answer, or get_card — so the host moves the pin
-	// (PACT §14.3, §14.4). spki is the new leaf's key.
+	// (HDTP §14.3, §14.4). spki is the new leaf's key.
 	OnRepin func(peer Peer, leaf, spki []byte)
 	// DialContext overrides how the endpoint's host is reached; nil dials it.
 	// A test maps a leaf's endpoint host onto a local listener with it.
@@ -102,7 +102,7 @@ func (c *Client) spend(peer Peer, tool string) error {
 	return c.Budget(peer, tool)
 }
 
-// tlsConfig builds the per-peer TLS client configuration implementing PACT §2's
+// tlsConfig builds the per-peer TLS client configuration implementing HDTP §2's
 // server-side rule: accept iff the presented SPKI matches the pinned contact
 // fingerprint, else require WebPKI validity for the endpoint hostname.
 func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
@@ -110,7 +110,7 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 		MinVersion: tls.VersionTLS12,
 		// Verification is fully custom below; the default chain check must not run
 		// first or pinned self-signed servers could never connect.
-		InsecureSkipVerify: true, // #nosec G402 -- VerifyPeerCertificate below pins by SPKI (PACT §2)
+		InsecureSkipVerify: true, // #nosec G402 -- VerifyPeerCertificate below pins by SPKI (HDTP §2)
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			return &c.Cert, nil // unconditional (SPEC §10.3)
 		},
@@ -122,15 +122,15 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 			if err != nil {
 				return fmt.Errorf("outbound: %w", err)
 			}
-			// (a2) PACT 2.0: the contact's own chain as the server certificate
-			// (PACT §2), validated to the pinned root at the dialed address.
+			// (a2) HDTP 1.0: the contact's own chain as the server certificate
+			// (HDTP §2), validated to the pinned root at the dialed address.
 			if peer.Known() && len(rawCerts) == 2 {
-				vr := pactidentity.ValidateChain([][]byte{rawCerts[0], rawCerts[1]}, pactidentity.ChainOpts{Now: c.now(), ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint})
+				vr := hdtpidentity.ValidateChain([][]byte{rawCerts[0], rawCerts[1]}, hdtpidentity.ChainOpts{Now: c.now(), ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint})
 				if vr.OK {
 					return nil
 				}
 			}
-			// There is no third way. A pinned 2.0 peer is recognised by the chain
+			// There is no third way. A pinned peer is recognised by the chain
 			// above — validated to the root we pinned, at the address we dialed —
 			// and everything else by WebPKI for the hostname, which is what a
 			// terminating edge presents.
@@ -178,7 +178,7 @@ type CallOptions struct {
 // CallTool invokes one tool on the peer. Sealing of the call itself rides the sealed_call wrapper
 // wired in P1-08/P1-11; the outbound seal DECISION lives here so policy has exactly one home.
 //
-// The go-sdk client speaks MCP 2026-07-28 first: against a stateless peer — a node, PACT Cloud —
+// The go-sdk client speaks MCP 2026-07-28 first: against a stateless peer — a node, BatonDeck —
 // the exchange is two POSTs, `server/discover` and the call, with no session, no standalone GET
 // and no DELETE (node TestASealedCallCompletesFromEitherMCPEra). The discover is the SDK's:
 // Client.Connect sends it (or `initialize`) before anything else, and go-sdk v1.8.0 has no way to
@@ -201,7 +201,7 @@ func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[
 	if err != nil {
 		return nil, err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "hdtp-gateway", Version: "1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint: peer.Endpoint, HTTPClient: hc,
 	}, nil)
@@ -213,7 +213,7 @@ func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[
 }
 
 // ListTools asks the peer what this identity may call there. tools/list is the
-// one method every node answers at every tier, sealed or not (PACT §13.4), and
+// one method every node answers at every tier, sealed or not (HDTP §13.4), and
 // the list comes back already filtered by the peer's switchboard for us.
 func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) {
 	if err := c.spend(peer, "tools/list"); err != nil {
@@ -223,7 +223,7 @@ func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) 
 	if err != nil {
 		return nil, err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "hdtp-gateway", Version: "1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: peer.Endpoint, HTTPClient: hc}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("outbound: %w", err)
@@ -240,12 +240,12 @@ func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) 
 //
 // The seal decision is one rule and belongs in one place — every outbound call site used to
 // choose for itself. A peer whose card says `required` or `optional` is sealed to; only a peer
-// that says `none` gets plaintext (PACT §13.4).
+// that says `none` gets plaintext (HDTP §13.4).
 //
 // The key sealed to is the one in the leaf held for the peer (`Peer.Leaf`). It used to be a
 // separate argument that "may be nil: a contact re-pinned but not yet reconnected holds only a
-// fingerprint" — a state 1.x key rotation produced — and a nil one sent the call PLAINTEXT to an
-// `optional` peer and failed it outright for a `required` one. 2.0 had a way into that state too:
+// fingerprint" — a state key rotation produced — and a nil one sent the call PLAINTEXT to an
+// `optional` peer and failed it outright for a `required` one. HDTP had a way into that state too:
 // a contact we requested was stored with its leaf and without the leaf's key, so once they
 // accepted, every call to them downgraded. The key is in the leaf; nothing needs to carry it twice.
 func (c *Client) Call(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
@@ -256,7 +256,7 @@ func (c *Client) Call(ctx context.Context, peer Peer, tool string, args map[stri
 }
 
 // SealedCall wraps one inner tools/call in an envelope sealed to the peer's leaf key, invokes the
-// peer's `sealed_call`, and opens the sealed answer (PACT §13.2).
+// peer's `sealed_call`, and opens the sealed answer (HDTP §13.2).
 func (c *Client) SealedCall(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
 	plain, refusal, err := c.exchange(ctx, peer, "tools/call",
 		map[string]any{"name": tool, "arguments": args}, msgID)

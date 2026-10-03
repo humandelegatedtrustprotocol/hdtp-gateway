@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // T5 — the owner's own front door (SPEC §10.6), with a real ACME CA.
@@ -90,7 +90,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	ing, err := f.Container(ctx, fabric.Spec{
 		Name: "ingress", Image: images.Node, Network: net,
 		Volumes: []string{caRoot + ":/pebble-root.pem:ro"},
-		Env:     map[string]string{"PACT_INGRESS_TOKEN": "harness-dp"},
+		Env:     map[string]string{"HDTP_INGRESS_TOKEN": "harness-dp"},
 		Cmd: []string{"ingress", "serve",
 			"-domain", domain,
 			"-data-dir", "/tmp/ingress",
@@ -211,7 +211,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	//
 	// Each is certified by its owner's wallet — until then the account is nobody and the node has
 	// no chain to present, through an ingress or otherwise — and its public name is set from the
-	// start, because the leaf names the address it answers at (PACT §2) and the wallet signs it
+	// start, because the leaf names the address it answers at (HDTP §2) and the wallet signs it
 	// before the ingress is paired. Pairing and the tunnel are settings, settings are the
 	// owner's, and the portal requires a session on every bind (SPEC §8.3): World.Node signs the
 	// owner in. These forms were posted as nobody.
@@ -226,7 +226,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 		o, err := w.Node(ctx, NodeOpts{
 			Slug: nc.slug, Net: net, DNS: []string{dnsIP},
 			PublicURL: "https://" + nc.slug + "." + domain,
-			Env:       map[string]string{"PACT_SEAL": "optional"},
+			Env:       map[string]string{"HDTP_SEAL": "optional"},
 		})
 		if err != nil {
 			t.Fatalf("%s: %v", nc.slug, err)
@@ -238,9 +238,9 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	//
 	// The pair URL is the container name, not a public one: Pair pins the ingress
 	// by SPKI fingerprint and skips chain and hostname verification entirely
-	// (PACT §2), so the name it is reached by carries no trust.
+	// (HDTP §2), so the name it is reached by carries no trust.
 	for _, nc := range cases {
-		tok, err := f.Exec(ctx, ing, "/pact-gateway", "ingress", "token", "-data-dir", "/tmp/ingress")
+		tok, err := f.Exec(ctx, ing, "/hdtp-gateway", "ingress", "token", "-data-dir", "/tmp/ingress")
 		if err != nil {
 			t.Fatalf("minting a pairing token: %v (%s)", err, tok)
 		}
@@ -297,7 +297,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 
 	// Passthrough: the node's OWN certificate. The ingress forwards bytes on SNI
 	// and never holds a key for this name, so anything else means it terminated
-	// and the end-to-end mTLS identity of PACT §2 is gone.
+	// and the end-to-end mTLS identity of HDTP §2 is gone.
 	got := chainSeen(ctx, f, net.Name, dnsIP, "alice."+domain)
 	// Her leaf, that is: issued by her wallet under her root, both named for her (CN=Alice). It
 	// was `CN=alice`, the lone self-signed certificate a key-pinned node presented.
@@ -325,7 +325,7 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	}
 
 	// And the terminated request must REACH the node. The ingress speaks no HTTP
-	// at all — it hands the decrypted stream to a separate TLS leg — so a PACT
+	// at all — it hands the decrypted stream to a separate TLS leg — so an HDTP
 	// error body can only have been written by bob's own handler.
 	body := mcpInitialize(ctx, f, net.Name, dnsIP, issuanceRoot, "https://bob."+domain+"/a/bob/mcp")
 	if !strings.Contains(body, `"code"`) && !strings.Contains(body, "protocolVersion") {
@@ -392,7 +392,7 @@ func chainVerified(ctx context.Context, f *fabric.Fabric, network, dnsIP, caRoot
 func mcpInitialize(ctx context.Context, f *fabric.Fabric, network, dnsIP, caRoot, url string) string {
 	const req = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{` +
 		`"protocolVersion":"2025-06-18","capabilities":{},` +
-		`"clientInfo":{"name":"pact-harness","version":"1"}}}`
+		`"clientInfo":{"name":"hdtp-harness","version":"1"}}}`
 	args := []string{"run", "--rm", "--network", network, "--dns", dnsIP}
 	verify := []string{"-k"}
 	if caRoot != "" {

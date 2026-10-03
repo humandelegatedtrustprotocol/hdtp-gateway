@@ -8,11 +8,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-// PACT §14.3's confirmation rule comes with one MUST NOT, and it is the rule that
+// HDTP §14.3's confirmation rule comes with one MUST NOT, and it is the rule that
 // keeps the rule itself from being a weapon: "A verifier MUST NOT treat an unanswered
 // or failed confirmation as a reason to refuse a contact, or to un-pin one."
 //

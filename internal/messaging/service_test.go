@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func newSvc(t *testing.T) (*Service, string) {
@@ -161,7 +161,7 @@ func TestAnInboundMsgIDDoesNotSwallowAnOutboundMessage(t *testing.T) {
 	}
 }
 
-// PACT §6.2's honesty rule is about who composed a message, and the only thing
+// HDTP §6.2's honesty rule is about who composed a message, and the only thing
 // that knows is the surface it arrived on. It used to be a constant each call
 // site picked for itself, so a new surface — or an argument wired through by
 // mistake — could label an agent's message as a person's, and nothing would
@@ -217,7 +217,7 @@ func TestTheSurfaceDecidesTheSenderLabel(t *testing.T) {
 // is a fact — the message was composed on a surface, once. Deriving it again
 // from an origin the sweeper does not have relabelled every retried human
 // message as `agent`, and the peer stored that permanently: the exact inversion
-// of PACT §6.2 the origin change was written to prevent.
+// of HDTP §6.2 the origin change was written to prevent.
 func TestAStoredMessageKeepsTheLabelItWasComposedWith(t *testing.T) {
 	if got := (Input{Origin: OriginStored, Sender: SenderHuman}).Label(); got != SenderHuman {
 		t.Fatalf("a retried human message went out as %q", got)

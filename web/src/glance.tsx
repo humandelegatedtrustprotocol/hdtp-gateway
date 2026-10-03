@@ -1,5 +1,5 @@
 // The pieces the overview and the audit trail are built from, for both portals: the node's
-// (web/src) and PACT Cloud's (portal/src, copied verbatim from the node commit its portal/HARVESTED
+// (web/src) and BatonDeck's (portal/src, copied verbatim from the node commit its portal/HARVESTED
 // records). They import only what both portals' ui.tsx and router.tsx export alike, so the copy is
 // the file. Their look is the block at the end of style.css headed "the overview at a glance",
 // which both stylesheets carry byte for byte.
@@ -254,7 +254,7 @@ export function Breakable({ text }: { text: string }) {
  * owner", "not in your contacts") is drawn in a quieter face and keeps its id, short, in view — there
  * the id is the one thing that tells two of them apart — so the trail stays verifiable whatever became
  * of what it names; such a name is short and the page's own, so it is never cut to two lines. Nor is
- * an operator's: "PACT Cloud · <their address>" is the one fact that says which of ours acted. `note`
+ * an operator's: "BatonDeck · <their address>" is the one fact that says which of ours acted. `note`
  * is the kind, said quietly after a name somebody chose, where the name does not say it already.
  */
 export function Named({ n, note }: { n: NamedId; note?: string }) {

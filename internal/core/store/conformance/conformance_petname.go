@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // petnames is the suite for the owner's petname for a contact.
@@ -48,7 +48,7 @@ func petnames(t *testing.T, newStore Factory) {
 		// A move re-pins the contact at a new address. The petname is the owner's,
 		// not the contact's, so nothing a peer does must discard it -- that would
 		// hand a peer a way to shed a name the owner gave them. It used to be proved
-		// over a 1.x rotation, which re-pinned under a NEW fingerprint; a root never
+		// over a key rotation, which re-pinned under a NEW fingerprint; a root never
 		// moves, so the re-pin that exists now keeps the fingerprint and changes the
 		// address.
 		if err := s.RepinContactAddress(ctx, a.ID, "sha256:pn1", "https://moved.example/mcp", []byte("leaf"), []byte{8}, 1756000001); err != nil {

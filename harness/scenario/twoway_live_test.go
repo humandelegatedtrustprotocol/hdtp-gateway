@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // Messaging has to work in BOTH directions after pairing.
@@ -35,7 +35,7 @@ func TestMessagingWorksBothWaysAfterPairing(t *testing.T) {
 	// seal REQUIRED, which is what edge mode forces (SPEC §10.1) and therefore
 	// what every Cloudflare/ngrok deployment runs. A message that arrives
 	// promptly unsealed and needs a retry when sealed is a different bug.
-	env := map[string]string{"PACT_SEAL": "required"}
+	env := map[string]string{"HDTP_SEAL": "required"}
 	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("alice: %v", err)

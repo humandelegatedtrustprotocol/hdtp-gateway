@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	. "github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 // Arbitrary numbers, unlike the defaults, so nothing here passes by agreeing with them by accident.

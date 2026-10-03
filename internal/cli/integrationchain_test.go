@@ -13,13 +13,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
 // AC (P10-04b): get_status answers from the node's own state by default.
@@ -27,7 +27,7 @@ import (
 // SPEC §6.7: the status provider "serves get_status from the owner's node-local
 // status by default; a recipe MAY source it from an upstream tool instead". The
 // Status map was never populated, so every node answered `unavailable` to
-// PACT's simplest capability, forever.
+// HDTP's simplest capability, forever.
 func TestGetStatusAnswersWithoutAnyIntegration(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -378,7 +378,7 @@ func mintOwnerToken(t *testing.T, dir string, r *running) string {
 	var minted struct {
 		NewToken string `json:"new_token"`
 	}
-	if err := json.Unmarshal([]byte(body), &minted); err != nil || !strings.HasPrefix(minted.NewToken, "pact_") {
+	if err := json.Unmarshal([]byte(body), &minted); err != nil || !strings.HasPrefix(minted.NewToken, "hdtp_") {
 		t.Fatalf("no token in the response: %v %s", err, firstLine(body))
 	}
 	return minted.NewToken

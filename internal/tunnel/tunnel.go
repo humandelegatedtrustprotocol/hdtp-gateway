@@ -14,7 +14,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // Info is what Start reports back (SPEC §10: Start → {PublicURL, TerminatesAtEdge}).

@@ -148,7 +148,7 @@ function AdapterRow({ a, onSaved }: { a: AdapterSetting; onSaved: () => void }) 
 
 type PresetRow = { name: string; perms: string[] };
 
-// The presets as one grid (preset_grid.tsx, shared with PACT Cloud): a row per preset, a column per
+// The presets as one grid (preset_grid.tsx, shared with BatonDeck): a row per preset, a column per
 // permission. A row saves itself when its ticks stop (usePresetAutosave): the node saves a preset whole
 // (`POST /settings/presets`, its name and every `perm`) and answers with the page. The last row names
 // a new preset, whose ticks wait for its Add. A refused save says why under its row; a refused Add or
@@ -270,7 +270,7 @@ function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: strin
         <HelpTip label="About own-domain ingress">
           Pair with an ingress you run on your own domain, so people reach you at a name you own rather
           than a tunnel provider's. You need the ingress's pairing URL and a one-time token from it
-          (<code>pact-gateway ingress token</code> on that host).
+          (<code>hdtp-gateway ingress token</code> on that host).
         </HelpTip>
       </>}>
       {paired.length > 0 && (

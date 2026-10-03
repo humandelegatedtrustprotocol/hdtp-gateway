@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 // `serve` joins what it starts.

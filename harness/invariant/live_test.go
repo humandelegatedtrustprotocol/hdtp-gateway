@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // Proves the audit-chain invariant against real nodes: it stops each one and

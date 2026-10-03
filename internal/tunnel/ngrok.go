@@ -49,7 +49,7 @@ func ngrokOptions(o Options) (ngrokOpts, error) {
 		return n, fmt.Errorf("tunnel: ngrok url must be a tls:// endpoint (raw passthrough); got %q", n.URL)
 	}
 	if n.Name == "" {
-		n.Name = "pact"
+		n.Name = "hdtp"
 	}
 	return n, nil
 }

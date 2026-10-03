@@ -18,21 +18,21 @@ import (
 )
 
 // Node is the product, built from the repo's own Dockerfile by `make harness-image`, under the tag
-// PACT_HARNESS_IMAGE names (the Makefile's HARNESS_IMAGE), or pact-gateway:harness. A tag of one's
+// HDTP_HARNESS_IMAGE names (the Makefile's HARNESS_IMAGE), or hdtp-gateway:harness. A tag of one's
 // own is what lets two worktrees on one machine run live tiers at once without one testing the
 // other's binary, and what lets a mutation check run a deliberately broken build beside the real one.
-var Node = cmp.Or(os.Getenv("PACT_HARNESS_IMAGE"), "pact-gateway:harness")
+var Node = cmp.Or(os.Getenv("HDTP_HARNESS_IMAGE"), "hdtp-gateway:harness")
 
 // Caldav is the -full image plus a pinned caldav-mcp, built by `make harness-image-caldav` under the
-// tag PACT_HARNESS_CALDAV_IMAGE names (the Makefile's HARNESS_CALDAV_IMAGE), for the reason Node's is
+// tag HDTP_HARNESS_CALDAV_IMAGE names (the Makefile's HARNESS_CALDAV_IMAGE), for the reason Node's is
 // a variable: S4 must run the binary of the tree under test.
-var Caldav = cmp.Or(os.Getenv("PACT_HARNESS_CALDAV_IMAGE"), "pact-gateway:harness-caldav")
+var Caldav = cmp.Or(os.Getenv("HDTP_HARNESS_CALDAV_IMAGE"), "hdtp-gateway:harness-caldav")
 
 // Built locally by the Makefile.
 const (
 	// Shaper is Alpine with iproute2 (tc) already installed; fabric builds it on demand from
 	// ShaperDockerfile, and `make harness-shaper` builds it ahead of a run.
-	Shaper = "pact-harness-shaper:1"
+	Shaper = "hdtp-harness-shaper:1"
 )
 
 // ShaperDockerfile is the one recipe for Shaper. It must ship tc rather than install it: the shaper

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // LeaseRenew is how often a process renews the background work's leases, and LeaseTTL how long

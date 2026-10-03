@@ -1,6 +1,6 @@
 package identity
 
-// PACT 2.0 (PACT §2, §9, §14): the person is a certificate authority. This host
+// HDTP 1.0 (HDTP §2, §9, §14): the person is a certificate authority. This host
 // holds, per account, the leaf the person's root issued and that leaf's key —
 // the key that is the TLS certificate, signs every envelope and is sealed to.
 // A leaf arrives through a certificate signing request the host makes and the
@@ -23,14 +23,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // leafKeyAAD binds a sealed leaf key to its column (SPEC §3.7, keyring AAD rule).
 const leafKeyAAD = "leaves.key_sealed"
 
-// Leaf states, as the migration constrains them.
+// Leaf states, as the schema constrains them.
 const (
 	LeafPending    = "pending"
 	LeafCurrent    = "current"
@@ -47,44 +47,44 @@ const (
 	PurposeMove   = "move"
 )
 
-// RenewalWindow is how far ahead a host asks for a renewal (PACT §2: thirty days).
+// RenewalWindow is how far ahead a host asks for a renewal (HDTP §2: thirty days).
 const RenewalWindow = 30 * 24 * time.Hour
 
 // ToLib converts a keypair to the library's private key, re-encoding it (PKCS#8 out, then in) on
 // every call. An outbound call (outbound/seal.go) and a signing request (issueCSR) use it; the
 // inbound path does not: a LeafKey holds that form, made once (Lib).
-func ToLib(kp *Keypair) (*pactidentity.PrivateKey, error) {
+func ToLib(kp *Keypair) (*hdtpidentity.PrivateKey, error) {
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
 		return nil, err
 	}
-	return pactidentity.ParsePKCS8(der)
+	return hdtpidentity.ParsePKCS8(der)
 }
 
 // PublicOf is a keypair's public key as the library reads it, from the key the signer already
-// holds expanded: what an open needs beside the private key since pact-identity 0.4.0, which no
+// holds expanded: what an open needs beside the private key since the identity core 0.4.0, which no
 // longer derives it (for P-256, a scalar multiplication) on every open.
-func PublicOf(kp *Keypair) (*pactidentity.PublicKey, error) {
+func PublicOf(kp *Keypair) (*hdtpidentity.PublicKey, error) {
 	spki, err := x509.MarshalPKIXPublicKey(kp.Signer.Public())
 	if err != nil {
 		return nil, fmt.Errorf("identity: %w", err)
 	}
-	return pactidentity.ParseSPKI(spki)
+	return hdtpidentity.ParseSPKI(spki)
 }
 
 // FromLib converts a library private key to a keypair: ToLib's inverse. Generate builds every key
-// this node draws through it, and the cloud's conformance battery (../pact-cloud/gateway/conformance)
+// this node draws through it, and the cloud's conformance battery (../batondeck/gateway/conformance)
 // builds its reference peer's keypair through it too (`make dependents` compiles that).
 //
-// Since pact-identity 0.4.1 a library key holds its seed or scalar and nothing derived from it
+// Since the identity core 0.4.1 a library key holds its seed or scalar and nothing derived from it
 // (`Public()` derives on demand; the standard-library key is not exposed), so the crypto.Signer the
 // TLS listener and the card signer need is parsed once here from the key's own PKCS#8 bytes.
-func FromLib(k *pactidentity.PrivateKey) (*Keypair, error) {
+func FromLib(k *hdtpidentity.PrivateKey) (*Keypair, error) {
 	var algo Algo
 	switch k.Alg {
-	case pactidentity.AlgEd25519:
+	case hdtpidentity.AlgEd25519:
 		algo = AlgoEd25519
-	case pactidentity.AlgP256:
+	case hdtpidentity.AlgP256:
 		algo = AlgoP256
 	default:
 		return nil, fmt.Errorf("identity: unsupported library key %q", k.Alg)
@@ -101,10 +101,10 @@ func FromLib(k *pactidentity.PrivateKey) (*Keypair, error) {
 	if !ok {
 		return nil, fmt.Errorf("identity: library key %q does not sign", k.Alg)
 	}
-	return &Keypair{Algo: algo, Signer: signer, Fingerprint: pactidentity.Fingerprint(k.Public().SPKI)}, nil
+	return &Keypair{Algo: algo, Signer: signer, Fingerprint: hdtpidentity.Fingerprint(k.Public().SPKI)}, nil
 }
 
-// EndpointFor is the one address an account answers at (SPEC §5.2, PACT §14.1).
+// EndpointFor is the one address an account answers at (SPEC §5.2, HDTP §14.1).
 func EndpointFor(publicURL, slug string) string {
 	if publicURL == "" {
 		return ""
@@ -123,7 +123,7 @@ type LeafKey struct {
 	Leaf     []byte
 	KP       *Keypair
 	PKCS8    []byte
-	Lib      *pactidentity.PrivateKey
+	Lib      *hdtpidentity.PrivateKey
 	Current  bool
 	NotAfter time.Time
 	Endpoint string
@@ -157,7 +157,7 @@ func (m *Manager) unsealLeafKey(sealed []byte) ([]byte, error) {
 // ActiveLeafKeypairs returns the current leaf's key first and every superseded key not yet past
 // its notAfter, each with its leaf and the root attached. That is what closes the gap after a
 // RENEWAL: a contact that has not heard yet still seals to the superseded leaf, and the host
-// keeps that key until the leaf's notAfter so the envelope opens (PACT §14.4).
+// keeps that key until the leaf's notAfter so the envelope opens (HDTP §14.4).
 //
 // A superseded key past its notAfter is simply not returned. Destroying it is
 // `RetireExpiredLeafKeys`, on a write path — this is a read, taken by every inbound request.
@@ -198,8 +198,8 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		}
 		// A row with a key and no leaf is not a leaf's key, and nothing can have been sealed to it:
 		// a card carries a leaf, so a key that never had one was never anybody's target. Installs
-		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for 1.x
-		// contacts); a store from before then may still hold one, and it is not served.
+		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for the retired
+		// generation's contacts); a store from before then may still hold one, and it is not served.
 		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
 			continue
 		}
@@ -211,7 +211,7 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		if err != nil {
 			return nil, err
 		}
-		lib, err := pactidentity.ParsePKCS8(der)
+		lib, err := hdtpidentity.ParsePKCS8(der)
 		if err != nil {
 			return nil, fmt.Errorf("identity: %w", err)
 		}
@@ -256,7 +256,7 @@ type RetiredLeaf struct {
 // RetireExpiredLeafKeys destroys the key of every leaf past its notAfter, keeping the kid so an
 // envelope sealed to it is still answered `certificate_renewed` (§14.4).
 //
-// EVERY leaf, the current one included. An expired leaf is refused by every verifier (PACT §14.2
+// EVERY leaf, the current one included. An expired leaf is refused by every verifier (HDTP §14.2
 // rule 4), so its key can do nothing legitimate, and a leaf is the root's trust in this host UNTIL
 // A DATE: past the date, the key is something this host was never meant to still hold. It used to
 // retire only `superseded` leaves, so the key of a leaf that simply ran out — nobody renewed it —
@@ -349,7 +349,7 @@ func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error)
 			return [][]byte{l.Leaf, a.RootCert}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: account %s is 2.0 but holds no current leaf", ErrNoCertificate, accountID)
+	return nil, fmt.Errorf("%w: account %s has a root but holds no current leaf", ErrNoCertificate, accountID)
 }
 
 // ErrNoCertificate says an identity holds no current leaf, so it has no card to hand out: its wallet
@@ -365,8 +365,8 @@ type CSRResult struct {
 	Kid               string // fingerprint of the key the request carries
 	SuggestedNotAfter time.Time
 	PreviousNotBefore *time.Time
-	// State is the random value a web wallet's answer must carry back (PACT §9.1): 32 bytes,
-	// base64url, 43 characters. The host keeps only its SHA-256 (migration 0041); an answer is
+	// State is the random value a web wallet's answer must carry back (HDTP §9.1): 32 bytes,
+	// base64url, 43 characters. The host keeps only its SHA-256; an answer is
 	// accepted once, with it (InstallWalletLeaf).
 	State string
 	// Warnings are what the request did not finish although it is made: a replaced request's key
@@ -374,25 +374,25 @@ type CSRResult struct {
 	Warnings []Warning
 }
 
-// IssueCSR makes the request a wallet signs (PACT §9).
+// IssueCSR makes the request a wallet signs (HDTP §9).
 //
 // `signup` carries the key this host was created with, when it has one: at creation nothing has
 // been signed yet, so there is no reason to mint a second key and leave the first unused. A host
 // that holds NO key — an account that arrived as a data-only import, its root and its contacts
-// carried and its leaf key left behind on the host that issued it (PACT §9) — mints one, which is
+// carried and its leaf key left behind on the host that issued it (HDTP §9) — mints one, which is
 // the difference between "one `account csr` away from serving" and a dead end.
 //
 // `renew` and `move` always carry a fresh key, so a leaf key compromised without anyone noticing
 // dies with its leaf (§9). The endpoint is the account's own unless the purpose is move. One
 // pending request at a time: a new one replaces the last.
 //
-// `upgrade` was the fourth purpose and went with 1.x: it carried the identity's existing key so
+// `upgrade` was the fourth purpose and went with the retired generation: it carried the identity's existing key so
 // that every pin of that key stayed valid, and there is no such pin any more.
 func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint string, now time.Time) (CSRResult, error) {
 	return m.issueCSR(ctx, accountID, purpose, endpoint, "", now)
 }
 
-// IssueWalletCSR is IssueCSR for a request sent to a web wallet at `walletOrigin` (PACT §9.1): the
+// IssueWalletCSR is IssueCSR for a request sent to a web wallet at `walletOrigin` (HDTP §9.1): the
 // same request, with the wallet it went to recorded beside the state's hash. The web wallet does not
 // take `signup` (O8 of the identity-boundary design), so neither does this.
 func (m *Manager) IssueWalletCSR(ctx context.Context, accountID, purpose, endpoint, walletOrigin string, now time.Time) (CSRResult, error) {
@@ -413,23 +413,23 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	if endpoint == "" {
 		return CSRResult{}, errors.New("identity: the request needs the endpoint the leaf will name")
 	}
-	if !pactidentity.IsNormalHTTPS(endpoint) {
-		return CSRResult{}, fmt.Errorf("identity: %q is not an https URL in normal form (PACT §14.1)", endpoint)
+	if !hdtpidentity.IsNormalHTTPS(endpoint) {
+		return CSRResult{}, fmt.Errorf("identity: %q is not an https URL in normal form (HDTP §14.1)", endpoint)
 	}
 	// The core's address rule, the one a wallet applies before it certifies an endpoint and a peer
 	// before it takes one into a card: a request naming an address it refuses (a loopback, private
 	// or local host, as a public_url of localhost makes) is refused here, in its words, rather than
 	// handed to a wallet that will refuse it.
-	if ok, why := pactidentity.AddressGuard(endpoint, "", false); !ok {
+	if ok, why := hdtpidentity.AddressGuard(endpoint, "", false); !ok {
 		return CSRResult{}, fmt.Errorf("identity: %s: %s; set public_url to the address people reach this node at: %w: %w", endpoint, why, ErrEndpointRefused, ErrLeafRefused)
 	}
-	// An address an identity left stays reserved until the last leaf issued for it expires (PACT
-	// §9, migration 0040). A request naming it would ask a wallet for a leaf at an address this
+	// An address an identity left stays reserved until the last leaf issued for it expires (HDTP
+	// §9). A request naming it would ask a wallet for a leaf at an address this
 	// node must not assign; the account slug is guarded where accounts are created (the store).
 	if vacated, verr := m.Store.LiveVacatedEndpoint(ctx, endpoint, now.Unix()); verr != nil {
 		return CSRResult{}, verr
 	} else if vacated {
-		return CSRResult{}, fmt.Errorf("identity: %s was vacated by an identity that left this node; it stays reserved until the last leaf issued for it expires (PACT §9): %w", endpoint, store.ErrAddressVacated)
+		return CSRResult{}, fmt.Errorf("identity: %s was vacated by an identity that left this node; it stays reserved until the last leaf issued for it expires (HDTP §9): %w", endpoint, store.ErrAddressVacated)
 	}
 	// "The endpoint is the account's own unless the purpose is move" was the
 	// documented rule and nothing enforced it, so `csr renew -endpoint <other>`
@@ -440,7 +440,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 		if leaves, lerr := m.Store.ListLeaves(ctx, accountID); lerr == nil {
 			for _, l := range leaves {
 				if l.State == LeafCurrent && l.Endpoint != "" && l.Endpoint != endpoint {
-					return CSRResult{}, fmt.Errorf("identity: this identity answers at %s; a request naming %s is a move, so ask for one (PACT §5.3)", l.Endpoint, endpoint)
+					return CSRResult{}, fmt.Errorf("identity: this identity answers at %s; a request naming %s is a move, so ask for one (HDTP §5.3)", l.Endpoint, endpoint)
 				}
 			}
 		}
@@ -475,7 +475,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	if err != nil {
 		return CSRResult{}, err
 	}
-	csr, err := pactidentity.CSRNew(a.DisplayName, lib, endpoint, "")
+	csr, err := hdtpidentity.CSRNew(a.DisplayName, lib, endpoint, "")
 	if err != nil {
 		return CSRResult{}, fmt.Errorf("identity: csr: %w", err)
 	}
@@ -489,7 +489,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	}
 	// The replacement is one step: the pending request goes and this one takes its place, or
 	// nothing changes. Two requests made together used to interleave the three writes and leave
-	// two pending rows (migration 0044 now refuses a second one).
+	// two pending rows (the schema now refuses a second one: `leaves_one_pending`).
 	var replaced int64
 	err = m.Store.Atomically(ctx, func(tx store.Store) error {
 		if err := tx.LockAccount(ctx, accountID); err != nil {
@@ -501,7 +501,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 		}
 		replaced = n
 		if err := tx.InsertLeaf(ctx, store.Leaf{AccountID: accountID, Kid: kp.Fingerprint, KeySealed: sealed, State: LeafPending, Endpoint: endpoint, CreatedAt: now.Unix()}); err != nil {
-			// The key already names a leaf of this account (an upgrade of a key
+			// The key already names a leaf of this account (a request for a key
 			// that is already a leaf's, or a renewal that generated no new key).
 			return fmt.Errorf("identity: a leaf for key %s already exists: %w", kp.Fingerprint, err)
 		}
@@ -540,7 +540,7 @@ type InstallResult struct {
 	// after an import that carried no ledger. It is the date a move notice gives (MoveNotice).
 	OldNotAfter time.Time
 	// Moved says this leaf put the identity at an address its contacts do not know yet, so they
-	// are owed `update_contact` from it (PACT §5.3, §9). See InstallLeaf for how it is decided.
+	// are owed `update_contact` from it (HDTP §5.3, §9). See InstallLeaf for how it is decided.
 	Moved        bool
 	KeyChanged   bool
 	FirstInstall bool
@@ -552,7 +552,7 @@ type InstallResult struct {
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.
 	Retired []string
 	// HandshakesDue counts the contacts an import brought that this leaf's campaign owes the
-	// handshake (Campaign.Owes, PACT §9.2). The caller starts the campaign when it is not zero,
+	// handshake (Campaign.Owes, HDTP §9.2). The caller starts the campaign when it is not zero,
 	// moved or not: an import into an identity already served here is followed by a renewal at the
 	// same address, and that campaign walks these contacts and nobody else.
 	HandshakesDue int
@@ -562,7 +562,7 @@ type InstallResult struct {
 	Warnings []Warning
 }
 
-// InstallLeaf installs a wallet-issued chain (PACT §14.2 in full): the leaf
+// InstallLeaf installs a wallet-issued chain (HDTP §14.2 in full): the leaf
 // must validate to the root the account names — or, on a first install, to the
 // root it will name from now on — must name the endpoint the pending request
 // named, must carry the pending request's key, and must be newer than the
@@ -573,7 +573,7 @@ func (m *Manager) InstallLeaf(ctx context.Context, accountID string, chain [][]b
 	return m.installLeaf(ctx, accountID, chain, "", now)
 }
 
-// InstallWalletLeaf is InstallLeaf for a web wallet's answer (PACT §9.1): "A host MUST accept an
+// InstallWalletLeaf is InstallLeaf for a web wallet's answer (HDTP §9.1): "A host MUST accept an
 // answer only once, only with the state it minted for a pending request, and only a chain whose
 // leaf carries that request's key and validates at its endpoint." The state is checked before the
 // chain is, and consumed — in the statement that checks it — only once the chain has passed, so a
@@ -606,7 +606,7 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		}
 	}
 	if pendings > 1 {
-		// Migration 0044 makes this impossible; a ledger that holds it anyway is not one to guess in.
+		// The schema makes this impossible (`leaves_one_pending`); a ledger that holds it anyway is not one to guess in.
 		return InstallResult{}, fmt.Errorf("identity: %d certificate requests are pending for this account and one is expected; run `account csr` again", pendings)
 	}
 	// The state is judged before the chain, so an answer meant for no request here learns nothing
@@ -628,27 +628,27 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	if state != "" && (len(pending.RequestStateHash) == 0 || subtle.ConstantTimeCompare(pending.RequestStateHash, stateHash(state)) != 1) {
 		return InstallResult{}, fmt.Errorf("identity: the answer's state is not the pending request's (a request that was replaced, or one this identity never had): %w", ErrRequestState)
 	}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now, ExpectedRoot: a.RootFingerprint, ExpectedEndpoint: pending.Endpoint})
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: now, ExpectedRoot: a.RootFingerprint, ExpectedEndpoint: pending.Endpoint})
 	if !vr.OK {
 		if vr.Rule == 2 && a.RootFingerprint != "" && len(chain) == 2 {
 			// Rule 2 is also a root that is not self-signed; the wrong root is one whose key is not
 			// the identity's.
-			if root, err := pactidentity.Parse(chain[1]); err == nil && pactidentity.FingerprintOf(root) != a.RootFingerprint {
+			if root, err := hdtpidentity.Parse(chain[1]); err == nil && hdtpidentity.FingerprintOf(root) != a.RootFingerprint {
 				return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s: %w: %w", vr.Rule, vr.Reason, ErrWrongRoot, ErrLeafRefused)
 			}
 		}
 		return InstallResult{}, fmt.Errorf("identity: chain refused by rule %d: %s: %w", vr.Rule, vr.Reason, ErrLeafRefused)
 	}
-	if got := pactidentity.Fingerprint(vr.LeafKey.SPKI); got != pending.Kid {
+	if got := hdtpidentity.Fingerprint(vr.LeafKey.SPKI); got != pending.Kid {
 		return InstallResult{}, fmt.Errorf("identity: the leaf carries key %s, not the requested %s: %w: %w", got, pending.Kid, ErrWrongKey, ErrLeafRefused)
 	}
 	if current != nil {
-		cmp, err := pactidentity.CompareLeaves(current.Leaf, chain[0])
+		cmp, err := hdtpidentity.CompareLeaves(current.Leaf, chain[0])
 		if err != nil {
 			return InstallResult{}, fmt.Errorf("identity: %w: %w", err, ErrLeafRefused)
 		}
 		if cmp != "newer" {
-			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (PACT §14.3): %w: %w", cmp, ErrNotNewer, ErrLeafRefused)
+			return InstallResult{}, fmt.Errorf("identity: the leaf is %s relative to the current one; a leaf must be newer (HDTP §14.3): %w: %w", cmp, ErrNotNewer, ErrLeafRefused)
 		}
 	}
 	// The answer has passed every check. What follows is one transaction: the answer is used —
@@ -673,14 +673,14 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		// A first leaf over a key other than the one the account names: requested as a renewal or
 		// a move rather than a signup, or installed after a data-only import, where the account
 		// names the key its PREVIOUS host served under and does not hold it (a leaf key belongs to
-		// the host it was issued to, PACT §9; `TestFirstLeafAfterADataOnlyImport` walks that move).
+		// the host it was issued to, HDTP §9; `TestFirstLeafAfterADataOnlyImport` walks that move).
 		//
-		// Either way there is nothing to retire. PACT §14.4 keeps a superseded LEAF's key until
+		// Either way there is nothing to retire. HDTP §14.4 keeps a superseded LEAF's key until
 		// its notAfter, so an envelope sealed to it is answered `certificate_renewed` — and the
 		// key being replaced here was never a leaf. Before the first leaf an identity has no card
-		// and cannot be served, so no 2.0 sender can have sealed anything to it. It used to be
-		// kept for a year anyway, as a leafless ledger row that was loaded and served, "so 1.x
-		// contacts still reach us while they re-pin"; those were the only callers who ever held
+		// and cannot be served, so no sender can have sealed anything to it. It used to be
+		// kept for a year anyway, as a leafless ledger row that was loaded and served so that contacts
+		// who had pinned the key could reach us while they re-pinned; those were the only callers who ever held
 		// it. `SetAccountLeafKey` below overwrites the sealed key, which is what destroys it.
 		res.KeyChanged = true
 	}
@@ -689,7 +689,7 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	// so was empty whenever there was none. That is every install that follows an import: a
 	// bundle's ledger arrives as `former` rows (no bundle carries a leaf key), and the cloud's leave
 	// archive carries no ledger at all. So the one install that is a move by construction — a new
-	// host's first leaf for an identity that lived somewhere else, PACT §9's own sequence — started
+	// host's first leaf for an identity that lived somewhere else, HDTP §9's own sequence — started
 	// no campaign, and every contact went on calling an address the identity had left.
 	//
 	//   - a current leaf: moved if the new leaf names another endpoint;
@@ -705,16 +705,16 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 	res.Moved = moves(a, leaves, res.Endpoint)
 
 	// A superseded leaf is kept for one reason: to be SERVED, as a guest, until its notAfter, so an
-	// envelope still sealed to it is answered `certificate_renewed` (PACT §14.4). A key this node
+	// envelope still sealed to it is answered `certificate_renewed` (HDTP §14.4). A key this node
 	// cannot open cannot be served, and the only way that happens is that the master key it was
 	// sealed under is gone. Such a row is retired — key destroyed, kid kept — rather than kept as a
 	// guest that fails every listing of this account's keys and takes the account down with it.
 	//
 	// Until 2026-09-19 this was a dead end instead. The install unsealed the outgoing leaf's key
 	// into `InstallResult.OldKP` and failed if it could not; nothing read that field — it fed the
-	// 1.x rotation fan-out, which signed with the old key — so a node that had lost its master key
+	// key-rotation fan-out, which signed with the old key — so a node that had lost its master key
 	// could not install the one thing that recovers it, for the sake of a value nobody used. Under
-	// 2.0 that recovery is real: the identity is the root, the root is in the wallet, and the
+	// HDTP that recovery is real: the identity is the root, the root is in the wallet, and the
 	// wallet can certify this host again.
 	der, err := MarshalPKCS8(kp)
 	if err != nil {
@@ -816,8 +816,8 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 
 // CertificateInfo is `account certificate`'s answer.
 type CertificateInfo struct {
-	// Certified is whether the wallet has issued this identity a leaf yet. It was `Protocol`, 1
-	// or 2, a generation number that had come to mean exactly this.
+	// Certified is whether the wallet has issued this identity a leaf yet. It was a `Protocol`
+	// number that had come to mean exactly this.
 	Certified       bool
 	RootFingerprint string
 	Chain           [][]byte
@@ -845,7 +845,7 @@ type CertificateInfo struct {
 func (c CertificateInfo) Served() bool { return c.Kid != "" }
 
 // Certificate reports an account's certificate state; renewal is due thirty
-// days ahead of the leaf's notAfter (PACT §2).
+// days ahead of the leaf's notAfter (HDTP §2).
 func (m *Manager) Certificate(ctx context.Context, accountID string, now time.Time) (CertificateInfo, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {

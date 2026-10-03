@@ -1,5 +1,5 @@
 // Package portable is what a person takes with them when they leave a host, and what a host takes
-// in when they arrive (PACT §9.2, SPEC §3.10): one identity's CONTACTS, its CHATS and the FILES in
+// in when they arrive (HDTP §9.2, SPEC §3.10): one identity's CONTACTS, its CHATS and the FILES in
 // them, in one unencrypted zip that any host can read, and nothing else.
 //
 // "Nothing else" is the whole design, so it is worth saying what is not here and why.
@@ -15,8 +15,8 @@
 // what this package asks the store for: there is no column to forget to blank and no table to
 // forget to drop, and a node on Postgres exports exactly as one on SQLite does.
 //
-// The format and every rule about what a file may say are pact-identity's, shared with the cloud
-// and the `pact` CLI: this package reads and writes the zip through pactidentity.ReadExportZip and
+// The format and every rule about what a file may say are hdtp-identity's, shared with the cloud
+// and the `hdtp` CLI: this package reads and writes the zip through hdtpidentity.ReadExportZip and
 // WriteExportZip, and merges through export_merge. What is here is the node's side of it — its
 // store's rows mapped to the format's and back, and its files.
 package portable
@@ -25,7 +25,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // ErrRefused marks a file this host will not take, or an export it will not write, and says why.
@@ -36,7 +36,7 @@ func refuse(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrRefused, fmt.Sprintf(format, a...))
 }
 
-// ImportCeiling is the whole-file limit this host sets on what an import decompresses (PACT
+// ImportCeiling is the whole-file limit this host sets on what an import decompresses (HDTP
 // §9.2). It bounds the DISK an import can fill: the media files, which are most of any export's
 // bytes, are hashed as they stream and written one at a time, never held together.
 const ImportCeiling = 16 << 30
@@ -53,7 +53,7 @@ const ImportCeiling = 16 << 30
 const ImportMessagesCeiling = 128 << 20
 
 // aRequest says a held row is a stranger's request to THIS host (pending_in): the person has not
-// accepted it, so it is not one of their contacts. It stays with the host it was made to (PACT
+// accepted it, so it is not one of their contacts. It stays with the host it was made to (HDTP
 // §9.2: "a request received and not yet decided stays with the host that received it"): an export
 // leaves it out, and an import merges nothing into it.
 func aRequest(c store.Contact) bool { return c.Status == "pending_in" }

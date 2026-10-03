@@ -6,8 +6,8 @@ import (
 )
 
 // Coordinator item 4 (review 2026-09-28). What a peer says it granted us (contact_accepted's
-// `permissions`, PACT §6.2) was stored as it came: any strings, repeated, up to 64 of them. It is
-// filtered at intake to what a grant can be - PACT §8's names and integration.<slug>, the slug as
+// `permissions`, HDTP §6.2) was stored as it came: any strings, repeated, up to 64 of them. It is
+// filtered at intake to what a grant can be - HDTP §8's names and integration.<slug>, the slug as
 // the cloud holds it - and deduplicated, first occurrence first.
 func TestTheirPermissionsAreFilteredAtIntake(t *testing.T) {
 	in := []string{"message.text", "message.text", "calendar.book", "admin", "integration.cal", "integration.", "integration.*",

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 // "Until one date" has to be true of the KEY, not only of the certificate. A leaf that runs out
@@ -68,7 +68,7 @@ func TestALeafThatRunsOutStopsBeingServedAndLosesItsKey(t *testing.T) {
 	}
 
 	// And a node that was DOWN when the leaf ran out boots the account as what it is: awaiting a
-	// leaf. It used to boot it as broken — "is 2.0 but holds no current leaf" — and, being the only
+	// leaf. It used to boot it as broken — "has a root but holds no current leaf" — and, being the only
 	// account, that refused the whole node.
 	bharat2 := startDemoNode(t, clock, dn, "carol", "Carol", 30)
 	clock.advance(31 * 24 * time.Hour)

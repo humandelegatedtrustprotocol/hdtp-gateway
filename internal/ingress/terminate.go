@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // Terminator listens on the public port for terminate-mode subdomains.
@@ -116,7 +116,7 @@ func (t *Terminator) DialNode(ctx context.Context, node Node) (*tls.Conn, error)
 	cfg := &tls.Config{
 		ServerName:         InternalName(node.Subdomain, t.Domain),
 		Certificates:       []tls.Certificate{t.IngressCert},
-		InsecureSkipVerify: true, // #nosec G402 -- pinned below; chains are irrelevant (PACT §2)
+		InsecureSkipVerify: true, // #nosec G402 -- pinned below; chains are irrelevant (HDTP §2)
 		MinVersion:         tls.VersionTLS12,
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {

@@ -10,16 +10,16 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// signBytes signs with the encodings PACT §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1
+// signBytes signs with the encodings HDTP §13.1 pins per algorithm: ECDSA over SHA-256 as ASN.1
 // DER, Ed25519 per RFC 8032. It is the counterpart of VerifyBytes.
 //
 // It had an exported twin, `SignBytes`, "what produces the old-key endorsement a peer checks in
-// `update_contact`" — 1.x key rotation, where a successor key had to be signed by its predecessor.
+// `update_contact`" — key rotation, where a successor key had to be signed by its predecessor.
 // Nothing endorses a key now; two tests were its last callers, and they sign with the library, as
 // the peer they are playing would.
 func signBytes(kp *Keypair, msg []byte) ([]byte, error) {
@@ -51,7 +51,7 @@ type Manager struct {
 
 // ValidDisplayName is the one rule for an account's display name, on every door that names one
 // (`account create`, the portal, an import's owner_name): the name is written into the account's
-// card as one line (PACT §3), and a control character in it is a card the writer refuses to write —
+// card as one line (HDTP §3), and a control character in it is a card the writer refuses to write —
 // a line break used to put a property of the NAME'S choosing into the card this node serves — so
 // the account is refused before a key is made for it, not at the first request for a card it
 // cannot have.
@@ -129,7 +129,7 @@ func (m *Manager) SignCard(ctx context.Context, accountID string, cardText strin
 		// An identity that arrived in a data-only archive: its root is here and no
 		// key is, so there is nothing to sign a card with until its wallet issues a
 		// leaf to this host. Said here, because the alternative is a keyring
-		// decrypt error on the invite landing page (PACT §9).
+		// decrypt error on the invite landing page (HDTP §9).
 		return "", fmt.Errorf("identity: account %s holds no key on this host yet: install a leaf first", a.Slug)
 	}
 	kp, err := m.LoadKeypair(sealed)
@@ -140,5 +140,5 @@ func (m *Manager) SignCard(ctx context.Context, accountID string, cardText strin
 	if err != nil {
 		return "", err
 	}
-	return pactidentity.B64url(sig), nil
+	return hdtpidentity.B64url(sig), nil
 }

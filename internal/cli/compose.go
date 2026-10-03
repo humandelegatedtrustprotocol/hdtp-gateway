@@ -17,26 +17,26 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/ownermcp"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
-	"github.com/pact-cloud/pact-gateway/internal/services/presence"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 // tunnelExtra collects adapter settings from the environment:
-// `PACT_TUNNEL_AUTH_KEY` becomes `auth_key`. Secrets belong in the keyring or
+// `HDTP_TUNNEL_AUTH_KEY` becomes `auth_key`. Secrets belong in the keyring or
 // the environment, never in the config file (SPEC §12.2).
 func tunnelExtra(lookup func(string) []string) map[string]string {
-	const prefix = "PACT_TUNNEL_"
+	const prefix = "HDTP_TUNNEL_"
 	out := map[string]string{}
 	for _, kv := range lookup("") {
 		i := strings.IndexByte(kv, '=')
@@ -378,7 +378,7 @@ func landingPage(d node.LandingDeps) http.Handler {
 }
 
 // contactsManager builds a contacts manager whose approval-awaiting events reach
-// the bus, so `pact://requests` and the portal's live view actually fire
+// the bus, so `hdtp://requests` and the portal's live view actually fire
 // (SPEC §8.5, §9.1). Nothing produced that event before.
 func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 	return &contacts.Manager{

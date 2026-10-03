@@ -10,24 +10,24 @@ import (
 	"regexp"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// CheckWritten reads a file this node has just written back as an importer would: pactidentity's
+// CheckWritten reads a file this node has just written back as an importer would: hdtpidentity's
 // ReadExportZip, under the identity's own root. A file every importer refuses is not an export, and
 // the writer must not report one: `export` removes it and says why (SPEC §3.10).
 func CheckWritten(zr *zip.Reader, owner string, now time.Time) error {
-	if _, err := pactidentity.ReadExportZip(zr, owner, now, ImportCeiling); err != nil {
+	if _, err := hdtpidentity.ReadExportZip(zr, owner, now, ImportCeiling); err != nil {
 		return refuse("the file written does not read back as an export, so it was not kept: %v", err)
 	}
 	return nil
 }
 
-// PACT Cloud's import ceilings (pact-cloud gateway/src/router/limits.ts: IMPORT_CEILING,
+// BatonDeck's import ceilings (batondeck gateway/src/router/limits.ts: IMPORT_CEILING,
 // IMPORT_LIMITS and DIRECTORY_LIMITS): what its one upload route takes back in. They are the
 // cloud's, not the format's — another host may take more — so an export over them is written and
-// warned about, never refused (SPEC 2.2.1: a host's own import ceilings never refuse an export).
-// Each value is written as the cloud writes it, a literal, so pact-cloud's check-node-claims can
+// warned about, never refused (HDTP §9.2, Ceilings: a host's own import ceilings never refuse an export).
+// Each value is written as the cloud writes it, a literal, so batondeck's check-node-claims can
 // hold the two lists to each other.
 const (
 	cloudZipBytes         = 95 * 1024 * 1024
@@ -53,7 +53,7 @@ const (
 // the cloud matches it when it counts files.
 var mediaFile = regexp.MustCompile(`^media/[0-9a-f]{64}$`)
 
-// CloudCeilings names each of PACT Cloud's import ceilings a written export is over, with the
+// CloudCeilings names each of BatonDeck's import ceilings a written export is over, with the
 // number and the limit; none when it is under all of them. The files' bytes are the sizes their
 // directory entries state, as the cloud reads them; CheckWritten has already held each file to the
 // format's own bound, so none is left out of the sum as the cloud leaves out an oversized one.
@@ -61,7 +61,7 @@ func CloudCeilings(zr *zip.Reader, zipBytes uint64) []string {
 	var out []string
 	over := func(what string, n, limit uint64) {
 		if n > limit {
-			out = append(out, fmt.Sprintf("%d %s, over PACT Cloud's %d", n, what, limit))
+			out = append(out, fmt.Sprintf("%d %s, over BatonDeck's %d", n, what, limit))
 		}
 	}
 	var files, fileBytes uint64
@@ -120,7 +120,7 @@ func messageLines(f *zip.File) (lines, ids uint64) {
 	}
 	defer rc.Close()
 	sc := bufio.NewScanner(rc)
-	sc.Buffer(make([]byte, 0, 64*1024), pactidentity.ExportLineMax+1)
+	sc.Buffer(make([]byte, 0, 64*1024), hdtpidentity.ExportLineMax+1)
 	for sc.Scan() {
 		lines++
 		var m struct {

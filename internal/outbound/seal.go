@@ -1,6 +1,6 @@
 package outbound
 
-// PACT 2.0 sending (PACT §13.2, §14.3, §14.4): toward a contact pinned by its
+// HDTP 1.0 sending (HDTP §13.2, §14.3, §14.4): toward a contact pinned by its
 // root, a call is sealed to the pinned leaf's key and carries our chain until
 // that contact has seen our current leaf, our leaf's fingerprint after. The
 // answer opens against the pin — the chain validates to the root, or the named
@@ -19,8 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // chain is [leaf, root] for a certified key, nil for one the wallet has not issued a leaf to.
@@ -38,18 +38,18 @@ func (c *Client) now() time.Time {
 	return time.Now()
 }
 
-// canSeal reports whether this exchange is a 2.0 one: our identity holds a
+// canSeal reports whether this exchange can be sealed: our identity holds a
 // chain and the peer is pinned by its root.
 func (c *Client) canSeal(peer Peer) bool { return peer.Known() && c.chain() != nil }
 
 // pinOf is the pin the answer is opened against.
-func pinOf(peer Peer) pactidentity.Pin {
-	return pactidentity.Pin{Root: peer.Root, Endpoint: peer.Endpoint, Leaf: pactidentity.B64url(peer.Leaf), State: "active"}
+func pinOf(peer Peer) hdtpidentity.Pin {
+	return hdtpidentity.Pin{Root: peer.Root, Endpoint: peer.Endpoint, Leaf: hdtpidentity.B64url(peer.Leaf), State: "active"}
 }
 
 // plaintextLegal is the set of §12 codes a peer may legitimately answer IN THE
 // CLEAR to a sealed call: everything decided before the envelope opened, where
-// there is no proven key to seal toward (PACT §13.2). Past the open there is
+// there is no proven key to seal toward (HDTP §13.2). Past the open there is
 // one, and §13.2 requires the answer sealed — so a plaintext `permission_denied`
 // is not the peer speaking. It is whatever carried the call, and in edge mode
 // something always does.
@@ -94,7 +94,7 @@ func refusalCode(res *mcp.CallToolResult) (code string, data map[string]any) {
 // repin records a newer leaf for the peer — learned from a result, a
 // certificate_renewed answer, or get_card — and returns the peer to dial next.
 func (c *Client) repin(peer Peer, leaf []byte) (Peer, []byte, error) {
-	parsed, err := pactidentity.Parse(leaf)
+	parsed, err := hdtpidentity.Parse(leaf)
 	if err != nil {
 		return peer, nil, fmt.Errorf("outbound: the new leaf does not parse: %w", err)
 	}
@@ -105,8 +105,8 @@ func (c *Client) repin(peer Peer, leaf []byte) (Peer, []byte, error) {
 	return peer, parsed.SPKI, nil
 }
 
-// sealedExchange is one 2.0 request and its answer, with the three
-// one-time follow-ups of PACT §13.2 and §14.4 applied.
+// sealedExchange is one sealed request and its answer, with the three
+// one-time follow-ups of HDTP §13.2 and §14.4 applied.
 func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, params map[string]any, msgID string) ([]byte, *mcp.CallToolResult, error) {
 	form := "chain"
 	if peer.ChainSeen {
@@ -137,14 +137,14 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 					if !ok {
 						continue
 					}
-					der, err := pactidentity.DecodeB64url(str)
+					der, err := hdtpidentity.DecodeB64url(str)
 					if err != nil {
 						return nil, refusal, errors.New("outbound: certificate_renewed not followed: the chain is not base64url")
 					}
 					chain = append(chain, der)
 				}
 			}
-			ok, why, leaf := pactidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
+			ok, why, leaf := hdtpidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
 			if !ok {
 				return nil, refusal, fmt.Errorf("outbound: certificate_renewed not followed: %s", why)
 			}
@@ -188,7 +188,7 @@ type errUnattributable struct{ code string }
 
 func (e *errUnattributable) Error() string {
 	if e.code == "" {
-		return "outbound: the peer answered in plaintext with no code; a sealed call is answered sealed (PACT §13.2)"
+		return "outbound: the peer answered in plaintext with no code; a sealed call is answered sealed (HDTP §13.2)"
 	}
 	return "outbound: " + e.code + " arrived in plaintext; §13.2 requires it sealed, so it is not the peer's answer"
 }
@@ -203,7 +203,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 	if len(leafKey) == 0 {
 		return nil, nil, fmt.Errorf("outbound: the leaf held for %s does not parse, so there is no key to seal to", peer.name())
 	}
-	recipient, err := pactidentity.ParseSPKI(leafKey)
+	recipient, err := hdtpidentity.ParseSPKI(leafKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("outbound: peer key: %w", err)
 	}
@@ -222,7 +222,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 		}
 	}
 	now := c.now()
-	env, err := pactidentity.SealRequest(pactidentity.SealOpts{
+	env, err := hdtpidentity.SealRequest(hdtpidentity.SealOpts{
 		RecipientKey: recipient, Sender: sender, Form: form, SenderChain: c.chain(),
 		Method: method, Params: pb, MsgID: msgID, TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(),
 	})
@@ -253,12 +253,12 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 	if !ok {
 		return nil, nil, fmt.Errorf("outbound: sealed result is not text")
 	}
-	var out pactidentity.Envelope
+	var out hdtpidentity.Envelope
 	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
 		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
 	}
-	opened, err := pactidentity.OpenResult(out, pactidentity.OpenOpts{
-		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []pactidentity.Pin{pinOf(peer)},
+	opened, err := hdtpidentity.OpenResult(out, hdtpidentity.OpenOpts{
+		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []hdtpidentity.Pin{pinOf(peer)},
 		ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint,
 	})
 	if err != nil {
@@ -310,13 +310,13 @@ func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error
 	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil || len(out.Chain) != 2 {
 		return nil, errors.New("get_card carried no chain")
 	}
-	leafDER, errLeaf := pactidentity.DecodeB64url(out.Chain[0])
-	rootDER, errRoot := pactidentity.DecodeB64url(out.Chain[1])
+	leafDER, errLeaf := hdtpidentity.DecodeB64url(out.Chain[0])
+	rootDER, errRoot := hdtpidentity.DecodeB64url(out.Chain[1])
 	if errLeaf != nil || errRoot != nil {
 		return nil, errors.New("get_card's chain is not base64url")
 	}
 	chain := [][]byte{leafDER, rootDER}
-	ok2, why, leaf := pactidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
+	ok2, why, leaf := hdtpidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
 	if !ok2 {
 		return nil, fmt.Errorf("get_card's chain: %s", why)
 	}
@@ -325,7 +325,7 @@ func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error
 
 // mustSPKIOfLeaf is the pinned leaf's key, or nil for a leaf that does not parse.
 func mustSPKIOfLeaf(leaf []byte) []byte {
-	parsed, err := pactidentity.Parse(leaf)
+	parsed, err := hdtpidentity.Parse(leaf)
 	if err != nil {
 		return nil
 	}

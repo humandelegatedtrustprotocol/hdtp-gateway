@@ -28,10 +28,10 @@ package node
 // TLS connection sealing its own envelope, so the client side spends about what the node does: the
 // figure is a floor for the node alone.
 //
-//   PACT_MEASURE_CAPACITY=1 GOWORK=off go test ./internal/node -run TestMeasureAccountCapacity -v -timeout 30m
+//   HDTP_MEASURE_CAPACITY=1 GOWORK=off go test ./internal/node -run TestMeasureAccountCapacity -v -timeout 30m
 //
-// PACT_MEASURE_RATES="200,220,240" replaces the rising steps, PACT_MEASURE_CONTACTS=2000 the 500
-// contacts, and PACT_MEASURE_TOOL=get_card measures the read path instead of send_message.
+// HDTP_MEASURE_RATES="200,220,240" replaces the rising steps, HDTP_MEASURE_CONTACTS=2000 the 500
+// contacts, and HDTP_MEASURE_TOOL=get_card measures the read path instead of send_message.
 //
 // Without the variable the same machinery runs one small step and holds that every call completed
 // (it is the hermetic guard of the measurement: tooling that only runs on demand goes stale silently
@@ -50,10 +50,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 type capacityStep struct {
@@ -67,30 +67,30 @@ func (s capacityStep) served() bool {
 }
 
 func TestMeasureAccountCapacity(t *testing.T) {
-	full := os.Getenv("PACT_MEASURE_CAPACITY") == "1"
+	full := os.Getenv("HDTP_MEASURE_CAPACITY") == "1"
 	contactsN, rates, stepFor := 20, []int{40}, time.Second
 	if full {
 		contactsN, rates, stepFor = 500, []int{50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200}, 5*time.Second
-		if v := os.Getenv("PACT_MEASURE_CONTACTS"); v != "" {
+		if v := os.Getenv("HDTP_MEASURE_CONTACTS"); v != "" {
 			c, err := strconv.Atoi(v)
 			if err != nil || c <= 0 {
-				t.Fatalf("PACT_MEASURE_CONTACTS: %q is not a count", v)
+				t.Fatalf("HDTP_MEASURE_CONTACTS: %q is not a count", v)
 			}
 			contactsN = c
 		}
-		if v := os.Getenv("PACT_MEASURE_RATES"); v != "" {
+		if v := os.Getenv("HDTP_MEASURE_RATES"); v != "" {
 			rates = nil
 			for _, f := range strings.Split(v, ",") {
 				r, err := strconv.Atoi(strings.TrimSpace(f))
 				if err != nil || r <= 0 {
-					t.Fatalf("PACT_MEASURE_RATES: %q is not a rate", f)
+					t.Fatalf("HDTP_MEASURE_RATES: %q is not a rate", f)
 				}
 				rates = append(rates, r)
 			}
 		}
 	}
 	tool := "send_message"
-	if v := os.Getenv("PACT_MEASURE_TOOL"); v != "" {
+	if v := os.Getenv("HDTP_MEASURE_TOOL"); v != "" {
 		tool = v
 	}
 	ctx := context.Background()
@@ -107,10 +107,10 @@ func TestMeasureAccountCapacity(t *testing.T) {
 	clients := make([]*outbound.Client, contactsN)
 	for i := range clients {
 		kp := contactKeypair(t, fmt.Sprintf("https://c%d.example/a/c%d/mcp", i, i))
-		root, _ := pactidentity.Parse(kp.Root)
-		leaf, _ := pactidentity.Parse(kp.Leaf)
+		root, _ := hdtpidentity.Parse(kp.Root)
+		leaf, _ := hdtpidentity.Parse(kp.Leaf)
 		if _, err := e.st.InsertContact(ctx, store.Contact{
-			AccountID: acct.ID, Fingerprint: pactidentity.Fingerprint(root.SPKI), SPKI: leaf.SPKI, Status: "active",
+			AccountID: acct.ID, Fingerprint: hdtpidentity.Fingerprint(root.SPKI), SPKI: leaf.SPKI, Status: "active",
 			Permissions: []string{"message.text"}, Endpoint: leaf.URIs[0], Leaf: kp.Leaf, RootCert: kp.Root,
 		}); err != nil {
 			t.Fatal(err)
@@ -192,11 +192,11 @@ func runStep(ctx context.Context, clients []*outbound.Client, peer outbound.Peer
 // contactKeypair is another person's host: its own root, and a leaf over a fresh key for endpoint.
 func contactKeypair(t testing.TB, endpoint string) *identity.Keypair {
 	t.Helper()
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Contact", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
+	rc, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Contact", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func contactKeypair(t testing.TB, endpoint string) *identity.Keypair {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: "Contact", RootCN: "Contact", RootKey: rootKey, HostPub: lib.Public(), Endpoint: endpoint,
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
 	})

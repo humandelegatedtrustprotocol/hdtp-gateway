@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // seedAudit migrates a store in dir/data and appends n chained events.
@@ -26,7 +26,7 @@ func seedAudit(t *testing.T, dir string, n int) string {
 	if code, _, errb := run(t, "migrate", "-config", cfgPath); code != 0 {
 		t.Fatalf("migrate: %s", errb)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestAuditArchivePrunesAndKeepsTheChainVerifiable(t *testing.T) {
 	if code, _, errb := runQuiet("migrate", "-config", cfgPath); code != 0 {
 		t.Fatalf("migrate: %s", errb)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestAuditArchivePrunesAndKeepsTheChainVerifiable(t *testing.T) {
 		t.Fatalf("archive: code=%d out=%q err=%q", code, out, errb)
 	}
 	// the rows are gone from the table…
-	st, _ = store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, _ = store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	rows, err := st.ListAuditEvents(ctx, "")
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestAuditArchivePrunesAndKeepsTheChainVerifiable(t *testing.T) {
 	// only rows an archive has already captured may be removed. (The anchored
 	// verify in TestHeadTruncationIsDetected covers the case where rows are
 	// removed some other way, e.g. by editing the database directly.)
-	st, _ = store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, _ = store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	_, err = st.DeleteAuditEventsThrough(ctx, 7)
 	st.Close()
 	if err == nil {
@@ -215,7 +215,7 @@ func TestAuditAnchorCannotBeUsedToHideAWipe(t *testing.T) {
 	if code, _, errb := runQuiet("migrate", "-config", cfgPath); code != 0 {
 		t.Fatalf("migrate: %s", errb)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestAuditAnchorCannotBeUsedToHideAWipe(t *testing.T) {
 	}
 
 	// and the anchor may not be walked backward to fake a break either
-	st, _ = store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, _ = store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	defer st.Close()
 	if err := st.SetAuditAnchor(ctx, store.AuditAnchorRow{
 		ArchivedThroughSeq: 1, TerminalHash: "older", UpdatedAt: 2,
@@ -263,7 +263,7 @@ func TestVerifyFailsWhenTheArchiveIsGone(t *testing.T) {
 	if code, _, errb := runQuiet("migrate", "-config", cfgPath); code != 0 {
 		t.Fatalf("migrate: %s", errb)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestEraseArchiveRefusals(t *testing.T) {
 	if code, _, errb := runQuiet("migrate", "-config", cfgPath); code != 0 {
 		t.Fatalf("migrate: %s", errb)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestEraseArchiveRefusals(t *testing.T) {
 	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath); code != 2 || !strings.Contains(errb, "needs -file") {
 		t.Fatalf("erase-archive without -file: %d %q", code, errb)
 	}
-	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath, "-file", "../pact.db"); code != 1 || !strings.Contains(errb, "is not an identity archive") {
+	if code, _, errb := runQuiet("audit", "erase-archive", "-config", cfgPath, "-file", "../hdtp.db"); code != 1 || !strings.Contains(errb, "is not an identity archive") {
 		t.Fatalf("erase-archive of a file outside the archive directory: %d %q", code, errb)
 	}
 	// A copy of a live row in an archive: what a run leaves before its transaction.

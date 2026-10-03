@@ -6,23 +6,23 @@
 
 // This node's cookie tag, learned from /api/session. Two nodes on one host share
 // a cookie jar — cookies are scoped by host and path, never by port — so the
-// browser may hold several `pact_csrf_*` entries and only one is ours. Picking
+// browser may hold several `hdtp_csrf_*` entries and only one is ours. Picking
 // the wrong one fails every mutation's double-submit check.
 let cookieTag = "";
 
 export function csrf(): string {
   const jar = document.cookie.split("; ");
-  const want = cookieTag ? "pact_csrf_" + cookieTag + "=" : "";
+  const want = cookieTag ? "hdtp_csrf_" + cookieTag + "=" : "";
   const hit =
     (want ? jar.find((c) => c.startsWith(want)) : undefined) ??
     // Before the first /api/session, or on a node with no tag: any csrf cookie.
-    jar.find((c) => c.startsWith("pact_csrf"));
+    jar.find((c) => c.startsWith("hdtp_csrf"));
   return hit?.split("=").slice(1).join("=") ?? "";
 }
 
 // The selected account. Module state + a subscription, so the picker in the
 // shell and every view agree without threading props through the tree.
-let account = localStorage.getItem("pact.account") ?? "";
+let account = localStorage.getItem("hdtp.account") ?? "";
 const accountListeners = new Set<() => void>();
 
 export function currentAccount(): string {
@@ -31,7 +31,7 @@ export function currentAccount(): string {
 export function setAccount(id: string) {
   account = id;
   try {
-    localStorage.setItem("pact.account", id);
+    localStorage.setItem("hdtp.account", id);
   } catch {
     /* storage may be unavailable; the choice just doesn't persist */
   }
@@ -90,7 +90,7 @@ export async function postForm(
   for (const [k, v] of Object.entries(fields)) if (v !== undefined) body.set(k, v);
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": csrf() },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": csrf() },
     body: body.toString(),
   });
   return { ok: res.ok, url: new URL(res.url), status: res.status, body: await res.text() };

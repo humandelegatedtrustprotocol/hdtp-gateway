@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // AC (P10-07b): the deadline is the sender-chosen `expires`, defaulting to
-// PACT §7's 24 hours — not "forever". A message that can never arrive must stop
+// HDTP §7's 24 hours — not "forever". A message that can never arrive must stop
 // being retried and must say so, because an owner is owed the truth.
 func TestOutboundExpiryDefaultsToTwentyFourHours(t *testing.T) {
 	base := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC).Unix()

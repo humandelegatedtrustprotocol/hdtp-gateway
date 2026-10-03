@@ -14,15 +14,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 func TestTheOwnersAddsAreHeldToTheCapBeforeAnythingLeaves(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

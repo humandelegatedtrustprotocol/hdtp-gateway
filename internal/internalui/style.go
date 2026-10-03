@@ -14,7 +14,7 @@ package internalui
 // brandPalette is web/src/brand.css's palette, the tokens these pages use.
 const brandPalette = `:root{--bg:#FFFFFF;--bg-2:#FAF8F4;--ink:#15181E;--text:#2B2F36;--muted:#5E6168;--line:#ECE8E0;--line-2:#DDD8CE;` +
 	`--accent:#F38020;--accent-soft:#FDF0E4;--accent-ink:#AB5309;--accent-ui:#D9690C;--amber:#7A5A00;--red:#B3261E;` +
-	`--sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;` +
+	`--sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;` +
 	`--display:'Bricolage Grotesque',var(--sans);--ease-out:cubic-bezier(.2,.75,.2,1)}
 @media (prefers-color-scheme:dark){:root{--bg:#15181E;--bg-2:#1D2027;--ink:#F4F1EA;--text:#D6D2CA;--muted:#B3AEA5;--line:#2A2E36;--line-2:#373C46;` +
 	`--accent:#F38020;--accent-soft:#33261A;--accent-ink:#FFA552;--accent-ui:#F38020;--amber:#E9B949;--red:#FF9C8A}}
@@ -46,7 +46,7 @@ main>:is(form,:has(form,input,button)){animation-name:lift}
 @media (prefers-reduced-motion:reduce){main>*{animation:none}}
 `
 
-// fontFaces are the portal's self-hosted faces (web/public/fonts, pact-web-kit's).
+// fontFaces are the portal's self-hosted faces (web/public/fonts, hdtp-web-kit's).
 const fontFaces = `@font-face{font-family:'Inter';src:url(/fonts/inter-latin-wght.woff2) format('woff2');font-weight:100 900;font-display:swap}
 @font-face{font-family:'JetBrains Mono';src:url(/fonts/jbmono-latin-400.woff2) format('woff2');font-weight:400;font-display:swap}
 @font-face{font-family:'Bricolage Grotesque';src:url(/fonts/bricolage-grotesque-latin-wght.woff2) format('woff2');font-weight:200 800;font-display:swap}
@@ -58,8 +58,8 @@ const portalStyle = `<style>
 
 // portalBrand is the product's wordmark at the top of a server page on the portal's origin: the kit's
 // files (web/public/brand), the dark variant on a dark ground, exactly as the SPA shows it (ui.tsx).
-const portalBrand = `<a class="brand" href="/"><picture><source srcset="/brand/pact-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/>` +
-	`<img src="/brand/pact-gateway-inline.svg" alt="PACT gateway" width="139" height="28"/></picture></a>`
+const portalBrand = `<a class="brand" href="/"><picture><source srcset="/brand/hdtp-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/>` +
+	`<img src="/brand/hdtp-gateway-inline.svg" alt="HDTP Gateway" width="151" height="28"/></picture></a>`
 
 // landingStyle is the invite landing's: the same palette and layout, no font files.
 const landingStyle = `<style>
@@ -68,10 +68,10 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:13px;line-height:1.5}
 img{max-width:200px;height:auto}
 </style>`
 
-// landingMark is pact-web-kit's mark (kit/brand/mark.svg), inline because the public listener serves no
+// landingMark is hdtp-web-kit's mark (kit/brand/mark.svg), inline because the public listener serves no
 // files. No xmlns: the HTML parser places an inline <svg> in the SVG namespace by itself.
-const landingMark = `<svg viewBox="0 0 120 120" aria-hidden="true"><defs><mask id="pact-landing-m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">` +
+const landingMark = `<svg viewBox="0 0 120 120" aria-hidden="true"><defs><mask id="hdtp-landing-m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">` +
 	`<rect width="120" height="120" fill="white"/><path d="M34 33 Q60 80 86 33" fill="none" stroke="black" stroke-width="7" stroke-linecap="round"/>` +
 	`<path d="M34 33 C34 56 27 70 14 78 M86 33 C86 56 93 70 106 78" fill="none" stroke="black" stroke-width="6.5" stroke-linecap="round"/>` +
 	`<path d="M34 27 V90 M86 27 V90" stroke="black" stroke-width="9" stroke-linecap="round"/><path d="M14 78 H106" stroke="black" stroke-width="7" stroke-linecap="round"/></mask></defs>` +
-	`<rect x="8" y="8" width="104" height="104" rx="26" fill="#F38020" mask="url(#pact-landing-m)"/></svg>`
+	`<rect x="8" y="8" width="104" height="104" rx="26" fill="#F38020" mask="url(#hdtp-landing-m)"/></svg>`

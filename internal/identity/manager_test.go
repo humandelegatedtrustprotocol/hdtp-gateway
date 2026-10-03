@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func TestManagerCreateAccountSealsAndBinds(t *testing.T) {
@@ -40,7 +40,7 @@ func TestManagerCreateAccountSealsAndBinds(t *testing.T) {
 }
 
 // SignCard on an identity that holds no key SAYS so. An account that arrived in a
-// data-only archive has its root here and its key on the host it left (PACT §9), and
+// data-only archive has its root here and its key on the host it left (HDTP §9), and
 // the two callers of SignCard — the invite landing page and the manage pages — reach
 // it from the network. Without this the person meets a keyring decrypt error about a
 // key that was never supposed to be here.

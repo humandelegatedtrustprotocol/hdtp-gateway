@@ -11,32 +11,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // movedLeaf is a leaf under a fresh root, naming endpoint: what a contact that moved presents.
 func movedLeaf(t *testing.T, cn, endpoint string) (root string, leaf []byte) {
 	t.Helper()
 	at := time.Now().Add(-time.Hour)
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := pactidentity.GenerateKey("ed25519")
+	host, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err = pactidentity.BuildLeaf(pactidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public(),
+	leaf, err = hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{CN: cn, RootCN: cn, RootKey: rootKey, HostPub: host.Public(),
 		Endpoint: endpoint, NotBefore: at, NotAfter: at.Add(24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pactidentity.Fingerprint(rootKey.Public().SPKI), leaf
+	return hdtpidentity.Fingerprint(rootKey.Public().SPKI), leaf
 }
 
-// N-18: a contact parked at a new address under `ask` (PACT §5.3) could be answered from the CLI
+// N-18: a contact parked at a new address under `ask` (HDTP §5.3) could be answered from the CLI
 // alone — no portal route listed it or decided it, so a person on the portal never learned one was
 // waiting. The Requests tab now lists it and approves or rejects it through the same decision.
 func TestTheRequestsTabDecidesAContactAtANewAddress(t *testing.T) {

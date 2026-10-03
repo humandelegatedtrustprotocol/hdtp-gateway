@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
 )
 
 func (p *Postgres) ListSettings(ctx context.Context) ([]Setting, error) {

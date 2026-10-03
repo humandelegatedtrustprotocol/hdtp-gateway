@@ -1,7 +1,7 @@
 package contacts
 
-// vCard handling (SPEC §9.3, PACT §3): a PACT card is standard vCard 4.0 plus the
-// X-PACT-* properties. Parsing is tolerant — phone exports are v3.0 with folded
+// vCard handling (SPEC §9.3, HDTP §3): an HDTP card is standard vCard 4.0 plus the
+// X-HDTP-* properties. Parsing is tolerant — phone exports are v3.0 with folded
 // lines and foreign properties — and never trusts input: callers length-cap before
 // parsing, and a parse failure yields an error, never a panic.
 
@@ -13,36 +13,41 @@ import (
 
 	govcard "github.com/emersion/go-vcard"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 const (
-	propVersion = "X-PACT-VERSION"
-	propSeal    = "X-PACT-SEAL"
-	propCert    = "X-PACT-CERT"
+	propVersion = "X-HDTP-VERSION"
+	propSeal    = "X-HDTP-SEAL"
+	propCert    = "X-HDTP-CERT"
 )
+
+// cardMajor is the one version a card may name here: the protocol's major (HDTP §3), as the
+// identity core writes it into every card it builds. TestValidateInbound holds this to a built
+// card: were the two to differ, the good card would be refused.
+const cardMajor = "1"
 
 // Card is the parsed view of a contact card.
 type Card struct {
 	FN       string
 	Tel      string
 	Email    string
-	Version  string // X-PACT-VERSION as carried; MUST be "2"
+	Version  string // X-HDTP-VERSION as carried; ValidateInbound takes cardMajor and no other
 	Endpoint string
 	Key      string
-	Seal     string // none|optional|required; "" = absent = none (PACT §13.4)
-	// Cert is the leaf certificate the card carries (PACT §3), DER. Key is the
+	Seal     string // none|optional|required; "" = absent = none (HDTP §13.4)
+	// Cert is the leaf certificate the card carries (HDTP §3), DER. Key is the
 	// ROOT fingerprint the leaf names as its issuer and Endpoint the leaf's
 	// subject alternative name — both read from the certificate, never from a
 	// property of the card.
 	Cert []byte
 }
 
-// BuildCard renders a 2.0 card (PACT §3): the leaf, the version, the seal. It refuses a name or a
-// seal that carries a control character (PACT §3, 2.1.3): a card is lines, and a line break in a
+// BuildCard renders a card (HDTP §3): the leaf, the version, the seal. It refuses a name or a
+// seal that carries a control character (HDTP §3): a card is lines, and a line break in a
 // display name wrote a property of the name's choosing into the card this node serves.
 func BuildCard(fn string, leaf []byte, seal string) (string, error) {
-	return pactidentity.EncodeCard(fn, leaf, seal, nil)
+	return hdtpidentity.EncodeCard(fn, leaf, seal, nil)
 }
 
 // ParseCard decodes the first vCard in text.
@@ -58,11 +63,11 @@ func ParseCard(text string) (Card, error) {
 		}
 		return ""
 	}
-	// The certificate is read by the rule the identity core reads it with (pact-identity's
+	// The certificate is read by the rule the identity core reads it with (hdtp-identity's
 	// DecodeB64url: the padding and the standard alphabet forgiven, nothing else), so a card the
 	// core refuses does not read here either. An absent property is no certificate, not a
 	// refusal; the library's intake, behind ValidateInbound, refuses a card without one.
-	cert, err := pactidentity.DecodeB64url(get(propCert))
+	cert, err := hdtpidentity.DecodeB64url(get(propCert))
 	if err != nil {
 		return Card{}, fmt.Errorf("vcard: %s is not base64url", propCert)
 	}
@@ -108,16 +113,16 @@ func displayName(s string) string {
 	return cleaned
 }
 
-// SealOf is the X-PACT-SEAL policy of a contact this node holds, read off the card on file the way
-// the identity core reads a card (pactidentity.DecodeCard), so the node and the core have one
-// reading: the property's value, and `none` for a card with no such line (PACT §3: "Absent =
+// SealOf is the X-HDTP-SEAL policy of a contact this node holds, read off the card on file the way
+// the identity core reads a card (hdtpidentity.DecodeCard), so the node and the core have one
+// reading: the property's value, and `none` for a card with no such line (HDTP §3: "Absent =
 // none"; §13.4: "senders MUST NOT seal").
 //
 //   - A card on file that does not read is an error. Its policy is not known, and neither guess is
 //     safe on the wire: a call sealed to a `none` recipient is one it said not to send, and a
 //     plaintext call to a `required` one is refused `seal_required`.
 //   - No card on file is a contact written without one. Two paths write such a row: an import,
-//     whose contacts.csv carries neither a card nor a policy (PACT §9.2), and the owner approving a
+//     whose contacts.csv carries neither a card nor a policy (HDTP §9.2), and the owner approving a
 //     root that returned after a removal (DecideAddress), which re-adds it from the pending
 //     address — a leaf and an endpoint, no card. It is sealed to, as such a contact always was
 //     here: the SPEC does not say what a host assumes for it, and that is named as a gap in the
@@ -126,18 +131,18 @@ func SealOf(card string, now time.Time) (string, error) {
 	if card == "" {
 		return "required", nil
 	}
-	dc, err := pactidentity.DecodeCard(card, now)
+	dc, err := hdtpidentity.DecodeCard(card, now)
 	if err != nil {
 		return "", fmt.Errorf("the card on file does not read (%v), so its sealing policy is not known", err)
 	}
 	return dc.Seal, nil
 }
 
-// ValidateInbound is PACT §3's intake rule, shared by every path that accepts a
+// ValidateInbound is HDTP §3's intake rule, shared by every path that accepts a
 // peer's card (redeem, request, accept, update). The certificate IS the card: it
 // carries the root to pin, the address to reach and the validity, and the library's
 // intake refuses a card with no root or no address. An expired leaf is not a
-// refusal — the root and the endpoint are what a card is for. Unknown X-PACT-*
+// refusal — the root and the endpoint are what a card is for. Unknown X-HDTP-*
 // properties pass untouched; that is how minors stay compatible.
 func ValidateInbound(text string) (Card, error) {
 	c, err := ParseCard(text)
@@ -145,12 +150,12 @@ func ValidateInbound(text string) (Card, error) {
 		return Card{}, err
 	}
 	if c.Version == "" {
-		return Card{}, fmt.Errorf("the card carries no X-PACT-VERSION")
+		return Card{}, fmt.Errorf("the card carries no X-HDTP-VERSION")
 	}
-	if c.Version != "2" {
-		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 2 only", c.Version)
+	if c.Version != cardMajor {
+		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks %s only", c.Version, cardMajor)
 	}
-	dc, err := pactidentity.DecodeCard(text, time.Now())
+	dc, err := hdtpidentity.DecodeCard(text, time.Now())
 	if err != nil {
 		return Card{}, fmt.Errorf("the card's certificate: %v", err)
 	}

@@ -1,6 +1,6 @@
-// The brand from pact-web-kit, vendored into an APP the way the sites vendor it: by release, every file
+// The brand from hdtp-web-kit, vendored into an APP the way the sites vendor it: by release, every file
 // checked against the release's manifest, pinned in kit/kit.lock. The same file serves the node's portal
-// (web/) and PACT Cloud's (portal/, copied by gateway/scripts/harvest.sh); it works on the directory
+// (web/) and BatonDeck's (portal/, copied by gateway/scripts/harvest.sh); it works on the directory
 // above its own.
 //
 //   node tools/kit.mjs fetch <x.y.z>   download the release with gh, check it against its manifest, vendor it
@@ -18,7 +18,7 @@
 //
 // `check` then holds src/brand.css — the app's palette, type and motion — to that stylesheet: every token
 // the two share has the kit's value, the dark palette is drawn from the kit's own on-dark colours, the
-// keyframes are the kit's, and the contrast rules of pact-web-kit's test/contrast.test.mjs hold in both
+// keyframes are the kit's, and the contrast rules of hdtp-web-kit's test/contrast.test.mjs hold in both
 // themes and for the app's own pairs.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -28,7 +28,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const APP = join(dirname(fileURLToPath(import.meta.url)), '..')
-export const REPO = 'pact-cloud/pact-web-kit'
+export const REPO = 'humandelegatedtrustprotocol/hdtp-web-kit'
 /** Release path prefix -> where it lands in the app. A release file matching none is not vendored. */
 export const TAKE = [
   ['kit/brand/', 'public/brand/'],
@@ -55,14 +55,14 @@ function walk(dir, base = dir) {
 
 function fetchRelease(version) {
   if (!/^\d+\.\d+\.\d+$/.test(version || '')) throw new Error('usage: kit.mjs fetch <x.y.z>')
-  const tmp = mkdtempSync(join(tmpdir(), 'pact-web-kit-'))
+  const tmp = mkdtempSync(join(tmpdir(), 'hdtp-web-kit-'))
   try {
-    execFileSync('gh', ['release', 'download', `v${version}`, '-R', REPO, '-D', tmp, '-p', `pact-web-kit-${version}.tar.gz`, '-p', 'manifest.json'], { stdio: 'inherit' })
+    execFileSync('gh', ['release', 'download', `v${version}`, '-R', REPO, '-D', tmp, '-p', `hdtp-web-kit-${version}.tar.gz`, '-p', 'manifest.json'], { stdio: 'inherit' })
     const rawManifest = readFileSync(join(tmp, 'manifest.json'))
     const manifest = JSON.parse(rawManifest)
     if (manifest.version !== version) throw new Error(`the manifest is for ${manifest.version}, not ${version}`)
     const root = join(tmp, 'x'); mkdirSync(root)
-    execFileSync('tar', ['-xzf', join(tmp, `pact-web-kit-${version}.tar.gz`), '-C', root])
+    execFileSync('tar', ['-xzf', join(tmp, `hdtp-web-kit-${version}.tar.gz`), '-C', root])
     // The whole unpacked release must be the manifest, byte for byte, before any of it is taken.
     const have = Object.fromEntries(['kit', 'bin'].flatMap((d) => walk(join(root, d)).map((f) => [`${d}/${f}`, sha256(readFileSync(join(root, d, f)))])))
     if (JSON.stringify(Object.entries(have).sort()) !== JSON.stringify(Object.entries(manifest.files).sort())) {
@@ -80,7 +80,7 @@ function fetchRelease(version) {
     mkdirSync(dirname(LOCK), { recursive: true })
     writeFileSync(MANIFEST, rawManifest)
     writeFileSync(LOCK, JSON.stringify({ version, manifest_sha256: sha256(rawManifest), files }, null, 2) + '\n')
-    console.log(`pact-web-kit ${version}: ${Object.keys(files).length} files vendored, pinned in kit/kit.lock`)
+    console.log(`hdtp-web-kit ${version}: ${Object.keys(files).length} files vendored, pinned in kit/kit.lock`)
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
@@ -108,7 +108,7 @@ export function lockProblems(app = APP) {
     if (destOf(path) !== to) out.push(`${path}: locked at ${to}, belongs at ${destOf(path)}`)
     const p = join(app, to)
     if (!existsSync(p)) { out.push(`${to} is missing`); continue }
-    if (sha256(readFileSync(p)) !== hash) out.push(`${to} differs from pact-web-kit ${lock.version}'s ${path}`)
+    if (sha256(readFileSync(p)) !== hash) out.push(`${to} differs from hdtp-web-kit ${lock.version}'s ${path}`)
     vendored.add(to)
   }
   // Nothing else in the vendored directories: a stray file there would be served as if it were the kit's.
@@ -164,7 +164,7 @@ export function brandProblems(app = APP) {
 
   for (const t of SHARED) {
     if (kit[t] === undefined) out.push(`--${t} is not a token of the kit any more`)
-    else if (light[t] !== kit[t]) out.push(`--${t} is ${light[t]} in src/brand.css, ${kit[t]} in pact-web-kit`)
+    else if (light[t] !== kit[t]) out.push(`--${t} is ${light[t]} in src/brand.css, ${kit[t]} in hdtp-web-kit`)
   }
   for (const [t, k] of Object.entries(DARK_FROM_KIT)) {
     if (darkOwn[t] !== kit[k]) out.push(`dark --${t} is ${darkOwn[t]}; the kit's on-dark colour for it is --${k} ${kit[k]}`)
@@ -226,7 +226,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         process.exit(1)
       }
       const lock = JSON.parse(readFileSync(LOCK, 'utf8'))
-      console.log(`kit: pact-web-kit ${lock.version}, ${Object.keys(lock.files).length} files match the release; the brand holds to it in both themes`)
+      console.log(`kit: hdtp-web-kit ${lock.version}, ${Object.keys(lock.files).length} files match the release; the brand holds to it in both themes`)
     } else {
       console.error('usage: kit.mjs fetch <x.y.z> | kit.mjs check'); process.exit(2)
     }

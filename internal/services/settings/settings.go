@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 // isSecretKey decides what gets encrypted at rest. It errs toward secrecy: a
@@ -371,8 +371,8 @@ func (s *Service) apply(ctx context.Context, key, value string, here bool) error
 		// and each needs a move — so they are named, here and on `doctor` and the `serve` banner.
 		//
 		// This used to fan `update_contact{card, sig}` out to every contact of every account,
-		// with a signature over the account's own fingerprint as "proof". That was 1.x's endpoint
-		// announcement (node/announce.go says what became of it): under 2.0 it sent each contact
+		// with a signature over the account's own fingerprint as "proof". That was the retired
+		// generation's endpoint announcement (node/announce.go says what became of it): under HDTP it sent each contact
 		// the card it already held, and started nothing that moves an address.
 		accounts, err := s.store.ListAccounts(ctx)
 		if err != nil {

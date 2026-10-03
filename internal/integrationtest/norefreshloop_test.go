@@ -13,7 +13,7 @@ import (
 )
 
 // The owner's rule, 2026-09-19: a pin is confirmed when it is needed, and the node does nothing
-// proactively. PACT 2.1 §14.3 says the same of the protocol — a newer leaf arrives on use and needs
+// proactively. HDTP §14.3 says the same of the protocol — a newer leaf arrives on use and needs
 // no poll. The node polled anyway: `serve` re-fetched every contact's card two minutes after start
 // and every six hours after, in original code that a first attempt at this rule walked straight
 // past, because what it removed was a NAME it had itself given the interval. The second attempt

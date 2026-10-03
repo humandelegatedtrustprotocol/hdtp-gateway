@@ -3,7 +3,7 @@ package outbound
 // A carrier cannot read a sealed call. It can still ANSWER one — and until this
 // change the caller believed whatever it said.
 //
-// PACT §13.2 draws the line: "once a request envelope has been successfully
+// HDTP §13.2 draws the line: "once a request envelope has been successfully
 // opened, an error result MUST be sealed back like any other result — a
 // plaintext error is only for an envelope that could not be opened at all."
 // So every code that is decided after the open is, in plaintext, a forgery by

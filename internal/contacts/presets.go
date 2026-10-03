@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// Presets are owner-defined bundles (PACT §8): assigned at approval time,
+// Presets are owner-defined bundles (HDTP §8): assigned at approval time,
 // adjustable per contact afterwards, and — since 1.2 — editable by the owner.
 // The four documented defaults are in force until the owner writes their own;
 // the FIRST owner write seeds all four as rows, so editing one bundle can
@@ -19,7 +19,7 @@ import (
 // PresetSet is one node's bundles by name.
 type PresetSet map[string][]string
 
-// DefaultPresets is what an untuned node grants — the table PACT §8 documents.
+// DefaultPresets is what an untuned node grants — the table HDTP §8 documents.
 var DefaultPresets = PresetSet{
 	"basic":  {"message.text"},
 	"work":   {"message.text", "calendar.availability", "calendar.book"},
@@ -155,18 +155,18 @@ func ValidatePreset(name string, perms []string) error {
 	return nil
 }
 
-// AllPermissions is the switchboard's row order (SPEC §8, PACT §8).
+// AllPermissions is the switchboard's row order (SPEC §8, HDTP §8).
 var AllPermissions = []string{
 	"message.text", "message.media", "status.view", "calendar.availability", "calendar.book",
 }
 
 // integrationGrant is an integration's permission name as a grant carries it: `integration.` and a
-// slug, and only a slug — no dot, no wildcard, so no grant can name them all (pact-cloud's
+// slug, and only a slug — no dot, no wildcard, so no grant can name them all (batondeck's
 // isIntegrationPermission, the same expression).
 var integrationGrant = regexp.MustCompile(`^integration\.[a-z0-9][a-z0-9-]{0,62}$`)
 
-// TheirPermissions is what a peer says it granted us (contact_accepted, PACT §6.2), as this node
-// records it: only what a grant can be — PACT §8's names (AllPermissions) and integration.<slug> —
+// TheirPermissions is what a peer says it granted us (contact_accepted, HDTP §6.2), as this node
+// records it: only what a grant can be — HDTP §8's names (AllPermissions) and integration.<slug> —
 // each once, in the order given. Anything else a peer sends is dropped at intake.
 func TheirPermissions(in []string) []string {
 	core := map[string]bool{}

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 func mediaMux(t *testing.T, sendMedia func(ctx context.Context, accountID, contactFpr string, in messaging.Input, filename, mime string, data []byte) (messaging.Result, error)) *http.ServeMux {

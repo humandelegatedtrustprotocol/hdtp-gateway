@@ -1,6 +1,6 @@
 package cli
 
-// Mapped mode: binding PACT's core capabilities to a live upstream (SPEC §6.6,
+// Mapped mode: binding HDTP's core capabilities to a live upstream (SPEC §6.6,
 // §6.7).
 //
 // `internal/integrations/recipes` was not in the binary's dependency graph at
@@ -10,7 +10,7 @@ package cli
 // `providers.ManagerCaller` none either. Mapped mode existed entirely on paper.
 //
 // The §6.6 rule this file implements: mapped capabilities are NOT gated by
-// `integration.<slug>`. They serve PACT's own vocabulary — `check_availability`,
+// `integration.<slug>`. They serve HDTP's own vocabulary — `check_availability`,
 // `book_slot`, `cancel_booking`, `get_status` — and are gated by the matching
 // core permission, which the built-in tool entries already carry. So binding a
 // recipe does not add tools; it makes the tools that always existed answer with
@@ -22,12 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/integrations/providers"
-	"github.com/pact-cloud/pact-gateway/internal/integrations/recipes"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations/providers"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations/recipes"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
 // capabilityBinder answers "which provider serves this account's core
@@ -50,7 +50,7 @@ type capabilityBinder struct {
 
 	// resolved caches the per-account answer. Resolving walks every integration
 	// and reads its exposure set, and `get_status` is a cheap contact-tier call
-	// a peer may make once a second, ten at once (PACT §12) — so doing that work per
+	// a peer may make once a second, ten at once (HDTP §12) — so doing that work per
 	// call is N+1 queries to usually answer "available". The answer only changes
 	// when an exposure, an availability or an integration does, and that already
 	// has a hook: invalidate() is called from it.

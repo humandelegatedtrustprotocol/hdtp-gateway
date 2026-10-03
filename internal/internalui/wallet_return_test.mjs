@@ -7,10 +7,10 @@
 // and a section st-<id> for every wrState), so an id the script reaches for that the page does not
 // carry fails here.
 //
-// What it holds (PACT §9.1; the identity-boundary design §2.3):
+// What it holds (HDTP §9.1; the identity-boundary design §2.3):
 //   - the fragment is taken out of the address bar BEFORE anything is sent anywhere;
 //   - the answer is POSTed once, same-origin, to /identity/<slug>/wallet/install, with the chain and
-//     the state in the body and the CSRF cookie's value in X-Pact-Csrf (the cookie named by the page);
+//     the state in the body and the CSRF cookie's value in X-HDTP-Csrf (the cookie named by the page);
 //   - a refusal from the wallet (#error=…) and an arrival with nothing to install send nothing;
 //   - each answer of the node is shown as its own state, with the actions that help, and the page
 //     stops saying it is busy.
@@ -29,7 +29,7 @@ assert.ok(ids.has("answer") && ids.has("st-working") && ids.has("st-installed") 
 
 // run loads the page at `href` with `cookie` and lets the node answer `reply` ({status, body} with
 // a JSON body, {status, text} with one that is not, or {throws: true} for no reply at all).
-async function run({ href, cookie = "pact_csrf_t=tok-123", reply = { status: 200, body: {} } }) {
+async function run({ href, cookie = "hdtp_csrf_t=tok-123", reply = { status: 200, body: {} } }) {
   const u = new URL(href);
   const events = [];
   const els = {};
@@ -56,7 +56,7 @@ async function run({ href, cookie = "pact_csrf_t=tok-123", reply = { status: 200
     document: {
       cookie,
       getElementById: (id) => els[id] || null,
-      querySelector: (sel) => (sel === 'meta[name="pact-csrf-cookie"]' ? { content: "pact_csrf_t" } : null),
+      querySelector: (sel) => (sel === 'meta[name="hdtp-csrf-cookie"]' ? { content: "hdtp_csrf_t" } : null),
     },
     fetch(url, opts) {
       events.push(["fetch", url, opts, location.hash]);
@@ -84,7 +84,7 @@ function settled(r, state) {
 test("the answer is cleared from the address bar, then POSTed once with the state and the CSRF header", async () => {
   const r = await run({
     href: answer,
-    cookie: "pact_session_t=sess; pact_csrf_t=tok-123; pact_csrf_tx=other",
+    cookie: "hdtp_session_t=sess; hdtp_csrf_t=tok-123; hdtp_csrf_tx=other",
     reply: { status: 200, body: { name: "Alice", endpoint: "https://node.example/a/alice/mcp", not_before: "2026-09-30T14:05:09Z", not_after: "2027-09-30T14:05:09Z", notice: "", warnings: [] } },
   });
   assert.deepEqual(r.events[0], ["replaceState", "/wallet/return?slug=alice"], "the fragment must be cleared first");
@@ -94,7 +94,7 @@ test("the answer is cleared from the address bar, then POSTed once with the stat
   assert.equal(url, "/identity/alice/wallet/install");
   assert.equal(opts.method, "POST");
   assert.equal(opts.credentials, "same-origin");
-  assert.equal(opts.headers["X-Pact-Csrf"], "tok-123", "the CSRF header is the cookie the page names, not a prefix of another");
+  assert.equal(opts.headers["X-HDTP-Csrf"], "tok-123", "the CSRF header is the cookie the page names, not a prefix of another");
   const body = new URLSearchParams(opts.body);
   assert.equal(body.get("chain"), "TEVBRg.Uk9PVA");
   assert.equal(body.get("state"), "s".repeat(43));

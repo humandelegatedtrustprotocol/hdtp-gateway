@@ -10,8 +10,8 @@ package internalui
 
 import (
 	"context"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,7 +88,7 @@ func TestSessionEndpointDoesNotEnumerateIdentities(t *testing.T) {
 //
 // Cookies are scoped by host and path and NEVER by port (RFC 6265 §8.5), so
 // `localhost:18120` and `localhost:18121` share one jar. With a single fixed
-// cookie name, whichever node logged in last owned the only `pact_session`
+// cookie name, whichever node logged in last owned the only `hdtp_session`
 // entry and the other owner was signed out having done nothing — which is
 // exactly what happened on the demo pair: every `identity_required` on one node
 // lined up with a successful login on the other, and it read as the portal
@@ -124,7 +124,7 @@ func TestTwoNodesOnOneHostDoNotShareCookieNames(t *testing.T) {
 	// A single node with no tag keeps the plain names, so nothing changes for
 	// the ordinary one-node case.
 	SetCookieTag("")
-	if sessionCookieName() != "pact_session" || csrfCookieName() != "pact_csrf" {
+	if sessionCookieName() != "hdtp_session" || csrfCookieName() != "hdtp_csrf" {
 		t.Errorf("an untagged node changed its cookie names: %q %q", sessionCookieName(), csrfCookieName())
 	}
 }

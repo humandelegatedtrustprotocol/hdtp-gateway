@@ -24,8 +24,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Sealer is the keyring slice this file needs (core.Keyring satisfies it).

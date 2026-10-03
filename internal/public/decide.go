@@ -1,6 +1,6 @@
 package public
 
-// PACT 2.0 receiving (PACT §13.3, §6.1, §5.3, §14.3, §14.4): a `v: 2`
+// HDTP 1.0 receiving (HDTP §13.3, §6.1, §5.3, §14.3, §14.4): a `v: 1`
 // envelope is decided by the library's pure Decide over the state this node
 // supplies, and the effects it returns are applied here — the pin that
 // follows a newer leaf or a new address, the former endpoint, the pending
@@ -15,20 +15,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/envelope"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// ErrChainRequired is PACT §13.2's uniform answer to a small-form envelope the
+// ErrChainRequired is HDTP §13.2's uniform answer to a small-form envelope the
 // receiver cannot verify against a leaf it holds: unknown, blocked, expired,
 // or a bad signature — one answer, so nothing leaks. It travels in plaintext
 // and is charged to the guest budget (§14.5).
 var ErrChainRequired = errors.New("chain_required")
 
-// CertificateRenewed is PACT §14.4: an envelope sealed to a key this endpoint
+// CertificateRenewed is HDTP §14.4: an envelope sealed to a key this endpoint
 // once held for the identity and holds no longer is answered, in plaintext,
 // with the identity's current chain.
 type CertificateRenewed struct{ Chain [][]byte }
@@ -44,7 +44,7 @@ const TierPendingAddress policy.Tier = "pending_new_address"
 // a setting the owner changes takes effect without a restart.
 type RecipientState struct {
 	// HasRoot is whether the wallet has issued this identity a leaf: until it has, there is no
-	// chain to speak under and nothing sealed can be opened (PACT §2).
+	// chain to speak under and nothing sealed can be opened (HDTP §2).
 	HasRoot        bool
 	Endpoint       string
 	AcceptNewHosts string
@@ -75,13 +75,13 @@ type peeked struct {
 // opener is the held key an envelope's header names and the suite it is sealed in, when this node
 // opens it: a header that is not base64url, an unknown kid, a key past its date or a suite nobody
 // knows is nil — an envelope nothing here opens.
-func opener(now time.Time, e *pactidentity.Envelope, st *RecipientState) (*identity.LeafKey, string) {
+func opener(now time.Time, e *hdtpidentity.Envelope, st *RecipientState) (*identity.LeafKey, string) {
 	var header struct {
 		Kid   string `json:"kid"`
 		Suite string `json:"suite"`
 	}
-	protected, err := pactidentity.DecodeB64url(e.Protected)
-	if err != nil || json.Unmarshal(protected, &header) != nil || !pactidentity.SuiteKnown(header.Suite) {
+	protected, err := hdtpidentity.DecodeB64url(e.Protected)
+	if err != nil || json.Unmarshal(protected, &header) != nil || !hdtpidentity.SuiteKnown(header.Suite) {
 		return nil, ""
 	}
 	for i := range st.Keys {
@@ -110,23 +110,23 @@ func openedIf(opened bool, err error) error {
 // its proof. The zero value when it cannot: a member that is not base64url, an unknown kid, a suite
 // it does not know, a ciphertext that does not open, a plaintext that is not JSON. One extra HPKE
 // open per envelope buys handing Decide a few pins instead of every contact.
-func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peeked {
+func peekProof(now time.Time, e *hdtpidentity.Envelope, st *RecipientState) peeked {
 	var none peeked
-	aad, errAAD := pactidentity.DecodeB64url(e.Protected)
-	enc, errEnc := pactidentity.DecodeB64url(e.Enc)
-	ct, errCt := pactidentity.DecodeB64url(e.Ct)
+	aad, errAAD := hdtpidentity.DecodeB64url(e.Protected)
+	enc, errEnc := hdtpidentity.DecodeB64url(e.Enc)
+	ct, errCt := hdtpidentity.DecodeB64url(e.Ct)
 	if errAAD != nil || errEnc != nil || errCt != nil {
 		return none
 	}
 	if k, suite := opener(now, e, st); k != nil && k.Lib != nil {
 		priv := k.Lib
-		// The recipient's public key as its leaf holds it (pact-identity 0.4.0): the open takes it
+		// The recipient's public key as its leaf holds it (the identity core 0.4.0): the open takes it
 		// rather than deriving it from the private key on every call.
-		leaf, err := pactidentity.Parse(k.Leaf)
+		leaf, err := hdtpidentity.Parse(k.Leaf)
 		if err != nil {
 			return none
 		}
-		plaintext, err := pactidentity.Open(suite, priv, leaf.PublicKey, []byte(pactidentity.InfoV2), aad, enc, ct)
+		plaintext, err := hdtpidentity.Open(suite, priv, leaf.PublicKey, []byte(hdtpidentity.Info), aad, enc, ct)
 		if err != nil {
 			return none
 		}
@@ -140,22 +140,22 @@ func peekProof(now time.Time, e *pactidentity.Envelope, st *RecipientState) peek
 }
 
 // pinsFor is the contacts Decide needs for an envelope whose proof is p, and no others. Decide reads
-// pins three ways (pact-identity envelope.go): the pin of the root a chain proves (its tier, a
+// pins three ways (hdtp-identity envelope.go): the pin of the root a chain proves (its tier, a
 // renewal, a new address), the pins at the address the chain's leaf names (the address claim of
-// PACT sec. 5.2), and the pin holding the leaf a small form names (pinHolding). Until 2026-09-28 it
+// HDTP sec. 5.2), and the pin holding the leaf a small form names (pinHolding). Until 2026-09-28 it
 // was handed every contact, so a call cost the node time in proportion to how many the account held
 // (decide_candidates_test.go holds the decisions equal). A proof that cannot be read, or a chain
 // that does not parse, gets no pins: Decide refuses such an envelope whatever it is handed.
 func (id *Identifier) pinsFor(ctx context.Context, accountID string, p peeked) ([]store.Contact, error) {
 	switch {
 	case len(p.Chain) == 2:
-		leafDER, errLeaf := pactidentity.DecodeB64url(p.Chain[0])
-		rootDER, errRoot := pactidentity.DecodeB64url(p.Chain[1])
+		leafDER, errLeaf := hdtpidentity.DecodeB64url(p.Chain[0])
+		rootDER, errRoot := hdtpidentity.DecodeB64url(p.Chain[1])
 		if errLeaf != nil || errRoot != nil {
 			return nil, nil
 		}
-		leaf, errLeaf := pactidentity.Parse(leafDER)
-		root, errRoot := pactidentity.Parse(rootDER)
+		leaf, errLeaf := hdtpidentity.Parse(leafDER)
+		root, errRoot := hdtpidentity.Parse(rootDER)
 		if errLeaf != nil || errRoot != nil {
 			return nil, nil
 		}
@@ -163,7 +163,7 @@ func (id *Identifier) pinsFor(ctx context.Context, accountID string, p peeked) (
 		if len(leaf.URIs) > 0 {
 			endpoint = leaf.URIs[0]
 		}
-		return id.Store.PinCandidates(ctx, accountID, pactidentity.FingerprintOf(root), endpoint, "")
+		return id.Store.PinCandidates(ctx, accountID, hdtpidentity.FingerprintOf(root), endpoint, "")
 	case p.Leaf != "":
 		return id.Store.PinCandidates(ctx, accountID, "", "", p.Leaf)
 	}
@@ -172,21 +172,21 @@ func (id *Identifier) pinsFor(ctx context.Context, accountID string, p peeked) (
 
 // nodeState builds Decide's input from the store and the supplied state, with the pins the
 // envelope's proof could concern.
-func (id *Identifier) nodeState(ctx context.Context, accountID string, st *RecipientState, p peeked) (pactidentity.NodeState, error) {
-	ns := pactidentity.NodeState{
+func (id *Identifier) nodeState(ctx context.Context, accountID string, st *RecipientState, p peeked) (hdtpidentity.NodeState, error) {
+	ns := hdtpidentity.NodeState{
 		Endpoint: st.Endpoint, AcceptNewHosts: st.AcceptNewHosts, Former: st.Former, SiblingKids: st.SiblingKids,
 	}
 	if ns.AcceptNewHosts == "" {
 		ns.AcceptNewHosts = "auto"
 	}
 	for _, c := range st.Chain {
-		ns.Chain = append(ns.Chain, pactidentity.B64url(c))
+		ns.Chain = append(ns.Chain, hdtpidentity.B64url(c))
 	}
 	for _, k := range st.Keys {
 		if len(k.PKCS8) == 0 {
 			return ns, fmt.Errorf("the held key %s is not open", k.Kid)
 		}
-		ns.Keys = append(ns.Keys, pactidentity.HeldKey{Kid: k.Kid, Leaf: pactidentity.B64url(k.Leaf), PKCS8: pactidentity.B64url(k.PKCS8), Current: k.Current})
+		ns.Keys = append(ns.Keys, hdtpidentity.HeldKey{Kid: k.Kid, Leaf: hdtpidentity.B64url(k.Leaf), PKCS8: hdtpidentity.B64url(k.PKCS8), Current: k.Current})
 	}
 	contacts, err := id.pinsFor(ctx, accountID, p)
 	if err != nil {
@@ -198,21 +198,21 @@ func (id *Identifier) nodeState(ctx context.Context, accountID string, st *Recip
 		return ns, err
 	}
 	for _, t := range tombs {
-		ns.Tombstones = append(ns.Tombstones, pactidentity.TombstoneRec{Root: t.Root, Leaf: pactidentity.B64url(t.Leaf), At: time.Unix(t.At, 0).UTC().Format(time.RFC3339)})
+		ns.Tombstones = append(ns.Tombstones, hdtpidentity.TombstoneRec{Root: t.Root, Leaf: hdtpidentity.B64url(t.Leaf), At: time.Unix(t.At, 0).UTC().Format(time.RFC3339)})
 	}
 	formers, err := id.Store.ListFormerEndpoints(ctx, accountID)
 	if err != nil {
 		return ns, err
 	}
 	for _, f := range formers {
-		ns.FormerEndpoints = append(ns.FormerEndpoints, pactidentity.FormerEndpoint{Root: f.Root, Endpoint: f.Endpoint, At: time.Unix(f.At, 0).UTC().Format(time.RFC3339)})
+		ns.FormerEndpoints = append(ns.FormerEndpoints, hdtpidentity.FormerEndpoint{Root: f.Root, Endpoint: f.Endpoint, At: time.Unix(f.At, 0).UTC().Format(time.RFC3339)})
 	}
 	return ns, nil
 }
 
-// pinStates are the states a pin has (CONTRACT `Pin`): the rows handed to Decide, as PACT Cloud's
+// pinStates are the states a pin has (CONTRACT `Pin`): the rows handed to Decide, as BatonDeck's
 // `pinsOf` hands them (gateway/src/identity/wire.ts), so both hosts decide one envelope alike.
-// pact-identity 0.4.2 refuses any other state as unreadable host state, where 0.4.1 read it as
+// the identity core 0.4.2 refuses any other state as unreadable host state, where 0.4.1 read it as
 // active. A request the owner has not answered (`pending_in`) is therefore NO pin: its requester is
 // the guest SPEC §5.4 says it is — its small form names a leaf nobody pinned and is refused
 // `chain_required`, its chain form is decided as a stranger's (a repeated `request_contact` is then
@@ -224,9 +224,9 @@ var pinStates = map[string]bool{"active": true, "pending_out": true, "blocked": 
 
 // UnknownContactState says whether a contact row's status is one this node does not know: neither
 // a state a pin has (pinStates) nor a request awaiting the owner (`pending_in`). pinsOf hands
-// Decide no pin for such a row, exactly as for a request — where pact-identity 0.4.2 would refuse
+// Decide no pin for such a row, exactly as for a request — where the identity core 0.4.2 would refuse
 // the state as unreadable and the owner would be told on the call (`identity_state_unreadable`).
-// The schema admits no such row (migration 0002's CHECK holds a contact's status to the four, on
+// The schema admits no such row (the schema's CHECK holds a contact's status to the four, on
 // both engines), so one is a hand-edited store's or a later binary's; the walk of
 // internal/storecheck counts and names each, so the owner is told at `serve` and by `check store`
 // rather than never. TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin holds the two
@@ -236,18 +236,18 @@ func UnknownContactState(status string) bool { return !pinStates[status] && stat
 // pinsOf is Decide's pins, from contact rows: every row that holds a leaf, in a state the core
 // reads (pinStates); the others — a request awaiting the owner, and a row in a state this node does
 // not know (UnknownContactState) — are left out.
-func pinsOf(contacts []store.Contact) []pactidentity.Pin {
-	var pins []pactidentity.Pin
+func pinsOf(contacts []store.Contact) []hdtpidentity.Pin {
+	var pins []hdtpidentity.Pin
 	for _, c := range contacts {
 		if len(c.Leaf) > 0 && pinStates[c.Status] {
-			// The pin says which leaf it holds (PACT 2.1.3, CONTRACT §5), so a small-form envelope —
+			// The pin says which leaf it holds (HDTP 1.0, CONTRACT §5), so a small-form envelope —
 			// from a sender who has proved nothing yet — is matched on a string and ONE pinned leaf is
 			// parsed, not every contact's. The row keeps the leaf's key beside the leaf (the one
 			// statement that writes `leaf` writes `spki` with it), and the core holds the claim to the
 			// certificate: a row where the two disagree is unreadable state, and is said.
-			pin := pactidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: pactidentity.B64url(c.Leaf), State: c.Status}
+			pin := hdtpidentity.Pin{Root: c.Fingerprint, Endpoint: c.Endpoint, Leaf: hdtpidentity.B64url(c.Leaf), State: c.Status}
 			if len(c.SPKI) > 0 {
-				pin.LeafFingerprint = pactidentity.Fingerprint(c.SPKI)
+				pin.LeafFingerprint = hdtpidentity.Fingerprint(c.SPKI)
 			}
 			pins = append(pins, pin)
 		}
@@ -264,7 +264,7 @@ type signer struct {
 }
 
 // signerOf is who signed an envelope Decide answered `pending_approval`, read from the proof the node
-// peeked (the same plaintext Decide opened) and the pins it handed Decide. pact-identity 0.4.1 answers
+// peeked (the same plaintext Decide opened) and the pins it handed Decide. The identity core 0.4.1 answers
 // that code with nothing but the code, and only after the signature verified (envelope.go, Decide):
 // in the full form under the chain's leaf, once the chain validated; in the small form under the
 // pinned leaf the envelope names. So the key is that leaf's, and the refusal can be sealed to it.
@@ -272,20 +272,20 @@ type signer struct {
 // The pin the answer was decided for must be `pending_out` — the one state Decide answers this for —
 // or no signer is named and the refusal goes out as itself (sealBackErr): the node never seals to a
 // key other than the one Decide verified.
-func signerOf(p peeked, pins []pactidentity.Pin) (signer, bool) {
+func signerOf(p peeked, pins []hdtpidentity.Pin) (signer, bool) {
 	switch {
 	case len(p.Chain) == 2:
-		leafDER, errLeaf := pactidentity.DecodeB64url(p.Chain[0])
-		rootDER, errRoot := pactidentity.DecodeB64url(p.Chain[1])
+		leafDER, errLeaf := hdtpidentity.DecodeB64url(p.Chain[0])
+		rootDER, errRoot := hdtpidentity.DecodeB64url(p.Chain[1])
 		if errLeaf != nil || errRoot != nil {
 			return signer{}, false
 		}
-		leaf, errLeaf := pactidentity.Parse(leafDER)
-		rootCert, errRoot := pactidentity.Parse(rootDER)
+		leaf, errLeaf := hdtpidentity.Parse(leafDER)
+		rootCert, errRoot := hdtpidentity.Parse(rootDER)
 		if errLeaf != nil || errRoot != nil {
 			return signer{}, false
 		}
-		root := pactidentity.FingerprintOf(rootCert)
+		root := hdtpidentity.FingerprintOf(rootCert)
 		for _, pin := range pins {
 			if pin.Root == root {
 				if pin.State != "pending_out" {
@@ -295,19 +295,19 @@ func signerOf(p peeked, pins []pactidentity.Pin) (signer, bool) {
 			}
 		}
 	case p.Leaf != "":
-		// pinHolding's reading (pact-identity envelope.go): the first pin that is not blocked, whose
+		// pinHolding's reading (hdtp-identity envelope.go): the first pin that is not blocked, whose
 		// column does not name another leaf, and whose leaf's own fingerprint is the one named. The
 		// match is on the fingerprint computed from the leaf, not on the column.
 		for _, pin := range pins {
 			if pin.State == "blocked" || (pin.LeafFingerprint != "" && pin.LeafFingerprint != p.Leaf) {
 				continue
 			}
-			leafDER, err := pactidentity.DecodeB64url(pin.Leaf)
+			leafDER, err := hdtpidentity.DecodeB64url(pin.Leaf)
 			if err != nil {
 				continue
 			}
-			leaf, err := pactidentity.Parse(leafDER)
-			if err != nil || pactidentity.Fingerprint(leaf.SPKI) != p.Leaf {
+			leaf, err := hdtpidentity.Parse(leafDER)
+			if err != nil || hdtpidentity.Fingerprint(leaf.SPKI) != p.Leaf {
 				continue
 			}
 			if pin.State != "pending_out" {
@@ -319,8 +319,8 @@ func signerOf(p peeked, pins []pactidentity.Pin) (signer, bool) {
 	return signer{}, false
 }
 
-// decideEnvelope is the `v: 2` half of OpenSealed.
-func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
+// decideEnvelope is the `v: 1` half of OpenSealed.
+func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf TransportFacts, e *hdtpidentity.Envelope) (*EnvelopeFacts, error) {
 	if id.RecipientState == nil {
 		return nil, fmt.Errorf("%w: this identity does not speak 2.0", envelope.ErrInvalid)
 	}
@@ -332,7 +332,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		return nil, fmt.Errorf("%w: this identity has no certificate yet", envelope.ErrInvalid)
 	}
 	// The members go to the library exactly as they arrived: it holds each to its one spelling
-	// (PACT §13.1), which a decode and re-encode here would launder.
+	// (HDTP §13.1), which a decode and re-encode here would launder.
 	now := id.now()
 	// Whether this envelope is OPENED here: a refusal of one that proves no caller spends the guest
 	// total (errOpened).
@@ -343,7 +343,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	if err != nil {
 		return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
 	}
-	d, err := pactidentity.Decide(now, *e, ns)
+	d, err := hdtpidentity.Decide(now, *e, ns)
 	if err != nil {
 		// Not the envelope: a row of THIS node's state — a held key's leaf, a pin, a tombstone —
 		// would not read. The port used to step over such a row and decide without it, which quietly
@@ -372,7 +372,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 					if !ok {
 						continue
 					}
-					der, err := pactidentity.DecodeB64url(s)
+					der, err := hdtpidentity.DecodeB64url(s)
 					if err != nil {
 						id.audit("identity_state_unreadable", "account:"+accountID+" why:"+err.Error(), "error")
 						return nil, fmt.Errorf("%w: recipient state unavailable", envelope.ErrInvalid)
@@ -388,17 +388,17 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		// pending tier): the contact request has not been answered yet, so
 		// nothing else runs. (A new address the owner has not approved is the
 		// `pending_new_address` tier below, not this.) The refusal is sealed to the leaf that
-		// signed (PACT §13.2), read by signerOf, and charged to the root it proves; nothing is
+		// signed (HDTP §13.2), read by signerOf, and charged to the root it proves; nothing is
 		// dispatched and no tier is earned (the facts carry none, so the audit row's actor is a guest).
 		//
 		// The effects Decide returns beside it are NOT applied: in the full form they can carry a
-		// pending contact's newer leaf, or its new address under `auto` (pact-identity envelope.go),
+		// pending contact's newer leaf, or its new address under `auto` (hdtp-identity envelope.go),
 		// and they are dropped (docs/release/port-parity-2026-09-29.md, §5).
 		facts := &EnvelopeFacts{Refusal: "pending_approval", state: st}
 		if sg, ok := signerOf(proof, ns.Pins); ok {
 			// Decide read `protected` in its one spelling and decided on it, so it reads here too.
 			var h envelope.Header
-			protected, _ := pactidentity.DecodeB64url(e.Protected)
+			protected, _ := hdtpidentity.DecodeB64url(e.Protected)
 			_ = json.Unmarshal(protected, &h)
 			// From is the root the signature proved, as an `ok` decision names it: the budget charges
 			// the call to that root (node.chargeOf pays a proven pending_out contact's guest bucket at
@@ -420,11 +420,11 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	method, _ := d.Result["method"].(string)
 	why, _ := d.Result["why"].(string)
 	leafB64, _ := d.Result["leaf"].(string)
-	leafDER, err := pactidentity.DecodeB64url(leafB64)
+	leafDER, err := hdtpidentity.DecodeB64url(leafB64)
 	if err != nil {
 		return nil, fmt.Errorf("%w: decided leaf unreadable", envelope.ErrInvalid)
 	}
-	leaf, err := pactidentity.Parse(leafDER)
+	leaf, err := hdtpidentity.Parse(leafDER)
 	if err != nil {
 		return nil, fmt.Errorf("%w: decided leaf unreadable", envelope.ErrInvalid)
 	}
@@ -435,7 +435,7 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 	// Decide has read `protected` in its one spelling and verified the signature over it, so it
 	// reads here too, to the same bytes.
 	var h envelope.Header
-	protected, _ := pactidentity.DecodeB64url(e.Protected)
+	protected, _ := hdtpidentity.DecodeB64url(e.Protected)
 	_ = json.Unmarshal(protected, &h)
 	facts := &EnvelopeFacts{
 		Header: h, From: root, SPKI: leaf.SPKI, Payload: Payload{Method: method, Params: params},
@@ -484,11 +484,11 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 		case "seen":
 		case "pin_update":
 			leafB64, _ := ef["leaf"].(string)
-			leafDER, err := pactidentity.DecodeB64url(leafB64)
+			leafDER, err := hdtpidentity.DecodeB64url(leafB64)
 			if err != nil {
 				return err
 			}
-			leaf, err := pactidentity.Parse(leafDER)
+			leaf, err := hdtpidentity.Parse(leafDER)
 			if err != nil {
 				return err
 			}
@@ -502,14 +502,14 @@ func (id *Identifier) apply(ctx context.Context, accountID string, effects []map
 		case "pending":
 			why, _ := ef["why"].(string)
 			leafB64, _ := ef["leaf"].(string)
-			leafDER, err := pactidentity.DecodeB64url(leafB64)
+			leafDER, err := hdtpidentity.DecodeB64url(leafB64)
 			if err != nil {
 				return err
 			}
 			// No root certificate on this path: the chain the sender carried is inside
 			// the ciphertext, and only the library's Decide ever sees it. The pending
 			// row keeps the leaf; the cert arrives if that host connects with a client
-			// certificate (migration 0029).
+			// certificate.
 			if err := id.notePendingAddress(ctx, accountID, root, endpoint, why, leafDER, nil, now); err != nil {
 				return err
 			}
@@ -548,8 +548,8 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 	return nil
 }
 
-// TransportCaller is what a 2.0 client certificate chain earned once the pin
-// checks of PACT §14.3 and §5.3 have run — the same outcomes the sealed path
+// TransportCaller is what a client certificate chain earned once the pin
+// checks of HDTP §14.3 and §5.3 have run — the same outcomes the sealed path
 // reaches through Decide, so a chain presented at the TLS layer can do nothing
 // an envelope carrying it could not. Fingerprint is the identity the per-caller
 // server is composed for: the root when the pin
@@ -588,7 +588,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 	if !tf.ChainProven() || root == "" {
 		return TransportCaller{Fingerprint: root}
 	}
-	leaf, err := pactidentity.Parse(tf.ClientLeaf)
+	leaf, err := hdtpidentity.Parse(tf.ClientLeaf)
 	if err != nil || len(leaf.URIs) != 1 {
 		return TransportCaller{}
 	}
@@ -605,7 +605,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 		// Served as a stranger, and indistinguishable from one (§6.1, §13.3).
 		return TransportCaller{Demote: true}
 	}
-	// This is where a pin without its root certificate gets one (migration 0029):
+	// This is where a pin without its root certificate gets one:
 	// the chain that just validated carries the root, and a pin made over a sealed
 	// call never saw it. Never overwrites — the root of a pin cannot change — and a
 	// failure is not fatal to the request, which is about the caller, not the column.
@@ -614,7 +614,7 @@ func (id *Identifier) ResolveTransport(ctx context.Context, tf TransportFacts) T
 			id.audit("contact_root_cert", "account:"+id.AccountID+" contact:"+root, "error")
 		}
 	}
-	cmp, err := pactidentity.CompareLeaves(c.Leaf, tf.ClientLeaf)
+	cmp, err := hdtpidentity.CompareLeaves(c.Leaf, tf.ClientLeaf)
 	if err != nil || cmp == "superseded" || cmp == "conflict" {
 		id.audit("identity_gate", "account:"+id.AccountID+" contact:"+root, "superseded_leaf")
 		return TransportCaller{Demote: true}

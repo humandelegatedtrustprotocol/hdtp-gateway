@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/ingress"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 )
 
 // ingressAdapters are the two adapters that require a completed pairing.

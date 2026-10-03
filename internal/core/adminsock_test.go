@@ -65,7 +65,7 @@ func TestStoreLockExcludes(t *testing.T) {
 }
 
 func TestAdminSocketPathFallsBackForLongDirs(t *testing.T) {
-	short := "/tmp/pact-data"
+	short := "/tmp/hdtp-data"
 	if got := AdminSocketPath(short); got != filepath.Join(short, "admin.sock") {
 		t.Fatalf("short dir should use in-dir socket: %q", got)
 	}

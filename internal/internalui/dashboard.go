@@ -22,8 +22,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // DashboardDeps is the state the page reports.

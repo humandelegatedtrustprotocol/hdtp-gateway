@@ -5,17 +5,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-// The answer to a contact request (contact_accepted, contact_rejected: PACT §5.1) goes to the asker
-// the way the asker's card says — sealed or not (PACT §3, §13.4) — through the node's one reading of
+// The answer to a contact request (contact_accepted, contact_rejected: HDTP §5.1) goes to the asker
+// the way the asker's card says — sealed or not (HDTP §3, §13.4) — through the node's one reading of
 // a stored contact (node.PeerOf). It was sent sealed to every asker, whatever their card said, so an
 // asker whose card says `none` was sent an envelope it had said it would not take.
 //

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // settings is the suite for the owner's settings and their secret flag.

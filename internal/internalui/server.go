@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // SetupTokens: setup URLs (SPEC §12.4) — ≥128 bits entropy, 24 h expiry, and
@@ -98,7 +98,7 @@ func (s *SetupTokens) ValidRecovery(tok string) bool {
 	return ok && t.recovery && time.Now().Before(t.expires)
 }
 
-// Health answers /healthz, which the container HEALTHCHECK probes (`pact-gateway healthcheck`): 200
+// Health answers /healthz, which the container HEALTHCHECK probes (`hdtp-gateway healthcheck`): 200
 // and `ok` when what the node serves through answers, 503 naming what does not. What it asks is
 // `check`: today the limits sidecar, without which every sealed call is refused `unavailable`
 // (SPEC §5.7). It needs no session: it says nothing about any account.
@@ -263,7 +263,7 @@ func isLoopbackAddr(remote string) bool {
 // csrfMiddleware refuses a state change a page of another origin could have made, with two checks
 // that do not stand in for each other (SPEC §8.3, docs/threat-model.md boundary 2):
 //
-//   - the double-submit cookie: GETs receive it; every other method echoes it in X-Pact-Csrf or,
+//   - the double-submit cookie: GETs receive it; every other method echoes it in X-HDTP-Csrf or,
 //     for an HTML form, the `csrf` field (the first one: the value the page wrote);
 //   - where the request came from. The cookie alone is not enough: it is not HttpOnly (the page's
 //     script reads it), and cookies are isolated by host, not by port — so a page served on any other
@@ -311,7 +311,7 @@ func csrfMiddleware(next http.Handler, audit func(action, resource, outcome stri
 				refuse(w, r, "cross_site", "cross-site request refused")
 				return
 			}
-			h := r.Header.Get("X-Pact-Csrf")
+			h := r.Header.Get("X-HDTP-Csrf")
 			if h == "" {
 				// HTML forms cannot set headers: accept the double-submit value
 				// as a form field instead (same cookie comparison).

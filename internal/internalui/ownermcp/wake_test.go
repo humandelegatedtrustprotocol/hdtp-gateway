@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 // rowsStore counts the rows every read of the store hands back to the wait: a list is as many rows

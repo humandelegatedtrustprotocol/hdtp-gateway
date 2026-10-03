@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // Drives a REAL containerised node over REAL mTLS and asserts the switchboard's
@@ -32,7 +32,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Published so the Go test process — the peer's agent — can dial it directly. The public URL
-	// is a NAME, because a wallet does not issue a leaf for a loopback address (PACT §14.2 rule
+	// is a NAME, because a wallet does not issue a leaf for a loopback address (HDTP §14.2 rule
 	// 5); the agent dials it to the published port below, which is DNS's job for a real caller.
 	url := "https://alice.harness.example:" + port
 	node, err := topology.Serve(ctx, f, fabric.Spec{
@@ -45,10 +45,10 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	if err := topology.WaitHealthy(ctx, f, node); err != nil {
 		t.Fatal(err)
 	}
-	// An account is nobody until a wallet has signed it a leaf (PACT §2): this one's owner is
+	// An account is nobody until a wallet has signed it a leaf (HDTP §2): this one's owner is
 	// played by the harness. Until that happens the node has no certificate to present, and
-	// every dial ends `tls: internal error` — which is what this test did from the day 1.x
-	// went until 2026-09-19, skipped, because PACT_HARNESS_LIVE is not set by any hook.
+	// every dial ends `tls: internal error` — which is what this test did from the day the retired
+	// generation went until 2026-09-19, skipped, because HDTP_HARNESS_LIVE is not set by any hook.
 	_, pin, err := topology.Certify(ctx, f, node, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	got := strings.Join(names, ",")
 	// SPEC §6.2 guest tier is redeem_invite + request_contact; §13's sealed
 	// addendum adds sealed_call "at every tier", so a node advertising
-	// X-PACT-SEAL offers three. An earlier version of this test asserted the 1.0
+	// X-HDTP-SEAL offers three. An earlier version of this test asserted the 1.0
 	// count of two and failed — the test was wrong, not the node.
 	for _, want := range []string{"redeem_invite", "request_contact", "sealed_call"} {
 		if !strings.Contains(got, want) {

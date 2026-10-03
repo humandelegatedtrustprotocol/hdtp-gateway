@@ -10,14 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // plantContactCards writes two contacts into the store at dir: one whose card reads, and one whose
-// card carries a character before its certificate that pact-identity 0.4.1 skipped and 0.4.2
+// card carries a character before its certificate that the identity core 0.4.1 skipped and 0.4.2
 // refuses. It answers the root of the one that does not read.
 func plantContactCards(t *testing.T, dir string) (accountSlug, badRoot string) {
 	t.Helper()
@@ -35,10 +35,10 @@ func plantContactCards(t *testing.T, dir string) (accountSlug, badRoot string) {
 	}{{"reads", false}, {"stray", true}} {
 		w := testid.NewWallet(t, p.name)
 		h := w.Issue(t, "https://"+p.name+".example/mcp")
-		leaf, _ := pactidentity.Parse(h.LeafDER)
+		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		card := h.Card(p.name, "required")
 		if p.bad {
-			card = strings.Replace(card, "X-PACT-CERT:", "X-PACT-CERT:!", 1)
+			card = strings.Replace(card, "X-HDTP-CERT:", "X-HDTP-CERT:!", 1)
 			badRoot = w.Fpr
 		}
 		if _, err := st.InsertContact(ctx, store.Contact{
@@ -71,7 +71,7 @@ func TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne(t *testing.T) {
 	ctx := context.Background()
 	st := openStoreAt(t, n.dir)
 	c, err := st.GetContact(ctx, accountIDOf(t, st, slug), badRoot)
-	if err != nil || !strings.Contains(c.Card, "X-PACT-CERT:!") {
+	if err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:!") {
 		t.Fatalf("the check changed the store: %v %q", err, c.Card)
 	}
 	// The owner mends it: a card of that contact's that reads arrives (UpdateContactCard is what
@@ -91,7 +91,7 @@ func TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne(t *testing.T) {
 
 // plantContactInAStateNoPinHas writes one contact of the account at slug — created when the store
 // holds none — whose card, leaf and root certificate read, then puts it in a state the store's own
-// API cannot write (the schema's CHECK, migration 0002, refuses the move: shown first), as a
+// API cannot write (the schema's CHECK refuses the move: shown first), as a
 // hand-edited store would: raw SQL, in a test only, with the constraint switched off for the one
 // connection that writes it. It answers the contact's root.
 func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) {
@@ -109,7 +109,7 @@ func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) 
 	}
 	w := testid.NewWallet(t, "frozen")
 	h := w.Issue(t, "https://frozen.example/mcp")
-	leaf, _ := pactidentity.Parse(h.LeafDER)
+	leaf, _ := hdtpidentity.Parse(h.LeafDER)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: a.ID, Fingerprint: w.Fpr, SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"},
 		Endpoint: h.Endpoint, Card: h.Card("frozen", "required"), Leaf: h.LeafDER, RootCert: w.RootDER,
@@ -117,9 +117,9 @@ func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) 
 		t.Fatal(err)
 	}
 	if err := st.UpdateContactStatus(ctx, a.ID, w.Fpr, "frozen"); err == nil {
-		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK admits only the four")
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "pact.db")+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "hdtp.db")+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,12 +196,12 @@ func TestCheckStoreRefusals(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(`{"data_dir":"`+dir+`","internal_bind":"127.0.0.1:0","public_bind":"127.0.0.1:0"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	empty, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	empty, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	empty.Close()
-	if code := Run([]string{"check", "store", "-config", cfg}, "test", &out, &errb); code != 1 || !strings.Contains(errb.String(), "it has not been migrated; run `pact-gateway migrate` with the node stopped") {
+	if code := Run([]string{"check", "store", "-config", cfg}, "test", &out, &errb); code != 1 || !strings.Contains(errb.String(), "it has not been migrated; run `hdtp-gateway migrate` with the node stopped") {
 		t.Fatalf("a store behind this binary's schema: %d %q", code, errb.String())
 	}
 	if out.Len() != 0 {
@@ -222,7 +222,7 @@ func TestServeNamesTheCardThatDoesNotReadInItsBannerAndServes(t *testing.T) {
 	})
 	r.stop()
 	out := r.out.String()
-	if !strings.Contains(out, "pact-gateway serving:") || !strings.Contains(out, "store:   9 cards and certificates read by the identity core's rule (contacts.card 3, contacts.leaf 3, contacts.root_cert 3); 1 does NOT read; 1 contact in a state neither a pin nor a request has\n") || !strings.Contains(out, "NOT READ contacts account:"+slug+" contact:"+badRoot+" card: ") || !strings.Contains(out, "NO PIN contacts account:"+slug+" contact:"+frozenRoot+` status: "frozen" is neither`) {
+	if !strings.Contains(out, "hdtp-gateway serving:") || !strings.Contains(out, "store:   9 cards and certificates read by the identity core's rule (contacts.card 3, contacts.leaf 3, contacts.root_cert 3); 1 does NOT read; 1 contact in a state neither a pin nor a request has\n") || !strings.Contains(out, "NOT READ contacts account:"+slug+" contact:"+badRoot+" card: ") || !strings.Contains(out, "NO PIN contacts account:"+slug+" contact:"+frozenRoot+` status: "frozen" is neither`) {
 		t.Fatalf("the banner:\n%s", out)
 	}
 }

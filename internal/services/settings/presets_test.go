@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func presetSvc(t *testing.T) (*Service, store.Store) {
@@ -23,7 +23,7 @@ func presetSvc(t *testing.T) (*Service, store.Store) {
 	return &Service{store: st, now: func() time.Time { return time.Unix(1756000000, 0) }}, st
 }
 
-// PACT §8: presets are owner-editable. The first write seeds every resolved
+// HDTP §8: presets are owner-editable. The first write seeds every resolved
 // bundle as rows so editing one cannot silently delete the others; deleting
 // the last row restores the documented four.
 func TestPresetEditingSeedsAndRestores(t *testing.T) {

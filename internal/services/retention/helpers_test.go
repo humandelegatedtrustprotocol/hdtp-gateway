@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func migrated(t *testing.T, dir string) store.Store {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

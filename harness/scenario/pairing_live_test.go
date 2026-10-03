@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/peer"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/peer"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // PlaintextCanary is planted in message bodies so that whatever CARRIES a sealed message — a
 // tunnel's connector, an edge that terminates TLS — can be searched for it afterwards, and
 // something unmistakable is either there or not (cloudflare_live_test reads cloudflared's log).
-const PlaintextCanary = "PACT-PLAINTEXT-CANARY"
+const PlaintextCanary = "HDTP-PLAINTEXT-CANARY"
 
 // S2 — pairing, end to end, through every surface the product actually has:
 // the setup wizard in a real browser, the owner MCP over a bearer token, and a
@@ -44,7 +44,7 @@ func TestPairingAndMessagingEndToEnd(t *testing.T) {
 	// (SPEC 9.2).
 	alice, err := w.Node(ctx, NodeOpts{
 		Slug: "alice", Net: net, PublishPublic: true,
-		Env: map[string]string{"PACT_SEAL": "optional"},
+		Env: map[string]string{"HDTP_SEAL": "optional"},
 	})
 	if err != nil {
 		t.Fatalf("alice: %v", err)

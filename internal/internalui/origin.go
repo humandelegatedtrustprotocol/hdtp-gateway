@@ -4,7 +4,7 @@ package internalui
 //
 // The browser derives a credential's RP ID hash from the origin it is on, so the
 // relying party cannot be fixed when the process starts: a portal on
-// `localhost:8080` and the same portal on `pact.example.com` are different
+// `localhost:8080` and the same portal on `hdtp.example.com` are different
 // relying parties, and a credential made for one does not work on the other.
 //
 // It also cannot simply be read from the request. `Host` is attacker-controlled:
@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // OriginPolicy decides the relying party for a request.

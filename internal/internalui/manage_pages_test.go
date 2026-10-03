@@ -13,13 +13,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
 )
 
 type recAudit struct {
@@ -77,10 +77,10 @@ func manageEnv(t *testing.T) (*http.ServeMux, *store.SQLite, *recAudit, string) 
 	// The node renders the card; the portal only serves what it is given. There is
 	// no fallback that assembles one from a bare fingerprint any more — a card IS a
 	// certificate — so the harness supplies the renderer the node would.
-	card := testid.CardFor(t, "Sumit", "https://pact.example/a/me/mcp")
+	card := testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp")
 	MountManagePages(mux, ManageDeps{
 		Store: st, Contacts: &contacts.Manager{Store: st}, Audit: aud.fn,
-		PublicURL: func() string { return "https://pact.example" },
+		PublicURL: func() string { return "https://hdtp.example" },
 		SignCard:  func(_, _ string) (string, error) { return "c2ln", nil },
 		Card:      func(context.Context, string) (string, error) { return card, nil },
 	})
@@ -199,13 +199,13 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.FN != "Sumit" || c.Version != "2" {
+	if c.FN != "Sumit" || c.Version != "1" {
 		t.Fatalf("card fields: %+v", c)
 	}
 	// The API hands the SPA the same card + its signature
 	rr2 := httptest.NewRecorder()
 	mux.ServeHTTP(rr2, httptest.NewRequest("GET", "/api/card?account="+acct, nil))
-	if !strings.Contains(rr2.Body.String(), "X-PACT-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
+	if !strings.Contains(rr2.Body.String(), "X-HDTP-CERT:") || !strings.Contains(rr2.Body.String(), "c2ln") {
 		t.Fatalf("card payload: %s", rr2.Body.String())
 	}
 	// The facts beside it are the card's own: its certificate's address and root, and this host's key.
@@ -217,7 +217,7 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Endpoint != "https://pact.example/a/me/mcp" || got.Root != pinned.Key || got.Root == "" || got.Kid != "sha256:mykey" {
+	if got.Endpoint != "https://hdtp.example/a/me/mcp" || got.Root != pinned.Key || got.Root == "" || got.Kid != "sha256:mykey" {
 		t.Fatalf("card facts %+v, want the card's endpoint and root %q, and the host key", got, pinned.Key)
 	}
 }
@@ -288,7 +288,7 @@ func TestPortalApprovalReachesTheCallersLiveSurface(t *testing.T) {
 	mux := http.NewServeMux()
 	MountManagePages(mux, ManageDeps{
 		Store: st, Contacts: &contacts.Manager{Store: st}, Audit: aud.fn, Invalidate: pool.Invalidate,
-		PublicURL: func() string { return "https://pact.example" },
+		PublicURL: func() string { return "https://hdtp.example" },
 	})
 	rr := postForm(t, mux, "/requests/"+asker+"/approve?account="+a.ID, url.Values{"preset": {"basic"}})
 	if rr.Code != http.StatusSeeOther {
@@ -395,7 +395,7 @@ func TestTheCardReadTellsNoCardApartFromAFailure(t *testing.T) {
 		want    int
 	}{
 		{"a card", acct, func(context.Context, string) (string, error) {
-			return testid.CardFor(t, "Sumit", "https://pact.example/a/me/mcp"), nil
+			return testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp"), nil
 		}, http.StatusOK},
 		{"no certificate", acct, func(context.Context, string) (string, error) {
 			return "", fmt.Errorf("wrapped: %w", identity.ErrNoCertificate)
@@ -405,7 +405,7 @@ func TestTheCardReadTellsNoCardApartFromAFailure(t *testing.T) {
 	} {
 		mux := http.NewServeMux()
 		MountManagePages(mux, ManageDeps{Store: st, Contacts: &contacts.Manager{Store: st}, Audit: func(string, string, string) {}, Card: tc.card,
-			PublicURL: func() string { return "https://pact.example" }})
+			PublicURL: func() string { return "https://hdtp.example" }})
 		rr := httptest.NewRecorder()
 		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/card?account="+tc.account, nil))
 		if rr.Code != tc.want {

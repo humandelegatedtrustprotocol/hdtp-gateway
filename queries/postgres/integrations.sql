@@ -57,7 +57,7 @@ SELECT ack FROM idempotency WHERE account_id = $1 AND contact_fpr = $2 AND msg_i
 UPDATE idempotency SET ack = $1 WHERE account_id = $2 AND contact_fpr = $3 AND msg_id = $4;
 
 -- name: DeleteExpiredIdempotency :execrows
--- A record past its window protects nothing (PACT 13.3): nothing later than the window passes
+-- A record past its window protects nothing (HDTP sec. 13.3): nothing later than the window passes
 -- the freshness check, so a replay of that envelope is refused before this table is asked.
 DELETE FROM idempotency WHERE expires_at <= $1;
 
@@ -66,7 +66,7 @@ DELETE FROM idempotency WHERE expires_at <= $1;
 DELETE FROM idempotency WHERE expires_at IS NULL AND created_at <= $1;
 
 -- name: DeleteIdempotencyByAccount :execrows
--- The records of an identity that has left this host (PACT sec. 9): the table has no foreign key.
+-- The records of an identity that has left this host (HDTP sec. 9): the table has no foreign key.
 DELETE FROM idempotency WHERE account_id = $1;
 
 -- name: InsertPendingRequest :exec
