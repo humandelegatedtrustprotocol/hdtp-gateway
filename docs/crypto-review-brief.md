@@ -111,7 +111,7 @@ conforming validator accepts that it should not?**
   derivation. The Rust core, its Wasm build and an independently written Go port open and
   reproduce them: the core
   (`hdtp-identity/crates/hdtp-identity/tests/vectors.rs`), the Wasm
-  (`hdtp-identity/js/check.mjs`) and the port (`hdtp-identity/go/vectors_test.go`: `TestV2Envelopes`, `TestChainCases`,
+  (`hdtp-identity/js/check.mjs`) and the port (`hdtp-identity/go/vectors_test.go`: `TestEnvelopesOpenAndReproduce`, `TestChainCases`,
   `TestCertificatesReproduce`, `TestDerivationVectors`).
 - **Agreement between the ports**: `hdtp-identity/js/parity.mjs` drives the same cases
   through all of them and compares whole answers; `hdtp-identity/PROOFS.md` is generated

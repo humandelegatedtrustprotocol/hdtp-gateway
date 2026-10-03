@@ -4,9 +4,8 @@
 tracker or discussion forum yet. Reach the maintainer at **security@hdtp.io** with the
 subject `[hdtp-gateway support]`.
 
-**A security report is not a support question.** Send it privately to **security@hdtp.io** with
-the subject `[hdtp-gateway security]`, and include a reproduction if you can. Do not open an issue
-for it.
+**A security report is not a support question.** It goes privately to the same address, under the
+subject and the policy [`SECURITY.md`](SECURITY.md) gives, and never into an issue.
 
 ## Before you ask
 

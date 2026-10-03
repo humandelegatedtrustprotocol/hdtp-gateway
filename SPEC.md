@@ -37,7 +37,7 @@ The two roles compose rather than exclude each other: one binary, one configurat
 
 **v1 is built for strangers from day one.** The public surface is not a friends-only experiment: unknown callers are expected and served deliberately — the guest tier is minimal (HDTP §6.1), invites carry expiry, use counts, and server-side revocation (§9), HDTP §12 rate limits are enforced at the boundary, and refused connections are audited (§11).
 
-**License and posture.** Apache-2.0 from day one. The repository starts private and is flipped public by the owner; CONTRIBUTING.md and a private disclosure route (SUPPORT.md) ship with the repository so the flip needs no cleanup.
+**License and posture.** Apache-2.0 from day one. The repository starts private and is flipped public by the owner; CONTRIBUTING.md and a SECURITY.md with a private disclosure route ship with the repository so the flip needs no cleanup.
 
 **No telemetry.** The binary reports nothing to anyone, and the documentation states this explicitly. Its only outbound connections are the ones the owner configured: peer nodes, upstream integrations, and tunnel carriers (§10).
 

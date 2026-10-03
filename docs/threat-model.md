@@ -9,7 +9,7 @@ issued it, and a chain is what proves anything.
 
 Nothing here has had independent cryptographic review.
 [`crypto-review-brief.md`](crypto-review-brief.md) states the construction and the questions a
-reviewer is asked.
+reviewer is asked, and [`SECURITY.md`](../SECURITY.md) says where a finding is reported.
 
 ## Assets
 
