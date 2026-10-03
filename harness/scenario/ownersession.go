@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
 )
 
 // OwnerSession is a signed-in owner of one node's portal.
@@ -30,7 +30,7 @@ type OwnerSession struct {
 // cookie's name carries the node's tag, so it is found by its prefix.
 func (s *OwnerSession) csrf() string {
 	for _, c := range s.cookies {
-		if strings.HasPrefix(c.Name, "pact_csrf") {
+		if strings.HasPrefix(c.Name, "hdtp_csrf") {
 			return c.Value
 		}
 	}
@@ -54,7 +54,7 @@ func (s *OwnerSession) do(ctx context.Context, method, path string, body io.Read
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
-		req.Header.Set("X-Pact-Csrf", s.csrf())
+		req.Header.Set("X-HDTP-Csrf", s.csrf())
 	}
 	// No redirects followed: a form answers 303 to a page that is an application shell, and
 	// what a scenario wants to know is whether the POST was taken.

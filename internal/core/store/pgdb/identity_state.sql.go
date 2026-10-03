@@ -30,7 +30,7 @@ const clearChainSentKids = `-- name: ClearChainSentKids :execrows
 UPDATE contacts SET chain_sent_kid = '' WHERE account_id = $1
 `
 
-// After a leaf install every contact must see the new chain once (PACT sec. 13.2).
+// After a leaf install every contact must see the new chain once (HDTP sec. 13.2).
 func (q *Queries) ClearChainSentKids(ctx context.Context, accountID string) (int64, error) {
 	result, err := q.db.Exec(ctx, clearChainSentKids, accountID)
 	if err != nil {
@@ -273,7 +273,7 @@ type ListKidsExceptRow struct {
 
 // Every leaf kid on this node that does NOT belong to one account. RecipientState asks
 // this once per inbound envelope, to tell a kid held for a SIBLING identity from
-// one this endpoint never held (PACT sec. 13.3, sec. 14.4). It used to be one
+// one this endpoint never held (HDTP sec. 13.3, sec. 14.4). It used to be one
 // query per other account, so the cost of every message grew with the number of
 // identities the node hosts.
 func (q *Queries) ListKidsExcept(ctx context.Context, accountID string) ([]ListKidsExceptRow, error) {
@@ -440,7 +440,7 @@ type RepinContactAddressParams struct {
 
 // The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
 // address replaces the leaf, its key and the endpoint; the root (the
-// fingerprint column) never moves (PACT sec. 14.3, sec. 5.3).
+// fingerprint column) never moves (HDTP sec. 14.3, sec. 5.3).
 func (q *Queries) RepinContactAddress(ctx context.Context, arg RepinContactAddressParams) (int64, error) {
 	result, err := q.db.Exec(ctx, repinContactAddress,
 		arg.Endpoint,
@@ -467,7 +467,7 @@ type RetireLeafKeyParams struct {
 }
 
 // A superseded leaf past its not_after: the key is destroyed, the kid kept so
-// an envelope still sealed to it is answered certificate_renewed (PACT sec. 14.4).
+// an envelope still sealed to it is answered certificate_renewed (HDTP sec. 14.4).
 func (q *Queries) RetireLeafKey(ctx context.Context, arg RetireLeafKeyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, retireLeafKey, arg.AccountID, arg.Kid)
 	if err != nil {
@@ -531,10 +531,10 @@ type SetAccountRootParams struct {
 	ID              string
 }
 
-// PACT 2.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
+// HDTP 1.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
 // ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 // addresses awaiting the owner under `accept_new_hosts = ask`.
-// The first leaf installed names the account's root; the root never changes after (PACT sec. 2).
+// The first leaf installed names the account's root; the root never changes after (HDTP sec. 2).
 func (q *Queries) SetAccountRoot(ctx context.Context, arg SetAccountRootParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setAccountRoot, arg.RootFingerprint, arg.RootCert, arg.ID)
 	if err != nil {
@@ -573,7 +573,7 @@ type SetContactRootCertParams struct {
 
 // Fills in a pin's root certificate the first time a chain carries one: a pin made
 // before this column existed, or one restored from an archive that could not carry it.
-// Never overwrites, because the root a pin names cannot change (PACT sec. 14.3) and the
+// Never overwrites, because the root a pin names cannot change (HDTP sec. 14.3) and the
 // cert already stored is the one that was checked when the pin was made.
 func (q *Queries) SetContactRootCert(ctx context.Context, arg SetContactRootCertParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setContactRootCert, arg.RootCert, arg.AccountID, arg.Fingerprint)
@@ -724,7 +724,7 @@ type UpsertVacatedAddressParams struct {
 	At       int64
 }
 
-// An address an identity has left (migration 0040, PACT sec. 9). The row keeps the latest
+// An address an identity has left (migration 0040, HDTP sec. 9). The row keeps the latest
 // not_after it has been given: a second vacating of the same endpoint never shortens it.
 func (q *Queries) UpsertVacatedAddress(ctx context.Context, arg UpsertVacatedAddressParams) error {
 	_, err := q.db.Exec(ctx, upsertVacatedAddress,

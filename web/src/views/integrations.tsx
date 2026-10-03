@@ -78,7 +78,7 @@ export function Integrations() {
       const body = new URLSearchParams({ csrf: csrf(), account: currentAccount() });
       const r = await fetch(`/integrations/${id}/connect`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": csrf(), Accept: "application/json" },
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": csrf(), Accept: "application/json" },
         body: body.toString(),
       });
       const j = (await r.json().catch(() => ({}))) as { authorize_url?: string; error?: string };

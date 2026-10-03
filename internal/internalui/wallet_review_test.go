@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The review of 2026-09-28 on the web wallet's pages.
@@ -82,7 +82,7 @@ func TestTheWalletStartPageCarriesNoErrorText(t *testing.T) {
 // answers http only at a loopback host in the core's normal form: localhost, a dotted quad in
 // 127.0.0.0/8, or [::1]. The portal accepted anything net.ParseIP calls loopback, [::ffff:7f00:1]
 // among them, and minted a request the wallet then refused. The two rules are held to each other
-// here: for each host, the portal's answer is the core's (pactidentity.SigningRequestCheck on a
+// here: for each host, the portal's answer is the core's (hdtpidentity.SigningRequestCheck on a
 // request redirecting there).
 func TestThePortalsLoopbackRuleIsTheWallets(t *testing.T) {
 	for _, host := range []string{
@@ -93,7 +93,7 @@ func TestThePortalsLoopbackRuleIsTheWallets(t *testing.T) {
 		r := httptest.NewRequest("GET", "http://"+host+"/identity/alina/wallet", nil)
 		_, portalErr := walletPortalOrigin(r)
 		origin := "http://" + host
-		_, coreErr := pactidentity.SigningRequestCheck(map[string]any{
+		_, coreErr := hdtpidentity.SigningRequestCheck(map[string]any{
 			"csr": "x", "purpose": "renew", "expect_root": "x", "redirect": origin + "/wallet/return?slug=alina", "state": "x",
 			"recipient": "x", "valid_days": "1", "expires": "x",
 		}, origin, time.Now(), nil)

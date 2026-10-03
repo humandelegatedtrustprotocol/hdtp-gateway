@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Serving modes (SPEC §6.6).
@@ -133,7 +133,7 @@ func (e *Exposures) Publish(ctx context.Context, integrationID string, entries [
 				return store.Exposure{}, fmt.Errorf("integrations: mapped entry %q needs a recipe", en.Tool)
 			}
 			if en.ExposedName == "" {
-				return store.Exposure{}, fmt.Errorf("integrations: mapped entry %q must name the PACT capability it implements", en.Tool)
+				return store.Exposure{}, fmt.Errorf("integrations: mapped entry %q must name the HDTP capability it implements", en.Tool)
 			}
 		} else if en.ExposedName == "" {
 			en.ExposedName = SnakeName(in.Slug + "_" + en.Tool)

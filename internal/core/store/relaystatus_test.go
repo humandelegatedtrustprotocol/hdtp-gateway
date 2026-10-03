@@ -9,12 +9,12 @@ import (
 
 	"github.com/pressly/goose/v3"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/migrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
 )
 
 // 0037 retires the delivery state a message was given when it was handed to a contact's
-// store-and-forward relay. The role went with PACT 1.x and the state outlived it: nothing wrote it,
+// store-and-forward relay. The role went with pre-HDTP 1.x and the state outlived it: nothing wrote it,
 // the retry sweep never read it, and the portal went on saying "queued at their relay" about a
 // relay that does not exist.
 //

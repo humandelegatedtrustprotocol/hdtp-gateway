@@ -30,7 +30,7 @@ findings.
 - Consequences:
   - it cannot serve MCP 2026-07-28, which the SDK serves only when stateless;
   - it refuses modern requests with -32022;
-  - the node lags PACT SPEC §7's "current MCP spec".
+  - the node lags HDTP SPEC §7's "current MCP spec".
 - Eleven kinds of process-local state stop two node processes sharing one database:
   1. the data-dir flock;
   2. the session map and SessionBinder;
@@ -52,7 +52,7 @@ findings.
    `pending_in`, and ack rows kept up to 30 days;
 3. the node listener: no timeouts, no connection cap, sessions that never expire, no per-IP or
    global limit;
-4. hosts outside the WAF expression: the apex, custom hostnames, staging `*-stg.pact-cloud.com`;
+4. hosts outside the WAF expression: the apex, custom hostnames, staging `*-stg.batondeck.com`;
 5. unsealed MCP methods on the cloud wake the object and skip SEALED_LIMITER, and `tools/list`
    writes an audit row;
 6. vault PUT fill;
@@ -75,7 +75,7 @@ findings.
 
 ## 2. The work, in order (each item committed, gated and pushed before the next)
 
-### Cloud (`tech-sumit/pact-cloud`, on feat/fair-rate-limits, then a follow-up branch)
+### Cloud (`batondeck/batondeck`, on feat/fair-rate-limits, then a follow-up branch)
 
 - **C1** Remove the remaining O(contacts) on the send path. Measured locally at 1/300/2000
   contacts, then on staging.
@@ -97,7 +97,7 @@ findings.
   single-use. The Stripe webhook body is capped before the signature check.
 - **C7** Invite landing signs once per leaf (the signature cached with the leaf).
 
-### Node (`pact-cloud/pact-gateway`, after PR #15 lands)
+### Node (`humandelegatedtrustprotocol/hdtp-gateway`, after PR #15 lands)
 
 - **N1** Listener hardening: Read, Write and Idle timeouts, a connection cap, a per-IP and a
   global token bucket in front of TLS chain validation and before any body is read.
@@ -155,5 +155,5 @@ proxy container before server/endpoint which does this management of rules." So:
   connections beneath TLS; the per-IP and node-wide token buckets are not the node's and were
   removed (abc85a4). They belong to the edge, or to a proxy container in front of the node.
 - **N3** (rate buckets in the store) is not built.
-- The node's existing in-memory §12 limiter stays until a written plan decides how PACT §12 is
+- The node's existing in-memory §12 limiter stays until a written plan decides how HDTP §12 is
   handled; each process grants its own budget until then.

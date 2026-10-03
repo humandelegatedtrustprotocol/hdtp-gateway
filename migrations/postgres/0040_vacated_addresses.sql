@@ -1,5 +1,5 @@
 -- +goose Up
--- An address an identity has left (PACT sec. 9, "What a host must do when the person leaves"): "An
+-- An address an identity has left (HDTP sec. 9, "What a host must do when the person leaves"): "An
 -- address an identity has vacated MUST NOT be assigned to another identity until the last leaf
 -- issued for it has expired." `account leave` erases the identity and writes one row per endpoint
 -- its leaves named, with the latest not_after among them. The row holds the address and nothing

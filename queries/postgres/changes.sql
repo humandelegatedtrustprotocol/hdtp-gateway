@@ -12,10 +12,10 @@ RETURNING id;
 -- name: NotifyChanges :exec
 -- Sent in the inserting transaction, so it is delivered at commit: a wake for the processes
 -- that LISTEN (ListenChanges). Polling finds the row whether or not the wake arrives.
-SELECT pg_notify('pact_changes', '');
+SELECT pg_notify('hdtp_changes', '');
 
 -- name: ListenChanges :exec
-LISTEN pact_changes;
+LISTEN hdtp_changes;
 
 -- name: ChangesAfter :many
 SELECT * FROM changes WHERE id > $1 ORDER BY id LIMIT $2;
@@ -33,5 +33,5 @@ SELECT COALESCE(MIN(id), 0)::BIGINT AS id FROM changes;
 DELETE FROM changes WHERE at < $1;
 
 -- name: DeleteChangesByAccount :execrows
--- An identity leaving (PACT sec. 9): its changes go with it.
+-- An identity leaving (HDTP sec. 9): its changes go with it.
 DELETE FROM changes WHERE account_id = $1;

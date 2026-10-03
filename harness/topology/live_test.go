@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // The shape tests above assert what the topology ASKS Docker for. This one stands
-// real pact-gateway nodes up and asserts what is actually true of them on the wire.
+// real hdtp-gateway nodes up and asserts what is actually true of them on the wire.
 
 func TestLiveNATTopologyMakesBobUndialable(t *testing.T) {
 	ctx := registry.Start(t, registry.Spec{

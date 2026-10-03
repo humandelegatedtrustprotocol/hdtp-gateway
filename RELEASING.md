@@ -2,7 +2,7 @@
 
 Releases are cut locally, by a maintainer, from a tag. There is no release workflow:
 this repository has no CI, because the node depends on a private module that no runner
-is given a key for. pact-gateway holds your identity keys, so "download this binary" has to
+is given a key for. hdtp-gateway holds your identity keys, so "download this binary" has to
 be checkable: the checksums are published, and anyone who can read this repository AND the
 private identity module can rebuild a tag and compare.
 
@@ -23,7 +23,7 @@ private identity module can rebuild a tag and compare.
 
    ```
    gh release create v1.2.3 --title v1.2.3 --notes-file <notes> \
-     dist/pact-gateway_* dist/SHA256SUMS dist/sbom.cdx.json
+     dist/hdtp-gateway_* dist/SHA256SUMS dist/sbom.cdx.json
    ```
 
 ## Verifying a release you downloaded
@@ -41,7 +41,7 @@ repositories and the fetch settings of [CONTRIBUTING.md](CONTRIBUTING.md#the-ide
 
 ```
 make dist VERSION=1.2.3
-shasum -a 256 dist/pact-gateway_1.2.3_linux_amd64
+shasum -a 256 dist/hdtp-gateway_1.2.3_linux_amd64
 ```
 
 That must equal the published checksum. Verified two consecutive clean builds
@@ -55,4 +55,4 @@ There is no build-provenance or SBOM attestation: releases are built on a
 maintainer's machine, so nothing binds a binary to a hosted build. A matching rebuild
 is the check. And a matching rebuild says only that the artifact matches this
 repository at that commit — nothing about whether the code is correct or the design
-sound. See [SECURITY.md](https://github.com/pact-cloud/.github/blob/main/SECURITY.md) for what has and has not been reviewed.
+sound. See [SECURITY.md](https://github.com/humandelegatedtrustprotocol/.github/blob/main/SECURITY.md) for what has and has not been reviewed.

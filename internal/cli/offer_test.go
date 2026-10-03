@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // What an invite offer is, and what it takes to be one worth pinning (SPEC §9.2, §14.2).
@@ -14,7 +14,7 @@ import (
 // There was no positive test for `verifyOffer` at all — only a fuzz target, which asserts
 // properties of offers that VERIFY and is therefore silent when nothing verifies. That is how the
 // 2.0 break went unnoticed: `verifyOffer` required the card to carry `X-PACT-KEY`, which no 2.0
-// card does, so `pact-gateway contact init <invite-url>` refused every real invite and the suite
+// card does, so `hdtp-gateway contact init <invite-url>` refused every real invite and the suite
 // stayed green. A positive case is what makes the negatives below mean anything.
 
 // offerFor builds the document a 2.0 node's landing page serves: the card, the `[leaf, root]`
@@ -22,14 +22,14 @@ import (
 func offerFor(t testing.TB, p *testPeer, fn string) inviteOffer {
 	t.Helper()
 	card := p.Card(fn)
-	sig, err := pactidentity.SignDetached(p.Host.Key, []byte(card))
+	sig, err := hdtpidentity.SignDetached(p.Host.Key, []byte(card))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return inviteOffer{
 		Card:    card,
 		CardSig: base64.RawURLEncoding.EncodeToString(sig),
-		Chain:   []string{pactidentity.B64url(p.Host.LeafDER), pactidentity.B64url(p.Wallet.RootDER)},
+		Chain:   []string{hdtpidentity.B64url(p.Host.LeafDER), hdtpidentity.B64url(p.Wallet.RootDER)},
 	}
 }
 
@@ -64,13 +64,13 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 	}
 }
 
-// PACT §4 defines an invite landing's machine view as exactly three members:
+// HDTP §4 defines an invite landing's machine view as exactly three members:
 // `{"card","card_sig","chain"}`. This redeemer also demanded a fourth, `spki`, and refused the
 // invite without it — "the invite carried no usable public key" — and then required that key to
 // equal the one in the chain's leaf, which it had validated a few lines earlier and already held.
 // So the member was pure redundancy, and the demand for it meant this node could not redeem an
 // invite from any implementation that follows §4 to the letter. It interoperated with the cloud
-// only because the cloud carries the same leftover: `spki` is PACT 1.2's "SPKI distribution",
+// only because the cloud carries the same leftover: `spki` is pre-HDTP 1.2's "SPKI distribution",
 // from when a card carried a key's HASH and the key had to travel beside it. A 2.0 card carries
 // the leaf certificate, and the key is in it.
 func TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries(t *testing.T) {
@@ -129,16 +129,16 @@ func TestVerifyOfferRefusals(t *testing.T) {
 		{
 			"a chain whose leaf is not the card's certificate",
 			"the card and the chain would be two peers' documents assembled into a plausible pair",
-			func(o *inviteOffer) { o.Chain[0] = pactidentity.B64url(other.Host.LeafDER) },
+			func(o *inviteOffer) { o.Chain[0] = hdtpidentity.B64url(other.Host.LeafDER) },
 		},
 		{
 			"a root that did not sign the leaf",
 			"the root is the identity: accepting an unrelated one pins the wrong person",
-			func(o *inviteOffer) { o.Chain[1] = pactidentity.B64url(other.Wallet.RootDER) },
+			func(o *inviteOffer) { o.Chain[1] = hdtpidentity.B64url(other.Wallet.RootDER) },
 		},
 		{
 			"a chain with a character outside base64url",
-			"it is refused as the identity core refuses it, never skipped (pact-identity 0.4.2's DecodeB64url)",
+			"it is refused as the identity core refuses it, never skipped (the identity core 0.4.2's DecodeB64url)",
 			func(o *inviteOffer) { o.Chain[0] = "!" + o.Chain[0] },
 		},
 		// "a key that is not the leaf's" was a case here: the offer carried the key a second time
@@ -149,7 +149,7 @@ func TestVerifyOfferRefusals(t *testing.T) {
 			"a signature over something else",
 			"the card and the key must be proven to belong together",
 			func(o *inviteOffer) {
-				sig, err := pactidentity.SignDetached(other.Host.Key, []byte(p.Card("Alina Rao")))
+				sig, err := hdtpidentity.SignDetached(other.Host.Key, []byte(p.Card("Alina Rao")))
 				if err != nil {
 					t.Fatal(err)
 				}

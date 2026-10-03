@@ -15,9 +15,9 @@ func TestEachAgentGetsItsOwnIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(a.Fingerprint(), "sha256:") {
-		t.Errorf("fingerprint is not a PACT §2 identity: %q", a.Fingerprint())
+		t.Errorf("fingerprint is not a HDTP §2 identity: %q", a.Fingerprint())
 	}
-	// Identity IS the caller in PACT. Two simulated contacts sharing one would
+	// Identity IS the caller in HDTP. Two simulated contacts sharing one would
 	// make every tier and permission assertion in every scenario meaningless.
 	if a.Fingerprint() == b.Fingerprint() {
 		t.Fatal("two agents minted the same identity")

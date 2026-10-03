@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // contactLabelFixture is testdata/contact_labels.json: the cases labelContacts must
-// answer, and the look-alike table it compares names through. PACT Cloud's portal
+// answer, and the look-alike table it compares names through. BatonDeck's portal
 // runs the same file against its port of this rule (portal/src/contact_labels.ts), its
 // copy held byte for byte to this one by the cloud's scripts/check-harvested.mjs, so
 // the two ports cannot call one contact list two different ways.

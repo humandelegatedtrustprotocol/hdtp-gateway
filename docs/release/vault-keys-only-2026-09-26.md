@@ -6,7 +6,7 @@ Owner, 2026-09-26 (verbatim where quoted):
   has no business in the file (it grants nothing — a leaf is public and speaking as the host takes
   the leaf's private key, which never leaves the host — and no wallet RULE reads it: every rule
   reads `endpoint`, `not_before`, `not_after`). *Corrected 2026-09-26 (review of PR #29, C16):
-  this said "nothing reads it"; `pact id ledger` read it, to print each leaf's key fingerprint in a
+  this said "nothing reads it"; `hdtp id ledger` read it, to print each leaf's key fingerprint in a
   `key` column, and that column went with the leaf. The dates remain the way to match a ledger row
   to a leaf.*
 - "vault = root key + certificate + PRF output" — and a downloadable recovery-key file at first
@@ -61,8 +61,8 @@ No other way remains:
   signing" go. CONSEQUENCE: identities made before this ships cannot open their records; staging's
   are throwaway and are wiped by the pair harness; if any production identity matters, say so
   before I5 (the owner's files sumit/pallavi are staging's, by their passkey labels).
-- **The `pact` CLI follows.** Its vault file becomes keys only; the ledger and contacts live in
-  `<name>.pact-record.json`, sealed under the same recovery key and envelope. There is no passkey
+- **The `hdtp` CLI follows.** Its vault file becomes keys only; the ledger and contacts live in
+  `<name>.hdtp-record.json`, sealed under the same recovery key and envelope. There is no passkey
   in a terminal, so the CLI's "lost" path is what it always was: the file and the recovery key.
 - **The spec is corrected in place.** SPEC.md stays `2.1.3` (owner: "no new release its all in
   same version"); §9's wallet paragraph and §2.1 say what the code does. No wire change, no
@@ -71,7 +71,7 @@ No other way remains:
 
 ## Items, in landing order (each: build → gates → commit → push, before the next)
 
-### I1 · pact-protocol (a PR; the owner merges — a push is publishing)
+### I1 · hdtp-spec (a PR; the owner merges — a push is publishing)
 - §9 wallet paragraph: the file carries the root, its certificate and, for a derived root, the PRF
   secret of §2.1, and nothing else; the ledger and contact book live in the record under §2.1's
   store key; a wallet holds a re-bound root at rest inside that record when the credential that
@@ -80,7 +80,7 @@ No other way remains:
 - §2.1: the root MUST be derived from a credential (MAY → MUST); the record's contents named.
 - Version line: `2.1.3 · 2026-09-26`. `npm run vectors:check`, `npm run build`.
 
-### I2 · pact-identity: contract, both ports, the CLI, the pin
+### I2 · hdtp-identity: contract, both ports, the CLI, the pin
 - `contract/contract.json`: `LedgerEntry` without `leaf`; `VaultPlaintext` and `RecordPlaintext`
   defined (`v: 2`; the file: roots with `pkcs8`, `prf`, `passkey`; the record: roots without,
   `ledger`, `contacts`, `passkey`, `backup_verified_at`). CONTRACT.md regenerated.
@@ -92,11 +92,11 @@ No other way remains:
   record; `id_show` and `card_*` read the vault, and `card-attach` writes it when a card takes the
   root (corrected 2026-09-26, review of PR #29, S5: this said all of them used the record). A
   `v: 1` file is refused with the one sentence. The review's CLI findings (C1–C5, C7, C21, S1, S2)
-  are fixed in pact-gateway/docs/release/review-pr29-2026-09-26.md, P1.
+  are fixed in hdtp-gateway/docs/release/review-pr29-2026-09-26.md, P1.
 - `sh gate.sh`; then the pin: commit → `sh js/reproduce.sh --pin` → commit the manifest → vendor
-  into `pact-cloud/gateway/vendor/pact-identity/` → `check-wasm` → `build-ceremony --pin`.
+  into `batondeck/gateway/vendor/hdtp-identity/` → `check-wasm` → `build-ceremony --pin`.
 
-### I3 · pact-cloud: the wallet page (`gateway/src/ceremony/`)
+### I3 · batondeck: the wallet page (`gateway/src/ceremony/`)
 - Creation: the file as above, one download, no `.initial`; the recovery-key file
   (`<name>.recovery-key.txt`: the key and one line saying what it opens) is the product's own
   step — "Create and download the vault" is offered once it has been asked for (the page cannot
@@ -119,7 +119,7 @@ No other way remains:
   file opens under the recovery key and carries the new `prf`); a PRF-less passkey refused at
   signup and at rebind; a `v: 1` file refused; a wrong recovery key; a file for another root.
 
-### I4 · pact-cloud: harness and staging
+### I4 · batondeck: harness and staging
 - `staging-identity.mjs`: one download, asserted by opening it with the recovery key read off the
   screen (roots + prf + passkey, nothing else); `signInWallet` asserts nothing downloads.
 - Scenario **RB1**, after R1 (bob is no longer at alex by then): alex, on the kept wallet tab
@@ -149,7 +149,7 @@ own identity handling; the marketing site.
 
 | Item | State |
 |---|---|
-| I1 · SPEC 2.1.3 corrected in place | pact-protocol PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
+| I1 · SPEC 2.1.3 corrected in place | hdtp-spec PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
 | I2 · core, contract, both ports, CLI, pin | umbrella c146fce + fb11079; gate green (parity 430/430, contract 860/860, B 116/116, intrusion 132/132, 52 MUSTs named) |
 | I3 · the wallet page | cloud 6775b63, then the key download as the product's step (PR #77); `make wallet` on the pinned core; `make check` green |
 | I4 · the pair harness, RB1 | cloud PR #77; pair run 41 143/144 (RB1 pressed the first renewal button, alex2's); run 42 on ad948f7: RB1 re-bound alex and then failed at the fresh file — Chrome wrote it OVER the original of the same name and the driver waited for a new name (measured; fixed by judging name and write time) — and alex's portal frame detached at P12, taking the later alex-page scenarios with it. That the /v1 request of ad948f7 installs nothing was read from the code, not measured: run 42 never reached it. Run 43 on the review's fixes — see the runs of record |

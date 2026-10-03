@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // testServer starts a real TLS listener with two SNI accounts and an echo handler
@@ -74,7 +74,7 @@ func get(t *testing.T, addr, sni, path string, clientCert *tls.Certificate) (int
 	conf := &tls.Config{ServerName: sni, InsecureSkipVerify: true}
 	if clientCert != nil {
 		conf.Certificates = []tls.Certificate{*clientCert}
-		// PACT §10: always send our cert regardless of the server's CA list.
+		// HDTP §10: always send our cert regardless of the server's CA list.
 		conf.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			return clientCert, nil
 		}
@@ -94,7 +94,7 @@ func get(t *testing.T, addr, sni, path string, clientCert *tls.Certificate) (int
 	return resp.StatusCode, string(body), serverCert
 }
 
-// TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain is PACT §2 at the
+// TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain is HDTP §2 at the
 // transport: unknown and absent certificates MUST complete the handshake, and
 // only a chain that validates (§14.2) says who is calling — the ROOT, never the
 // leaf and never a certificate that names no root.
@@ -124,7 +124,7 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 		t.Fatalf("no-cert caller should be empty, got %v", caller)
 	}
 
-	// A stranger's lone self-signed certificate: the handshake completes (PACT
+	// A stranger's lone self-signed certificate: the handshake completes (HDTP
 	// §2 — tiering happens above the transport), and it establishes NOTHING.
 	kp, _ := identity.Generate(identity.AlgoP256)
 	der, _ := identity.SelfSignedCert(kp, "stranger")
@@ -153,16 +153,16 @@ func TestHandshakeAcceptsEveryCertificateAndBelievesOnlyAChain(t *testing.T) {
 	if caller != p.fpr() || !proven {
 		t.Fatalf("a validated chain names its root: caller=%q chain_proven=%v, want %s / true", caller, proven, p.fpr())
 	}
-	leafFpr := pactidentity.Fingerprint(mustParse(t, p.leaf).SPKI)
+	leafFpr := hdtpidentity.Fingerprint(mustParse(t, p.leaf).SPKI)
 	if caller == leafFpr {
 		t.Fatal("the caller must be the root, never the leaf")
 	}
 	_ = certs
 }
 
-func mustParse(t *testing.T, der []byte) *pactidentity.Cert {
+func mustParse(t *testing.T, der []byte) *hdtpidentity.Cert {
 	t.Helper()
-	c, err := pactidentity.Parse(der)
+	c, err := hdtpidentity.Parse(der)
 	if err != nil {
 		t.Fatal(err)
 	}

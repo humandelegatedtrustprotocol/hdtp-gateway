@@ -22,8 +22,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // fakeAS is a minimal RFC 8414 authorization server: PKCE S256 verified on
@@ -266,7 +266,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr,
 			RedirectURL:   cbSrv.URL + "/oauth/callback?integration=" + row.ID,
-			Preregistered: &oauthex.ClientCredentials{ClientID: "pact", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
+			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
 			Fetch:         conn.Fetcher(row.ID),
 		})
 	}
@@ -338,7 +338,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr,
 			RedirectURL:   cbSrv.URL + "/oauth/callback?integration=" + row.ID,
-			Preregistered: &oauthex.ClientCredentials{ClientID: "pact", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
+			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
 			Fetch: func(context.Context, *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 				t.Error("a resumed handler sent the owner to sign in again")
 				return nil, fmt.Errorf("no browser after a restart")
@@ -382,7 +382,7 @@ func TestOAuthIssMismatchAborts(t *testing.T) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr,
 			RedirectURL:   "http://127.0.0.1:1/callback", // never reached: browse() parses the redirect
-			Preregistered: &oauthex.ClientCredentials{ClientID: "pact", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
+			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
 			Fetch: func(fctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 				nofollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 				resp, err := nofollow.Get(args.URL)

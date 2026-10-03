@@ -16,7 +16,7 @@ import (
 
 // ServerFiles writes a self-signed server certificate for name and its key into dir, as PEM files
 // named <prefix>.crt and <prefix>.key, the shape an operator hands `internal_tls_cert` and
-// `internal_tls_key`. It returns both paths and the certificate. Not a PACT certificate: the
+// `internal_tls_key`. It returns both paths and the certificate. Not a HDTP certificate: the
 // internal surface's TLS is ordinary web TLS (SPEC §8.3).
 func ServerFiles(tb testing.TB, dir, prefix, name string) (certFile, keyFile string, cert *x509.Certificate) {
 	tb.Helper()

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // served is a node as it serves its public surface: the chain its owner's wallet issued, leaf then
@@ -73,7 +73,7 @@ func TestProbeVerdicts(t *testing.T) {
 	if r := Probe(ctx, a.base, opts(a)); r.Verdict != VerdictWrongCert {
 		t.Fatalf("webpki on a person's chain: %+v", r)
 	}
-	// wrong instance: the endpoint reaches some OTHER pact-gateway
+	// wrong instance: the endpoint reaches some OTHER hdtp-gateway
 	wrong := opts(a, a.identity)
 	wrong.InstanceID = "node-B"
 	if r := Probe(ctx, a.base, wrong); r.Verdict != VerdictWrongInstance {
@@ -101,7 +101,7 @@ func TestProbeVerdicts(t *testing.T) {
 //
 // A node is moved to a new public URL, or the URL is mistyped, and its leaf goes on naming the old
 // address. It serves the right key under the right root — and every peer refuses it, because a
-// chain is validated at the address that was DIALLED (PACT §14.2 rule 5). A probe that compares
+// chain is validated at the address that was DIALLED (HDTP §14.2 rule 5). A probe that compares
 // key fingerprints passes this node; it did, for as long as the probe kept 1.x's rule. The
 // diagnosis has to be the one a peer would make, and it has to say which rule.
 func TestProbeRefusesALeafThatNamesAnotherAddress(t *testing.T) {

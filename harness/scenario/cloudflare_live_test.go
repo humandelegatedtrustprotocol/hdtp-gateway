@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // T7 — two people, two real Cloudflare tunnels, one real domain.
@@ -43,11 +43,11 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 	// Not a World: the containers, their names and their published owner ports (18120, 18121)
 	// are the demo script's, which built them and keeps their volumes. This test adds the
 	// bridges and tears nothing down.
-	f := fabric.New("pactcf", fabric.Local)
-	alice := &Owned{Node: &fabric.Container{Name: "pactcf-alice"}, OwnerPort: "18120",
-		Fpr: mustFpr(ctx, t, f, "pactcf-alice")}
-	bob := &Owned{Node: &fabric.Container{Name: "pactcf-bob"}, OwnerPort: "18121",
-		Fpr: mustFpr(ctx, t, f, "pactcf-bob")}
+	f := fabric.New("hdtpcf", fabric.Local)
+	alice := &Owned{Node: &fabric.Container{Name: "hdtpcf-alice"}, OwnerPort: "18120",
+		Fpr: mustFpr(ctx, t, f, "hdtpcf-alice")}
+	bob := &Owned{Node: &fabric.Container{Name: "hdtpcf-bob"}, OwnerPort: "18121",
+		Fpr: mustFpr(ctx, t, f, "hdtpcf-bob")}
 
 	// Both must be in EDGE mode, or this is not testing what it claims: edge is
 	// what forces seal `required` and client certificates off, because Cloudflare
@@ -167,7 +167,7 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 // than handing back a key that pins nothing.
 func mustFpr(ctx context.Context, t *testing.T, f *fabric.Fabric, container string) string {
 	t.Helper()
-	out, err := f.Raw(ctx, "docker", "exec", container, "/pact-gateway", "account", "certificate", "-slug", slugOf(container))
+	out, err := f.Raw(ctx, "docker", "exec", container, "/hdtp-gateway", "account", "certificate", "-slug", slugOf(container))
 	if err != nil {
 		t.Fatalf("account certificate on %s: %v (%s)", container, err, out)
 	}
@@ -180,7 +180,7 @@ func mustFpr(ctx context.Context, t *testing.T, f *fabric.Fabric, container stri
 }
 
 // slugOf is the account slug a harness container serves: the last dash-separated
-// word of its name, which is how every scenario names them (pactcf-alice → alice).
+// word of its name, which is how every scenario names them (hdtpcf-alice → alice).
 func slugOf(container string) string {
 	if i := strings.LastIndex(container, "-"); i >= 0 {
 		return container[i+1:]

@@ -1,7 +1,7 @@
-// Package identity implements accounts' cryptographic identity (SPEC §3, PACT §2):
+// Package identity implements accounts' cryptographic identity (SPEC §3, HDTP §2):
 // one keypair per account — P-256 default, Ed25519 permitted — whose SPKI fingerprint
 // IS the identity, presented as a self-signed long-lived TLS client certificate and,
-// from PACT 1.1, as the signing key of sealed envelopes.
+// from pre-HDTP 1.1, as the signing key of sealed envelopes.
 package identity
 
 import (
@@ -13,7 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 	"math/big"
 	"time"
 )
@@ -29,7 +29,7 @@ type Keypair struct {
 	Algo        Algo
 	Signer      crypto.Signer
 	Fingerprint string
-	// When the key is a leaf's: the leaf and the root that issued it, DER (PACT §2, §14).
+	// When the key is a leaf's: the leaf and the root that issued it, DER (HDTP §2, §14).
 	// Both empty for a key the wallet has not certified, which can present nothing and
 	// speak for nobody. HasChain is the question; there used to be a `Protocol` field
 	// beside these that said 2 exactly when they were filled.
@@ -37,27 +37,27 @@ type Keypair struct {
 }
 
 // HasChain reports whether this key is a certified leaf's: it holds the leaf and the root
-// above it, which is what lets it present a chain and sign as the identity (PACT §2).
+// above it, which is what lets it present a chain and sign as the identity (HDTP §2).
 func (k *Keypair) HasChain() bool { return k != nil && len(k.Leaf) > 0 && len(k.Root) > 0 }
 
-// Fingerprint computes PACT §2's identity over the PKIX/SPKI DER encoding of the public key:
+// Fingerprint computes HDTP §2's identity over the PKIX/SPKI DER encoding of the public key:
 // the library's Fingerprint, "sha256:" + base64url(SHA-256(SPKI)), unpadded.
 func Fingerprint(pub crypto.PublicKey) (string, error) {
 	spki, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
 		return "", fmt.Errorf("identity: %w", err)
 	}
-	return pactidentity.Fingerprint(spki), nil
+	return hdtpidentity.Fingerprint(spki), nil
 }
 
 // Generate draws a fresh key with the library's GenerateKey. Its algorithm names are this
-// package's (AlgoP256 is pactidentity.AlgP256, AlgoEd25519 is pactidentity.AlgEd25519; a test
+// package's (AlgoP256 is hdtpidentity.AlgP256, AlgoEd25519 is hdtpidentity.AlgEd25519; a test
 // holds them equal), and the key the library draws becomes a crypto.Signer here.
 func Generate(algo Algo) (*Keypair, error) {
 	if algo != AlgoP256 && algo != AlgoEd25519 {
 		return nil, fmt.Errorf("identity: unknown algorithm %q (want p256|ed25519)", algo)
 	}
-	k, err := pactidentity.GenerateKey(string(algo))
+	k, err := hdtpidentity.GenerateKey(string(algo))
 	if err != nil {
 		return nil, fmt.Errorf("identity: %w", err)
 	}
@@ -65,7 +65,7 @@ func Generate(algo Algo) (*Keypair, error) {
 }
 
 // SelfSignedCert issues the account's long-lived self-signed certificate
-// (PACT §2: chain irrelevant, CN free-form; 10-year validity).
+// (HDTP §2: chain irrelevant, CN free-form; 10-year validity).
 func SelfSignedCert(kp *Keypair, cn string) ([]byte, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {

@@ -14,29 +14,29 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // issueLeafFor plays the person's wallet for a test account: a root, and a leaf
 // over the key the account already holds, for the endpoint the node advertises.
 //
 // Every test here that expects a node to SERVE needs this. An account with a key
-// and no chain cannot be served (PACT §2) — the node skips it as awaiting its
+// and no chain cannot be served (HDTP §2) — the node skips it as awaiting its
 // wallet — so `CreateAccount` alone, which was enough while a 1.x account served
 // under a self-signed certificate, no longer is.
 func issueLeafFor(t *testing.T, idm *identity.Manager, a store.Account, publicURL string) store.Account {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now()
-	key, err := pactidentity.GenerateKey("ed25519")
+	key, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{
 		CN: a.DisplayName, Key: key, NotBefore: now.Add(-24 * time.Hour),
 	})
 	if err != nil {
@@ -46,7 +46,7 @@ func issueLeafFor(t *testing.T, idm *identity.Manager, a store.Account, publicUR
 	if err != nil {
 		t.Fatalf("issueLeafFor: the node would not ask for a leaf: %v", err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: a.DisplayName, RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
@@ -89,11 +89,11 @@ func configPublicURL(t *testing.T, dir string) string {
 // it answers at, and a chain it presents; the tests here need all three, so they
 // build them in one place.
 type testPeer struct {
-	// Fingerprint is the ROOT fingerprint: the identity a contact row pins (PACT §2).
+	// Fingerprint is the ROOT fingerprint: the identity a contact row pins (HDTP §2).
 	Fingerprint string
 	Wallet      *testid.Wallet
 	Host        *testid.Host
-	Cert        tls.Certificate // leaf then root, as PACT §14.2 requires
+	Cert        tls.Certificate // leaf then root, as HDTP §14.2 requires
 	KP          *identity.Keypair
 	Endpoint    string
 }
@@ -146,7 +146,7 @@ func textOf(res *mcp.CallToolResult) string {
 
 // **`runServeCfg` went on 2026-09-18.** It wrote a config, seeded a store and started the real
 // `serve`, for the two CLI delivery tests that drove one node's portal into another node's store.
-// Those tests were retired with 1.x: a hermetic pair needs loopback addresses, and PACT §14.2
+// Those tests were retired with 1.x: a hermetic pair needs loopback addresses, and HDTP §14.2
 // rule 5 forbids a leaf from naming one, so a two-node exchange over real certificates cannot be
 // stood up in-process without a dial seam `serve` does not have. `internal/integrationtest`'s
 // `pairing_test.go` is where that exchange is proven, with a dial map joining two nodes that
@@ -155,22 +155,22 @@ func textOf(res *mcp.CallToolResult) string {
 // guardSafe returns a public URL a leaf may actually name. These tests bind to
 // 127.0.0.1 because that is where they really listen, and they advertise that
 // address — but a leaf MUST NOT name a loopback, link-local or private host
-// (PACT §14.2 rule 5), so the certificate names a stable public-looking address
+// (HDTP §14.2 rule 5), so the certificate names a stable public-looking address
 // instead. Nothing here checks the SAN against the bind: callers dial the real
 // address and pin by fingerprint, which is what the guard exists to protect.
 func guardSafe(publicURL, slug string) string {
 	u, err := url.Parse(publicURL)
 	if err != nil || u.Host == "" {
-		return "https://" + slug + ".pact.example"
+		return "https://" + slug + ".hdtp.example"
 	}
 	host := u.Hostname()
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") || pactidentity.IPIsPrivate(host) {
-		return "https://" + slug + ".pact.example"
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || hdtpidentity.IPIsPrivate(host) {
+		return "https://" + slug + ".hdtp.example"
 	}
 	return publicURL
 }
 
-// selfSigned is a plain identity key and its self-signed certificate — NOT a PACT
+// selfSigned is a plain identity key and its self-signed certificate — NOT a HDTP
 // identity. The ingress role is pinned by its SPKI over mutually-pinned mTLS, not
 // by a root, so it is the one place here that still wants exactly this.
 func selfSigned(t *testing.T, cn string) (*identity.Keypair, tls.Certificate) {
@@ -207,7 +207,7 @@ func waitFor(t *testing.T, budget time.Duration, msg string, cond func() bool) {
 //
 // Under 2.0 a server is recognised two ways and no third: the chain it presents,
 // validated to the ROOT the caller pinned at the address the caller dialed, or
-// WebPKI for that hostname (PACT §2). A test that pins the node's LEAF key was
+// WebPKI for that hostname (HDTP §2). A test that pins the node's LEAF key was
 // relying on a branch that belonged to the key-pinned generation, deleted on
 // 2026-09-18 — and while it stood, none of these tests exercised the rule a real
 // caller meets.
@@ -228,7 +228,7 @@ func nodePeer(t *testing.T, dir string, acct store.Account, listen string) (outb
 	if err != nil || len(chain) != 2 {
 		t.Fatalf("nodePeer: the account holds no chain: %v", err)
 	}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()})
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now()})
 	if !vr.OK {
 		t.Fatalf("nodePeer: the node's own chain does not validate: rule %d", vr.Rule)
 	}

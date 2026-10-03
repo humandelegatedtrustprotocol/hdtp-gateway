@@ -13,7 +13,7 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"os"
 	"strings"
 )
@@ -49,7 +49,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{
 		svc:   svc,
 		st:    st,
-		rp:    virtualwebauthn.RelyingParty{Name: "pact-gateway", ID: rpID, Origin: origin},
+		rp:    virtualwebauthn.RelyingParty{Name: "hdtp-gateway", ID: rpID, Origin: origin},
 		authn: virtualwebauthn.NewAuthenticator(),
 		clock: &clock,
 	}
@@ -240,9 +240,9 @@ func TestConcurrentFirstRegistrationYieldsOneOwner(t *testing.T) {
 // they are asked the same question about the same names.
 func TestTheConfigCheckAndTheCeremonyAgreeAboutARelyingParty(t *testing.T) {
 	for _, host := range []string{
-		"pact.example.com", "node.tail1234.ts.net", "localhost", "a_b.example.com",
-		"nas", "raspberrypi", "192.168.1.10", "::1", "pact.example.com.", "-pact.example.com", "pact-.example.com",
-		"pact.example.123", "bücher.example", " pact.example.com",
+		"hdtp.example.com", "node.tail1234.ts.net", "localhost", "a_b.example.com",
+		"nas", "raspberrypi", "192.168.1.10", "::1", "hdtp.example.com.", "-hdtp.example.com", "hdtp-.example.com",
+		"hdtp.example.123", "bücher.example", " hdtp.example.com",
 		// NOT the empty name: there the two DISAGREE (the library's constructor takes an empty relying
 		// party and objects only when a ceremony begins). The config check is never asked about it —
 		// an empty `internal_host` means "loopback only" — so the claim is about every name it IS asked.

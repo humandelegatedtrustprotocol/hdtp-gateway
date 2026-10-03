@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func TestHostOfEndpointDropsThePort(t *testing.T) {
@@ -19,7 +19,7 @@ func TestHostOfEndpointDropsThePort(t *testing.T) {
 	for endpoint, want := range map[string]string{
 		"https://agent.alina.example/a/alina/mcp":      "agent.alina.example",
 		"https://agent.alina.example:8443/a/alina/mcp": "agent.alina.example",
-		"https://alina.pact.contact/alina/mcp":         "alina.pact.contact",
+		"https://alina.id.batondeck.com/alina/mcp":     "alina.id.batondeck.com",
 		"https://[2001:db8::1]:8443/a/alina/mcp":       "2001:db8::1",
 		"https://[2001:db8::1]/a/alina/mcp":            "2001:db8::1",
 	} {

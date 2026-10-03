@@ -12,8 +12,8 @@ import (
 	"testing"
 )
 
-// generationSuffix is a name that says which PACT generation it belongs to: a letter, then "20",
-// then the end of the name or the next word of it (seal20, State20, seal20Opt, pact20_demo). There
+// generationSuffix is a name that says which HDTP generation it belongs to: a letter, then "20",
+// then the end of the name or the next word of it (seal20, State20, seal20Opt, hdtp20_demo). There
 // is one generation, so a name that carries one says nothing true — and it is how the `…20` names
 // outlived the `v: 1` code they were once told apart from.
 var generationSuffix = regexp.MustCompile(`[A-Za-z]20($|[A-Z_.])`)
@@ -28,7 +28,7 @@ func generational(name string) bool {
 // No Go identifier and no file name under internal/, harness/ or queries/ carries a generation
 // suffix. Identifiers are read with go/parser, so a date, a string or a comment is never one; the
 // migrations are append-only and are not scanned. Red on 9f27f67, where it listed 75 names and
-// files, from harness/peer/peer.go's BuildCard20 to queries/*/pact20.sql.
+// files, from harness/peer/peer.go's BuildCard20 to queries/*/hdtp20.sql.
 func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 	root := repoRoot(t)
 	var found []string
@@ -90,7 +90,7 @@ func TestNoNameCarriesAGenerationSuffix(t *testing.T) {
 
 // The pattern itself: what it must catch and what it must leave alone.
 func TestTheGenerationPatternCatchesTheOldNamesAndSparesTheCipher(t *testing.T) {
-	for _, name := range []string{"seal20", "State20", "seal20Opt", "BenchmarkState20OneAccount", "pact20_demo_test.go", "client20.go", "TestPact20ExitDemo", "Pact20StateRoundTrips"} {
+	for _, name := range []string{"seal20", "State20", "seal20Opt", "BenchmarkState20OneAccount", "hdtp20_demo_test.go", "client20.go", "TestHDTP20ExitDemo", "HDTP20StateRoundTrips"} {
 		if !generational(name) {
 			t.Errorf("%s: not caught", name)
 		}

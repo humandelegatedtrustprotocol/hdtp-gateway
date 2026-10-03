@@ -12,7 +12,7 @@ import (
 
 // Documentation that quotes a command the binary does not accept is worse than
 // no documentation: a reader trusts it, types it, and gets a usage error. This
-// walks every `pact-gateway …` invocation in the docs and the README and checks
+// walks every `hdtp-gateway …` invocation in the docs and the README and checks
 // the subcommand exists and every flag it names is real.
 //
 // It cannot check that the command DOES what the prose says — only that it
@@ -23,7 +23,7 @@ func TestDocsOnlyQuoteRealCommands(t *testing.T) {
 	if len(files) < 5 {
 		t.Fatalf("only found %d doc files — the lint is looking in the wrong place", len(files))
 	}
-	invocation := regexp.MustCompile(`pact-gateway ([a-z-]+(?: [a-z-]+)?)((?: +-{1,2}[a-z0-9-]+(?:[= ][^\s\\` + "`" + `]+)?)*)`)
+	invocation := regexp.MustCompile(`hdtp-gateway ([a-z-]+(?: [a-z-]+)?)((?: +-{1,2}[a-z0-9-]+(?:[= ][^\s\\` + "`" + `]+)?)*)`)
 
 	var problems []string
 	for _, f := range files {
@@ -42,10 +42,10 @@ func TestDocsOnlyQuoteRealCommands(t *testing.T) {
 			if !known {
 				// A shell line is an instruction: an unknown command there is a
 				// broken instruction. An inline span is usually prose naming the
-				// binary ("a `pact-gateway node`"), so it is only checked when it
+				// binary ("a `hdtp-gateway node`"), so it is only checked when it
 				// does name a real command.
 				if inv.shellLine {
-					problems = append(problems, rel+": unknown command `pact-gateway "+m[1]+"`")
+					problems = append(problems, rel+": unknown command `hdtp-gateway "+m[1]+"`")
 				}
 				continue
 			}
@@ -55,7 +55,7 @@ func TestDocsOnlyQuoteRealCommands(t *testing.T) {
 			}
 			for _, fl := range flagNames(m[2]) {
 				if !accepted[fl] {
-					problems = append(problems, rel+": `pact-gateway "+strings.Join(cmd, " ")+"` has no flag -"+fl)
+					problems = append(problems, rel+": `hdtp-gateway "+strings.Join(cmd, " ")+"` has no flag -"+fl)
 				}
 			}
 		}
@@ -66,19 +66,19 @@ func TestDocsOnlyQuoteRealCommands(t *testing.T) {
 	}
 }
 
-// quoted is one `pact-gateway …` occurrence and where it came from.
+// quoted is one `hdtp-gateway …` occurrence and where it came from.
 type quoted struct {
 	text      string
 	shellLine bool // a line in a fenced block that a reader would paste
 }
 
-// invocations pulls every `pact-gateway …` out of a markdown document's CODE —
+// invocations pulls every `hdtp-gateway …` out of a markdown document's CODE —
 // fenced blocks and inline spans — and marks which ones are shell lines.
 func invocations(doc string) []quoted {
 	var out []quoted
 	inFence := false
 	envOrExec := regexp.MustCompile(`^(?:[A-Z_][A-Z0-9_]*=\S+ +|\$ +|docker compose exec +(?:-\S+ +)*\S+ +|sudo +)*`)
-	output := regexp.MustCompile(`^pact-gateway [a-z-]+:`)
+	output := regexp.MustCompile(`^hdtp-gateway [a-z-]+:`)
 	for _, line := range strings.Split(doc, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
@@ -87,18 +87,18 @@ func invocations(doc string) []quoted {
 		}
 		if inFence {
 			stripped := trimmed[len(envOrExec.FindString(trimmed)):]
-			// `pact-gateway serving: …` is the banner the binary PRINTS, not a
+			// `hdtp-gateway serving: …` is the banner the binary PRINTS, not a
 			// command a reader types. Output lines name a field, then a colon.
 			if output.MatchString(stripped) {
 				continue
 			}
-			if strings.HasPrefix(stripped, "pact-gateway ") {
+			if strings.HasPrefix(stripped, "hdtp-gateway ") {
 				out = append(out, quoted{text: stripped, shellLine: true})
 			}
 			continue
 		}
 		for _, m := range regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(line, -1) {
-			if strings.Contains(m[1], "pact-gateway ") {
+			if strings.Contains(m[1], "hdtp-gateway ") {
 				out = append(out, quoted{text: m[1]})
 			}
 		}
@@ -125,7 +125,7 @@ func resolveCommand(words []string) ([]string, bool) {
 			return words[:1], true
 		}
 		// The SUBCOMMAND has to be real too. Accepting any second word let
-		// `pact-gateway passkey unlock-me-please` through the lint — a fake
+		// `hdtp-gateway passkey unlock-me-please` through the lint — a fake
 		// recovery command in the README would have read as documented.
 		if subs, ok := acceptedSubcommands(words[0]); ok && !subs[words[1]] {
 			return nil, false
@@ -174,7 +174,7 @@ func acceptedFlags(cmd []string) (map[string]bool, bool) {
 //
 // It tokenizes rather than pattern-matching the whole string, because a flag's
 // VALUE routinely contains something that looks like a flag: the first version
-// scanned the tail with a regex and read `--out pact-backup.tar.gz` as naming a
+// scanned the tail with a regex and read `--out hdtp-backup.tar.gz` as naming a
 // flag called `-backup`, which is a false report about correct documentation.
 // Only a token that starts with a dash is a flag.
 func flagNames(tail string) []string {
@@ -292,7 +292,7 @@ func TestSpecTablesMatchTheCode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		use := regexp.MustCompile(`usage: pact-gateway ([a-z]+) <([a-z|-]+)>`)
+		use := regexp.MustCompile(`usage: hdtp-gateway ([a-z]+) <([a-z|-]+)>`)
 		seen := map[string]map[string]bool{}
 		for _, f := range files {
 			if strings.HasSuffix(f, "_test.go") {

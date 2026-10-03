@@ -1,8 +1,8 @@
 -- +goose Up
--- The relay tables outlived the role. PACT 2.0 removed the store-and-forward
+-- The relay tables outlived the role. Pre-HDTP 2.0 removed the store-and-forward
 -- gateway entirely on 2026-09-18: one would see every sender, recipient and
 -- timestamp for its trouble, and what 2.0 makes safe instead is being hosted
--- (PACT sec. 9). No Go code and no sqlc query has read these two tables since;
+-- (HDTP sec. 9). No Go code and no sqlc query has read these two tables since;
 -- they were still here only because migrations are append-only and 0015 could
 -- not be edited, and SPEC sec. 11.2's table guard is what surfaced them.
 --

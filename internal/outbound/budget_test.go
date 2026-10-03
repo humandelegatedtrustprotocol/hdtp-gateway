@@ -1,6 +1,6 @@
 package outbound
 
-// What an identity sends is budgeted (PACT §12's buckets, applied outbound): every call out passes
+// What an identity sends is budgeted (HDTP §12's buckets, applied outbound): every call out passes
 // Budget once, before anything is dialled, and a refusal is RateLimited with its wait — nothing
 // leaves the host.
 
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 func TestEveryCallOutPassesTheBudgetOnceAndARefusalDialsNothing(t *testing.T) {

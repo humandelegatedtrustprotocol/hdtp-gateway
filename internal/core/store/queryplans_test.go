@@ -31,7 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "modernc.org/sqlite"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // growing is every table whose size follows use rather than configuration. The others hold a row
@@ -202,9 +202,9 @@ func TestEveryQueryHasAPlan(t *testing.T) {
 	})
 
 	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+		dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 		if dsn == "" {
-			t.Skip("PACT_TEST_POSTGRES_DSN not set")
+			t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 		}
 		ctx := context.Background()
 		admin, err := pgx.Connect(ctx, dsn)
@@ -212,12 +212,12 @@ func TestEveryQueryHasAPlan(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A throwaway database on the test server, as the conformance suite makes them.
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS pact_plans")
-		if _, err := admin.Exec(ctx, "CREATE DATABASE pact_plans"); err != nil {
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS hdtp_plans")
+		if _, err := admin.Exec(ctx, "CREATE DATABASE hdtp_plans"); err != nil {
 			t.Fatal(err)
 		}
 		admin.Close(ctx)
-		st, err := store.OpenPostgres(ctx, rewriteDB(dsn, "pact_plans"))
+		st, err := store.OpenPostgres(ctx, rewriteDB(dsn, "hdtp_plans"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +225,7 @@ func TestEveryQueryHasAPlan(t *testing.T) {
 			t.Fatal(err)
 		}
 		st.Close()
-		conn, err := pgx.Connect(ctx, rewriteDB(dsn, "pact_plans"))
+		conn, err := pgx.Connect(ctx, rewriteDB(dsn, "hdtp_plans"))
 		if err != nil {
 			t.Fatal(err)
 		}

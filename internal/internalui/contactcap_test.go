@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 )
 
 // The owner's refusal at the contact cap is 402, the status the cloud's /v1 gives every plan limit,

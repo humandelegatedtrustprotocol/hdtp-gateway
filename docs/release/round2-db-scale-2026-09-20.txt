@@ -10,7 +10,7 @@
 
 goos: darwin
 goarch: arm64
-pkg: github.com/tech-sumit/pact-gateway/internal/core/store
+pkg: github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store
 cpu: Apple M2 Max
                                        │ before2.txt │ final.txt │
                                        │                              sec/op                              │                 sec/op                  vs base                │

@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // ErrWrongState: the contact exists and is not in a state the action applies to.
@@ -35,7 +35,7 @@ type Owner struct {
 	Invalidate func(ctx context.Context, accountID, fpr string) error
 	// TellApproved sends `contact_accepted` with what we granted them.
 	TellApproved func(ctx context.Context, accountID, fpr string, granted []string) error
-	// TellRejected sends `contact_rejected` (PACT §5.1: the rejecting side MAY; a requester left
+	// TellRejected sends `contact_rejected` (HDTP §5.1: the rejecting side MAY; a requester left
 	// at pending_out for ever is the alternative).
 	TellRejected func(ctx context.Context, accountID, fpr string) error
 	// TellRemoved calls the contact's `remove_contact` (§9.1: removal notifies and unpins both sides).
@@ -156,7 +156,7 @@ func (o Owner) Approve(ctx context.Context, accountID, fpr, preset string) (Deci
 	return d, nil
 }
 
-// Reject declines a waiting request: a demotion, not a deletion (PACT §5.1). The row moves to
+// Reject declines a waiting request: a demotion, not a deletion (HDTP §5.1). The row moves to
 // blocked, so that root's next request is answered as a stranger's and never reaches the owner,
 // and the peer is told so it does not wait at pending_out for ever. A row already blocked is the
 // outcome asked for and nothing is sent.
@@ -190,7 +190,7 @@ func (o Owner) Reject(ctx context.Context, accountID, fpr string) (Decision, err
 	return d, nil
 }
 
-// Block demotes any relationship to blocked, silently (SPEC §9.1, PACT §5.2): the peer is served
+// Block demotes any relationship to blocked, silently (SPEC §9.1, HDTP §5.2): the peer is served
 // the guest tier and is told nothing. A row already blocked is left as it is.
 func (o Owner) Block(ctx context.Context, accountID, fpr string) (Decision, error) {
 	c, err := o.row(ctx, accountID, fpr)
@@ -252,7 +252,7 @@ func (o Owner) Unblock(ctx context.Context, accountID, fpr string) (Decision, er
 }
 
 // Remove ends a relationship in any state (`--> none`). An active contact is told first — the
-// outbound call needs the row — and the local delete proceeds whatever they answer (PACT §5.2:
+// outbound call needs the row — and the local delete proceeds whatever they answer (HDTP §5.2:
 // enforcement is "your root is no longer in my list"). Any other row goes silently: a waiting
 // request withdrawn, our own approach withdrawn, a blocked root forgotten.
 func (o Owner) Remove(ctx context.Context, accountID, fpr string) (Decision, error) {
@@ -314,7 +314,7 @@ func Offered(served, held []string) []string {
 	return out
 }
 
-// AddressWaiting is a contact waiting at a new address for the owner's answer (PACT §5.3), as the
+// AddressWaiting is a contact waiting at a new address for the owner's answer (HDTP §5.3), as the
 // portal and the owner MCP both show it: who, where they are pinned, where they now answer from,
 // and why the move was held. The leaf and root certificates stay in the store: the decision is
 // taken by root, and the DER is nobody's reading.
@@ -340,7 +340,7 @@ func (o Owner) PendingAddresses(ctx context.Context, accountID string) ([]Addres
 		w := AddressWaiting{Root: p.Root, Endpoint: p.Endpoint, Why: p.Why, At: p.At}
 		if c, err := o.Manager.Store.GetContact(ctx, accountID, p.Root); err == nil {
 			w.Name, w.Pinned = c.DisplayName, c.Endpoint
-		} else if leaf, err := pactidentity.Parse(p.Leaf); err == nil {
+		} else if leaf, err := hdtpidentity.Parse(p.Leaf); err == nil {
 			w.Name = leaf.Subject
 		}
 		out = append(out, w)

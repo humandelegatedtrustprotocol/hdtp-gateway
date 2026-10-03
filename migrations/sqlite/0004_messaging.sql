@@ -1,5 +1,5 @@
 -- +goose Up
--- SPEC §7 / PACT §7: threads carry a SHARED id both sides use; messages are
+-- SPEC §7 / HDTP §7: threads carry a SHARED id both sides use; messages are
 -- idempotent on (account, contact, msg_id) — a replay is acknowledged, never
 -- re-executed, so the original response columns are part of the row.
 CREATE TABLE threads (

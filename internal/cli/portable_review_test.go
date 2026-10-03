@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/portable"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/portable"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // The review of 2026-09-28 on the two verbs.
@@ -46,7 +46,7 @@ func exportedNode(t *testing.T) (idNode, store.Store, store.Account, string) {
 // H3. A message's reply_to names another message by its msg_id, and a peer's send_message only caps
 // its length: a reply to a message this host never held, or one retention has deleted since,
 // travelled as it was, every importer refused the file, and `export` said it had written one and
-// exited 0. pact-identity 0.3.3's writer nulls such a reply_to, for every host (the node does not
+// exited 0. hdtp-identity 0.3.3's writer nulls such a reply_to, for every host (the node does not
 // null it itself: one implementation). The export also reads its file back as an importer would
 // before it reports it (portable.CheckWritten, TestAFileThatDoesNotReadBackIsRefused).
 func TestADanglingReplyTravelsAsNoReply(t *testing.T) {
@@ -92,7 +92,7 @@ func TestADanglingReplyTravelsAsNoReply(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer zr.Close()
-			got, err := pactidentity.ReadExportZip(&zr.Reader, a.RootFingerprint, time.Now(), portable.ImportCeiling)
+			got, err := hdtpidentity.ReadExportZip(&zr.Reader, a.RootFingerprint, time.Now(), portable.ImportCeiling)
 			if err != nil {
 				t.Fatalf("the file does not read: %v", err)
 			}
@@ -105,7 +105,7 @@ func TestADanglingReplyTravelsAsNoReply(t *testing.T) {
 	}
 }
 
-// Coordinator (pact-identity 0.3.3, SPEC 9.2 #25). The writer leaves out a message a contact made
+// Coordinator (hdtp-identity 0.3.3, SPEC 9.2 #25). The writer leaves out a message a contact made
 // that the file must never carry — here one whose body reads as a private key — and the export
 // names it, by id and the writer's reason, in its output and its audit row.
 func TestAMessageTheWriterLeftOutIsReported(t *testing.T) {
@@ -133,7 +133,7 @@ func TestAMessageTheWriterLeftOutIsReported(t *testing.T) {
 	}
 }
 
-// L13 and coordinator item 6. A first run with -yes shows the review before it writes (PACT §9.2
+// L13 and coordinator item 6. A first run with -yes shows the review before it writes (HDTP §9.2
 // step 1: -yes is the agreement to what is on the screen above it, in the same run), and the
 // import ends by minting the request for the next leaf itself (§9.2 step 4): `move` into a new
 // slug, at this node's address for it, and says how to complete it.

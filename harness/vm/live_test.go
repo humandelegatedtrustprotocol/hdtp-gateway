@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
-// The clock claim, proven end to end: a REAL pact-gateway binary, unmodified, run
+// The clock claim, proven end to end: a REAL hdtp-gateway binary, unmodified, run
 // twice from identical state, disagreeing about what day it is because the guest
 // kernel does.
 //
@@ -29,8 +29,8 @@ func TestGuestClockTravelsAndTheNodeBelievesIt(t *testing.T) {
 
 	// The ordinary shipped binary, cross-built for the guest. No build tag, no
 	// clock flag, nothing about time.
-	bin := filepath.Join(t.TempDir(), "pact-gateway")
-	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/pact-gateway")
+	bin := filepath.Join(t.TempDir(), "hdtp-gateway")
+	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/hdtp-gateway")
 	// go test runs in the PACKAGE directory (harness/vm), so the repo root is two
 	// levels up, not one.
 	build.Dir = filepath.Join("..", "..")
@@ -46,17 +46,17 @@ func TestGuestClockTravelsAndTheNodeBelievesIt(t *testing.T) {
 	// account create talks over the ADMIN SOCKET, so the node has to be serving —
 	// the CLI is a client to a running node, not a standalone tool. Getting this
 	// wrong produced a real, useful error rather than a silent pass.
-	script := `export PACT_DATA_DIR=/data
-export PACT_PUBLIC_BIND=127.0.0.1:8443
-export PACT_INTERNAL_BIND=127.0.0.1:8080
-pact-gateway serve >/tmp/serve.log 2>&1 &
+	script := `export HDTP_DATA_DIR=/data
+export HDTP_PUBLIC_BIND=127.0.0.1:8443
+export HDTP_INTERNAL_BIND=127.0.0.1:8080
+hdtp-gateway serve >/tmp/serve.log 2>&1 &
 i=0
 while [ ! -S /data/admin.sock ] && [ $i -lt 120 ]; do sleep 0.25; i=$((i+1)); done
-pact-gateway account create --slug alice --name Alice 2>&1 | head -1
-echo "PACT_ACCOUNTS=$(pact-gateway account list 2>/dev/null | wc -l)"
+hdtp-gateway account create --slug alice --name Alice 2>&1 | head -1
+echo "HDTP_ACCOUNTS=$(hdtp-gateway account list 2>/dev/null | wc -l)"
 kill %1 2>/dev/null
 sleep 1
-pact-gateway audit verify 2>&1 | head -1
+hdtp-gateway audit verify 2>&1 | head -1
 head -3 /tmp/serve.log
 `
 	if err := BuildRootfs(ctx, RootfsSpec{Binary: bin, Script: script, Out: img}); err != nil {
@@ -72,7 +72,7 @@ head -3 /tmp/serve.log
 		if err != nil {
 			t.Fatalf("boot at %q: %v\n%s", base, err, tail(c.Text, 900))
 		}
-		if !strings.Contains(c.Text, "PACT_GUEST_DONE") {
+		if !strings.Contains(c.Text, "HDTP_GUEST_DONE") {
 			t.Fatalf("guest at %q did not finish:\n%s", base, tail(c.Text, 1200))
 		}
 		return c

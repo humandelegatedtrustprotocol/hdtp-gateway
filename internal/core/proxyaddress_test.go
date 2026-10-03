@@ -11,9 +11,9 @@ import (
 // identity should hang on.
 func TestTheProxyAddressIsAnIPAddress(t *testing.T) {
 	for _, ok := range []string{"172.30.40.10", "2001:db8::7"} {
-		c, err := load(t, "", map[string]string{"PACT_PROXY_ADDRESS": ok})
+		c, err := load(t, "", map[string]string{"HDTP_PROXY_ADDRESS": ok})
 		if err != nil || c.ProxyAddress != ok {
-			t.Errorf("PACT_PROXY_ADDRESS=%s: %v, read %q", ok, err, c.ProxyAddress)
+			t.Errorf("HDTP_PROXY_ADDRESS=%s: %v, read %q", ok, err, c.ProxyAddress)
 		}
 	}
 	c, err := load(t, "", nil)
@@ -21,8 +21,8 @@ func TestTheProxyAddressIsAnIPAddress(t *testing.T) {
 		t.Fatalf("with none configured: %v, read %q (no proxy is trusted by default)", err, c.ProxyAddress)
 	}
 	for _, bad := range []string{"envoy", "172.30.40.10:8443", "172.30.40.0/24", " "} {
-		if _, err := load(t, "", map[string]string{"PACT_PROXY_ADDRESS": bad}); err == nil || !strings.Contains(err.Error(), RuleProxyAddress) {
-			t.Errorf("PACT_PROXY_ADDRESS=%q: %v, want %s", bad, err, RuleProxyAddress)
+		if _, err := load(t, "", map[string]string{"HDTP_PROXY_ADDRESS": bad}); err == nil || !strings.Contains(err.Error(), RuleProxyAddress) {
+			t.Errorf("HDTP_PROXY_ADDRESS=%q: %v, want %s", bad, err, RuleProxyAddress)
 		}
 	}
 	if _, err := load(t, `{"proxy_address":"envoy"}`, nil); err == nil || !strings.Contains(err.Error(), RuleProxyAddress) {

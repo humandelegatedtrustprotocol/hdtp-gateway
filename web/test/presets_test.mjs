@@ -1,5 +1,5 @@
 // The permission presets' grid (web/src/preset_grid.tsx), its arithmetic (web/src/presets.ts), run as it
-// ships: `node --test` strips its types. PACT Cloud's portal carries both files byte for byte (its
+// ships: `node --test` strips its types. BatonDeck's portal carries both files byte for byte (its
 // scripts/check-harvested.mjs), so this is the rule for both portals' grids.
 import { test } from "node:test";
 import assert from "node:assert/strict";

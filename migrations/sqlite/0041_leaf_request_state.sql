@@ -1,5 +1,5 @@
 -- +goose Up
--- A signing request sent to a web wallet (PACT sec. 9.1, SPEC.md sec. 3.12): the host mints a random
+-- A signing request sent to a web wallet (HDTP sec. 9.1, SPEC.md sec. 3.12): the host mints a random
 -- `state` with the pending request and accepts an answer only once, only with that state. The row
 -- keeps the state's SHA-256 and never the state; the answer consumes it (request_state_hash back to
 -- NULL) in the same statement that checks it. wallet_origin is the wallet origin the request went

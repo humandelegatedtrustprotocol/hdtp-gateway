@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries (migration 0046):
@@ -20,12 +20,12 @@ func leafFingerprint(leaf, spki []byte) sql.NullString {
 	return keyFingerprint(spki)
 }
 
-// keyFingerprint is pact-identity's fingerprint of a key, as the column holds it; NULL for no key.
+// keyFingerprint is hdtp-identity's fingerprint of a key, as the column holds it; NULL for no key.
 func keyFingerprint(spki []byte) sql.NullString {
 	if len(spki) == 0 {
 		return sql.NullString{}
 	}
-	return sql.NullString{String: pactidentity.Fingerprint(spki), Valid: true}
+	return sql.NullString{String: hdtpidentity.Fingerprint(spki), Valid: true}
 }
 
 // A domain value becomes a statement's parameters HERE, once, for both engines, with the defaults

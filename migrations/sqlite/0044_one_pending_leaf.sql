@@ -1,5 +1,5 @@
 -- +goose Up
--- One pending signing request per identity (PACT sec. 9.1): a new request replaces the last. The
+-- One pending signing request per identity (HDTP sec. 9.1): a new request replaces the last. The
 -- replacement was three statements outside a transaction, so two requests made together could
 -- each find nothing to replace and both insert. The request is one transaction now, and this index
 -- makes a second pending row impossible. A database that already raced keeps its newest request.

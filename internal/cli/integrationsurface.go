@@ -13,7 +13,7 @@ package cli
 //     published set, and only ones the stale guard has not withdrawn, are built;
 //   - passthrough and agent-answered capabilities are gated by the per-integration
 //     permission `integration.<slug>`. Mapped mode is the exception: it serves
-//     PACT's own vocabulary and is gated by the matching core permission, which
+//     HDTP's own vocabulary and is gated by the matching core permission, which
 //     is why mapped entries are NOT projected here (§6.6, P10-04e).
 
 import (
@@ -24,12 +24,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
 // integrationSurface rebuilds what one integration serves.
@@ -120,7 +120,7 @@ func (s *integrationSurface) buildEntries(ctx context.Context, in store.Integrat
 			}
 			h = hh
 		}
-		// Each call spends the integration's own cap for the calling contact (PACT §12's limits,
+		// Each call spends the integration's own cap for the calling contact (HDTP §12's limits,
 		// `integration_calls_per_hour`), decided by the node's limits sidecar.
 		h = s.node.IntegrationBudget(in.AccountID, in.ID, h)
 		out = append(out, public.Entry{

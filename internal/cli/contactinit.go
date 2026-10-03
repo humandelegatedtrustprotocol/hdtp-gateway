@@ -25,12 +25,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // newContactInitiator builds the one initiator every surface uses.
@@ -107,7 +107,7 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 	if err != nil {
 		return off, err
 	}
-	req.Header.Set("Accept", "application/pact-invite+json")
+	req.Header.Set("Accept", "application/hdtp-invite+json")
 	res, err := hc.Do(req)
 	if err != nil {
 		return off, fmt.Errorf("could not reach the invite link: %w", err)
@@ -129,7 +129,7 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 // verifyOffer turns an untrusted document into an identity we are willing to pin.
 //
 // A card carries a certificate, and the identity, the address and the key are all read from
-// inside it — none is a property of the card. This is the path `pact-gateway contact init
+// inside it — none is a property of the card. This is the path `hdtp-gateway contact init
 // <invite-url>` takes when somebody sends a person an invite link.
 //
 // Four checks, each load-bearing, in the order a receiver applies them (SPEC §14.2, §9.2):
@@ -154,13 +154,13 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	if len(off.Chain) != 2 {
 		return card, nil, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
 	}
-	leafDER, errLeaf := pactidentity.DecodeB64url(off.Chain[0])
-	rootDER, errRoot := pactidentity.DecodeB64url(off.Chain[1])
+	leafDER, errLeaf := hdtpidentity.DecodeB64url(off.Chain[0])
+	rootDER, errRoot := hdtpidentity.DecodeB64url(off.Chain[1])
 	if errLeaf != nil || errRoot != nil {
 		return card, nil, nil, fmt.Errorf("the invite's chain is not base64url")
 	}
 	chain := [][]byte{leafDER, rootDER}
-	v := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
+	v := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
 	if !v.OK {
 		return card, nil, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)
 	}
@@ -172,7 +172,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	}
 	// The key to seal to is the validated leaf's, read from the chain and from nowhere else.
 	// An offer used to have to carry it a second time as `spki` and was refused without it —
-	// PACT 1.2's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
+	// pre-HDTP 1.2's "SPKI distribution", from when a card held only a key's hash. §4 gives a landing
 	// three members and that is not one of them, so demanding it made every invite from a
 	// spec-exact issuer unredeemable here.
 	spki = v.LeafKey.SPKI
@@ -329,7 +329,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
 		return out, fmt.Errorf("the peer refused the redemption: %w", err)
 	}
-	// A refusal is an answer with isError and its code (PACT §12): nothing was redeemed, so
+	// A refusal is an answer with isError and its code (HDTP §12): nothing was redeemed, so
 	// nothing is recorded. It used to fall through to decodeRedeemAnswer, whose empty status
 	// recorded the peer pending_out.
 	if res.IsError {
@@ -390,7 +390,7 @@ func refusalCodeOf(res *mcp.CallToolResult) string {
 	return "refused"
 }
 
-// redeemAnswer is `redeem_invite`'s reply (PACT §6.2).
+// redeemAnswer is `redeem_invite`'s reply (HDTP §6.2).
 type redeemAnswer struct {
 	Status      string   `json:"status"` // accepted | pending
 	Permissions []string `json:"permissions,omitempty"`
@@ -484,7 +484,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 	args := map[string]any{"card": ourCard}
 	if len(granted) > 0 {
 		// What we granted THEM, so their agent knows what it may call without
-		// probing (PACT §6.2).
+		// probing (HDTP §6.2).
 		args["permissions"] = granted
 	}
 	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_accepted", args)
@@ -493,7 +493,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 // NotifyRejected tells a peer that their contact request was declined: `contact_rejected`, the
 // other pending-tier tool, which the node served and never sent (review P-13). Without it a
 // requester this node rejects waits at `pending_out` for ever; with it their side demotes its
-// row to blocked, its record that the approach was declined (PACT §5.1). Best-effort, like the
+// row to blocked, its record that the approach was declined (HDTP §5.1). Best-effort, like the
 // approval: the rejection is local and stands whatever they answer.
 func (ci *contactInitiator) NotifyRejected(ctx context.Context, accountID, peerFpr string) error {
 	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_rejected", map[string]any{})

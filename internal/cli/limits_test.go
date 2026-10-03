@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 func TestASidecarThatIsDownIsNamedByTheHealthCheckDoctorAndTheBanner(t *testing.T) {
 	side := limitstest.StartDefault(t)
-	t.Setenv("PACT_LIMITS_SOCKET", side.Path)
+	t.Setenv("HDTP_LIMITS_SOCKET", side.Path)
 	r := runServe(t, nil)
 	cfg := filepath.Join(r.dir, "config.json")
 	health := func() (int, string) {

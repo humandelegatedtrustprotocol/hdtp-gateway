@@ -70,7 +70,7 @@ export function Identity() {
             <>
               <p className="muted">Its first certificate comes from your command-line wallet. Run these three, in order:</p>
               {/* One command a line, whole, with a copy button: inline, they broke mid-token ('install-leaf -slug work-consulting-and-' / 'advisory'). */}
-              <Readout block pre copy value={`pact-gateway account csr -slug ${a.slug}\npact id issue\npact-gateway account install-leaf -slug ${a.slug}`} />
+              <Readout block pre copy value={`hdtp-gateway account csr -slug ${a.slug}\npact id issue\npact-gateway account install-leaf -slug ${a.slug}`} />
             </>
           )}
         </Section>

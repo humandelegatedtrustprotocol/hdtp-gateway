@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Backing is what the adapter reads: the audit trail, and whether an account is still here.

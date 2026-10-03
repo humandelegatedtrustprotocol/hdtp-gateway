@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 // What the public listener answers at an identity's address and at its invite link, as the status
@@ -34,7 +34,7 @@ func publicAnswer(t *testing.T, public, slug, token string) string {
 	return strings.Join(out, "\n")
 }
 
-// `account leave` on a running node (PACT §9, "What a host must do when the person leaves"): the
+// `account leave` on a running node (HDTP §9, "What a host must do when the person leaves"): the
 // refusals, then one leave that must go through, after which the address answers exactly as an
 // address this node never served — the control is a slug that was never created, and before the
 // leave the same comparison must DIFFER, or it would prove nothing.
@@ -59,7 +59,7 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		}
 	}()
 	r := runServe(t, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}

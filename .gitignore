@@ -1,4 +1,4 @@
-/pact-gateway
+/hdtp-gateway
 /dist/
 /data/
 # What `go test -c` writes: a compiled test binary, named after its package. One of these, 67 MB,
@@ -11,13 +11,13 @@
 # Extracted by `make harness-kernel` for the VM topology.
 .harness-kernel/
 web/node_modules/
-docs/conformance-pact-*.json
+docs/conformance-hdtp-*.json
 
 # The identity module laid out as a Go proxy for the image builds (`make identity-proxy`).
 /.build/
 
 # The limits sidecar's build (`make limitd`).
-/cmd/pact-limitd/target/
+/cmd/hdtp-limitd/target/
 
 # The certificate and key an operator puts in front of the node behind Envoy (deploy/envoy).
 /deploy/envoy/tls/

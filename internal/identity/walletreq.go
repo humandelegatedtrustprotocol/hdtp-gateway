@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // ErrLeafRefused marks an answer from a wallet that this host refused: no request pending, a chain
@@ -17,13 +17,13 @@ import (
 // one that is not newer than the current leaf. The install doors audit it as a refusal, not a failure.
 var ErrLeafRefused = errors.New("leaf refused")
 
-// ErrEndpointRefused marks a signing request refused for its endpoint: an address PACT's address
-// rule refuses (pactidentity.AddressGuard), which no wallet would certify. It comes with
+// ErrEndpointRefused marks a signing request refused for its endpoint: an address HDTP's address
+// rule refuses (hdtpidentity.AddressGuard), which no wallet would certify. It comes with
 // ErrLeafRefused.
 var ErrEndpointRefused = errors.New("the endpoint is not an address a wallet certifies")
 
 // ErrRequestState marks an answer that does not carry the pending request's state, or carries one
-// already used (PACT §9.1). It is a refusal too, and says the request is not in the state the answer
+// already used (HDTP §9.1). It is a refusal too, and says the request is not in the state the answer
 // assumes. Two of its cases come with a sentinel of their own (ErrRequestAnswered, ErrNoRequest);
 // without either, a request IS pending and the answer is not for it (a request that was replaced,
 // or one this identity never had).
@@ -39,7 +39,7 @@ var ErrNoRequest = errors.New("no certificate request is pending")
 
 // The chain refusals a person can act on, each with ErrLeafRefused: a leaf under a root other than
 // the identity's (another wallet), over a key other than the request's, or not newer than the
-// current leaf (PACT §14.3). Any other refusal of the chain is ErrLeafRefused alone.
+// current leaf (HDTP §14.3). Any other refusal of the chain is ErrLeafRefused alone.
 var (
 	ErrWrongRoot = errors.New("the chain's root is not this identity's")
 	ErrWrongKey  = errors.New("the leaf carries another key than the request's")
@@ -81,7 +81,7 @@ func departedFrom(leaves []store.Leaf) *store.Leaf {
 }
 
 // moves reports whether a leaf naming `endpoint` puts the identity at an address its contacts do
-// not know (PACT §5.3, §9). It is the one rule for it: InstallLeaf reports it as InstallResult.Moved
+// not know (HDTP §5.3, §9). It is the one rule for it: InstallLeaf reports it as InstallResult.Moved
 // and starts the campaign on it, and WalletPurpose asks the wallet for a move on it.
 //
 //   - no root yet: a signup, not a move;
@@ -104,7 +104,7 @@ func (m *Manager) WalletPurpose(ctx context.Context, accountID, endpoint string)
 		return "", err
 	}
 	if !a.HasRoot() {
-		return "", fmt.Errorf("identity: %s has no root yet; its first leaf comes from the CLI wallet (`account csr`, `pact id issue`, `account install-leaf`): %w", a.Slug, ErrLeafRefused)
+		return "", fmt.Errorf("identity: %s has no root yet; its first leaf comes from the CLI wallet (`account csr`, `hdtp id issue`, `account install-leaf`): %w", a.Slug, ErrLeafRefused)
 	}
 	leaves, err := m.Store.ListLeaves(ctx, accountID)
 	if err != nil {
@@ -137,7 +137,7 @@ func MoveNotice(res InstallResult) string {
 	if !res.OldNotAfter.IsZero() {
 		until = "until " + res.OldNotAfter.UTC().Format(time.RFC3339)
 	}
-	announce := "Run `pact-gateway account announce -slug " + res.Slug + "` until none are waiting"
+	announce := "Run `hdtp-gateway account announce -slug " + res.Slug + "` until none are waiting"
 	if res.OldKid != "" {
 		return "This node goes on answering at " + res.OldEndpoint + " with the previous certificate " + until +
 			", for contacts not yet reached. " + announce + "."

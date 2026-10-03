@@ -1,19 +1,19 @@
 package contacts
 
 import (
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	"os"
 	"strings"
 	"testing"
 )
 
-// A card is built by pact-identity from a certificate now, so the round trip this
+// A card is built by hdtp-identity from a certificate now, so the round trip this
 // used to prove — struct in, properties out — no longer exists: there are no
 // X-PACT-KEY/X-PACT-ENDPOINT/X-PACT-GATEWAY properties to write. What is worth
 // proving is that the parser reads a real 2.0 card and recovers the root and the
 // endpoint from INSIDE the certificate rather than from any property.
 func TestACardCarriesItsIdentityInTheCertificate(t *testing.T) {
-	card, w, h := testid.Card(t, "Sumit Agrawal", "https://pact.sumit.example/mcp", "required")
+	card, w, h := testid.Card(t, "Sumit Agrawal", "https://hdtp.sumit.example/mcp", "required")
 	for _, want := range []string{"BEGIN:VCARD", "X-PACT-VERSION:2", "X-PACT-CERT:", "X-PACT-SEAL:required", "FN:Sumit Agrawal"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("built card missing %q:\n%s", want, card)
@@ -65,15 +65,15 @@ func TestPhoneExportedFixtureUnfoldsButDoesNotImport(t *testing.T) {
 }
 
 func TestForeignCardTolerated(t *testing.T) {
-	plain := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:No Pact\r\nEND:VCARD\r\n"
+	plain := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:No HDTP\r\nEND:VCARD\r\n"
 	c, err := ParseCard(plain)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Version != "" && c.Key != "" {
-		t.Fatal("foreign card claimed as PACT")
+		t.Fatal("foreign card claimed as HDTP")
 	}
-	if c.FN != "No Pact" {
+	if c.FN != "No HDTP" {
 		t.Fatalf("FN = %q", c.FN)
 	}
 }
@@ -119,7 +119,7 @@ func FuzzVCardParse(f *testing.F) {
 	})
 }
 
-// PACT §3 intake: the certificate IS the card. Strict where identity or
+// HDTP §3 intake: the certificate IS the card. Strict where identity or
 // reachability is at stake, tolerant where minors need room.
 func TestValidateInbound(t *testing.T) {
 	good, _, _ := testid.Card(t, "P", "https://p.example/mcp", "required")
@@ -151,9 +151,9 @@ func TestValidateInbound(t *testing.T) {
 	}
 }
 
-// The certificate is read by the identity core's rule (pact-identity 0.4.2's DecodeB64url): a
+// The certificate is read by the identity core's rule (the identity core 0.4.2's DecodeB64url): a
 // character outside base64url is a refusal, never skipped. The reader this replaced skipped it, so
-// a card the core and PACT Cloud refused was a card to this parser.
+// a card the core and BatonDeck refused was a card to this parser.
 func TestParseCardReadsTheCertificateByTheCoresRule(t *testing.T) {
 	good := testid.CardFor(t, "P", "https://p.example/mcp")
 	if _, err := ParseCard(good); err != nil {

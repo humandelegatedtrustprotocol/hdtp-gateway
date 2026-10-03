@@ -18,7 +18,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 )
 
 // Entry is one registry row: the tool, its gating rule, and its handler.
@@ -30,7 +30,7 @@ type Entry struct {
 
 // Registry holds every tool an account can ever serve, as data (SPEC §2.4).
 //
-// Entries arrive in named GROUPS. The built-in PACT tools are one group and
+// Entries arrive in named GROUPS. The built-in HDTP tools are one group and
 // never change; each integration is a group of its own, because an exposure set
 // is versioned and republished (§6.5) and a withheld integration must stop being
 // served (§6.10). With only Add(), an integration's tools could be put in and
@@ -45,7 +45,7 @@ type Registry struct {
 // builtinGroup is where entries added without a group name land.
 const builtinGroup = ""
 
-// Add appends to the built-in group — the PACT tool set, which never changes.
+// Add appends to the built-in group — the HDTP tool set, which never changes.
 func (r *Registry) Add(e ...Entry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -142,7 +142,7 @@ type Pool struct {
 	// column is what scopes a narrowed token's reads (SPEC §11.6) and the
 	// portal's audit page, and a row with no account is readable by everyone.
 	AccountID string
-	// Limit, when set, charges one call to a PACT §12 budget, which the limits sidecar decides
+	// Limit, when set, charges one call to a HDTP §12 budget, which the limits sidecar decides
 	// (internal/limits), and answers nil when the call may proceed. It runs per CALL, not per
 	// request. `as` says which budget: the caller's own (ChargeCaller: a contact's, or a guest's),
 	// a guest's whatever the caller is (ChargeGuest: a pinned root at an address not approved, the
@@ -178,7 +178,7 @@ const (
 )
 
 // Refusal is a budget's answer to a call that may not proceed: `rate_limited`, with the whole
-// seconds until the budget holds a call again (PACT §12), or `unavailable` when no budget could be
+// seconds until the budget holds a call again (HDTP §12), or `unavailable` when no budget could be
 // asked — the limits sidecar is not answering, and the node refuses rather than guess (the owner's
 // rule of 2026-09-29, docs/release/two-layer-limits-2026-09-28.md §6).
 type Refusal struct {
@@ -186,7 +186,7 @@ type Refusal struct {
 	Unavailable bool
 }
 
-// Code is the refusal's PACT §12 code.
+// Code is the refusal's HDTP §12 code.
 func (r *Refusal) Code() string {
 	if r.Unavailable {
 		return "unavailable"
@@ -319,7 +319,7 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 	if err != nil {
 		return nil, err
 	}
-	s := mcp.NewServer(&mcp.Implementation{Name: "pact-gateway", Version: "1"}, &mcp.ServerOptions{Capabilities: ToolsOnly()})
+	s := mcp.NewServer(&mcp.Implementation{Name: "hdtp-gateway", Version: "1"}, &mcp.ServerOptions{Capabilities: ToolsOnly()})
 	// SPEC §5.8: every deny is audited, "at every stage of the pipeline". A call
 	// for a tool this caller cannot see never reaches a handler — the SDK
 	// refuses it as unknown — so without this the most interesting denials, the
@@ -337,7 +337,7 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 					return res, err
 				}
 				// A pinned root calling from an address the owner has not yet
-				// approved (PACT §5.3) is composed as a guest, so its contact
+				// approved (HDTP §5.3) is composed as a guest, so its contact
 				// tools are not here — but the answer is the one the sealed
 				// path gives: pending_approval, and pending for the
 				// update_contact that brought the address.
@@ -352,7 +352,7 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 				// Otherwise the tool is not on this caller's surface, and the
 				// SDK's own "unknown tool" error would both leak that the tool
 				// exists elsewhere and differ from what the sealed path returns.
-				// Answer with the protocol's code instead (PACT §12, §5.4).
+				// Answer with the protocol's code instead (HDTP §12, §5.4).
 				code := refusalCode(caller.Tier)
 				p.audit(caller.Tier, "tools_call",
 					"caller:"+fprOrAnonymous(fpr)+" tool:"+calledTool(req), code)
@@ -389,14 +389,14 @@ func calledTool(req mcp.Request) string {
 }
 
 // refusalCode is the code a caller sees when a tool is out of reach. The
-// distinction is required by PACT §12 and is a privacy rule, not cosmetics: at
+// distinction is required by HDTP §12 and is a privacy rule, not cosmetics: at
 // guest tier "you may not" and "there is no such tool" must be the SAME answer,
 // because a blocked caller resolves to guest and must be indistinguishable from
 // somebody this node has never met (§5.4). A contact, by contrast, is known — so
 // a tool their switchboard does not grant is an honest `permission_denied`.
 // resolveCaller is Resolve with one override: a `v: 2` envelope whose chain
 // proved nothing for the pinned root — a blocked contact, or a leaf older than
-// the pinned one (PACT §14.3) — is a guest whatever row the root has. The
+// the pinned one (HDTP §14.3) — is a guest whatever row the root has. The
 // envelope decided that before dispatch, and the store must not undo it.
 func (p *Pool) resolveCaller(ctx context.Context, accountID, fpr string) (policy.Caller, error) {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Demote {
@@ -451,7 +451,7 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		// must be sealed is refused as `seal_required` before anything looks at
 		// who the caller is.
 		// Budget first: a refusal here must not cost the node any of the work a
-		// permitted call would (PACT §12, SPEC §5.7). The sealed_call wrapper is
+		// permitted call would (HDTP §12, SPEC §5.7). The sealed_call wrapper is
 		// exempt HERE and only here: at this point the envelope is unopened, so
 		// the caller classifies by transport — behind a terminating edge that is
 		// an anonymous guest, and every sealed contact was burning the shared
@@ -476,7 +476,7 @@ func (p *Pool) checked(accountID, fpr string, e Entry) mcp.ToolHandler {
 		if p.Gate != nil {
 			if err := p.Gate(ctx, e.Tool.Name); err != nil {
 				if errors.Is(err, ErrPendingStatus) {
-					// PACT §5.3: the update_contact from a new address the owner
+					// HDTP §5.3: the update_contact from a new address the owner
 					// has not approved answers pending, and nothing runs.
 					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"pending"}`}}}, nil
 				}

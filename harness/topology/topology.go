@@ -1,5 +1,5 @@
 // Package topology stands the network shapes of docs/harness-design.md §3 up as
-// running pact-gateway nodes.
+// running hdtp-gateway nodes.
 //
 // The shapes exist to make reachability claims TRUE rather than asserted. T2 does
 // not simulate a NAT by having the test decline to dial; the node genuinely sits on
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/wallet"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/wallet"
 )
 
 // Kind names a topology from the design document.
@@ -29,14 +29,14 @@ const (
 // PublicPort is the port every node's public surface binds inside its container.
 const PublicPort = 8443
 
-// Node is one running pact-gateway.
+// Node is one running hdtp-gateway.
 type Node struct {
 	Name      string
 	Slug      string
 	Container *fabric.Container
 	PublicURL string
 	// Fingerprint is this node's identity: the fingerprint of its owner's ROOT, which is what
-	// another node pins it by (PACT §2). Empty until Provision runs. It was the account key's,
+	// another node pins it by (HDTP §2). Empty until Provision runs. It was the account key's,
 	// read back from `account create`, while a key was an identity.
 	Fingerprint string
 	// Wallet is that owner's root, and Pin what a caller holds of the node once it is certified.
@@ -67,22 +67,22 @@ func (t *Topo) Node(slug string) *Node {
 	return nil
 }
 
-// NodeEnv is the environment every harness node starts with; a scenario adds to it (PACT_SEAL,
+// NodeEnv is the environment every harness node starts with; a scenario adds to it (HDTP_SEAL,
 // for one). Every knob is an environment variable because SPEC §12.2 makes env the
 // highest-precedence config layer, so a node needs no config files inside the image.
 //
 // publicURL is the address the node's leaf will name, so it is a name other nodes can dial and
-// never a loopback address, which no wallet issues a leaf for (PACT §14.2 rule 5).
+// never a loopback address, which no wallet issues a leaf for (HDTP §14.2 rule 5).
 func NodeEnv(publicURL string) map[string]string {
 	return map[string]string{
-		"PACT_PUBLIC_BIND": fmt.Sprintf("0.0.0.0:%d", PublicPort),
-		"PACT_PUBLIC_URL":  publicURL,
+		"HDTP_PUBLIC_BIND": fmt.Sprintf("0.0.0.0:%d", PublicPort),
+		"HDTP_PUBLIC_URL":  publicURL,
 		// The portal stays on loopback inside the container: SPEC §8.3 refuses a
 		// non-loopback internal bind without auth and TLS, and the harness has no
 		// business weakening that to make itself easier to drive.
-		"PACT_INTERNAL_BIND": fmt.Sprintf("127.0.0.1:%d", InternalPort),
+		"HDTP_INTERNAL_BIND": fmt.Sprintf("127.0.0.1:%d", InternalPort),
 		// Asked for, not required: a guest arrives without a chain the node knows.
-		"PACT_CLIENT_CERT": "preferred",
+		"HDTP_CLIENT_CERT": "preferred",
 	}
 }
 
@@ -96,7 +96,7 @@ func nodeSpec(name, image string, net *fabric.Network, f *fabric.Fabric) fabric.
 }
 
 // Serve starts a node container and, beside it, its limits sidecar (SPEC §5.7): the same image run
-// as /pact-limitd with its shipped configuration, no network of its own, sharing the node's /data,
+// as /hdtp-limitd with its shipped configuration, no network of its own, sharing the node's /data,
 // where the socket is. Every node a scenario serves from is started here: without its sidecar a node
 // refuses every sealed call `unavailable`, and its healthcheck fails.
 func Serve(ctx context.Context, f *fabric.Fabric, s fabric.Spec) (*fabric.Container, error) {
@@ -106,7 +106,7 @@ func Serve(ctx context.Context, f *fabric.Fabric, s fabric.Spec) (*fabric.Contai
 	}
 	if _, err := f.Container(ctx, fabric.Spec{
 		Name: s.Name + "-limitd", Image: s.Image, NetworkMode: "none", VolumesFrom: []string{c.Name},
-		Entrypoint: "/pact-limitd", Cmd: []string{"-config", "/etc/pact-limitd/limits.json"},
+		Entrypoint: "/hdtp-limitd", Cmd: []string{"-config", "/etc/hdtp-limitd/limits.json"},
 	}); err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) err
 	defer cancel()
 	var last error
 	for {
-		if _, err := f.Exec(ctx, c, "/pact-gateway", "healthcheck"); err == nil {
+		if _, err := f.Exec(ctx, c, "/hdtp-gateway", "healthcheck"); err == nil {
 			return nil
 		} else {
 			last = err
@@ -209,7 +209,7 @@ func WaitHealthy(ctx context.Context, f *fabric.Fabric, c *fabric.Container) err
 
 // Certify creates the account `slug` on a running node and has a new wallet — its owner's root —
 // certify it. Until then the account is nobody and the node has no certificate to present
-// (PACT §2). Every account the harness makes on a container node is made through here; the VM
+// (HDTP §2). Every account the harness makes on a container node is made through here; the VM
 // guest (S8) creates its own, in its boot script.
 func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string) (*wallet.Wallet, wallet.Pin, error) {
 	return CertifyUntil(ctx, f, c, slug, time.Time{})
@@ -218,7 +218,7 @@ func Certify(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug st
 // CertifyUntil is Certify with a first leaf that expires at notAfter (zero: a year).
 func CertifyUntil(ctx context.Context, f *fabric.Fabric, c *fabric.Container, slug string, notAfter time.Time) (*wallet.Wallet, wallet.Pin, error) {
 	name := strings.ToUpper(slug[:1]) + slug[1:]
-	if out, err := f.Exec(ctx, c, "/pact-gateway", "account", "create", "--slug", slug, "--name", name); err != nil {
+	if out, err := f.Exec(ctx, c, "/hdtp-gateway", "account", "create", "--slug", slug, "--name", name); err != nil {
 		return nil, wallet.Pin{}, fmt.Errorf("topology: creating account %s on %s: %w (%s)", slug, c.Name, err, out)
 	}
 	w, err := wallet.New(name)
@@ -260,7 +260,7 @@ type fabricNode struct {
 }
 
 func (n fabricNode) Exec(ctx context.Context, args ...string) ([]byte, error) {
-	return n.f.Exec(ctx, n.c, append([]string{"/pact-gateway"}, args...)...)
+	return n.f.Exec(ctx, n.c, append([]string{"/hdtp-gateway"}, args...)...)
 }
 
 func (n fabricNode) CopyIn(ctx context.Context, hostPath, nodePath string) error {

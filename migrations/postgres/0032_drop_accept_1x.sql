@@ -3,7 +3,7 @@
 -- no such peer to accept. A build that refuses every `v: 1` envelope and every key-pinned card
 -- outright has nothing for this column to switch, and nothing read it: it was written by
 -- SetAccountHostPolicy, carried on the Account struct, and consulted by no line of production
--- code. It travelled with accept_new_hosts, which is a live 2.0 setting (PACT sec. 5.3) and stays.
+-- code. It travelled with accept_new_hosts, which is a live 2.0 setting (HDTP sec. 5.3) and stays.
 ALTER TABLE accounts DROP COLUMN accept_1x;
 
 -- +goose Down

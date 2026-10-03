@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 func eventsOf(t *testing.T, st store.AuditStore) []audit.Event {
@@ -93,12 +93,12 @@ func TestWritersInSeveralProcessesExtendOneChain(t *testing.T) {
 		appendTogether(t, stores)
 	})
 	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+		dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 		if dsn == "" {
-			t.Skip("PACT_TEST_POSTGRES_DSN not set")
+			t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 		}
 		ctx := context.Background()
-		const dbName = "pact_audit_writers"
+		const dbName = "hdtp_audit_writers"
 		admin, err := pgx.Connect(ctx, dsn)
 		if err != nil {
 			t.Fatal(err)

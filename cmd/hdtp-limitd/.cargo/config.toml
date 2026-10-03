@@ -1,4 +1,4 @@
-# pact-identity is a private repository fetched over SSH, with the credential the machine's ssh
+# hdtp-identity is a private repository fetched over SSH, with the credential the machine's ssh
 # agent holds, never one inside this tree or a container (standing rule 4). Cargo's built-in git
 # does not speak to an agent; the system git does.
 [net]

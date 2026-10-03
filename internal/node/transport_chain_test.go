@@ -1,6 +1,6 @@
 package node
 
-// The transport path (PACT §2): a chain presented as the TLS client
+// The transport path (HDTP §2): a chain presented as the TLS client
 // certificate earns exactly what the sealed path would grant the same chain —
 // resolved through the pin checks of §14.3 and §5.3 before the per-caller
 // server is composed, so what tools/list shows and what a call runs as agree
@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
 )
 
 func TestATransportChainResolvesThroughThePinChecks(t *testing.T) {

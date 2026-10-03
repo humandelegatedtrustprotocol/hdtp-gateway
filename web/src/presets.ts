@@ -1,6 +1,6 @@
 // The permission presets' grid (preset_grid.tsx), its arithmetic: which columns it draws, what each
 // checkbox is called, whether a row has changed, and how a row saves itself (presetAutosave). Shared
-// with PACT Cloud's portal byte for byte (scripts/check-harvested.mjs there), so both portals draw one
+// with BatonDeck's portal byte for byte (scripts/check-harvested.mjs there), so both portals draw one
 // grid from one rule.
 
 /** A preset as the grid reads it: its name and the permissions it grants. */

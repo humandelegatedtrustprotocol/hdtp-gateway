@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S3 — messaging and media, and the guard on the one request a contact can make the node send.
@@ -48,7 +48,7 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 	}
 	alice, err := w.Node(ctx, NodeOpts{
 		Slug: "alice", Net: pub, PublishPublic: true,
-		Env: map[string]string{"PACT_SEAL": "optional"},
+		Env: map[string]string{"HDTP_SEAL": "optional"},
 	})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
@@ -61,9 +61,9 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 		t.Fatalf("bob: %v", err)
 	}
 
-	fileBody := "PACT-S3-FILE " + w.Fab.Prefix()
+	fileBody := "HDTP-S3-FILE " + w.Fab.Prefix()
 	files, filesIP := stubHTTP(ctx, t, w, "files", pub, okResponse(fileBody))
-	canary, canaryIP := stubHTTP(ctx, t, w, "canary", home, okResponse("PACT-S3-CANARY"))
+	canary, canaryIP := stubHTTP(ctx, t, w, "canary", home, okResponse("HDTP-S3-CANARY"))
 	redirector, redirIP := stubHTTP(ctx, t, w, "redirector", pub,
 		"HTTP/1.1 302 Found\r\nLocation: http://"+canaryIP+"/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 	for _, a := range []struct{ name, ip string }{{"files", filesIP}, {"redirector", redirIP}} {
@@ -136,7 +136,7 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 		}, "s3-text"); err != nil {
 			t.Fatalf("send_message: %v", err)
 		}
-		inline := "PACT-S3-INLINE " + w.Fab.Prefix() + " \x00\x01\x02 bytes, not text"
+		inline := "HDTP-S3-INLINE " + w.Fab.Prefix() + " \x00\x01\x02 bytes, not text"
 		if _, err := bob.Call(ctx, target, "send_media", map[string]any{
 			"filename": "note.bin", "mime": "text/html", "sender": "agent", "msg_id": "s3-inline",
 			"data": base64.StdEncoding.EncodeToString([]byte(inline)),

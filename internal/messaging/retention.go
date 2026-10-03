@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // RetentionStore is the slice of the store a sweep needs.

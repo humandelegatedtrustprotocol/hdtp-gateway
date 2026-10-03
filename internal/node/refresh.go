@@ -1,9 +1,9 @@
 package node
 
-// Refreshing ONE contact's card, because its owner asked (PACT §3, §14.3).
+// Refreshing ONE contact's card, because its owner asked (HDTP §3, §14.3).
 //
 // A contact's card can change while we are not looking: a renewed leaf, a different seal policy.
-// This node does not go looking. PACT 2.1 §14.3 has a newer leaf arrive on use — the chain in the
+// This node does not go looking. HDTP §14.3 has a newer leaf arrive on use — the chain in the
 // first envelope after a renewal (§13.2), `certificate_renewed` (§14.4) — and the owner's rule for
 // this node is the same: a pin is confirmed when it is needed, and nothing is done proactively.
 // So there is no sweep here, on a timer or on request: what is left is one pull, of one contact,
@@ -12,7 +12,7 @@ package node
 //
 // What a refresh can and cannot move. The re-fetched card MUST name the ROOT we pin, which
 // nothing can change (§14.3). The LEAF beneath it is different: a renewal is a new leaf
-// signed by that same root for the same address, it authorizes itself — PACT §2, "because
+// signed by that same root for the same address, it authorizes itself — HDTP §2, "because
 // the endpoint is unchanged it needs no one's approval to accept it". What a refresh cannot do
 // is move an ADDRESS: the chain is validated against the pinned endpoint as well as the
 // pinned root, so a chain valid at some other address is §5.3's business and not a pull's.
@@ -31,10 +31,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // What a refresh of one contact found, in the words the portal and the owner MCP both show.
@@ -100,7 +100,7 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 	//
 	// The two checks are independent and neither implies the other: the card is checked
 	// against the pinned LEAF key, which moves at every renewal, while the chain is
-	// checked against the pinned ROOT, which is the thing that cannot move (PACT §14.3).
+	// checked against the pinned ROOT, which is the thing that cannot move (HDTP §14.3).
 	// So the case where the card signature legitimately fails — a peer that has renewed
 	// and whose announce has not reached us yet — is exactly a case where the answer
 	// still carries a root we can verify against what we pinned. Doing it after the card
@@ -169,7 +169,7 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 // though the endpoint were compromised. The rule being enforced, "key changes go through
 // update_contact", belongs to the generation where the identity WAS a key and a successor
 // had to be signed by its predecessor. Under 2.0 a leaf signed by the pinned root
-// authorizes itself: PACT §2, "because the endpoint is unchanged it needs no one's
+// authorizes itself: HDTP §2, "because the endpoint is unchanged it needs no one's
 // approval to accept it."
 //
 // The chain is therefore what decides, and it is validated against BOTH halves of the pin:
@@ -192,7 +192,7 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 	if parsed.Key != pin.Fingerprint {
 		return nil, fmt.Errorf("the card names %s, not the pinned root", parsed.Key)
 	}
-	// The chain is not optional. PACT §6.1 has `get_card` answer "always the chain", and this
+	// The chain is not optional. HDTP §6.1 has `get_card` answer "always the chain", and this
 	// used to treat one as a bonus: with none, the card was checked under the pinned leaf's key
 	// and accepted. Whoever answers at the pinned endpoint decides what is in the answer, so a
 	// path taken when something is MISSING is a path they choose — and the one they chose skipped
@@ -200,13 +200,13 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 	if len(chain) != 2 {
 		return nil, fmt.Errorf("the answer carries %d certificate(s); get_card answers with the chain, leaf then root (§6.1)", len(chain))
 	}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{
 		Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
 	})
 	if !vr.OK {
 		return nil, fmt.Errorf("the chain it answered with fails rule %d: %s", vr.Rule, vr.Reason)
 	}
-	held, perr := pactidentity.Parse(pin.Leaf)
+	held, perr := hdtpidentity.Parse(pin.Leaf)
 	if perr != nil {
 		return nil, fmt.Errorf("the pinned leaf is unreadable: %v", perr)
 	}
@@ -249,7 +249,7 @@ type renewedLeaf struct {
 // fillRootCert stores the root certificate of a pin that has none, from the chain
 // `get_card` answers with.
 //
-// The chain travels once (PACT §13.2), so a pin made over a SEALED call kept the root's
+// The chain travels once (HDTP §13.2), so a pin made over a SEALED call kept the root's
 // fingerprint and nothing else: the sender's chain is inside the ciphertext, where only
 // the library's Decide sees it, and behind an edge no client certificate ever arrives to
 // fill the gap. A fingerprint authenticates a chain that shows up; it cannot prove a
@@ -274,7 +274,7 @@ func (n *Node) fillRootCert(ctx context.Context, accountID, contactFpr string, s
 		}
 		der = append(der, b)
 	}
-	vr := pactidentity.ValidateChain(der, pactidentity.ChainOpts{Now: n.now(), ExpectedRoot: contactFpr})
+	vr := hdtpidentity.ValidateChain(der, hdtpidentity.ChainOpts{Now: n.now(), ExpectedRoot: contactFpr})
 	if !vr.OK {
 		n.auditFor(accountID, "contact_root_cert", "contact:"+contactFpr+" rule:"+strconv.Itoa(vr.Rule), "refused")
 		return

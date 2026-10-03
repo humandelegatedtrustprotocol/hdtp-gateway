@@ -1,4 +1,4 @@
-// The stylesheet's rules that a page's layout depends on, read from the sheet itself. PACT Cloud's
+// The stylesheet's rules that a page's layout depends on, read from the sheet itself. BatonDeck's
 // portal carries the same sheet (harvested) and holds its copy to the same rules.
 //
 //   - A pill never breaks onto two lines (the owner, 2026-09-29: "envelope invalid chip in new line in

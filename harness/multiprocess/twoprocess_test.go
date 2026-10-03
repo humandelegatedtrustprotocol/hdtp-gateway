@@ -1,8 +1,8 @@
 // Package multiprocess proves the node's horizontal scaling end to end (docs/release/
-// mcp-stateless-2026-09-28.md, N7): two `pact-gateway serve` processes of the shipped binary,
+// mcp-stateless-2026-09-28.md, N7): two `hdtp-gateway serve` processes of the shipped binary,
 // sharing one store, behind a round-robin proxy — once on one SQLite data dir, once on one
 // Postgres database with a data dir each. Hermetic: no Docker, no network beyond loopback. The
-// Postgres half runs where PACT_TEST_POSTGRES_DSN names a server (the pre-push hook starts one),
+// Postgres half runs where HDTP_TEST_POSTGRES_DSN names a server (the pre-push hook starts one),
 // and says it skipped where none is.
 package multiprocess
 
@@ -33,15 +33,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "modernc.org/sqlite"
 
-	"github.com/pact-cloud/pact-gateway/harness/owner"
-	"github.com/pact-cloud/pact-gateway/harness/peer"
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/owner"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/peer"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // publicURL is the address the node advertises; the proxy is where it really listens.
@@ -53,24 +53,24 @@ var (
 	buildErr  error
 )
 
-// binary builds the shipped `pact-gateway` once for the package.
+// binary builds the shipped `hdtp-gateway` once for the package.
 func binary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "pact-n7-bin-")
+		dir, err := os.MkdirTemp("", "hdtp-n7-bin-")
 		if err != nil {
 			buildErr = err
 			return
 		}
-		binPath = filepath.Join(dir, "pact-gateway")
+		binPath = filepath.Join(dir, "hdtp-gateway")
 		// Built in the node's own module (the repository root), with its go.sum: the harness
 		// module requires the node only for the packages it imports.
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/pact-gateway")
+		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/hdtp-gateway")
 		cmd.Dir = filepath.Join("..", "..")
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			buildErr = fmt.Errorf("building pact-gateway: %v\n%s", err, out)
+			buildErr = fmt.Errorf("building hdtp-gateway: %v\n%s", err, out)
 		}
 	})
 	if buildErr != nil {
@@ -121,11 +121,11 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootKey, err := pactidentity.GenerateKey("ed25519")
+	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alice", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alice", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
@@ -160,7 +160,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 		t.Fatal(err)
 	}
 	return seeded{accountID: a.ID, slug: a.Slug, leaf: iss.DER,
-		root: pactidentity.Fingerprint(rootKey.Public().SPKI), ownerToken: token, inviteToken: invite}
+		root: hdtpidentity.Fingerprint(rootKey.Public().SPKI), ownerToken: token, inviteToken: invite}
 }
 
 // proc is one running `serve`.
@@ -318,7 +318,7 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 	bin := binary(t)
 	t.Run("sqlite", func(t *testing.T) {
 		dir := t.TempDir()
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -331,21 +331,21 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 		scenario(t, bin, deployment{engine: "sqlite", dirs: [2]string{dir, dir}, limits: limitstest.StartDefault(t).Path}, s, nil)
 	})
 	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+		dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 		if dsn == "" {
-			t.Skip("PACT_TEST_POSTGRES_DSN not set: the Postgres half needs a server (the pre-push hook starts one)")
+			t.Skip("HDTP_TEST_POSTGRES_DSN not set: the Postgres half needs a server (the pre-push hook starts one)")
 		}
 		ctx := context.Background()
 		admin, err := pgx.Connect(ctx, dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS pact_n7")
-		if _, err := admin.Exec(ctx, "CREATE DATABASE pact_n7"); err != nil {
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS hdtp_n7")
+		if _, err := admin.Exec(ctx, "CREATE DATABASE hdtp_n7"); err != nil {
 			t.Fatal(err)
 		}
 		admin.Close(ctx)
-		target := rewriteDB(dsn, "pact_n7")
+		target := rewriteDB(dsn, "hdtp_n7")
 		key := make([]byte, 32)
 		_, _ = rand.Read(key)
 		masterKey := base64.StdEncoding.EncodeToString(key)
@@ -354,7 +354,7 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 			t.Fatal(err)
 		}
 		kr, err := core.OpenKeyring(filepath.Join(t.TempDir(), "unused.key"), func(k string) (string, bool) {
-			return masterKey, k == "PACT_MASTER_KEY"
+			return masterKey, k == "HDTP_MASTER_KEY"
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -362,7 +362,7 @@ func TestTwoNodeProcessesBehindARoundRobinProxy(t *testing.T) {
 		s := seed(t, st, kr)
 		st.Close()
 		scenario(t, bin, deployment{engine: "postgres", dsn: target, dirs: [2]string{t.TempDir(), t.TempDir()}, limits: limitstest.StartDefault(t).Path}, s,
-			[]string{"PACT_MASTER_KEY=" + masterKey})
+			[]string{"HDTP_MASTER_KEY=" + masterKey})
 	})
 }
 
@@ -377,7 +377,7 @@ func rewriteDB(dsn, db string) string {
 
 func scenario(t *testing.T, bin string, d deployment, s seeded, env []string) {
 	ctx := context.Background()
-	env = append(env, "PACT_LOG=off")
+	env = append(env, "HDTP_LOG=off")
 	a := start(t, bin, "A", d, 0, env)
 	a.ready(t, s.ownerToken)
 	b := start(t, bin, "B", d, 1, env)
@@ -521,7 +521,7 @@ func rawQuery(t *testing.T, d deployment, q string, into any) error {
 	if d.engine == "postgres" {
 		db, err = sql.Open("pgx", d.dsn)
 	} else {
-		db, err = sql.Open("sqlite", "file:"+filepath.Join(d.dirs[0], "pact.db")+"?_pragma=busy_timeout(5000)")
+		db, err = sql.Open("sqlite", "file:"+filepath.Join(d.dirs[0], "hdtp.db")+"?_pragma=busy_timeout(5000)")
 	}
 	if err != nil {
 		return err
@@ -559,12 +559,12 @@ func legacySealedSend(t *testing.T, a *peer.Agent, target peer.Target, s seeded)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recipient, err := pactidentity.ParseSPKI(leaf.RawSubjectPublicKeyInfo)
+	recipient, err := hdtpidentity.ParseSPKI(leaf.RawSubjectPublicKeyInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	env, err := pactidentity.SealRequest(pactidentity.SealOpts{
+	env, err := hdtpidentity.SealRequest(hdtpidentity.SealOpts{
 		RecipientKey: recipient, Sender: sender, Form: "chain", SenderChain: [][]byte{a.Keypair.Leaf, a.Keypair.Root},
 		Method: "tools/call", Params: json.RawMessage(`{"name":"send_message","arguments":{"msg_id":"n7-legacy","text":"over 2025-11-25"}}`),
 		MsgID: "n7-legacy", TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(),
@@ -577,13 +577,13 @@ func legacySealedSend(t *testing.T, a *peer.Agent, target peer.Target, s seeded)
 	if err != nil || res.IsError {
 		t.Fatalf("sealed_call over 2025-11-25: %v %+v", err, res)
 	}
-	var answer pactidentity.Envelope
+	var answer hdtpidentity.Envelope
 	if err := json.Unmarshal([]byte(res.Content[0].(*mcp.TextContent).Text), &answer); err != nil {
 		t.Fatal(err)
 	}
-	opened, err := pactidentity.OpenResult(answer, pactidentity.OpenOpts{
+	opened, err := hdtpidentity.OpenResult(answer, hdtpidentity.OpenOpts{
 		Recipient: sender, RecipientPublic: sender.Public(), MsgID: "n7-legacy", Now: now,
-		Pins:         []pactidentity.Pin{{Root: s.root, Endpoint: target.Endpoint, Leaf: pactidentity.B64url(s.leaf), State: "active"}},
+		Pins:         []hdtpidentity.Pin{{Root: s.root, Endpoint: target.Endpoint, Leaf: hdtpidentity.B64url(s.leaf), State: "active"}},
 		ExpectedRoot: s.root, ExpectedEndpoint: target.Endpoint,
 	})
 	if err != nil || opened.Error != nil {

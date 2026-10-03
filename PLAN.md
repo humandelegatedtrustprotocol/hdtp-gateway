@@ -1,11 +1,11 @@
-# pact-gateway Implementation Plan
+# hdtp-gateway Implementation Plan
 
 > **For agentic workers:** work this plan task-by-task per the build goal (the appendix at the end of this file, formerly `GOAL.md`). One task per
 > iteration, TDD inside every task, one commit per task, update the Status column as you
 > go. Never start a task whose `Depends on` list has an entry not marked `done`.
 
-**Goal:** Build pact-gateway v1 per `SPEC.md` (this repo) and the PACT protocol spec
-(`../pact-protocol/SPEC.md`, normative for wire behavior).
+**Goal:** Build hdtp-gateway v1 per `SPEC.md` (this repo) and the HDTP protocol spec
+(`../hdtp-spec/SPEC.md`, normative for wire behavior).
 
 **Architecture:** Single static Go binary; three roles (node, relay mode, ingress role);
 per-caller MCP servers; envelope-first identity; Cedar authorization; SQLite/Postgres
@@ -47,7 +47,7 @@ Status column and the Dependency Log.
 | P0-07 | CLI frame + admin unix socket | P0-02 | done |
 | P0-08 | Internal listener + portal shell + setup-token gate | P0-02, P0-04 | done |
 | P0-09 | Dockerfile, compose, first-run flow | P0-07, P0-08 | done (compose runs the portal shell; the public surface is wired in P6-03) |
-| P0-10 | PACT 1.1 protocol delta draft (uncommitted, in pact-protocol) | — | done |
+| P0-10 | Pre-HDTP 1.1 protocol delta draft (uncommitted, in hdtp-spec) | — | done |
 
 ### P1 — Identity + public core (exit: two local nodes pair and message)
 
@@ -66,7 +66,7 @@ Status column and the Dependency Log.
 | P1-11 | P1 exit integration test (two in-process nodes) | P1-06, P1-08, P1-09, P1-10 | done |
 | P1-12 | vCard build/export/import + parser fuzz target | P1-01 | done |
 | P1-13 | Invite landing page `/i/<token>` + QR | P0-08, P1-06, P1-12 | done (handler production; mounted by P6-02) |
-| P1-14 | Rate limits + size caps (PACT §12) at the boundary | P1-05 | done |
+| P1-14 | Rate limits + size caps (HDTP §12) at the boundary | P1-05 | done |
 
 ### P2 — Portal, owner MCP, Cedar (exit: pairing demo in browser; agent reads inbox)
 
@@ -78,7 +78,7 @@ Status column and the Dependency Log.
 | P2-04 | Switchboard UI, presets, trust flag, live rebuild + list_changed | P2-01, P2-03 | done |
 | P2-05 | Media: send_media, blob store, click-to-fetch, SSRF guards | P1-09 | done (receive side only; the portal has no media surface at all — neither fetch nor serving stored bytes → P10-11b/c/d) |
 | P2-06 | Inbox/threads pages + event bus + SSE | P1-09, P2-01 | done (the SSE stream has no browser consumer, so nothing is live → P10-11e/f) |
-| P2-07 | Owner MCP (tools + pact:// resources + subscriptions) | P1-09, P2-02, P2-03 | done (mounted, but missing the §8.4 contact/invite tools, pact://thread/<id>, an EventStore, and per-call audit → P10-08) |
+| P2-07 | Owner MCP (tools + hdtp:// resources + subscriptions) | P1-09, P2-02, P2-03 | done (mounted, but missing the §8.4 contact/invite tools, hdtp://thread/<id>, an EventStore, and per-call audit → P10-08) |
 | P2-08 | Contact approvals, invite management, card builder pages | P1-13, P2-06 | done (pages production; mounted by P6-03) |
 | P2-09 | Audit portal views + export + `audit verify` CLI | P0-06, P2-01 | done |
 | P2-10 | P2 exit test (httptest pairing demo + fake agent reads inbox) | P2-04, P2-05, P2-06, P2-07, P2-08 | done |
@@ -168,7 +168,7 @@ confirmed at `file:line`) found the phase is larger than a wiring backlog.
 **Eight of the nine open rows understate their gap**, and one finding reframes
 the phase:
 
-> **pact-gateway cannot send a message to a person.** Both outbound origins —
+> **hdtp-gateway cannot send a message to a person.** Both outbound origins —
 > the portal send button (`internal/internalui/inbox_pages.go:80-97`) and the
 > owner-MCP `send_to_contact` (`internal/internalui/ownermcp/server.go:218-226`)
 > — call `messaging.Service.Record`, which writes a **local row stamped
@@ -188,7 +188,7 @@ a commit.
 | ID | Task | Depends on | Status |
 |---|---|---|---|
 | P10-01 | Gate the conformance map on product reachability, not test existence | P6-05 | done |
-| P10-02 | Install the rate limiter — PACT §12's caps are unenforced and `rate_limited` is unreachable | P6-02 | done |
+| P10-02 | Install the rate limiter — HDTP §12's caps are unenforced and `rate_limited` is unreachable | P6-02 | done |
 | P10-03 | Wire `SessionBinder` — SPEC §5.6 session-identity binding ships as a library only | P6-02 | done |
 | P10-13 | Take `sync_allowlist` off the MCP surface (owner decision, 2026-08-24) | P6-04 | done |
 | P10-00 | Escalation docket (E2–E8) and an honest board — no code | — | done |
@@ -242,7 +242,7 @@ a commit.
 | P10-06e | Make the conformance map and the ingress docs tell the truth | P10-06d | done |
 | P10-08a | Configure an EventStore on the owner-MCP transport | — | done |
 | P10-08b | Apply SPEC §8.4's loopback rule to the owner MCP | E6 | done (amended the SPEC; the code was already right) |
-| P10-08c | Add `pact://thread/<id>` as a scoped resource template | — | done |
+| P10-08c | Add `hdtp://thread/<id>` as a scoped resource template | — | done |
 | P10-08d | Register the contact and invite tools §8.4 requires and P2-07 promised | — | done (already present: `list_contacts`, `approve_contact`, `set_permissions`, `set_trust_flag`, `create_invite`; the row overstated the gap) |
 | P10-08e | Audit every owner-MCP tool call (SPEC §8.7) | — | done |
 | P10-08g | Make `call_contact` seal when the peer requires it — it hardcodes `Plaintext: true` | P10-07a | done |
@@ -389,13 +389,13 @@ Every task: SPEC.md section references are authoritative; if a task and SPEC.md 
 STOP and escalate per GOAL.md. "AC" = acceptance criteria — all must pass before `done`.
 
 ### P0-01 Go module, layout, Makefile, CI
-**Files:** `go.mod`, `cmd/pact-gateway/main.go`, `internal/` package dirs (empty doc.go
+**Files:** `go.mod`, `cmd/hdtp-gateway/main.go`, `internal/` package dirs (empty doc.go
 stubs), `Makefile`, `.github/workflows/ci.yml`.
 Layout per SPEC §2 packages: `internal/core`, `internal/identity`, `internal/public`,
 `internal/envelope`, `internal/contacts`, `internal/messaging`, `internal/integrations`,
 `internal/outbound`, `internal/relay`, `internal/internalui`, `internal/tunnel`,
 `internal/cli`. `make check` = gofmt-diff-empty + `go vet ./...` + `go test -race ./...`;
-`make build` = `CGO_ENABLED=0 go build -o pact-gateway ./cmd/pact-gateway`.
+`make build` = `CGO_ENABLED=0 go build -o hdtp-gateway ./cmd/hdtp-gateway`.
 **AC:** `make check` green; `make build` produces a static binary that prints a version
 string; CI workflow runs check + govulncheck on push.
 
@@ -440,7 +440,7 @@ export + re-anchor round-trips.
 Stdlib flag-based subcommand dispatch (no cobra): `serve`, `version`, `migrate`,
 `doctor` (stub checks), plus admin socket in the data dir serving a JSON RPC the CLI
 talks to when the node runs; offline ops require the node stopped (lock file check).
-**AC:** `pact-gateway version` works; `doctor` reports config/dir status; socket
+**AC:** `hdtp-gateway version` works; `doctor` reports config/dir status; socket
 round-trip test; lock prevents concurrent `migrate` while serving.
 
 ### P0-08 Internal listener + portal shell + setup-token gate
@@ -458,23 +458,23 @@ Static build on distroless; `-full` adds node+uv; compose profiles `postgres`,
 **AC:** `docker build` both images; `docker compose up` reaches healthz and logs the
 setup token; container runs as non-root with `/data` volume.
 
-### P0-10 PACT 1.1 protocol delta draft
-**Files (in `../pact-protocol` — the ONLY task allowed to touch that repo; NEVER
+### P0-10 pre-HDTP 1.1 protocol delta draft
+**Files (in `../hdtp-spec` — the ONLY task allowed to touch that repo; NEVER
 commit there):** edits per SPEC §15: protocol §2 identity generalization, §3
 `X-PACT-SEAL` row, §9 relay-mode wording + softened trust note, §10 tunnel findings +
 ingress note, new §13 sealed envelopes (normative text mirrored from this repo's SPEC §4,
 vectors marked "pending P1-07"), §12 new error codes; bump doc version to 1.1.0-draft.
-ALSO edit `../pact-protocol/CLAUDE.md`'s north star: record, dated 2026-08-24, that the
+ALSO edit `../hdtp-spec/CLAUDE.md`'s north star: record, dated 2026-08-24, that the
 owner deliberately reversed the "no envelope crypto" rule (sealed envelopes are now IN,
 per gateway SPEC §4) — without this, future sessions see contradictory authority.
-**AC:** `cd ../pact-protocol && node site/build.mjs` passes; `git -C ../pact-protocol
+**AC:** `cd ../hdtp-spec && node site/build.mjs` passes; `git -C ../hdtp-spec
 diff` is a clean reviewable diff; nothing staged or committed there; this repo's
 Dependency Log notes the diff exists and awaits owner review.
 
 ### P1-01 Account keypairs, fingerprints, certs
 **Files:** `internal/identity/` + tests.
 P-256 (default) and Ed25519 keypairs; `sha256:` + base64url(SHA-256(SPKI)) fingerprint
-(PACT §2); self-signed long-lived client cert; accounts CRUD + `account create|list` CLI.
+(HDTP §2); self-signed long-lived client cert; accounts CRUD + `account create|list` CLI.
 **AC:** fingerprint matches an independently computed fixture (openssl-derived, committed);
 cert parses, presents correct SPKI; CLI creates and lists via admin socket.
 
@@ -512,7 +512,7 @@ sealing is not a blocked-vs-unknown oracle.
 
 ### P1-05 Contacts, tiers, per-caller servers
 **Files:** `internal/contacts/`, `internal/public/servers.go` + tests.
-Contacts table + tier resolution (guest/pending/contact/blocked per PACT §6.1); tool
+Contacts table + tier resolution (guest/pending/contact/blocked per HDTP §6.1); tool
 registry as data; `serverFor(account, caller)` composing an SDK server from allowed
 entries; guarded handler re-checking at call time; LRU; session→identity binding;
 shared guest server (SPEC §2/§5). Interim allow = tier-based until P2-03 swaps in Cedar
@@ -524,7 +524,7 @@ is refused; call-time deny returns `permission_denied` mid-session.
 ### P1-06 Guest/pending tools + invites
 **Files:** `internal/contacts/invites.go`, tool handlers + tests.
 `redeem_invite`, `request_contact`, `contact_accepted`, `contact_rejected`,
-`update_contact`, `remove_contact`, `get_card` per PACT §6.2; invites store token-hash
+`update_contact`, `remove_contact`, `get_card` per HDTP §6.2; invites store token-hash
 only with expiry ≤ 90 d, max_uses, auto_accept, preset, label, revocation (SPEC §9).
 Guest binding: presented identity MUST match the card's X-PACT-KEY.
 **AC:** redeem with auto_accept yields active contact + issuer card; exhausted/expired/
@@ -537,7 +537,7 @@ verifies old-key signature over new fingerprint before re-pin.
 Fixed-key vectors for both suites (seal inputs → envelope JSON → open output); update the
 P0-10 diff's pending appendix with the vectors.
 **AC:** vectors committed; a test opens every vector; regenerating is deterministic given
-fixed keys/nonces documented in the generator; pact-protocol diff updated, still
+fixed keys/nonces documented in the generator; hdtp-spec diff updated, still
 uncommitted, `node site/build.mjs` still green.
 
 ### P1-08 sealed_call wiring
@@ -551,7 +551,7 @@ unknown-key guest reaches guest tools only; plaintext call to seal=required acco
 
 ### P1-09 send_message, threads, idempotency
 **Files:** `internal/messaging/` + tests.
-PACT §6.2/§7 semantics; unique(account, contact, msg_id) acknowledged-not-reexecuted;
+HDTP §6.2/§7 semantics; unique(account, contact, msg_id) acknowledged-not-reexecuted;
 sender label derived from surface (SPEC §7); returns thread_id + status.
 **AC:** duplicate msg_id returns identical response without a second row; thread_id
 shared across both directions; 16 KiB cap enforced with correct error.
@@ -559,7 +559,7 @@ shared across both directions; 16 KiB cap enforced with correct error.
 ### P1-10 Outbound client
 **Files:** `internal/outbound/` + tests.
 Dial contact endpoint with account keypair via `GetClientCertificate` (MUST — SPEC §10);
-server validation WebPKI-or-pinned-fingerprint (PACT §2); seal when peer card says
+server validation WebPKI-or-pinned-fingerprint (HDTP §2); seal when peer card says
 optional/required; `call_contact` internal API.
 **AC:** test server with CA-list CertificateRequest still receives our cert; pinned
 self-signed peer accepted, wrong pin rejected; plaintext refused to seal=required peer.
@@ -574,8 +574,8 @@ both stored with correct threads.
 
 ### P1-12 vCard build/export/import + fuzz
 **Files:** `internal/contacts/vcard.go`, `testdata/` cards, `FuzzVCardParse`.
-vCard 4.0 with X-PACT-VERSION/-ENDPOINT/-KEY/-SEAL/-GATEWAY (PACT §3 + SPEC §9); import
-tolerates foreign vCards, surfaces PACT-capable ones.
+vCard 4.0 with X-PACT-VERSION/-ENDPOINT/-KEY/-SEAL/-GATEWAY (HDTP §3 + SPEC §9); import
+tolerates foreign vCards, surfaces HDTP-capable ones.
 **AC:** round-trip equality on fixtures; phone-exported real-world vCard fixture imports;
 fuzz target runs clean for 30 s in CI job.
 
@@ -588,10 +588,10 @@ existence oracle difference; page has zero external asset references.
 
 ### P1-14 Rate limits + size caps
 **Files:** `internal/public/limits.go` + tests.
-PACT §12 defaults (2.2.4, token buckets): per-contact 1 call/s burst 10, per account
+HDTP §12 defaults (2.2.4, token buckets): per-contact 1 call/s burst 10, per account
 contacts × 1/s, guest 10/h per root+IP, source 60/h per IP, text ≤16 KiB, media
 ≤5 MiB; audited when tripped.
-**AC:** limit trip returns the PACT rate-limit error + audit row; caps enforced before
+**AC:** limit trip returns the HDTP rate-limit error + audit row; caps enforced before
 handler dispatch.
 
 ### P2-01 Passkeys
@@ -627,7 +627,7 @@ blocked forbid overrides, guest scope; P1-05 tests still green with Cedar active
 
 ### P2-04 Switchboard UI + rebuild
 **Files:** `internal/internalui/contacts_pages.go` + tests.
-Per-contact toggles (permissions of PACT §8), presets, trust flag
+Per-contact toggles (permissions of HDTP §8), presets, trust flag
 (message-vs-instruction, SPEC §7); toggle → store → caller-server rebuild →
 tools/list_changed (SPEC §2).
 **AC:** httptest toggle flip persists + audits; live fake session observes
@@ -654,9 +654,9 @@ Bearer-authed MCP server: tools get_inbox, read_thread, send_to_contact (labels
 `agent`), call_contact, list/approve/reject/block_contact, set_permissions,
 set_trust_flag, create/revoke/list_invites, export_card, list_pending, answer_request,
 list_integrations, get_catalog, set_exposure, audit_query; resources
-`pact://inbox|thread/<id>|pending|requests` with Subscribe+Unsubscribe handlers BOTH set,
+`hdtp://inbox|thread/<id>|pending|requests` with Subscribe+Unsubscribe handlers BOTH set,
 `Server.ResourceUpdated` on bus events, stateful transport + EventStore (SPEC §8).
-**AC:** SDK client subscribes to pact://inbox and receives ResourceUpdated on new
+**AC:** SDK client subscribes to hdtp://inbox and receives ResourceUpdated on new
 message; send_to_contact stores sender=agent; token account-scoping enforced via Cedar;
 poll tools return same data with subscriptions unused.
 
@@ -753,7 +753,7 @@ from its server's published tool defs.
 ### P3-09 Agent-answered mode
 **Files:** `internal/integrations/agentanswered.go` + tests.
 pending_requests row w/ TTL (sync tools short, messages n/a — they always fall back to
-store+queued_for_human); bus event → pact://pending ResourceUpdated; answer_request
+store+queued_for_human); bus event → hdtp://pending ResourceUpdated; answer_request
 relays; timeout/no-agent → fallback chain (mapped if bound, else `unavailable`)
 (SPEC §6).
 **AC:** with fake agent connected: caller gets agent's answer; without: mapped fallback
@@ -837,7 +837,7 @@ row; endpoint change triggers update_contact to a fake contact.
 
 ### P4-06 Relay server role
 **Files:** `internal/relay/server.go` + tests.
-`relay_call`/`fetch_queued`/`ack` per PACT §9 on `/relay/mcp`; allow-list synced from
+`relay_call`/`fetch_queued`/`ack` per HDTP §9 on `/relay/mcp`; allow-list synced from
 recipient (active fingerprints); sender sig verified WITHOUT decrypting; retention
 min(expires, 30 d); content-free "you have mail" ping.
 **AC:** disallowed sender rejected; allowed sealed call queued + fetched + acked +
@@ -949,25 +949,25 @@ pairing server, registry, SNI passthrough and terminate data plane started from 
 **AC:** a node configured with a gateway publishes `X-PACT-GATEWAY` on its card and its
 fetch loop drains a queued envelope; a node configured to relay accepts `relay_call`
 from an allow-listed sender over its public listener and refuses it in edge mode
-(no client certificate → `identity_required`); `pact-gateway ingress` starts and pairs a
+(no client certificate → `identity_required`); `hdtp-gateway ingress` starts and pairs a
 node, which is then reachable through it.
 
 ### P9-04 Wire-visible conformance drift
 **Files:** `internal/public/{servers,sealed,tools}.go`, `internal/contacts/manager.go`,
 a migration, SPEC §5.8.
-A conformance audit against PACT §12/§6.2 found three drifts a peer can observe:
-1. **`blocked_or_unknown` is specified and never emitted.** PACT §12 and SPEC
+A conformance audit against HDTP §12/§6.2 found three drifts a peer can observe:
+1. **`blocked_or_unknown` is specified and never emitted.** HDTP §12 and SPEC
    §5.8 both name it as the guest-tier catch-all; `grep` finds it nowhere in the
    code. A guest gets `permission_denied` on the sealed path and the SDK's own
    unknown-tool error on the plaintext one — so the two paths also disagree with
    each other, which is its own leak.
-2. **`contact_accepted` discards both its arguments.** PACT §6.2 gives it
+2. **`contact_accepted` discards both its arguments.** HDTP §6.2 gives it
    `card` and `permissions (list granted to me)`; the handler decodes only the
    card and the manager ignores even that, so a peer's post-approval card and the
    permissions they granted us are both dropped.
 3. **Cards go out signed over HTTP and unsigned over MCP.** The invite landing
    page returns `card` + `card_sig`; `redeem_invite` and `get_card` return the
-   raw SPKI instead, though PACT §4 says redemption returns the issuer's SIGNED
+   raw SPKI instead, though HDTP §4 says redemption returns the issuer's SIGNED
    card.
 **AC:** a guest invoking a non-guest tool gets `blocked_or_unknown` on BOTH
 paths and a blocked caller is indistinguishable from an unknown one;
@@ -1071,12 +1071,12 @@ audited; the docs' "portal → Settings" references become true again.
 ### P6-05 Conformance map and demo docs against the real binary
 **Files:** `docs/conformance.md`, `docs/demos/nat-crossing.md`, corrections to
 `docs/demos/{tailscale-funnel,ngrok,own-domain,real-gcal}.md`.
-Write the PACT §12 checklist → test mapping GOAL.md's definition of done expects and
+Write the HDTP §12 checklist → test mapping GOAL.md's definition of done expects and
 P5-04 never delivered. Write the NAT-crossing demo (tailscale direct path, cloudflared
 edge path, relay path) against the commands `serve`/`doctor` actually accept, and
 re-check the four existing demo docs line by line now that the flow they describe
 exists. Every manual-run line stays `Last manual run: —` until the owner runs it.
-**AC:** `docs/conformance.md` cites a passing test for every PACT §12 checklist item, and
+**AC:** `docs/conformance.md` cites a passing test for every HDTP §12 checklist item, and
 each cited test name exists (mechanically verified in the doc's own check); every command
 line quoted in `docs/demos/*.md` is one the binary accepts; P4-08 flips to `done`.
 
@@ -1113,7 +1113,7 @@ owns — see P14-08 below.
 Found on the first run against real Cloudflare tunnels, and it could not have been
 found anywhere else.
 
-PACT §2 and SPEC §10.3 accept an outbound server two ways: the pinned contact
+HDTP §2 and SPEC §10.3 accept an outbound server two ways: the pinned contact
 fingerprint, or WebPKI validity for the endpoint hostname. Behind an edge only the
 second can apply — Cloudflare terminates TLS, so the certificate a caller sees is
 CLOUDFLARE's, never the peer's. `outbound.Client` implements both branches
@@ -1187,7 +1187,7 @@ Two constraints make the obvious workarounds fail, both verified: relay-assisted
 mode forces `seal: required`, while guest onboarding needs `seal: optional`
 (§9.2 — a guest cannot seal to a key it has not yet received), so "pair while
 relay-assisted" is refused by the config validator, not by the network; and `mode`
-is env-only (`PACT_MODE`), not a settable knob, so it cannot be flipped at runtime
+is env-only (`HDTP_MODE`), not a settable knob, so it cannot be flipped at runtime
 the way `tunnel` can.
 
 The fix is a product feature, which is why this is an escalation and not a commit:
@@ -1212,7 +1212,7 @@ if util.IsLoopback(localAddr.String()) && !util.IsLoopback(req.Host) {
     http.Error(w, fmt.Sprintf("Forbidden: invalid Host header %q", req.Host), 403)
 ```
 
-`PACT_PUBLIC_BIND=0.0.0.0:8443` means frpc dials `0.0.0.0:8443`, which the kernel
+`HDTP_PUBLIC_BIND=0.0.0.0:8443` means frpc dials `0.0.0.0:8443`, which the kernel
 treats as localhost, so the accepted socket's local address is `127.0.0.1:8443`
 while `Host` is the public name. **Every MCP call through a tunnel is refused
 with 403.** `internal/node/node.go:784` and `internal/cli/compose.go:300` both
@@ -1232,7 +1232,7 @@ is `127.0.0.1` and the guard is inert by construction.
 The options, none of which should be picked without the owner:
 
 - **Disable the protection on the public surface only.** It guards a browser with
-  ambient authority against a localhost dev server; the PACT public surface is an
+  ambient authority against a localhost dev server; the HDTP public surface is an
   internet-facing listener with mTLS tiers and its own auth. The internal portal
   keeps it. This is deliberately weakening a security default, which is why it is
   here and not applied.
@@ -1316,7 +1316,7 @@ was taken as written: A and B both weaken §8.3's guard, and C gives up on "open
 the URL" as the first step.
 
 Instead, `compose.yaml` gains a **portal forwarder** — an `alpine/socat` sidecar
-with `network_mode: service:pact-gateway`, so `127.0.0.1` inside it IS the node's
+with `network_mode: service:hdtp-gateway`, so `127.0.0.1` inside it IS the node's
 loopback. It forwards the published host-loopback port to the node. **The product
 is unchanged**: the node still refuses to bind anywhere but loopback, §8.3's rule
 is untouched, and no escape hatch was added to a security guard.
@@ -1429,12 +1429,12 @@ redemption — that decision came from hitting this). The same gap recurs one la
 in relay mode: §10.5 has the relay verify signatures against `relay_allowlist`, which
 also holds fingerprints only.
 
-Options, decision owner's (wire-visible → PACT 1.1 delta):
+Options, decision owner's (wire-visible → pre-HDTP 1.1 delta):
 - **A (worker recommendation):** add `spk` (base64url SPKI DER, ~90 bytes) to the
   envelope protected header. Pinned sender → pin governs, `spk` must match if present;
   unpinned sender → signature verifies under `spk` AND SHA-256(spk) == `from` == card
   `X-PACT-KEY`. Also fixes the relay (hash(spk) ∈ allowlist + sig, no decryption).
-  Changes: pact-protocol §13 (header table, open order, vectors — the uncommitted 1.1
+  Changes: hdtp-spec §13 (header table, open order, vectors — the uncommitted 1.1
   diff can absorb it), this SPEC §4/§5.3/§10.5, internal/envelope + vectors.
 - B: full key in the vCard (`X-PACT-SPKI`) — bloats cards/QRs, does not fix the relay.
 - C: forbid sealed guest calls (guests must present client certs) — kills guest
@@ -1445,7 +1445,7 @@ originally framed: the fix is smaller. The open order already decrypts (step 5) 
 verifies (step 6), and HPKE Base needs no sender key to open — so the sender's key can
 simply ride *inside* the sealed payload:
 
-- **PACT §13.2/§13.3 (delta, uncommitted):** the request plaintext gains `spk` — the
+- **HDTP §13.2/§13.3 (delta, uncommitted):** the request plaintext gains `spk` — the
   sender's SubjectPublicKeyInfo (base64url DER) — REQUIRED whenever the recipient does not
   already pin `from`. Verification: sig under `spk`, `SHA-256(spk)` == `from` == the card's
   `X-PACT-KEY`; a present `spk` from a pinned sender MUST match the pin.
@@ -1464,7 +1464,7 @@ Rejected en route, with reasons on record:
 - Key-by-URL (`.well-known` fetch during inbound processing): the JOSE `jku` footgun —
   an SSRF/tracking primitive on attacker-supplied URLs; also excludes endpoint-less
   (relay-assisted) senders.
-- A signed `/.well-known/pact` document as a third recovery layer: reviewed and cut —
+- A signed `/.well-known/hdtp` document as a third recovery layer: reviewed and cut —
   marginal coverage over lazy healing is ~nil and its freshness machinery is the first
   step back toward the rejected key-transparency direction.
 - A dedicated encryption **subkey**: designed, reviewed, deferred to the existing `kid`
@@ -1475,7 +1475,7 @@ Rejected en route, with reasons on record:
   transferable bearer credential, and a stolen superseded key can then re-pin any lagging
   contact onto the abandoned key (confirmed high finding, review round 2). Rotation keeps
   §3.9 as written: re-pin only within a live pin, never a guest→contact promotion; a peer
-  that missed the window re-verifies over a human channel, exactly as PACT §2 says.
+  that missed the window re-verifies over a human channel, exactly as HDTP §2 says.
 
 Escalated 2026-08-24 (commit f9317d1); resolved same day.
 
@@ -1589,7 +1589,7 @@ tech-stack list above; the worker appends here.
 - modernc.org/sqlite v1.40.0 — pure-Go SQLite driver, keeps CGO_ENABLED=0 static builds — P0-04
 - github.com/pressly/goose/v3 v3.26.0 — embedded migrations via goose.NewProvider, binary migrates itself — P0-04
 - (dev tool, not a module dep) sqlc v1.30.0 via `go run` — query codegen into internal/core/store/sqlitedb — P0-04
-- P0-10 note: PACT 1.1 delta drafted UNCOMMITTED in ../pact-protocol (SPEC.md + CLAUDE.md,
+- P0-10 note: pre-HDTP 1.1 delta drafted UNCOMMITTED in ../hdtp-spec (SPEC.md + CLAUDE.md,
   site build green, nothing staged); adversarially reviewed — 19 findings fixed, incl. two
   design bugs (relay-to-none sealing scoped; invite landing page serves signed card
   pre-redemption) and crypto pinning mirrored into this repo's SPEC §4. Awaits owner review.
@@ -1682,7 +1682,7 @@ tech-stack list above; the worker appends here.
 - **2026-08-24 — store conformance now covers `DeleteContact` on both engines.**
   The method P6-01 added to the `Store` interface was implemented twice and
   exercised on neither: the shared suite predates it, and the Postgres half
-  skips unless `PACT_TEST_POSTGRES_DSN` is set. Both engines were run against a
+  skips unless `HDTP_TEST_POSTGRES_DSN` is set. Both engines were run against a
   real Postgres 16 for this commit (`docker run postgres:16-alpine`,
   29 packages green), and the case is now in the shared suite so the next engine
   change cannot miss it.
@@ -1842,13 +1842,13 @@ tech-stack list above; the worker appends here.
   stored integration at startup, in the background: a dead upstream must not stop
   the node serving its own surface.
 - **2026-08-24 — P9-04/P9-05: three review passes found more than the board did.**
-  A conformance audit against PACT §12/§6.2 found three wire-visible drifts:
+  A conformance audit against HDTP §12/§6.2 found three wire-visible drifts:
   `blocked_or_unknown` was specified in three places and emitted nowhere (a guest
   got `permission_denied` on the sealed path and the SDK's own unknown-tool error
   on the plaintext one — so the two paths also disagreed, which is its own leak);
   `contact_accepted` decoded neither of its arguments, discarding the peer's
   post-approval card and the permissions they granted us; and cards went out
-  signed over the invite landing page but unsigned over MCP, though PACT §4 says
+  signed over the invite landing page but unsigned over MCP, though HDTP §4 says
   redemption returns the issuer's SIGNED card.
   A correctness pass found worse. **Retention deleted every unreferenced blob
   regardless of age** — and a blob row is written BEFORE the message that
@@ -1918,13 +1918,13 @@ match what happened.
 ### P10-13 Take `sync_allowlist` off the MCP surface
 **Files:** `internal/relay/{server,client}.go`, `internal/public/listener.go`,
 `internal/cli/relaywiring.go`, SPEC §10.5.
-**Owner decision (2026-08-24): remove it from the MCP surface.** PACT §9 says a
+**Owner decision (2026-08-24): remove it from the MCP surface.** HDTP §9 says a
 gateway exposes three tools and the relay registered a fourth, so a peer's MCP
 tool list advertised a verb the protocol does not define. The mechanism itself is
 load-bearing — a recipient has no other way to tell its relay who may queue for
 it — so it moves rather than disappears: a relay-local control endpoint on the
 same mTLS connection, authenticated by the same client certificate, documented as
-the relay's own control plane and explicitly NOT a PACT verb.
+the relay's own control plane and explicitly NOT an HDTP verb.
 **AC:** `tools/list` on `/relay/mcp` returns exactly `relay_call`, `fetch_queued`
 and `ack`; the allow-list still syncs and still gates queueing; the endpoint
 refuses a caller with no client certificate; a caller can only set its OWN
@@ -1932,14 +1932,14 @@ allow-list.
 
 ## Resolved escalation (2026-08-24)
 
-**`sync_allowlist` was a wire verb PACT does not describe.** PACT §9 says a
+**`sync_allowlist` was a wire verb HDTP does not describe.** HDTP §9 says a
 gateway exposes three tools — `relay_call`, `fetch_queued`, `ack` — and the
 relay registers a fourth. It is load-bearing (a recipient has no other way to
 say who may queue for it) and it is already on a public surface, so this is not
-a code cleanup: either PACT §9 gains the verb in the 1.1 delta, or the mechanism
+a code cleanup: either HDTP §9 gains the verb in the 1.1 delta, or the mechanism
 moves off the MCP surface. **The owner chose to move it** — see P10-13.
 - **2026-08-24 — P10-02: the rate limiter was built, tested and never installed,
-  and the first attempt to install it was at the wrong layer.** PACT §12's caps
+  and the first attempt to install it was at the wrong layer.** HDTP §12's caps
   (60 calls/hour per contact, 10/hour per guest IP+key) were implemented in
   `internal/public/limits.go` with no non-test caller, so `rate_limited` was a
   code no caller could receive. Wrapping the HTTP handler looked right and broke
@@ -1956,7 +1956,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   session was composed for. It is now consulted where the per-caller server is
   chosen, and a mismatch is refused and audited rather than served.
 - **2026-08-24 — P10-13: `sync_allowlist` was a fourth relay verb.**
-  PACT §9 defines exactly three relay tools, and the relay registered a fourth,
+  HDTP §9 defines exactly three relay tools, and the relay registered a fourth,
   so every peer's `tools/list` on `/relay/mcp` advertised a verb the protocol
   does not describe — and a peer has no way to tell a local extension from a
   verb it should have implemented. The owner chose to move it rather than
@@ -1965,8 +1965,8 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   never read from the body, so a caller can only replace its own list. Entries
   are shape-checked as §2 fingerprints, the list is capped, the body is capped
   before parsing, and an anonymous request is refused and audited. SPEC §10.5
-  records the endpoint as pact-gateway's own control plane, explicitly not a
-  PACT verb — a relay without it is still PACT-conformant.
+  records the endpoint as hdtp-gateway's own control plane, explicitly not a
+  HDTP verb — a relay without it is still HDTP-conformant.
 - **2026-08-24 — P10-01: the conformance map graded test existence, not reachability.**
   `TestConformanceDocCitesRealTests` proved a cited test exists; the map claimed
   the mechanism works in the product. That gap is how five tasks read `done`
@@ -2039,7 +2039,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   account) stay visible; they are not another account's business.
 - **2026-08-24 — P10-10d: the store outranked the config file.**
   SPEC §12.2 orders the layers `environment > file > store > defaults`, and
-  `settings.go`'s own comment promised that "an operator who pins `PACT_SEAL` in
+  `settings.go`'s own comment promised that "an operator who pins `HDTP_SEAL` in
   a compose file must not have it silently overridden by a row in a database".
   Only `EnvPinned` was ever tracked, so exactly that happened: a portal save beat
   a config file. `Config.FilePinned` now records which owner-settable knobs the
@@ -2149,7 +2149,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   message `failed` once its deadline passes rather than retrying forever or
   quietly forgetting it. `serve` runs the sweep.
 - **2026-08-25 — P10-07c: `X-PACT-GATEWAY` on a contact's card meant nothing.**
-  `relay.Fallback` had zero production callers, so the sender half of PACT §7 was
+  `relay.Fallback` had zero production callers, so the sender half of HDTP §7 was
   written, tested and never wired: a contact reachable only through a relay was
   simply unreachable. Direct failure now queues the same `msg_id` at the
   contact's published gateway.
@@ -2170,7 +2170,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   could never be sent anything. Delivery now skips the direct attempt when there
   is no endpoint and goes straight to the relay.
 - **2026-08-25 — P10-07e: the tested abstraction was not the shipping one.**
-  `relay.Fallback` — PACT §7's sender rule, with tests — had zero production
+  `relay.Fallback` — HDTP §7's sender rule, with tests — had zero production
   callers, and the new reachability floor did NOT catch it: `Fallback.Deliver`
   shares the bare name `Deliver` with `Connector.Deliver`, which is called in
   production, so the by-name counter read it as reached. That is the blind spot
@@ -2220,7 +2220,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   SPEC §6.7 says the status provider "serves `get_status` from the owner's
   node-local status by default; a recipe MAY source it from an upstream tool
   instead". `providers.Status` implemented exactly that and had no production
-  constructor, and `node.Options.Status` was never populated — so PACT's simplest
+  constructor, and `node.Options.Status` was never populated — so HDTP's simplest
   capability never worked at all, on any node, with or without integrations.
   Capabilities now resolve at CALL time (**escalation E5, option B, applied
   pending confirmation**). The maps were a snapshot taken during composition, so
@@ -2250,7 +2250,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   nothing is exposed by default (only published, non-stale entries are built,
   and a tool the bound snapshot no longer describes is skipped), and passthrough
   and agent entries are gated by `integration.<slug>`. Mapped entries are
-  deliberately NOT projected here — §6.6 says they serve PACT's own vocabulary
+  deliberately NOT projected here — §6.6 says they serve HDTP's own vocabulary
   under the matching core permission, which is P10-04e.
   The surface is also rebuilt at boot, so a node that restarts serves what it
   served before rather than nothing until the next edit.
@@ -2263,7 +2263,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   A binder now resolves an account's core-capability providers from its mapped
   exposure entries, per call. The §6.6 rule it implements is worth restating,
   because it is easy to get backwards: mapped capabilities are NOT gated by
-  `integration.<slug>` — they serve PACT's own vocabulary under the matching core
+  `integration.<slug>` — they serve HDTP's own vocabulary under the matching core
   permission, so binding a recipe adds no tools at all. It makes the tools that
   always existed answer with something other than `unavailable`.
   Where two integrations claim the same capability, the first mapped entry wins
@@ -2379,7 +2379,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   client that reconnects replays missed notifications instead of losing them".
   None was set, so an agent whose connection dropped silently missed every
   notification sent while it was away — the exact case subscriptions exist for.
-  `c)` `pact://thread/<id>` is listed in §8.5 beside the collections and did not
+  `c)` `hdtp://thread/<id>` is listed in §8.5 beside the collections and did not
   exist, so an agent watching one conversation had to re-read the whole inbox to
   notice a reply. Added as a resource template, account-scoped like every tool,
   and the bus now signals it alongside the inbox.
@@ -2420,7 +2420,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   This completes P10-08.
 - **2026-08-25 — P10-11e/f: the event bus published to nobody.**
   `EventRequest` was consumed in two places and produced in none, so
-  `pact://requests` — a resource an agent can subscribe to — could never fire; a
+  `hdtp://requests` — a resource an agent can subscribe to — could never fire; a
   contact request sat waiting and nothing said so. The contacts manager now
   emits it on both paths that create one: a guest's `request_contact`, and an
   invite redeemed without auto-accept.
@@ -2452,7 +2452,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   already uses. `Server.ServeTLS` — superseded; the node builds its own
   `http.Server`, and the one test relying on the wrapper now does the same.
   `DataPlane.PublicAddr` — superseded by the front door owning the public port.
-  `Card.IsPACT` — the interesting one. It bundles identity (`VERSION` + `KEY`)
+  `Card.IsHDTP` — the interesting one. It bundles identity (`VERSION` + `KEY`)
   AND reachability (an endpoint or a gateway), and that conjunction is nobody's
   question: intake wants identity, and delivery wants reachability, and each
   already checks exactly what it needs. Wiring it into `RequestContact` was tried
@@ -2483,7 +2483,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
   account, a second machine behind real NAT. Each run is `blocked(owner-only)`
   with its resource named on the board rather than left looking merely undone.
   Two code fixes came out of it. The `own-domain` invocation as documented does
-  not start an ingress: `PACT_INGRESS_TOKEN` is required and unmentioned, and
+  not start an ingress: `HDTP_INGRESS_TOKEN` is required and unmentioned, and
   terminate mode now needs `--terminate`. And the startup line still printed
   "vhost 443" after the front door took that port — corrected to say what nodes
   dial and where passthrough SNI is routed.
@@ -2510,7 +2510,7 @@ moves off the MCP surface. **The owner chose to move it** — see P10-13.
 - **2026-08-25 — P11-04: P10-04e made a cheap call expensive.**
   Resolving an account's mapped capabilities walks every integration and reads
   its exposure set. `get_status` is a contact-tier call a peer may make sixty
-  times an hour (PACT §12), so that was N+1 store queries to usually answer
+  times an hour (HDTP §12), so that was N+1 store queries to usually answer
   "available", on every call, on every node.
   It is now cached and dropped by the same hook that rebuilds the served surface
   — both derive from one state, so one hook owns both. **With a TTL underneath**,
@@ -2765,7 +2765,7 @@ the URL as a password.
 **P12-08.** Two defects, one found by the test written for the other.
 
 `migrations/postgres/0020` declared `expires_at` as INTEGER where all 25 other
-epoch columns are BIGINT. `expires` is chosen by the SENDER (PACT §7), so a peer
+epoch columns are BIGINT. `expires` is chosen by the SENDER (HDTP §7), so a peer
 naming a far-future deadline made the INSERT fail — `17179869184 is greater than
 maximum value for int4` — and the message was refused rather than stored; the
 column also stops holding a Unix timestamp in 2038 regardless. 0023 widens it.
@@ -2844,7 +2844,7 @@ said `account create|list` while the dispatcher accepted `rotate-key` and printe
 it in its own error string, and a second stale `usage:` line said `create|list`
 too. SPEC §12.1 was already correct, and the §12.1 lint reads the dispatcher, so
 nothing compared what the OPERATOR is shown against what the binary does. A new
-subtest requires every subcommand named in a `usage: pact-gateway <cmd> <...>`
+subtest requires every subcommand named in a `usage: hdtp-gateway <cmd> <...>`
 string to appear in the top-level block. Observed failing.
 
 **P12-14.** `Repair` verifies the archive with `verifyArchiveFile`, which
@@ -2920,9 +2920,9 @@ the seventh is met except for work no agent can do.
 | 2 | `make check` green | met |
 | 3 | store conformance on SQLite AND Postgres | met — verified against a real PostgreSQL 16 container, not a skip |
 | 4 | the five phase-exit tests pass under `-race` | met — `TestP1ExitTwoNodesPairAndMessage`, `TestP2ExitPortalPairing`, `TestP3ExitContactBooksCalendarSlot`, `TestP4ExitNATCrossingViaEdgeAndRelay`, `TestP5ExitOwnDomainPassthroughAndTerminate`, all PASS under `-race` |
-| 5 | PACT §12 checklist maps to passing tests | met — all 9 base clauses and all 3 sealed-addendum clauses have rows, and every `Test*` the map cites is now proven to exist by a lint (P12-16) |
+| 5 | HDTP §12 checklist maps to passing tests | met — all 9 base clauses and all 3 sealed-addendum clauses have rows, and every `Test*` the map cites is now proven to exist by a lint (P12-16) |
 | 6 | manual-verification demo docs exist and are dated | docs exist and all carry the `Last manual run:` marker, enforced by `TestDemoDocsCarryAManualRunMarker`. Every marker reads `—`: the runs themselves are items 1's six blocked tasks |
-| 7 | the PACT 1.1 delta is a clean UNCOMMITTED diff in `../pact-protocol` | met — `CLAUDE.md` + `SPEC.md` modified, nothing staged, and the only commits in that repo are the two that predate this work |
+| 7 | the pre-HDTP 1.1 delta is a clean UNCOMMITTED diff in `../hdtp-spec` | met — `CLAUDE.md` + `SPEC.md` modified, nothing staged, and the only commits in that repo are the two that predate this work |
 
 *Count corrected 2026-08-25.* This row first read "140 done". That was a
 miscount, not a change: the query behind it matched only rows whose Status cell
@@ -3080,7 +3080,7 @@ targets; `check` deliberately does not depend on them.
 
 *Note for P14-02:* the harness CAN import the product's `internal/` packages
 despite being a different module — Go's internal rule is by import-path tree, and
-`…/pact-gateway/harness` sits inside `…/pact-gateway`. The peer driver can reuse
+`…/hdtp-gateway/harness` sits inside `…/hdtp-gateway`. The peer driver can reuse
 `internal/outbound` directly.
 
 **P14-02.** `harness/fabric` drives the `docker` CLI through an injected `Runner`,
@@ -3106,7 +3106,7 @@ the first unreadable one loses the log of whatever crashed — usually the one
 somebody needs. Both behaviours are pinned.
 
 `make harness-live` runs the Docker-backed tests; they skip without
-`PACT_HARNESS_LIVE=1`, so `make harness` stays fast and hermetic.
+`HDTP_HARNESS_LIVE=1`, so `make harness` stays fast and hermetic.
 
 **P14-03a — the harness earned its keep before its first scenario ran.** Building
 the node image failed immediately:
@@ -3124,12 +3124,12 @@ CI could not have caught it. CI builds with `go-version-file: go.mod`, so it alw
 uses whatever the module asks for, and it never builds an image. Nothing compared
 the two numbers. `TestImageToolchainSatisfiesGoMod` now does, for both Dockerfiles,
 and was observed failing before the fix. The image now builds in ~2 min and
-`docker run pact-gateway version` answers.
+`docker run hdtp-gateway version` answers.
 
 This is the argument for the harness in one commit: five phases of review over the
 product's source never looked at whether the artifact it ships could be built.
 
-**P14-03.** `harness/topology` stands T1/T2/T3 up as real pact-gateway nodes,
+**P14-03.** `harness/topology` stands T1/T2/T3 up as real hdtp-gateway nodes,
 configured entirely by environment because SPEC §12.2 makes env the
 highest-precedence layer — so a topology needs no config files inside the image.
 The portal deliberately stays on loopback inside each container: §8.3 refuses a
@@ -3156,7 +3156,7 @@ by a running node. On a live T1 it reports `2 node(s) verified intact`.
 **P14-05.** `harness/peer` acts as a contact's agent using the product's OWN
 `internal/outbound.Client` rather than a reimplementation. That is possible across
 the module boundary because Go's internal rule is by import-path tree and
-`…/pact-gateway/harness` sits inside `…/pact-gateway` — verified by compiling it.
+`…/hdtp-gateway/harness` sits inside `…/hdtp-gateway` — verified by compiling it.
 Reimplementing the dialling would have let a scenario pass against a peer the real
 product could never have talked to.
 
@@ -3168,7 +3168,7 @@ tier resolution observed from outside the process for the first time.
 Two of my own errors, both corrected by the run rather than by argument. The test
 first left the node UNPINNED and failed — correctly: the endpoint is an IP with no
 SAN, so the WebPKI fallback refuses, which is exactly the pinning behaviour P13-04
-documented, now observed from the outside. It then asserted the PACT 1.0 guest
+documented, now observed from the outside. It then asserted the pre-HDTP 1.0 guest
 count of two tools; the node serves three, because §13's sealed addendum adds
 `sealed_call` "at every tier". The test was wrong, not the node.
 
@@ -3194,7 +3194,7 @@ setup wizard with real Chrome and a CDP virtual authenticator — Chrome's OWN
 WebAuthn implementation rather than a Go reimplementation of it. The full chain now
 works end to end: wizard → passkey → owner → `token create` → **`mcp-remote`
 connected to the owner MCP**, which answers `initialize`, lists **18 tools** and
-3 resources (`pact://inbox`, `pact://pending`, `pact://requests`), and serves real
+3 resources (`hdtp://inbox`, `hdtp://pending`, `hdtp://requests`), and serves real
 `tools/call` results.
 
 Reaching a loopback-bound portal from the host needed no product change: a socat
@@ -3267,7 +3267,7 @@ nothing in-process:
 3. a contact's agent over **real mTLS** → `redeem_invite`, cards exchanged;
 4. the owner approves → the contact's surface widens **immediately**;
 5. the contact sends a message → `{"status":"delivered"}`;
-6. `read_thread` returns `"body":"hello from the harness PACT-PLAINTEXT-CANARY"`,
+6. `read_thread` returns `"body":"hello from the harness HDTP-PLAINTEXT-CANARY"`,
    `"trust":"messages_only"`.
 
 **P14-05e — fifth product finding, and the P12-02 class for the third time.**
@@ -3301,7 +3301,7 @@ confirms the P14-05e fix reaches `set_permissions`, not just `approve_contact`.
 The audit chain verifies intact through all of it: 12 events.
 
 **S7 resilience** — a repeated `msg_id` is acknowledged rather than re-executed
-(PACT §6.2), with `read_thread` proving exactly one copy landed. A partition
+(HDTP §6.2), with `read_thread` proving exactly one copy landed. A partition
 genuinely severs the node, healing restores it, and a message still crosses a
 120 ms / 30 ms jitter / 2 % loss link.
 
@@ -3330,7 +3330,7 @@ every live suite.
 harness is a different module with its own dependencies, needs Docker, and must
 never gate the product's `make check` nor lend it dependencies. Its hermetic job
 needs no Docker at all, which is what keeps the fast tier fast. On failure it
-uploads every `pact*` container's logs, because a red scenario without its
+uploads every `hdtp*` container's logs, because a red scenario without its
 evidence is just a rumour.
 
 **P14-13 — the owner's direction, applied.** *"This project is a tool for people
@@ -3463,7 +3463,7 @@ re-run, all ten pages differ. The suite's value here was prompting the check, no
 the false positive.
 
 Ten pages × two themes render with no console errors in about 10 s, and
-screenshots land in `PACT_HARNESS_ARTIFACTS` for a failed run to leave evidence.
+screenshots land in `HDTP_HARNESS_ARTIFACTS` for a failed run to leave evidence.
 
 **E12 resolved, and P14-04 with it — the README quickstart now works verbatim.**
 
@@ -3475,7 +3475,7 @@ full sequence, and what each step needed:
 | `docker compose up -d` | image could not build (P14-03a) | builds |
 | open the printed URL | unreachable — no published port, and the node binds the CONTAINER's loopback so `-p` could not help either | **200**, via a socat sidecar in the node's own netns; product unchanged |
 | the wizard registers a passkey | never reachable | registers, driven by real Chrome |
-| `docker compose exec pact-gateway pact-gateway account create …` | `executable file not found in $PATH` — the binary lives at `/pact-gateway` | binary also copied to `/usr/local/bin`, so the documented command resolves |
+| `docker compose exec hdtp-gateway hdtp-gateway account create …` | `executable file not found in $PATH` — the binary lives at `/hdtp-gateway` | binary also copied to `/usr/local/bin`, so the documented command resolves |
 
 Three structural pins now hold the quickstart, each observed failing: a bare
 command the README tells the owner to exec must be on the image's PATH; if the
@@ -3489,8 +3489,8 @@ as "my laptop".
 
 *Not a defect, checked and cleared:* `postgres` appeared in `docker compose ps`
 despite its profile. It was a leftover container from an earlier `--profile
-postgres` run — `compose config --services` lists only `init-data pact-gateway
-portal` — and its password is `pact`, not empty.
+postgres` run — `compose config --services` lists only `init-data hdtp-gateway
+portal` — and its password is `hdtp`, not empty.
 
 **P14-05a — fixed.** The node only knew the accounts that existed when it started.
 `certificate()` reads an in-memory map built once in `New`, so `account create` on
@@ -3551,14 +3551,14 @@ It follows the **real owner journey**, because that is the only one that works:
 the node comes up in direct mode, the six `tunnel.frp.*` settings are written
 **through the portal**, then `tunnel` is switched to `frp` and the node restarted
 (`tunnel` is restart-scoped — it owns a socket and a goroutine). Starting with
-`PACT_TUNNEL=frp` and no adapter settings refuses cleanly with *"frp needs
+`HDTP_TUNNEL=frp` and no adapter settings refuses cleanly with *"frp needs
 server_addr (your frps host)"*: adapter settings live in the settings store, not
 the environment.
 
 The property asserted is the one that matters: frps forwards **raw bytes** and
 routes by SNI, so the caller must receive the NODE's own certificate. It does —
 `subject=CN=alice` through the tunnel. A tunnel that terminated TLS would destroy
-the mTLS identity PACT §2 rests on.
+the mTLS identity HDTP §2 rests on.
 
 Three failures on the way, all mine, each surfacing far from its cause:
 
@@ -3646,7 +3646,7 @@ Filed as a scenario rather than a `topology.T5` because, like T6, the scaffoldin
 is specific to this shape; `docs/harness-design.md`'s T5 row is implemented here.
 
 **Observation, not filed as a defect:** the shipped image's healthcheck is
-`CMD ["/pact-gateway","healthcheck"]`, which targets the node role, so an ingress
+`CMD ["/hdtp-gateway","healthcheck"]`, which targets the node role, so an ingress
 container reports `Up 2 minutes (unhealthy)` forever. It costs nothing today —
 the ingress is not in compose — but it would bite anyone who puts it behind an
 orchestrator that restarts on health.
@@ -3672,7 +3672,7 @@ It stops at two decisions that are the owner's, not mine:
    result shape is accepted.
 
 And the scenario's payoff is largely pre-empted by **E14**. S4's point is that
-`book_slot` works against a real calendar THROUGH the PACT surface; with E14 open,
+`book_slot` works against a real calendar THROUGH the HDTP surface; with E14 open,
 that call can only be made in direct mode against a published port — which is
 exactly the configuration that hides E14 — or pinned as blocked. Neither teaches
 much for the cost.
@@ -3732,7 +3732,7 @@ one — every messaging scenario runs direct mode against a published port, wher
 **P14-08 done 2026-08-26 — and it found three more defects on the way.**
 
 The scenario books a real appointment: a contact calls `check_availability` and
-`book_slot` on the PACT surface, the node reaches a supervised `caldav-mcp` child
+`book_slot` on the HDTP surface, the node reaches a supervised `caldav-mcp` child
 over stdio, and the event lands in Radicale — verified by a REPORT from a plain
 CalDAV client, not by believing the node. Both upstreams are off-the-shelf and
 pinned; `caldav-mcp@0.10.0` is installed into the image at build time rather than
@@ -3814,7 +3814,7 @@ With the flag set readable the check started working and immediately reported tw
 entries in `docs/operations.md` — which turned out to be a bug in the LINT rather
 than in the documentation. `flagNames` scanned the whole command tail with a
 regex, so a flag's value containing a dash was read as a flag: `--out
-pact-backup.tar.gz` was reported as naming a flag `-backup`. Correct documentation
+hdtp-backup.tar.gz` was reported as naming a flag `-backup`. Correct documentation
 being called wrong is worse than no check, so `flagNames` tokenizes now and only a
 token beginning with a dash is a flag. After that the whole corpus is clean, and a
 planted bad flag is caught where before it was not.
@@ -4629,7 +4629,7 @@ via `go:embed`. Architecture chosen to keep the blast radius on security paths
 as close to zero as the change allows:
 
 - **Every write still goes to the original POST endpoints** — CSRF double-submit
-  (which already accepted the `X-Pact-Csrf` header), account scoping, auditing
+  (which already accepted the `X-HDTP-Csrf` header), account scoping, auditing
   and their tests are untouched. The SPA posts the same
   `application/x-www-form-urlencoded` bodies the templates did, account in the
   body, never the address bar.
@@ -4761,7 +4761,7 @@ output, the Docker prefix, and the `localhost`-not-`127.0.0.1` note (an IP is no
 a valid WebAuthn RP ID, so that is the name a loopback passkey is bound to).
 
 `TestDocsOnlyQuoteRealCommands` passed on the new section — and then failed to
-notice `pact-gateway passkey unlock-me-please` when I checked it by breaking it.
+notice `hdtp-gateway passkey unlock-me-please` when I checked it by breaking it.
 `resolveCommand` validated the top-level command and every flag, but accepted
 ANY second word, so a fabricated recovery command in the README would have read
 as documented and verified. It now asks the binary for its subcommands the same
@@ -4815,7 +4815,7 @@ reproduced the committed `web/dist` byte-for-byte (no git diff).
 
 ### Spec sync: the wire surface already agreed
 
-Diffed the implementation against `../pact-protocol/SPEC.md` on everything
+Diffed the implementation against `../hdtp-spec/SPEC.md` on everything
 wire-visible. **No divergence found**, which is the honest result and not one to
 manufacture edits around: the 13 public tools all appear in the spec; the relay
 trio (`sealed_call`, `relay_call`, `fetch_queued`) is implemented; the five
@@ -5024,9 +5024,9 @@ between a successful login on the OTHER node and the next login on this one:
 
 **Cookies are scoped by host and path and never by port** (RFC 6265 §8.5 — a
 deliberate omission, not an oversight). `localhost:18120` and `localhost:18121`
-are one cookie jar, so the second node's `pact_session` overwrote the first's.
+are one cookie jar, so the second node's `hdtp_session` overwrote the first's.
 The owner was signed out having done nothing, every time they used the other
-node. The same applies to `pact_csrf`, which additionally makes mutations fail
+node. The same applies to `hdtp_csrf`, which additionally makes mutations fail
 the double-submit check while the page still holds the old value.
 
 That is why nothing else worked: with no session, `accountMiddleware` resolves no
@@ -5047,7 +5047,7 @@ the first match, and an untagged node keeps the plain names.
 **Why no test saw it.** Every portal test runs one node. The property is about
 two, so it is now checked as a property of the names:
 `TestTwoNodesOnOneHostDoNotShareCookieNames`. The cli portal driver matched
-`pact_csrf` exactly and had to learn to match by prefix — the same thing a real
+`hdtp_csrf` exactly and had to learn to match by prefix — the same thing a real
 client must do.
 
 ## Production-readiness review, 2026-08-27
@@ -5098,7 +5098,7 @@ pull requests are no longer checked, so a dependency batch costs no workflow tim
 until it is merged, and the run that gates main is the one on main.
 
 **The harness failure was real, and not the harness's fault.** `harness/go.mod`
-carries `replace github.com/tech-sumit/pact-gateway => ..`, so a dependency bump
+carries `replace github.com/humandelegatedtrustprotocol/hdtp-gateway => ..`, so a dependency bump
 in the PARENT module can leave the harness module's go.sum stale. Go then refuses
 with `updates to go.mod needed`, which names neither the module nor the reason —
 that is what every dependabot PR was hitting. Verified `harness/go.mod` is clean
@@ -5173,7 +5173,7 @@ does not give in five seconds.
 
 `.github/workflows/harness.yml` is deleted. `githooks/pre-push` runs the
 hermetic tier on every push (~5 s, no Docker), with the live tiers opt-in behind
-`PACT_PREPUSH_LIVE=1` (fast subset) or `=full` (whole matrix). `make hooks`
+`HDTP_PREPUSH_LIVE=1` (fast subset) or `=full` (whole matrix). `make hooks`
 points git at `githooks/` so the hooks are versioned and travel with the clone
 rather than living in an untracked `.git/hooks` that every fresh clone starts
 without.
@@ -5244,8 +5244,8 @@ finished; it is kept here because entries above cite it.
 
 ### Mission
 
-Implement pact-gateway completely, as specified: `SPEC.md` in this repo (implementation-
-normative) and `../pact-protocol/SPEC.md` (wire-normative), by executing `PLAN.md`
+Implement hdtp-gateway completely, as specified: `SPEC.md` in this repo (implementation-
+normative) and `../hdtp-spec/SPEC.md` (wire-normative), by executing `PLAN.md`
 task-by-task until every task is `done`.
 
 ### Definition of done
@@ -5254,10 +5254,10 @@ task-by-task until every task is `done`.
 2. `make check` (fmt, vet, `go test -race ./...`) is green.
 3. The store conformance suite passes on SQLite AND Postgres.
 4. The five phase-exit tests (P1-11, P2-10, P3-10, P4-08, P5-05) pass under `-race`.
-5. The PACT §12 conformance checklist maps to passing tests (P1–P4 cover it; verify the
+5. The HDTP §12 conformance checklist maps to passing tests (P1–P4 cover it; verify the
    mapping and note it in `docs/conformance.md` as part of P5-04).
 6. Manual-verification demo docs exist and are dated (P3-10, P4-02, P4-08, P5-04, P5-05).
-7. The PACT 1.1 delta exists as a clean UNCOMMITTED diff in `../pact-protocol`
+7. The pre-HDTP 1.1 delta exists as a clean UNCOMMITTED diff in `../hdtp-spec`
    (P0-10, updated by P1-07), awaiting owner review.
 
 ### Operating loop (one task per iteration)
@@ -5283,7 +5283,7 @@ task-by-task until every task is `done`.
 - **SPEC.md is normative.** No wire-visible or security-relevant deviation, ever. A spec
   problem is an escalation, not an improvisation.
 - **Repo boundaries:** all work happens in this repo. Exception: P0-10/P1-07 may EDIT
-  `../pact-protocol` but MUST NEVER stage, commit, or push there. Never touch any other
+  `../hdtp-spec` but MUST NEVER stage, commit, or push there. Never touch any other
   repo. Never add a git remote or push anywhere.
 - **Git identity:** commits as `Sumit Agrawal <mr.sumitagrawal.17@gmail.com>` (already
   configured locally). No Co-Authored-By or "Generated with" trailers.
@@ -5305,7 +5305,7 @@ task-by-task until every task is `done`.
 - An AC is impossible as written (not merely hard).
 - A dependency's API has changed so far from SPEC.md's description that following the
   spec is impossible without a design decision.
-- Anything would require committing to `../pact-protocol`, publishing, pushing, or
+- Anything would require committing to `../hdtp-spec`, publishing, pushing, or
   network-visible deployment.
 
 When stopping: state the task ID, the exact conflict, and 1–2 resolution options with a

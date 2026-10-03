@@ -1,4 +1,4 @@
-# Operating a pact-gateway node
+# Operating a hdtp-gateway node
 
 This is the operator's page: what runs where, how the node is reached, how it is
 backed up, and what to do when something is lost. Design rationale lives in
@@ -8,13 +8,13 @@ backed up, and what to do when something is lost. Design rationale lives in
 
 | Path (in `data_dir`, `/data` in the container) | What |
 |---|---|
-| `pact.db` | the SQLite store: accounts, contacts, messages, integrations, audit chain |
+| `hdtp.db` | the SQLite store: accounts, contacts, messages, integrations, audit chain |
 | `blobs/` | content-addressed media |
 | `keyring.key` | the keyring master key (0600). **Every account's private key is sealed under it.** |
-| `pact.lock` | held while `serve` runs; offline commands refuse to run while it is held |
+| `hdtp.lock` | held while `serve` runs; offline commands refuse to run while it is held |
 | `admin.sock` | the admin socket the CLI talks to while the node is running |
 
-Configuration: env `PACT_*` > `config.json` > defaults (`pact-gateway doctor` prints the
+Configuration: env `HDTP_*` > `config.json` > defaults (`hdtp-gateway doctor` prints the
 resolved result). The deployment **mode is derived** from the tunnel adapter, never
 declared (SPEC §10.1).
 
@@ -27,13 +27,13 @@ declared (SPEC §10.1).
 | an `frps` you run on any VPS | `tunnel: frp` — raw SNI/tcp passthrough | direct |
 | a paid ngrok plan | `tunnel: ngrok` — `tls://` endpoint | direct |
 | a Cloudflare account | `cloudflare` edge adapter (P4-05) — Cloudflare terminates TLS | edge |
-| a domain of your own | run a second pact-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
-| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (PACT §9). There is no relay role: it went with PACT 1.x on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
+| a domain of your own | run a second hdtp-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
+| nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went with pre-HDTP 1.x on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
 
 Direct mode keeps mTLS end to end: callers' client certificates reach the node. Edge
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
 and `client_cert=off`, and callers are identified by their sealed-envelope
-signatures. `pact-gateway doctor` reports the derived mode and probes your
+signatures. `hdtp-gateway doctor` reports the derived mode and probes your
 advertised endpoint; a `wrong_cert` verdict means something between the caller and
 the node is terminating TLS that should not be.
 
@@ -44,7 +44,7 @@ itself sensitive, use `direct` on infrastructure you control (SPEC §13).
 
 On the VPS run the ingress; on the node pair with a one-time token:
 
-1. ingress: `pact-gateway ingress serve --domain example.com` (P5-05 wires the command;
+1. ingress: `hdtp-gateway ingress serve --domain example.com` (P5-05 wires the command;
    the library is `internal/ingress`) and mint a token from its portal.
 2. node: portal → *Settings → Ingress* — paste the token, pick the subdomain and mode:
    - **passthrough** — the ingress routes on SNI and forwards raw TLS; your node's own
@@ -57,17 +57,17 @@ On the VPS run the ingress; on the node pair with a one-time token:
 ## Call budgets
 
 Every call counts against a budget of the account it is addressed to, sized by
-how many contacts that account may hold (PACT §12). The budgets are not the
-node's to decide: the **limits sidecar**, `pact-limitd`, holds their numbers and
-their counters and decides each call with pact-identity's `pact-limits` crate,
+how many contacts that account may hold (HDTP §12). The budgets are not the
+node's to decide: the **limits sidecar**, `hdtp-limitd`, holds their numbers and
+their counters and decides each call with hdtp-identity's `pact-limits` crate,
 the decision the hosted cloud makes (SPEC §5.7). The node asks it over a unix
-socket, `limits_socket` (`PACT_LIMITS_SOCKET`, default `<data_dir>/limits.sock`),
+socket, `limits_socket` (`HDTP_LIMITS_SOCKET`, default `<data_dir>/limits.sock`),
 on one connection it keeps open; nothing but the charge — the account, the
 caller's root and tier, its address, the contact cap — crosses it.
 
-Its numbers are its configuration file, the rules document of pact-identity's
+Its numbers are its configuration file, the rules document of hdtp-identity's
 contract, shipped as `deploy/limitd/limits.json` (in the image at
-`/etc/pact-limitd/limits.json`):
+`/etc/hdtp-limitd/limits.json`):
 
 | Member | Budget | Keyed by |
 |---|---|---|
@@ -96,7 +96,7 @@ The known cost: during a flood, a contact calling from an address it has not use
 is refused before the open, as a stranger is, with `retry_after`, until the total refills. The known
 addresses live in the sidecar's memory beside the counters, an hour each and a bounded number an
 account (the oldest going first: `KNOWN_SOURCE_TTL_MS` and `KNOWN_SOURCES_CAP`,
-cmd/pact-limitd/src/lib.rs), so a sidecar restart forgets them too.
+cmd/hdtp-limitd/src/lib.rs), so a sidecar restart forgets them too.
 
 A known address is an address: every caller arriving from it shares its standing. Behind a carrier
 that delivers every caller from one address of its own — `frp`, `ngrok` and `tailscale` from the
@@ -129,8 +129,8 @@ restart: `get_card` asks the sidecar for the numbers it advertises on every call
 **When the sidecar is down, the node refuses.** Every sealed call, call out, request and
 integration call is answered `unavailable` until it answers again, which the node notices by
 itself. `/healthz` answers 503 and names the socket, so the container's healthcheck fails;
-`pact-gateway doctor` prints `FAIL limits` with the reason, and the `serve` banner says `limits:
-NOT ANSWERING`. Start the sidecar (`pact-limitd -config <file>`; the compose file runs it) and
+`hdtp-gateway doctor` prints `FAIL limits` with the reason, and the `serve` banner says `limits:
+NOT ANSWERING`. Start the sidecar (`hdtp-limitd -config <file>`; the compose file runs it) and
 the node serves again with no restart.
 
 The counters live in the sidecar's memory, one set for every node process on the host. A restart
@@ -145,7 +145,7 @@ the aggregate:
 
 | Setting | Environment | Default | Meaning |
 |---|---|---|---|
-| `limit.contacts` | `PACT_LIMIT_CONTACTS` | 500 | contacts each identity may hold — active contacts plus the requests it sent — and the size of its call budget |
+| `limit.contacts` | `HDTP_LIMIT_CONTACTS` | 500 | contacts each identity may hold — active contacts plus the requests it sent — and the size of its call budget |
 
 It is an ordinary knob: the portal's Settings page edits it under Security, the
 config file carries it as `limit_contacts`, and the environment pins it above
@@ -172,7 +172,7 @@ the one below.
 limits (the second is the sidecar above): `docker compose -f deploy/envoy/compose.yaml up -d` runs
 Envoy, the node and the limits sidecar, and only Envoy publishes a port. Before it: `make
 identity-proxy limitd-vendor` (the image build), a certificate for the node's public name at
-`deploy/envoy/tls/cert.pem` and `key.pem`, and `PACT_PUBLIC_URL`, that name, in the environment.
+`deploy/envoy/tls/cert.pem` and `key.pem`, and `HDTP_PUBLIC_URL`, that name, in the environment.
 
 What Envoy does (`deploy/envoy/envoy.yaml`, whose numbers are its own and nowhere else):
 
@@ -183,10 +183,10 @@ What Envoy does (`deploy/envoy/envoy.yaml`, whose numbers are its own and nowher
   each with a bucket of that address's own — and answers 429 past it, before the node sees the
   request; and holds the listener's connection cap and timeouts;
 - forwards the caller's chain in `X-Forwarded-Client-Cert` and the address its socket saw in
-  `X-Pact-Client-Address`, replacing whatever the caller sent in either.
+  `X-HDTP-Client-Address`, replacing whatever the caller sent in either.
 
 The node reads those two headers only from Envoy's address, `proxy_address`
-(`PACT_PROXY_ADDRESS`, an IP; the compose file gives Envoy a fixed one on its network and the node
+(`HDTP_PROXY_ADDRESS`, an IP; the compose file gives Envoy a fixed one on its network and the node
 that one). From anywhere else they are a caller's own claim and prove nothing, and with no
 `proxy_address` they are never read. The node still opens every envelope: Envoy sees the MCP
 requests, never what a sealed one carries. `internal/integrationtest/envoy_test.go` holds the two
@@ -214,12 +214,12 @@ not a surprise, and so that the one knob that exists is findable.
   that grows (`TestEveryQueryHasAPlan`, both engines). To see the numbers on your own hardware:
 
 ```
-PACT_SCALE_DB=/tmp/pact-scale.db go test ./internal/core/store/ -run '^$' -bench '^BenchmarkScale' -benchtime 20x
+HDTP_SCALE_DB=/tmp/hdtp-scale.db go test ./internal/core/store/ -run '^$' -bench '^BenchmarkScale' -benchtime 20x
 ```
 
   The first run seeds the file — 10,000 contacts, a million messages, a million audit rows — and
   takes about a minute. `make scale` runs these benchmarks over a scratch file, and times an import
-  of 40,000 threads against one of 10,000 (`PACT_EXPORT_SCALE`), three rounds interleaved, failing
+  of 40,000 threads against one of 10,000 (`HDTP_EXPORT_SCALE`), three rounds interleaved, failing
   if the best of three takes more than 6 times as long for 4 times the threads, in reading or in
   writing (linear is 4); the pre-push hook runs `make scale` last, after every other step.
 
@@ -235,15 +235,15 @@ behind whatever balances between them (SPEC §11.1):
   an error on a retirement or a leave — and the next scrub that finishes clears the log; until
   then the destroyed key's bytes may remain in it. Postgres has no scrub at all (SPEC §3.9).
 - **Postgres:** on any hosts, each with a `data_dir` of its own and the same `postgres_dsn`. Give
-  every host the same master key in `PACT_MASTER_KEY` (a host that generates a `keyring.key` of
-  its own cannot open a key another sealed), and point `blob_dir` (`PACT_BLOB_DIR`) at storage
+  every host the same master key in `HDTP_MASTER_KEY` (a host that generates a `keyring.key` of
+  its own cannot open a key another sealed), and point `blob_dir` (`HDTP_BLOB_DIR`) at storage
   every host mounts, or media stored through one host is missing on the others.
 
 The first `serve` on an idle data dir migrates; the others check that the schema is the one they
 were built for and refuse to start if it is not. To migrate, stop every process on the data dir
 (on Postgres, every process) and start the new binary. `migrate`, `export`, `import` and the
 `audit` commands refuse to run while any `serve` holds the data dir. One process serves the admin
-socket and `serve` prints `admin: ... is served by another pact-gateway process` on the others;
+socket and `serve` prints `admin: ... is served by another hdtp-gateway process` on the others;
 the setup URL a first run prints works on the portal of the process that printed it. The outbound
 retries and the hourly retention pass run on one process at a time: the one holding the work's
 lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
@@ -262,16 +262,16 @@ What each process still keeps to itself, and so what is not yet shared between t
 ## Export and import
 
 ```
-pact-gateway export --config config.json --slug alina --out alina.zip
-pact-gateway import alina.zip --config config.json --slug alina          # review: writes nothing
-pact-gateway import alina.zip --config config.json --slug alina --yes    # writes it
+hdtp-gateway export --config config.json --slug alina --out alina.zip
+hdtp-gateway import alina.zip --config config.json --slug alina          # review: writes nothing
+hdtp-gateway import alina.zip --config config.json --slug alina --yes    # writes it
 ```
 
-Both are **offline** commands: stop the node first (they refuse while `pact.lock` is held).
+Both are **offline** commands: stop the node first (they refuse while `hdtp.lock` is held).
 
-**An export is one identity's contacts, chats and files, and nothing else** (SPEC §3.10, PACT
+**An export is one identity's contacts, chats and files, and nothing else** (SPEC §3.10, HDTP
 §9.2): one unencrypted zip of `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and
-`media/<sha256>`, the same format the cloud and the `pact` CLI read and write. `export` says, before
+`media/<sha256>`, the same format the cloud and the `hdtp` CLI read and write. `export` says, before
 it writes, that the file is not encrypted: anyone who gets it can read the contact list and every
 conversation and file, though it holds no key and cannot be used to speak as anyone. The file is
 created `0600` and never replaces an existing one. A stranger's request that was never accepted,
@@ -306,11 +306,11 @@ reconnect integrations, one certificate per identity.
 | the node, with an export per identity | identities are not served until re-certified; settings, integrations, passkeys and the audit history are not in an export | `import` each, `serve`, the setup wizard; then one `account csr` / `install-leaf` per identity. Contacts keep their pins |
 | `keyring.key` only | sealed leaf keys, saved settings and integration credentials are unreadable. **No identity is lost** — the root is in the wallet. If nothing on the node opens under the master key it was given, `serve` refuses to start and says why; if anything does, it starts and prints `NOT SERVED` for each account that does not | put the key back if it was kept anywhere, and nothing is lost. If it is gone for good: `export -slug` each identity, then `import` each into a fresh data directory — an export never needed the master key, because it never held anything sealed under it. For a single `NOT SERVED` account on a running node, a renewal alone does it: the install retires the key it cannot open and says so |
 | a leaf simply ran out (nobody renewed it) | the account stops being served within the hour and its key is destroyed; contacts keep their pins, and `doctor` warns before it happens | `account csr --slug me -purpose renew`, the wallet signs, `account install-leaf` |
-| a card or certificate on file that the identity core no longer reads (its reading got stricter with a release of the identity library: pact-identity 0.4.2 refuses a character outside base64url in a card's certificate that 0.4.1 skipped, and what intake accepted then is still on file) | the core refuses it where it reads it, and the node says so only then: a contact whose card does not read cannot be written to (`node.PeerOf` reads the card first and refuses — a refresh of that contact included), and a call from a contact whose pinned leaf does not parse, in either form, is this node's unreadable state (`identity_state_unreadable` on the trail, `envelope_invalid` to the caller). The `serve` banner's `store:` line and `pact-gateway check store` read every such field first and name each that does not read — table, row, field, reason — and change nothing; `check store` exits 1 on one, and runs beside a serving node | for a contact's card: this node cannot ask for one; the contact's own next `update_contact` writes one that reads, or remove the contact and re-add it from a new card of theirs. For a pin's leaf: remove the contact and re-add it, since nothing it sends can be decided against that pin. Run `pact-gateway check store` before and after a binary that bumps the identity library |
-| a contact in a state neither a pin nor a request has (the schema admits only `active`, `pending_in`, `pending_out` and `blocked` — migration 0002, both engines — so such a row is a hand-edited store's or a later binary's) | the node hands the identity core no pin for it, where the core would refuse the state as unreadable: a call from its holder is decided as a stranger's — the small form `chain_required`, the chain form a guest's — and no effect reaches the row. The `serve` banner's `store:` line counts such rows and a `NO PIN` line names each by account, root and status; `pact-gateway check store` prints the same and exits 1 | remove the contact (`remove_contact` ends a relationship in any state) and re-add it from a new card of theirs |
-| one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `pact-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (PACT §14.3) |
-| nothing: the person moved an identity to another host | this node goes on serving it, with its key, until told | `pact-gateway account leave -slug me -yes` once the new host has told the contacts (without `-yes` it shows what it would erase): every record and leaf key of the identity erased, its address reserved until its last leaf expires (SPEC.md §3.11) |
-| the wallet's root | the identity itself; this node cannot help | the wallet's own recovery, if it has one (PACT §9, §14.5) |
+| a card or certificate on file that the identity core no longer reads (its reading got stricter with a release of the identity library: the identity core 0.4.2 refuses a character outside base64url in a card's certificate that 0.4.1 skipped, and what intake accepted then is still on file) | the core refuses it where it reads it, and the node says so only then: a contact whose card does not read cannot be written to (`node.PeerOf` reads the card first and refuses — a refresh of that contact included), and a call from a contact whose pinned leaf does not parse, in either form, is this node's unreadable state (`identity_state_unreadable` on the trail, `envelope_invalid` to the caller). The `serve` banner's `store:` line and `hdtp-gateway check store` read every such field first and name each that does not read — table, row, field, reason — and change nothing; `check store` exits 1 on one, and runs beside a serving node | for a contact's card: this node cannot ask for one; the contact's own next `update_contact` writes one that reads, or remove the contact and re-add it from a new card of theirs. For a pin's leaf: remove the contact and re-add it, since nothing it sends can be decided against that pin. Run `hdtp-gateway check store` before and after a binary that bumps the identity library |
+| a contact in a state neither a pin nor a request has (the schema admits only `active`, `pending_in`, `pending_out` and `blocked` — migration 0002, both engines — so such a row is a hand-edited store's or a later binary's) | the node hands the identity core no pin for it, where the core would refuse the state as unreadable: a call from its holder is decided as a stranger's — the small form `chain_required`, the chain form a guest's — and no effect reaches the row. The `serve` banner's `store:` line counts such rows and a `NO PIN` line names each by account, root and status; `hdtp-gateway check store` prints the same and exits 1 | remove the contact (`remove_contact` ends a relationship in any state) and re-add it from a new card of theirs |
+| one account's leaf key (compromised) | the thief speaks as that host until the leaf expires or is outranked | `hdtp-gateway account csr --slug me -purpose renew`, have the wallet sign it, `account install-leaf`: the newer leaf outranks the stolen one with every contact it reaches (HDTP §14.3) |
+| nothing: the person moved an identity to another host | this node goes on serving it, with its key, until told | `hdtp-gateway account leave -slug me -yes` once the new host has told the contacts (without `-yes` it shows what it would erase): every record and leaf key of the identity erased, its address reserved until its last leaf expires (SPEC.md §3.11) |
+| the wallet's root | the identity itself; this node cannot help | the wallet's own recovery, if it has one (HDTP §9, §14.5) |
 | the audit chain shows a break | someone altered history | `audit verify` names the first bad row; treat the store as untrusted from there |
 
 No telemetry leaves the node, ever; the audit chain is yours alone.

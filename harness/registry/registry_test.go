@@ -289,7 +289,7 @@ func TestJudgeFailsAPromisedSkipAndNamesAnUnpromisedOne(t *testing.T) {
 		"S1": {ID: "S1", Verdict: Pass},
 		"S2": {ID: "S2", Verdict: Skipped, Reason: "needs chrome"},
 		"S4": {ID: "S4", Verdict: Fail},
-		"S8": {ID: "S8", Verdict: Skipped, Reason: "PACT_HARNESS_KERNEL is not set"},
+		"S8": {ID: "S8", Verdict: Skipped, Reason: "HDTP_HARNESS_KERNEL is not set"},
 		"T7": {ID: "T7", Verdict: Fail},
 	}
 	cases := Judge(sel, []Need{Docker}, res)
@@ -323,12 +323,12 @@ func TestJudgeFailsAPromisedSkipAndNamesAnUnpromisedOne(t *testing.T) {
 // registered after Start is recorded as FAIL; a missing need is SKIPPED with its reason; and a
 // clean run is PASS.
 func TestStartRecordsTheVerdictAfterEveryTeardown(t *testing.T) {
-	if os.Getenv("PACT_REGISTRY_CHILD") != "" {
+	if os.Getenv("HDTP_REGISTRY_CHILD") != "" {
 		t.Skip("the child runs its own tests")
 	}
 	dir := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestChild", "-test.count=1")
-	cmd.Env = append(os.Environ(), "PACT_REGISTRY_CHILD=1", LiveEnv+"=1", ResultsEnv+"="+dir, CFEnv+"=harness.example")
+	cmd.Env = append(os.Environ(), "HDTP_REGISTRY_CHILD=1", LiveEnv+"=1", ResultsEnv+"="+dir, CFEnv+"=harness.example")
 	out, _ := cmd.CombinedOutput() // the child fails on purpose
 	res, err := ReadResults(dir)
 	if err != nil {
@@ -349,7 +349,7 @@ func TestStartRecordsTheVerdictAfterEveryTeardown(t *testing.T) {
 }
 
 func childOnly(t *testing.T) {
-	if os.Getenv("PACT_REGISTRY_CHILD") == "" {
+	if os.Getenv("HDTP_REGISTRY_CHILD") == "" {
 		t.Skip("run by TestStartRecordsTheVerdictAfterEveryTeardown")
 	}
 }
@@ -410,7 +410,7 @@ func TestResultsAreInTheOneSchema(t *testing.T) {
 			t.Errorf("the summary has no %q: %s", k, sum)
 		}
 	}
-	if env["schema"] != "pact-results/1" || !strings.Contains(string(sum), `"counts":{"FAIL":1,"PASS":1}`) {
+	if env["schema"] != "hdtp-results/1" || !strings.Contains(string(sum), `"counts":{"FAIL":1,"PASS":1}`) {
 		t.Errorf("the summary's schema or counts: %s", sum)
 	}
 }

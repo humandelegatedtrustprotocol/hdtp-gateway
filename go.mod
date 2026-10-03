@@ -1,4 +1,4 @@
-module github.com/pact-cloud/pact-gateway
+module github.com/humandelegatedtrustprotocol/hdtp-gateway
 
 go 1.26.6
 

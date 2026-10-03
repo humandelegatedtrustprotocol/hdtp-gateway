@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
-// S16 and S17: the handshake after an import (PACT §9.2, design §4.8), between real nodes.
+// S16 and S17: the handshake after an import (HDTP §9.2, design §4.8), between real nodes.
 //
 // An identity leaves one node the way a person moves it: `export` on the old host, offline, then
 // `import FILE.zip -slug S -yes` on a new host that has never held it, offline, then the wallet's
@@ -42,7 +42,7 @@ func TestAPeerFollowsAnIdentityImportedOntoANewHost(t *testing.T) {
 	for pinnedEndpoint(ctx, t, m.peer, m.mover.Fpr) != m.newEndpoint {
 		if time.Now().After(deadline) {
 			t.Fatalf("the peer never followed the imported identity to %s: it pins %q\n%s", m.newEndpoint,
-				pinnedEndpoint(ctx, t, m.peer, m.mover.Fpr), execS(ctx, w.Fab, m.dest, "/pact-gateway", "account", "announce", "-slug", "mover"))
+				pinnedEndpoint(ctx, t, m.peer, m.mover.Fpr), execS(ctx, w.Fab, m.dest, "/hdtp-gateway", "account", "announce", "-slug", "mover"))
 		}
 		time.Sleep(3 * time.Second)
 	}
@@ -50,7 +50,7 @@ func TestAPeerFollowsAnIdentityImportedOntoANewHost(t *testing.T) {
 		t.Fatalf("the peer recorded %d new-address notices, want 1", n)
 	}
 	// The new host's ledger says the contact was told.
-	report := execS(ctx, w.Fab, m.dest, "/pact-gateway", "account", "announce", "-slug", "mover")
+	report := execS(ctx, w.Fab, m.dest, "/hdtp-gateway", "account", "announce", "-slug", "mover")
 	if !strings.Contains(report, "told=1 waiting=0") {
 		t.Fatalf("the new host's campaign: %s", report)
 	}
@@ -69,7 +69,7 @@ func TestAPeerThatBlockedTheIdentityDecidesUnderItsOwnPolicy(t *testing.T) {
 	for countAuditOutcome(ctx, t, m.peer, "request_contact", "blocked_silent") == 0 {
 		if time.Now().After(deadline) {
 			t.Fatalf("the blocked peer never received the handshake's request_contact\n%s",
-				execS(ctx, w.Fab, m.dest, "/pact-gateway", "account", "announce", "-slug", "mover"))
+				execS(ctx, w.Fab, m.dest, "/hdtp-gateway", "account", "announce", "-slug", "mover"))
 		}
 		time.Sleep(3 * time.Second)
 	}
@@ -102,7 +102,7 @@ func importedMove(ctx context.Context, t *testing.T, w *World, peerBlocks bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"PACT_SEAL": "required"}
+	env := map[string]string{"HDTP_SEAL": "required"}
 	mover, err := w.Node(ctx, NodeOpts{Slug: "mover", Net: net, Env: env})
 	if err != nil {
 		t.Fatalf("mover: %v", err)

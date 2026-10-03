@@ -1,4 +1,4 @@
-//! The limits sidecar's protocol and store: everything `pact-limitd` does apart from owning a
+//! The limits sidecar's protocol and store: everything `hdtp-limitd` does apart from owning a
 //! socket, as pure functions over a [`Store`], so it is tested without one.
 //!
 //! The node asks over a kept-open unix socket, one JSON object a line (the owner's decision of
@@ -30,12 +30,12 @@
 //! identity's guest total has a call left; it spends nothing, and the refusal is the total's. No
 //! source is ever known.
 //!
-//! `card` is what `get_card` advertises of the call budgets (PACT §12's `limits` members about
+//! `card` is what `get_card` advertises of the call budgets (HDTP §12's `limits` members about
 //! calls) for an identity allowed `contact_cap` contacts: the rules' numbers, and the identity's
 //! aggregate as the crate computes it (`Rules::identity_per_second`), so the node holds no copy of
 //! that formula.
 //!
-//! The charge is the contract's `LimitsCharge` (pact-identity CONTRACT §6.3), read as the Go port
+//! The charge is the contract's `LimitsCharge` (hdtp-identity CONTRACT §6.3), read as the Go port
 //! reads it; the answer is the contract's `limits_decide` result without its `writes`, which are
 //! the sidecar's own.
 

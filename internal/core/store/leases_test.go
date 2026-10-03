@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // A lease is one holder's at a time (SPEC §11.1): taken by the first to ask, renewed by its holder,
@@ -24,18 +24,18 @@ func TestALeaseIsOneHoldersUntilItRunsOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	engines["sqlite"] = sq
-	if dsn := os.Getenv("PACT_TEST_POSTGRES_DSN"); dsn != "" {
+	if dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN"); dsn != "" {
 		ctx := context.Background()
 		admin, err := pgx.Connect(ctx, dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS pact_leases")
-		if _, err := admin.Exec(ctx, "CREATE DATABASE pact_leases"); err != nil {
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS hdtp_leases")
+		if _, err := admin.Exec(ctx, "CREATE DATABASE hdtp_leases"); err != nil {
 			t.Fatal(err)
 		}
 		admin.Close(ctx)
-		pg, err := store.OpenPostgres(ctx, rewriteDB(dsn, "pact_leases"))
+		pg, err := store.OpenPostgres(ctx, rewriteDB(dsn, "hdtp_leases"))
 		if err != nil {
 			t.Fatal(err)
 		}

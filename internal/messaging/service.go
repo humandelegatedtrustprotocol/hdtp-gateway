@@ -1,4 +1,4 @@
-// Package messaging implements threads and messages (SPEC §7, PACT §6.2/§7):
+// Package messaging implements threads and messages (SPEC §7, HDTP §6.2/§7):
 // shared thread ids, strict msg_id idempotency (acknowledged, never re-executed),
 // the 16 KiB text cap, and sender labels that are typed constants — derived from
 // the originating surface by callers, never accepted as free-form input.
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 var (
@@ -20,7 +20,7 @@ var (
 	ErrBadRequest = errors.New("bad_request")
 )
 
-// Sender labels (PACT §6.2 mandatory honesty). Typed so a surface picks a
+// Sender labels (HDTP §6.2 mandatory honesty). Typed so a surface picks a
 // constant; there is no string parameter a caller could spoof through.
 type Sender string
 
@@ -83,7 +83,7 @@ const (
 	DirOut Direction = "out"
 )
 
-const maxTextBytes = 16 * 1024 // PACT §12
+const maxTextBytes = 16 * 1024 // HDTP §12
 
 type Service struct {
 	Store store.MessageStore
@@ -111,7 +111,7 @@ type Input struct {
 	// claim about their own side. For anything this node composes it is
 	// overwritten from Origin, so a caller cannot mislabel an agent as a person.
 	Sender Sender
-	// ExpiresAt is when outbound retries stop (SPEC §7.1, PACT §7). 0 lets the
+	// ExpiresAt is when outbound retries stop (SPEC §7.1, HDTP §7). 0 lets the
 	// node apply the 24 h default.
 	ExpiresAt int64
 }
@@ -123,7 +123,7 @@ type Result struct {
 
 // Record stores one message in the given direction with full idempotency: a
 // replayed (account, contact, msg_id) returns the ORIGINAL result and writes
-// nothing (PACT §6.2).
+// nothing (HDTP §6.2).
 func (s *Service) Record(ctx context.Context, accountID, contactFpr string, dir Direction, in Input) (Result, error) {
 	return s.record(ctx, accountID, contactFpr, dir, in, "text")
 }
@@ -165,7 +165,7 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 		}
 		threadID = hex.EncodeToString(b)
 	}
-	// Shared-id semantics (PACT §7): adopt the peer's thread id, creating the
+	// Shared-id semantics (HDTP §7): adopt the peer's thread id, creating the
 	// thread locally on first sight — but never across contacts.
 	th, err := s.Store.GetThread(ctx, accountID, threadID)
 	switch {

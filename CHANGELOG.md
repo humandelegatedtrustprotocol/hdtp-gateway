@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to pact-gateway. The format follows
+Notable changes to hdtp-gateway. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project will use
 [semantic versioning](https://semver.org/spec/v2.0.0.html) from its first release.
 
@@ -15,7 +15,7 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
 
 ### Added
 
-- **Node role** — the personal PACT server: contacts, invites, a per-contact
+- **Node role** — the personal HDTP server: contacts, invites, a per-contact
   permission switchboard, messaging with threads, media with quotas, availability and
   calendar booking, all as MCP tools over mTLS with sealed envelopes.
 - **Relay role** — store-and-forward for contacts who cannot be reached directly,
@@ -28,7 +28,7 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
   revocable bearer tokens on every bind.
 - **Integrations** — upstream MCP servers over streamable-HTTP, SSE or supervised
   stdio, exposing only the tools the owner picks, versioned and audited, with recipes
-  mapping them onto PACT capabilities.
+  mapping them onto HDTP capabilities.
 - **Reachability** — direct, Tailscale, frp, ngrok, Cloudflare, or the ingress role,
   with a `doctor` that derives the deployment mode and probes the endpoint.
 - **Storage** — SQLite by default, PostgreSQL when wanted, with backup and restore;

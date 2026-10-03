@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Presence is shown only when the contact granted `status.view`. A dot for
 // somebody who has not agreed to be seen would be inventing a signal we are not
-// entitled to — the permission is theirs to give (PACT §6.2).
+// entitled to — the permission is theirs to give (HDTP §6.2).
 func TestPresenceIsHiddenUnlessTheyGrantedStatusView(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

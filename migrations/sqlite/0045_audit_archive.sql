@@ -1,5 +1,5 @@
 -- +goose Up
--- The audit trail of an identity that left (PACT sec. 9, SPEC sec. 3.11, sec. 11.6). After a
+-- The audit trail of an identity that left (HDTP sec. 9, SPEC sec. 3.11, sec. 11.6). After a
 -- leave, the rows that name the identity by its account id stay in the live trail for a period
 -- (audit_archive_after), and then the node moves them to a file of their own under
 -- <data_dir>/audit-archive/. They are rows from the MIDDLE of the chain, so the head anchor of

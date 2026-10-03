@@ -7,7 +7,7 @@ import (
 )
 
 // A leaf is the root's trust in this host until one date. Past the date every verifier refuses the
-// leaf (PACT §14.2 rule 4), so its key can do nothing legitimate, and holding it is exposure with
+// leaf (HDTP §14.2 rule 4), so its key can do nothing legitimate, and holding it is exposure with
 // no use. The retirement used to cover `superseded` leaves only: the key of a leaf that simply ran
 // out, because nobody renewed it, stayed for good — in its ledger row and again in the account's.
 func TestAnExpiredCurrentLeafLosesItsKeyInBothPlaces(t *testing.T) {

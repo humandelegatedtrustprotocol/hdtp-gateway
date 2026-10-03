@@ -19,7 +19,7 @@ func TestRedactRemovesCredentialsAndKeepsEvidence(t *testing.T) {
 		{"oauth code", `exchange failed for code=4/0AeanS0abcdefghijklmnop`, "4/0AeanS0"},
 		{"password param", `dial failed: password=hunter2hunter2`, "hunter2hunter2"},
 		{"jwt anywhere", `rejected: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJlSGVyZQ`, "eyJzdWIiOiJhbGljZSJ9"},
-		{"pact token", `owner mcp: token pact_765948d2a1eb9faa7ba021a8`, "pact_765948d2a1eb"},
+		{"hdtp token", `owner mcp: token hdtp_765948d2a1eb9faa7ba021a8`, "hdtp_765948d2a1eb"},
 		{"github pat", `clone failed: ghp_16C7e42F292c6912E7710c838347Ae178B4a`, "ghp_16C7e42F"},
 	}
 	for _, tc := range secret {
@@ -35,7 +35,7 @@ func TestRedactRemovesCredentialsAndKeepsEvidence(t *testing.T) {
 	}
 
 	// What must NOT be touched: a refusal is only useful if the identifiers
-	// survive, and PACT's own are high-entropy base64 by design.
+	// survive, and HDTP's own are high-entropy base64 by design.
 	keep := []struct{ name, in string }{
 		{"fingerprint", "contact:sha256:G__4Jt5O-7i0xqF7XMLLHes4_SMXTa9zG52tgsJuvYI"},
 		{"booking id", "providers: booking bk_NmJmOTIxMjMtYzA5ZS00NTJm is still in flight"},

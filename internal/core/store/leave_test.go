@@ -13,17 +13,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
 )
 
 // A column that ties a row to an identity: every table with an account_id, and the tables that
 // hang off an integration by its id.
 type tieColumn struct{ table, column string }
 
-// An identity leaving this host MUST leave no record of itself (PACT §9): "delete every record of
+// An identity leaving this host MUST leave no record of itself (HDTP §9): "delete every record of
 // the identity". The tables are read from the MIGRATED SCHEMA, not from a list, so a table added
 // later that names the account is covered the day it is added — and it fails here until the seed
 // below writes a row into it, because a table the test never filled proves nothing.
@@ -76,14 +76,14 @@ func TestSQLiteLeaveErasesEveryRowThatNamesTheIdentity(t *testing.T) {
 	leaveErasesEveryRow(t, st, list, count)
 }
 
-// The same on Postgres, where the pre-push hook provides one (PACT_TEST_POSTGRES_DSN).
+// The same on Postgres, where the pre-push hook provides one (HDTP_TEST_POSTGRES_DSN).
 func TestPostgresLeaveErasesEveryRowThatNamesTheIdentity(t *testing.T) {
-	dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PACT_TEST_POSTGRES_DSN not set")
+		t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 	}
 	ctx := context.Background()
-	const dbName = "pact_leave"
+	const dbName = "hdtp_leave"
 	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

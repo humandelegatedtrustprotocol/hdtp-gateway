@@ -17,13 +17,13 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // totalRig is two demo nodes, alina behind a proxy at proxyAddr with a small guest total, and bharat
@@ -85,15 +85,15 @@ func (r *totalRig) contactCalls() error {
 }
 
 // seal is a sealed tools/call to alina from a host's key and chain.
-func (r *totalRig) seal(sender *pactidentity.PrivateKey, chain [][]byte, form, tool string, args map[string]any) *pactidentity.Envelope {
+func (r *totalRig) seal(sender *hdtpidentity.PrivateKey, chain [][]byte, form, tool string, args map[string]any) *hdtpidentity.Envelope {
 	r.t.Helper()
-	leaf, err := pactidentity.Parse(r.alina.leaf())
+	leaf, err := hdtpidentity.Parse(r.alina.leaf())
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	params, _ := json.Marshal(map[string]any{"name": tool, "arguments": args})
 	r.msg++
-	env, err := pactidentity.SealRequest(pactidentity.SealOpts{
+	env, err := hdtpidentity.SealRequest(hdtpidentity.SealOpts{
 		RecipientKey: leaf.PublicKey, Sender: sender, Form: form, SenderChain: chain, Method: "tools/call", Params: params,
 		MsgID: fmt.Sprintf("m-%d", r.msg), TS: r.clock.now().Unix(), Exp: r.clock.now().Add(10 * time.Minute).Unix(),
 	})
@@ -111,7 +111,7 @@ func (r *totalRig) stranger(i int) *testid.Host {
 // post delivers a sealed_call to alina's shipped handler from remote (host:port), naming source
 // when remote is the proxy, and answers the clear refusal's code, or "sealed" for an answer sealed
 // back to the caller.
-func (r *totalRig) post(remote, source string, env *pactidentity.Envelope) (answer string, retryAfter int) {
+func (r *totalRig) post(remote, source string, env *hdtpidentity.Envelope) (answer string, retryAfter int) {
 	r.t.Helper()
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": public.SealedToolName, "arguments": env}})
@@ -144,7 +144,7 @@ func (r *totalRig) post(remote, source string, env *pactidentity.Envelope) (answ
 	if json.Unmarshal([]byte(text), &clear) == nil && clear.Code != "" {
 		return clear.Code, clear.RetryAfter
 	}
-	var sealed pactidentity.Envelope
+	var sealed hdtpidentity.Envelope
 	if json.Unmarshal([]byte(text), &sealed) == nil && sealed.Protected != "" {
 		return "sealed", 0
 	}

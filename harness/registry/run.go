@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/portal"
-	"github.com/pact-cloud/pact-gateway/harness/preflight"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/preflight"
 )
 
 // Verdict is how one scenario ended.
@@ -80,12 +80,12 @@ func ResultsDir(getenv func(string) string) string {
 	if d := getenv(ResultsEnv); d != "" {
 		return d
 	}
-	return filepath.Join(os.TempDir(), "pact-harness-results")
+	return filepath.Join(os.TempDir(), "hdtp-harness-results")
 }
 
 // Start begins a live scenario and returns its context, bounded by the spec's Timeout.
 //
-// Without PACT_HARNESS_LIVE it skips and records nothing: that is the hermetic tier. Otherwise it
+// Without HDTP_HARNESS_LIVE it skips and records nothing: that is the hermetic tier. Otherwise it
 // validates the spec, checks every need (a missing one SKIPS, with the reason recorded), and
 // registers the verdict as the test's FIRST cleanup, so it runs LAST and sees a failure raised by
 // any teardown registered after it.
@@ -192,8 +192,8 @@ func check(n Need) error {
 		key += "|" + os.Getenv(KernelEnv)
 	case CF:
 		key += "|" + os.Getenv(CFEnv)
-	case PactCLI:
-		key += "|" + os.Getenv(PactCLIEnv)
+	case HDTPCLI:
+		key += "|" + os.Getenv(HDTPCLIEnv)
 	case CloudBattery:
 		key += "|" + os.Getenv(CloudBatteryEnv)
 	case LocalCloud:
@@ -244,10 +244,10 @@ func probe(ctx context.Context, n Need) error {
 			return fmt.Errorf("%s is not set", CFEnv)
 		}
 		return nil
-	case PactCLI:
-		cli := os.Getenv(PactCLIEnv)
+	case HDTPCLI:
+		cli := os.Getenv(HDTPCLIEnv)
 		if cli == "" {
-			return fmt.Errorf("%s is not set", PactCLIEnv)
+			return fmt.Errorf("%s is not set", HDTPCLIEnv)
 		}
 		if out, err := local(ctx, cli, "--version"); err != nil {
 			return fmt.Errorf("%s --version: %v %s", cli, err, firstLine(string(out)))
@@ -283,8 +283,8 @@ func probe(ctx context.Context, n Need) error {
 		// A checkout from before the battery took a target can only be aimed at the cloud: aimed
 		// at a node it fails a dozen cases for reasons that are its own. Such a checkout does not
 		// provide the need, and says why.
-		if src, err := os.ReadFile(filepath.Join(dir, "target_test.go")); err != nil || !strings.Contains(string(src), "PACT_LIVE_TARGET") {
-			return fmt.Errorf("%s is a battery that cannot be aimed at a node (no PACT_LIVE_TARGET in its target_test.go): update that pact-cloud checkout", dir)
+		if src, err := os.ReadFile(filepath.Join(dir, "target_test.go")); err != nil || !strings.Contains(string(src), "HDTP_LIVE_TARGET") {
+			return fmt.Errorf("%s is a battery that cannot be aimed at a node (no HDTP_LIVE_TARGET in its target_test.go): update that batondeck checkout", dir)
 		}
 		return nil
 	}

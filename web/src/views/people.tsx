@@ -16,7 +16,7 @@ type Contact = { fingerprint: string; label: string; status: string };
 type ContactsData = { contacts: Contact[] | null; presets: string[]; can_add: boolean };
 
 type Pending = { fingerprint: string; display_name: string; via_invite?: boolean; invite_label?: string; address_claim?: { root: string; name: string } | null };
-// A contact waiting at a new address for the owner's answer (PACT §5.3, under `ask`).
+// A contact waiting at a new address for the owner's answer (HDTP §5.3, under `ask`).
 type Address = { root: string; name?: string; pinned_endpoint?: string; endpoint: string; why: string; at: number };
 type RequestsData = { pending: Pending[] | null; addresses: Address[] | null; presets: string[] };
 
@@ -121,7 +121,7 @@ function ContactsTab({ d, onNote, reload }: {
   };
 
   // SPEC §9.3's import: a card they gave you out of band — a .vcf, or its text — and, once you
-  // confirm, the node asks at the address the card names (PACT §5.2). They are waiting until
+  // confirm, the node asks at the address the card names (HDTP §5.2). They are waiting until
   // their owner approves; nothing is pinned as a contact before that.
   const askFromCard = async () => {
     const res = await postForm("/contacts/add", { card, note, grant });

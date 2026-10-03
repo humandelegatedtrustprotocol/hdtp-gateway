@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // messages is the suite for messages: the msg_id namespace per direction and a far-future expiry.
@@ -63,7 +63,7 @@ func messages(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// `expires` is chosen by the SENDER (PACT §7), so the column has to hold any
+	// `expires` is chosen by the SENDER (HDTP §7), so the column has to hold any
 	// plausible epoch value. On Postgres it was INTEGER — 32-bit — where every
 	// other epoch column is BIGINT: a far-future deadline made the INSERT fail
 	// with "integer out of range" and the message was refused, and the column

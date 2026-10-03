@@ -19,12 +19,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
 // freePort reserves and releases a port, so the config can name it.
@@ -169,7 +169,7 @@ func (l *lockedBuf) Write(p []byte) (int, error) {
 // openStoreAt opens the served database directly, the way the admin CLI would.
 func openStoreAt(t *testing.T, dir string) store.Store {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 	var acct store.Account
 	r := runServe(t, func(t *testing.T, dir string) {
 		// an account and an owner token exist before the node starts
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -207,7 +207,7 @@ func TestServeRunsTheWholeNode(t *testing.T) {
 
 	// 2. the PUBLIC surface completes a TLS handshake and lists guest tools.
 	// The peer presents a CHAIN — leaf then root — because that is what proves an
-	// identity now; a single self-signed certificate proves nothing (PACT §14.2
+	// identity now; a single self-signed certificate proves nothing (HDTP §14.2
 	// rule 1) and its bearer would be refused identity_required.
 	tp := newTestPeer(t, "Peer", "https://peer.example/a/p/mcp")
 	peer, dial := nodePeer(t, r.dir, acct, r.public)
@@ -264,7 +264,7 @@ func TestServeOwnerMCPBearerGate(t *testing.T) {
 	ctx := context.Background()
 	var token string
 	r := runServe(t, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -402,7 +402,7 @@ func TestServeShutsDownAndReleasesTheLock(t *testing.T) {
 	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,7 +597,7 @@ func TestTheOwnerMCPIsStateless(t *testing.T) {
 			t.Fatalf("%s: %d Allow %q, want 405 Allow POST", m, res.StatusCode, res.Header.Get("Allow"))
 		}
 	}
-	sub := post("POST", token, `{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"pact://inbox"}}`)
+	sub := post("POST", token, `{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"hdtp://inbox"}}`)
 	if b, _ := io.ReadAll(sub.Body); !strings.Contains(string(b), `"error"`) {
 		t.Fatalf("a resource subscription was accepted: %s", b)
 	}
@@ -634,7 +634,7 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 	ctx := context.Background()
 	r := runServe(t, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -660,7 +660,7 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := st.InsertLeaf(ctx, store.Leaf{AccountID: bob.ID, Kid: "sha256:bob-there", Leaf: []byte("leaf-der"), NotBefore: 5, NotAfter: 50,
-			State: identity.LeafFormer, Endpoint: "https://bob.pact.contact/mcp"}); err != nil {
+			State: identity.LeafFormer, Endpoint: "https://bob.id.batondeck.com/mcp"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := st.ClearAccountKey(ctx, bob.ID); err != nil {
@@ -710,7 +710,7 @@ func TestServeNamesTheAccountsAwaitingACertificate(t *testing.T) {
 func TestServeNamesAnAccountWhoseKeyWillNotOpen(t *testing.T) {
 	ctx := context.Background()
 	r := runServe(t, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}

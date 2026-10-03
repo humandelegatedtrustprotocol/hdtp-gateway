@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
-// Status implements get_status (PACT §6.2): node-local status by default; a
+// Status implements get_status (HDTP §6.2): node-local status by default; a
 // recipe MAY source it from an upstream tool instead (SPEC §6.7).
 type Status struct {
 	Local  func(ctx context.Context) (string, error)

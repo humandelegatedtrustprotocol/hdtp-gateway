@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// PACT §5.2: a stranger at an address that belongs, or lately belonged, to a contact is "shown to
+// HDTP §5.2: a stranger at an address that belongs, or lately belonged, to a contact is "shown to
 // the owner beside the name of the contact who holds or held that address". The node refused such
 // a stranger auto-acceptance and kept the claim on the audit row only; the Requests tab now names
 // the contact. The control is a request from an address nobody holds, which names nobody.

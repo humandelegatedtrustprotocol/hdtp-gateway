@@ -39,7 +39,7 @@ const deleteExpiredIdempotency = `-- name: DeleteExpiredIdempotency :execrows
 DELETE FROM idempotency WHERE expires_at <= ?
 `
 
-// A record past its window protects nothing (PACT 13.3): nothing later than the window passes
+// A record past its window protects nothing (HDTP sec. 13.3): nothing later than the window passes
 // the freshness check, so a replay of that envelope is refused before this table is asked.
 func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, expiresAt sql.NullInt64) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteExpiredIdempotency, expiresAt)
@@ -53,7 +53,7 @@ const deleteIdempotencyByAccount = `-- name: DeleteIdempotencyByAccount :execrow
 DELETE FROM idempotency WHERE account_id = ?
 `
 
-// The records of an identity that has left this host (PACT sec. 9): the table has no foreign key.
+// The records of an identity that has left this host (HDTP sec. 9): the table has no foreign key.
 func (q *Queries) DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteIdempotencyByAccount, accountID)
 	if err != nil {

@@ -1,4 +1,4 @@
-// Command harness drives the pact-gateway scenario suite (docs/harness-design.md).
+// Command harness drives the hdtp-gateway scenario suite (docs/harness-design.md).
 //
 // It lives in a separate module from the product on purpose: it orchestrates
 // containers and virtual machines and drives a real browser over CDP, and none of
@@ -13,8 +13,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/preflight"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/preflight"
 )
 
 func main() {

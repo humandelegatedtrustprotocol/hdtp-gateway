@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -20,7 +20,7 @@ func run(t *testing.T, args ...string) (int, string, string) {
 
 func TestVersionCommand(t *testing.T) {
 	code, out, _ := run(t, "version")
-	if code != 0 || !strings.Contains(out, "pact-gateway test") {
+	if code != 0 || !strings.Contains(out, "hdtp-gateway test") {
 		t.Fatalf("code=%d out=%q", code, out)
 	}
 }

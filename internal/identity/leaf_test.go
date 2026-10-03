@@ -7,34 +7,34 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// wallet is the person's side of PACT §9 in a test: a root, and the ledger the
+// wallet is the person's side of HDTP §9 in a test: a root, and the ledger the
 // monotonic notBefore rule needs.
 type wallet struct {
-	key  *pactidentity.PrivateKey
+	key  *hdtpidentity.PrivateKey
 	root []byte
 	fpr  string
 }
 
 func newWallet(t *testing.T, cn string) *wallet {
 	t.Helper()
-	key, err := pactidentity.GenerateKey("ed25519")
+	key, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+	root, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &wallet{key: key, root: root, fpr: pactidentity.Fingerprint(key.Public().SPKI)}
+	return &wallet{key: key, root: root, fpr: hdtpidentity.Fingerprint(key.Public().SPKI)}
 }
 
 func (w *wallet) issue(t *testing.T, csr CSRResult, now time.Time, days int) [][]byte {
 	t.Helper()
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
@@ -64,7 +64,7 @@ func leafEnv(t *testing.T) (*Manager, store.Account) {
 
 const endpointA = "https://agent.alina.example/a/alina/mcp"
 
-// The whole round trip of PACT §9 for a 1.x account: a request carrying the
+// The whole round trip of HDTP §9 for a 1.x account: a request carrying the
 // existing key, the wallet's leaf, the install — and what it changes.
 func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	m, a := leafEnv(t)
@@ -79,7 +79,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if csr.Kid != a.Fingerprint || csr.PreviousNotBefore != nil {
 		t.Fatalf("an upgrade certifies the existing key: %+v", csr)
 	}
-	if info := pactidentity.CSRCheck(csr.CSR, nil); !info.OK || info.Endpoint != endpointA {
+	if info := hdtpidentity.CSRCheck(csr.CSR, nil); !info.OK || info.Endpoint != endpointA {
 		t.Fatalf("the request does not check out: %+v", info)
 	}
 	// A second request replaces the first: one pending leaf at a time.
@@ -114,7 +114,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	if err != nil || len(chain) != 2 {
 		t.Fatalf("chain: %v %d", err, len(chain))
 	}
-	if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now, ExpectedRoot: w.fpr, ExpectedEndpoint: endpointA}); !vr.OK {
+	if vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: now, ExpectedRoot: w.fpr, ExpectedEndpoint: endpointA}); !vr.OK {
 		t.Fatalf("the installed chain does not validate: rule %d %s", vr.Rule, vr.Reason)
 	}
 	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
@@ -164,7 +164,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	}
 
 	// A move names another endpoint; the leaf must name exactly it.
-	elsewhere := "https://alina.pact.contact/alina/mcp"
+	elsewhere := "https://alina.id.batondeck.com/alina/mcp"
 	csr3, err := m.IssueCSR(ctx, a.ID, PurposeMove, elsewhere, later.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -216,8 +216,8 @@ func TestInstallLeafRefusals(t *testing.T) {
 	_ = wrongEndpoint
 	// Back to the right request; a leaf carrying a key the request did not.
 	csr, _ = m.IssueCSR(ctx, a.ID, PurposeSignup, endpointA, now)
-	stray, _ := pactidentity.GenerateKey("ed25519")
-	strayCSR, _ := pactidentity.CSRNew("Alina Rao", stray, endpointA, "")
+	stray, _ := hdtpidentity.GenerateKey("ed25519")
+	strayCSR, _ := hdtpidentity.CSRNew("Alina Rao", stray, endpointA, "")
 	if _, err := m.InstallLeaf(ctx, a.ID, w.issue(t, CSRResult{CSR: strayCSR}, now, 365), now); err == nil || !strings.Contains(err.Error(), "not the requested") {
 		t.Fatalf("a leaf carrying a stray key: %v", err)
 	}
@@ -238,13 +238,13 @@ func TestInstallLeafRefusals(t *testing.T) {
 	}
 	// Longer than 398 days: rule 4.
 	csr4, _ := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now.Add(2*time.Hour))
-	if _, err := pactidentity.IssueFromCSR(csr4.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now, ValidDays: 400}); err == nil {
+	if _, err := hdtpidentity.IssueFromCSR(csr4.CSR, hdtpidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now, ValidDays: 400}); err == nil {
 		t.Fatal("the wallet issued a 400-day leaf")
 	}
 }
 
 // A first leaf requested as a renewal mints a fresh key, so the key the account was created with
-// is replaced without ever having been certified. PACT §14.4 keeps a superseded LEAF's key until
+// is replaced without ever having been certified. HDTP §14.4 keeps a superseded LEAF's key until
 // its notAfter; this key was never a leaf. Before the first leaf an identity has no card and is
 // not served, so no 2.0 sender can have sealed anything to it, and there is nobody to answer
 // `certificate_renewed`.
@@ -306,7 +306,7 @@ func TestAFirstLeafOverAFreshKeyRetiresNothing(t *testing.T) {
 // AC (2026-09-18): the FIRST leaf over an account that names a key it does not hold installs,
 // and the host starts serving an identity it holds no key for.
 //
-// No leaf key travels between hosts (PACT §9), so an account can name a leaf kid issued
+// No leaf key travels between hosts (HDTP §9), so an account can name a leaf kid issued
 // elsewhere with nothing here to sign with. It asks its wallet for a move and installs what
 // comes back. (An export of today's format arrives with no key named at all:
 // TestAnImportedSlugHoldsOnlyItsRootUntilTheFirstChainInstalls.)
@@ -361,7 +361,7 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	if res.Endpoint != here || res.RootFingerprint != w.fpr {
 		t.Fatalf("installed under the wrong name or address: %+v", res)
 	}
-	// And it MOVED, which is what starts the campaign that tells its contacts (PACT §9). This was
+	// And it MOVED, which is what starts the campaign that tells its contacts (HDTP §9). This was
 	// worked out by the caller from the superseded leaf's endpoint, and an import has no
 	// superseded leaf — so the one install that is a move by construction campaigned to nobody.
 	if !res.Moved {
@@ -369,7 +369,7 @@ func TestFirstLeafAfterADataOnlyImport(t *testing.T) {
 	}
 	// Nothing to retire: the account named a key it never held, so that kid must not
 	// become a superseded leaf — the host would be promising `certificate_renewed`
-	// answers it cannot seal (PACT §14.4).
+	// answers it cannot seal (HDTP §14.4).
 	if res.OldKid != "" || len(res.Retired) != 0 {
 		t.Fatalf("a key this host never had was retired: %+v", res)
 	}

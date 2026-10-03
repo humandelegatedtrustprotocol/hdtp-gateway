@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 type env struct {
@@ -44,7 +44,7 @@ func newEnv(t *testing.T) *env {
 }
 
 // guestID stands in for a peer identity in these tests. Fingerprint is the ROOT
-// fingerprint, which is what a contact is pinned by (PACT §2) — not the leaf key,
+// fingerprint, which is what a contact is pinned by (HDTP §2) — not the leaf key,
 // which changes at every renewal.
 type guestID struct {
 	Fingerprint string
@@ -77,7 +77,7 @@ func cardRoot(t *testing.T, card string) string {
 func guest(t *testing.T, name string) (*guestID, string, []byte) {
 	t.Helper()
 	w := testid.NewWallet(t, name)
-	// Lowercased: a leaf names its endpoint in RFC 3986 normal form (PACT §14.1), and the address
+	// Lowercased: a leaf names its endpoint in RFC 3986 normal form (HDTP §14.1), and the address
 	// guard — which these tests never reached while their proofs skipped it — refuses any other.
 	h := w.Issue(t, "https://"+strings.ToLower(name)+".example/mcp")
 	return &guestID{Fingerprint: w.Fpr, Host: h}, h.Card(name, ""), h.Key.Public().SPKI
@@ -225,7 +225,7 @@ func TestRequestContactNoteCapAndBinding(t *testing.T) {
 }
 
 // UpdateContact is a card refresh now, not a key rotation. The chain that carried
-// the call already decided the pin (PACT §5.3, §14.3), so the two things left to
+// the call already decided the pin (HDTP §5.3, §14.3), so the two things left to
 // check are that the card names the pinned ROOT and carries the leaf the call
 // proved. These replace four tests of the 1.x rotation proof, which required a
 // signature by the old key because in 1.x the identity WAS a key.
@@ -250,7 +250,7 @@ func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 
 	// A card from another root is not a refresh of this contact, and neither is a card of the
 	// same root carrying a leaf the call did not prove. Each is `bad_request` — a card that
-	// disagrees with the proof — as the cloud answers it (PACT §3, §14.2; review P-24).
+	// disagrees with the proof — as the cloud answers it (HDTP §3, §14.2; review P-24).
 	_, otherCard, _ := guest(t, "Mallory")
 	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, otherCard); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("a card naming another root: want bad_request, got %v", err)

@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
 // testIdentity is a 2.0 identity for a test: a root, a leaf naming an endpoint,
 // and the leaf's key as the node's keypair with the chain attached.
 type testIdentity struct {
-	root     *pactidentity.PrivateKey
+	root     *hdtpidentity.PrivateKey
 	rootCert []byte
 	rootFpr  string
 	kp       *identity.Keypair
@@ -24,11 +24,11 @@ type testIdentity struct {
 
 func newTestIdentity(t *testing.T, cn, endpoint string) *testIdentity {
 	t.Helper()
-	root, err := pactidentity.GenerateKey("ed25519")
+	root, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: cn, Key: root, NotBefore: time.Now().Add(-24 * time.Hour)})
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: cn, Key: root, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func newTestIdentity(t *testing.T, cn, endpoint string) *testIdentity {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: cn, RootCN: cn, RootKey: root, HostPub: lib.Public(), Endpoint: endpoint,
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(300 * 24 * time.Hour),
 	})
@@ -48,7 +48,7 @@ func newTestIdentity(t *testing.T, cn, endpoint string) *testIdentity {
 		t.Fatal(err)
 	}
 	kp.Leaf, kp.Root = leaf, rootCert
-	return &testIdentity{root: root, rootCert: rootCert, rootFpr: pactidentity.Fingerprint(root.Public().SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
+	return &testIdentity{root: root, rootCert: rootCert, rootFpr: hdtpidentity.Fingerprint(root.Public().SPKI), kp: kp, leaf: leaf, endpoint: endpoint}
 }
 
 func (i *testIdentity) tlsCert() tls.Certificate {
@@ -62,7 +62,7 @@ func (i *testIdentity) peerOf() Peer {
 	return Peer{Endpoint: i.endpoint, Seal: "required", Root: i.rootFpr, Leaf: i.leaf}
 }
 
-// TestChainAsServerCertificateValidatesToThePinnedRoot: PACT §2 server side —
+// TestChainAsServerCertificateValidatesToThePinnedRoot: HDTP §2 server side —
 // a 2.0 node presents its own chain; a caller validates it to the root it
 // pinned at the address it dialed, refuses another root, refuses another
 // address, and refuses a pin that names a leaf key rather than a root.
@@ -84,7 +84,7 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	if err := dial(server.peerOf()); err != nil {
 		t.Fatalf("the pinned root's chain must be accepted: %v", err)
 	}
-	// The chain travels as OUR client certificate too (PACT §2): the server
+	// The chain travels as OUR client certificate too (HDTP §2): the server
 	// saw two certificates, the leaf first.
 	other := newTestIdentity(t, "Mallory", "https://agent.bharat.example/mcp")
 	wrong := server.peerOf()
@@ -95,7 +95,7 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	elsewhere := server.peerOf()
 	elsewhere.Endpoint = "https://agent.bharat.example/other"
 	if err := dial(elsewhere); err == nil {
-		t.Fatal("a chain naming another address must be refused (PACT §14.2 rule 5)")
+		t.Fatal("a chain naming another address must be refused (HDTP §14.2 rule 5)")
 	}
 	// And the LEAF's key is not the identity. The retired generation recognised a server by the
 	// key of the certificate it presented; under 2.0 the identity is the root. So a pin that
@@ -105,9 +105,9 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	// nobody meant to keep survives its own deletion.
 	lib, _ := identity.ToLib(server.kp)
 	byLeafKey := server.peerOf()
-	byLeafKey.Root = pactidentity.Fingerprint(lib.Public().SPKI)
+	byLeafKey.Root = hdtpidentity.Fingerprint(lib.Public().SPKI)
 	if err := dial(byLeafKey); err == nil {
-		t.Fatal("a pin of the leaf's key must not connect: the identity is the root (PACT §2)")
+		t.Fatal("a pin of the leaf's key must not connect: the identity is the root (HDTP §2)")
 	}
 	// Nor is no pin at all: with no root held there is no chain to validate to, and what is left
 	// is WebPKI, which this chain is not.

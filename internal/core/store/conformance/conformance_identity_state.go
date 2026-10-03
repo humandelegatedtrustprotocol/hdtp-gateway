@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// identityState is the suite for the PACT 2.0 state: the root, the leaf ledger and the side tables.
+// identityState is the suite for the HDTP 1.0 state: the root, the leaf ledger and the side tables.
 func identityState(t *testing.T, newStore Factory) {
-	// PACT 2.0 (migration 0027): the root beside the account, the leaf ledger,
+	// HDTP 1.0 (migration 0027): the root beside the account, the leaf ledger,
 	// 2.0 pins that move without the root moving, and the §5.3 side tables.
 	t.Run("IdentityStateRoundTrips", func(t *testing.T) {
 		s := migrated(t, newStore)
@@ -26,7 +26,7 @@ func identityState(t *testing.T, newStore Factory) {
 		// An account with no key reads as NO KEY, in both engines, and not as an
 		// error: that is the shape a data-only archive arrives in, and the node,
 		// `csr -purpose signup` and `install-leaf` all decide from an empty slice
-		// (PACT §9). An error here made every one of those branches unreachable.
+		// (HDTP §9). An error here made every one of those branches unreachable.
 		if k, kerr := s.GetAccountSealedKey(ctx, a.ID); kerr != nil || len(k) != 0 {
 			t.Fatalf("an account with no key must read as empty, not as an error: %q %v", k, kerr)
 		}
@@ -104,7 +104,7 @@ func identityState(t *testing.T, newStore Factory) {
 		}
 		// The sibling kids: what another identity on this node holds. One inbound
 		// envelope asks for this to tell a kid held elsewhere on the node from one
-		// this endpoint never held (PACT §13.3, §14.4), so it must never answer
+		// this endpoint never held (HDTP §13.3, §14.4), so it must never answer
 		// with the asking account's own kids, and must see every other account's.
 		other, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "sibling", DisplayName: "Sibling", Algo: "p256"})
 		if err != nil {
@@ -131,7 +131,7 @@ func identityState(t *testing.T, newStore Factory) {
 			t.Fatalf("delete former: %d", n)
 		}
 		// A 2.0 pin: the fingerprint column is the root and never moves; the
-		// endpoint, the leaf and its key do (PACT §14.3, §5.3).
+		// endpoint, the leaf and its key do (HDTP §14.3, §5.3).
 		c, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:peer-root", SPKI: []byte{1}, Status: "active",
 			Endpoint: "https://p.example/mcp", Leaf: []byte("pl1"), ChainSentKid: "sha256:leaf2"})
 		if err != nil {

@@ -1,12 +1,12 @@
 // The words the portal says a status, a tool and a permission in, and a status's tone.
 //
-// ONE module for both portals: the node's (web/src) and PACT Cloud's (portal/src, copied verbatim
+// ONE module for both portals: the node's (web/src) and BatonDeck's (portal/src, copied verbatim
 // from the node commit its portal/HARVESTED file records, held to it by the cloud's
 // gateway/scripts/check-harvested.mjs). The two ports' tone tables had already drifted when they were
 // two copies (the node's OK lacked `rotated`, its WARN `queued`, and neither knew `rate_limited`), so
 // there is one table now. Pure, with no imports: both portals' tests run it as it ships, the node's with
 // `node --test` (web/test/words_test.mjs, which holds the tones to what the Go emitters write) and the
-// cloud's with vitest (portal/test/words.test.ts, the same against the cloud's emitters and PACT's codes).
+// cloud's with vitest (portal/test/words.test.ts, the same against the cloud's emitters and HDTP's codes).
 
 export type Tone = "neutral" | "ok" | "warn" | "bad";
 
@@ -57,7 +57,7 @@ const PERMS: Readonly<Record<string, string>> = {
 };
 
 /**
- * A PACT permission (SPEC §5) as an owner reads it: `message.media` → "Media & files",
+ * A HDTP permission (SPEC §5) as an owner reads it: `message.media` → "Media & files",
  * `integration.github` → "GitHub tools". A permission that names one tool (`integration.github.search`,
  * `deepwiki_ask_wiki_question`) is that tool's label. A dotted name this does not know stays as written:
  * it is somebody's own permission, and guessing its words would say something it may not mean.
@@ -236,7 +236,7 @@ const KINDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * An audit row's actor kind, as a filter says it. `cli` is the node's command line; PACT Cloud writes its
+ * An audit row's actor kind, as a filter says it. `cli` is the node's command line; BatonDeck writes its
  * operators under that kind (the Go store's CHECK has no `operator`), so the cloud passes its own word.
  */
 export function kindLabel(kind: string, own: Readonly<Record<string, string>> = {}): string {
@@ -262,7 +262,7 @@ const REASONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Why an outbound message did not arrive, in words, from the code the portal was given: a PACT §12
+ * Why an outbound message did not arrive, in words, from the code the portal was given: a HDTP §12
  * refusal (`last_refusal` on the cloud, the stored status on the node) or `expired`. A code this does not
  * know says only that it did not arrive, rather than guessing; the code itself goes in the title.
  */
@@ -370,7 +370,7 @@ export const CHIPS_SHOWN = 8;
 
 /**
  * A count as a chip shows it. A number is exact. `{ count, capped }` is how an API answers a count it
- * stops at a cap of its own on a hot read (PACT Cloud's GET /v1/identities/:slug/badges, `unread`):
+ * stops at a cap of its own on a hot read (BatonDeck's GET /v1/identities/:slug/badges, `unread`):
  * `capped` says there were more than `count`, and `count` is then that cap. The view never knows the
  * cap; it is whatever the answer says.
  */

@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Invalidator drops a caller's composed server (public.Pool.Invalidate).
@@ -32,7 +32,7 @@ type ContactsDeps struct {
 	// AddContact is the owner reaching out with THIS account's identity — the
 	// owner-initiated half of contact establishment (SPEC §9): redeem the invite
 	// link they were sent, or, with no link, ask the holder of a card they have out
-	// of band (§9.3's import; the PACT §5.2 manual flow, landing pending_out). It is
+	// of band (§9.3's import; the HDTP §5.2 manual flow, landing pending_out). It is
 	// the same function the owner MCP's add_contact calls: the portal and the agent
 	// surface are meant to be at parity (§8.4), and a second implementation here
 	// would be a second set of bugs. Nil hides both forms rather than offering a
@@ -221,7 +221,7 @@ func (d ContactsDeps) getAPIContacts(w http.ResponseWriter, r *http.Request) {
 
 // postContactsFprRemove serves `POST /contacts/{fpr}/remove`.
 //
-// Ending one, in any state: an active contact is told (PACT §5: removal notifies the peer
+// Ending one, in any state: an active contact is told (HDTP §5: removal notifies the peer
 // and is effective locally regardless, bounded so an unreachable peer never blocks the
 // owner's decision); a waiting request, our own approach or a blocked root goes silently.
 func (d ContactsDeps) postContactsFprRemove(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +248,7 @@ func (d ContactsDeps) postContactsFprRemove(w http.ResponseWriter, r *http.Reque
 
 // postContactsFprBlock serves `POST /contacts/{fpr}/block`.
 //
-// Blocking is silent (SPEC §9.1, PACT §5.2): they are served as a stranger and told nothing.
+// Blocking is silent (SPEC §9.1, HDTP §5.2): they are served as a stranger and told nothing.
 func (d ContactsDeps) postContactsFprBlock(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)

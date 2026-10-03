@@ -48,7 +48,7 @@ const (
 	RuleEdgeClientCert     = "edge_mode_forces_client_cert_off"         // SPEC §2.5
 	RuleEnum               = "invalid_enum_value"
 	RuleRange              = "value_out_of_range"
-	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, PACT §9.1
+	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, HDTP §9.1
 	RuleProxyAddress       = "proxy_address_is_an_ip"        // SPEC §5.1, §12.2
 )
 
@@ -76,7 +76,7 @@ func (c *Config) ContactCap() int {
 type Config struct {
 	// LimitContacts is how many contacts each account on this node may hold: active contacts plus
 	// the requests it sent. It is enforced wherever a contact is added, and it sizes the account's
-	// call budget — every contact calling at once, one call a second each (PACT §12). Zero means
+	// call budget — every contact calling at once, one call a second each (HDTP §12). Zero means
 	// DefaultLimitContacts. Read per call, so a change takes effect without a restart.
 	LimitContacts int `json:"limit_contacts,omitempty"`
 
@@ -93,7 +93,7 @@ type Config struct {
 	// it must not come from data the authenticated surface can write.
 	InternalHost string `json:"internal_host"`
 
-	// WalletURL is the ORIGIN of the web wallet the portal sends a signing request to (PACT §9.1):
+	// WalletURL is the ORIGIN of the web wallet the portal sends a signing request to (HDTP §9.1):
 	// the page POSTs to WalletURL + "/sign" and the wallet answers at the portal's /wallet/return.
 	// It is bootstrap, never owner-settable: it is the one foreign origin the portal's form-action
 	// admits, so it cannot come from data the authenticated surface writes. Defaults to the cloud's
@@ -142,14 +142,14 @@ type Config struct {
 	// ProxyAddress is the IP address of the proxy in front of the public listener, Envoy
 	// (deploy/envoy, SPEC §5.1): it terminates the caller's TLS, asks for the caller's certificate
 	// chain and forwards it in X-Forwarded-Client-Cert, and the caller's address in
-	// X-Pact-Client-Address. The node reads those two headers from a connection whose source
+	// X-HDTP-Client-Address. The node reads those two headers from a connection whose source
 	// is this address and from no other; "" is no proxy, and neither header is ever read.
 	// Bootstrap: it decides who may assert a caller's identity, so it cannot come from data the
 	// authenticated surface writes.
 	ProxyAddress string `json:"proxy_address"`
 
-	// LimitsSocket is the unix socket of the limits sidecar (cmd/pact-limitd), which decides every
-	// PACT §12 budget (SPEC §5.7); "" is <data_dir>/limits.sock. Bootstrap, never owner-settable: it
+	// LimitsSocket is the unix socket of the limits sidecar (cmd/hdtp-limitd), which decides every
+	// HDTP §12 budget (SPEC §5.7); "" is <data_dir>/limits.sock. Bootstrap, never owner-settable: it
 	// decides who may refuse every caller, so it cannot come from data the authenticated surface
 	// writes. Every node process on a host names the same one, which is what makes one counter.
 	LimitsSocket string `json:"limits_socket"`
@@ -171,7 +171,7 @@ func (c *Config) LimitsSocketPath() string {
 
 // DefaultAuditArchiveAfter is the period the node keeps a departed identity's audit rows live
 // (SPEC §3.11): a quarter, long enough for the owner to review the leave and whatever led to it
-// in the portal, and short against PACT §9's "keep nothing beyond what law compels".
+// in the portal, and short against HDTP §9's "keep nothing beyond what law compels".
 const DefaultAuditArchiveAfter = "90d"
 
 // ParseAuditArchiveAfter reads AuditArchiveAfter: a whole number of days with a `d`, or a Go
@@ -276,44 +276,44 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 		}
 	}
 
-	// env layer (PACT_* — SPEC §12.2)
+	// env layer (HDTP_* — SPEC §12.2)
 	envStr := func(key string, dst *string) {
 		if v, ok := lookup(key); ok {
 			*dst = v
 		}
 	}
-	envStr("PACT_DATA_DIR", &c.DataDir)
-	envStr("PACT_PUBLIC_BIND", &c.PublicBind)
-	envStr("PACT_PUBLIC_URL", &c.PublicURL)
-	envStr("PACT_INTERNAL_BIND", &c.InternalBind)
-	envStr("PACT_INTERNAL_HOST", &c.InternalHost)
-	envStr("PACT_INTERNAL_TLS_CERT", &c.InternalTLSCert)
-	envStr("PACT_INTERNAL_TLS_KEY", &c.InternalTLSKey)
-	envStr("PACT_STORE_ENGINE", &c.StoreEngine)
-	envStr("PACT_POSTGRES_DSN", &c.PostgresDSN)
-	envStr("PACT_MASTER_KEY_FILE", &c.MasterKeyFile)
-	envStr("PACT_BLOB_DIR", &c.BlobDir)
-	envStr("PACT_TUNNEL", &c.Tunnel)
-	envStr("PACT_WALLET_URL", &c.WalletURL)
-	envStr("PACT_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
-	envStr("PACT_LIMITS_SOCKET", &c.LimitsSocket)
-	envStr("PACT_PROXY_ADDRESS", &c.ProxyAddress)
-	if v, ok := lookup("PACT_MODE"); ok {
+	envStr("HDTP_DATA_DIR", &c.DataDir)
+	envStr("HDTP_PUBLIC_BIND", &c.PublicBind)
+	envStr("HDTP_PUBLIC_URL", &c.PublicURL)
+	envStr("HDTP_INTERNAL_BIND", &c.InternalBind)
+	envStr("HDTP_INTERNAL_HOST", &c.InternalHost)
+	envStr("HDTP_INTERNAL_TLS_CERT", &c.InternalTLSCert)
+	envStr("HDTP_INTERNAL_TLS_KEY", &c.InternalTLSKey)
+	envStr("HDTP_STORE_ENGINE", &c.StoreEngine)
+	envStr("HDTP_POSTGRES_DSN", &c.PostgresDSN)
+	envStr("HDTP_MASTER_KEY_FILE", &c.MasterKeyFile)
+	envStr("HDTP_BLOB_DIR", &c.BlobDir)
+	envStr("HDTP_TUNNEL", &c.Tunnel)
+	envStr("HDTP_WALLET_URL", &c.WalletURL)
+	envStr("HDTP_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
+	envStr("HDTP_LIMITS_SOCKET", &c.LimitsSocket)
+	envStr("HDTP_PROXY_ADDRESS", &c.ProxyAddress)
+	if v, ok := lookup("HDTP_MODE"); ok {
 		c.Mode = Mode(v)
 	}
-	if v, ok := lookup("PACT_SEAL"); ok {
+	if v, ok := lookup("HDTP_SEAL"); ok {
 		c.Seal = Seal(v)
 	}
-	if v, ok := lookup("PACT_CLIENT_CERT"); ok {
+	if v, ok := lookup("HDTP_CLIENT_CERT"); ok {
 		c.ClientCert = ClientCert(v)
 	}
-	if v, ok := lookup("PACT_INTERNAL_AUTH_ENABLED"); ok {
+	if v, ok := lookup("HDTP_INTERNAL_AUTH_ENABLED"); ok {
 		c.InternalAuthEnabled = v == "true" || v == "1"
 	}
-	if v, ok := lookup("PACT_LIMIT_CONTACTS"); ok {
+	if v, ok := lookup("HDTP_LIMIT_CONTACTS"); ok {
 		c.LimitContacts = atoiOrZero(v)
 	}
-	if v, ok := lookup("PACT_LAN_CONNECTIONS"); ok {
+	if v, ok := lookup("HDTP_LAN_CONNECTIONS"); ok {
 		b := v == "true" || v == "1"
 		lanOpt = &b
 	}
@@ -342,12 +342,12 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 // ownerSettableEnv is the map between a portal setting and the environment
 // variable that would pin it.
 var ownerSettableEnv = []struct{ key, env string }{
-	{"public_url", "PACT_PUBLIC_URL"},
-	{"tunnel", "PACT_TUNNEL"},
-	{"seal", "PACT_SEAL"},
-	{"client_cert", "PACT_CLIENT_CERT"},
-	{"lan_connections", "PACT_LAN_CONNECTIONS"},
-	{"limit.contacts", "PACT_LIMIT_CONTACTS"},
+	{"public_url", "HDTP_PUBLIC_URL"},
+	{"tunnel", "HDTP_TUNNEL"},
+	{"seal", "HDTP_SEAL"},
+	{"client_cert", "HDTP_CLIENT_CERT"},
+	{"lan_connections", "HDTP_LAN_CONNECTIONS"},
+	{"limit.contacts", "HDTP_LIMIT_CONTACTS"},
 }
 
 // OwnerSettableKeys are the knobs the portal may write (SPEC §8.2). Everything
@@ -481,9 +481,9 @@ func isLoopbackBind(bind string) bool {
 }
 
 // DefaultWalletURL is the web wallet a portal sends a signing request to when nothing else is
-// configured: pact-cloud's ceremony host (its production TENANT_ADDRESS_TEMPLATE,
-// `{workspace}.pact.contact`, with the workspace `ceremony`).
-const DefaultWalletURL = "https://ceremony.pact.contact"
+// configured: batondeck's ceremony host (its production TENANT_ADDRESS_TEMPLATE,
+// `{workspace}.id.batondeck.com`, with the workspace `ceremony`).
+const DefaultWalletURL = "https://ceremony.batondeck.com"
 
 // validWalletURL holds wallet_url to an origin a form may be sent to: https, or http to a loopback
 // host (a wallet under test on this machine). It is written into the portal's Content-Security-Policy

@@ -114,7 +114,7 @@ same check on its own node after its probes. It is not run after every scenario.
 Designed and never built, and removed from the code on 2026-09-27 rather than kept as
 checks that report nothing: nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
 after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
-PACT 1.x.
+pre-HDTP 1.x.
 
 ---
 
@@ -124,7 +124,7 @@ PACT 1.x.
 |---|---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path | `topology.LAN`, used by F4; the scenarios' own networks are this shape |
 | **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel | `topology.BehindNAT`, used by F3 only |
-| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode PACT 1.x had and this node refuses; it went on 2026-09-19 |
+| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode pre-HDTP 1.x had and this node refuses; it went on 2026-09-19 |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) | no local topology; T7 runs through Cloudflare's real edge |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME | scenario T5 |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing | scenario T6 |
@@ -165,7 +165,7 @@ of its own (§3).
 | S15 | the portal offers every affordance an owner needs, as drawn | nightly | docker, node-image, chrome | 12 min | `scenario.TestPortalOffersEveryAffordanceAnOwnerNeeds` |
 | S16 | after export and import onto a new host, a peer that pins the identity follows it | nightly | docker, node-image, chrome | 20 min | `scenario.TestAPeerFollowsAnIdentityImportedOntoANewHost` |
 | S17 | after export and import, a peer that blocked the identity is asked, and its block answers | nightly | docker, node-image, chrome | 20 min | `scenario.TestAPeerThatBlockedTheIdentityDecidesUnderItsOwnPolicy` |
-| S18 | the intrusion battery (pact vectors intrude) against a node: every attack refused, the control through, each refusal audited | nightly | docker, node-image, chrome, pact-cli | 12 min | `scenario.TestTheIntrusionBatteryIsRefusedByANode` |
+| S18 | the intrusion battery (hdtp vectors intrude) against a node: every attack refused, the control through, each refusal audited | nightly | docker, node-image, chrome, hdtp-cli | 12 min | `scenario.TestTheIntrusionBatteryIsRefusedByANode` |
 | S19 | the cloud's Go conformance battery against a node, through the node's own owner door | nightly | docker, node-image, chrome, cloud-battery | 20 min | `scenario.TestTheConformanceBatteryPassesAgainstANode` |
 | S20 | the real wallet page from a node: a cloud identity imported, its move signed on the node's portal through POST /sign, replays refused, and back | nightly | local-cloud, chrome | 20 min | `scenario.TestTheRealWalletSignsANodesMove` |
 | S21 | self-invite, revoked invite, phantoms, block and unblock, removal, a scoped token, and leave, between two nodes | nightly | docker, node-image, chrome | 25 min | `scenario.TestTheJourneysTheNodeHadNoScenarioFor` |
@@ -196,7 +196,7 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
   S9's envelope tampering and audit tamper → `repair` refuses
   (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
   each page's light and dark renders with each other).
-- **S6** was relay semantics, withdrawn with PACT 1.x on 2026-09-18; its number is not reused.
+- **S6** was relay semantics, withdrawn with pre-HDTP 1.x on 2026-09-18; its number is not reused.
   **S10** was key rotation, which 2.x does not have; the number now names the MOVE campaign.
 
 ---
@@ -303,21 +303,21 @@ container topologies are plain `docker` networks. This is a hybrid fabric,
 deliberately: the binary is `CGO_ENABLED=0` static, so the guest needs no Docker
 inside it — just a minimal arm64 rootfs, which `harness/vm/rootfs.go` builds in a
 throwaway Alpine container. S8 is nightly-tier only, and nightly promises it only
-when `PACT_HARNESS_KERNEL` names a kernel (`make harness-kernel`). On 2026-09-27 the
+when `HDTP_HARNESS_KERNEL` names a kernel (`make harness-kernel`). On 2026-09-27 the
 whole scenario — cross-building the node, building the rootfs, booting twice — took
 13.9 s.
 
 ## 5a. The harness plays the wallet
 
-A PACT 2.x account is nobody until a wallet has signed it a leaf: the identity is the person's
+An HDTP 1.0 account is nobody until a wallet has signed it a leaf: the identity is the person's
 root, which no host holds, and `account create` makes an account with no certificate to present.
-So `harness/wallet` holds a root per person and does what an owner does with the `pact` CLI —
+So `harness/wallet` holds a root per person and does what an owner does with the `hdtp` CLI —
 `account csr`, issue under the root, `account install-leaf` — and hands a scenario the pin a
 caller holds: the root, the leaf, the address in it. Three things follow, each learned by
 running it:
 
 - **A node's public URL is a name, never a loopback address.** No wallet issues a leaf for one
-  (PACT §14.2 rule 5), and a chain is validated against the address dialled. A node published on
+  (HDTP §14.2 rule 5), and a chain is validated against the address dialled. A node published on
   `localhost` is therefore named (`alice.harness.example:<port>`), and the harness agent resolves
   that name to the published port (`peer.Target.Dial`), which is DNS's job for a real caller.
 - **A scenario that touches the portal is an OWNER.** The portal requires a session on every
@@ -327,18 +327,18 @@ running it:
   API; the document behind every path is the same empty shell. `portal.Session.Rendered` reports
   the words, links and controls of the settled view, signed in (`OwnerSession.Browser`).
 
-**Status, 2026-09-19 — `PACT_HARNESS_LIVE=1 go test ./...` against a fresh `make harness-image`
+**Status, 2026-09-19 — `HDTP_HARNESS_LIVE=1 go test ./...` against a fresh `make harness-image`
 and `make harness-image-caldav`: 15 live scenarios pass, 2 skip** (Cloudflare tunnels need a real
-domain, `PACT_CF_DOMAIN`; the VM clock test needs `PACT_HARNESS_KERNEL`). The same command that
+domain, `HDTP_CF_DOMAIN`; the VM clock test needs `HDTP_HARNESS_KERNEL`). The same command that
 morning: **0 pass.** Every scenario still created an account and called it — the whole ceremony
 while a node's key was its identity — so every first dial ended `tls: internal error`; five more
 scraped server-rendered HTML the portal stopped producing, or posted forms as nobody. None of it
-showed, because a live scenario is skipped unless `PACT_HARNESS_LIVE` is set and the pre-push
+showed, because a live scenario is skipped unless `HDTP_HARNESS_LIVE` is set and the pre-push
 hook does not set it. **The hermetic tier being green says the harness COMPILES. It says nothing
 about whether a scenario can run**, and only a live run does.
 
-**Status, 2026-09-27 — `make harness-nightly` with `PACT_HARNESS_KERNEL` set: 18 scenarios
-PASS, T7 not promised** (no `PACT_CF_DOMAIN`), and the tier says so rather than passing it
+**Status, 2026-09-27 — `make harness-nightly` with `HDTP_HARNESS_KERNEL` set: 18 scenarios
+PASS, T7 not promised** (no `HDTP_CF_DOMAIN`), and the tier says so rather than passing it
 silently (§6).
 
 ## 6. Run tiers
@@ -353,10 +353,10 @@ it. `docs/testing.md` has the needs, the result files and how to add a scenario.
 
 | Tier | Runs | Promises (needs it provides) | Measured 2026-09-27 | How |
 |---|---|---|---|---|
-| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet`, and `multiprocess`: two `serve` processes of the shipped binary behind a round-robin proxy, on one SQLite data dir and on one Postgres (the Postgres half where `PACT_TEST_POSTGRES_DSN` names a server, which the pre-push hook provides) | — (runs no registered scenario) | `make harness`; `multiprocess` took 82 s for both engines (2026-09-28) | `pre-push` hook, automatic |
+| **Hermetic** | every harness package's unit tests, the registry, image and port guards, `go vet`, and `multiprocess`: two `serve` processes of the shipped binary behind a round-robin proxy, on one SQLite data dir and on one Postgres (the Postgres half where `HDTP_TEST_POSTGRES_DSN` names a server, which the pre-push hook provides) | — (runs no registered scenario) | `make harness`; `multiprocess` took 82 s for both engines (2026-09-28) | `pre-push` hook, automatic |
 | **Fabric** | F1–F5 | docker, node image | 5/5 PASS; the five took 10.4 s | `make harness-live` |
-| **PR** | fabric + S2, S9 | + chrome | 7/7 PASS; the seven took 21.3 s | `PACT_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
-| **Nightly** | every scenario | + caldav image; kernel only with `PACT_HARNESS_KERNEL`, cf only with `PACT_CF_DOMAIN` | 18 PASS, T7 not promised; the scenario package took 104.8 s | `PACT_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
+| **PR** | fabric + S2, S9 | + chrome | 7/7 PASS; the seven took 21.3 s | `HDTP_PREPUSH_LIVE=1 git push`, or `make harness-pr` |
+| **Nightly** | every scenario | + caldav image; kernel only with `HDTP_HARNESS_KERNEL`, cf only with `HDTP_CF_DOMAIN` | 18 PASS, T7 not promised; the scenario package took 104.8 s | `HDTP_PREPUSH_LIVE=full git push`, or `make harness-nightly` |
 
 The measured times are the scenarios' own (the sum of the verdicts' durations, or the
 package's time), from one run on one machine with every image already built. Building the
@@ -381,7 +381,7 @@ everything the nightly tier adds — S4, S7, S8, S10–S15, T5–T7. A green PR 
 ## 7. On failure
 
 A tier run leaves `<id>.json` per scenario and a `summary.json` in its results
-directory (printed at the start of the run). With `PACT_HARNESS_ARTIFACTS` set, each
+directory (printed at the start of the run). With `HDTP_HARNESS_ARTIFACTS` set, each
 scenario's World writes every container's log there at teardown, and S11 saves its
 screenshots there. Nothing else is collected: the store file, the audit export,
 `tc`/`iptables` state, the CDP console transcript and a `pcap` were designed and are

@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// PACT §5.2's "an address that belongs to someone" has two copies on the node: the core's Decide
+// HDTP §5.2's "an address that belongs to someone" has two copies on the node: the core's Decide
 // computes it for a sealed guest (its address_claim, carried as EnvelopeFacts.AddressClaim), and
 // contacts.Manager.AddressClaim asks the store for a guest proven by its client certificate, which
 // Decide never sees. The same state goes through both here, and the two answers must agree — for
@@ -26,12 +26,12 @@ func TestTheTwoAddressClaimsAgree(t *testing.T) {
 	const recent, stale, fresh = "https://recent.example/mcp", "https://stale.example/mcp", "https://fresh.example/mcp"
 	// Roots that moved away: real fingerprints, as every writer of a former endpoint takes one from a
 	// verified chain or a pin. Decide reads each former endpoint's root, and the core's stricter
-	// reading (pact-identity's port-parity branch) refuses a root that is not a fingerprint, which
+	// reading (hdtp-identity's port-parity branch) refuses a root that is not a fingerprint, which
 	// failed every sealed call to the account as "recipient state unavailable".
 	movedLately, movedLongAgo := newPeer(t, fixedNow).fpr(), newPeer(t, fixedNow).fpr()
 	for _, f := range []store.FormerEndpoint{
-		{AccountID: e.acct.ID, Root: movedLately, Endpoint: recent, At: fixedNow.Add(-pactidentity.ClaimWindow + time.Hour).Unix()},
-		{AccountID: e.acct.ID, Root: movedLongAgo, Endpoint: stale, At: fixedNow.Add(-pactidentity.ClaimWindow - time.Hour).Unix()},
+		{AccountID: e.acct.ID, Root: movedLately, Endpoint: recent, At: fixedNow.Add(-hdtpidentity.ClaimWindow + time.Hour).Unix()},
+		{AccountID: e.acct.ID, Root: movedLongAgo, Endpoint: stale, At: fixedNow.Add(-hdtpidentity.ClaimWindow - time.Hour).Unix()},
 	} {
 		if err := e.st.InsertFormerEndpoint(ctx, f); err != nil {
 			t.Fatal(err)

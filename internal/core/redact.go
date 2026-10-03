@@ -12,7 +12,7 @@ import "regexp"
 // token in this node's audit trail, which is append-only and hash-chained: there
 // is no unwriting it.
 //
-// The rules match credential SHAPES, not high entropy. PACT's own identifiers —
+// The rules match credential SHAPES, not high entropy. HDTP's own identifiers —
 // sha256: fingerprints, msg_ids, booking ids — are high-entropy base64 by
 // design, and an entropy filter would erase exactly the fields an operator needs
 // to follow an incident. What is left is still legible: the reason survives, the
@@ -49,7 +49,7 @@ var redactions = []struct {
 	// fall inside a base64 fingerprint swallow the rest of it, destroying the
 	// identifier an operator follows an incident with. In practice a token
 	// arrives after a space, a quote or a `=`, all of which are boundaries.
-	{regexp.MustCompile(`\b(pact_|sk-|ghp_|gho_|github_pat_|xox[baprs]-|AIza|ya29\.)[A-Za-z0-9._-]{8,}`), "[redacted token]"},
+	{regexp.MustCompile(`\b(hdtp_|sk-|ghp_|gho_|github_pat_|xox[baprs]-|AIza|ya29\.)[A-Za-z0-9._-]{8,}`), "[redacted token]"},
 }
 
 // Redact returns text with anything that looks like a credential replaced.

@@ -14,26 +14,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
-// S18 — the live intrusion battery of pact-identity against a real node.
+// S18 — the live intrusion battery of hdtp-identity against a real node.
 //
-// `pact vectors intrude --against` is ONE definition of the attacks a stranger can mount on the
-// wire (pact-identity js/live-scenarios.json: forged, tampered, replayed and expired envelopes,
+// `hdtp vectors intrude --against` is ONE definition of the attacks a stranger can mount on the
+// wire (hdtp-identity js/live-scenarios.json: forged, tampered, replayed and expired envelopes,
 // every chain shape, a key-pinned card's retired header, a small form without a chain), with one
 // control that must get THROUGH, last, from an attacker whose keys are new on every run. The cloud
 // is measured with it on staging; until this scenario nothing aimed it at the node, whose own
 // tests cover the same refusals one package at a time.
 //
 // What the tool judges, this scenario takes as it is: the tool exits non-zero on a scenario that
-// REPRODUCES, one that never reached a PACT answer (UNREACHED), and a control that was refused or
+// REPRODUCES, one that never reached a HDTP answer (UNREACHED), and a control that was refused or
 // whose answer did not open. What it adds is what only the host can show: that each refusal is on
 // the node's audit trail (build rule 7), and that the node still serves its contact afterwards.
 func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
 	ctx, w := begin(t, registry.Spec{
-		ID: "S18", Name: "the intrusion battery (pact vectors intrude) against a node: every attack refused, the control through, each refusal audited", Tier: registry.Nightly,
-		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome, registry.PactCLI},
+		ID: "S18", Name: "the intrusion battery (hdtp vectors intrude) against a node: every attack refused, the control through, each refusal audited", Tier: registry.Nightly,
+		Needs:   []registry.Need{registry.Docker, registry.NodeImage, registry.Chrome, registry.HDTPCLI},
 		Timeout: 12 * time.Minute,
 	})
 	net, err := w.LAN(ctx)
@@ -54,7 +54,7 @@ func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
 	before := auditRows(ctx, t, alice)
 
 	out, code := intrude(ctx, t, against, cardFile)
-	t.Logf("pact vectors intrude --against %s\n%s", against, out)
+	t.Logf("hdtp vectors intrude --against %s\n%s", against, out)
 	summary := intrudeSummary.FindStringSubmatch(out)
 	if summary == nil {
 		t.Fatalf("the battery printed no summary (exit %d): it never ran", code)
@@ -97,13 +97,13 @@ func TestTheIntrusionBatteryIsRefusedByANode(t *testing.T) {
 }
 
 // intrudeSummary is the tool's last line: "<n> scenarios: <b> blocked, <r> reproduce, <u> never
-// reached a PACT answer…".
+// reached a HDTP answer…".
 var intrudeSummary = regexp.MustCompile(`(\d+) scenarios: (\d+) blocked, (\d+) reproduce, (\d+) never reached`)
 
 // intrude runs the battery and returns what it printed and its exit status.
 func intrude(ctx context.Context, t *testing.T, against, cardFile string) (string, int) {
 	t.Helper()
-	cmd := exec.CommandContext(ctx, os.Getenv(registry.PactCLIEnv),
+	cmd := exec.CommandContext(ctx, os.Getenv(registry.HDTPCLIEnv),
 		"vectors", "intrude", "--against", against, "--card", cardFile, "--allow-insecure")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

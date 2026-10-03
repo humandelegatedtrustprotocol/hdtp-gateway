@@ -1,6 +1,6 @@
 package node
 
-// PACT 2.0 on the outbound side (PACT §13.2, §14.3, Appendix C): which client
+// HDTP 1.0 on the outbound side (HDTP §13.2, §14.3, Appendix C): which client
 // speaks for this account toward a given contact, and what the client learns
 // about the contact as it goes — that the chain has been sent, that a newer
 // leaf was accepted — written back to the pin by the callbacks below.
@@ -15,21 +15,21 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 // PeerOf is the outbound view of a pinned contact: it dials the endpoint the pinned leaf names
-// and is recognised by its root (PACT §2). A contact with no leaf on file cannot be dialled —
+// and is recognised by its root (HDTP §2). A contact with no leaf on file cannot be dialled —
 // there is no key-pinned kind of contact to fall back to, and the branch that built one from a
 // card's endpoint went with the column that selected it.
 //
 // Whether the call is sealed is the contact's card's to say (contacts.SealOf): a card with no
-// X-PACT-SEAL line says `none` (PACT §3, §13.4), and a card on file that does not read is refused
+// X-PACT-SEAL line says `none` (HDTP §3, §13.4), and a card on file that does not read is refused
 // here rather than given a policy. This read an absent line, and a card that did not parse, as
 // `required`, so a recipient that left the line out was sent envelopes it had not agreed to take
 // and could not be reached at all.
@@ -54,9 +54,9 @@ func (n *Node) PeerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 }
 
 // wireClient attaches to a client what it must be able to write back about the
-// contacts it reaches (PACT §13.2, §14.3).
+// contacts it reaches (HDTP §13.2, §14.3).
 // strangerTools are what an identity sends to somebody who is not, or not yet, its contact: the
-// two ways in (PACT §5.1) and the two answers to a request (§6.2). They spend the identity's
+// two ways in (HDTP §5.1) and the two answers to a request (§6.2). They spend the identity's
 // stranger budget whatever the row says — an approval's `contact_accepted` goes to a row the
 // approval has just made active — so a flood of approvals or requests is held to one number.
 var strangerTools = map[string]bool{
@@ -106,7 +106,7 @@ func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.C
 // and nothing else.
 //
 // A key with no leaf presents NOTHING rather than a self-signed certificate of
-// its own. The identity is the root (PACT §2); a lone certificate names no root,
+// its own. The identity is the root (HDTP §2); a lone certificate names no root,
 // so a conforming peer reads it as no identity, and presenting one would make an
 // outbound call anonymous while looking like it carried credentials. The only key
 // here without a leaf is the account key a first install retires (§14.4) — kept
@@ -135,7 +135,7 @@ func hostOfEndpoint(endpoint string) string {
 	return strings.Trim(s, "[]")
 }
 
-// spendOutbound charges one call out of accountID to peer to its PACT §12 outbound budget, before
+// spendOutbound charges one call out of accountID to peer to its HDTP §12 outbound budget, before
 // the call is sealed: to an active contact that contact's bucket and the account's outbound
 // aggregate, to anybody else — or with one of strangerTools, whoever the row says the peer is —
 // the account's stranger budget. A refusal leaves the node as nothing.

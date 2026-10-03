@@ -1,5 +1,5 @@
 // The audit page's ids said as names (web/src/audit_names.ts), run as it ships: `node --test` strips
-// its types. PACT Cloud runs its verbatim copy of the module under its own suite too
+// its types. BatonDeck runs its verbatim copy of the module under its own suite too
 // (portal/test/audit-names.test.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -80,19 +80,19 @@ test("each actor kind", () => {
   assert.equal(actorOf({ kind: "", id: "" }, dir).name, "the system");
   // The command line, and an operator stored under the node's `cli` kind — told apart by the action.
   assert.equal(actorOf({ kind: "cli", id: "" }, dir).name, "the command line");
-  // An operator's address is the one fact that says which of PACT Cloud's people acted: in full.
-  const op = actorOf({ kind: "cli", id: "ops-oncall@pact-cloud.com", action: "operator.plan_set" }, dir);
-  assert.deepEqual(op, { kind: "operator", id: "ops-oncall@pact-cloud.com", name: "PACT Cloud · ops-oncall@pact-cloud.com", state: "named" });
-  assert.equal(actorOf({ kind: "cli", id: "", action: "operator.plan_set" }, dir).name, "a PACT Cloud operator");
+  // An operator's address is the one fact that says which of BatonDeck's people acted: in full.
+  const op = actorOf({ kind: "cli", id: "ops-oncall@batondeck.com", action: "operator.plan_set" }, dir);
+  assert.deepEqual(op, { kind: "operator", id: "ops-oncall@batondeck.com", name: "BatonDeck · ops-oncall@batondeck.com", state: "named" });
+  assert.equal(actorOf({ kind: "cli", id: "", action: "operator.plan_set" }, dir).name, "a BatonDeck operator");
 });
 
 test("a workspace event's actor: an owner, an operator, the system", () => {
   assert.equal(eventActorOf("U-a5a64ea5-1b10-418f-853f-194929a91438", dir).name, "Sumit Agrawal");
   assert.equal(eventActorOf("U-gone", dir).name, "removed owner");
-  const op = eventActorOf("operator:ops@pact-cloud.com", dir);
+  const op = eventActorOf("operator:ops@batondeck.com", dir);
   assert.equal(op.kind, "operator");
-  assert.equal(op.id, "ops@pact-cloud.com");
-  assert.equal(op.name, "PACT Cloud · ops@pact-cloud.com");
+  assert.equal(op.id, "ops@batondeck.com");
+  assert.equal(op.name, "BatonDeck · ops@batondeck.com");
   assert.equal(eventActorOf("system", dir).kind, "system");
 });
 
@@ -105,7 +105,7 @@ test("a locator's ids become names; the rest stays as written", () => {
   assert.deepEqual(parts[2], { key: "tool", text: "send_message" });
   assert.deepEqual(resourceParts("invite:inv-72dfec84-1b10-418f", dir), [{ key: "invite", text: "inv-72dfec84-1b10-418f", id: true }]);
   // An address is an address (node.go writes a settings change as url:<its URL>).
-  assert.deepEqual(resourceParts("url:https://agent.example.com/pact", dir), [{ key: "url", url: "https://agent.example.com/pact" }]);
+  assert.deepEqual(resourceParts("url:https://agent.example.com/hdtp", dir), [{ key: "url", url: "https://agent.example.com/hdtp" }]);
   // What says something already is said in words; a node settings key is a value, not a credential.
   assert.deepEqual(resourceParts("account:none caller:anonymous key:seal", dir), [
     { text: "no identity" }, { text: "an anonymous caller" }, { key: "setting", text: "seal" },
@@ -144,7 +144,7 @@ test("details: an event's `id` is what its kind says — an agent key, a webhook
   assert.equal(detailParts(JSON.stringify({ id: "key-2" }), dir, "apikey.revoked").parts[0].named.state, "revoked");
   // A webhook is named by its address's host, from the answer's own webhook.created.
   const hosts = webhookHosts([
-    { kind: "webhook.created", details: JSON.stringify({ id: "wh-1", url: "https://hooks.example.com/pact/in", events: [] }) },
+    { kind: "webhook.created", details: JSON.stringify({ id: "wh-1", url: "https://hooks.example.com/hdtp/in", events: [] }) },
     { kind: "webhook.deleted", details: JSON.stringify({ id: "wh-1" }) },
     { kind: "webhook.created", details: "not json" },
   ]);
@@ -153,9 +153,9 @@ test("details: an event's `id` is what its kind says — an agent key, a webhook
   // One outside the window is an id, shortened with its copy, never a raw uuid said as a name.
   assert.deepEqual(detailParts(JSON.stringify({ id: "wh-2" }), dir, "webhook.deleted", hosts).parts[0], { key: "webhook", text: "wh-2", id: true });
   // webhook.created carries its address: the id beside it would say it twice.
-  const created = detailParts(JSON.stringify({ id: "wh-1", url: "https://hooks.example.com/pact/in", events: ["message.received"] }), dir, "webhook.created", hosts);
+  const created = detailParts(JSON.stringify({ id: "wh-1", url: "https://hooks.example.com/hdtp/in", events: ["message.received"] }), dir, "webhook.created", hosts);
   assert.deepEqual(created.parts.map((p) => p.key), ["url", "events"]);
-  assert.equal(created.parts[0].url, "https://hooks.example.com/pact/in");
+  assert.equal(created.parts[0].url, "https://hooks.example.com/hdtp/in");
   // Any other event's `id` names nothing this page knows: an id, short, with its copy.
   assert.deepEqual(detailParts(JSON.stringify({ id: "x-1" }), dir, "session.revoked").parts[0], { key: "id", text: "x-1", id: true });
 });
@@ -222,9 +222,9 @@ test("a locator's `why:` is one value, the rest of the locator, as every emitter
     { key: "why", text: "store: read identity: sql: database is locked (5) (SQLITE_BUSY)" },
   ]);
   // decide.go, contact_new_address: a contact, an address, then why.
-  assert.deepEqual(resourceParts("account:acct-1 contact:sha256:alina endpoint:https://alina.example/pact why:returned after removal", dir).slice(1), [
+  assert.deepEqual(resourceParts("account:acct-1 contact:sha256:alina endpoint:https://alina.example/hdtp why:returned after removal", dir).slice(1), [
     { named: { kind: "contact", id: "sha256:alina", name: "Alina", state: "named" }, label: "contact" },
-    { key: "endpoint", url: "https://alina.example/pact" },
+    { key: "endpoint", url: "https://alina.example/hdtp" },
     { key: "why", text: "returned after removal" },
   ]);
   // tools.go why(nil) and send.go whyFailed(nil).

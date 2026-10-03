@@ -100,7 +100,7 @@ const deleteChangesByAccount = `-- name: DeleteChangesByAccount :execrows
 DELETE FROM changes WHERE account_id = $1
 `
 
-// An identity leaving (PACT sec. 9): its changes go with it.
+// An identity leaving (HDTP sec. 9): its changes go with it.
 func (q *Queries) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteChangesByAccount, accountID)
 	if err != nil {
@@ -150,7 +150,7 @@ func (q *Queries) LastChangeID(ctx context.Context) (int64, error) {
 }
 
 const listenChanges = `-- name: ListenChanges :exec
-LISTEN pact_changes
+LISTEN hdtp_changes
 `
 
 func (q *Queries) ListenChanges(ctx context.Context) error {
@@ -171,7 +171,7 @@ func (q *Queries) LockChanges(ctx context.Context) error {
 }
 
 const notifyChanges = `-- name: NotifyChanges :exec
-SELECT pg_notify('pact_changes', '')
+SELECT pg_notify('hdtp_changes', '')
 `
 
 // Sent in the inserting transaction, so it is delivered at commit: a wake for the processes
