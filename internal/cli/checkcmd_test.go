@@ -91,7 +91,7 @@ func TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne(t *testing.T) {
 
 // plantContactInAStateNoPinHas writes one contact of the account at slug — created when the store
 // holds none — whose card, leaf and root certificate read, then puts it in a state the store's own
-// API cannot write (the schema's CHECK, migration 0002, refuses the move: shown first), as a
+// API cannot write (the schema's CHECK refuses the move: shown first), as a
 // hand-edited store would: raw SQL, in a test only, with the constraint switched off for the one
 // connection that writes it. It answers the contact's root.
 func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) {
@@ -117,7 +117,7 @@ func plantContactInAStateNoPinHas(t *testing.T, dir, slug string) (root string) 
 		t.Fatal(err)
 	}
 	if err := st.UpdateContactStatus(ctx, a.ID, w.Fpr, "frozen"); err == nil {
-		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK admits only the four")
 	}
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "hdtp.db")+"?_pragma=busy_timeout(5000)&_pragma=ignore_check_constraints(1)")
 	if err != nil {

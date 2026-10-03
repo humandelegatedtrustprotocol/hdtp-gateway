@@ -770,7 +770,7 @@ func TestAPendingRequestIsHandedToDecideWithNoPin(t *testing.T) {
 }
 
 // forceContactStatus puts a contact in a state the store's own API cannot write: the schema holds
-// a contact's status to the four (migration 0002's CHECK, both engines), so a row in any other
+// a contact's status to the four (the schema's CHECK, both engines), so a row in any other
 // state is a hand-edited store's, and this is that hand — raw SQL, in a test only, with the
 // constraint switched off for the one connection that writes it.
 func forceContactStatus(t testing.TB, dbPath, accountID, root, status string) {
@@ -806,7 +806,7 @@ func TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin(t *testing.T) {
 		t.Fatalf("the control, an active contact's small form: %v %+v", err, f)
 	}
 	if err := e.st.UpdateContactStatus(ctx, e.acct.ID, p.fpr(), "frozen"); err == nil {
-		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK admits only the four")
 	}
 	forceContactStatus(t, e.dbPath, e.acct.ID, p.fpr(), "frozen")
 	leaf, _ := hdtpidentity.Parse(p.leaf)

@@ -54,9 +54,8 @@ func importAndMove(t *testing.T, newStore Factory) {
 	})
 
 	// A move campaign's progress (HDTP §5.3, §9) is what "re-run to resume" reads: one row per
-	// contact, replaced as the walk retries, matched on the leaf being announced. No case here
-	// touched the table until it was renamed (0036), so on Postgres nothing had ever run either
-	// statement — the campaign's tests use SQLite, and a migration that runs proves only that.
+	// contact, replaced as the walk retries, matched on the leaf being announced. The campaign's
+	// own tests use SQLite, so this case is where Postgres runs either statement.
 	t.Run("MoveFanoutIsOneRowPerContactAndResumable", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()

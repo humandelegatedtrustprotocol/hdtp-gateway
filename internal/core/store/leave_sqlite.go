@@ -8,7 +8,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
-// An identity leaving this host (HDTP §9; migration 0040): the account's rows and the addresses it
+// An identity leaving this host (HDTP §9): the account's rows and the addresses it
 // leaves reserved. identity.Manager.Leave is the one caller that erases, inside Atomically.
 
 func (s *SQLite) DeleteAccount(ctx context.Context, accountID string) (int64, error) {

@@ -52,20 +52,20 @@ type Leaf struct {
 	Endpoint  string
 	CreatedAt int64
 	// RequestStateHash is the SHA-256 of the state a web wallet's answer to this pending request
-	// must carry, nil once consumed or for a leaf that is not pending (migration 0041).
+	// must carry, nil once consumed or for a leaf that is not pending.
 	// AnsweredStateHash is that hash once an answer carrying it was installed: consuming the
-	// request moves it here (migration 0051), so an answer that arrives again is known for one.
+	// request moves it here, so an answer that arrives again is known for one.
 	// WalletOrigin is the wallet the request went to; "" for one handed over by the CLI.
 	RequestStateHash  []byte
 	AnsweredStateHash []byte
 	WalletOrigin      string
 	// Moved is whether installing this leaf moved the identity, as the install decided it
-	// (migration 0043): a move's campaign tells every active contact, any other leaf's campaign
+	//: a move's campaign tells every active contact, any other leaf's campaign
 	// only the contacts an import left owed the handshake.
 	Moved bool
 }
 
-// VacatedAddress is an address an identity has left (migration 0040, HDTP §9): the endpoint its
+// VacatedAddress is an address an identity has left (HDTP §9): the endpoint its
 // leaves named, the slug that endpoint carries on this node, and the latest notAfter among those
 // leaves. It names no identity. Until UntilAt the slug cannot be given to a new account and the
 // endpoint cannot be asked for in a signing request.
@@ -171,33 +171,33 @@ type Contact struct {
 	Card      string
 	CreatedAt int64
 	PinnedAt  int64
-	// HDTP 1.0 pins (migration 0027): Protocol 2 means Fingerprint is the ROOT
+	// HDTP 1.0 pins: Protocol 2 means Fingerprint is the ROOT
 	// fingerprint, SPKI the pinned leaf's key, Endpoint and Leaf the pin of
 	// §14.3. ChainSentKid is our own leaf kid last carried to this contact.
 	Endpoint     string
 	Leaf         []byte
 	ChainSentKid string
-	// RootCert is the DER of the root that named this contact (migration 0029).
+	// RootCert is the DER of the root that named this contact.
 	// The chain travels once (HDTP sec. 13.2), so without it the certificate is
 	// gone the moment the envelope that carried it is - the pin keeps the root's
 	// fingerprint, and a fingerprint cannot prove a stored leaf, nor can an
 	// archive taken here prove its contacts anywhere else. Empty for a pin made
 	// before this column existed; filled the next time a chain arrives.
 	RootCert []byte
-	// EverActive is whether this relationship was ever active (migration 0039). The store sets
+	// EverActive is whether this relationship was ever active. The store sets
 	// it whenever a row becomes active and never clears it, and an import writes what the archive
 	// carried; it is how an unblock tells a contact the owner blocked (restored) from a request
 	// that was rejected (forgotten), SPEC §9.1.
 	EverActive bool
 	// HandshakeDue says this contact arrived in an import and has not yet heard from this host
-	// (migration 0042, HDTP §9.2): the campaign of the identity's next leaf owes it
+	// (HDTP §9.2): the campaign of the identity's next leaf owes it
 	// update_contact, or request_contact if it refuses that, and clears this when it is told.
-	// HandshakeDueAt is when it became owed — the import's time (migration 0043) — so the
+	// HandshakeDueAt is when it became owed — the import's time — so the
 	// campaign of a leaf requested before the import does not spend it; an import sets it, and
 	// ImportContact refuses a row without it.
 	HandshakeDue   bool
 	HandshakeDueAt int64
-	// RequestedAt is when this row became a request, ours or theirs (migration 0043): the clock
+	// RequestedAt is when this row became a request, ours or theirs: the clock
 	// the expiry sweep reads (SPEC §9.1). Zero for a row that has never been one.
 	RequestedAt int64
 }
@@ -530,8 +530,8 @@ type AccountStore interface {
 	UpsertMoveFanout(ctx context.Context, f MoveFanout) error
 	ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error)
 
-	// HDTP 1.0 (migration 0027): the account's root and leaf ledger. The same migration's 2.0
-	// pins, removal tombstones, former endpoints and pending addresses are ContactStore's.
+	// HDTP 1.0: the account's root and leaf ledger. The pins, removal tombstones,
+	// former endpoints and pending addresses are ContactStore's.
 	SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error
 	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
 	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error
@@ -554,12 +554,11 @@ type AccountStore interface {
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
 	// LockAccount, inside Atomically, makes every other transaction that locks the same account
 	// wait until this one ends: a signing request replacing the pending one is one step, never
-	// two interleaved (migration 0044). SQLite's transactions are already one at a time.
+	// two interleaved. SQLite's transactions are already one at a time.
 	LockAccount(ctx context.Context, accountID string) error
-	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (HDTP §9.1,
-	// migration 0041): the state's hash goes on with the request and comes off, in one statement
+	// SetLeafRequest and ConsumeLeafRequest hold a pending request's answer to one use (HDTP §9.1): the state's hash goes on with the request and comes off, in one statement
 	// that also checks it, when an answer carrying it is installed. That statement keeps it as the
-	// leaf's AnsweredStateHash (migration 0051).
+	// leaf's AnsweredStateHash.
 	SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error
 	ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error)
 
@@ -659,7 +658,7 @@ type ContactStore interface {
 	CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error)
 	// PinCandidates is the contacts a sealed call's proof could concern, in ListContacts' order: the
 	// row of `root`, the rows at `endpoint`, and the row whose pinned leaf's key has the fingerprint
-	// `leafFingerprint` (migration 0046). An empty argument matches nothing. public/decide.go hands
+	// `leafFingerprint`. An empty argument matches nothing. public/decide.go hands
 	// these to Decide instead of every contact.
 	PinCandidates(ctx context.Context, accountID, root, endpoint, leafFingerprint string) ([]Contact, error)
 	// CountHeldContacts counts what an account holds against its contact cap: active contacts
