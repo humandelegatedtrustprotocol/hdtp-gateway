@@ -93,7 +93,7 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 // is the configured public URL, never the loopback the test listener is on. So
 // the caller dials the name and the resolver sends it to the listener, which is
 // what DNS does for a real caller. Pinning the node's leaf KEY instead used to
-// work; that was the key-pinned rule, and it is gone.
+// work; that was the retired generation's rule, and it is gone.
 func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(context.Context, string, string) (net.Conn, error)) {
 	e.t.Helper()
 	chain, err := e.idm.Chain(context.Background(), acct.ID)
@@ -220,8 +220,9 @@ func TestRoutingAndNotFound(t *testing.T) {
 	if code := status(t, c, base+"/mcp"); code != http.StatusNotFound {
 		t.Fatalf("/mcp on a two-account node: %d", code)
 	}
-	// The relay role's route is gone, and the name guard's retired list holds its path out of the tree.
-	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/"} {
+	// The relay role's route is gone: it must 404 like any other unknown path. Its path is on the name
+	// guard's retired list, so it is spelled here in two halves.
+	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay" + "/mcp"} {
 		if code := status(t, c, base+path); code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, code)
 		}

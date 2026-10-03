@@ -59,7 +59,7 @@ func newTestRoot(t testing.TB, cn string, at time.Time) *testRoot {
 	return &testRoot{key: key, cert: cert, fpr: hdtpidentity.Fingerprint(key.Public().SPKI)}
 }
 
-// peer is a identity elsewhere: a root and the host key of its current leaf.
+// peer is an identity elsewhere: a root and the host key of its current leaf.
 type peer struct {
 	root *testRoot
 	host *hdtpidentity.PrivateKey

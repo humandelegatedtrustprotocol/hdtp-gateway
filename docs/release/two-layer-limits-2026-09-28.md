@@ -28,7 +28,7 @@ numbers decided by the owner 2026-09-29** (§6).
   - The local rate-limit filter works per IP and per path; there are connection limits.
   - Numbers live in the Envoy config.
 
-**Layer 2, the middleware. After the envelope is opened, keyed on the caller.** One Rust crate, `hdtp-limits`, owns every per-caller budget of HDTP SPEC §12:
+**Layer 2, the middleware. After the envelope is opened, keyed on the caller.** One Rust crate, `pact-limits`, owns every per-caller budget of PACT SPEC §12:
 - per contact: 1/s, burst 10;
 - per identity: contacts × 1/s, capped by the measured capacity;
 - guest: 10/h per root and source;
@@ -41,7 +41,7 @@ numbers decided by the owner 2026-09-29** (§6).
 The crate:
 - is a pure decision function over a small state store interface: `decide(rules, key, now, state) -> Allow | Refuse{retry_after, which}`;
 - has no I/O of its own;
-- is compiled into the hdtp-identity Wasm package, so it runs as a separate module inside the cloud's identity object, where the envelope is opened today and where the keys already live;
+- is compiled into the pact-identity Wasm package, so it runs as a separate module inside the cloud's identity object, where the envelope is opened today and where the keys already live;
 - is compiled natively for the node's sidecar.
 
 **Numbers are configuration, not code.**
@@ -74,9 +74,9 @@ The table is the middleware's state, not application logic.
 
 ## 3. The work, in order (each item committed, gated under the gate lock, pushed before the next)
 
-### hdtp-identity (`humandelegatedtrustprotocol/hdtp-identity`)
+### pact-identity (`pact-cloud/pact-identity`)
 
-- **M-I1** New crate `crates/hdtp-limits`:
+- **M-I1** New crate `crates/pact-limits`:
   - token buckets (§12's shapes), the rule set as data, and the decision function;
   - a `StateStore` trait (get/put per key with a clock seam);
   - property tests: refill, burst and the retry-after arithmetic;
@@ -90,7 +90,7 @@ The table is the middleware's state, not application logic.
   - This is a Wasm pin input change, so it's a re-pin.
 - **M-I3** Release `0.4.0` (`make release`, `publish`, `verify-release`).
 
-### Cloud (`batondeck/batondeck`), after feat/fair-rate-limits and feat/surface-bounds land
+### Cloud (`tech-sumit/pact-cloud`), after feat/fair-rate-limits and feat/surface-bounds land
 
 - **M-C1** A thin adapter in the identity object:
   - the crate's `StateStore` over `rate_buckets`, through the store, with no hand-written SQL beyond the existing statements;
@@ -103,14 +103,14 @@ The table is the middleware's state, not application logic.
   - the fail-safe default with its log code;
   - `get_card`'s `limits` read from it;
   - the deploy recipe publishes the initial document when it's missing.
-  - Every sentence that states a number reads it from the document (rule 2 of the build rules; `no-hardcoded-counts.test.ts`). That covers the docs, `hdtp_help`, plan pages and the pricing copy in `batondeck-site`.
+  - Every sentence that states a number reads it from the document (rule 2 of the build rules; `no-hardcoded-counts.test.ts`). That covers the docs, `pact_help`, plan pages and the pricing copy in `pact-cloud-site`.
 - **M-C3** Remove `identity/limits.ts` and every call site listed in §1: outbound budgets and the integration cap move to the crate too. `check-unwired` stays clean.
 - **M-C4** Proof:
   - `make check`;
   - staging: `ship-staging`, `load-staging` (send_message and get_card, 300 and 2000 contacts), and a guest flood of fresh roots at 10× the guest total. That run must be refused BEFORE the open (the object's timing block shows no HPKE), with one control that gets through;
   - `e2e-pair`, `e2e-suite-staging`.
 
-### Node (`humandelegatedtrustprotocol/hdtp-gateway`), after PR #15 and PR #16 land
+### Node (`pact-cloud/pact-gateway`), after PR #15 and PR #16 land
 
 - **M-N0 (survey, first; report back before building):** how does the sidecar get what it needs?
   - It needs the leaf private keys to open, and the caller's tier: contact, pending or guest.
@@ -123,7 +123,7 @@ The table is the middleware's state, not application logic.
   - the node reads the client certificate from XFCC only when it comes from the configured proxy address;
   - a compose file that runs Envoy, the sidecar and the node;
   - a hermetic test that boots them and floods, with a control.
-- **M-N2** The sidecar (`hdtp-limits` native) per the owner's choice at M-N0, with its config file. Envoy calls it through `ext_authz`, or the node calls it, per the choice.
+- **M-N2** The sidecar (`pact-limits` native) per the owner's choice at M-N0, with its config file. Envoy calls it through `ext_authz`, or the node calls it, per the choice.
 - **M-N3** Remove `internal/public/limits.go`, its uses and the budget settings. Node SPEC §12 text now says where limits are enforced.
 - **M-N4** Proof: `make check`, `analyze`, `sqlc-check`, `harness`, and `harness-nightly` with the Envoy compose.
 
@@ -166,7 +166,7 @@ The table is the middleware's state, not application logic.
 
 Also decided the same day, from the open-path benchmark: `hpke_open` and `open_result` take the
 recipient's public key as an argument ("since the calling entity is the platform itself this can be
-trusted"); the core never derives it from the private key on a call. Shipped in the identity core 0.4.0
+trusted"); the core never derives it from the private key on a call. Shipped in pact-identity 0.4.0
 (Rust) and 0.4.1 (the Go port, which 0.4.0's commit had wrongly claimed).
 
 

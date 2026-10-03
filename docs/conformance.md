@@ -309,7 +309,7 @@ so an exception cannot outlive the reason for it.
 | `internal/integrationtest` | Test-only by construction: it assembles nodes and drives them, so nothing in production imports it. Its own reachability is not a meaningful question. | — |
 | `internal/core/store/conformance` | The shared store-conformance suite both engines run. Test-only for the same reason. | — |
 | `internal/limits/limitstest` | Test-support by construction: it runs the real limits sidecar (`cmd/hdtp-limitd`) for a test and reads the shipped rules from `deploy/limitd/limits.json`, so every test that stands a node up meets the budgets a node meets. Nothing in production imports it. | — |
-| `internal/testid` | Test-support by construction: it builds the roots, leaves and cards a identity needs, so that nine test files across six packages do not each grow their own wallet. Nothing in production imports it. | — |
+| `internal/testid` | Test-support by construction: it builds the roots, leaves and cards an identity needs, so that nine test files across six packages do not each grow their own wallet. Nothing in production imports it. | — |
 
 Method-level gaps. Four of these are Go interface dispatch — the runtime calls
 them, no source names them — and the rest are debt with a task against it.

@@ -626,7 +626,7 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 // AC (F-rig, 2026-09-18): a node holding accounts it cannot serve SAYS so on the
 // banner, naming each slug and the two commands that end the wait.
 //
-// The plan for removing key-pinned identities asked boot to "refuse to start with a message naming
+// The plan for removing the retired generation asked boot to "refuse to start with a message naming
 // the slug". Refusing takes every OTHER account on the node down with it, so the
 // node serves what it can and reports what it cannot — but an audit row is not a
 // message to the person running `serve`, and without this line a just-restored

@@ -1,5 +1,5 @@
 // Package integrationtest holds cross-package scenario tests: the phase exit
-// demos of the build plan, run against real stores and real HTTP.
+// demos of PLAN.md, run against real stores and real HTTP.
 package integrationtest
 
 import (

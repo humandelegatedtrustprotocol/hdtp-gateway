@@ -97,7 +97,7 @@ func TestVerifyRefreshedCard(t *testing.T) {
 // The card was checked under the pinned LEAF key, and a peer that has renewed signs with
 // its new one — so the honest case came back "the card signature does not verify under the
 // pinned key" and was audited as though the endpoint were compromised. The rule being
-// enforced ("key changes go through update_contact") is from key-pinned identities, where
+// enforced ("key changes go through update_contact") is the retired generation's, where
 // a successor had to be signed by its predecessor. Under HDTP the root's signature is the
 // authorization: HDTP §2, "because the endpoint is unchanged it needs no one's approval to
 // accept it."

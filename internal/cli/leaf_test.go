@@ -117,7 +117,7 @@ func newTestPeer(t testing.TB, cn, endpoint string) *testPeer {
 }
 
 // peerIdentity keeps the shape the tests here already use — a peer and the
-// certificate it presents — but the peer is a identity and its Fingerprint is
+// certificate it presents — but the peer is an identity and its Fingerprint is
 // the ROOT, which is what a contact row pins.
 func peerIdentity(t *testing.T, cn string) (*testPeer, tls.Certificate) {
 	t.Helper()
@@ -146,7 +146,7 @@ func textOf(res *mcp.CallToolResult) string {
 
 // **`runServeCfg` went on 2026-09-18.** It wrote a config, seeded a store and started the real
 // `serve`, for the two CLI delivery tests that drove one node's portal into another node's store.
-// Those tests were retired with key-pinned identities: a hermetic pair needs loopback addresses, and HDTP §14.2
+// Those tests went with the retired generation: a hermetic pair needs loopback addresses, and HDTP §14.2
 // rule 5 forbids a leaf from naming one, so a two-node exchange over real certificates cannot be
 // stood up in-process without a dial seam `serve` does not have. `internal/integrationtest`'s
 // `pairing_test.go` is where that exchange is proven, with a dial map joining two nodes that
@@ -208,7 +208,7 @@ func waitFor(t *testing.T, budget time.Duration, msg string, cond func() bool) {
 // Under HDTP a server is recognised two ways and no third: the chain it presents,
 // validated to the ROOT the caller pinned at the address the caller dialed, or
 // WebPKI for that hostname (HDTP §2). A test that pins the node's LEAF key was
-// relying on a branch that belonged to key-pinned identities, deleted on
+// relying on a branch that belonged to the retired generation, deleted on
 // 2026-09-18 — and while it stood, none of these tests exercised the rule a real
 // caller meets.
 //
