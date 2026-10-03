@@ -153,7 +153,7 @@ ORDER BY seq LIMIT ?;
 
 -- name: InsertAuditArchiveRow :exec
 -- One row an identity's archive wrote and verified: the prune guard lets exactly this seq, with
--- exactly this hash, be deleted (migration 0045). Only Store.ArchiveAuditRows writes it, inside
+-- exactly this hash, be deleted. Only Store.ArchiveAuditRows writes it, inside
 -- the transaction that deletes the row and empties this table again.
 INSERT INTO audit_archive_rows (seq, hash) VALUES (?, ?);
 

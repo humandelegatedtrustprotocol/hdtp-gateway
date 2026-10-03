@@ -8,7 +8,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
 )
 
-// HDTP 1.0 state (migration 0027): the account's root and leaf ledger, the
+// HDTP 1.0 state: the account's root and leaf ledger, the
 // 2.0 pins, the removal tombstone, former endpoints and pending addresses.
 
 func (s *Postgres) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
@@ -259,7 +259,7 @@ func (s *Postgres) SetContactRootCert(ctx context.Context, accountID, root strin
 }
 
 // SetLeafRequest records, on the pending request for `kid`, the SHA-256 of the state a web
-// wallet's answer must carry and the wallet it went to (migration 0041).
+// wallet's answer must carry and the wallet it went to.
 func (s *Postgres) SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error {
 	n, err := s.q.SetLeafRequest(ctx, pgdb.SetLeafRequestParams{RequestStateHash: stateHash, WalletOrigin: walletOrigin, AccountID: accountID, Kid: kid})
 	if err != nil {

@@ -53,9 +53,8 @@ var justified = map[string]string{
 
 // SQLite only.
 var justifiedSQLite = map[string]string{
-	"DeleteOwner":                 "the foreign-key check on removing an owner, which a person does by hand; sessions are bounded by the hourly sweep",
-	"ListOpenPendingRequests":     "sorts the OPEN requests of one account, found through an index; an open request expires within minutes",
-	"ListContactLeafKeysUnfilled": "the fill Migrate runs at start (migration 0046): one pass over the pins to find the few without a fingerprint, and after the first fill there are none",
+	"DeleteOwner":             "the foreign-key check on removing an owner, which a person does by hand; sessions are bounded by the hourly sweep",
+	"ListOpenPendingRequests": "sorts the OPEN requests of one account, found through an index; an open request expires within minutes",
 }
 
 // Postgres only.

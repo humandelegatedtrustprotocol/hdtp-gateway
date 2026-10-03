@@ -143,12 +143,8 @@ func (s *SQLite) Migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err = p.Up(ctx); err != nil {
-		return err
-	}
-	return fillLeafFingerprints(ctx, s.q.ListContactLeafKeysUnfilled, func(ctx context.Context, fpr sql.NullString, id string) error {
-		return s.q.SetContactLeafFingerprint(ctx, sqlitedb.SetContactLeafFingerprintParams{LeafFingerprint: fpr, ID: id})
-	})
+	_, err = p.Up(ctx)
+	return err
 }
 
 func (s *SQLite) SchemaCurrent(ctx context.Context) error {

@@ -11,9 +11,8 @@ files was open.
 
 From `docs/release/audit-2026-09-19-plan.md` (2026-09-19), whose status was `BLOCKED — owner's
 decision`. The cloud's identity store, in `gateway/migrations/identity/` of the cloud repository,
-was a harvested copy of the node's SQLite migrations through goose version 29. The node went on to
-drop the relay tables (0030), the key-rotation columns (0031) and the coexistence flag (0032). The
-cloud's copy did not. The record gave four reasons this was not a side effect of the node's change:
+was a harvested copy of the node's SQLite migrations as they stood then. The node went on to drop
+the relay tables, the key-rotation columns and the coexistence flag. The cloud's copy did not. The record gave four reasons this was not a side effect of the node's change:
 - `scripts/harvest.sh` also overwrites the portal;
 - the cloud records some migrations without applying them (`src/identity/migrate.ts`), so whether
   a column exists in a deployed object has to be established;

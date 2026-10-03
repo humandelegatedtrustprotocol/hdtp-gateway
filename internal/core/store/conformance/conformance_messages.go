@@ -14,8 +14,7 @@ func messages(t *testing.T, newStore Factory) {
 	// namespaces. Both engines must accept the same msg_id once each way, look
 	// each up independently, and confine a status update to the outbound row.
 	// This lives in the shared suite because the constraint is enforced by the
-	// schema, and the two engines express it in different DDL — Postgres swaps a
-	// named constraint, SQLite rebuilds the table.
+	// schema, and each engine declares it in its own DDL.
 	t.Run("MsgIDIsScopedToDirection", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()

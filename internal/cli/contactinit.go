@@ -344,7 +344,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		answer.Status == "accepted", answer.Permissions); err != nil {
 		return out, err
 	}
-	// The pin keeps the ROOT's certificate, not just its fingerprint (migration 0029):
+	// The pin keeps the ROOT's certificate, not just its fingerprint:
 	// this is the one moment it is in hand, since the offer's chain carried it and a
 	// later sealed call will not. Not fatal - the pin is the thing that had to happen.
 	if err := ci.manager.Store.SetContactRootCert(ctx, accountID, peerCard.Key, peerRootCert); err != nil {

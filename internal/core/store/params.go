@@ -9,7 +9,7 @@ import (
 	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 )
 
-// leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries (migration 0046):
+// leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries:
 // the fingerprint of the leaf's key, which the row keeps beside it in `spki`. NULL exactly when
 // there is no leaf. Every statement that writes `leaf` writes this with it; PinCandidates finds a
 // small form's pin by it, so a writer that left it out would leave that contact unfindable.
@@ -58,7 +58,7 @@ func contactInsert(c *Contact) sqlitedb.InsertContactParams {
 	}
 }
 
-// requestedAt is the request clock a row written with this status starts with (migration 0043):
+// requestedAt is the request clock a row written with this status starts with:
 // its creation, when it is written as a request, and none otherwise.
 func requestedAt(status string, createdAt int64) sql.NullInt64 {
 	if status == "pending_in" || status == "pending_out" {

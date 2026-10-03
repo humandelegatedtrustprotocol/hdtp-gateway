@@ -113,8 +113,8 @@ type DeleteExpiredPendingContactsRow struct {
 
 // An unanswered request, ours or theirs, expires (SPEC sec. 9.1): the relationship returns to
 // none. The status is in the statement, so a request approved between a read and this delete
-// is not the one removed. The window runs from requested_at, when the request was made (migration
-// 0043), not from when the contact was first known.
+// is not the one removed. The window runs from requested_at, when the request was made, not
+// from when the contact was first known.
 func (q *Queries) DeleteExpiredPendingContacts(ctx context.Context, arg DeleteExpiredPendingContactsParams) ([]DeleteExpiredPendingContactsRow, error) {
 	rows, err := q.db.Query(ctx, deleteExpiredPendingContacts, arg.AccountID, arg.RequestedAt)
 	if err != nil {
@@ -208,8 +208,8 @@ type ImportContactParams struct {
 // statement, and none it does not. invite_id stays empty because invites do not travel, and
 // chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
 // seen - and this host has not been issued one yet. handshake_due is the time of the import: the
-// contact is owed this host's handshake from the first leaf requested after it (sec. 9.2,
-// migration 0043). requested_at is created_at for a row the file carries as pending_out.
+// contact is owed this host's handshake from the first leaf requested after it (sec. 9.2).
+// requested_at is created_at for a row the file carries as pending_out.
 func (q *Queries) ImportContact(ctx context.Context, arg ImportContactParams) error {
 	_, err := q.db.Exec(ctx, importContact,
 		arg.ID,
@@ -302,7 +302,7 @@ type InsertContactParams struct {
 }
 
 // requested_at is the row's created_at when it is inserted as a request (pending_in, pending_out)
-// and NULL otherwise (migration 0043).
+// and NULL otherwise.
 func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) error {
 	_, err := q.db.Exec(ctx, insertContact,
 		arg.ID,
@@ -326,37 +326,6 @@ func (q *Queries) InsertContact(ctx context.Context, arg InsertContactParams) er
 		arg.RequestedAt,
 	)
 	return err
-}
-
-const listContactLeafKeysUnfilled = `-- name: ListContactLeafKeysUnfilled :many
-SELECT id, spki FROM contacts WHERE leaf IS NOT NULL AND octet_length(leaf) > 0 AND leaf_fingerprint IS NULL
-`
-
-type ListContactLeafKeysUnfilledRow struct {
-	ID   string
-	Spki []byte
-}
-
-// The fill after migration 0046 (Store.Migrate, fillLeafFingerprints): every row that holds a leaf
-// and no fingerprint of it, with the key beside the leaf. After the first fill, none.
-func (q *Queries) ListContactLeafKeysUnfilled(ctx context.Context) ([]ListContactLeafKeysUnfilledRow, error) {
-	rows, err := q.db.Query(ctx, listContactLeafKeysUnfilled)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListContactLeafKeysUnfilledRow
-	for rows.Next() {
-		var i ListContactLeafKeysUnfilledRow
-		if err := rows.Scan(&i.ID, &i.Spki); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listContacts = `-- name: ListContacts :many
@@ -615,21 +584,6 @@ func (q *Queries) SetContactAccepted(ctx context.Context, arg SetContactAccepted
 	return result.RowsAffected(), nil
 }
 
-const setContactLeafFingerprint = `-- name: SetContactLeafFingerprint :exec
-UPDATE contacts SET leaf_fingerprint = $1 WHERE id = $2
-`
-
-type SetContactLeafFingerprintParams struct {
-	LeafFingerprint sql.NullString
-	ID              string
-}
-
-// The fill after migration 0046: one row's leaf fingerprint.
-func (q *Queries) SetContactLeafFingerprint(ctx context.Context, arg SetContactLeafFingerprintParams) error {
-	_, err := q.db.Exec(ctx, setContactLeafFingerprint, arg.LeafFingerprint, arg.ID)
-	return err
-}
-
 const takeBackContactRequest = `-- name: TakeBackContactRequest :execrows
 UPDATE contacts SET status = $1, requested_at = $2
 WHERE account_id = $3 AND fingerprint = $4 AND status = 'pending_out' AND requested_at = $5
@@ -742,7 +696,7 @@ type UpdateContactStatusParams struct {
 	Fingerprint string
 }
 
-// Moving a row to active records that it was ever active (migration 0039); nothing clears it.
+// Moving a row to active records that it was ever active; nothing clears it.
 func (q *Queries) UpdateContactStatus(ctx context.Context, arg UpdateContactStatusParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateContactStatus, arg.Status, arg.AccountID, arg.Fingerprint)
 	if err != nil {
