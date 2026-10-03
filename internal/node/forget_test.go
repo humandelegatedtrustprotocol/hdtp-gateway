@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // An identity that left this host is forgotten everywhere the node lists accounts, including the

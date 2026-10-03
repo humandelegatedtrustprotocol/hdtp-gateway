@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // New turns the hash-chain writer into the three-argument sink every
@@ -28,12 +28,12 @@ func New(ctx context.Context, st store.AuditStore, stderr io.Writer) *Sink {
 	// It mirrors the audit row and nothing else, which is what makes it safe: the
 	// chain records the KEY of a setting and never its value, fingerprints rather
 	// than names, and content-addressed references rather than bodies. Nothing
-	// leaves the machine — `PACT_LOG=off` silences it for anyone who wants that.
+	// leaves the machine — `HDTP_LOG=off` silences it for anyone who wants that.
 	// The rows are written with the serving context's values and never its cancellation: the
 	// node's last rows — its listener stopping — are written after `serve` was told to stop, and
 	// a cancelled context lost them, each reported as `audit: … context canceled`.
 	return &Sink{w: &audit.Writer{Sink: store.AuditAppender{St: st}}, ctx: context.WithoutCancel(ctx), stderr: stderr,
-		mirror: os.Getenv("PACT_LOG") != "off"}
+		mirror: os.Getenv("HDTP_LOG") != "off"}
 }
 
 // Sink writes to the one hash chain, tagging each event with WHO caused it.

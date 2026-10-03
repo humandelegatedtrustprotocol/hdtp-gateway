@@ -2,12 +2,12 @@ package public
 
 // Decide is handed the pins a sealed call's proof could concern (pinsFor, store.PinCandidates) and
 // no longer every contact. That is only right if it decides exactly as it did with all of them, for
-// every way it reads a pin (pact-identity envelope.go): the root a chain proves, the address a
-// guest's leaf claims (PACT §5.2), the leaf a small form names, a blocked pin, a root this account
+// every way it reads a pin (hdtp-identity envelope.go): the root a chain proves, the address a
+// guest's leaf claims (HDTP §5.2), the leaf a small form names, a blocked pin, a root this account
 // asked, a leaf nobody holds — and an envelope whose proof cannot be read at all, which is handed no
 // pins. Each case decides twice, once with the candidates and once with every contact, and the
 // decisions (answer and effects) must be the same; and the candidates must be few, which is the
-// point. The cloud holds the same cases (pact-cloud gateway/test/pin-candidates.test.ts).
+// point. The cloud holds the same cases (batondeck gateway/test/pin-candidates.test.ts).
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 func candidatesEnv(t *testing.T) (*recvEnv, []*peer) {
@@ -40,12 +40,12 @@ func candidatesEnv(t *testing.T) (*recvEnv, []*peer) {
 }
 
 type decided struct {
-	D   pactidentity.Decision
+	D   hdtpidentity.Decision
 	Err string
 }
 
 // bothWays decides env with the candidates and with every contact, and says how many pins each had.
-func bothWays(t *testing.T, e *recvEnv, env *pactidentity.Envelope) (narrow, every decided, narrowPins, everyPins int) {
+func bothWays(t *testing.T, e *recvEnv, env *hdtpidentity.Envelope) (narrow, every decided, narrowPins, everyPins int) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := e.state(ctx)
@@ -62,8 +62,8 @@ func bothWays(t *testing.T, e *recvEnv, env *pactidentity.Envelope) (narrow, eve
 	}
 	full := ns
 	full.Pins = pinsOf(all)
-	run := func(state pactidentity.NodeState) decided {
-		d, err := pactidentity.Decide(e.nowAt, *env, state)
+	run := func(state hdtpidentity.NodeState) decided {
+		d, err := hdtpidentity.Decide(e.nowAt, *env, state)
 		out := decided{D: d}
 		if err != nil {
 			out.Err = err.Error()
@@ -84,7 +84,7 @@ func TestDecideIsHandedThePinsTheProofConcerns(t *testing.T) {
 
 	cases := []struct {
 		name string
-		env  *pactidentity.Envelope
+		env  *hdtpidentity.Envelope
 	}{
 		{"a contact, chain form", e.sealFrom(t, peers[0], "chain", "get_card", nil)},
 		{"a contact, small form", e.sealFrom(t, peers[1], "leaf", "get_card", nil)},
@@ -93,18 +93,18 @@ func TestDecideIsHandedThePinsTheProofConcerns(t *testing.T) {
 		{"a blocked root, small form", e.sealFrom(t, peers[3], "leaf", "get_card", nil)},
 		{"a root this account asked, before its answer", e.sealFrom(t, peers[4], "chain", "get_card", nil)},
 		{"a stranger, small form: a leaf nobody holds", e.sealFrom(t, stranger, "leaf", "get_card", nil)},
-		{"a stranger at a contact's address, claiming it (PACT §5.2)", e.sealFrom(t, squatter, "chain", "request_contact", withCard(squatter))},
+		{"a stranger at a contact's address, claiming it (HDTP §5.2)", e.sealFrom(t, squatter, "chain", "request_contact", withCard(squatter))},
 		{"a stranger elsewhere, asking", e.sealFrom(t, stranger, "chain", "request_contact", withCard(stranger))},
 		// A proof nobody can read: each is refused whatever the pins, and is now handed none.
-		{"a ciphertext that does not open (another envelope's)", func() *pactidentity.Envelope {
+		{"a ciphertext that does not open (another envelope's)", func() *hdtpidentity.Envelope {
 			env := *e.sealFrom(t, peers[0], "leaf", "get_card", nil)
 			env.Ct = other.Ct
 			return &env
 		}()},
-		{"a chain that does not parse", e.sealFrom(t, peers[0], "chain", "get_card", nil, func(o *pactidentity.SealOpts) {
+		{"a chain that does not parse", e.sealFrom(t, peers[0], "chain", "get_card", nil, func(o *hdtpidentity.SealOpts) {
 			o.SenderChain = [][]byte{{0x30, 0x00}, {0x30, 0x00}}
 		})},
-		{"sealed to a key this account does not hold", e.sealFrom(t, peers[0], "chain", "get_card", nil, func(o *pactidentity.SealOpts) {
+		{"sealed to a key this account does not hold", e.sealFrom(t, peers[0], "chain", "get_card", nil, func(o *hdtpidentity.SealOpts) {
 			o.RecipientKey = peers[1].host.Public()
 		})},
 	}

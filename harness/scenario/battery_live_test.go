@@ -14,15 +14,15 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // S19 — the cloud's Go conformance battery, aimed at a node.
 //
-// pact-cloud/gateway/conformance is the one battery of the wire both hosts are held to: the guest
+// batondeck/gateway/conformance is the one battery of the wire both hosts are held to: the guest
 // tier, chain_required, the per-root guest budget with a second root that must get through, every
 // envelope negative with its paired control, invite no-oracle 404s and single use, sealed answers
 // read by the reference client, and the audit rows hashed and linked as the reference hashes them.
@@ -34,7 +34,7 @@ import (
 // dependents` does), so it is this node's code under test from both ends of the wire.
 //
 // Alice's first leaf is short-lived and renewed at once, and the battery starts after it expires,
-// so the stale-kid case has a former kid to send (PACT §14.4); the battery skips that case without
+// so the stale-kid case has a former kid to send (HDTP §14.4); the battery skips that case without
 // one, and here nothing may skip.
 func TestTheConformanceBatteryPassesAgainstANode(t *testing.T) {
 	ctx, w := begin(t, registry.Spec{
@@ -48,13 +48,13 @@ func TestTheConformanceBatteryPassesAgainstANode(t *testing.T) {
 	}
 	// The first leaf lives a few minutes; the renewal after it a year. Once the first is past its
 	// notAfter its key is one this endpoint held and holds no longer, which is what the battery's
-	// stale-kid case needs (PACT §14.4): a renewal alone leaves the superseded key held until then.
+	// stale-kid case needs (HDTP §14.4): a renewal alone leaves the superseded key held until then.
 	shortUntil := time.Now().Add(4 * time.Minute).Truncate(time.Second)
 	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, PublishPublic: true, LeafUntil: shortUntil})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
 	}
-	former := pactidentity.Fingerprint(leafSPKI(t, alice.Pin.Leaf))
+	former := hdtpidentity.Fingerprint(leafSPKI(t, alice.Pin.Leaf))
 	if alice.Pin, err = alice.Wallet.Certify(ctx, topology.NodeOf(w.Fab, alice.Node), "alice", "renew", ""); err != nil {
 		t.Fatalf("renewing alice's leaf: %v", err)
 	}
@@ -74,13 +74,13 @@ func TestTheConformanceBatteryPassesAgainstANode(t *testing.T) {
 	}
 
 	events, code := battery(ctx, t, map[string]string{
-		"PACT_LIVE_TARGET":     "node",
-		"PACT_LIVE_ENDPOINT":   alice.Pin.Endpoint,
-		"PACT_LIVE_CARD":       cardFile,
-		"PACT_LIVE_DIAL":       "127.0.0.1:" + alice.PublicPort,
-		"PACT_LIVE_OWNER_URL":  "http://127.0.0.1:" + alice.OwnerPort + "/owner/mcp",
-		"PACT_LIVE_TOKEN":      token,
-		"PACT_LIVE_FORMER_KID": former,
+		"HDTP_LIVE_TARGET":     "node",
+		"HDTP_LIVE_ENDPOINT":   alice.Pin.Endpoint,
+		"HDTP_LIVE_CARD":       cardFile,
+		"HDTP_LIVE_DIAL":       "127.0.0.1:" + alice.PublicPort,
+		"HDTP_LIVE_OWNER_URL":  "http://127.0.0.1:" + alice.OwnerPort + "/owner/mcp",
+		"HDTP_LIVE_TOKEN":      token,
+		"HDTP_LIVE_FORMER_KID": former,
 	})
 	v := judge(events)
 	t.Logf("battery against the node: %d passed, %d failed, %d skipped (exit %d)", len(v.passed), len(v.failed), len(v.skipped), code)
@@ -144,12 +144,12 @@ func battery(ctx context.Context, t *testing.T, env map[string]string) ([]testEv
 	// A replace, not a use: the battery pins the node by a version, and this tree's commit need
 	// not exist anywhere but here (the Makefile's `dependents` says why).
 	goCmd(ws, "work", "init", dir)
-	goCmd(ws, "work", "edit", "-replace=github.com/pact-cloud/pact-gateway="+tree)
+	goCmd(ws, "work", "edit", "-replace=github.com/humandelegatedtrustprotocol/hdtp-gateway="+tree)
 
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-json", "-timeout", "15m", "./")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(ws, "go.work"),
-		"GOPRIVATE=github.com/pact-cloud/*", "GIT_CONFIG_COUNT=1",
+		"GOPRIVATE=github.com/humandelegatedtrustprotocol/*", "GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf", "GIT_CONFIG_VALUE_0=https://github.com/")
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)

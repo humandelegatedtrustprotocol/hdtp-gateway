@@ -6,7 +6,7 @@ package core
 // Cookies are scoped by host and path — never by port (RFC 6265 §8.5, and it is
 // not an oversight: ports were deliberately left out of the same-origin rule for
 // cookies). Two nodes on `localhost:18120` and `localhost:18121` therefore share
-// one cookie jar, and whichever logged in last owns the single `pact_session`
+// one cookie jar, and whichever logged in last owns the single `hdtp_session`
 // entry. The other node's owner is silently signed out, having done nothing.
 //
 // That is not a hypothetical: docs/demos/cloudflare-two-users.sh runs exactly

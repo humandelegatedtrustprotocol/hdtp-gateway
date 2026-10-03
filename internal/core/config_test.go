@@ -43,7 +43,7 @@ func TestDefaults(t *testing.T) {
 
 func TestPrecedenceEnvOverFileOverDefaults(t *testing.T) {
 	c, err := load(t, `{"public_bind": ":9000", "seal": "optional"}`,
-		map[string]string{"PACT_PUBLIC_BIND": ":9100"})
+		map[string]string{"HDTP_PUBLIC_BIND": ":9100"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestRejections(t *testing.T) {
 		{"edge with client_cert preferred", `{"mode": "edge", "client_cert": "preferred"}`, nil, RuleEdgeClientCert},
 		{"bad seal enum", `{"seal": "sometimes"}`, nil, RuleEnum},
 		{"bad mode enum", `{"mode": "hybrid"}`, nil, RuleEnum},
-		{"bad client_cert enum via env", ``, map[string]string{"PACT_CLIENT_CERT": "maybe"}, RuleEnum},
+		{"bad client_cert enum via env", ``, map[string]string{"HDTP_CLIENT_CERT": "maybe"}, RuleEnum},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,12 +90,12 @@ func TestRejections(t *testing.T) {
 
 func TestValidNonLoopbackInternal(t *testing.T) {
 	c, err := load(t, `{"internal_bind": "0.0.0.0:8080", "internal_auth_enabled": true,
-		"internal_host": "pact.example.com",
+		"internal_host": "hdtp.example.com",
 		"internal_tls_cert": "/x/cert.pem", "internal_tls_key": "/x/key.pem"}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.InternalBind != "0.0.0.0:8080" || c.InternalHost != "pact.example.com" {
+	if c.InternalBind != "0.0.0.0:8080" || c.InternalHost != "hdtp.example.com" {
 		t.Fatalf("got %q / %q", c.InternalBind, c.InternalHost)
 	}
 }
@@ -151,8 +151,8 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 	RegisterTunnel("fake-direct", false)
 	// edge adapter: owner asked for direct + relaxed knobs; derivation overrides
 	c, err := load(t, "", map[string]string{
-		"PACT_TUNNEL": "fake-edge",
-		"PACT_MODE":   "direct", "PACT_SEAL": "optional", "PACT_CLIENT_CERT": "preferred",
+		"HDTP_TUNNEL": "fake-edge",
+		"HDTP_MODE":   "direct", "HDTP_SEAL": "optional", "HDTP_CLIENT_CERT": "preferred",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 		t.Fatalf("edge derivation: mode=%s seal=%s cc=%s lan=%v", c.Mode, c.Seal, c.ClientCert, c.LANConnections)
 	}
 	// direct adapter: direct mode, owner's relaxed seal honored
-	c, err = load(t, "", map[string]string{"PACT_TUNNEL": "fake-direct", "PACT_SEAL": "optional"})
+	c, err = load(t, "", map[string]string{"HDTP_TUNNEL": "fake-direct", "HDTP_SEAL": "optional"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,12 +169,12 @@ func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 		t.Fatalf("direct derivation: %+v", c)
 	}
 	// unknown adapter names are refused at resolution
-	if _, err := load(t, "", map[string]string{"PACT_TUNNEL": "carrier-pigeon"}); err == nil {
+	if _, err := load(t, "", map[string]string{"HDTP_TUNNEL": "carrier-pigeon"}); err == nil {
 		t.Fatal("unknown tunnel accepted")
 	}
 }
 
-// limit.contacts sizes every account's contact cap and call budget (PACT §12), so it is a knob —
+// limit.contacts sizes every account's contact cap and call budget (HDTP §12), so it is a knob —
 // and a knob behaves like every other one: settable from the portal, overridable by the file, and
 // pinned by the environment above both (SPEC §12.2). A typo restores the default rather than
 // removing the cap.
@@ -193,7 +193,7 @@ func TestContactCapIsAnOwnerSettableKnob(t *testing.T) {
 	if c.ContactCap() != 200 {
 		t.Errorf("file layer ignored: %d", c.ContactCap())
 	}
-	c, err = load(t, `{"limit_contacts": 200}`, map[string]string{"PACT_LIMIT_CONTACTS": "2500"})
+	c, err = load(t, `{"limit_contacts": 200}`, map[string]string{"HDTP_LIMIT_CONTACTS": "2500"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestContactCapIsAnOwnerSettableKnob(t *testing.T) {
 		t.Error("an environment-set cap is not reported as pinned, so the portal would offer to change it")
 	}
 	// A value nobody can read is not a licence to stop counting.
-	c, err = load(t, "", map[string]string{"PACT_LIMIT_CONTACTS": "lots"})
+	c, err = load(t, "", map[string]string{"HDTP_LIMIT_CONTACTS": "lots"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestAuditArchiveAfter(t *testing.T) {
 		{"", nil, "2160h0m0s"},
 		{`{"audit_archive_after": "30d"}`, nil, "720h0m0s"},
 		{`{"audit_archive_after": "0s"}`, nil, "0s"},
-		{`{"audit_archive_after": "30d"}`, map[string]string{"PACT_AUDIT_ARCHIVE_AFTER": "36h"}, "36h0m0s"},
+		{`{"audit_archive_after": "30d"}`, map[string]string{"HDTP_AUDIT_ARCHIVE_AFTER": "36h"}, "36h0m0s"},
 	} {
 		if got, err := read(tc.file, tc.env); err != nil || got != tc.want {
 			t.Errorf("%s %v: %s %v, want %s", tc.file, tc.env, got, err, tc.want)
@@ -255,22 +255,22 @@ func TestAuditArchiveAfter(t *testing.T) {
 	}
 }
 
-// Inline media lives under <data_dir>/blobs unless blob_dir (or PACT_BLOB_DIR) names storage of its
+// Inline media lives under <data_dir>/blobs unless blob_dir (or HDTP_BLOB_DIR) names storage of its
 // own — what node processes on different hosts sharing one Postgres point at a mount they share
 // (SPEC §11.1).
 func TestBlobsAreUnderTheDataDirUnlessBlobDirSaysOtherwise(t *testing.T) {
-	c, err := load(t, `{"data_dir": "/srv/pact"}`, nil)
+	c, err := load(t, `{"data_dir": "/srv/hdtp"}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.Blobs(); got != filepath.Join("/srv/pact", "blobs") {
+	if got := c.Blobs(); got != filepath.Join("/srv/hdtp", "blobs") {
 		t.Fatalf("default blobs at %q", got)
 	}
-	c, err = load(t, `{"data_dir": "/srv/pact", "blob_dir": "/mnt/shared/blobs"}`, map[string]string{"PACT_BLOB_DIR": "/mnt/other"})
+	c, err = load(t, `{"data_dir": "/srv/hdtp", "blob_dir": "/mnt/shared/blobs"}`, map[string]string{"HDTP_BLOB_DIR": "/mnt/other"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := c.Blobs(); got != "/mnt/other" {
-		t.Fatalf("PACT_BLOB_DIR over blob_dir: blobs at %q", got)
+		t.Fatalf("HDTP_BLOB_DIR over blob_dir: blobs at %q", got)
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // failingRevoke is a store whose invite revocation fails as a store fails: not "no such invite".
@@ -31,7 +31,7 @@ func TestRevokeInviteSaysNotFoundOnlyWhenItIsNot(t *testing.T) {
 	mount := func(s store.Store) *http.ServeMux {
 		mux := http.NewServeMux()
 		MountManagePages(mux, ManageDeps{Store: s, Contacts: &contacts.Manager{Store: st}, Audit: (&recAudit{}).fn,
-			PublicURL: func() string { return "https://pact.example" }})
+			PublicURL: func() string { return "https://hdtp.example" }})
 		return mux
 	}
 	if rr := postForm(t, mount(failingRevoke{st}), "/invites/"+inv.ID+"/revoke?account="+acct, url.Values{}); rr.Code != http.StatusInternalServerError {

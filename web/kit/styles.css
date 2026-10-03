@@ -1,4 +1,4 @@
-/* PACT sites (pact-protocol.com, pact-gateway.com, pact-cloud.com) — design system, from pact-web-kit.
+/* The sites (hdtp.io, hdtp.dev, batondeck.com) — design system, from hdtp-web-kit.
  * Light, one accent, lots of air. Inter for everything, JetBrains Mono for code.
  * No framework, no build step: this file is served as-is from /kit/.
  *
@@ -19,8 +19,8 @@
   --accent-rgb:243 128 32; --glow-rgb:255 165 82;
   --amber:#7A5A00; --amber-soft:#FBF3D9;
   --dark-text:#D6D2CA; --dark-muted:#B3AEA5; --dark-panel:#1D2027; --err-on-ink:#FF9C8A;
-  --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --sans:'Inter',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
   --display:'Bricolage Grotesque',var(--sans);
   --wrap:1120px; --r:12px; --r-lg:18px;
   --shadow-sm:0 1px 2px rgb(21 24 30 / .05),0 1px 1px rgb(21 24 30 / .03);
@@ -63,6 +63,9 @@ strong{color:var(--ink);font-weight:600}
 .nav-links{display:flex;gap:1.6rem;margin-left:1rem}
 .nav-links a{color:var(--text);font-size:.92rem;font-weight:500;white-space:nowrap}
 .nav-links a:hover{color:var(--ink);text-decoration:none}
+/* A tab (a link to a section of the site, such as /spec/ or /learn/) is marked current on the pages under it by
+   .kit/bin/shell.mjs, which writes aria-current="page" as it copies the home page's nav onto them. */
+.nav-links a[aria-current="page"],.nav-links a[aria-current="page"]:hover{color:var(--ink);text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:.55em}
 .nav-sp{flex:1}
 .nav-cta{display:flex;gap:.6rem;align-items:center}
 @media (max-width:820px){.nav-links{display:none}.nav-cta .btn.secondary{display:none}}
@@ -329,7 +332,9 @@ footer{border-top:1px solid var(--line);padding:3rem 0 2.5rem;color:var(--muted)
 .waitlist.done .capsule{opacity:.72}
 .waitlist-msg{margin:.6rem 0 0;font-size:.92rem;color:var(--muted)}
 .waitlist-msg:empty{display:none}
-.waitlist-msg.ok{color:var(--accent-ink)}
+.waitlist-msg.ok{color:var(--ink-2)}
+.waitlist-msg.ok::before{content:"\2713\00a0";font-weight:700}
+.capsule .btn[aria-busy=true]{cursor:progress}
 .waitlist-msg.err{color:var(--amber)}
 .on-ink .capsule{background:var(--dark-panel);border-color:rgb(255 255 255 / .14);box-shadow:0 18px 40px -24px rgb(0 0 0 / .7)}
 .on-ink .capsule:focus-within{border-color:rgb(var(--glow-rgb) / .7);box-shadow:0 0 0 4px rgb(var(--glow-rgb) / .16),0 18px 40px -24px rgb(0 0 0 / .7)}
@@ -339,7 +344,7 @@ footer{border-top:1px solid var(--line);padding:3rem 0 2.5rem;color:var(--muted)
 .on-ink .capsule .btn{background:#fff;color:var(--ink);border-color:#fff}
 .on-ink .capsule .btn:hover{background:var(--bg-3)}
 .on-ink .waitlist-msg{color:var(--dark-muted)}
-.on-ink .waitlist-msg.ok{color:var(--accent-2)}
+.on-ink .waitlist-msg.ok{color:var(--dark-text)}
 .on-ink .waitlist-msg.err{color:var(--err-on-ink)}
 .fine.on-ink{color:var(--dark-muted)}
 .fine.on-ink a{color:var(--dark-text);text-decoration:underline;text-underline-offset:3px}
@@ -419,7 +424,7 @@ h2.h3{font-size:1.125rem;letter-spacing:-.015em;line-height:1.3}
 .vcard .ln{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px;line-height:1.55}
 .vcard .ln:nth-last-child(-n+2){padding-right:64px}   /* room for the QR in the corner */
 
-/* ---- the product window (pact-gateway.com's inbox mock) ----
+/* ---- the product window (hdtp.dev's inbox mock) ----
  * Orange means "this was allowed": only switches that are on and calls that went through wear it.
  * A contact's avatar and presence dot, and the agent/human tags, are neutral; a pending request is
  * amber. A tool result sits on its own line under the message, and an audit row keeps its time whole. */
@@ -432,7 +437,7 @@ h2.h3{font-size:1.125rem;letter-spacing:-.015em;line-height:1.3}
 .window .audit div{flex-wrap:wrap;column-gap:8px;row-gap:0}
 .window .audit div span{margin-left:auto;white-space:nowrap}
 
-/* ---- sections the product sites share (pact-cloud.com, pact-gateway.com) ---- */
+/* ---- sections the product sites share (batondeck.com, hdtp.dev) ---- */
 section.plain{background:var(--bg)}
 .sec-title{font-family:var(--display);font-size:clamp(1.9rem,3.6vw,2.8rem);max-width:22ch;margin:0 0 1.2rem;line-height:1.08}
 .sec-title.center{margin-inline:auto;text-align:center}

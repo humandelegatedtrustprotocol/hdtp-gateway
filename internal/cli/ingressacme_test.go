@@ -146,7 +146,7 @@ func writeTestCA(t *testing.T, path string) {
 // verification". That is a security claim, and until this test it was unverified
 // — the same shape as four earlier defects here: correct where written, unchecked
 // where reached. A pool that leaked into a peer TLS config would make an operator
-// -supplied CA able to vouch for CONTACTS, and PACT §2 says identity is the pinned
+// -supplied CA able to vouch for CONTACTS, and HDTP §2 says identity is the pinned
 // SPKI and nothing else.
 //
 // It is pinned at the source level because there is no runtime seam to observe:
@@ -184,7 +184,7 @@ func TestACMECARootCannotReachPeerVerification(t *testing.T) {
 		if !allowed[f] {
 			t.Errorf("%s uses TrustedRoots. The ACME CA pool exists only for the CA's own "+
 				"HTTPS; anywhere else it would let an operator-supplied root vouch for a "+
-				"PEER, and PACT §2 makes identity the pinned SPKI and nothing else. If this "+
+				"PEER, and HDTP §2 makes identity the pinned SPKI and nothing else. If this "+
 				"is a different pool, name it differently or add it here with a reason.", f)
 		}
 	}

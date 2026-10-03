@@ -8,7 +8,7 @@ import (
 )
 
 // The cloud-battery need is provided by a checkout of the battery that can be aimed at a node, and
-// by nothing less: a pact-cloud from before the battery took a target is a Go module too, and
+// by nothing less: a batondeck from before the battery took a target is a Go module too, and
 // aimed at a node it fails for its own reasons.
 func TestTheCloudBatteryNeedsABatteryThatTakesATarget(t *testing.T) {
 	ctx := context.Background()
@@ -23,7 +23,7 @@ func TestTheCloudBatteryNeedsABatteryThatTakesATarget(t *testing.T) {
 	if err := probe(ctx, CloudBattery); err == nil {
 		t.Error("a battery with no target_test.go provided the need")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "target_test.go"), []byte(`package x // targetKind = env("PACT_LIVE_TARGET", "cloud")`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "target_test.go"), []byte(`package x // targetKind = env("HDTP_LIVE_TARGET", "cloud")`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := probe(ctx, CloudBattery); err != nil {

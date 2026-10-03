@@ -3,14 +3,14 @@
 #
 #   layer 1 — envoy:  the caller's TLS ends here; per-address limits and connection limits before
 #                     any cryptography (deploy/envoy/envoy.yaml), the caller's chain forwarded;
-#   layer 2 — limitd: PACT §12's per-caller budgets, asked by the node after it opens an envelope
+#   layer 2 — limitd: HDTP §12's per-caller budgets, asked by the node after it opens an envelope
 #                     (deploy/limitd/limits.json);
 #   node:             the node, trusting the forwarded chain and address from envoy's address alone
-#                     (PACT_PROXY_ADDRESS), and refusing every sealed call while limitd is down.
+#                     (HDTP_PROXY_ADDRESS), and refusing every sealed call while limitd is down.
 #
 # Before `docker compose -f deploy/envoy/compose.yaml up -d`: `make identity-proxy limitd-vendor`
 # (the image build), a certificate for the node's public name at deploy/envoy/tls/cert.pem and
-# key.pem (WebPKI: a peer that dials the node sees it), and PACT_PUBLIC_URL, that name, in the
+# key.pem (WebPKI: a peer that dials the node sees it), and HDTP_PUBLIC_URL, that name, in the
 # environment. Only envoy publishes a port; the node's own listener is reached through it alone.
 # The portal stays on the node's loopback, as in ../../compose.yaml.
 #
@@ -23,7 +23,7 @@ services:
     image: alpine:3.20
     command: ["chown", "65532:65532", "/data"]
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
     restart: "no"
 
   node:
@@ -37,12 +37,12 @@ services:
       init-data:
         condition: service_completed_successfully
     environment:
-      PACT_PUBLIC_BIND: 0.0.0.0:8443
-      PACT_PUBLIC_URL: ${PACT_PUBLIC_URL:?the public https URL envoy answers at}
-      # The one address whose X-Forwarded-Client-Cert and X-Pact-Client-Address the node reads.
-      PACT_PROXY_ADDRESS: 172.30.40.10
+      HDTP_PUBLIC_BIND: 0.0.0.0:8443
+      HDTP_PUBLIC_URL: ${HDTP_PUBLIC_URL:?the public https URL envoy answers at}
+      # The one address whose X-Forwarded-Client-Cert and X-HDTP-Client-Address the node reads.
+      HDTP_PROXY_ADDRESS: 172.30.40.10
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
     networks:
       edge:
         ipv4_address: 172.30.40.20
@@ -54,14 +54,14 @@ services:
         identityproxy: ../../.build/identity-proxy
         limitdvendor: ../../.build/limitd-vendor
     restart: unless-stopped
-    entrypoint: ["/pact-limitd"]
-    command: ["-config", "/etc/pact-limitd/limits.json"]
+    entrypoint: ["/hdtp-limitd"]
+    command: ["-config", "/etc/hdtp-limitd/limits.json"]
     network_mode: none
     depends_on:
       init-data:
         condition: service_completed_successfully
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
 
   envoy:
     # Envoy 1.35.13, pinned by digest: the harness's S23 runs this same reference (images.Envoy).
@@ -86,4 +86,4 @@ networks:
         - subnet: 172.30.40.0/24
 
 volumes:
-  pact-data:
+  hdtp-data:

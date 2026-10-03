@@ -9,15 +9,15 @@ import (
 	"io"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Conflict is one place where a file disagrees with a pin this identity already holds. The held
-// pin stands (PACT §14.5); the conflict is shown so the person knows.
+// pin stands (HDTP §14.5); the conflict is shown so the person knows.
 type Conflict struct {
 	Root  string `json:"root"`
 	Field string `json:"field"`
@@ -26,7 +26,7 @@ type Conflict struct {
 }
 
 // Plan is a whole export read and checked, and merged against what this identity already holds,
-// with nothing written. Read makes it; the person reviews it (PACT §9.2's import step 2); Apply
+// with nothing written. Read makes it; the person reviews it (HDTP §9.2's import step 2); Apply
 // writes it.
 type Plan struct {
 	Slug      string
@@ -36,13 +36,13 @@ type Plan struct {
 	New bool
 	// AccountID is the identity the rows go into; empty until Apply when New.
 	AccountID string
-	Contents  *pactidentity.ExportContents
+	Contents  *hdtpidentity.ExportContents
 	// Write are the contacts Apply writes: every row not held, and every row held with no leaf
 	// that the file gives one. Fill names the second kind: held here, with no leaf, and the file's
 	// pin fills it. Keep are the roots held already, left as they are. Skip are the roots of file
 	// rows this host holds as a stranger's request (aRequest): not a contact, so not merged, and
 	// left as they are.
-	Write     []pactidentity.ContactRow
+	Write     []hdtpidentity.ContactRow
 	Fill      []string
 	Keep      []string
 	Skip      []string
@@ -50,14 +50,14 @@ type Plan struct {
 	zr        *zip.Reader
 }
 
-// Read checks a whole export for the identity called slug (PACT §9.2) and writes nothing.
+// Read checks a whole export for the identity called slug (HDTP §9.2) and writes nothing.
 //
 //   - A slug that is not here will be created keyless, holding only the root the file names as
 //     its owner; the wallet's first leaf must be under that root (identity.InstallLeaf).
 //   - A slug that is here must be that same root, and the file's contacts are merged with the
 //     ones it holds: a pin this host holds is never replaced by one from a file.
 //   - A root that is here under ANOTHER slug is refused: one identity, one slug on a host.
-//   - A slug reserved after an identity left this node (PACT §9) is refused here, in the review,
+//   - A slug reserved after an identity left this node (HDTP §9) is refused here, in the review,
 //     and not first by the write.
 //   - Into a slug that is here, a file thread whose id this identity already holds for another
 //     contact is refused: thread ids are the account's own, and the file's messages would be
@@ -102,7 +102,7 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 		}
 	}
 	// An existing slug's own root is what the file must be (the core's owner rule, in its words).
-	p.Contents, err = pactidentity.ReadExportZip(zr, p.Owner, now, ImportCeiling)
+	p.Contents, err = hdtpidentity.ReadExportZip(zr, p.Owner, now, ImportCeiling)
 	if err != nil {
 		return nil, refuse("%v", err)
 	}
@@ -114,7 +114,7 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 			return nil, refuse("manifest.json: owner_name: %v", err)
 		}
 	}
-	held := []pactidentity.ContactRow{}
+	held := []hdtpidentity.ContactRow{}
 	heldRoots, requests := map[string]bool{}, map[string]bool{}
 	if !p.New {
 		cs, err := st.ListContacts(ctx, p.AccountID)
@@ -124,7 +124,7 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 		for _, c := range cs {
 			// A request is not a contact, so export_merge is not handed one. It was, and it kept the
 			// request and reported every field the file said otherwise as a conflict, where the
-			// cloud skips it (pact-cloud portable.ts).
+			// cloud skips it (batondeck portable.ts).
 			if aRequest(c) {
 				requests[c.Fingerprint] = true
 				continue
@@ -160,7 +160,7 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 }
 
 // threadFits refuses a file thread whose id this identity already holds for another contact.
-func threadFits(ctx context.Context, st store.Store, accountID string, t pactidentity.ThreadRow) error {
+func threadFits(ctx context.Context, st store.Store, accountID string, t hdtpidentity.ThreadRow) error {
 	h, err := st.GetThread(ctx, accountID, t.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -205,25 +205,25 @@ func readManifest(zr *zip.Reader, v any) bool {
 			return false
 		}
 		defer rc.Close()
-		return json.NewDecoder(io.LimitReader(rc, pactidentity.ExportManifestMax)).Decode(v) == nil
+		return json.NewDecoder(io.LimitReader(rc, hdtpidentity.ExportManifestMax)).Decode(v) == nil
 	}
 	return false
 }
 
-// merge is export_merge (PACT §9.2's import step 2).
-func merge(held, rows []pactidentity.ContactRow, p *Plan) error {
+// merge is export_merge (HDTP §9.2's import step 2).
+func merge(held, rows []hdtpidentity.ContactRow, p *Plan) error {
 	in, err := json.Marshal(map[string]any{"held": held, "rows": rows})
 	if err != nil {
 		return err
 	}
 	var out struct {
-		Write     []pactidentity.ContactRow `json:"write"`
+		Write     []hdtpidentity.ContactRow `json:"write"`
 		Keep      []string                  `json:"keep"`
 		Conflicts []Conflict                `json:"conflicts"`
 		Error     string                    `json:"error"`
 		Why       string                    `json:"why"`
 	}
-	if err := json.Unmarshal(pactidentity.Call("export_merge", in), &out); err != nil {
+	if err := json.Unmarshal(hdtpidentity.Call("export_merge", in), &out); err != nil {
 		return fmt.Errorf("import: export_merge: %w", err)
 	}
 	if out.Error != "" {
@@ -234,13 +234,13 @@ func merge(held, rows []pactidentity.ContactRow, p *Plan) error {
 }
 
 // Apply writes a plan: the rows under one transaction, then the files. Every contact written is
-// owed this host's handshake from `now` (PACT §9.2), which the campaign of the identity's next leaf
+// owed this host's handshake from `now` (HDTP §9.2), which the campaign of the identity's next leaf
 // — the first one requested after the import — sends.
 //
 // contactCap is how many contacts the identity may hold (limit.contacts): the import is refused,
 // with nothing written, when what it leaves held is over the cap AND it added to the count. An
 // identity already over it (the cap lowered since) may still re-import what it holds. As the cloud
-// holds its import (pact-cloud src/identity/identity.ts, checkContactCap).
+// holds its import (batondeck src/identity/identity.ts, checkContactCap).
 func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDir, now time.Time, contactCap int) (Result, error) {
 	var res Result
 	newFiles := map[string]bool{} // by hash: whether this import wrote the file's record
@@ -252,7 +252,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: p.Slug, DisplayName: p.OwnerName, Algo: string(identity.AlgoP256)})
 			if errors.Is(err, store.ErrAddressVacated) {
 				// An identity left this node from that address, and a leaf issued for it is still
-				// live (PACT §9): the store's one guard, said as a refusal of this import.
+				// live (HDTP §9): the store's one guard, said as a refusal of this import.
 				return refuse("%q is reserved: an identity left this node from that address, and a leaf issued for it has not yet expired; choose another slug", p.Slug)
 			}
 			if err != nil {
@@ -384,7 +384,7 @@ func mediaBytes(zr *zip.Reader, hash string) ([]byte, error) {
 			return nil, fmt.Errorf("import: media/%s: %w", hash, err)
 		}
 		defer rc.Close()
-		b, err := io.ReadAll(io.LimitReader(rc, pactidentity.ExportMediaMax+1))
+		b, err := io.ReadAll(io.LimitReader(rc, hdtpidentity.ExportMediaMax+1))
 		if err != nil {
 			return nil, fmt.Errorf("import: media/%s: %w", hash, err)
 		}
@@ -395,26 +395,26 @@ func mediaBytes(zr *zip.Reader, hash string) ([]byte, error) {
 
 // storeContact is a contacts.csv row as the store holds it. A row whose leaf export_read kept
 // (it validated at the row's endpoint) pins that leaf and its key; any other pins the root alone.
-func storeContact(accountID string, r pactidentity.ContactRow) (store.Contact, error) {
+func storeContact(accountID string, r hdtpidentity.ContactRow) (store.Contact, error) {
 	c := store.Contact{
 		AccountID: accountID, Fingerprint: r.Root, Status: r.Status, Permissions: r.Permissions,
 		TheirPermissions: r.TheirPermissions, TrustFlag: "messages_only", DisplayName: r.DisplayName,
 		Petname: r.Name, CreatedAt: unixOf(r.Added), Endpoint: r.Endpoint, EverActive: r.WasActive,
 	}
 	if r.RootCert != nil {
-		der, err := pactidentity.DecodeB64url(*r.RootCert)
+		der, err := hdtpidentity.DecodeB64url(*r.RootCert)
 		if err != nil {
 			return c, refuse("contacts.csv: %s: its root_cert is not base64url", r.Root)
 		}
 		c.RootCert = der
 	}
 	if r.Leaf != nil {
-		der, err := pactidentity.DecodeB64url(*r.Leaf)
+		der, err := hdtpidentity.DecodeB64url(*r.Leaf)
 		if err != nil {
 			return c, refuse("contacts.csv: %s: its leaf is not base64url", r.Root)
 		}
 		c.Leaf = der
-		cert, err := pactidentity.Parse(c.Leaf)
+		cert, err := hdtpidentity.Parse(c.Leaf)
 		if err != nil {
 			return c, refuse("contacts.csv: %s: its leaf does not parse", r.Root)
 		}
@@ -431,7 +431,7 @@ func storeContact(accountID string, r pactidentity.ContactRow) (store.Contact, e
 // has not been asked to, so it arrives failed, with no retry schedule. An inbound message reached
 // the host that exported it, whatever the file says of it (a message that was waiting for its
 // human travels `queued`), and arrives delivered.
-func storeMessage(accountID string, m pactidentity.MessageRow) (store.Message, *store.Blob) {
+func storeMessage(accountID string, m hdtpidentity.MessageRow) (store.Message, *store.Blob) {
 	status := "delivered"
 	switch {
 	case m.Direction == "in":

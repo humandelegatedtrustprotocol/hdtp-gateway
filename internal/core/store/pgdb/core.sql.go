@@ -34,7 +34,7 @@ const deleteAccount = `-- name: DeleteAccount :execrows
 DELETE FROM accounts WHERE id = $1
 `
 
-// An identity leaving this host (PACT sec. 9): every table that names the account by a foreign
+// An identity leaving this host (HDTP sec. 9): every table that names the account by a foreign
 // key goes with it (ON DELETE CASCADE). The ones that name it without one (tokens, idempotency,
 // the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
 func (q *Queries) DeleteAccount(ctx context.Context, id string) (int64, error) {
@@ -320,7 +320,7 @@ type InsertAuditArchiveRowParams struct {
 }
 
 // One row an identity's archive wrote and verified: the prune guard lets exactly this seq, with
-// exactly this hash, be deleted (migration 0045). Only Store.ArchiveAuditRows writes it, inside
+// exactly this hash, be deleted. Only Store.ArchiveAuditRows writes it, inside
 // the transaction that deletes the row and empties this table again.
 func (q *Queries) InsertAuditArchiveRow(ctx context.Context, arg InsertAuditArchiveRowParams) error {
 	_, err := q.db.Exec(ctx, insertAuditArchiveRow, arg.Seq, arg.Hash)

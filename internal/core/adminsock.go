@@ -28,7 +28,7 @@ func AdminSocketPath(dataDir string) string {
 		return p
 	}
 	h := sha256.Sum256([]byte(dataDir))
-	return filepath.Join(os.TempDir(), "pact-"+hex.EncodeToString(h[:6])+".sock")
+	return filepath.Join(os.TempDir(), "hdtp-"+hex.EncodeToString(h[:6])+".sock")
 }
 
 type AdminHandler func(args map[string]string) (any, error)

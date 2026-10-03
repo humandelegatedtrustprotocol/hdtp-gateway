@@ -2,7 +2,7 @@ package public
 
 // A proxy in front of the listener (deploy/envoy, SPEC §5.1) terminates the caller's TLS and
 // forwards the caller's certificate chain (X-Forwarded-Client-Cert) and address
-// (X-Pact-Client-Address). The node reads them from the configured proxy's connections and from
+// (X-HDTP-Client-Address). The node reads them from the configured proxy's connections and from
 // no other: the same headers from anybody else are a caller's own claim, and prove nothing.
 
 import (

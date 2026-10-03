@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // runList prints the registry: JSON by default, the docs table with -doc.
@@ -148,7 +148,7 @@ func runTier(args []string, stdout io.Writer) int {
 	if *dry {
 		dir = "(none: -n)"
 	} else if dir == "" {
-		d, err := os.MkdirTemp("", "pact-harness-results-")
+		d, err := os.MkdirTemp("", "hdtp-harness-results-")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1

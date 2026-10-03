@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S20 — the REAL wallet page, from a node, and the node and the cloud as one product.
 //
 // The harness's own wallet is a Go stub (harness/wallet): it signs a CSR in-process, so nothing
-// here ever drove the page a person signs on. pact-cloud's local cloud stands the real gateway
+// here ever drove the page a person signs on. batondeck's local cloud stands the real gateway
 // Worker up under workerd, and its live-local runner (gateway/e2e/local-run.mjs) drives, against
 // the node binary built from THIS tree:
 //
@@ -37,12 +37,12 @@ func TestTheRealWalletSignsANodesMove(t *testing.T) {
 		Timeout: 20 * time.Minute,
 	})
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "pact-gateway")
+	bin := filepath.Join(dir, "hdtp-gateway")
 	tree, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/pact-gateway")
+	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/hdtp-gateway")
 	build.Dir, build.Env = tree, append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the node under test: %v\n%s", err, out)
@@ -65,8 +65,8 @@ func TestTheRealWalletSignsANodesMove(t *testing.T) {
 			Evidence          []string
 		} `json:"cases"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil || doc.Schema != "pact-results/1" {
-		t.Fatalf("the results are not pact-results/1 (%v): %s", err, trim(string(raw)))
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.Schema != "hdtp-results/1" {
+		t.Fatalf("the results are not hdtp-results/1 (%v): %s", err, trim(string(raw)))
 	}
 	ran := map[string]bool{}
 	for _, c := range doc.Cases {

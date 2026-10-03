@@ -1,8 +1,8 @@
-/* PACT gateway portal — the layout, on the brand's tokens.
- * The palette, the fonts, the display face and the motion are brand.css (pact-web-kit's, held to the
+/* HDTP gateway portal — the layout, on the brand's tokens.
+ * The palette, the fonts, the display face and the motion are brand.css (hdtp-web-kit's, held to the
  * vendored kit by tools/kit.mjs check), loaded before this file. Light and dark; the whole portal is
  * built from those variables.
- * PACT Cloud's portal carries this file byte for byte (its gateway/scripts/check-harvested.mjs holds
+ * BatonDeck's portal carries this file byte for byte (its gateway/scripts/check-harvested.mjs holds
  * the copy to this one at the node commit its portal/HARVESTED records); its own rules are its
  * cloud.css. A table, a pill or a pane is laid out here once, for both. */
 
@@ -173,7 +173,7 @@ details.card > .card-body > :last-child{margin-bottom:0}
    fixed order. What an action has done is `.acts-status` beside the row — a check and a few words, in
    the ok tone of `.pill.ok` (ink, not orange: the orange marks and never carries state) — never the
    button's label. The cloud's wallet page states the same rule in its own sheet, and
-   pact-cloud's gateway/e2e/layout/action-rows.mjs holds every row to it in a browser. */
+   batondeck's gateway/e2e/layout/action-rows.mjs holds every row to it in a browser. */
 .acts{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;gap:.5rem}
 .acts > .btn,.acts > button{flex:0 0 auto}
 .acts-status{margin-right:auto;display:inline-flex;align-items:center;gap:.35rem;font-size:.86rem;color:var(--ink-2);min-width:0}
@@ -237,7 +237,7 @@ details.card > .card-body > :last-child{margin-bottom:0}
 .readout code{background:none;border:0;padding:0;color:inherit;font-size:1em}
 .readout.block{display:flex;gap:.6rem;align-items:flex-start;justify-content:space-between;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:.45rem .6rem;font-size:.76rem}
 /* Loading is not broken: a skeleton, two bars shaped like what is coming, rather than an empty box
-   that looks exactly like a page that failed. PACT Cloud's sheet carries the same rules. */
+   that looks exactly like a page that failed. BatonDeck's sheet carries the same rules. */
 .empty.loading{min-height:8rem;padding:1.4rem 1rem;display:flex;flex-direction:column;gap:.65rem;align-items:stretch}
 .empty.loading::before,.empty.loading::after{content:"";display:block;height:.7rem;border-radius:999px;background:var(--bg-3);animation:skeleton 1.3s ease-in-out infinite}
 .empty.loading::before{width:62%}
@@ -522,7 +522,7 @@ main.wide:has(.inbox){max-width:none;padding:0;flex:1;display:flex;flex-directio
 .inbox.focus .convs,.inbox.focus .panel{display:none}
 .inbox.focus .msg{max-width:70%}
 /* Between a phone and 1360px the contact panel is a drawer over the conversation, not a third column: as
-   a column it left the conversation 252px at 1100 and 412px at 1280 (measured in PACT Cloud's Inbox, a
+   a column it left the conversation 252px at 1100 and 412px at 1280 (measured in BatonDeck's Inbox, a
    95px message box at 1100). Each Inbox opens without it below PANEL_BESIDE (messages.tsx), and the
    drawer carries its own close button, since it covers the header's. */
 @media (min-width:901px) and (max-width:1359px){

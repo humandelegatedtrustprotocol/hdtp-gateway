@@ -1,8 +1,7 @@
 package node
 
-// The phase-1 exit demonstration (pact-cloud/docs/superpowers/specs/
-// 2026-09-14-pact-2.0-go-node-design.md §9): two Go nodes pair as 2.0
-// identities through an invite, message both ways in both envelope forms,
+// The phase-1 exit demonstration of the Go node's design of 2026-09-14 (§9): two Go nodes pair
+// through an invite, message both ways in both envelope forms,
 // one renews (the other learns the leaf from the chain, and follows
 // certificate_renewed once its old pin has expired), one moves to a new
 // address with the other following under `auto`. Hermetic: every node is a
@@ -19,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // demoClock is one clock for every node, so a renewal and an expiry can be
@@ -71,7 +70,7 @@ type demoNode struct {
 	slug string
 	host string
 	dir  string // the node's data directory: its database is <dir>/<slug>.db
-	root *pactidentity.PrivateKey
+	root *hdtpidentity.PrivateKey
 	rc   []byte // root certificate
 	log  []string
 	// hook, when set, sees each audit line as it is written, inside the handler that writes it.
@@ -82,7 +81,7 @@ type demoNode struct {
 func (d *demoNode) onAudit(f func(line string)) { d.hookMu.Lock(); d.hook = f; d.hookMu.Unlock() }
 
 func (d *demoNode) endpoint() string { return identity.EndpointFor("https://"+d.host, d.slug) }
-func (d *demoNode) rootFpr() string  { return pactidentity.Fingerprint(d.root.Public().SPKI) }
+func (d *demoNode) rootFpr() string  { return hdtpidentity.Fingerprint(d.root.Public().SPKI) }
 
 // leaf is the current leaf; leafKey its key.
 func (d *demoNode) leaf() []byte {
@@ -93,7 +92,7 @@ func (d *demoNode) leaf() []byte {
 	return chain[0]
 }
 func (d *demoNode) leafSPKI() []byte {
-	leaf, err := pactidentity.Parse(d.leaf())
+	leaf, err := hdtpidentity.Parse(d.leaf())
 	if err != nil {
 		d.t.Fatal(err)
 	}
@@ -122,7 +121,7 @@ func (d *demoNode) contact(fpr string) store.Contact {
 // issue runs the wallet's side of a CSR: the person's root signs it.
 func (d *demoNode) issue(csr identity.CSRResult, days int, now time.Time) [][]byte {
 	d.t.Helper()
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
@@ -181,11 +180,11 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 		t.Fatal(err)
 	}
 	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test", dir: dir}
-	d.root, err = pactidentity.GenerateKey("ed25519")
+	d.root, err = hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.rc, err = pactidentity.BuildRoot(pactidentity.RootOpts{CN: name, Key: d.root, NotBefore: clock.now().Add(-24 * time.Hour)}); err != nil {
+	if d.rc, err = hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: name, Key: d.root, NotBefore: clock.now().Add(-24 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	d.install(identity.PurposeSignup, d.endpoint(), leafDays, clock.now())
@@ -215,7 +214,7 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 	return d
 }
 
-// pinPeer is the owner's side of accepting a 2.0 contact from its card and chain.
+// pinPeer is the owner's side of accepting a contact from its card and chain.
 func (d *demoNode) pinPeer(peer *demoNode) {
 	d.t.Helper()
 	if _, err := d.st.InsertContact(context.Background(), store.Contact{
@@ -272,7 +271,7 @@ func TestExitDemo(t *testing.T) {
 	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 30)
 	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)
 
-	// --- pairing through an invite: Bharat redeems Alina's, as a 2.0 guest ---
+	// --- pairing through an invite: Bharat redeems Alina's, as a guest ---
 	token := alina.invite(true)
 	clientB, _ := bharat.n.OutboundClient(bharat.acct.ID)
 	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "required", Root: alina.rootFpr(), Leaf: alina.leaf()}
@@ -320,7 +319,7 @@ func TestExitDemo(t *testing.T) {
 		t.Fatal("bharat did not receive a3")
 	}
 	// --- certificate_renewed: a stale pin past the old leaf's expiry ---
-	oldParsed, _ := pactidentity.Parse(oldLeaf)
+	oldParsed, _ := hdtpidentity.Parse(oldLeaf)
 	if err := bharat.st.RepinContactAddress(ctx, bharat.acct.ID, alina.rootFpr(), alina.endpoint(), oldLeaf, oldParsed.SPKI, clock.now().Unix()); err != nil {
 		t.Fatal(err)
 	}

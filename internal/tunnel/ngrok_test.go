@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 func TestNgrokIsConfigGated(t *testing.T) {
@@ -22,16 +22,16 @@ func TestNgrokIsConfigGated(t *testing.T) {
 	}
 	t.Setenv("NGROK_AUTHTOKEN", "tok")
 	n, err := ngrokOptions(Options{})
-	if err != nil || n.AuthToken != "tok" || n.URL != "tls://" || n.Name != "pact" {
+	if err != nil || n.AuthToken != "tok" || n.URL != "tls://" || n.Name != "hdtp" {
 		t.Fatalf("%+v %v", n, err)
 	}
 	if _, err := ngrokOptions(Options{Extra: map[string]string{"url": "https://x.ngrok.app"}}); err == nil {
 		t.Fatal("non-tls endpoint accepted (would be edge-terminated)")
 	}
-	if u, _ := publicURLFromTLS("tls://pact.ngrok.app:443"); u != "https://pact.ngrok.app" {
+	if u, _ := publicURLFromTLS("tls://hdtp.ngrok.app:443"); u != "https://hdtp.ngrok.app" {
 		t.Fatalf("url: %s", u)
 	}
-	if u, _ := publicURLFromTLS("tls://pact.ngrok.app:8443"); u != "https://pact.ngrok.app:8443" {
+	if u, _ := publicURLFromTLS("tls://hdtp.ngrok.app:8443"); u != "https://hdtp.ngrok.app:8443" {
 		t.Fatalf("url: %s", u)
 	}
 	if edge, err := derivesEdge(t, "ngrok"); err != nil || edge {
@@ -47,12 +47,12 @@ func TestNgrokWrapsRawListenerForNodeTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &Ngrok{opts: ngrokOpts{AuthToken: "tok", URL: "tls://", Name: "pact"},
+	a := &Ngrok{opts: ngrokOpts{AuthToken: "tok", URL: "tls://", Name: "hdtp"},
 		listen: func(context.Context, ngrokOpts) (net.Listener, string, error) {
-			return local, "tls://pact.ngrok.app:443", nil
+			return local, "tls://hdtp.ngrok.app:443", nil
 		}}
 	info, err := a.Start(context.Background())
-	if err != nil || info.TerminatesAtEdge || info.Listener == nil || info.PublicURL != "https://pact.ngrok.app" {
+	if err != nil || info.TerminatesAtEdge || info.Listener == nil || info.PublicURL != "https://hdtp.ngrok.app" {
 		t.Fatalf("info: %+v %v", info, err)
 	}
 	// the node runs its own TLS over the delivered stream
@@ -99,7 +99,7 @@ func TestNgrokWrapsRawListenerForNodeTLS(t *testing.T) {
 		t.Fatal("no handshake")
 	}
 	conn.Close()
-	if st := a.Status(); !st.Running || st.PublicURL != "https://pact.ngrok.app" {
+	if st := a.Status(); !st.Running || st.PublicURL != "https://hdtp.ngrok.app" {
 		t.Fatalf("status: %+v", st)
 	}
 	if err := a.Stop(); err != nil || a.Status().Running {

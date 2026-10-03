@@ -20,8 +20,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 type SettingsDeps struct {
@@ -57,7 +57,7 @@ type SettingsDeps struct {
 	// SaveStorage records one account's storage policy.
 	SaveStorage func(ctx context.Context, accountID string, quotaGiB int64, retentionDays, requestExpiryDays int) error
 	// Presets/SavePreset/DeletePreset edit the owner's permission bundles
-	// (PACT §8: presets are owner-editable). nil hides the section.
+	// (HDTP §8: presets are owner-editable). nil hides the section.
 	Presets      func(ctx context.Context) (map[string][]string, error)
 	SavePreset   func(ctx context.Context, name string, perms []string) error
 	DeletePreset func(ctx context.Context, name string) error
@@ -103,7 +103,7 @@ const (
 	MaxQuotaGiB          = 1 << 20 // 1 PiB
 	MaxRetentionDaysForm = 36500   // 100 years
 	// MaxRequestExpiryDays bounds how long an unanswered contact request waits (SPEC §9.1).
-	// PACT caps an invite at 90 days; a request left longer than a year is not being decided.
+	// HDTP caps an invite at 90 days; a request left longer than a year is not being decided.
 	MaxRequestExpiryDays = 365
 )
 
@@ -148,7 +148,7 @@ type settingRow struct {
 var settingMeta = map[string]struct{ label, help, kind string }{
 	"public_url":      {"Public URL", "The externally reachable base other people's agents call. Each identity's address is built on it, and the wallet writes that address into the certificate it issues.", "text"},
 	"tunnel":          {"Tunnel adapter", "How callers reach this node. The adapter decides the deployment mode — you do not set it.", "select"},
-	"seal":            {"Sealed envelopes (X-PACT-SEAL)", "Whether callers must seal. Applies immediately, and your card advertises exactly this.", "select"},
+	"seal":            {"Sealed envelopes (X-HDTP-SEAL)", "Whether callers must seal. Applies immediately, and your card advertises exactly this.", "select"},
 	"client_cert":     {"Client certificates", "preferred requests one; required refuses calls without one; off omits the request entirely.", "select"},
 	"lan_connections": {"Accept LAN connections", "With a tunnel active, whether connections straight off the local network are served. Refusals are audited.", "bool"},
 	"limit.contacts":  {"Contacts per identity", "How many contacts each identity here may hold (sent requests count). It also sizes the call budget: every contact may call at once, one call a second each. Empty restores 500.", "text"},

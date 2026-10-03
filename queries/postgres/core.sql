@@ -159,7 +159,7 @@ ORDER BY seq LIMIT $2;
 
 -- name: InsertAuditArchiveRow :exec
 -- One row an identity's archive wrote and verified: the prune guard lets exactly this seq, with
--- exactly this hash, be deleted (migration 0045). Only Store.ArchiveAuditRows writes it, inside
+-- exactly this hash, be deleted. Only Store.ArchiveAuditRows writes it, inside
 -- the transaction that deletes the row and empties this table again.
 INSERT INTO audit_archive_rows (seq, hash) VALUES ($1, $2);
 
@@ -185,7 +185,7 @@ DELETE FROM credentials WHERE credentials.id = $1 AND credentials.kind = $2
   AND (SELECT COUNT(*) FROM held) > 1;
 
 -- name: DeleteAccount :execrows
--- An identity leaving this host (PACT sec. 9): every table that names the account by a foreign
+-- An identity leaving this host (HDTP sec. 9): every table that names the account by a foreign
 -- key goes with it (ON DELETE CASCADE). The ones that name it without one (tokens, idempotency,
 -- the per-account settings) are deleted first, in the same transaction (identity.Manager.Leave).
 DELETE FROM accounts WHERE id = $1;

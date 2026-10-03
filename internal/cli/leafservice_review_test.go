@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The review of 2026-09-28 on the one signing-request service both doors call.
@@ -19,7 +19,7 @@ import (
 func reviewLeafEnv(t *testing.T) (*identity.Manager, store.Account) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,10 +59,10 @@ func TestAnInstallWhoseNodeCannotReloadIsInstalledWithAWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, _ := pactidentity.GenerateKey("ed25519")
+	key, _ := hdtpidentity.GenerateKey("ed25519")
 	now := time.Now()
-	root, _ := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alina Rao", Key: key, NotBefore: now.Add(-time.Hour)})
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alina Rao", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
+	root, _ := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alina Rao", Key: key, NotBefore: now.Add(-time.Hour)})
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alina Rao", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 	if err != nil {
 		t.Fatal(err)
 	}

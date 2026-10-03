@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // guestTotalEnv is a sealed env whose key loader counts its calls, and whose budgets record what
@@ -63,7 +63,7 @@ func TestACallTheTotalRefusesBeforeTheOpenReadsNoKeyAndOpensNothing(t *testing.T
 		t.Fatalf("the refusal was not audited once: %v", g.rows)
 	}
 	// Not even an envelope that does not decode is read past the check.
-	g.call(t, &pactidentity.Envelope{}, TransportFacts{})
+	g.call(t, &hdtpidentity.Envelope{}, TransportFacts{})
 	if g.reads != 0 {
 		t.Fatalf("a malformed call the total refused read a key")
 	}
@@ -91,11 +91,11 @@ func TestAnOpenedCallThatProvesNobodyIsChargedTheTotal(t *testing.T) {
 	// alone (with the total, node.chargeOf).
 	g.call(t, g.sealFrom(t, nobody, "leaf", "get_card", map[string]any{}), TransportFacts{RemoteIP: "203.0.113.1"})
 	// A chain whose signature is not its leaf's: opened, then envelope_invalid.
-	other, err := pactidentity.GenerateKey("ed25519")
+	other, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged := g.sealFrom(t, nobody, "chain", "request_contact", map[string]any{"card": cardOf(nobody)}, func(o *pactidentity.SealOpts) { o.Sender = other })
+	forged := g.sealFrom(t, nobody, "chain", "request_contact", map[string]any{"card": cardOf(nobody)}, func(o *hdtpidentity.SealOpts) { o.Sender = other })
 	if res := g.call(t, forged, TransportFacts{RemoteIP: "203.0.113.2"}); !strings.Contains(text(t, res), "envelope_invalid") {
 		t.Fatalf("a chain signed by another key: %s", text(t, res))
 	}
@@ -115,8 +115,8 @@ func TestAnOpenedCallThatProvesNobodyIsChargedTheTotal(t *testing.T) {
 	}
 	// Not opened: sealed to a key this account does not hold. Nothing opened, nothing spent.
 	g.charged = nil
-	unknownKid := g.sealFrom(t, nobody, "chain", "request_contact", map[string]any{"card": cardOf(nobody)}, func(o *pactidentity.SealOpts) {
-		k, err := pactidentity.GenerateKey("ed25519")
+	unknownKid := g.sealFrom(t, nobody, "chain", "request_contact", map[string]any{"card": cardOf(nobody)}, func(o *hdtpidentity.SealOpts) {
+		k, err := hdtpidentity.GenerateKey("ed25519")
 		if err != nil {
 			t.Fatal(err)
 		}

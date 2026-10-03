@@ -159,7 +159,7 @@ func TestWizardDoesNotDoubleEncodeTheTag(t *testing.T) {
 	}
 }
 
-// The logo stays still (the owner, 2026-09-29: "dont need animation for PACT logo"). No rule that names the
+// The logo stays still (the owner, 2026-09-29: "dont need animation for HDTP logo"). No rule that names the
 // wordmark or the mark declares an animation, and the kit's `pop` keyframes that did are gone, in the portal's
 // stylesheets and in the server pages' inline styles. The cloud's check-brand.mjs holds the same for its pages.
 func TestTheLogoDoesNotMove(t *testing.T) {

@@ -44,7 +44,7 @@ func TestPrefixForIsALabelWithTheIDAndTheRunToken(t *testing.T) {
 	if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(p) {
 		t.Errorf("%q is not a DNS label", p)
 	}
-	if !strings.HasPrefix(p, "pacts13-") || !strings.HasSuffix(p, runToken) || len(runToken) != 4 {
+	if !strings.HasPrefix(p, "hdtps13-") || !strings.HasSuffix(p, runToken) || len(runToken) != 4 {
 		t.Errorf("%q does not carry the id and this run's token %q", p, runToken)
 	}
 }

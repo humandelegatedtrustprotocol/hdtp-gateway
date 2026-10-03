@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 // TestMain gives every `serve` and `doctor` these tests run one limits sidecar, as a host has one
@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "cli tests:", err)
 		os.Exit(1)
 	}
-	if err := os.Setenv("PACT_LIMITS_SOCKET", s.Path); err != nil {
+	if err := os.Setenv("HDTP_LIMITS_SOCKET", s.Path); err != nil {
 		stop()
 		fmt.Fprintln(os.Stderr, "cli tests:", err)
 		os.Exit(1)

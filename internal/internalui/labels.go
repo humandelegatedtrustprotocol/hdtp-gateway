@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/text/secure/precis"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // labelContacts decides what to CALL each contact in a list.
@@ -90,7 +90,7 @@ func compareKey(s string) string {
 var lookAlikes = strings.NewReplacer(flatten(lookAlikePairs)...)
 
 // lookAlikePairs is the table itself, as data: each look-alike and the Latin letter it
-// reads as. PACT Cloud's portal applies the same rule to its own contact lists, and its
+// reads as. BatonDeck's portal applies the same rule to its own contact lists, and its
 // copy of this table is held to this one through testdata/contact_labels.json (the
 // test reads the table from there and compares it with this; the cloud's does the same).
 var lookAlikePairs = [][2]string{

@@ -22,19 +22,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/owner"
-	"github.com/pact-cloud/pact-gateway/harness/peer"
-	"github.com/pact-cloud/pact-gateway/harness/portal"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
-	"github.com/pact-cloud/pact-gateway/harness/wallet"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/owner"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/peer"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/wallet"
 )
 
 // ArtifactsEnv names a directory each scenario's container logs are collected into at teardown
 // (and the portal scenario's screenshots).
-const ArtifactsEnv = "PACT_HARNESS_ARTIFACTS"
+const ArtifactsEnv = "HDTP_HARNESS_ARTIFACTS"
 
 // World is everything one scenario builds: a fabric namespaced by the scenario's id and this
 // run, and the nodes it asked for. It is torn down when the test ends.
@@ -84,7 +84,7 @@ type NodeOpts struct {
 	// PublishPublic also publishes the public surface to a free host port, for an agent that
 	// runs in the test process itself. PublicURL then defaults to
 	// https://<slug>.harness.example:<port> — a NAME, because no wallet issues a leaf for a
-	// loopback address (PACT §14.2 rule 5); the agent dials it to the published port
+	// loopback address (HDTP §14.2 rule 5); the agent dials it to the published port
 	// (peer.Target.Dial), which is DNS's job for a real caller.
 	PublishPublic bool
 	// Env is added to topology.NodeEnv, and wins where they overlap.
@@ -106,7 +106,7 @@ type Owned struct {
 	// AccountID is the one account the owner administers.
 	AccountID string
 	// Fpr is this identity: the fingerprint of its owner's ROOT, which is what another node pins
-	// it by (PACT §2).
+	// it by (HDTP §2).
 	Fpr string
 	// Wallet is that owner's root, kept so a scenario can do what only an owner can: renew the
 	// leaf, or move the identity to another address.
@@ -241,7 +241,7 @@ func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Containe
 	}
 	session := &OwnerSession{Base: base, cookies: cookies}
 	if session.csrf() == "" {
-		return nil, nil, fmt.Errorf("the browser holds no pact_csrf cookie for %s after registering a passkey: %d cookie(s)", base, len(cookies))
+		return nil, nil, fmt.Errorf("the browser holds no hdtp_csrf cookie for %s after registering a passkey: %d cookie(s)", base, len(cookies))
 	}
 	token, err := OwnerToken(ctx, f, node, "harness")
 	if err != nil {
@@ -257,12 +257,12 @@ func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Containe
 // OwnerToken mints a bearer token for the node's owner (`token create`), as the owner's agent is
 // given one, and returns it. The owner is the one whose passkey the wizard registered.
 func OwnerToken(ctx context.Context, f *fabric.Fabric, node *fabric.Container, label string) (string, error) {
-	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
+	ownerID := strings.TrimPrefix(field(execS(ctx, f, node, "/hdtp-gateway", "passkey", "list"), "owner="), "owner=")
 	if ownerID == "" {
 		return "", fmt.Errorf("no owner id: no passkey is registered on %s", node.Name)
 	}
 	for _, l := range strings.Split(execS(ctx, f, node,
-		"/pact-gateway", "token", "create", "-owner", ownerID, "-label", label), "\n") {
+		"/hdtp-gateway", "token", "create", "-owner", ownerID, "-label", label), "\n") {
 		if strings.Contains(l, "shown once") {
 			return strings.TrimSpace(l[strings.LastIndex(l, ":")+1:]), nil
 		}
@@ -290,7 +290,7 @@ func (w *World) Paired(ctx context.Context, image string) (*Paired, error) {
 	}
 	alice, err := w.Node(ctx, NodeOpts{
 		Slug: "alice", Image: image, Net: net, PublishPublic: true,
-		Env: map[string]string{"PACT_SEAL": "optional"},
+		Env: map[string]string{"HDTP_SEAL": "optional"},
 	})
 	p := &Paired{Owned: alice, Fab: w.Fab, Net: net}
 	if err != nil {
@@ -312,7 +312,7 @@ func (w *World) Contact(ctx context.Context, o *Owned) (*peer.Agent, peer.Target
 	if err != nil {
 		return nil, target, err
 	}
-	// The card IS the leaf certificate (PACT §3): the address is inside it, and it has to be one
+	// The card IS the leaf certificate (HDTP §3): the address is inside it, and it has to be one
 	// §14.2 rule 5 allows.
 	if _, err := bob.Call(ctx, target, "redeem_invite",
 		map[string]any{"token": token, "card": bob.Card("optional")}, "redeem-1"); err != nil {

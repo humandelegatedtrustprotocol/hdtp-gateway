@@ -1,9 +1,9 @@
-// The move campaign's fan-out (PACT §5.3, §9): telling every contact, once and
+// The move campaign's fan-out (HDTP §5.3, §9): telling every contact, once and
 // durably, that this identity now answers at a new address.
 //
-// This file is what is left of `rotate.go`. That file performed PACT 1.x key
+// This file is what is left of `rotate.go`. That file performed key
 // rotation — a new key, a grace period in which both were live, a proof signed by
-// the old key, and an `update_contact` walk over contacts pinned to a key. 2.0 has
+// the old key, and an `update_contact` walk over contacts pinned to a key. HDTP has
 // none of that: a root is never rotated, a renewal is a new leaf a contact learns
 // from the chain the next envelope carries, and the only thing still worth walking
 // every contact for is a MOVE, where the address in the leaf's SAN changed and
@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Campaign is what a fan-out needs: whose contacts, which leaf is being announced, and what that
@@ -52,7 +52,7 @@ func (m *Manager) CampaignFor(ctx context.Context, accountID, kid string) (Campa
 	return Campaign{}, fmt.Errorf("identity: no installed leaf %s: %w", kid, store.ErrNotFound)
 }
 
-// Owes says this campaign is the handshake a contact is owed (PACT §9.2): an import wrote it
+// Owes says this campaign is the handshake a contact is owed (HDTP §9.2): an import wrote it
 // before this leaf was requested, it is not blocked, and it has not been told.
 func (c Campaign) Owes(ct store.Contact) bool {
 	return ct.Status != "blocked" && ct.HandshakeDue && ct.HandshakeDueAt <= c.RequestedAt
@@ -60,7 +60,7 @@ func (c Campaign) Owes(ct store.Contact) bool {
 
 // Walks says whether the campaign reaches a contact: every one it owes the handshake, and, when
 // the leaf moved the identity, every active contact, which pins this identity's root and is owed
-// its new address (PACT §5.3, §9). A blocked contact is never called, whatever brought it. It is
+// its new address (HDTP §5.3, §9). A blocked contact is never called, whatever brought it. It is
 // the one rule the walk, `account announce`'s ledger (node.MoveProgress) and the install's count
 // all read.
 func (c Campaign) Walks(ct store.Contact) bool {
@@ -131,7 +131,7 @@ func (a *Announcer) Fanout(ctx context.Context, c Campaign, card string, call Fa
 			// can be sealed to it, and a stranger cannot fetch its card (get_card is
 			// contact-tier). It stays pinned by its root and is reached when it next calls this
 			// identity. The campaign records it as `unreached` once and does not call it
-			// (PACT §9.2).
+			// (HDTP §9.2).
 			if p, ok := progress[ct.Fingerprint]; ok && p.LeafKid == c.NewKid && p.Status == FanoutUnreached && !c.Owes(ct) {
 				continue // already recorded for this leaf
 			}
@@ -223,7 +223,7 @@ func (a *Announcer) unreached(ctx context.Context, c Campaign, ct store.Contact)
 // leaf whose key is kid owes the handshake (Campaign.Owes: imported before that leaf was
 // requested). They wait for nothing but that walk, which `account announce` reports and resumes;
 // the rest wait for the identity's next leaf. It reads the ledger, not the walk's progress, so it
-// says the same before the walk has reached anyone and after (pact-cloud e2e-suite-staging, L5,
+// says the same before the walk has reached anyone and after (batondeck e2e-suite-staging, L5,
 // 2026-09-28, read it once each side of the walk and was told two things).
 func (m *Manager) HandshakesUnderWay(ctx context.Context, accountID, kid string) (int, error) {
 	if kid == "" {
@@ -250,7 +250,7 @@ func (m *Manager) HandshakesUnderWay(ctx context.Context, accountID, kid string)
 }
 
 // HandshakesOwed counts the contacts an import brought that are owed this host's handshake and
-// not blocked (PACT §9.2): what the campaign of the identity's next leaf will walk as the
+// not blocked (HDTP §9.2): what the campaign of the identity's next leaf will walk as the
 // handshake. It is the one count `account certificate` and `doctor` read, so an owed handshake
 // is never unseen; the install counts what its own leaf's campaign owes (Campaign.Owes).
 func (m *Manager) HandshakesOwed(ctx context.Context, accountID string) (int, error) {

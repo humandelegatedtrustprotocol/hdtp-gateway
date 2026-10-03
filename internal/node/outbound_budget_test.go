@@ -1,6 +1,6 @@
 package node
 
-// What an account sends is held to the buckets it is held to when called (PACT §12): to an active
+// What an account sends is held to the buckets it is held to when called (HDTP §12): to an active
 // contact at that contact's rate and within the account's aggregate, and to anybody else — or with
 // one of the stranger tools, whoever the row says the peer is — the account's stranger budget
 // (`stranger_calls_out_per_hour`, the limits sidecar's configuration). Every client the node
@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
 func TestTheNodesCallsOutAreBudgeted(t *testing.T) {

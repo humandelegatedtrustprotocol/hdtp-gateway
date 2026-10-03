@@ -49,16 +49,16 @@ async function setup (n, tag) {
 // The write endpoints take the same form the views post: csrf + account in the body.
 async function post (n, path, fields) {
   return n.page.evaluate(async ({ path, fields }) => {
-    const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
-    const account = localStorage.getItem('pact.account') || ''
+    const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
+    const account = localStorage.getItem('hdtp.account') || ''
     const body = new URLSearchParams({ csrf, account, ...fields })
-    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Pact-Csrf': csrf }, body: body.toString() })
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-HDTP-Csrf': csrf }, body: body.toString() })
     return { ok: r.ok, url: r.url, status: r.status }
   }, { path, fields })
 }
 async function get (n, path) {
   return n.page.evaluate(async (path) => {
-    const account = localStorage.getItem('pact.account') || ''
+    const account = localStorage.getItem('hdtp.account') || ''
     const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'account=' + encodeURIComponent(account), { headers: { Accept: 'application/json' } })
     return r.json()
   }, path)
@@ -143,10 +143,10 @@ try {
     // tool beyond the protocol's plumbing is listed.
     if ((flags.includes('--media') || flags.includes('--tools')) && aOnB) {
       const r = await b.page.evaluate(async ({ fpr }) => {
-        const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
-        const body = new URLSearchParams({ csrf, account: localStorage.getItem('pact.account') || '', preset: 'basic' })
+        const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
+        const body = new URLSearchParams({ csrf, account: localStorage.getItem('hdtp.account') || '', preset: 'basic' })
         for (const p of ['message.text', 'message.media', 'calendar.availability', 'calendar.book', 'status.view']) body.append('perm', p)
-        const res = await fetch('/contacts/' + encodeURIComponent(fpr) + '/permissions', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Pact-Csrf': csrf }, body: body.toString() })
+        const res = await fetch('/contacts/' + encodeURIComponent(fpr) + '/permissions', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-HDTP-Csrf': csrf }, body: body.toString() })
         return res.status
       }, { fpr: aOnB.fingerprint })
       log(`B grants A media + calendar: ${r}`)
@@ -157,12 +157,12 @@ try {
     if (flags.includes('--media') && bOnA && aOnB) {
       const d = await get(a, '/api/conversations?contact=' + encodeURIComponent(bOnA.fingerprint))
       const up = await a.page.evaluate(async ({ fpr, msgId }) => {
-        const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
+        const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
         const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(200).fill(7)])
         const fd = new FormData()
         fd.append('file', new Blob([png], { type: 'image/png' }), 'hello.png')
-        fd.append('contact', fpr); fd.append('msg_id', msgId); fd.append('csrf', csrf); fd.append('account', localStorage.getItem('pact.account') || '')
-        const r = await fetch('/messages/send_media', { method: 'POST', headers: { 'X-Pact-Csrf': csrf }, body: fd })
+        fd.append('contact', fpr); fd.append('msg_id', msgId); fd.append('csrf', csrf); fd.append('account', localStorage.getItem('hdtp.account') || '')
+        const r = await fetch('/messages/send_media', { method: 'POST', headers: { 'X-HDTP-Csrf': csrf }, body: fd })
         return { status: r.status, body: await r.text() }
       }, { fpr: bOnA.fingerprint, msgId: d.new_msg_id })
       log(`media upload A→B: ${up.status} ${up.body.slice(0, 100)}`)
@@ -180,9 +180,9 @@ try {
       const tl = await get(a, '/api/contacts/' + encodeURIComponent(bOnA.fingerprint) + '/tools')
       log(`B's tools for A: ${(tl.tools || []).map(t => t.name).join(', ') || tl.error}`)
       const r = await a.page.evaluate(async ({ fpr }) => {
-        const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
-        const body = new URLSearchParams({ csrf, account: localStorage.getItem('pact.account') || '', tool: 'get_card', args: '{}' })
-        const res = await fetch('/contacts/' + encodeURIComponent(fpr) + '/call', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Pact-Csrf': csrf }, body: body.toString() })
+        const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
+        const body = new URLSearchParams({ csrf, account: localStorage.getItem('hdtp.account') || '', tool: 'get_card', args: '{}' })
+        const res = await fetch('/contacts/' + encodeURIComponent(fpr) + '/call', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-HDTP-Csrf': csrf }, body: body.toString() })
         return { status: res.status, body: await res.text() }
       }, { fpr: bOnA.fingerprint })
       log(`call get_card on B: ${r.status} → ${r.body.includes('BEGIN:VCARD') ? 'card returned' : r.body.slice(0, 120)}`)

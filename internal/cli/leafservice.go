@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // leafService is the one implementation of an identity's signing request and of installing the
-// wallet's answer (PACT §9, §9.1). The admin socket (`account csr`, `account create`,
+// wallet's answer (HDTP §9, §9.1). The admin socket (`account csr`, `account create`,
 // `account install-leaf`) and the portal's web-wallet pages (internalui/wallet_pages.go) both call
 // it, so the audit rows, the live node's reload and the move campaign cannot differ between them.
 //
@@ -114,7 +114,7 @@ type installed struct {
 }
 
 // Install installs the wallet's answer. `state` is "" for the CLI's `install-leaf -chain FILE`, and
-// the request's state for a web wallet's answer, which is then accepted once (PACT §9.1). A refused
+// the request's state for a web wallet's answer, which is then accepted once (HDTP §9.1). A refused
 // answer is audited as account_leaf_install_refused with the reason; a failure of this host as
 // account_leaf_install `error`.
 func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]byte, state string) (installed, error) {
@@ -165,13 +165,13 @@ func (l leafService) Install(ctx context.Context, acct store.Account, chain [][]
 	}
 	l.audit("account_leaf_install", "account:"+acct.ID+" slug:"+acct.Slug+detail, outcome)
 	// The campaign an install can start — the move's update_contact toward contacts pinned by
-	// our root (PACT §5.3, §9) — runs DETACHED (node.ResumeMove): an unreachable contact holds
+	// our root (HDTP §5.3, §9) — runs DETACHED (node.ResumeMove): an unreachable contact holds
 	// the walk until the call gives up, and the leaf is already installed. The install is the
 	// durable part and it answers now; the walk is durable too (`move_fanout`), and
 	// `account announce` reports it and resumes it.
 	//
 	// Whether it moved is the install's to say (identity.InstallResult.Moved). An import also
-	// leaves contacts owed this host's handshake (PACT §9.2), and they are owed it after the next
+	// leaves contacts owed this host's handshake (HDTP §9.2), and they are owed it after the next
 	// leaf whether or not that leaf moved the identity (identity.InstallResult.HandshakesDue).
 	//
 	// Not when the node could not load the account: it would announce the card it still holds,

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 type env struct {
@@ -44,7 +44,7 @@ func newEnv(t *testing.T) *env {
 }
 
 // guestID stands in for a peer identity in these tests. Fingerprint is the ROOT
-// fingerprint, which is what a contact is pinned by (PACT §2) — not the leaf key,
+// fingerprint, which is what a contact is pinned by (HDTP §2) — not the leaf key,
 // which changes at every renewal.
 type guestID struct {
 	Fingerprint string
@@ -52,9 +52,9 @@ type guestID struct {
 }
 
 // proof is what this guest proves on a real call: the root that is its identity, its leaf's key,
-// and the leaf and address the pin records. These tests used to pass `Proof{Fingerprint, SPKI,
-// Protocol: 1}` — a bare key, the retired generation's proof — and the Manager took it: the
-// binding of the card to the proven leaf and the address guard sat inside `if p.Protocol == 2`,
+// and the leaf and address the pin records. These tests used to pass a `Proof` of a
+// fingerprint and a key — a bare key, with no leaf — and the Manager took it: the
+// binding of the card to the proven leaf and the address guard sat behind a flag on the proof,
 // so a proof without the flag skipped both and came out as an active contact with no leaf. No
 // production path built such a proof. Nothing stopped one either, and eleven tests depended on it.
 func (g *guestID) proof() Proof {
@@ -72,12 +72,12 @@ func cardRoot(t *testing.T, card string) string {
 }
 
 // guest builds a whole peer: a root, a leaf naming an endpoint, and the card that
-// carries it. It used to hand back a bare keypair and a `X-PACT-VERSION:1` card
+// carries it. It used to hand back a bare keypair and a card
 // with the key spelled out; there is no such card now.
 func guest(t *testing.T, name string) (*guestID, string, []byte) {
 	t.Helper()
 	w := testid.NewWallet(t, name)
-	// Lowercased: a leaf names its endpoint in RFC 3986 normal form (PACT §14.1), and the address
+	// Lowercased: a leaf names its endpoint in RFC 3986 normal form (HDTP §14.1), and the address
 	// guard — which these tests never reached while their proofs skipped it — refuses any other.
 	h := w.Issue(t, "https://"+strings.ToLower(name)+".example/mcp")
 	return &guestID{Fingerprint: w.Fpr, Host: h}, h.Card(name, ""), h.Key.Public().SPKI
@@ -225,10 +225,10 @@ func TestRequestContactNoteCapAndBinding(t *testing.T) {
 }
 
 // UpdateContact is a card refresh now, not a key rotation. The chain that carried
-// the call already decided the pin (PACT §5.3, §14.3), so the two things left to
+// the call already decided the pin (HDTP §5.3, §14.3), so the two things left to
 // check are that the card names the pinned ROOT and carries the leaf the call
-// proved. These replace four tests of the 1.x rotation proof, which required a
-// signature by the old key because in 1.x the identity WAS a key.
+// proved. These replace four tests of the key-rotation proof, which required a
+// signature by the old key because the identity WAS a key.
 func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -250,7 +250,7 @@ func TestUpdateContactRefreshesTheCardAndNothingElse(t *testing.T) {
 
 	// A card from another root is not a refresh of this contact, and neither is a card of the
 	// same root carrying a leaf the call did not prove. Each is `bad_request` — a card that
-	// disagrees with the proof — as the cloud answers it (PACT §3, §14.2; review P-24).
+	// disagrees with the proof — as the cloud answers it (HDTP §3, §14.2; review P-24).
 	_, otherCard, _ := guest(t, "Mallory")
 	if err := e.m.UpdateContact(ctx, e.account, g.Fingerprint, otherCard); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("a card naming another root: want bad_request, got %v", err)

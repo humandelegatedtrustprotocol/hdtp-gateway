@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 type journey struct {
@@ -73,14 +73,14 @@ func TestEveryJourneyIsProvenOnTheNodeOrSaysWhyNot(t *testing.T) {
 	}
 }
 
-// The cloud's copy is these bytes, when pact-cloud is checked out beside this repository (or the
+// The cloud's copy is these bytes, when batondeck is checked out beside this repository (or the
 // battery's checkout names where it is): one list, two copies, held to each other.
 func TestTheCloudsCopyIsThisList(t *testing.T) {
 	ours, err := os.ReadFile("journeys.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates := []string{filepath.Join("..", "..", "..", "pact-cloud", "gateway", "e2e", "tables", "journeys.json")}
+	candidates := []string{filepath.Join("..", "..", "..", "batondeck", "gateway", "e2e", "tables", "journeys.json")}
 	if b := os.Getenv(registry.CloudBatteryEnv); b != "" {
 		candidates = append(candidates, filepath.Join(b, "..", "e2e", "tables", "journeys.json"))
 	}

@@ -1,5 +1,5 @@
-// Package limits is the node's side of PACT SPEC §12's call budgets: a client of the limits
-// sidecar (cmd/pact-limitd), asked over a kept-open unix socket for every decision (layer 2 of
+// Package limits is the node's side of HDTP SPEC §12's call budgets: a client of the limits
+// sidecar (cmd/hdtp-limitd), asked over a kept-open unix socket for every decision (layer 2 of
 // docs/release/two-layer-limits-2026-09-28.md; the owner's choice of 2026-09-29, §6).
 //
 // The node decides nothing about a budget itself. It opens the envelope, works out what the call
@@ -9,8 +9,8 @@
 // and the node answers every sealed call `unavailable` until it does: a budget nobody can enforce
 // is not a budget the node may guess at.
 //
-// The wire is one JSON object a line, both ways (cmd/pact-limitd/src/lib.rs): a charge is the
-// contract's LimitsCharge (pact-identity CONTRACT §6.3), an answer the contract's `limits_decide`
+// The wire is one JSON object a line, both ways (cmd/hdtp-limitd/src/lib.rs): a charge is the
+// contract's LimitsCharge (hdtp-identity CONTRACT §6.3), an answer the contract's `limits_decide`
 // result without its `writes`. Every request names the identity, and every counter is that
 // identity's.
 package limits
@@ -112,7 +112,7 @@ type Rules struct {
 	PendingInCap              float64 `json:"pending_in_cap"`
 }
 
-// Advertised is what get_card says of the call budgets (PACT §12's `limits` members about calls)
+// Advertised is what get_card says of the call budgets (HDTP §12's `limits` members about calls)
 // for an identity allowed a number of contacts: the sidecar's rules, and the identity's aggregate as
 // the crate computes it, so this host holds no copy of that formula.
 type Advertised struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // ownersAndAccounts is the suite for owners and accounts: creation, constraints and the key an account binds once.

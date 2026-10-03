@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
-	"github.com/pact-cloud/pact-identity/go/exportcorpus"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-identity/go/exportcorpus"
 )
 
 // The review of 2026-09-28 on export and import.
 
-// corpusValid is pact-identity's valid export, its owner, and the corpus's clock.
+// corpusValid is hdtp-identity's valid export, its owner, and the corpus's clock.
 func corpusValid(t *testing.T) ([]byte, string, time.Time) {
 	t.Helper()
 	raw, _ := fs.ReadFile(exportcorpus.FS, "cases.json")
@@ -66,7 +66,7 @@ func rezip(t *testing.T, b []byte, name string, edit func([]byte) []byte) []byte
 func TestAFileThreadIsNotMergedIntoAnotherContactsThread(t *testing.T) {
 	ctx := context.Background()
 	valid, owner, now := corpusValid(t)
-	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
+	contents, err := hdtpidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
 	must(t, err)
 	if len(contents.Threads) == 0 {
 		t.Fatal("the corpus's valid export must hold a thread")
@@ -92,7 +92,7 @@ func TestAFileThreadIsNotMergedIntoAnotherContactsThread(t *testing.T) {
 func TestAFileMessageWhoseIDIsTakenIsRefused(t *testing.T) {
 	ctx := context.Background()
 	valid, owner, now := corpusValid(t)
-	contents, err := pactidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
+	contents, err := hdtpidentity.ReadExportZip(zipReader(t, valid), owner, now, ImportCeiling)
 	must(t, err)
 	m := contents.Messages[0]
 	e := newEnv(t, sqliteStore)
@@ -196,7 +196,7 @@ func TestAMessageWaitingForItsHumanTravelsQueued(t *testing.T) {
 	e := newEnv(t, sqliteStore)
 	s := seed(t, e)
 	file, _ := exportOf(t, e, "alina")
-	got, err := pactidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
 	must(t, err)
 	for _, m := range got.Messages {
 		if m.ID == "m3" && m.Status != "queued" {
@@ -215,8 +215,8 @@ func TestAMessageWaitingForItsHumanTravelsQueued(t *testing.T) {
 	}
 }
 
-// L12. An export over what PACT Cloud takes back in is written, and says so, naming the limits:
-// other hosts may take it, so it is a warning and never a refusal (SPEC 2.2.1: a host's own import
+// L12. An export over what BatonDeck takes back in is written, and says so, naming the limits:
+// other hosts may take it, so it is a warning and never a refusal (HDTP §9.2, Ceilings: a host's own import
 // ceilings never refuse an export). The seed holds one thread: at the ceiling nothing is said, one
 // over it is.
 func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {
@@ -241,7 +241,7 @@ func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {
 	bulk(cloudThreads-1, cloudThreads)
 	file, res = exportOf(t, e, "alina")
 	warnings := CloudCeilings(zipReader(t, file), uint64(len(file)))
-	want := fmt.Sprintf("%d threads, over PACT Cloud's %d", cloudThreads+1, cloudThreads)
+	want := fmt.Sprintf("%d threads, over BatonDeck's %d", cloudThreads+1, cloudThreads)
 	if len(warnings) != 1 || warnings[0] != want || res.Threads != cloudThreads+1 {
 		t.Fatalf("the warnings: %v (threads %d), want [%s]", warnings, res.Threads, want)
 	}
@@ -330,7 +330,7 @@ func mediaOf(n int, total uint64) []ceilingMember {
 	return out
 }
 
-// Each of PACT Cloud's ceilings, at its limit and one over it: at the limit nothing is said, one
+// Each of BatonDeck's ceilings, at its limit and one over it: at the limit nothing is said, one
 // over it exactly one warning, naming the number and the limit.
 func TestTheCloudsCeilingsAtTheirBoundaries(t *testing.T) {
 	cases := []struct {
@@ -364,7 +364,7 @@ func TestTheCloudsCeilingsAtTheirBoundaries(t *testing.T) {
 				got := CloudCeilings(ceilingZip(t, c.members(n)), size)
 				var want []string
 				if n > c.limit {
-					want = []string{fmt.Sprintf("%d %s, over PACT Cloud's %d", n, c.what, c.limit)}
+					want = []string{fmt.Sprintf("%d %s, over BatonDeck's %d", n, c.what, c.limit)}
 				}
 				if fmt.Sprint(got) != fmt.Sprint(want) {
 					t.Fatalf("at %d: %q, want %q", n, got, want)
@@ -406,17 +406,17 @@ func TestAnImportsMemoryFollowsItsMessages(t *testing.T) {
 		owner := testidWallet(t, "Probe")
 		at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339)
 		root := testidWallet(t, "C")
-		in := pactidentity.ExportInput{Owner: owner, OwnerName: "P", Tool: "probe", ExportedAt: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC),
-			Contacts: []pactidentity.ContactRow{{Root: root, Endpoint: "https://c.example/a/c/mcp", Status: "active", WasActive: true, Permissions: []string{}, TheirPermissions: []string{}, Added: at}},
-			Threads:  []pactidentity.ThreadRow{{ID: "t", Contact: root, CreatedAt: at, LastAt: at}}, Media: []pactidentity.ExportMedia{}}
+		in := hdtpidentity.ExportInput{Owner: owner, OwnerName: "P", Tool: "probe", ExportedAt: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC),
+			Contacts: []hdtpidentity.ContactRow{{Root: root, Endpoint: "https://c.example/a/c/mcp", Status: "active", WasActive: true, Permissions: []string{}, TheirPermissions: []string{}, Added: at}},
+			Threads:  []hdtpidentity.ThreadRow{{ID: "t", Contact: root, CreatedAt: at, LastAt: at}}, Media: []hdtpidentity.ExportMedia{}}
 		body := strings.Repeat("x", 1000)
 		for i := 0; i < n; i++ {
 			id := fmt.Sprint(i)
-			in.Messages = append(in.Messages, pactidentity.MessageRow{ID: "m" + id, Thread: "t", Contact: root, MsgID: "msg-" + id, Direction: "in",
-				Sender: "human", Time: at, Body: body, Status: "delivered", Attachments: []pactidentity.Attachment{}})
+			in.Messages = append(in.Messages, hdtpidentity.MessageRow{ID: "m" + id, Thread: "t", Contact: root, MsgID: "msg-" + id, Direction: "in",
+				Sender: "human", Time: at, Body: body, Status: "delivered", Attachments: []hdtpidentity.Attachment{}})
 		}
 		var buf bytes.Buffer
-		_, err := pactidentity.WriteExportZip(&buf, in, nil)
+		_, err := hdtpidentity.WriteExportZip(&buf, in, nil)
 		must(t, err)
 		var size uint64
 		for _, f := range zipReader(t, buf.Bytes()).File {
@@ -476,7 +476,7 @@ func TestAFileThatDoesNotReadBackIsRefused(t *testing.T) {
 	}
 }
 
-// pact-identity 0.3.3's export_merge keeps a contact held here blocked, and the permissions held
+// hdtp-identity 0.3.3's export_merge keeps a contact held here blocked, and the permissions held
 // here, whatever the file says, and reports each difference as a conflict; the review shows them.
 func TestAMergeKeepsAHeldBlockAndSaysSo(t *testing.T) {
 	ctx := context.Background()

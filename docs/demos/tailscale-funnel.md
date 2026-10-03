@@ -24,7 +24,7 @@ run below has **not yet been executed** — record it here when done:
 
 ## Configure
 
-`config.json` (or env `PACT_TUNNEL=tailscale`):
+`config.json` (or env `HDTP_TUNNEL=tailscale`):
 
 ```json
 {
@@ -34,14 +34,14 @@ run below has **not yet been executed** — record it here when done:
 ```
 
 Adapter settings live in the portal (*Settings → Adapter credentials*, stored
-encrypted with the node's keyring) or in the environment with a `PACT_TUNNEL_`
-prefix — `PACT_TUNNEL_AUTH_KEY` reaches the adapter as `auth_key`. The
+encrypted with the node's keyring) or in the environment with an `HDTP_TUNNEL_`
+prefix — `HDTP_TUNNEL_AUTH_KEY` reaches the adapter as `auth_key`. The
 environment wins where both are set, and the page says so rather than letting
 you save a value that would be ignored.
 
 | key | value |
 |---|---|
-| `hostname` | `pact` → public name `pact.<tailnet>.ts.net` |
+| `hostname` | `hdtp` → public name `hdtp.<tailnet>.ts.net` |
 | `auth_key` | the auth key (or set `TS_AUTHKEY` in the environment) |
 | `port` | `443` (default), `8443` or `10000` |
 | `funnel_only` | `true` to refuse tailnet-internal connections (public only) |
@@ -53,13 +53,13 @@ and carries no security weight here (SPEC §10.1).
 ## Run and verify
 
 ```
-pact-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
-pact-gateway serve
-pact-gateway doctor
+hdtp-limitd -config limits.json &   # the limits sidecar (SPEC §5.7): deploy/limitd/limits.json with "socket" set to <data_dir>/limits.sock
+hdtp-gateway serve
+hdtp-gateway doctor
 ```
 
 `doctor` prints `ok tunnel tailscale (mode direct, seal required, client_cert preferred)`
-and runs the reachability probe against `https://pact.<tailnet>.ts.net`, validating the
+and runs the reachability probe against `https://hdtp.<tailnet>.ts.net`, validating the
 chain served there to an identity's root at its own address (the node's own listener is
 what Funnel forwards to, so a WebPKI check would be wrong). Expect `ok probe … reachable`
 with the hairpin caveat.
@@ -67,12 +67,12 @@ with the hairpin caveat.
 From another machine on the open internet:
 
 ```
-openssl s_client -connect pact.<tailnet>.ts.net:443 -servername pact.<tailnet>.ts.net -showcerts </dev/null 2>/dev/null | grep -c 'BEGIN CERTIFICATE'
+openssl s_client -connect hdtp.<tailnet>.ts.net:443 -servername hdtp.<tailnet>.ts.net -showcerts </dev/null 2>/dev/null | grep -c 'BEGIN CERTIFICATE'
 ```
 
 Two certificates come back — the node's own chain, a leaf and the root that signed it, not
-Tailscale's — proving end-to-end TLS through the Funnel. `pact-gateway doctor` validates
-that chain the way a peer would (PACT §14.2).
+Tailscale's — proving end-to-end TLS through the Funnel. `hdtp-gateway doctor` validates
+that chain the way a peer would (HDTP §14.2).
 
 Then pair from a second node with the invite link — the endpoint the card's leaf names is
-`https://pact.<tailnet>.ts.net/a/<slug>/mcp`.
+`https://hdtp.<tailnet>.ts.net/a/<slug>/mcp`.

@@ -1,7 +1,7 @@
 # Layer 1 of the node's rate limits (docs/release/two-layer-limits-2026-09-28.md, M-N1; SPEC §5.1,
 # §5.7): Envoy in front of the node's public listener, before any cryptography, keyed on what is in
 # clear. Its numbers are here and nowhere in the node's code. Layer 2 — the per-caller budgets of
-# PACT §12, after the envelope is opened — is the limits sidecar the node asks (deploy/limitd).
+# HDTP §12, after the envelope is opened — is the limits sidecar the node asks (deploy/limitd).
 #
 # What it does, top to bottom:
 #   - terminates the caller's TLS with the certificate an operator mounts at /etc/envoy/tls (WebPKI
@@ -11,7 +11,7 @@
 #     the caller sent (SANITIZE_SET); the node reads it only from this proxy's address
 #     (proxy_address);
 #   - puts the caller's address, as its own socket saw it (use_remote_address: never a caller's
-#     X-Forwarded-For), in X-Pact-Client-Address, replacing any the caller sent; the node reads it
+#     X-Forwarded-For), in X-HDTP-Client-Address, replacing any the caller sent; the node reads it
 #     from this proxy alone. Not X-Envoy-External-Address: Envoy passes a caller's own value of
 #     that through when it counts the caller as internal (internal_address_config);
 #   - holds at most 1024 connections, and each request to the timeouts SPEC §5.7 gives the node;
@@ -68,7 +68,7 @@ static_resources:
           route_config:
             name: node
             request_headers_to_add:
-            - header: { key: x-pact-client-address, value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%" }
+            - header: { key: x-hdtp-client-address, value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%" }
               append_action: OVERWRITE_IF_EXISTS_OR_ADD
             virtual_hosts:
             - name: node

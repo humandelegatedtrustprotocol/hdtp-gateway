@@ -1,6 +1,6 @@
 // The help tip (src/help.tsx, its rules src/helptip.ts, its looks style.css's `.tip-*`): the one `?`
 // both portals put beside a short line, with the longer explanation behind it. What it must do, held
-// here without a browser (PACT Cloud's e2e/portal-layout.mjs holds the same in Chrome):
+// here without a browser (BatonDeck's e2e/portal-layout.mjs holds the same in Chrome):
 //   - open on hover, on focus and on a click or tap; close on Escape, on a press outside, on blur;
 //   - a second click or tap closes it, even while it still has focus (the phone's tap-to-toggle);
 //   - stay inside a 320px viewport, flipping above its button when there is no room below;

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func token(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway token <create|list|revoke> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway token <create|list|revoke> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -57,7 +57,7 @@ func token(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, out)
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway token <create|list|revoke> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway token <create|list|revoke> [flags]")
 		return 2
 	}
 }

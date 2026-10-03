@@ -12,10 +12,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // Run dispatches os.Args-style arguments; version is the build-stamped version
@@ -28,7 +28,7 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "version":
-		fmt.Fprintln(stdout, "pact-gateway "+version)
+		fmt.Fprintln(stdout, "hdtp-gateway "+version)
 		return 0
 	case "serve":
 		return serve(rest, stdout, stderr)
@@ -62,14 +62,14 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintf(stderr, "pact-gateway: unknown command %q\n", cmd)
+		fmt.Fprintf(stderr, "hdtp-gateway: unknown command %q\n", cmd)
 		usage(stderr)
 		return 2
 	}
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `usage: pact-gateway <command> [flags]
+	fmt.Fprint(w, `usage: hdtp-gateway <command> [flags]
 
 commands:
   serve     run the node
@@ -99,7 +99,7 @@ commands:
 func commonFlags(name string, cfgPath *string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(cfgPath, "config", os.Getenv("PACT_CONFIG"), "path to config file (JSON)")
+	fs.StringVar(cfgPath, "config", os.Getenv("HDTP_CONFIG"), "path to config file (JSON)")
 	return fs
 }
 
@@ -135,6 +135,6 @@ func openStore(cfg *core.Config) (store.Store, error) {
 	case "postgres":
 		return store.OpenPostgres(context.Background(), cfg.PostgresDSN)
 	default:
-		return store.OpenSQLite(filepath.Join(cfg.DataDir, "pact.db"))
+		return store.OpenSQLite(filepath.Join(cfg.DataDir, "hdtp.db"))
 	}
 }

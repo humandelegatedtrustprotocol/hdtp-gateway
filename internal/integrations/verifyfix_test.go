@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // flakyStore fails LatestExposure with a NON-ErrNoRows error once armed.
@@ -127,7 +127,7 @@ func TestOAuthFailureLandsAuthError(t *testing.T) {
 	m.OAuthFor = func(row store.Integration) (auth.OAuthHandler, error) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr, RedirectURL: "http://127.0.0.1:1/cb",
-			Preregistered: &oauthex.ClientCredentials{ClientID: "pact"},
+			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp"},
 			Fetch: func(context.Context, *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 				return nil, errors.New("owner aborted authorization in the browser")
 			},

@@ -21,7 +21,7 @@ for (const [slug, name] of [['work', 'Alice'], ['alice1', 'Alice1']]) {
   await page.$eval('input[placeholder="Alice (work)"]', e => { e.value = '' }); await page.type('input[placeholder="Alice (work)"]', name)
   await page.click('main button'); await new Promise(r => setTimeout(r, 1500))
 }
-console.log('  session as the shell sees it:', JSON.stringify(await page.evaluate(() => ({ stored: localStorage.getItem('pact.account'), sidebarSelect: !!document.querySelector('.side-foot select') }))))
+console.log('  session as the shell sees it:', JSON.stringify(await page.evaluate(() => ({ stored: localStorage.getItem('hdtp.account'), sidebarSelect: !!document.querySelector('.side-foot select') }))))
 // invite through the UI, reached by the sidebar (no reload)
 await clickNav('People'); await new Promise(r => setTimeout(r, 500))
 const tabs = await page.$$('.tabs a'); for (const t of tabs) { if ((await t.evaluate(e => e.textContent)).includes('Invites')) { await t.click(); break } }

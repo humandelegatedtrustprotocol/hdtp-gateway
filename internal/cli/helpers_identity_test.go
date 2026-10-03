@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // idNode is a data directory with its own config and its own master key.
@@ -40,27 +40,27 @@ func newIDNode(t *testing.T, name string) idNode {
 
 // testWallet is the person's side: a root, held by the test the way a wallet holds it.
 type testWallet struct {
-	key  *pactidentity.PrivateKey
+	key  *hdtpidentity.PrivateKey
 	cert []byte
 }
 
 func newTestWallet(t *testing.T, cn string) *testWallet {
 	t.Helper()
-	key, err := pactidentity.GenerateKey("ed25519")
+	key, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+	cert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: cn, Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &testWallet{key: key, cert: cert}
 }
 
-func (w *testWallet) fingerprint() string { return pactidentity.Fingerprint(w.key.Public().SPKI) }
+func (w *testWallet) fingerprint() string { return hdtpidentity.Fingerprint(w.key.Public().SPKI) }
 
 // certifyUnder has the node ask for a leaf and the wallet issue it. `at` orders the leaves: a
-// second leaf for one identity must be newer than the first (PACT §14.3).
+// second leaf for one identity must be newer than the first (HDTP §14.3).
 func (w *testWallet) certifyUnder(t *testing.T, n idNode, slug, purpose, endpoint string, at time.Time) identity.InstallResult {
 	t.Helper()
 	st := openStoreAt(t, n.dir)
@@ -75,7 +75,7 @@ func (w *testWallet) certifyUnder(t *testing.T, n idNode, slug, purpose, endpoin
 	if err != nil {
 		t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: a.DisplayName, RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: at, ValidDays: 200})
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: a.DisplayName, RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: at, ValidDays: 200})
 	if err != nil {
 		t.Fatal(err)
 	}

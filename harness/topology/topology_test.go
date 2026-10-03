@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 type rec struct{ calls []string }
@@ -79,12 +79,12 @@ func TestProvisionCertifiesEachAccountUnderItsOwnersRoot(t *testing.T) {
 		line := strings.Join(args, " ")
 		switch {
 		case strings.Contains(line, "account csr"):
-			host, err := pactidentity.GenerateKey("p256")
+			host, err := hdtpidentity.GenerateKey("p256")
 			if err != nil {
 				t.Fatal(err)
 			}
 			slug := args[len(args)-1]
-			der, err := pactidentity.CSRNew(slug, host, "https://tp-"+slug+":8443/a/"+slug+"/mcp", "")
+			der, err := hdtpidentity.CSRNew(slug, host, "https://tp-"+slug+":8443/a/"+slug+"/mcp", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,8 +108,8 @@ func TestProvisionCertifiesEachAccountUnderItsOwnersRoot(t *testing.T) {
 			t.Errorf("two people share the root %s", n.Fingerprint)
 		}
 		seen[n.Fingerprint] = true
-		vr := pactidentity.ValidateChain([][]byte{n.Pin.Leaf, n.Wallet.RootDER},
-			pactidentity.ChainOpts{Now: time.Now(), ExpectedRoot: n.Fingerprint, ExpectedEndpoint: n.Pin.Endpoint})
+		vr := hdtpidentity.ValidateChain([][]byte{n.Pin.Leaf, n.Wallet.RootDER},
+			hdtpidentity.ChainOpts{Now: time.Now(), ExpectedRoot: n.Fingerprint, ExpectedEndpoint: n.Pin.Endpoint})
 		if !vr.OK {
 			t.Errorf("%s's chain does not validate to its root at %s: rule %d %s", n.Slug, n.Pin.Endpoint, vr.Rule, vr.Reason)
 		}

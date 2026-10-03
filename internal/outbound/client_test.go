@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 func accountClient(t *testing.T) *Client {
@@ -76,7 +76,7 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	pool.AddCert(caCert)
 
 	// The server presents a real chain: a self-signed certificate is not an
-	// identity under 2.0, so pinning one would refuse the dial before the thing
+	// identity under HDTP, so pinning one would refuse the dial before the thing
 	// this test is about — which certificate the CLIENT sends — could be observed.
 	server := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 1)
@@ -105,9 +105,9 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 // A self-signed server certificate is not an identity, whoever the caller thinks it is dialling.
 //
 // This test used to assert the opposite — "pinned self-signed server accepted" — which was
-// right while the identity WAS a key. Under 2.0 the identity is the root, a lone certificate
+// right while the identity WAS a key. Under HDTP the identity is the root, a lone certificate
 // names no root, and the two ways to recognise a server are the chain validated to the pinned
-// root (PACT §2) and WebPKI for the hostname. A lone certificate is neither — to a caller that
+// root (HDTP §2) and WebPKI for the hostname. A lone certificate is neither — to a caller that
 // holds a pin for this address and to a caller that holds none, in the same words, because a
 // caller learns nothing from a difference there is no reason to have.
 func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
@@ -124,7 +124,7 @@ func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 		conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "127.0.0.1"))
 		if err == nil {
 			conn.Close()
-			t.Fatal("a lone self-signed server certificate was accepted: the identity is the root (PACT §2)")
+			t.Fatal("a lone self-signed server certificate was accepted: the identity is the root (HDTP §2)")
 		}
 		return err.Error()
 	}
@@ -138,7 +138,7 @@ func TestASelfSignedServerCertificateIsNotAnIdentity(t *testing.T) {
 }
 
 func TestWebPKIPathWithInjectedRoots(t *testing.T) {
-	// CA-signed server cert for "pact.example"; client trusts the CA via Roots.
+	// CA-signed server cert for "hdtp.example"; client trusts the CA via Roots.
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	caTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "TestRoot"},
@@ -150,8 +150,8 @@ func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 
 	leafKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	leafTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "pact.example"},
-		DNSNames:  []string{"pact.example"},
+		SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "hdtp.example"},
+		DNSNames:  []string{"hdtp.example"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -168,10 +168,10 @@ func TestWebPKIPathWithInjectedRoots(t *testing.T) {
 	c.Roots = roots
 
 	// The server presents a WebPKI certificate for the right hostname — what a terminating
-	// edge presents — and is accepted on that: rule (a)-else-(b) of PACT §2. Whose agent is
+	// edge presents — and is accepted on that: rule (a)-else-(b) of HDTP §2. Whose agent is
 	// behind the edge is then the envelope's business, not TLS's.
-	peer := Peer{Endpoint: "https://pact.example/mcp"}
-	conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "pact.example"))
+	peer := Peer{Endpoint: "https://hdtp.example/mcp"}
+	conn, err := tls.Dial("tcp", addr, c.tlsConfig(peer, "hdtp.example"))
 	if err != nil {
 		t.Fatalf("WebPKI-valid server rejected: %v", err)
 	}

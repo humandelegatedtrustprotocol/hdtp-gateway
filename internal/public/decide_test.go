@@ -11,22 +11,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// PACT 2.0 receiving (PACT §13.3, §6.1, §5.3, §14.3, §14.4) against a node
+// HDTP 1.0 receiving (HDTP §13.3, §6.1, §5.3, §14.3, §14.4) against a node
 // that has installed a wallet-issued leaf. The peers are built with the
 // library — a root each, a leaf per address — exactly as a wallet would.
 
 const (
 	endpointMe = "https://me.example/a/me/mcp"
 	endpointA  = "https://agent.alina.example/mcp"
-	endpointA2 = "https://alina.pact.contact/alina/mcp"
+	endpointA2 = "https://alina.batondeck.com/alina/mcp"
 )
 
 type recvEnv struct {
@@ -41,28 +41,28 @@ type recvEnv struct {
 }
 
 type testRoot struct {
-	key  *pactidentity.PrivateKey
+	key  *hdtpidentity.PrivateKey
 	cert []byte
 	fpr  string
 }
 
 func newTestRoot(t testing.TB, cn string, at time.Time) *testRoot {
 	t.Helper()
-	key, err := pactidentity.GenerateKey("ed25519")
+	key, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: cn, Key: key, NotBefore: at.Add(-24 * time.Hour)})
+	cert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: cn, Key: key, NotBefore: at.Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testRoot{key: key, cert: cert, fpr: pactidentity.Fingerprint(key.Public().SPKI)}
+	return &testRoot{key: key, cert: cert, fpr: hdtpidentity.Fingerprint(key.Public().SPKI)}
 }
 
-// peer is a 2.0 identity elsewhere: a root and the host key of its current leaf.
+// peer is an identity elsewhere: a root and the host key of its current leaf.
 type peer struct {
 	root *testRoot
-	host *pactidentity.PrivateKey
+	host *hdtpidentity.PrivateKey
 	leaf []byte
 }
 
@@ -72,7 +72,7 @@ func (p *peer) fpr() string     { return p.root.fpr }
 // leafFor issues a leaf under the peer's root for an endpoint, dated from `at`.
 func (p *peer) leafFor(t testing.TB, endpoint string, at time.Time) []byte {
 	t.Helper()
-	der, err := pactidentity.BuildLeaf(pactidentity.LeafOpts{
+	der, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
 		CN: "Alina Rao", RootCN: "Alina Rao", RootKey: p.root.key, HostPub: p.host.Public(), Endpoint: endpoint,
 		NotBefore: at, NotAfter: at.Add(365 * 24 * time.Hour),
 	})
@@ -84,7 +84,7 @@ func (p *peer) leafFor(t testing.TB, endpoint string, at time.Time) []byte {
 
 func newPeer(t testing.TB, at time.Time) *peer {
 	t.Helper()
-	host, err := pactidentity.GenerateKey("ed25519")
+	host, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func newRecvEnv(t testing.TB) *recvEnv {
 	return e
 }
 
-// install runs the CSR round trip of PACT §9 for our account under our root.
+// install runs the CSR round trip of HDTP §9 for our account under our root.
 func (e *recvEnv) install(t testing.TB, purpose, endpoint string) {
 	t.Helper()
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func (e *recvEnv) install(t testing.TB, purpose, endpoint string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: "Me", RootKey: e.root.key, RootSPKIs: [][]byte{e.root.key.Public().SPKI}, Now: e.nowAt,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
@@ -166,7 +166,7 @@ func (e *recvEnv) state(ctx context.Context) (*RecipientState, error) {
 }
 
 // keypair is the account's current leaf key. The tests used to fetch it through
-// `Identifier.Keypair`, a field production code set and never read — it outlived the 1.x path
+// `Identifier.Keypair`, a field production code set and never read — it outlived the path
 // that recorded a re-pinned contact's key on connect.
 func (e *recvEnv) keypair(ctx context.Context) (*identity.Keypair, error) {
 	keys, err := e.m.ActiveLeafKeypairs(ctx, e.acct.ID, e.nowAt)
@@ -188,41 +188,41 @@ func (e *recvEnv) currentKey(t testing.TB) *identity.Keypair {
 	return kp
 }
 
-type sealOpt func(*pactidentity.SealOpts)
+type sealOpt func(*hdtpidentity.SealOpts)
 
-// sealFrom seals a `v: 2` request from a peer to our current leaf key.
-func (e *recvEnv) sealFrom(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...sealOpt) *pactidentity.Envelope {
+// sealFrom seals a `v: 1` request from a peer to our current leaf key.
+func (e *recvEnv) sealFrom(t testing.TB, p *peer, form, tool string, args map[string]any, opts ...sealOpt) *hdtpidentity.Envelope {
 	t.Helper()
 	kp := e.currentKey(t)
 	spki, _ := x509.MarshalPKIXPublicKey(kp.Signer.Public())
-	recipient, err := pactidentity.ParseSPKI(spki)
+	recipient, err := hdtpidentity.ParseSPKI(spki)
 	if err != nil {
 		t.Fatal(err)
 	}
 	params, _ := json.Marshal(map[string]any{"name": tool, "arguments": args})
-	o := pactidentity.SealOpts{
+	o := hdtpidentity.SealOpts{
 		RecipientKey: recipient, Sender: p.host, Form: form, SenderChain: p.chain(), Method: "tools/call", Params: params,
 		MsgID: "m-" + tool + "-" + form, TS: e.nowAt.Unix(), Exp: e.nowAt.Add(10 * time.Minute).Unix(),
 	}
 	for _, f := range opts {
 		f(&o)
 	}
-	out, err := pactidentity.SealRequest(o)
+	out, err := hdtpidentity.SealRequest(o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
 }
 
-func (e *recvEnv) open(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
+func (e *recvEnv) open(t testing.TB, env *hdtpidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
 	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
 }
 
-// pin records a 2.0 contact as a first chain would have.
+// pin records a contact as a first chain would have.
 func (e *recvEnv) pin(t testing.TB, p *peer, status string) {
 	t.Helper()
-	leaf, _ := pactidentity.Parse(p.leaf)
+	leaf, _ := hdtpidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: p.fpr(), SPKI: leaf.SPKI, Status: status, Permissions: []string{"message.text"},
 		Endpoint: leaf.URIs[0], Leaf: p.leaf, Card: cardOf(p),
@@ -239,7 +239,7 @@ func cardOf(p *peer) string {
 	return card
 }
 
-func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
+func TestFirstContactMustRedeemOrRequest(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	_, err := e.open(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
@@ -250,7 +250,7 @@ func TestV2FirstContactMustRedeemOrRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a stranger's request_contact: %v", err)
 	}
-	leaf, _ := pactidentity.Parse(p.leaf)
+	leaf, _ := hdtpidentity.Parse(p.leaf)
 	if !f.Guest || f.Tier != policy.TierGuest || f.From != p.fpr() || string(f.SPKI) != string(leaf.SPKI) || f.Endpoint != endpointA || len(f.Leaf) == 0 || f.Card == "" || f.Demote {
 		t.Fatalf("guest facts: %+v", f)
 	}
@@ -272,7 +272,7 @@ func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 	var rows []string
 	e.id.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) }
 	p := newPeer(t, fixedNow)
-	named, _ := pactidentity.Parse(p.leaf)
+	named, _ := hdtpidentity.Parse(p.leaf)
 	if _, err := e.st.InsertContact(context.Background(), store.Contact{
 		AccountID: e.acct.ID, Fingerprint: "sha256:a-row-gone-bad", Status: "active", Permissions: []string{"message.text"},
 		Endpoint: "https://ghost.example/mcp", Leaf: []byte{0x30, 0x03, 0x01, 0x02, 0x03}, SPKI: named.SPKI,
@@ -296,7 +296,7 @@ func TestAPinThatWillNotReadIsSaidNotSteppedOver(t *testing.T) {
 	}
 }
 
-func TestV2PinnedContactBothForms(t *testing.T) {
+func TestPinnedContactBothForms(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -314,7 +314,7 @@ func TestV2PinnedContactBothForms(t *testing.T) {
 	}
 }
 
-func TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
+func TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
 	e := newRecvEnv(t)
 	stranger := newPeer(t, fixedNow)
 	if _, err := e.open(t, e.sealFrom(t, stranger, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
@@ -338,7 +338,7 @@ func TestV2SmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
 	}
 }
 
-func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
+func TestStaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
 	e.pin(t, p, "active")
@@ -372,7 +372,7 @@ func TestV2StaleKidIsAnsweredWithTheCurrentChain(t *testing.T) {
 	}
 }
 
-func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
+func TestNewestLeafWinsAndNewAddresses(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
@@ -457,7 +457,7 @@ func TestV2NewestLeafWinsAndNewAddresses(t *testing.T) {
 // times it calls. Every request used to append an audit-chain row and wake the
 // owner: a host holding a still-valid leaf for a pinned root — a former host
 // after a move — grew both without bound just by continuing to call.
-func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
+func TestAnUnapprovedAddressIsToldOnce(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow.Add(-time.Hour))
@@ -494,7 +494,7 @@ func TestV2AnUnapprovedAddressIsToldOnce(t *testing.T) {
 	}
 }
 
-func TestV2TombstoneForcesTheQuestion(t *testing.T) {
+func TestTombstoneForcesTheQuestion(t *testing.T) {
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
@@ -504,7 +504,7 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ts, _ := e.st.ListTombstones(ctx, e.acct.ID); len(ts) != 1 {
-		t.Fatal("removing a 2.0 contact must leave a tombstone")
+		t.Fatal("removing a contact must leave a tombstone")
 	}
 	// The same leaf again: a stranger (its leaf is not newer than the one that removed us).
 	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
@@ -529,17 +529,17 @@ func TestV2TombstoneForcesTheQuestion(t *testing.T) {
 	}
 }
 
-func TestV2TransportPinChecks(t *testing.T) {
-	// The transport path — a chain as the client certificate — resolves a 2.0
-	// caller through the same pin checks as the sealed path (PACT §2, §14.3,
+func TestTransportPinChecks(t *testing.T) {
+	// The transport path — a chain as the client certificate — resolves a
+	// caller through the same pin checks as the sealed path (HDTP §2, §14.3,
 	// §5.3), and what it resolves is what dispatch sees: the composed server's
 	// identity, not the gate's discarded return value.
 	e := newRecvEnv(t)
 	ctx := context.Background()
 	p := newPeer(t, fixedNow)
-	leaf, _ := pactidentity.Parse(p.leaf)
+	leaf, _ := hdtpidentity.Parse(p.leaf)
 	facts := func(l []byte) TransportFacts {
-		c, _ := pactidentity.Parse(l)
+		c, _ := hdtpidentity.Parse(l)
 		return TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: c.SPKI, ClientLeaf: l, ClientEndpoint: c.URIs[0]}
 	}
 	e.id.Seal = core.SealOptional
@@ -641,7 +641,7 @@ func TestV2TransportPinChecks(t *testing.T) {
 }
 
 // respell rewrites one member of an envelope as it travels, leaving every other byte alone.
-func respell(t *testing.T, env *pactidentity.Envelope, member string, fn func(string) string) *pactidentity.Envelope {
+func respell(t *testing.T, env *hdtpidentity.Envelope, member string, fn func(string) string) *hdtpidentity.Envelope {
 	t.Helper()
 	b, err := json.Marshal(env)
 	if err != nil {
@@ -653,14 +653,14 @@ func respell(t *testing.T, env *pactidentity.Envelope, member string, fn func(st
 	}
 	m[member] = fn(m[member])
 	b, _ = json.Marshal(m)
-	var out pactidentity.Envelope
+	var out hdtpidentity.Envelope
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
 	return &out
 }
 
-// An envelope member has ONE spelling on the wire (PACT §13.1): `sig` covers the DECODED bytes, so
+// An envelope member has ONE spelling on the wire (HDTP §13.1): `sig` covers the DECODED bytes, so
 // every other spelling a reader accepts is a second envelope that verifies. The core refuses a last
 // character with its unused bits set and a line break inside a member. The node used to decode the
 // members itself, leniently, and hand the core a canonical re-encoding — so the core's refusal never
@@ -694,9 +694,9 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 	}
 }
 
-// The core's pin has three states (CONTRACT `Pin`; pact-identity 0.4.2 refuses any other as this
+// The core's pin has three states (CONTRACT `Pin`; the identity core 0.4.2 refuses any other as this
 // node's unreadable state). A request the owner has not answered is handed to Decide as NO pin —
-// what PACT Cloud's `pinsOf` hands, the owner's decision of 2026-09-30 — so its requester is decided
+// what BatonDeck's `pinsOf` hands, the owner's decision of 2026-09-30 — so its requester is decided
 // as the stranger SPEC §5.4 says it is: the small form names a leaf nobody pinned and is refused
 // `chain_required`; the chain form is decided as a guest's and audited as one; and the effects
 // Decide returns for an active pin — the newer leaf a chain carries, a new address under `auto` —
@@ -751,7 +751,7 @@ func TestAPendingRequestIsHandedToDecideWithNoPin(t *testing.T) {
 		endpoint string
 	}{{"renewed", endpointA}, {"moved", endpointA2}} {
 		newer := &peer{root: p.root, host: p.host, leaf: p.leafFor(t, c.endpoint, fixedNow)}
-		withID := func(o *pactidentity.SealOpts) { o.MsgID = "m-" + c.name }
+		withID := func(o *hdtpidentity.SealOpts) { o.MsgID = "m-" + c.name }
 		f, err := e.open(t, e.sealFrom(t, newer, "chain", "request_contact", map[string]any{"card": cardOf(newer)}, withID), TransportFacts{})
 		if err != nil || !f.Guest || f.Endpoint != c.endpoint {
 			t.Fatalf("the %s leaf's chain form from that requester: %v %+v", c.name, err, f)
@@ -770,7 +770,7 @@ func TestAPendingRequestIsHandedToDecideWithNoPin(t *testing.T) {
 }
 
 // forceContactStatus puts a contact in a state the store's own API cannot write: the schema holds
-// a contact's status to the four (migration 0002's CHECK, both engines), so a row in any other
+// a contact's status to the four (the schema's CHECK, both engines), so a row in any other
 // state is a hand-edited store's, and this is that hand — raw SQL, in a test only, with the
 // constraint switched off for the one connection that writes it.
 func forceContactStatus(t testing.TB, dbPath, accountID, root, status string) {
@@ -806,11 +806,11 @@ func TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin(t *testing.T) {
 		t.Fatalf("the control, an active contact's small form: %v %+v", err, f)
 	}
 	if err := e.st.UpdateContactStatus(ctx, e.acct.ID, p.fpr(), "frozen"); err == nil {
-		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK admits only the four")
 	}
 	forceContactStatus(t, e.dbPath, e.acct.ID, p.fpr(), "frozen")
-	leaf, _ := pactidentity.Parse(p.leaf)
-	cands, err := e.st.PinCandidates(ctx, e.acct.ID, "", "", pactidentity.Fingerprint(leaf.SPKI))
+	leaf, _ := hdtpidentity.Parse(p.leaf)
+	cands, err := e.st.PinCandidates(ctx, e.acct.ID, "", "", hdtpidentity.Fingerprint(leaf.SPKI))
 	if err != nil || len(cands) != 1 || cands[0].Status != "frozen" {
 		t.Fatalf("the store's probe for the leaf the small form names: %v %+v; want the row, in state frozen", err, cands)
 	}
@@ -822,7 +822,7 @@ func TestARowInAStateThisNodeDoesNotKnowIsHandedToDecideAsNoPin(t *testing.T) {
 			t.Errorf("UnknownContactState(%q) = %v, want %v", status, !unknown, unknown)
 		}
 	}
-	withID := func(id string) sealOpt { return func(o *pactidentity.SealOpts) { o.MsgID = id } }
+	withID := func(id string) sealOpt { return func(o *hdtpidentity.SealOpts) { o.MsgID = id } }
 	_, err = e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}, withID("m-frozen-leaf")), TransportFacts{})
 	if Code(err) != "chain_required" {
 		t.Fatalf("the small form from the row's holder: %v; want chain_required, as for a request the owner has not answered", err)

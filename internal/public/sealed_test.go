@@ -9,16 +9,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The `sealed_call` wrapper: what it is present at, what it lets through, what it
 // spends, and what it seals back.
 //
 // This replaces `sealed_test.go`, which proved the same nine things by building
-// `v: 1` envelopes. The wrapper's behaviour was never generation-specific — tier
+// an envelope that no longer exists. The wrapper's behaviour never depended on the envelope — tier
 // gating, replay, the guest budget and the seal policy are the same rules either
 // way — so the tests are the same tests over the envelope that still exists.
 
@@ -60,7 +60,7 @@ func newSealedEnv(t testing.TB) *sealedEnv {
 }
 
 // call invokes sealed_call the way an MCP server would.
-func (s *sealedEnv) call(t testing.TB, env *pactidentity.Envelope, tf TransportFacts) *mcp.CallToolResult {
+func (s *sealedEnv) call(t testing.TB, env *hdtpidentity.Envelope, tf TransportFacts) *mcp.CallToolResult {
 	t.Helper()
 	args, err := json.Marshal(env)
 	if err != nil {
@@ -104,7 +104,7 @@ func (s *sealedEnv) openedWith(t testing.TB, res *mcp.CallToolResult, p *peer, m
 	if res.IsError {
 		t.Fatalf("a refusal that could be sealed came back in plaintext: %s", text(t, res))
 	}
-	var wire pactidentity.Envelope
+	var wire hdtpidentity.Envelope
 	if err := json.Unmarshal([]byte(text(t, res)), &wire); err != nil {
 		t.Fatalf("the answer is not an envelope: %v (%s)", err, text(t, res))
 	}
@@ -112,11 +112,11 @@ func (s *sealedEnv) openedWith(t testing.TB, res *mcp.CallToolResult, p *peer, m
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := pactidentity.OpenResult(wire, pactidentity.OpenOpts{
+	out, err := hdtpidentity.OpenResult(wire, hdtpidentity.OpenOpts{
 		Recipient: p.host, RecipientPublic: p.host.Public(), MsgID: msgID, Now: s.nowAt,
-		Pins: []pactidentity.Pin{{
+		Pins: []hdtpidentity.Pin{{
 			Root: s.root.fpr, Endpoint: endpointMe,
-			Leaf: pactidentity.B64url(st.Chain[0]), State: "active",
+			Leaf: hdtpidentity.B64url(st.Chain[0]), State: "active",
 		}},
 		ExpectedRoot: s.root.fpr,
 	})
@@ -173,7 +173,7 @@ func TestSealedGuestReachesGuestToolsOnly(t *testing.T) {
 	if got, _ := s.opened(t, s.call(t, env, TransportFacts{}), p, "redeem_invite"); got == nil {
 		t.Error("a guest could not reach redeem_invite")
 	}
-	// A guest's sealed call may only redeem or request (PACT §13.2). Anything else
+	// A guest's sealed call may only redeem or request (HDTP §13.2). Anything else
 	// fails the guest binding, which happens BEFORE the envelope is dispatched — so
 	// the refusal is plaintext, with no proven key to seal toward.
 	env = s.sealFrom(t, p, "chain", "send_message", map[string]any{"card": cardOf(p)})
@@ -189,7 +189,7 @@ func TestPlaintextToSealRequiredAccountRefused(t *testing.T) {
 	s.pin(t, p, "active")
 	ctx := context.Background()
 
-	// With no identity at all, identity_required comes FIRST — PACT §13.3 orders
+	// With no identity at all, identity_required comes FIRST — HDTP §13.3 orders
 	// the two, and the order is the point: a caller is told what it lacks in the
 	// order the receiver checks, not the order that happens to fail.
 	if _, err := s.id.PlaintextGateCtx(ctx, TransportFacts{}, "send_message", true); err == nil ||
@@ -198,7 +198,7 @@ func TestPlaintextToSealRequiredAccountRefused(t *testing.T) {
 	}
 
 	// With an identity, the seal policy is what refuses it.
-	leaf, _ := pactidentity.Parse(p.leaf)
+	leaf, _ := hdtpidentity.Parse(p.leaf)
 	tf := TransportFacts{
 		ClientCertFingerprint: p.fpr(), ClientCertSPKI: leaf.SPKI,
 		ClientLeaf: p.leaf, ClientEndpoint: endpointA,
@@ -238,7 +238,7 @@ func TestAnEmptyMsgIDIsInvalid(t *testing.T) {
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
 	env := s.sealFrom(t, p, "chain", "send_message", map[string]any{},
-		func(o *pactidentity.SealOpts) { o.MsgID = "" })
+		func(o *hdtpidentity.SealOpts) { o.MsgID = "" })
 	res := s.call(t, env, TransportFacts{})
 	if !res.IsError || !strings.Contains(text(t, res), "envelope_invalid") {
 		t.Fatalf("an envelope with no msg_id: %s", text(t, res))

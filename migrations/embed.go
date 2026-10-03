@@ -1,5 +1,5 @@
 // Package migrations embeds the per-engine schema migrations (SPEC §11.1) so the
-// binary migrates itself — `pact-gateway migrate` and first-run setup need no
+// binary migrates itself — `hdtp-gateway migrate` and first-run setup need no
 // external goose binary.
 package migrations
 

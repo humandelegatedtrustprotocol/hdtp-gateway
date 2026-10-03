@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// PACT §5.3 gives the owner a choice, per identity, for what happens when a pinned contact turns
+// HDTP §5.3 gives the owner a choice, per identity, for what happens when a pinned contact turns
 // up at a new address: `auto` follows a leaf the contact's own root signed, `ask` holds it until
 // the owner decides. §12's checklist requires an implementation to run that flow "under
 // `accept_new_hosts`".
@@ -35,7 +35,7 @@ func TestAnOwnerCanChooseTheNewAddressPolicyThroughTheShippedBinary(t *testing.T
 
 	policyInStore := func() string {
 		t.Helper()
-		st, err := store.OpenSQLite(filepath.Join(dataDir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dataDir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}

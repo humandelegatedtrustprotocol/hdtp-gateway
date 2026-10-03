@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
-// PACT §9.2's handshake after an import, over the wire between three whole nodes. Alina's contacts
+// HDTP §9.2's handshake after an import, over the wire between three whole nodes. Alina's contacts
 // arrived in an import, so they are owed word from this host once its next leaf is installed —
 // here a RENEWAL at the same address, which is not a move and used to start no campaign at all.
 //
@@ -147,7 +147,7 @@ func TestAfterAnImportTheNextLeafHandshakesEveryImportedContact(t *testing.T) {
 		t.Fatal("chitra did not receive alina's message after accepting")
 	}
 	// Dmitri's owner rejects under his own policy, and says so. Alina's approach is demoted to
-	// blocked (PACT §5.1); since the import said he had been a contact, an unblock restores him
+	// blocked (HDTP §5.1); since the import said he had been a contact, an unblock restores him
 	// rather than forgetting him — the ordinary demotion rule.
 	if ok, err := dmitri.st.MoveContactStatus(ctx, dmitri.acct.ID, alina.rootFpr(), "pending_in", "blocked"); err != nil || !ok {
 		t.Fatalf("dmitri's rejection: %v %v", ok, err)

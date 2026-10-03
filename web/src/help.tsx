@@ -1,6 +1,6 @@
 // HelpTip: the `?` beside a control or a heading, and the one place a page's longer explanation
 // lives. A page says what a control does in a short line; the why, the edge cases and the mechanism
-// go in here. Shared with PACT Cloud's portal byte for byte (scripts/check-harvested.mjs there), so
+// go in here. Shared with BatonDeck's portal byte for byte (scripts/check-harvested.mjs there), so
 // both portals have one tip: its behaviour is helptip.ts, its looks are style.css's `.tip-*`.
 //
 //   - A real <button type="button">, so it takes keyboard focus and a tap; it never submits a form.

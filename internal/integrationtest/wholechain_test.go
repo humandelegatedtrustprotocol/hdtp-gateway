@@ -23,7 +23,7 @@ func TestOnlyWhatVerifiesTheChainReadsAllOfIt(t *testing.T) {
 		"internal/core/audit/archive.go":         "verify, export, archive and repair: each walks the chain link by link",
 		"internal/core/auditstore/auditstore.go": "the adapter that hands the store to internal/core/audit",
 		"internal/core/audit/departed.go":        "an identity's archive verifies the chain before it moves rows out of it, and finds the rows that name the identity",
-		"internal/cli/auditcmd.go":               "`pact-gateway audit`, the offline commands over the whole chain",
+		"internal/cli/auditcmd.go":               "`hdtp-gateway audit`, the offline commands over the whole chain",
 	}
 	found := map[string]bool{}
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {

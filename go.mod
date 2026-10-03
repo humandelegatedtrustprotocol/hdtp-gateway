@@ -1,4 +1,4 @@
-module github.com/pact-cloud/pact-gateway
+module github.com/humandelegatedtrustprotocol/hdtp-gateway
 
 go 1.26.6
 
@@ -12,12 +12,12 @@ require (
 	github.com/fatedier/frp v0.71.0
 	github.com/go-webauthn/webauthn v0.18.1
 	github.com/google/jsonschema-go v0.4.3
+	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.5.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/libdns/cloudflare v0.2.2
 	github.com/miekg/dns v1.1.73
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/pact-cloud/pact-identity/go v0.4.2
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rs/zerolog v1.35.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e

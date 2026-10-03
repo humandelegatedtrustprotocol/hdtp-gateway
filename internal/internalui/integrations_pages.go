@@ -15,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 type IntegrationsDeps struct {
@@ -439,7 +439,7 @@ func (d IntegrationsDeps) getOAuthCallback(audit func(action string, resource st
 		})
 		audit("integration_oauth_callback", withAccount(r, "integration:"+id), "ok")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Connected · pact-gateway</title>` + portalStyle + `</head><body><main>` + portalBrand + `<h1>Authorization received</h1><p>The node is finishing the connection. Go back to the portal tab — it updates on its own — and close this one.</p></main></body></html>`))
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Connected · hdtp-gateway</title>` + portalStyle + `</head><body><main>` + portalBrand + `<h1>Authorization received</h1><p>The node is finishing the connection. Go back to the portal tab — it updates on its own — and close this one.</p></main></body></html>`))
 	}
 }
 

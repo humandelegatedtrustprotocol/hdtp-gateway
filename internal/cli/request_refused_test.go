@@ -7,21 +7,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-// A request_contact the peer refuses is a refusal (PACT §12), not a request that landed. The
+// A request_contact the peer refuses is a refusal (HDTP §12), not a request that landed. The
 // owner's add-by-card took any answer for success, recorded a pending_out pin and audited it as
 // such; a peer already holding our request answers `pending_approval`, and one that will not take
 // requests answers its own code. Now the owner is told, nothing is pinned, and the audit row says
 // `refused`. A request that is not refused still lands pending_out.
 func TestARefusedRequestPinsNothingAndIsAuditedAsRefused(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,18 +13,18 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
 )
 
 // RootfsSpec describes the guest image to build.
 type RootfsSpec struct {
-	// Binary is a linux/arm64 static pact-gateway.
+	// Binary is a linux/arm64 static hdtp-gateway.
 	Binary string
 	// SeedDir, when set, is copied to /data in the guest — a store prepared on the
 	// host so the scenario starts from known state at a known timestamp.
 	SeedDir string
 	// Script runs after the guest clock is set. It has busybox and
-	// /bin/pact-gateway on PATH, and its stdout reaches the host console.
+	// /bin/hdtp-gateway on PATH, and its stdout reaches the host console.
 	Script string
 	// Out is where the .cpio.gz is written.
 	Out string
@@ -42,9 +42,9 @@ mount -t proc none /proc 2>/dev/null
 mount -t sysfs none /sys 2>/dev/null
 mount -t tmpfs none /tmp 2>/dev/null
 hwclock -s 2>/dev/null || true
-echo "PACT_GUEST_DATE=$(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ')"
+echo "HDTP_GUEST_DATE=$(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ')"
 %s
-echo "PACT_GUEST_DONE"
+echo "HDTP_GUEST_DONE"
 poweroff -f
 `
 
@@ -54,7 +54,7 @@ func BuildRootfs(ctx context.Context, s RootfsSpec) error {
 	if s.Binary == "" || s.Out == "" {
 		return fmt.Errorf("vm: BuildRootfs needs Binary and Out")
 	}
-	stage, err := os.MkdirTemp("", "pact-rootfs")
+	stage, err := os.MkdirTemp("", "hdtp-rootfs")
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func BuildRootfs(ctx context.Context, s RootfsSpec) error {
 	if err != nil {
 		return fmt.Errorf("vm: reading %s: %w", s.Binary, err)
 	}
-	if err := os.WriteFile(filepath.Join(payload, "bin", "pact-gateway"), bin, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(payload, "bin", "hdtp-gateway"), bin, 0o755); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(payload, "init"),

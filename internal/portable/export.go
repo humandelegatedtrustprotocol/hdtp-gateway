@@ -9,13 +9,13 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Export writes one identity — its contacts, its conversations and the files in them — to w as an
-// export (PACT §9.2). An identity the wallet has never certified has no root, so it has no owner a
+// export (HDTP §9.2). An identity the wallet has never certified has no root, so it has no owner a
 // file could name, and is refused. tool names the writer in the manifest; now dates it.
 func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.Writer, slug, tool string, now time.Time) (Result, error) {
 	var res Result
@@ -26,8 +26,8 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	if !a.HasRoot() {
 		return res, refuse("%s has never been issued a certificate, so it has no root for an export to name as its owner", slug)
 	}
-	in := pactidentity.ExportInput{Owner: a.RootFingerprint, OwnerName: a.DisplayName, Tool: tool, ExportedAt: now,
-		Contacts: []pactidentity.ContactRow{}, Threads: []pactidentity.ThreadRow{}, Messages: []pactidentity.MessageRow{}, Media: []pactidentity.ExportMedia{}}
+	in := hdtpidentity.ExportInput{Owner: a.RootFingerprint, OwnerName: a.DisplayName, Tool: tool, ExportedAt: now,
+		Contacts: []hdtpidentity.ContactRow{}, Threads: []hdtpidentity.ThreadRow{}, Messages: []hdtpidentity.MessageRow{}, Media: []hdtpidentity.ExportMedia{}}
 
 	held, err := st.ListContacts(ctx, a.ID)
 	if err != nil {
@@ -65,7 +65,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			res.LeftOut = append(res.LeftOut, fmt.Sprintf("a conversation of %d message(s) with %s, %s", len(msgs), t.ContactFpr, why))
 			continue
 		}
-		in.Threads = append(in.Threads, pactidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt)})
+		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt)})
 		for _, m := range msgs {
 			row, hash, err := messageRow(m)
 			if err != nil {
@@ -80,7 +80,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 						return res, refuse("message %s names file %s, which this node no longer holds", m.ID, hash)
 					}
 					sizes[hash] = int64(len(data))
-					in.Media = append(in.Media, pactidentity.ExportMedia{Hash: hash, Size: int64(len(data))})
+					in.Media = append(in.Media, hdtpidentity.ExportMedia{Hash: hash, Size: int64(len(data))})
 				}
 			}
 			if hash != "" {
@@ -92,9 +92,9 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	sort.Slice(in.Media, func(i, j int) bool { return in.Media[i].Hash < in.Media[j].Hash })
 	// The writer leaves out what the file must never carry and a contact could put there — a
 	// message whose body or file reads as a private key, with its file — and lists each one; it
-	// nulls a reply_to whose message the file does not carry (SPEC §9.2, pact-identity 0.3.3). Every
+	// nulls a reply_to whose message the file does not carry (SPEC §9.2, hdtp-identity 0.3.3). Every
 	// message left out is named to the person, with the writer's reason (SPEC §9.2 #25).
-	leftOut, err := pactidentity.WriteExportZip(w, in, func(hash string) (io.ReadCloser, error) {
+	leftOut, err := hdtpidentity.WriteExportZip(w, in, func(hash string) (io.ReadCloser, error) {
 		data, err := blobs.Get(hash)
 		if err != nil {
 			return nil, refuse("file %s went from this node while it was being exported", hash)
@@ -124,11 +124,11 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	return res, nil
 }
 
-// contactRow is a held contact as contacts.csv carries it. What the format leaves out (PACT §9.2):
-// the preset (permissions carries the set), the trust flag (the node's integrations', not PACT's),
+// contactRow is a held contact as contacts.csv carries it. What the format leaves out (HDTP §9.2):
+// the preset (permissions carries the set), the trust flag (the node's integrations', not HDTP's),
 // the card (the next exchange refreshes it) and the SPKI (it is the leaf's).
-func contactRow(c store.Contact) pactidentity.ContactRow {
-	return pactidentity.ContactRow{
+func contactRow(c store.Contact) hdtpidentity.ContactRow {
+	return hdtpidentity.ContactRow{
 		Root: c.Fingerprint, Endpoint: c.Endpoint, Name: c.Petname, DisplayName: c.DisplayName,
 		Status: c.Status, WasActive: c.EverActive || c.Status == "active",
 		Permissions: orEmpty(c.Permissions), TheirPermissions: orEmpty(c.TheirPermissions),
@@ -142,11 +142,11 @@ func contactRow(c store.Contact) pactidentity.ContactRow {
 // export lifts it into `attachments` and the body is empty, as the format has it for a message
 // that carries a file. A link the node never fetched has no file to carry, so the link travels as
 // the body.
-func messageRow(m store.Message) (pactidentity.MessageRow, string, error) {
-	row := pactidentity.MessageRow{
+func messageRow(m store.Message) (hdtpidentity.MessageRow, string, error) {
+	row := hdtpidentity.MessageRow{
 		ID: m.ID, Thread: m.ThreadID, Contact: m.ContactFpr, MsgID: m.MsgID, Direction: m.Direction,
 		Sender: m.Sender, Time: rfc3339(m.CreatedAt), Body: m.Body, Status: exportStatus(m.Status),
-		Attachments: []pactidentity.Attachment{},
+		Attachments: []hdtpidentity.Attachment{},
 	}
 	if m.ReplyTo != "" {
 		r := m.ReplyTo
@@ -164,11 +164,11 @@ func messageRow(m store.Message) (pactidentity.MessageRow, string, error) {
 		return row, "", nil
 	}
 	row.Body = ""
-	row.Attachments = []pactidentity.Attachment{{File: meta.Hash, Filename: meta.Filename, MIME: meta.Mime, Size: meta.Size}}
+	row.Attachments = []hdtpidentity.Attachment{{File: meta.Hash, Filename: meta.Filename, MIME: meta.Mime, Size: meta.Size}}
 	return row, meta.Hash, nil
 }
 
-// exportStatus maps the node's delivery states onto the format's (PACT §9.2). An outbound message
+// exportStatus maps the node's delivery states onto the format's (HDTP §9.2). An outbound message
 // still pending is queued, and an importer does not send it. An inbound message still waiting for
 // its human (queued_for_human, which nothing writes any more; rows from before remain) is queued
 // too, as the cloud's exporter writes it: one mapping for both hosts (building rule 1).
@@ -189,7 +189,7 @@ func b64OrNil(b []byte) *string {
 	if len(b) == 0 {
 		return nil
 	}
-	s := pactidentity.B64url(b)
+	s := hdtpidentity.B64url(b)
 	return &s
 }
 

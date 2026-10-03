@@ -1,4 +1,4 @@
-// The overview's arithmetic, for both portals: the node's (web/src) and PACT Cloud's (portal/src,
+// The overview's arithmetic, for both portals: the node's (web/src) and BatonDeck's (portal/src,
 // copied verbatim by the cloud's gateway/scripts/harvest.sh). Pure, and with no imports but a type,
 // so both portals' tests run it as it is.
 //
