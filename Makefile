@@ -69,11 +69,21 @@ scale:
 # `all`: two minutes of wall clock that finds nothing on most runs. The pre-push
 # hook runs it on every push, and TestEveryFuzzTargetRunsUnderMakeFuzz fails the
 # build if a target is added and this list is not.
+#
+# -fuzzminimizetime 5s: the engine minimizes every new input it finds, by default for up to
+# 60 s, and counts no executions while it does. Inside a 30 s run that can freeze a target for
+# the rest of its time, and a run that ends mid-minimization fails with "context deadline
+# exceeded" and no failing input. The pre-push gate failed that way twice (FuzzVCardParse,
+# FuzzRedact). Measured with FuzzRedact alone: frozen at 36,085 and at 53,839 executions with all
+# 12 workers busy, at load 1.58; built without coverage (nothing new to minimize) it ran at
+# ~500,000/s; with no minimization it ran steadily twice. In three paired runs each, the default
+# froze FuzzRedact for ~30 s twice and this flag never. 5 s and not 0, so that what is added to
+# the corpus stays minimized.
 fuzz:
-	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 30s
-	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 30s
-	go test ./internal/cli/      -run '^FuzzInviteOffer$$'   -fuzz '^FuzzInviteOffer$$'   -fuzztime 30s
-	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 30s
+	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 30s -fuzzminimizetime 5s
+	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 30s -fuzzminimizetime 5s
+	go test ./internal/cli/      -run '^FuzzInviteOffer$$'   -fuzz '^FuzzInviteOffer$$'   -fuzztime 30s -fuzzminimizetime 5s
+	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 30s -fuzzminimizetime 5s
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/hdtp-gateway
