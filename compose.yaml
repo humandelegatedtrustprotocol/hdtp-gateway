@@ -1,4 +1,4 @@
-# pact-gateway (SPEC §12.4). First run: `docker compose up` — the logs print the
+# hdtp-gateway (SPEC §12.4). First run: `docker compose up` — the logs print the
 # portal URL and a one-time setup token. The portal binds loopback INSIDE the
 # container: a non-loopback bind needs a passkey host, auth and TLS (SPEC §8.3),
 # which a first run has not got. The container healthcheck exercises the portal,
@@ -16,10 +16,10 @@ services:
     image: alpine:3.20
     command: ["chown", "65532:65532", "/data"]
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
     restart: "no"
 
-  pact-gateway:
+  hdtp-gateway:
     # `make identity-proxy limitd-vendor` first: the build reads the private identity module and
     # the sidecar's crates from them (Dockerfile).
     build:
@@ -32,7 +32,7 @@ services:
       init-data:
         condition: service_completed_successfully
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
     ports:
       # ONLY host loopback. The portal has no login on a loopback bind (SPEC §8.3),
       # so it must not be reachable from your LAN — "127.0.0.1:" is what keeps it
@@ -40,8 +40,8 @@ services:
       # to your whole network. Port 8081 is the forwarder below, not the node.
       - "127.0.0.1:8080:8081"
 
-  # The limits sidecar (SPEC §5.7): the same image, run as /pact-limitd with its shipped
-  # configuration (deploy/limitd/limits.json, at /etc/pact-limitd/limits.json in the image), sharing
+  # The limits sidecar (SPEC §5.7): the same image, run as /hdtp-limitd with its shipped
+  # configuration (deploy/limitd/limits.json, at /etc/hdtp-limitd/limits.json in the image), sharing
   # the /data volume its socket is in. It decides every call budget of every account; edit a copy of
   # that file and mount it over the shipped one to change a number.
   limitd:
@@ -51,14 +51,14 @@ services:
         identityproxy: ./.build/identity-proxy
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
-    entrypoint: ["/pact-limitd"]
-    command: ["-config", "/etc/pact-limitd/limits.json"]
+    entrypoint: ["/hdtp-limitd"]
+    command: ["-config", "/etc/hdtp-limitd/limits.json"]
     network_mode: none
     depends_on:
       init-data:
         condition: service_completed_successfully
     volumes:
-      - pact-data:/data
+      - hdtp-data:/data
 
   # The portal forwarder.
   #
@@ -75,9 +75,9 @@ services:
   portal:
     image: alpine/socat:latest
     restart: unless-stopped
-    network_mode: "service:pact-gateway"
+    network_mode: "service:hdtp-gateway"
     depends_on:
-      pact-gateway:
+      hdtp-gateway:
         condition: service_started
     command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"]
 
@@ -86,11 +86,11 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: pact
+      POSTGRES_USER: hdtp
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}  # REQUIRED when running the postgres profile
-      POSTGRES_DB: pact
+      POSTGRES_DB: hdtp
     volumes:
-      - pact-pg:/var/lib/postgresql/data
+      - hdtp-pg:/var/lib/postgresql/data
 
   cloudflared:
     profiles: ["cloudflared"]
@@ -101,5 +101,5 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}  # REQUIRED when running the cloudflared profile
 
 volumes:
-  pact-data:
-  pact-pg:
+  hdtp-data:
+  hdtp-pg:

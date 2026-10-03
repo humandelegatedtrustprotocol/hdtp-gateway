@@ -1,6 +1,6 @@
 // PresetGrid: the permission presets as one grid — a preset a row, a permission a column, a checkbox
 // where they meet. It replaced a checkbox per line with its scope id on a line under it, which made
-// four presets a page long (owner, 2026-09-30). Shared with PACT Cloud's portal byte for byte
+// four presets a page long (owner, 2026-09-30). Shared with BatonDeck's portal byte for byte
 // (scripts/check-harvested.mjs there). A row saves itself (usePresetAutosave, presets.ts
 // presetAutosave): a tick changes it at once and it saves when the ticks stop, a spinner where a Save
 // button used to be, then a check and an Undo (save_mark.tsx); the save itself is each portal's own

@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/portal"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // S1 — first run, from a pristine image: the node prints where to go and the setup token, the
@@ -63,11 +63,11 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 	}
 	env := topology.NodeEnv(fmt.Sprintf("https://%s:%d", w.Fab.Name("first"), topology.PublicPort))
 	maps.Copy(env, map[string]string{
-		"PACT_INTERNAL_BIND":         fmt.Sprintf("0.0.0.0:%d", topology.InternalPort),
-		"PACT_INTERNAL_HOST":         "localhost",
-		"PACT_INTERNAL_AUTH_ENABLED": "true",
-		"PACT_INTERNAL_TLS_CERT":     "/tls/cert.pem",
-		"PACT_INTERNAL_TLS_KEY":      "/tls/key.pem",
+		"HDTP_INTERNAL_BIND":         fmt.Sprintf("0.0.0.0:%d", topology.InternalPort),
+		"HDTP_INTERNAL_HOST":         "localhost",
+		"HDTP_INTERNAL_AUTH_ENABLED": "true",
+		"HDTP_INTERNAL_TLS_CERT":     "/tls/cert.pem",
+		"HDTP_INTERNAL_TLS_KEY":      "/tls/key.pem",
 	})
 	node, err := topology.Serve(ctx, w.Fab, fabric.Spec{
 		Name: "first", Image: images.Node, Network: net, Env: env, Cmd: []string{"serve"},
@@ -147,7 +147,7 @@ func TestFirstRunFromAPristineImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the wizard, over TLS with the token: %v (page said %q)", err, msg)
 	}
-	out, _ := w.Fab.Exec(ctx, node, "/pact-gateway", "passkey", "list")
+	out, _ := w.Fab.Exec(ctx, node, "/hdtp-gateway", "passkey", "list")
 	if n := strings.Count(string(out), "owner="); n != 1 {
 		t.Fatalf("after the ceremony the node lists %d passkeys, want 1:\n%s", n, out)
 	}

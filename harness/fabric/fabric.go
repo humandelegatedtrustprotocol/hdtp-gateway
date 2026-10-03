@@ -29,7 +29,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
 )
 
 // Runner executes one command. Injected so the driver is testable without Docker.
@@ -100,7 +100,7 @@ type Spec struct {
 	// VolumesFrom mounts another container's volumes (docker --volumes-from): how the limits
 	// sidecar shares the /data its socket is in with the node it serves.
 	VolumesFrom []string
-	// Entrypoint replaces the image's: the node image's second binary, /pact-limitd, runs this way.
+	// Entrypoint replaces the image's: the node image's second binary, /hdtp-limitd, runs this way.
 	Entrypoint string
 }
 
@@ -166,10 +166,10 @@ var runToken = func() string {
 	return hex.EncodeToString(b[:])
 }()
 
-// PrefixFor is the fabric prefix for a registered scenario: "pact", its id in lower case, and
-// this run's token, e.g. "pacts13-7f3a". It is a valid DNS label, because container names are
+// PrefixFor is the fabric prefix for a registered scenario: "hdtp", its id in lower case, and
+// this run's token, e.g. "hdtps13-7f3a". It is a valid DNS label, because container names are
 // the addresses nodes dial and leaves name.
-func PrefixFor(id string) string { return "pact" + strings.ToLower(id) + "-" + runToken }
+func PrefixFor(id string) string { return "hdtp" + strings.ToLower(id) + "-" + runToken }
 
 // The ports FreePort has handed out in this process.
 var (
@@ -401,7 +401,7 @@ func EnsureShaper(ctx context.Context, run Runner) error {
 	if _, err := run(ctx, "docker", "image", "inspect", images.Shaper); err == nil {
 		return nil
 	}
-	dir, err := os.MkdirTemp("", "pact-shaper")
+	dir, err := os.MkdirTemp("", "hdtp-shaper")
 	if err != nil {
 		return fmt.Errorf("fabric: building the shaper image: %w", err)
 	}

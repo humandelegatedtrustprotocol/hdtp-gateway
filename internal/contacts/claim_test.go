@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// PACT §5.2: "A stranger whose leaf names an endpoint the receiver has pinned for another root,
+// HDTP §5.2: "A stranger whose leaf names an endpoint the receiver has pinned for another root,
 // or had pinned for another root within the last 30 days, is never auto-accepted — an invite's
 // auto_accept does not apply." The node's core computed the claim for a sealed guest and nothing
 // read it: the cloud's conformance battery, aimed at a node (harness S19), had a new root at the
@@ -53,7 +53,7 @@ func TestAStrangerAtAPinnedContactsAddressIsNeverAutoAccepted(t *testing.T) {
 }
 
 // The store-side claim, for a guest proven by its client certificate, applies the rule the core
-// applies to a sealed guest (pact-identity envelope.go, Decide's address_claim): a current pin of
+// applies to a sealed guest (hdtp-identity envelope.go, Decide's address_claim): a current pin of
 // another root at the endpoint, else a former endpoint of another root younger than ClaimWindow.
 func TestAddressClaimFollowsTheCoresRule(t *testing.T) {
 	e := newEnv(t)
@@ -64,8 +64,8 @@ func TestAddressClaimFollowsTheCoresRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	const moved = "https://old.example/mcp"
-	within := e.clock.Add(-pactidentity.ClaimWindow + time.Hour).Unix()
-	past := e.clock.Add(-pactidentity.ClaimWindow - time.Hour).Unix()
+	within := e.clock.Add(-hdtpidentity.ClaimWindow + time.Hour).Unix()
+	past := e.clock.Add(-hdtpidentity.ClaimWindow - time.Hour).Unix()
 	// Real roots, as every writer of a former endpoint has one: the same rows are what the core's
 	// Decide reads for a sealed guest, and it holds a root to being a fingerprint.
 	recent, longAgo, stranger := testid.NewWallet(t, "Recent").Fpr, testid.NewWallet(t, "Long Ago").Fpr, testid.NewWallet(t, "Stranger").Fpr

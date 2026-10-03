@@ -62,7 +62,7 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"remove_contact":       "POST /contacts/{fpr}/remove",
 		"list_invites":         "GET /api/invites",
 		"revoke_invite":        "POST /invites/{id}/revoke",
-		// A contact waiting at a new address (PACT §5.3): the Requests tab lists and decides it.
+		// A contact waiting at a new address (HDTP §5.3): the Requests tab lists and decides it.
 		"list_pending_addresses": "GET /api/requests",
 		"approve_address":        "POST /requests/addresses/{root}/approve",
 		"reject_address":         "POST /requests/addresses/{root}/reject",

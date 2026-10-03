@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // The outbound retries run only on the process that holds their lease (SPEC §11.1): a pass that

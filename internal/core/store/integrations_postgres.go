@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *Postgres) InsertIntegration(ctx context.Context, in Integration) (Integration, error) {

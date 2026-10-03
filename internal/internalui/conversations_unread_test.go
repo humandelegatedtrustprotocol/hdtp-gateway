@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // The inbox's unread counts are read at runtime from each conversation's read marker
@@ -161,7 +161,7 @@ func TestAConversationOverTheCapSaysCapped(t *testing.T) {
 	if a.Unread != (tally{Count: UnreadCap, Capped: true}) {
 		t.Fatalf("a capped row leaves the total exact: %+v", a.Unread)
 	}
-	// A second conversation: the total stays at the cap, "50+", as PACT Cloud's Inbox chip does.
+	// A second conversation: the total stays at the cap, "50+", as BatonDeck's Inbox chip does.
 	u.contact(t, u.acct, "sha256:bharat", "active", 50)
 	u.msgs(t, u.acct, "sha256:bharat", "in", 1)
 	if a := u.list(t, nil); a.Unread != (tally{Count: UnreadCap, Capped: true}) || a.row(t, "sha256:bharat") != (tally{Count: 1}) {

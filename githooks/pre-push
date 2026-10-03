@@ -2,12 +2,12 @@
 # Pre-push: the node's whole gate, run here because nothing else runs it.
 #
 # This repository has no CI. The node depends on the private module
-# github.com/pact-cloud/pact-identity/go, fetched over SSH, and no CI runner is given a key
+# github.com/humandelegatedtrustprotocol/hdtp-identity/go, fetched over SSH, and no CI runner is given a key
 # (the owner's decision: "No CI key required, we deploy from local only"). So every check that
 # used to run on a runner runs on this machine, before anything leaves it:
 #
-#   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
-#                     disk), race tests — with PACT_TEST_POSTGRES_DSN pointing at a Postgres this
+#   make check        fmt, vet, the name guard, the dependents (the harness, and the cloud's battery when it is on
+#                     disk), race tests — with HDTP_TEST_POSTGRES_DSN pointing at a Postgres this
 #                     hook starts, so the Postgres engine's tests run rather than skip — and the
 #                     portal's page scripts under node --test (make test-js)
 #   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
@@ -20,8 +20,8 @@
 # The LIVE harness tiers need Docker and Chrome, so they are opt-in. Each builds what it
 # promises and fails if a promised scenario did not pass (docs/harness-design.md §6):
 #
-#     PACT_PREPUSH_LIVE=1 git push          # the PR tier (make harness-pr)
-#     PACT_PREPUSH_LIVE=full git push       # every scenario (make harness-nightly)
+#     HDTP_PREPUSH_LIVE=1 git push          # the PR tier (make harness-pr)
+#     HDTP_PREPUSH_LIVE=full git push       # every scenario (make harness-nightly)
 #
 # This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
@@ -34,7 +34,7 @@ cd "$root"
 # The identity module is private and fetched over SSH. GOPRIVATE keeps it off the public proxy
 # and checksum database; the insteadOf, set for this process only (never in anybody's git
 # config), makes the go command's git fetch it over SSH rather than HTTPS.
-export GOPRIVATE="${GOPRIVATE:-github.com/pact-cloud/*}"
+export GOPRIVATE="${GOPRIVATE:-github.com/humandelegatedtrustprotocol/*}"
 
 # The gate proves the COMMITTED go.mod and go.sum: no go.work the pusher's environment happens to
 # resolve (an umbrella's, a GOWORK variable) may stand in for them. The one workspace a gate builds
@@ -86,30 +86,30 @@ if [ "$web_touched" = true ]; then
     exit 1
   fi
 fi
-# The Postgres engine's tests skip without PACT_TEST_POSTGRES_DSN, so the hook provides one: a
+# The Postgres engine's tests skip without HDTP_TEST_POSTGRES_DSN, so the hook provides one: a
 # NAMED container (the image the node's tests were written against), removed by name on every
 # way out of this script. The name carries this hook's PID, so two pushes running at once (two
 # worktrees, two builders) never remove each other's database. Without Docker the push is
 # refused — a skipped engine is not a pass.
-pg="pact-gateway-prepush-pg-$$"
+pg="hdtp-gateway-prepush-pg-$$"
 if ! docker info >/dev/null 2>&1; then
   echo "pre-push: Docker is not running, and make check needs it for the Postgres engine's tests." >&2
   echo "          Start Docker and push again." >&2
   exit 1
 fi
 trap 'docker rm -f "$pg" >/dev/null 2>&1 || true' EXIT
-docker run -d --name "$pg" -e POSTGRES_USER=pact -e POSTGRES_PASSWORD=pact \
+docker run -d --name "$pg" -e POSTGRES_USER=hdtp -e POSTGRES_PASSWORD=hdtp \
   -p 127.0.0.1::5432 postgres:16-alpine >/dev/null
 for _ in $(seq 1 60); do
-  docker exec "$pg" pg_isready -U pact -h 127.0.0.1 >/dev/null 2>&1 && break
+  docker exec "$pg" pg_isready -U hdtp -h 127.0.0.1 >/dev/null 2>&1 && break
   sleep 1
 done
-if ! docker exec "$pg" pg_isready -U pact -h 127.0.0.1 >/dev/null 2>&1; then
+if ! docker exec "$pg" pg_isready -U hdtp -h 127.0.0.1 >/dev/null 2>&1; then
   echo "pre-push: the Postgres container $pg did not become ready in 60 s" >&2
   exit 1
 fi
 port="$(docker port "$pg" 5432/tcp | head -1 | sed 's/.*://')"
-export PACT_TEST_POSTGRES_DSN="postgres://pact:pact@127.0.0.1:${port}/postgres?sslmode=disable"
+export HDTP_TEST_POSTGRES_DSN="postgres://hdtp:hdtp@127.0.0.1:${port}/postgres?sslmode=disable"
 
 step check
 step analyze
@@ -117,7 +117,7 @@ step sqlc-check
 step fuzz
 step harness
 
-case "${PACT_PREPUSH_LIVE:-}" in
+case "${HDTP_PREPUSH_LIVE:-}" in
   "") ;;
   full) step harness-nightly ;;
   *) step harness-pr ;;

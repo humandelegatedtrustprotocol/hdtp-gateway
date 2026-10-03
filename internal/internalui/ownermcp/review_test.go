@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // QA of 2026-09-28, item 4 (building rule 10: project, never spread). list_contacts answered the
 // store's rows whole - the row id, the account id, the pinned key, the card, the invite id, the
-// chain mark. It answers named fields, the cloud's where the node holds them (pact-cloud
+// chain mark. It answers named fields, the cloud's where the node holds them (batondeck
 // api/v1/routes/shared.ts `Contact`), and nothing else.
 func TestListContactsAnswersNamedFieldsOnly(t *testing.T) {
 	e := newEnv(t)
@@ -45,7 +45,7 @@ func TestListContactsAnswersNamedFieldsOnly(t *testing.T) {
 
 // QA of 2026-09-28, item 5 (building rule 1). create_invite answered a token and no link, so an
 // agent holding the owner surface could not hand anybody an invite. It answers the cloud's shape
-// (pact-cloud createInvite: id, url, expires_at): the link at this node's public address. With no
+// (batondeck createInvite: id, url, expires_at): the link at this node's public address. With no
 // public address there is nowhere for the link to land, and nothing is minted.
 func TestCreateInviteAnswersTheLink(t *testing.T) {
 	e := newEnv(t)

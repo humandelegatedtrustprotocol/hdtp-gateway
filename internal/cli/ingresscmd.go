@@ -24,10 +24,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/ingress"
-	"github.com/pact-cloud/pact-gateway/internal/ingress/dns"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress/dns"
 )
 
 type ingressFlags struct {
@@ -52,7 +52,7 @@ type ingressFlags struct {
 // ingressCmd dispatches the ingress role's subcommands.
 func ingressCmd(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway ingress <serve|token> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway ingress <serve|token> [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -90,7 +90,7 @@ func ingressToken(args []string, stdout, stderr io.Writer) int {
 
 // ingressDataDir is where the ingress keeps its admin socket and identity key.
 func ingressDataDir() string {
-	if v := os.Getenv("PACT_DATA_DIR"); v != "" {
+	if v := os.Getenv("HDTP_DATA_DIR"); v != "" {
 		return v
 	}
 	return "./data"
@@ -110,7 +110,7 @@ func ingressFlagSet(f *ingressFlags, stderr io.Writer) *flag.FlagSet {
 	fs.StringVar(&f.dataPlaneAddr, "data-plane-addr", "", "address nodes dial for the data plane (default: the domain)")
 	fs.IntVar(&f.dataPlanePort, "data-plane-port", 7000, "data-plane control port nodes dial")
 	fs.IntVar(&f.vhostPort, "vhost-port", 443, "public port serving both modes by SNI")
-	fs.StringVar(&f.token, "token", "", "shared data-plane transport token (default: PACT_INGRESS_TOKEN)")
+	fs.StringVar(&f.token, "token", "", "shared data-plane transport token (default: HDTP_INGRESS_TOKEN)")
 	fs.StringVar(&f.keyFile, "key", "", "ingress identity key file (default: <domain>.key in the working directory)")
 	fs.StringVar(&f.acmeEmail, "acme-email", "", "contact address for ACME registration; enables terminate mode")
 	fs.StringVar(&f.acmeDir, "acme-dir", "", "ACME storage directory (default: ./acme)")
@@ -159,10 +159,10 @@ func ingressServe(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if f.token == "" {
-		f.token = os.Getenv("PACT_INGRESS_TOKEN")
+		f.token = os.Getenv("HDTP_INGRESS_TOKEN")
 	}
 	if f.token == "" {
-		fmt.Fprintln(stderr, "ingress: a data-plane token is required (-token or PACT_INGRESS_TOKEN)")
+		fmt.Fprintln(stderr, "ingress: a data-plane token is required (-token or HDTP_INGRESS_TOKEN)")
 		return 2
 	}
 	if f.dataPlaneAddr == "" {
@@ -352,7 +352,7 @@ func ingressServe(args []string, stdout, stderr io.Writer) int {
 		},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	fmt.Fprintf(stdout, "pact-gateway ingress: domain=%s fingerprint=%s\n", f.domain, kp.Fingerprint)
+	fmt.Fprintf(stdout, "hdtp-gateway ingress: domain=%s fingerprint=%s\n", f.domain, kp.Fingerprint)
 	fmt.Fprintf(stdout, "pairing:  https://%s/pair\n", f.pairBind)
 	fmt.Fprintf(stdout, "data plane: %s:%d (nodes dial this; passthrough SNI is routed on loopback :%d)\n",
 		f.dataPlaneAddr, f.dataPlanePort, f.internalVhostPort)

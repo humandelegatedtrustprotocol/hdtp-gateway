@@ -21,10 +21,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-const MaxMediaBytes = 5 << 20 // PACT §12: media ≤ 5 MiB inline
+const MaxMediaBytes = 5 << 20 // HDTP §12: media ≤ 5 MiB inline
 
 var ErrQuota = errors.New("too_large") // quota exhausted maps to the §12 code
 
@@ -204,7 +204,7 @@ func (m *MediaService) ReceiveInline(ctx context.Context, msgSvc *Service, accou
 // SendInline stores media the OWNER is sending as an outbound media message:
 // the bytes go into the blob store under the account's quota, the row is
 // recorded pending, and the node delivers it through the peer's `send_media`.
-// Same caps as inbound (PACT §12: ≤ 5 MiB inline) — a node must not accept from
+// Same caps as inbound (HDTP §12: ≤ 5 MiB inline) — a node must not accept from
 // its owner what it would refuse from a peer.
 func (m *MediaService) SendInline(ctx context.Context, msgSvc *Service, accountID, contactFpr string, in Input, filename, mime string, data []byte) (Result, error) {
 	if len(data) == 0 || len(data) > MaxMediaBytes {

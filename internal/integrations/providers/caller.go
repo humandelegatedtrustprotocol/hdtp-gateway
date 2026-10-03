@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 // ManagerCaller binds a provider to a live upstream session: the tool result's

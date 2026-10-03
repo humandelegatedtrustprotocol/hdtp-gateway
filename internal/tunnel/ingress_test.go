@@ -3,7 +3,7 @@ package tunnel
 import (
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // The two ingress-fronted adapters derive opposite modes (SPEC §10.6):
@@ -17,7 +17,7 @@ func TestIngressAdaptersDeriveModes(t *testing.T) {
 		}
 		dir := t.TempDir()
 		c, err := core.Load("", func(k string) (string, bool) {
-			v, ok := map[string]string{"PACT_DATA_DIR": dir, "PACT_TUNNEL": name, "PACT_SEAL": "optional"}[k]
+			v, ok := map[string]string{"HDTP_DATA_DIR": dir, "HDTP_TUNNEL": name, "HDTP_SEAL": "optional"}[k]
 			return v, ok
 		})
 		if err != nil {

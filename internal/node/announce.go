@@ -1,6 +1,6 @@
 package node
 
-// Telling contacts where to find you (PACT §5.3, §9).
+// Telling contacts where to find you (HDTP §5.3, §9).
 //
 // An address is not a setting. It is INSIDE the leaf — the one URI the person's root signed this
 // host for — so it changes when the wallet issues a leaf naming another endpoint, and at no other
@@ -21,12 +21,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
-// AnnounceMove is PACT §5.3 and §9 after a leaf install: every contact the campaign walks
+// AnnounceMove is HDTP §5.3 and §9 after a leaf install: every contact the campaign walks
 // (identity.Campaign.Walks) is reached with update_contact carrying the new card, in chain form —
 // the chain in the envelope is the proof of the new address, and the contact's setting decides
 // whether it re-pins at once or asks its owner. A leaf that did not move the identity walks only
@@ -35,7 +35,7 @@ import (
 //
 // update_contact is a contact-tier tool, so a peer that does not pin this identity refuses it —
 // which is what a contact an import brought may well be: it knew the identity at another host, or
-// never accepted it at all (PACT §9.2). For such a contact, and only for one this campaign owes the
+// never accepted it at all (HDTP §9.2). For such a contact, and only for one this campaign owes the
 // handshake, the refusal falls back to request_contact, and that peer decides under its own
 // policy. The contact is marked pending_out BEFORE the request leaves, so an answer that comes at
 // once finds the approach it answers; a request that does not arrive is taken back, and one the
@@ -88,8 +88,8 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 }
 
 // handshakeRequest is the handshake's fallback to request_contact for a contact that does not hold
-// this identity (PACT §9.2). The row becomes pending_out first — the state the peer's
-// `contact_accepted` and `contact_rejected` answer (PACT §5.1) — so an answer sent the moment the
+// this identity (HDTP §9.2). The row becomes pending_out first — the state the peer's
+// `contact_accepted` and `contact_rejected` answer (HDTP §5.1) — so an answer sent the moment the
 // request lands is not refused here as coming from nobody we had asked. A request that does not
 // arrive is taken back and is retried by the next run; one the peer refuses is taken back and
 // recorded FanoutRefused.

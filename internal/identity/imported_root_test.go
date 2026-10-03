@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// An export carries its owner's root FINGERPRINT and not the root's certificate (PACT §9.2: the
+// An export carries its owner's root FINGERPRINT and not the root's certificate (HDTP §9.2: the
 // certificate comes with the new leaf's chain). So a slug an import creates holds a name and
 // nothing else: the root it expects, no certificate, no key, no ledger. This is what holds that
 // name to its word: the first chain installed must be under that root, and only that chain fills

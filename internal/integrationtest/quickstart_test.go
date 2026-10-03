@@ -8,7 +8,7 @@ package integrationtest
 //   1. the image could not build at all (P14-03a);
 //   2. `docker compose up` published no port, and the portal bound the CONTAINER's
 //      loopback, so the URL it printed was unreachable even with `-p` (E12);
-//   3. `docker compose exec pact-gateway pact-gateway …` — the README's own next
+//   3. `docker compose exec hdtp-gateway hdtp-gateway …` — the README's own next
 //      command — failed with "executable file not found in $PATH".
 //
 // These are the cheap structural halves. The expensive half is the harness
@@ -40,7 +40,7 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 	}
 
 	// (a) If the README tells the owner to exec a BARE command name, that name has
-	// to resolve on the image's PATH. /pact-gateway alone does not.
+	// to resolve on the image's PATH. /hdtp-gateway alone does not.
 	bareExec := regexp.MustCompile(`docker compose exec \S+ (\w[\w-]*)`)
 	for _, m := range bareExec.FindAllStringSubmatch(string(readme), -1) {
 		name := m[1]

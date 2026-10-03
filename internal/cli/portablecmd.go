@@ -1,6 +1,6 @@
 package cli
 
-// `export` and `import` (SPEC §3.10, PACT §9.2): one identity's contacts, chats and files out of
+// `export` and `import` (SPEC §3.10, HDTP §9.2): one identity's contacts, chats and files out of
 // one host and into another, as one unencrypted zip, and nothing else. internal/portable is the
 // format and says why; this is the two verbs. Both are offline and reachable only from a shell on
 // the host: never the portal, never the owner MCP.
@@ -22,15 +22,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/portable"
-	"github.com/pact-cloud/pact-gateway/internal/services/auditsink"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/portable"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/auditsink"
 )
 
-// exportNotice is PACT §9.2's words to the person, said before the file is written, on every
+// exportNotice is HDTP §9.2's words to the person, said before the file is written, on every
 // surface that writes one (design §4.5). The cloud's portal, /v1 and MCP say the same.
 const exportNotice = "This file is not encrypted. Anyone who gets it can read your contact list and all your conversations and files. It holds no keys, so it cannot be used to speak as you. Keep it where you keep private documents, and delete it once it has been imported."
 
@@ -112,7 +112,7 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	now := time.Now()
-	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: cfg.Blobs()}, f, slug, "pact-gateway "+version, now)
+	res, err := portable.Export(ctx, st, messaging.BlobDir{Root: cfg.Blobs()}, f, slug, "hdtp-gateway "+version, now)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -137,15 +137,15 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 	for _, s := range res.LeftOut {
 		fmt.Fprintf(stdout, "left out: %s\n", s)
 	}
-	// Over what PACT Cloud takes back in: written all the same (another host may take it), and said.
+	// Over what BatonDeck takes back in: written all the same (another host may take it), and said.
 	for _, w := range warnings {
-		fmt.Fprintf(stdout, "warning: %s: PACT Cloud's import would refuse this file; another host may take it\n", w)
+		fmt.Fprintf(stdout, "warning: %s: BatonDeck's import would refuse this file; another host may take it\n", w)
 	}
 	return 0
 }
 
 // checkWritten reads the file just written back through the importer's check (portable.CheckWritten)
-// and names each of PACT Cloud's import ceilings it is over.
+// and names each of BatonDeck's import ceilings it is over.
 func checkWritten(path, owner string, now time.Time, warnings *[]string) error {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
@@ -168,7 +168,7 @@ func checkWritten(path, owner string, now time.Time, warnings *[]string) error {
 }
 
 // importCmd is `import FILE.zip -slug S [-yes]`. Without -yes it reads and checks the whole file,
-// shows what it would write, and writes nothing (PACT §9.2's import step 2: the person reviews the
+// shows what it would write, and writes nothing (HDTP §9.2's import step 2: the person reviews the
 // contacts before they are written). With -yes it writes.
 func importCmd(args []string, stdout, stderr io.Writer) int {
 	// The file comes first, as it is typed; the flag package stops at the first argument that is
@@ -226,7 +226,7 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return refused(err)
 	}
-	// PACT §9.2's step 1: the person sees the contacts, and nothing is written until they agree.
+	// HDTP §9.2's step 1: the person sees the contacts, and nothing is written until they agree.
 	// The review is printed on EVERY run, -yes or not, before anything is written; -yes is the
 	// agreement only because the review it agrees to is on the screen above it, in the same run.
 	review(stdout, plan)
@@ -262,7 +262,7 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 	return nextLeaf(ctx, cfg, st, auditFn, plan, stdout, stderr)
 }
 
-// nextLeaf is how every import ends (PACT §9.2 step 4, SPEC §3.10): with a request for a new leaf
+// nextLeaf is how every import ends (HDTP §9.2 step 4, SPEC §3.10): with a request for a new leaf
 // for the importing endpoint, minted here — `move` for an identity new to this host, `renew` for
 // one it already serves — which the person completes in their wallet. Installing that leaf sends
 // every imported contact this host's handshake. The request goes through the same service
@@ -286,7 +286,7 @@ func nextLeaf(ctx context.Context, cfg *core.Config, st store.Store, auditFn fun
 		}
 	}
 	by := func(why string) int {
-		fmt.Fprintf(stdout, "next: a new leaf from the wallet. %s Then: `pact-gateway account csr -slug %s -purpose %s`, have the wallet sign it, and `pact-gateway account install-leaf -slug %s -chain <file>`. Installing it sends every imported contact this host's handshake\n", why, plan.Slug, purpose, plan.Slug)
+		fmt.Fprintf(stdout, "next: a new leaf from the wallet. %s Then: `hdtp-gateway account csr -slug %s -purpose %s`, have the wallet sign it, and `hdtp-gateway account install-leaf -slug %s -chain <file>`. Installing it sends every imported contact this host's handshake\n", why, plan.Slug, purpose, plan.Slug)
 		return 0
 	}
 	if endpoint == "" {
@@ -306,7 +306,7 @@ func nextLeaf(ctx context.Context, cfg *core.Config, st store.Store, auditFn fun
 	}
 	fmt.Fprintf(stdout, "next: a request for a new leaf is waiting: %s at %s, key %s, under root %s. Complete it in your wallet:\n", csr.Purpose, csr.Endpoint, csr.Kid, acct.RootFingerprint)
 	fmt.Fprintf(stdout, "  - the web wallet: start the node, sign in to its portal and open /identity/%s/wallet (the page asks your wallet for this leaf, replacing this request with one it can send);\n", plan.Slug)
-	fmt.Fprintf(stdout, "  - the CLI wallet: sign the request below (`pact id issue`), then `pact-gateway account install-leaf -slug %s -chain <file>`.\n", plan.Slug)
+	fmt.Fprintf(stdout, "  - the CLI wallet: sign the request below (`hdtp id issue`), then `hdtp-gateway account install-leaf -slug %s -chain <file>`.\n", plan.Slug)
 	fmt.Fprintf(stdout, "Installing the leaf sends every imported contact this host's handshake.\n")
 	fmt.Fprint(stdout, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr.CSR})))
 	return 0

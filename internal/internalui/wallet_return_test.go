@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/web"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
 )
 
 // The web wallet's return page (2026-09-30): the portal's look, one worded state for every answer
@@ -84,7 +84,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		{fmt.Errorf("x: %w: %w", identity.ErrWrongKey, identity.ErrLeafRefused), 400, "wrong_key"},
 		{fmt.Errorf("x: %w: %w", identity.ErrNotNewer, identity.ErrLeafRefused), 400, "not_newer"},
 		{fmt.Errorf("identity: chain refused by rule 4: leaf outside its validity: %w", identity.ErrLeafRefused), 400, "chain"},
-		{errors.New("sqlite: disk I/O error at /var/lib/pact/pact.db"), 500, "failed"},
+		{errors.New("sqlite: disk I/O error at /var/lib/hdtp/hdtp.db"), 500, "failed"},
 	}
 	for _, c := range cases {
 		next = c.err

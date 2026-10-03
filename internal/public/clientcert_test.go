@@ -1,6 +1,6 @@
 package public
 
-// `client_cert: required` is PACT §13.4's front-door posture: "a node MAY
+// `client_cert: required` is HDTP §13.4's front-door posture: "a node MAY
 // additionally require transport client certificates and refuse a
 // certificate-less `sealed_call` with `identity_required`". It is a statement
 // about who may knock at all, so what satisfies it has to be something a
@@ -8,7 +8,7 @@ package public
 //
 // It was satisfied by ANY self-signed certificate. The facts middleware filled
 // `ClientCertFingerprint` from whatever single certificate arrived — a proof
-// only while the identity IS a key, which is the generation removed on
+// only while the identity IS a key, which it stopped being on
 // 2026-09-18 — and the gate asked only that the field be non-empty. Two lines
 // of openssl walked through the hardened door.
 
@@ -16,7 +16,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func TestClientCertRequiredTakesAChainAndNothingElse(t *testing.T) {

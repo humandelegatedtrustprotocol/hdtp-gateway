@@ -1,7 +1,7 @@
 // The Inbox's unread counts are the node's, counted at runtime from each conversation's read marker
 // and capped (internal/internalui/messages_pages.go, UnreadCap): a conversation's row and the
 // sidebar's Inbox chip draw them with CountChip, so a capped count reads "50+" and an exact one its
-// number, the same shape and the same chip as PACT Cloud's (owner, 2026-10-01: "dont store the count
+// number, the same shape and the same chip as BatonDeck's (owner, 2026-10-01: "dont store the count
 // but compute on runtime based on page size and how many of the page are actually unread"). Read
 // from the source where it is wiring, because the portal has no DOM test harness.
 import { test } from "node:test";
@@ -29,7 +29,7 @@ test("a conversation's row draws its count with CountChip, from the node's tally
 
 test("the sidebar's Inbox chip is the node's total, never a sum of the rows", () => {
   // The node stops the total at its cap (UnreadCap): the screenshot's 63 + 1 unread is answered as
-  // { count: 50, capped: true }, and the chip says "50+", as PACT Cloud's does.
+  // { count: 50, capped: true }, and the chip says "50+", as BatonDeck's does.
   assert.equal(tallyText({ count: 50, capped: true }), "50+");
   const app = src("app.tsx");
   // The cap is the answer's: the view neither sums nor caps.
@@ -37,7 +37,7 @@ test("the sidebar's Inbox chip is the node's total, never a sum of the rows", ()
   assert.match(app, /return d\.unread \?\? 0;/);
   assert.doesNotMatch(app, /reduce\(\(n, p\) => n \+ \(p\.unread/);
   // And a read made in the Inbox drops it at once.
-  assert.match(app, /addEventListener\("pact:counts", onRead\)/);
+  assert.match(app, /addEventListener\("hdtp:counts", onRead\)/);
 });
 
 test("showing a conversation marks it read through the newest message shown, and only when there is something to read", () => {
@@ -46,5 +46,5 @@ test("showing a conversation marks it read through the newest message shown, and
   // Coming back to a hidden page reads what is on screen: the effect runs again when visibility changes.
   assert.match(view, /\}, \[sel, selUnread, through, visible, load\]\);/);
   assert.match(view, /postForm\("\/messages\/read", \{ contact: sel, through: String\(through\) \}\)/);
-  assert.match(view, /dispatchEvent\(new Event\("pact:counts"\)\)/);
+  assert.match(view, /dispatchEvent\(new Event\("hdtp:counts"\)\)/);
 });

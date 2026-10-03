@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/portal"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S11 — every portal page, in a real browser, in both themes.
@@ -76,7 +76,7 @@ func TestEveryPortalPageRendersInBothThemes(t *testing.T) {
 		}
 	}
 
-	artifacts := os.Getenv("PACT_HARNESS_ARTIFACTS")
+	artifacts := os.Getenv("HDTP_HARNESS_ARTIFACTS")
 	var failures []string
 	for _, pg := range pages {
 		shots := map[portal.Theme][]byte{}

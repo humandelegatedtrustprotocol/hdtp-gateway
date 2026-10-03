@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// PACT §2 and SPEC §10.3 give outbound calls two ways to accept a server: the
+// HDTP §2 and SPEC §10.3 give outbound calls two ways to accept a server: the
 // pinned contact fingerprint, or WebPKI validity for the endpoint hostname. The
 // second branch existed and could never succeed, because every production caller
 // built the client with `Roots: x509.NewCertPool()` — an EMPTY, non-nil pool.

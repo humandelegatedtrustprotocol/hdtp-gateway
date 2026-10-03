@@ -15,7 +15,7 @@ export async function connect(base, token) {
     if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error).slice(0, 200)}`)
     return body.result
   }
-  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'pact-qa', version: '1' } }, 1)
+  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'hdtp-qa', version: '1' } }, 1)
   await rpc('notifications/initialized', {})
   let n = 1
   return {

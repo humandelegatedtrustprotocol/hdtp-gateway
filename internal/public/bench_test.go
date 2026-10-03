@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // BenchmarkOpenSealedSmallForm is the common case: a pinned contact naming its
-// leaf by fingerprint (PACT §13.2). Every message after the first is this.
+// leaf by fingerprint (HDTP §13.2). Every message after the first is this.
 func BenchmarkOpenSealedSmallForm(b *testing.B) {
 	e := newRecvEnv(b)
 	p := newPeer(b, e.nowAt.Add(-time.Hour))
@@ -58,7 +58,7 @@ func BenchmarkValidateChain(b *testing.B) {
 	now := time.Now()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now}); !vr.OK {
+		if vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: now}); !vr.OK {
 			b.Fatalf("rule %d", vr.Rule)
 		}
 	}
@@ -96,7 +96,7 @@ func BenchmarkSealedCallEndToEnd(b *testing.B) {
 		// A fresh msg_id each time: a replay is answered from the idempotency
 		// record, which is a different (and much cheaper) path.
 		env := s.sealFrom(b, p, "leaf", "send_message", map[string]any{"msg_id": "m", "text": "hello"},
-			func(o *pactidentity.SealOpts) { o.MsgID = "bench-" + strconv.Itoa(i) })
+			func(o *hdtpidentity.SealOpts) { o.MsgID = "bench-" + strconv.Itoa(i) })
 		b.StartTimer()
 		res := s.call(b, env, TransportFacts{})
 		if res.IsError {

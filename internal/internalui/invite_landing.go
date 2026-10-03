@@ -3,7 +3,7 @@ package internalui
 // Invite landing page (SPEC §9.2), served on the PUBLIC listener at /i/{token}:
 // a human-readable page carrying the issuer's SIGNED card and a QR of the invite
 // URL — the guest holds the card BEFORE redeeming, which is also what makes sealed
-// redemption toward a required issuer possible (PACT §13.2). Unknown, revoked,
+// redemption toward a required issuer possible (HDTP §13.2). Unknown, revoked,
 // expired, and exhausted tokens are all the SAME 404: the page must not be an
 // oracle for invite state.
 
@@ -19,8 +19,8 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // LandingDeps is what the landing page reads. Its fields are node.LandingDeps' exactly, so the one
@@ -29,7 +29,7 @@ type LandingDeps struct {
 	Store store.Store
 	// SignCard produces the issuer's card text and its signature for an account (SPEC §9.3).
 	SignCard func(accountID string) (cardText string, sigB64 string, err error)
-	// Chain returns the issuer's [leaf, root]. PACT §4: the machine view is exactly
+	// Chain returns the issuer's [leaf, root]. HDTP §4: the machine view is exactly
 	// {card, card_sig, chain}, and the chain is what a redeemer validates before it seals its
 	// first call — so a landing that cannot produce one has nothing redeemable to serve.
 	Chain func(accountID string) ([][]byte, error)
@@ -46,21 +46,21 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PACT invite</title>
+<title>HDTP invite</title>
 ` + landingStyle + `
 </head>
 <body><main>
-<div class="brand">` + landingMark + `<span>PACT</span></div>
+<div class="brand">` + landingMark + `<span>HDTP</span></div>
 <h1>{{.FN}} invites your agent to connect</h1>
-<p>This is a <strong>PACT</strong> invite. Point your agent at it — redemption pins the
+<p>This is a <strong>HDTP</strong> invite. Point your agent at it — redemption pins the
 card below, so verify it came from the person you expect before connecting.</p>
-<p>Running your own PACT node? Paste this page's address into your node's portal, under
+<p>Running your own HDTP node? Paste this page's address into your node's portal, under
 <strong>People → Accept an invite</strong>.</p>
 <div class="card"><h2>Their signed card</h2><pre>{{.Card}}</pre>
 <p class="muted">signature (by the key the card names): <code>{{.Sig}}</code></p>
 </div>
 <div class="card"><h2>Share</h2><img src="{{.QR}}" alt="QR of this invite link"/></div>
-<p class="muted">pact-gateway serves this page self-contained: no external assets, no telemetry.</p>
+<p class="muted">hdtp-gateway serves this page self-contained: no external assets, no telemetry.</p>
 </main></body></html>`))
 
 // LandingHandler renders /i/{token}.
@@ -92,7 +92,7 @@ func LandingHandler(d LandingDeps) http.Handler {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		// Machine view (PACT §4): exactly the signed card and the chain that proves it. The
+		// Machine view (HDTP §4): exactly the signed card and the chain that proves it. The
 		// chain is not optional. It used to be added "if there is one", beside a `spki` member
 		// the spec does not define, so an issuer with no chain served an offer nobody could
 		// redeem and said nothing; now it says it is unavailable.
@@ -106,10 +106,10 @@ func LandingHandler(d LandingDeps) http.Handler {
 				http.Error(w, "unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			w.Header().Set("Content-Type", "application/pact-invite+json")
+			w.Header().Set("Content-Type", "application/hdtp-invite+json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"card": card, "card_sig": sig,
-				"chain": []string{pactidentity.B64url(chain[0]), pactidentity.B64url(chain[1])},
+				"chain": []string{hdtpidentity.B64url(chain[0]), hdtpidentity.B64url(chain[1])},
 			})
 			return
 		}
@@ -138,7 +138,7 @@ func LandingHandler(d LandingDeps) http.Handler {
 func wantsJSON(r *http.Request) bool {
 	a := r.Header.Get("Accept")
 	return r.URL.Query().Get("format") == "json" ||
-		strings.Contains(a, "application/json") || strings.Contains(a, "application/pact-invite+json")
+		strings.Contains(a, "application/json") || strings.Contains(a, "application/hdtp-invite+json")
 }
 
 var _ = fmt.Sprintf // reserved for future use in error paths

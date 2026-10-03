@@ -162,7 +162,7 @@ func NewSummary(tier, started, ended, commit string, cases []Case) Summary {
 	for _, c := range cases {
 		counts[string(c.Verdict)]++
 	}
-	return Summary{Schema: "pact-results/1", Repo: "pact-gateway", Suite: "harness", Tier: tier, Run: SummaryRun{Started: started, Ended: ended, Commit: commit}, Cases: cases, Counts: counts}
+	return Summary{Schema: "hdtp-results/1", Repo: "hdtp-gateway", Suite: "harness", Tier: tier, Run: SummaryRun{Started: started, Ended: ended, Commit: commit}, Cases: cases, Counts: counts}
 }
 
 // TableText renders cases for a terminal: a verdict per line, and the ones that fail the tier

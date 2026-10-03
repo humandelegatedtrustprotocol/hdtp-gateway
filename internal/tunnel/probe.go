@@ -5,10 +5,10 @@ package tunnel
 // fresh nonce through the probe handler. Hairpin NAT can make a self-originated probe
 // unrepresentative: that is reported as a caveat, never as a clean pass.
 //
-// "The way a peer does" is the point of it, and for a day after PACT 1.x went it was not true.
+// "The way a peer does" is the point of it, and for a day after the retired generation went it was not true.
 // A peer recognises a node by the CHAIN it presents — leaf then root — validated to the root it
-// pinned, AT THE ADDRESS IT DIALLED (PACT §2, §14.2 rule 5). This compared the fingerprint of the
-// served certificate's KEY with a pinned key instead, which was 1.x's rule, and it has a failure
+// pinned, AT THE ADDRESS IT DIALLED (HDTP §2, §14.2 rule 5). This compared the fingerprint of the
+// served certificate's KEY with a pinned key instead, which was the retired generation's rule, and it has a failure
 // mode that matters: a node whose leaf names some other address than the one it is reached at
 // serves "the right key", passes its own probe, and is refused by every peer there is. With no
 // identity to validate against — behind a terminating edge — what a peer sees is the edge's
@@ -30,12 +30,12 @@ import (
 	"strings"
 	"time"
 
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // ProbePath is where the node answers probes (no auth: it only echoes a nonce
 // and the instance id, and reveals nothing about contacts or accounts).
-const ProbePath = "/.well-known/pact-probe"
+const ProbePath = "/.well-known/hdtp-probe"
 
 // Verdict is the probe's one-word diagnosis.
 type Verdict string
@@ -121,12 +121,12 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 		tlsCfg.InsecureSkipVerify = true
 		tlsCfg.VerifyConnection = func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) != 2 {
-				return fmt.Errorf("served %d certificate(s): a node presents its chain, leaf then root (PACT §14.2)", len(cs.PeerCertificates))
+				return fmt.Errorf("served %d certificate(s): a node presents its chain, leaf then root (HDTP §14.2)", len(cs.PeerCertificates))
 			}
 			chain := [][]byte{cs.PeerCertificates[0].Raw, cs.PeerCertificates[1].Raw}
 			why := ""
 			for _, id := range o.Identities {
-				vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: now(), ExpectedRoot: id.Root, ExpectedEndpoint: id.Endpoint})
+				vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: now(), ExpectedRoot: id.Root, ExpectedEndpoint: id.Endpoint})
 				if vr.OK {
 					return nil
 				}
@@ -184,7 +184,7 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 	}
 	if o.InstanceID != "" && echo.Instance != o.InstanceID {
 		res.Verdict = VerdictWrongInstance
-		res.Detail = "endpoint reaches a different pact-gateway instance (" + echo.Instance + ")"
+		res.Detail = "endpoint reaches a different hdtp-gateway instance (" + echo.Instance + ")"
 		return res
 	}
 	res.Verdict = VerdictReachable

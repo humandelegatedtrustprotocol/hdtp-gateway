@@ -6,10 +6,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/storecheck"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/storecheck"
 )
 
-const checkUsage = "usage: pact-gateway check <store> [flags]"
+const checkUsage = "usage: hdtp-gateway check <store> [flags]"
 
 // checkCmd is `check store`: every card and certificate the store holds, read by the identity
 // core's rule (storecheck), each refusal named, and each contact in a state neither a pin nor a
@@ -45,7 +45,7 @@ func checkCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	defer st.Close()
 	if err := st.SchemaCurrent(ctx); err != nil {
-		fmt.Fprintf(stderr, "check store: %v; run `pact-gateway migrate` with the node stopped, then check again\n", err)
+		fmt.Fprintf(stderr, "check store: %v; run `hdtp-gateway migrate` with the node stopped, then check again\n", err)
 		return 1
 	}
 	rep, err := storecheck.Run(ctx, st, time.Now())

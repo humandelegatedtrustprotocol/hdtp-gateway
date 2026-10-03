@@ -37,10 +37,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
 )
 
 // doorsNode is a running node with two owners, each administering one identity.
@@ -65,7 +65,7 @@ func startDoorsNode(t *testing.T) *doorsNode {
 	ctx := context.Background()
 	d := &doorsNode{}
 	d.r = runServeWith(t, nil, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +120,7 @@ func startDoorsNode(t *testing.T) *doorsNode {
 		t.Fatal(err)
 	}
 	d.base = "http://" + d.r.internal
-	d.sessionName, d.csrfName = "pact_session_"+cfg.Tag(), "pact_csrf_"+cfg.Tag()
+	d.sessionName, d.csrfName = "hdtp_session_"+cfg.Tag(), "hdtp_csrf_"+cfg.Tag()
 	d.sessions = auth.New(d.st)
 	d.ownerMCPURL = d.base + "/owner/mcp"
 	d.publicURL = "https://" + d.r.public + "/a/mine/mcp"
@@ -323,9 +323,9 @@ func TestNoPortalAnswerAllowsAnotherOrigin(t *testing.T) {
 		for _, a := range []answer{
 			d.send(t, "OPTIONS", path, nil, map[string]string{
 				"Origin": "https://evil.example", "Access-Control-Request-Method": method,
-				"Access-Control-Request-Headers": "x-pact-csrf",
+				"Access-Control-Request-Headers": "x-hdtp-csrf",
 			}, sess, csrf),
-			d.send(t, method, path, nil, map[string]string{"Origin": "https://evil.example", "X-Pact-Csrf": csrf.Value}, sess, csrf),
+			d.send(t, method, path, nil, map[string]string{"Origin": "https://evil.example", "X-HDTP-Csrf": csrf.Value}, sess, csrf),
 		} {
 			for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Headers"} {
 				if v := a.header.Get(h); v != "" {
@@ -385,7 +385,7 @@ func TestAnotherOwnersAccountIsNotFoundAndTheRefusalAudited(t *testing.T) {
 				sess, csrf := d.session(t)
 				before := rows()
 				var body io.Reader
-				h := map[string]string{"X-Pact-Csrf": csrf.Value}
+				h := map[string]string{"X-HDTP-Csrf": csrf.Value}
 				if c.body != nil {
 					body = strings.NewReader(c.body.Encode())
 					h["Content-Type"] = form["Content-Type"]

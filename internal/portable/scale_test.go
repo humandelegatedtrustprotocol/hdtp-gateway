@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // scaleExport is an export of one identity with `threads` threads spread over 100 contacts and
@@ -19,25 +19,25 @@ func scaleExport(t *testing.T, threads int) ([]byte, string) {
 	t.Helper()
 	owner := testid.NewWallet(t, "Scale")
 	at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
-	in := pactidentity.ExportInput{Owner: owner.Fpr, OwnerName: "Scale", Tool: "scale test", ExportedAt: at,
-		Threads: []pactidentity.ThreadRow{}, Messages: []pactidentity.MessageRow{}, Media: []pactidentity.ExportMedia{}}
+	in := hdtpidentity.ExportInput{Owner: owner.Fpr, OwnerName: "Scale", Tool: "scale test", ExportedAt: at,
+		Threads: []hdtpidentity.ThreadRow{}, Messages: []hdtpidentity.MessageRow{}, Media: []hdtpidentity.ExportMedia{}}
 	var roots []string
 	for i := 0; i < 100; i++ {
 		root := testid.NewWallet(t, fmt.Sprintf("Contact %d", i)).Fpr
 		roots = append(roots, root)
-		in.Contacts = append(in.Contacts, pactidentity.ContactRow{Root: root, Endpoint: fmt.Sprintf("https://c%d.example/a/c/mcp", i),
+		in.Contacts = append(in.Contacts, hdtpidentity.ContactRow{Root: root, Endpoint: fmt.Sprintf("https://c%d.example/a/c/mcp", i),
 			Status: "active", WasActive: true, Permissions: []string{"message.text"}, TheirPermissions: []string{}, Added: at.Format(time.RFC3339)})
 	}
 	stamp := at.Format(time.RFC3339)
 	for i := 0; i < threads; i++ {
 		id := "t" + strconv.Itoa(i)
 		root := roots[i%len(roots)]
-		in.Threads = append(in.Threads, pactidentity.ThreadRow{ID: id, Contact: root, Topic: "topic " + id, CreatedAt: stamp, LastAt: stamp})
-		in.Messages = append(in.Messages, pactidentity.MessageRow{ID: "m" + id, Thread: id, Contact: root, MsgID: "msg-" + id, Direction: "in",
-			Sender: "human", Time: stamp, Body: "hello " + id, Status: "delivered", Attachments: []pactidentity.Attachment{}})
+		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: id, Contact: root, Topic: "topic " + id, CreatedAt: stamp, LastAt: stamp})
+		in.Messages = append(in.Messages, hdtpidentity.MessageRow{ID: "m" + id, Thread: id, Contact: root, MsgID: "msg-" + id, Direction: "in",
+			Sender: "human", Time: stamp, Body: "hello " + id, Status: "delivered", Attachments: []hdtpidentity.Attachment{}})
 	}
 	var buf bytes.Buffer
-	if _, err := pactidentity.WriteExportZip(&buf, in, nil); err != nil {
+	if _, err := hdtpidentity.WriteExportZip(&buf, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes(), owner.Fpr
@@ -68,7 +68,7 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 }
 
 // An import's cost grows with the file, not with its square. It is timed in two parts: reading
-// and checking the whole file (pact-identity's ReadExportZip, then export_merge), and writing it
+// and checking the whole file (hdtp-identity's ReadExportZip, then export_merge), and writing it
 // into the store. v0.3.0 read threads.csv in time quadratic in its rows: measured here on SQLite at
 // 10,000 and 40,000 threads, reading took 10.8x and 17.7x as long for 4x the threads, while
 // writing took 2.9x and 4.7x; an end-to-end ratio, diluted by the writes, measured anywhere from
@@ -76,9 +76,9 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 // 12.5k -> 50k threads read in 0.16 s -> 0.66 s (4.1x) and wrote in 0.48 s -> 1.96 s (4.1x);
 // 10k -> 40k read 3.9x and wrote 3.9x and 4.1x, over two runs.
 //
-// PACT_EXPORT_SCALE=<threads> imports a quarter of that and then all of it, three times over,
+// HDTP_EXPORT_SCALE=<threads> imports a quarter of that and then all of it, three times over,
 // interleaved (a quarter, all, a quarter, all, ...), and takes the best time of each size, as
-// pact-identity's growth tests do: a machine busy with something else slows one run, not the best
+// hdtp-identity's growth tests do: a machine busy with something else slows one run, not the best
 // of three. It fails when either part's best takes more than growthBound times as long for four
 // times the threads (linear is 4). `make scale` runs it at 40,000, and the pre-push hook runs `make
 // scale` after every other step, so the gate's own earlier steps are not the load it measures; it
@@ -86,9 +86,9 @@ func importTook(t *testing.T, threads int) (read, apply time.Duration) {
 // about the machine than the code. (Measured once at 6.4 under a concurrent full gate, and 4.0-4.1
 // alone, before the best of three.)
 func TestAnImportGrowsLinearlyWithItsThreads(t *testing.T) {
-	n, err := strconv.Atoi(os.Getenv("PACT_EXPORT_SCALE"))
+	n, err := strconv.Atoi(os.Getenv("HDTP_EXPORT_SCALE"))
 	if err != nil || n < 400 {
-		t.Skip("!! NOT MEASURED: set PACT_EXPORT_SCALE=<threads> (e.g. 50000) to time an import at that size")
+		t.Skip("!! NOT MEASURED: set HDTP_EXPORT_SCALE=<threads> (e.g. 50000) to time an import at that size")
 	}
 	best := func(d, was time.Duration) time.Duration {
 		if was == 0 || d < was {

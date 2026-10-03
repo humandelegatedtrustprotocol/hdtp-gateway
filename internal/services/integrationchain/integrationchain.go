@@ -26,9 +26,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 // upstreamTimeout bounds every call this node makes to an upstream MCP server.
@@ -131,7 +131,7 @@ func Build(st store.Store, kr integrations.Sealer,
 				// its verdict; the connect result is audited on its own.
 				auditFn("oauth_connect", "account:"+in.AccountID+" integration:"+in.Slug+" method:dynamic_registration", "started")
 				setup.DynamicRegistration = &oauthex.ClientRegistrationMetadata{
-					ClientName:              "PACT gateway (" + in.Slug + ")",
+					ClientName:              "HDTP Gateway (" + in.Slug + ")",
 					RedirectURIs:            []string{redirect},
 					GrantTypes:              []string{"authorization_code", "refresh_token"},
 					ResponseTypes:           []string{"code"},

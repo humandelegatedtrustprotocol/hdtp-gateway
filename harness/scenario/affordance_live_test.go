@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/portal"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/portal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // Everything an owner must be able to DO from the portal, checked on a real node.

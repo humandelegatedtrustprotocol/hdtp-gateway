@@ -1,6 +1,6 @@
 package public
 
-// PACT §13.2: "once a request envelope has been successfully opened, an error
+// HDTP §13.2: "once a request envelope has been successfully opened, an error
 // result MUST be sealed back like any other result — a plaintext error is only
 // for an envelope that could not be opened at all, where there is no proven key
 // to seal toward."
@@ -11,7 +11,7 @@ package public
 // verified — so both told whatever carried the call something it cannot learn
 // any other way: that the recipient PINS this sender. A stranger's envelope
 // never produces `pending_approval`. That is the correlation sealing exists to
-// deny a carrier (PACT §13.5), and in edge mode the carrier is there by
+// deny a carrier (HDTP §13.5), and in edge mode the carrier is there by
 // construction.
 
 import (

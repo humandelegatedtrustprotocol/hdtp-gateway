@@ -62,45 +62,45 @@ const (
 	CaldavImage Need = "caldav-image"
 	// Chrome is a Chrome the portal driver can launch headless.
 	Chrome Need = "chrome"
-	// Kernel is an aarch64 guest kernel named by PACT_HARNESS_KERNEL (`make harness-kernel`)
+	// Kernel is an aarch64 guest kernel named by HDTP_HARNESS_KERNEL (`make harness-kernel`)
 	// and a hardware-accelerated qemu-system-aarch64.
 	Kernel Need = "kernel"
-	// CF is PACT_CF_DOMAIN: two real Cloudflare tunnels built by
+	// CF is HDTP_CF_DOMAIN: two real Cloudflare tunnels built by
 	// docs/demos/cloudflare-two-users.md, which no test may provision.
 	CF Need = "cf"
-	// PactCLI is the `pact` command of pact-identity, named by PACT_CLI: the live intrusion battery
-	// (`pact vectors intrude --against`), which is data in pact-identity and aimed at any host.
-	// `make harness-pact-cli` builds it from the sibling checkout.
-	PactCLI Need = "pact-cli"
-	// CloudBattery is the Go conformance battery's checkout (pact-cloud/gateway/conformance), named
-	// by PACT_CLOUD_BATTERY: the one battery the cloud runs against staging, run here against a node.
+	// HDTPCLI is the `hdtp` command of hdtp-identity, named by HDTP_CLI: the live intrusion battery
+	// (`hdtp vectors intrude --against`), which is data in hdtp-identity and aimed at any host.
+	// `make harness-hdtp-cli` builds it from the sibling checkout.
+	HDTPCLI Need = "hdtp-cli"
+	// CloudBattery is the Go conformance battery's checkout (batondeck/gateway/conformance), named
+	// by HDTP_CLOUD_BATTERY: the one battery the cloud runs against staging, run here against a node.
 	CloudBattery Need = "cloud-battery"
-	// LocalCloud is pact-cloud's local cloud and its live-local runner (gateway/e2e/local-run.mjs),
-	// named by PACT_LOCAL_CLOUD (the gateway directory), with the WorkOS test pair its session
+	// LocalCloud is batondeck's local cloud and its live-local runner (gateway/e2e/local-run.mjs),
+	// named by HDTP_LOCAL_CLOUD (the gateway directory), with the WorkOS test pair its session
 	// injection verifies (WORKOS_TEST_CLIENT_ID, WORKOS_TEST_API_KEY) and its built public/.
 	LocalCloud Need = "local-cloud"
 )
 
 // Needs is every need.
-var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF, PactCLI, CloudBattery, LocalCloud}
+var Needs = []Need{Docker, NodeImage, CaldavImage, Chrome, Kernel, CF, HDTPCLI, CloudBattery, LocalCloud}
 
 // The environment variables the harness reads.
 const (
 	// LiveEnv turns live scenarios on. Without it Start skips and records nothing, which is what
 	// keeps the hermetic tier hermetic.
-	LiveEnv = "PACT_HARNESS_LIVE"
+	LiveEnv = "HDTP_HARNESS_LIVE"
 	// ResultsEnv is the directory Start writes one <id>.json per scenario into.
-	ResultsEnv = "PACT_HARNESS_RESULTS"
+	ResultsEnv = "HDTP_HARNESS_RESULTS"
 	// KernelEnv names the guest kernel (Need Kernel).
-	KernelEnv = "PACT_HARNESS_KERNEL"
+	KernelEnv = "HDTP_HARNESS_KERNEL"
 	// CFEnv names the Cloudflare domain (Need CF).
-	CFEnv = "PACT_CF_DOMAIN"
-	// PactCLIEnv names the pact CLI (Need PactCLI).
-	PactCLIEnv = "PACT_CLI"
+	CFEnv = "HDTP_CF_DOMAIN"
+	// HDTPCLIEnv names the hdtp CLI (Need HDTPCLI).
+	HDTPCLIEnv = "HDTP_CLI"
 	// CloudBatteryEnv names the battery's directory (Need CloudBattery).
-	CloudBatteryEnv = "PACT_CLOUD_BATTERY"
-	// LocalCloudEnv names pact-cloud's gateway directory (Need LocalCloud).
-	LocalCloudEnv = "PACT_LOCAL_CLOUD"
+	CloudBatteryEnv = "HDTP_CLOUD_BATTERY"
+	// LocalCloudEnv names batondeck's gateway directory (Need LocalCloud).
+	LocalCloudEnv = "HDTP_LOCAL_CLOUD"
 )
 
 // Spec is one scenario.
@@ -169,8 +169,8 @@ func Provides(t Tier, getenv func(string) string) []Need {
 	if getenv(CFEnv) != "" {
 		out = append(out, CF)
 	}
-	if getenv(PactCLIEnv) != "" {
-		out = append(out, PactCLI)
+	if getenv(HDTPCLIEnv) != "" {
+		out = append(out, HDTPCLI)
 	}
 	if getenv(CloudBatteryEnv) != "" {
 		out = append(out, CloudBattery)
@@ -207,12 +207,12 @@ func HowToProvide(n Need) string {
 		return "make harness-kernel, then export " + KernelEnv + " (and an accelerated qemu-system-aarch64)"
 	case CF:
 		return "run docs/demos/cloudflare-two-users.md, then export " + CFEnv
-	case PactCLI:
-		return "make harness-pact-cli (a pact-identity checkout beside this one), or export " + PactCLIEnv + " naming a built pact"
+	case HDTPCLI:
+		return "make harness-hdtp-cli (an hdtp-identity checkout beside this one), or export " + HDTPCLIEnv + " naming a built hdtp"
 	case LocalCloud:
-		return "export " + LocalCloudEnv + " naming a pact-cloud gateway/ with e2e/local-run.mjs and a built public/, and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
+		return "export " + LocalCloudEnv + " naming a batondeck gateway/ with e2e/local-run.mjs and a built public/, and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
 	case CloudBattery:
-		return "check pact-cloud out beside this repository (the Makefile then exports " + CloudBatteryEnv + "), or export it naming gateway/conformance"
+		return "check batondeck out beside this repository (the Makefile then exports " + CloudBatteryEnv + "), or export it naming gateway/conformance"
 	}
 	return "unknown need"
 }

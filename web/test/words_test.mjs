@@ -1,5 +1,5 @@
 // The portal's status tones and its tool and permission names (web/src/words.ts), run as it ships:
-// `node --test` strips its types. PACT Cloud runs its verbatim copy of the module under its own suite
+// `node --test` strips its types. BatonDeck runs its verbatim copy of the module under its own suite
 // (portal/test/words.test.ts), against the cloud's emitters; its check-harvested.mjs holds the copy to
 // this file's module byte for byte, so the two ports' tone tables are one table.
 //
@@ -127,7 +127,7 @@ test("a tool and a permission are said as an owner reads them, the integration's
   assert.ok(!/^Integration\./.test(toolLabel("integration.linear.create_issue")));
 });
 
-// What the module answers for an avatar, a tool's button, a trust flag and a field's label. PACT Cloud's
+// What the module answers for an avatar, a tool's button, a trust flag and a field's label. BatonDeck's
 // portal/test/words.test.ts runs its verbatim copy of the module against the same initials and some of
 // the other cases.
 export const INITIALS = [
@@ -229,7 +229,7 @@ test("a count is grouped", () => {
 // ---- the audit trail's filters: every actor kind the node's store can hold (its CHECK) has a word,
 // and none of them is the code itself.
 test("every actor kind the node records has a word of its own", () => {
-  const mig = readFileSync(join(repo, "migrations/sqlite/0001_init.sql"), "utf8");
+  const mig = readFileSync(join(repo, "migrations/sqlite/0001_base.sql"), "utf8");
   const kinds = /actor_kind TEXT NOT NULL CHECK \(actor_kind IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
   assert.ok(kinds.length >= 6, `read ${kinds.length} kinds from the CHECK`);
   for (const k of kinds) {
@@ -280,8 +280,9 @@ test("an invite's state is redemption's: revoked, then expired, then used up", (
 });
 
 test("every contact state the node stores has an owner's word, and only the ordinary one goes unpilled", () => {
-  const mig = readFileSync(join(repo, "migrations/sqlite/0002_contacts.sql"), "utf8");
-  const states = /status\s+TEXT NOT NULL CHECK \(status IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
+  // The contacts table's own CHECK: other tables have a status column too.
+  const contacts = /CREATE TABLE contacts \(([\s\S]*?)\n\);/.exec(readFileSync(join(repo, "migrations/sqlite/0001_base.sql"), "utf8"))[1];
+  const states = /status\s+TEXT NOT NULL CHECK \(status IN \(([^)]*)\)\)/.exec(contacts)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
   assert.deepEqual([...states].sort(), ["active", "blocked", "pending_in", "pending_out"]);
   for (const st of states) assert.ok(!contactStatusWord(st).includes("_"), st);
   assert.equal(contactStatusWord("pending_in"), "asked you");
@@ -290,7 +291,7 @@ test("every contact state the node stores has an owner's word, and only the ordi
 });
 
 // A count chip (ui.tsx `CountChip`) says a count the server capped as the cap and a plus, and an exact
-// count as its number: PACT Cloud's sidebar said "50" over 2,000 unread because the read it summed was a
+// count as its number: BatonDeck's sidebar said "50" over 2,000 unread because the read it summed was a
 // page of fifty threads (owner, 2026-10-01: "show 50+ if more than 50"). The cap is the answer's.
 test("a capped tally reads as its cap and a plus; an exact one as its number", () => {
   assert.equal(tallyText({ count: 50, capped: true }), "50+");
@@ -309,9 +310,9 @@ test("a screen reader hears how many, and that a capped count is more", () => {
 });
 
 test("the tab title carries the tally once, replacing any earlier one", () => {
-  assert.equal(titleWithTally("PACT", { count: 50, capped: true }), "(50+) PACT");
-  assert.equal(titleWithTally("(50+) PACT", { count: 4, capped: false }), "(4) PACT");
-  assert.equal(titleWithTally("(4) PACT", { count: 50, capped: true }), "(50+) PACT");
-  assert.equal(titleWithTally("(1,000+) PACT", 0), "PACT");
-  assert.equal(titleWithTally("(12) PACT", 0), "PACT");
+  assert.equal(titleWithTally("HDTP", { count: 50, capped: true }), "(50+) HDTP");
+  assert.equal(titleWithTally("(50+) HDTP", { count: 4, capped: false }), "(4) HDTP");
+  assert.equal(titleWithTally("(4) HDTP", { count: 50, capped: true }), "(50+) HDTP");
+  assert.equal(titleWithTally("(1,000+) HDTP", 0), "HDTP");
+  assert.equal(titleWithTally("(12) HDTP", 0), "HDTP");
 });

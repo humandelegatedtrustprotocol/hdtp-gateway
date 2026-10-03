@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
 func (s *SQLite) AuditAnchor(ctx context.Context) (AuditAnchorRow, error) {

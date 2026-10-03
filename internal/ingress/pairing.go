@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // PairRequest is the node's one-shot registration.
@@ -135,7 +135,7 @@ func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIng
 	}
 	client.Transport = &http.Transport{TLSClientConfig: &tls.Config{
 		Certificates:       []tls.Certificate{nodeCert},
-		InsecureSkipVerify: true, // #nosec G402 -- pinned below, never chain-validated (PACT §2)
+		InsecureSkipVerify: true, // #nosec G402 -- pinned below, never chain-validated (HDTP §2)
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
 				return errIngressNoCert
@@ -169,7 +169,7 @@ func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIng
 	return out, seenFpr, nil
 }
 
-// PairError is a non-200 pairing answer (the body carries the PACT code).
+// PairError is a non-200 pairing answer (the body carries the HDTP code).
 type PairError struct {
 	Status int
 	Body   string

@@ -11,9 +11,9 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/pgdb"
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
-	"github.com/pact-cloud/pact-gateway/migrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
 )
 
 // Postgres is the disconnect-the-storage engine (SPEC §11.1): same Store contract,
@@ -84,19 +84,8 @@ func (s *Postgres) Migrate(ctx context.Context) error {
 		return err
 	}
 	defer db.Close()
-	if _, err = p.Up(ctx); err != nil {
-		return err
-	}
-	return fillLeafFingerprints(ctx, func(ctx context.Context) ([]sqlitedb.ListContactLeafKeysUnfilledRow, error) {
-		rs, err := s.q.ListContactLeafKeysUnfilled(ctx)
-		out := make([]sqlitedb.ListContactLeafKeysUnfilledRow, len(rs))
-		for i, r := range rs {
-			out[i] = sqlitedb.ListContactLeafKeysUnfilledRow(r)
-		}
-		return out, err
-	}, func(ctx context.Context, fpr sql.NullString, id string) error {
-		return s.q.SetContactLeafFingerprint(ctx, pgdb.SetContactLeafFingerprintParams{LeafFingerprint: fpr, ID: id})
-	})
+	_, err = p.Up(ctx)
+	return err
 }
 
 func (s *Postgres) SchemaCurrent(ctx context.Context) error {
@@ -127,7 +116,7 @@ func (s *Postgres) Close() error {
 // deleted row's bytes there: the old row version stays in its page as a dead tuple until VACUUM
 // reclaims the space (and reclaiming does not overwrite it), the write-ahead log keeps it until
 // the segment is recycled, and any base backup or WAL archive keeps it for as long as that is
-// kept. SPEC §3.9 names this as a divergence from PACT §9's "destroy"; what remains is ciphertext
+// kept. SPEC §3.9 names this as a divergence from HDTP §9's "destroy"; what remains is ciphertext
 // sealed under the node's keyring.
 func (s *Postgres) Scrub(context.Context) error { return nil }
 
@@ -188,7 +177,7 @@ func (s *Postgres) DeleteOwner(ctx context.Context, id string) error {
 }
 
 // CreateAccount refuses a slug an identity has vacated while the last leaf issued for it is live
-// (ErrAddressVacated, PACT §9). It is here, and not in identity.Manager, because every door that
+// (ErrAddressVacated, HDTP §9). It is here, and not in identity.Manager, because every door that
 // creates an account reaches this method and not all of them go through the manager: an import
 // (internal/portable) creates its identities in the store's own transaction.
 func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
@@ -256,7 +245,7 @@ func (s *Postgres) GetAccountSealedKey(ctx context.Context, id string) ([]byte, 
 	}
 	// No key is a STATE, not a failure: an account that arrived in a data-only
 	// archive holds its root and no key, because a leaf key belongs to the host
-	// that issued it (PACT §9). Reporting that as an error made three callers'
+	// that issued it (HDTP §9). Reporting that as an error made three callers'
 	// `len(sealed) == 0` branches unreachable — the node read it as "unavailable"
 	// and refused to start when it was the only account, `csr -purpose signup`
 	// could not mint a key, and `install-leaf` could not install the first leaf

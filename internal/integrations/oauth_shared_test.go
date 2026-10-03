@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // rotatingProvider is a token endpoint that rotates refresh tokens, as providers do: each refresh

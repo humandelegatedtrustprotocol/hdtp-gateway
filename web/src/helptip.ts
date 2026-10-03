@@ -1,5 +1,5 @@
 // The help tip's behaviour, with no DOM and no JSX, so web/test/helptip_test.mjs runs it under plain
-// `node --test` (make test-js). help.tsx is the component that drives it. Both are shared with PACT
+// `node --test` (make test-js). help.tsx is the component that drives it. Both are shared with HDTP
 // Cloud's portal byte for byte (its scripts/check-harvested.mjs holds the copies to this repository's).
 //
 // A tip opens on hover (a mouse only: a touch tap synthesises an enter with no leave), on keyboard

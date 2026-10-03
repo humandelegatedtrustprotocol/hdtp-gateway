@@ -20,7 +20,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // portalBase is the scheme://host:port an owner should open.

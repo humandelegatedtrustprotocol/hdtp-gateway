@@ -1,5 +1,5 @@
 // A rig for presets.ts's presetAutosave, run with no DOM: a clock the test moves, and a save that
-// answers when the test says. Kept beside presets_test.mjs; PACT Cloud's portal/test/preset-grid.test.ts
+// answers when the test says. Kept beside presets_test.mjs; BatonDeck's portal/test/preset-grid.test.ts
 // drives the same module the same way.
 import { presetAutosave } from "../src/presets.ts";
 

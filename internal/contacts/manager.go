@@ -1,4 +1,4 @@
-// Package contacts implements the contact lifecycle of SPEC §9 / PACT §5–§6:
+// Package contacts implements the contact lifecycle of SPEC §9 / HDTP §5–§6:
 // invite issuance and redemption, guest contact requests, the pending-tier answer
 // tools, and the always-available contact-tier tools, including the card refresh
 // a renewal or a move is followed by (update_contact).
@@ -14,13 +14,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// Wire error codes (PACT §12).
+// Wire error codes (HDTP §12).
 var (
 	ErrInviteInvalid    = errors.New("invite_invalid")
 	ErrIdentityRequired = errors.New("identity_required")
@@ -31,7 +31,7 @@ var (
 // ErrContactCap is core.ErrContactCap, where every package that adds a contact can reach it.
 var ErrContactCap = core.ErrContactCap
 
-// MaxInviteTTL is PACT §12's cap on expires_at; exported so the limits the
+// MaxInviteTTL is HDTP §12's cap on expires_at; exported so the limits the
 // node advertises (get_card) come from the same authority that enforces them.
 const MaxInviteTTL = 90 * 24 * time.Hour
 const defaultInviteTTL = 14 * 24 * time.Hour
@@ -40,7 +40,7 @@ type Manager struct {
 	Store store.Store
 	Now   func() time.Time // injectable clock
 	// OnRequest fires when a contact request lands awaiting the owner's
-	// approval. It is how `pact://requests` and the portal's live view learn
+	// approval. It is how `hdtp://requests` and the portal's live view learn
 	// there is something to look at (SPEC §8.5, §9.1); nothing produced that
 	// event, so the resource an agent could subscribe to never fired.
 	OnRequest func(accountID, contactFpr string)
@@ -51,7 +51,7 @@ type Manager struct {
 	// Nothing already held is ever revoked by it; only the next act that would add one is refused.
 	ContactCap func() int
 	// AdmitRequest decides whether accountID, which holds `held` requests awaiting its owner
-	// (pending_in rows), may be written one more: the pending-request cap (PACT §12's limits, the
+	// (pending_in rows), may be written one more: the pending-request cap (HDTP §12's limits, the
 	// node's limits sidecar). Asked by every path that writes a pending_in row a stranger caused —
 	// a request, and a redemption the owner must approve — and by nothing else. A refusal is
 	// ErrRequestsFull, or the error of a sidecar that did not answer; nil AdmitRequest refuses
@@ -146,7 +146,7 @@ func (m *Manager) CreateInvite(ctx context.Context, accountID string, o InviteOp
 	}
 	// The preset IS the grant: an invite carrying a preset but no explicit
 	// permission list grants that preset's bundle, exactly as approving a
-	// request with the same preset does (PACT §8).
+	// request with the same preset does (HDTP §8).
 	if len(o.Permissions) == 0 && o.Preset != "" {
 		if perms, ok := LoadPresets(ctx, m.Store)[o.Preset]; ok {
 			o.Permissions = append([]string(nil), perms...)
@@ -163,7 +163,7 @@ func (m *Manager) CreateInvite(ctx context.Context, accountID string, o InviteOp
 	return token, inv, err
 }
 
-// RedeemResult is what redeem_invite returns (PACT §6.2).
+// RedeemResult is what redeem_invite returns (HDTP §6.2).
 type RedeemResult struct {
 	Status      string // accepted | pending
 	Permissions []string
@@ -173,9 +173,9 @@ type RedeemResult struct {
 }
 
 // Proof is what a guest proved this call: a chain — the root that is the identity, the
-// leaf's key, and the endpoint and leaf the pin records (PACT §14.2 rule 6, §14.3).
+// leaf's key, and the endpoint and leaf the pin records (HDTP §14.2 rule 6, §14.3).
 // SelfEndpoint is this account's own address, for the guard a guest's card must pass
-// (PACT §3). A caller that proved no chain has the zero Proof, which is refused.
+// (HDTP §3). A caller that proved no chain has the zero Proof, which is refused.
 type Proof struct {
 	Fingerprint  string // the root's: the identity
 	SPKI         []byte // the leaf's key — what to seal to and verify under
@@ -183,13 +183,13 @@ type Proof struct {
 	Leaf         []byte
 	SelfEndpoint string
 	// AddressClaim is the root of another identity that holds this endpoint, or held it within
-	// the claim window (PACT §5.2: "an address that belongs to someone"). Such a caller is never
+	// the claim window (HDTP §5.2: "an address that belongs to someone"). Such a caller is never
 	// auto-accepted: an invite's auto_accept does not apply, and the owner decides.
 	AddressClaim string
 	// RootCert is the root's DER when the proof came with a full chain. Empty
 	// for a sealed call, where the chain is inside the ciphertext and only the
 	// library's Decide sees it - such a pin gets its certificate the first time
-	// the contact connects with a client certificate (migration 0029).
+	// the contact connects with a client certificate.
 	RootCert []byte
 }
 
@@ -207,13 +207,13 @@ func (p Proof) vet(card string) (Card, error) {
 	if pc.Key != p.Fingerprint {
 		return Card{}, fmt.Errorf("%w: the card names another root than the chain proved", ErrIdentityRequired)
 	}
-	// Unconditional. These two sat inside `if p.Protocol == 2`, so a Proof without the flag —
+	// Unconditional. These two sat behind a flag on the Proof, so a Proof without it —
 	// a key and a fingerprint and nothing else — skipped both the binding of the card to the
 	// proven leaf and the address guard. Nothing in production built one; nothing stopped it.
 	if !bytes.Equal(pc.Cert, p.Leaf) {
 		return Card{}, fmt.Errorf("%w: the card's certificate is not the proven leaf", ErrIdentityRequired)
 	}
-	if ok, why := pactidentity.AddressGuard(pc.Endpoint, p.SelfEndpoint, true); !ok {
+	if ok, why := hdtpidentity.AddressGuard(pc.Endpoint, p.SelfEndpoint, true); !ok {
 		return Card{}, fmt.Errorf("%w: endpoint refused: %s", ErrBadRequest, why)
 	}
 	return pc, nil
@@ -237,8 +237,8 @@ func (p Proof) pin(c store.Contact) store.Contact {
 //   - a request still waiting (pending_in) is that request redeeming a link: the row takes the
 //     invite's status, grant and label, and one use is spent;
 //   - any other row — blocked, or a pinned contact the node served at the guest tier because
-//     the leaf that signed is older than the one it holds (PACT §14.3) — is answered exactly
-//     what a stranger with the same link would be, and nothing is spent or written. PACT §12:
+//     the leaf that signed is older than the one it holds (HDTP §14.3) — is answered exactly
+//     what a stranger with the same link would be, and nothing is spent or written. HDTP §12:
 //     blocked MUST be indistinguishable from never-met. This used to spend the use, fail the
 //     insert, and answer `invite_invalid`, which a stranger holding the same link is not told.
 func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p Proof) (RedeemResult, error) {
@@ -259,7 +259,7 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	}
 	status := "pending_in"
 	result := RedeemResult{Status: "pending"}
-	// PACT §5.2: a stranger at an address that belongs, or lately belonged, to a pinned contact
+	// HDTP §5.2: a stranger at an address that belongs, or lately belonged, to a pinned contact
 	// is never auto-accepted. The core computed the claim (Decide's address_claim) and this
 	// ignored it, so a new root at a friend's address redeemed an auto-accept link and was
 	// admitted as a contact — found by the conformance battery aimed at a node (S19).
@@ -270,9 +270,9 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 	// The contact cap, for a redemption that would ADD a contact: before the use is spent, so the
 	// link still works once the owner makes room; before a held row is looked at, so everybody who
 	// would have been accepted hears the same answer — a caller this account blocked included
-	// (PACT §12: blocked is indistinguishable from never-met). The peer is told `unavailable`,
+	// (HDTP §12: blocked is indistinguishable from never-met). The peer is told `unavailable`,
 	// bare: no count and no cap, and not `rate_limited`, since no number of seconds is true of a
-	// full contact list. As the cloud answers it (pact-cloud src/identity/tools.ts).
+	// full contact list. As the cloud answers it (batondeck src/identity/tools.ts).
 	if status == "active" {
 		if err := m.Room(ctx, m.Store, accountID); err != nil {
 			return RedeemResult{}, err
@@ -334,7 +334,7 @@ func (m *Manager) RedeemAs(ctx context.Context, accountID, token, card string, p
 }
 
 // AddressClaim is the root of a contact of accountID, other than root, whose pin is at endpoint
-// or was within pactidentity.ClaimWindow (PACT §5.2) — the rule the core's Decide applies to a
+// or was within hdtpidentity.ClaimWindow (HDTP §5.2) — the rule the core's Decide applies to a
 // sealed guest (its `address_claim`), for a guest proven by its client certificate instead, which
 // Decide never sees. internal/public TestTheTwoAddressClaimsAgree holds the two to each other.
 func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root string) (string, error) {
@@ -356,20 +356,20 @@ func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root st
 	}
 	now := m.now()
 	for _, f := range formers {
-		if f.Endpoint == endpoint && f.Root != root && now.Sub(time.Unix(f.At, 0)) < pactidentity.ClaimWindow {
+		if f.Endpoint == endpoint && f.Root != root && now.Sub(time.Unix(f.At, 0)) < hdtpidentity.ClaimWindow {
 			return f.Root, nil
 		}
 	}
 	return "", nil
 }
 
-// RequestContact is the unsolicited guest path (PACT §6.2): lands pending_in for
+// RequestContact is the unsolicited guest path (HDTP §6.2): lands pending_in for
 // owner approval; same identity binding rule as redemption.
 func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note string, p Proof) error {
 	if _, err := p.vet(card); err != nil {
 		return err
 	}
-	if len(note) > 1024 { // PACT §6.2: note ≤1 KiB
+	if len(note) > 1024 { // HDTP §6.2: note ≤1 KiB
 		return fmt.Errorf("%w: note over 1 KiB", ErrBadRequest)
 	}
 	// The pending-request cap, before the insert that is refused for a caller already known: at a
@@ -390,9 +390,9 @@ func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note st
 
 /* ---------------------------- pending tier ----------------------------- */
 
-// ContactAccepted: the peer we invited (pending_out) confirms (PACT §6.2).
+// ContactAccepted: the peer we invited (pending_out) confirms (HDTP §6.2).
 // ContactAccepted records a peer's approval: their post-approval card and the
-// permissions they granted us (PACT §6.2). Both used to be discarded — the card
+// permissions they granted us (HDTP §6.2). Both used to be discarded — the card
 // was accepted and ignored, and the permission list was never even decoded — so
 // an agent had no way to know what it may call on a contact except by probing.
 func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, card string, theirPermissions []string) error {
@@ -408,7 +408,7 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 			return fmt.Errorf("%w: %v", ErrBadRequest, err)
 		}
 		// A card that is not the caller's own is a bad card, not a missing proof: the call
-		// proved who it is; the card says otherwise. `bad_request` is what PACT §3 answers a
+		// proved who it is; the card says otherwise. `bad_request` is what HDTP §3 answers a
 		// card at intake and §14.2 a card whose chain fails; `identity_required` means no
 		// usable proof at all (§12), and the cloud answers this `bad_request` too.
 		if pc.Key != callerFpr {
@@ -422,7 +422,7 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 }
 
 // ContactRejected: the peer declines our approach. The pending_out row is demoted to blocked,
-// not deleted (PACT §5.1: declining is a demotion): it is this side's record that the approach
+// not deleted (HDTP §5.1: declining is a demotion): it is this side's record that the approach
 // was declined, and an unblock forgets it (it was never active), after which we may ask again.
 func (m *Manager) ContactRejected(ctx context.Context, accountID, callerFpr string) error {
 	c, err := m.Store.GetContact(ctx, accountID, callerFpr)
@@ -434,13 +434,13 @@ func (m *Manager) ContactRejected(ctx context.Context, accountID, callerFpr stri
 
 /* -------------------------- always-available --------------------------- */
 
-// UpdateContact refreshes a contact's card (PACT §6.2). The pin already followed
+// UpdateContact refreshes a contact's card (HDTP §6.2). The pin already followed
 // the chain that carried this call (§5.3, §14.3 — decided before dispatch) and the
 // root never moves, so what this writes is the card: it must be the root's own and
 // must carry the leaf the pin now holds.
 //
 // It used to be "verified key rotation": a new card's fingerprint signed by the old
-// pinned key. That was 1.x, where the identity WAS a key and so a key change had to
+// pinned key. That was when the identity WAS a key, and so a key change had to
 // be provable. A root does not change, so there is nothing left to prove here.
 func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard string) error {
 	c, err := m.Store.GetContact(ctx, accountID, oldFpr)
@@ -452,7 +452,7 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	// Both refusals are `bad_request`, as ContactAccepted's is: the call's chain proved the
-	// caller, and the card disagrees with that proof (PACT §3, §14.2). One fault, one code on
+	// caller, and the card disagrees with that proof (HDTP §3, §14.2). One fault, one code on
 	// every implementation — the cloud's update_contact answers the same.
 	if nc.Key != oldFpr {
 		return fmt.Errorf("%w: the card names another root", ErrBadRequest)
@@ -470,13 +470,13 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	return m.Store.UpdateContactCard(ctx, accountID, oldFpr, newCard, c.DisplayName)
 }
 
-// RemoveContact deletes the pin (PACT §6.2); enforcement is local by design.
+// RemoveContact deletes the pin (HDTP §6.2); enforcement is local by design.
 func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string) error {
 	c, err := m.Store.GetContact(ctx, accountID, callerFpr)
 	if err != nil {
 		return fmt.Errorf("%w", ErrUnknownContact)
 	}
-	// PACT §5.3 "after a removal": a 2.0 root that removed us and returns with a
+	// HDTP §5.3 "after a removal": a root that removed us and returns with a
 	// newer leaf inside 30 days is asked about, whatever the setting says — a
 	// host being left could otherwise erase the person's contacts on its way out.
 	if len(c.Leaf) > 0 {
@@ -491,7 +491,7 @@ func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string
 }
 
 // DecideAddress is the owner's answer to a contact waiting at a new address
-// under `accept_new_hosts = ask` (PACT §5.3): approving re-pins as `auto` would
+// under `accept_new_hosts = ask` (HDTP §5.3): approving re-pins as `auto` would
 // have — the endpoint, the leaf and its key move, the old endpoint is
 // remembered for the address-claim rule, and any removal tombstone is spent;
 // rejecting leaves the pin as it was.
@@ -503,7 +503,7 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 	if !approve {
 		return p, m.Store.DeletePendingAddress(ctx, accountID, root)
 	}
-	leaf, err := pactidentity.Parse(p.Leaf)
+	leaf, err := hdtpidentity.Parse(p.Leaf)
 	if err != nil {
 		return p, fmt.Errorf("%w: pending leaf unreadable", ErrBadRequest)
 	}

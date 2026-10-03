@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/web"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
 )
 
 // The routes the shell's navigation offers. A route here that stops serving the
@@ -64,22 +64,22 @@ func TestBundleCarriesTheViews(t *testing.T) {
 		"/invites/create",
 		"petname",
 		"/owners/tokens/create",
-		"pact_csrf", // the double-submit read
+		"hdtp_csrf", // the double-submit read
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("the compiled portal does not mention %q — the view that uses it did not ship", want)
 		}
 	}
 	// And the reverse, which is how a STALE dist shows itself. `web/dist` is committed, the
-	// portal is built by `make web`, and `make check` does not run that — so when the 1.x removal
-	// deleted the key-rotation view from `web/src`, and a leftover `posture.gateway` broke the
+	// portal is built by `make web`, and `make check` does not run that — so when key rotation went and
+	// its view was deleted from `web/src`, and a leftover `posture.gateway` broke the
 	// TypeScript build, nobody rebuilt. The binary went on embedding a portal with the rotation
 	// view in it, calling a route the server no longer has, and this test kept that green: its
 	// list REQUIRED "/identity/rotate". Nothing the server cannot answer may be in the bundle.
 	for _, gone := range []string{
-		"/identity/rotate", // 1.x key rotation: no route serves it
-		"X-PACT-KEY",       // a card carries a certificate; no property by this name
-		"X-PACT-ENDPOINT",  // the address is in the leaf the wallet issues
+		"/identity/rotate", // key rotation: no route serves it
+		"X-HDTP-KEY",       // a card carries a certificate; no property by this name
+		"X-HDTP-ENDPOINT",  // the address is in the leaf the wallet issues
 		"my gateway",       // the relay role's dashboard cell
 	} {
 		if strings.Contains(js, gone) {

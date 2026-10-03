@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // update_contact is available at contact tier regardless of permissions, and it
@@ -18,10 +18,10 @@ import (
 // their name does not propagate it, and the owner has no way to accept the new
 // one. That is the safe direction to be wrong in until petnames exist.
 //
-// This test used to prove it over a 1.x rotation, where a new card was endorsed by
-// a signature from the old key. 2.0 has no rotation, so it proves the same thing
+// This test used to prove it over a key rotation, where a new card was endorsed by
+// a signature from the old key. HDTP has no rotation, so it proves the same thing
 // over the card refresh that replaced it -- and it FAILED when it was first run
-// that way: the 2.0 branch passed the new card's FN straight through.
+// that way: the refresh passed the new card's FN straight through.
 func TestACardRefreshCannotRenameAPinnedContact(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

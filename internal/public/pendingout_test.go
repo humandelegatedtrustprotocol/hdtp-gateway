@@ -10,12 +10,12 @@ import (
 )
 
 // A contact this node asked, and who has not answered yet (pending_out), sends a sealed
-// send_message. The library decides `pending_approval` (PACT §6.1: only contact_accepted and
+// send_message. The library decides `pending_approval` (HDTP §6.1: only contact_accepted and
 // contact_rejected run before the answer), and that is what the caller must be told — sealed, to the
-// leaf that signed (PACT §13.2: once a request envelope has opened, an error result MUST be sealed
+// leaf that signed (HDTP §13.2: once a request envelope has opened, an error result MUST be sealed
 // back like any other result).
 //
-// It was told `envelope_invalid`, and then `pending_approval` in plaintext. pact-identity's Decide
+// It was told `envelope_invalid`, and then `pending_approval` in plaintext. hdtp-identity's Decide
 // (0.4.1) answers pending_approval with the code alone — no root, no leaf, where its `ok` names both
 // — but only after the signature verified, under the chain's leaf in the full form and under the
 // pinned leaf in the small form. The node reads the signer from what it already peeked (the chain,
@@ -36,7 +36,7 @@ func TestAPendingContactsSealedCallIsAnsweredPendingApproval(t *testing.T) {
 				t.Fatalf("a pending contact's sealed call was answered %q in §13.2's `error`, want pending_approval", code)
 			}
 
-			// The control: contact_accepted is what a pending contact may call (PACT §6.1), and it
+			// The control: contact_accepted is what a pending contact may call (HDTP §6.1), and it
 			// runs, and its answer is sealed to the same peer.
 			res = s.call(t, s.sealFrom(t, p, form, "contact_accepted", map[string]any{"card": cardOf(p)}), TransportFacts{})
 			if result, _ := s.openedWith(t, res, p, msgIDFor("contact_accepted", form)); len(result) == 0 {

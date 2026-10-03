@@ -1,6 +1,6 @@
 package public
 
-// What a sealed call spends (PACT §12): every inner call that reaches dispatch — tools/list, and a
+// What a sealed call spends (HDTP §12): every inner call that reaches dispatch — tools/list, and a
 // tool the caller may not see or that does not exist, as much as one it may call — and a replay
 // answered from its record spends nothing. The cloud spends at the same point (its surface budgets
 // before it dispatches, after the replay). Until this, `tools/list` and an unknown tool were free
@@ -16,8 +16,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 func TestEveryInnerCallSpendsAndAReplayDoesNot(t *testing.T) {
@@ -35,7 +35,7 @@ func TestEveryInnerCallSpendsAndAReplayDoesNot(t *testing.T) {
 			t.Fatalf("%s: %d charges so far, want %d", what, len(charged), want)
 		}
 	}
-	list := s.sealFrom(t, p, "chain", "tools_list", nil, func(o *pactidentity.SealOpts) { o.Method, o.Params = "tools/list", json.RawMessage(`{}`) })
+	list := s.sealFrom(t, p, "chain", "tools_list", nil, func(o *hdtpidentity.SealOpts) { o.Method, o.Params = "tools/list", json.RawMessage(`{}`) })
 	s.call(t, list, TransportFacts{})
 	spent(t, 1, "a sealed tools/list")
 
@@ -82,7 +82,7 @@ func TestARefusedCallIsNotRecordedAsTheAnswer(t *testing.T) {
 }
 
 // A peer turned away because the account's contact list is full is told `unavailable`, bare: no
-// count, no cap, and not `rate_limited`, since no number of seconds is true of a full list (PACT
+// count, no cap, and not `rate_limited`, since no number of seconds is true of a full list (HDTP
 // §12; the cloud answers the same). The owner is told more; that is its own door's mapping.
 func TestAFullContactListIsUnavailableToAPeer(t *testing.T) {
 	if got := domainCode(fmt.Errorf("wrapped: %w", contacts.ErrContactCap)); got != "unavailable" {

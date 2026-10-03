@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func migrate(args []string, stdout, stderr io.Writer) int {

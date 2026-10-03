@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // AuditDeps is what the audit page reads: the trail, and the lists its ids are named from.
@@ -139,7 +139,7 @@ type nameEntry struct {
 	Revoked bool   `json:"revoked,omitempty"`
 }
 
-// fingerprintRe finds the contact fingerprints a row mentions, by their shape (PACT's `sha256:` and
+// fingerprintRe finds the contact fingerprints a row mentions, by their shape (HDTP's `sha256:` and
 // base64url), wherever the row carries one: its actor, its locator, its details.
 var fingerprintRe = regexp.MustCompile(`sha256:[A-Za-z0-9_-]+`)
 

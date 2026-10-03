@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
 )
 
 // The sweeper is a blocking function: it does not return while a pass is running, which is what
@@ -161,7 +161,7 @@ func TestTheSweepExpiresRequestsNobodyAnswered(t *testing.T) {
 	}
 }
 
-// An address an identity left is reserved until the last leaf issued for it expires (PACT §9), and
+// An address an identity left is reserved until the last leaf issued for it expires (HDTP §9), and
 // no longer: the sweep drops a reservation whose date has passed and keeps one that has not.
 func TestTheSweepDropsAReservationOnlyOnceItsLeafHasExpired(t *testing.T) {
 	dir := t.TempDir()

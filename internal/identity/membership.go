@@ -23,7 +23,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // MembershipRoleAdmin is v1's only role (SPEC §3.3).

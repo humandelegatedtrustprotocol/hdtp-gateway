@@ -3,8 +3,8 @@ package public
 import (
 	"context"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // StoreResolver builds the production CallerResolver: contact rows become policy
@@ -16,7 +16,7 @@ func StoreResolver(st store.ContactStore) CallerResolver {
 			return policy.Caller{AccountID: accountID, Tier: policy.TierGuest}, nil
 		}
 		c, err := st.GetContact(ctx, accountID, fpr)
-		if err != nil { // unknown = guest (PACT §6.1)
+		if err != nil { // unknown = guest (HDTP §6.1)
 			return policy.Caller{AccountID: accountID, Fingerprint: fpr, Tier: policy.TierGuest}, nil
 		}
 		perms := map[string]bool{}

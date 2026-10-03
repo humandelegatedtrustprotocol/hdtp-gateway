@@ -3,16 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"io"
 	"os"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 func doctor(args []string, stdout, stderr io.Writer) int {
@@ -56,7 +56,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		if err == nil {
 			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
 				served = settings.ServedIdentities(cfg.PublicURL, accts)
-				// PACT 2.0 (PACT §2): a host asks for renewal thirty days ahead;
+				// HDTP 1.0 (HDTP §2): a host asks for renewal thirty days ahead;
 				// doctor is where an operator without the portal hears it.
 				idm := &identity.Manager{Store: s}
 				for _, a := range accts {
@@ -110,8 +110,8 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		return fail
 	}
 	// An address a wallet will not certify: every signing request under it is refused
-	// (identity.IssueCSR applies the same rule, pactidentity.AddressGuard).
-	if ok, why := pactidentity.AddressGuard(identity.EndpointFor(cfg.PublicURL, "x"), "", false); !ok {
+	// (identity.IssueCSR applies the same rule, hdtpidentity.AddressGuard).
+	if ok, why := hdtpidentity.AddressGuard(identity.EndpointFor(cfg.PublicURL, "x"), "", false); !ok {
 		fmt.Fprintf(stdout, "FAIL public_url   %s: %s; a wallet certifies no address under it, so no identity here can get a leaf\n", cfg.PublicURL, why)
 		fail = 1
 	}

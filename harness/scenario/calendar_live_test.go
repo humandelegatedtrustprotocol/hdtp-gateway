@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S4 — a contact books a real appointment in a real calendar.
@@ -22,7 +22,7 @@ import (
 // Caller func returning literals. What none of it touched was whether the chain
 // an owner actually assembles works — a supervised stdio child, a third-party MCP
 // server nobody here wrote, a CalDAV server, a recipe, an exposure, a permission
-// — and whether a booking made through the PACT surface becomes an event another
+// — and whether a booking made through the HDTP surface becomes an event another
 // CalDAV client would see.
 //
 // It does now, but only after three product gaps this scenario found:
@@ -116,7 +116,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	// recorded acknowledgment before a write tool reaches a contact.
 	if err := p.Portal.PostForm(ctx, "/integrations/"+id+"/exposure", p.AccountID,
 		map[string]string{
-			// A mapped entry must NAME the PACT capability it implements; the
+			// A mapped entry must NAME the HDTP capability it implements; the
 			// upstream tool name is not itself a capability.
 			"expose_list-events": "on", "mode_list-events": "mapped",
 			"recipe_list-events": "caldav", "name_list-events": "check_availability",
@@ -170,7 +170,7 @@ func TestContactBooksIntoRealCalDAV(t *testing.T) {
 	if len(avail.Slots) == 0 {
 		t.Fatalf("an empty calendar offered no slots at all: %s", shorten(availRaw, 400))
 	}
-	// SPEC §6.7 and PACT §6.2: at most five, and never the raw free/busy. The
+	// SPEC §6.7 and HDTP §6.2: at most five, and never the raw free/busy. The
 	// upstream returns whole events — summary, description, location — so a leak
 	// here would publish the calendar's contents to a contact.
 	if len(avail.Slots) > 5 {

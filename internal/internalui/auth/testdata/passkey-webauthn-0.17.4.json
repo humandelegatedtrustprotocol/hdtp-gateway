@@ -58,5 +58,5 @@
     "owner_id": "b113b7a3bf50a121bc67138fb3edeb3d",
     "tag": "laptop"
   },
-  "written_by": "github.com/go-webauthn/webauthn v0.17.4 (pact-gateway a3b69ac), after one successful login"
+  "written_by": "github.com/go-webauthn/webauthn v0.17.4 (hdtp-gateway a3b69ac), after one successful login"
 }

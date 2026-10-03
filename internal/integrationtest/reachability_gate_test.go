@@ -56,11 +56,11 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/pact-cloud/pact-gateway"
+const modulePath = "github.com/humandelegatedtrustprotocol/hdtp-gateway"
 
 // binaryEntry is the shipped command. Reachability means "imported, directly or
 // transitively, by this".
-const binaryEntry = "cmd/pact-gateway"
+const binaryEntry = "cmd/hdtp-gateway"
 
 func TestEveryMechanismIsReachableFromTheShippedBinary(t *testing.T) {
 	root := repoRoot(t)
@@ -403,20 +403,20 @@ func receiverName(fn *ast.FuncDecl) string {
 
 // TestDeadcodeFindsOnlyWhatTheTableExcuses holds golang.org/x/tools/cmd/deadcode's report to the
 // Reachability table (review N-15). deadcode is whole-program — it follows calls from
-// cmd/pact-gateway rather than counting names, and sees unexported functions — so it finds what
+// cmd/hdtp-gateway rather than counting names, and sees unexported functions — so it finds what
 // the floor above cannot: a helper whose only caller is a test, however it is spelled.
 //
 // `make deadcode` (part of `make analyze`) runs the tool and hands its report here in
-// PACT_DEADCODE_REPORT, one `<package path> <name>` per line. Without that variable there is
+// HDTP_DEADCODE_REPORT, one `<package path> <name>` per line. Without that variable there is
 // nothing to hold and the test says so; `make check` does not download the tool.
 //
 // The control: internal/testid is test-support by construction and always unreachable, so a
 // report that names nothing in it is not a report of this tree — a wrong root, a filter that
 // matches nothing — and fails rather than passing empty.
 func TestDeadcodeFindsOnlyWhatTheTableExcuses(t *testing.T) {
-	report := os.Getenv("PACT_DEADCODE_REPORT")
+	report := os.Getenv("HDTP_DEADCODE_REPORT")
 	if report == "" {
-		t.Skip("run by `make deadcode`, which supplies deadcode's report in PACT_DEADCODE_REPORT")
+		t.Skip("run by `make deadcode`, which supplies deadcode's report in HDTP_DEADCODE_REPORT")
 	}
 	raw, err := os.ReadFile(report)
 	if err != nil {
