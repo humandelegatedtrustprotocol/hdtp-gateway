@@ -5,7 +5,7 @@
 // where it is reference rather than news). What happened is the Audit page's (the owner, 2026-09-29).
 //
 // Every number is a field of GET /api/dashboard (dashboard_model.ts); a failed read is said in place,
-// never drawn as zeros. The pieces are glance.tsx, which PACT Cloud's overview is built from too.
+// never drawn as zeros. The pieces are glance.tsx, which BatonDeck's overview is built from too.
 import { useEffect, useState } from "react";
 import { failureOf, getJSON, setAccount } from "../api";
 import { Attention, GlanceSkeleton, IdentityCard, IdentityCards, StatTile, StatTiles, StatusStrip } from "../glance";
@@ -96,7 +96,7 @@ export function Dashboard() {
 
         {accounts.length === 0 ? (
           <Section title="Identities">
-            <EmptyState title="No identities yet">Create one with <code>pact-gateway account create</code>.</EmptyState>
+            <EmptyState title="No identities yet">Create one with <code>hdtp-gateway account create</code>.</EmptyState>
           </Section>
         ) : (
           <IdentityCards>

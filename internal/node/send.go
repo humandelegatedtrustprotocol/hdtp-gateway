@@ -1,6 +1,6 @@
 package node
 
-// Outbound delivery (SPEC §7.1, PACT §6.2) — the half of messaging that did not
+// Outbound delivery (SPEC §7.1, HDTP §6.2) — the half of messaging that did not
 // exist.
 //
 // Both places an owner composes a message — the portal's send button and the
@@ -27,11 +27,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 // Delivery statuses a message row can carry (SPEC §7.1).
@@ -108,7 +108,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 }
 
 // SendMedia records an outbound media message and delivers it through the
-// peer's `send_media`. Media goes direct only, as everything now does (PACT §9):
+// peer's `send_media`. Media goes direct only, as everything now does (HDTP §9):
 // there is no relay, and a 5 MiB blob would have had no business in one
 // queue. Until it lands it stays pending and the retry sweep re-sends it like
 // text — from the blob, not from the row, whose body is only the metadata.
@@ -149,7 +149,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	return res, nil
 }
 
-// deliverMedia is one direct attempt at the peer's send_media (PACT §6.2).
+// deliverMedia is one direct attempt at the peer's send_media (HDTP §6.2).
 func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Contact, msgID, threadID, sender, filename, mime string, data []byte) error {
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
@@ -207,12 +207,12 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 }
 
 // deliverWithExpiry makes one attempt to reach the peer. Delivery is direct and
-// only direct (PACT §9): there is no relay role, so a peer that cannot be reached
+// only direct (HDTP §9): there is no relay role, so a peer that cannot be reached
 // before `expires` is a reported failure, not a message handed to a third party.
 func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.Contact, in messaging.Input, threadID string, expiry time.Time) error {
-	// The endpoint is the pin's (PACT §14.1), never a card property, and whether the call is
+	// The endpoint is the pin's (HDTP §14.1), never a card property, and whether the call is
 	// sealed is the card's to say (PeerOf). A contact with no card on file — one an import brought
-	// (PACT §9.2), or a returned root the owner approved (contacts.DecideAddress) — is written to
+	// (HDTP §9.2), or a returned root the owner approved (contacts.DecideAddress) — is written to
 	// like any other; this refused it as "that contact's card is
 	// unreadable", parsing the card for an endpoint it then overwrote with the pin's.
 	peer, err := n.PeerOf(accountID, c)
@@ -523,7 +523,7 @@ func (c calendarAt) CancelBooking(ctx context.Context, bookingID string) error {
 
 // GetStatus answers §6.7's default: a node with no status recipe is available.
 // It used to answer `unavailable` on every node forever, because the Status map
-// was never populated — so PACT's simplest capability never worked at all.
+// was never populated — so HDTP's simplest capability never worked at all.
 func (s statusAt) GetStatus(ctx context.Context) (string, error) {
 	if s.n.opts.Capabilities != nil {
 		if _, st := s.n.opts.Capabilities(s.accountID); st != nil {

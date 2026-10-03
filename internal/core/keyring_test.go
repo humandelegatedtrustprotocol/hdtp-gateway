@@ -41,7 +41,7 @@ func TestKeyringEnvBeatsFile(t *testing.T) {
 	path := filepath.Join(dir, "keyring.key")
 	envKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	kr, err := OpenKeyring(path, func(k string) (string, bool) {
-		if k == "PACT_MASTER_KEY" {
+		if k == "HDTP_MASTER_KEY" {
 			return envKey, true
 		}
 		return "", false
@@ -98,7 +98,7 @@ func TestKeyringRefusesWorldReadableFile(t *testing.T) {
 func TestKeyringRejectsBadEnvKey(t *testing.T) {
 	for _, bad := range []string{"not-base64!!", base64.StdEncoding.EncodeToString([]byte("short"))} {
 		_, err := OpenKeyring(filepath.Join(t.TempDir(), "k"), func(k string) (string, bool) {
-			if k == "PACT_MASTER_KEY" {
+			if k == "HDTP_MASTER_KEY" {
 				return bad, true
 			}
 			return "", false

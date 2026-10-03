@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/pact-cloud/pact-gateway/web"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -14,8 +14,8 @@ import (
 
 	"github.com/descope/virtualwebauthn"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 const (
@@ -47,7 +47,7 @@ func newPortalEnv(t *testing.T) *portalEnv {
 	}
 	e := &portalEnv{
 		st: st, setup: NewSetupTokens(),
-		rp:    virtualwebauthn.RelyingParty{Name: "pact-gateway", ID: portalRPID, Origin: portalOrigin},
+		rp:    virtualwebauthn.RelyingParty{Name: "hdtp-gateway", ID: portalRPID, Origin: portalOrigin},
 		authn: virtualwebauthn.NewAuthenticator(),
 	}
 	deps := &AuthDeps{
@@ -84,8 +84,8 @@ func (e *portalEnv) do(t *testing.T, method, path string, body []byte, cookies [
 	req := httptest.NewRequest(method, path, rdr)
 	req.Host = "localhost:8080"
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "pact_csrf", Value: "tok"})
-	req.Header.Set("X-Pact-Csrf", "tok")
+	req.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: "tok"})
+	req.Header.Set("X-HDTP-Csrf", "tok")
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -215,8 +215,8 @@ func TestLoopbackStillDemandsALoginAndHostIsNotTrusted(t *testing.T) {
 	// a spoofed Host is refused rather than used as the relying party
 	req := httptest.NewRequest("POST", "/setup/begin", bytes.NewReader(nil))
 	req.Host = "attacker.example.com"
-	req.AddCookie(&http.Cookie{Name: "pact_csrf", Value: "tok"})
-	req.Header.Set("X-Pact-Csrf", "tok")
+	req.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: "tok"})
+	req.Header.Set("X-HDTP-Csrf", "tok")
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -266,7 +266,7 @@ func TestEmbeddedBundleCarriesTheCeremonies(t *testing.T) {
 		"navigator.credentials.get",    // sign-in
 		"/setup/begin", "/setup/finish",
 		"/login/begin", "/login/finish",
-		"X-Pact-Csrf",
+		"X-HDTP-Csrf",
 		"attestationObject",
 	} {
 		if !strings.Contains(js, want) {

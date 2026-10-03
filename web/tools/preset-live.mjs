@@ -3,12 +3,12 @@
 import { launch, openNode } from './portal-login.mjs'
 
 const save = (node, fpr, perms, extra = {}) => node.page.evaluate(async ({ fpr, perms, extra }) => {
-  const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
-  const body = new URLSearchParams({ csrf, account: localStorage.getItem('pact.account') || '', ...extra })
+  const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
+  const body = new URLSearchParams({ csrf, account: localStorage.getItem('hdtp.account') || '', ...extra })
   for (const p of perms) body.append('perm', p)
   const r = await fetch('/contacts/' + encodeURIComponent(fpr) + '/permissions', {
     method: 'POST', redirect: 'manual',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Pact-Csrf': csrf }, body: body.toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-HDTP-Csrf': csrf }, body: body.toString(),
   })
   return r.status
 }, { fpr, perms, extra })

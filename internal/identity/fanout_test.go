@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // refusingProgress is a store that does everything except record a campaign's progress.
@@ -73,7 +73,7 @@ func TestAMoveCampaignSaysWhenItCannotRecordItsProgress(t *testing.T) {
 	}
 }
 
-// An import's contacts are owed this host's handshake (PACT §9.2), whatever their status, unless
+// An import's contacts are owed this host's handshake (HDTP §9.2), whatever their status, unless
 // the owner blocked them: the campaign after the next leaf walks them beside the active contacts,
 // records each outcome as what it was, and clears the mark of every one it told — so the campaign
 // after that one walks only the active contacts again.
@@ -169,7 +169,7 @@ func TestTheCampaignWalksAnImportsContactsOnceAndNeverABlockedOne(t *testing.T) 
 // leaf is needed for those contacts. Only a contact imported after the current leaf was requested
 // waits for the next leaf. The count used to follow the walk's progress rows instead, so it read
 // "wait for a new leaf" until the walk had tried a contact and "not reached … announce" after: two
-// reads a second apart, on either side of the walk, disagreed (pact-cloud e2e-suite-staging, L5,
+// reads a second apart, on either side of the walk, disagreed (batondeck e2e-suite-staging, L5,
 // 2026-09-28), and the first told an owner who had just installed a leaf to have another signed.
 func TestTheCurrentLeafOwesTheHandshakeAnImportLeftBeforeItsRequest(t *testing.T) {
 	m, a := leafEnv(t)

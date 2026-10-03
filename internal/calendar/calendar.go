@@ -1,4 +1,4 @@
-// Package calendar holds what a calendar provider and the public surface exchange (PACT §6.2): a
+// Package calendar holds what a calendar provider and the public surface exchange (HDTP §6.2): a
 // candidate interval, a booking's acknowledgment, and the cap on how many candidates are offered.
 // The public surface names the port (public.Calendar); the provider (integrations/providers)
 // implements it; neither imports the other.
@@ -6,7 +6,7 @@ package calendar
 
 import "time"
 
-// MaxSlots is PACT §12's cap: never more than 5 candidate slots.
+// MaxSlots is HDTP §12's cap: never more than 5 candidate slots.
 const MaxSlots = 5
 
 // Slot is one candidate interval (RFC 3339 on the wire).

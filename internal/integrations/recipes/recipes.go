@@ -5,7 +5,7 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
 //go:embed *.json

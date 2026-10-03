@@ -15,7 +15,7 @@ import (
 func TestParsedNameIsCappedAndStripped(t *testing.T) {
 	card := func(fn string) string {
 		return "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:" + fn +
-			"\r\nX-PACT-VERSION:1\r\nX-PACT-KEY:sha256:AAAA\r\nEND:VCARD\r\n"
+			"\r\nX-HDTP-VERSION:1\r\nEND:VCARD\r\n"
 	}
 	parse := func(t *testing.T, fn string) string {
 		t.Helper()

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-// list_contacts gives a waiting request's address claim (PACT §5.2), as the portal's Requests tab
+// list_contacts gives a waiting request's address claim (HDTP §5.2), as the portal's Requests tab
 // does: the owner's agent is told, beside a request, whose address it comes from. A request from an
 // address nobody holds carries none.
 func TestListContactsNamesWhoseAddressARequestComesFrom(t *testing.T) {

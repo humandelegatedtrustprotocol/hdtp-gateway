@@ -1,4 +1,4 @@
-// Package vm runs a pact-gateway node inside a QEMU/HVF guest so a scenario can
+// Package vm runs an hdtp-gateway node inside a QEMU/HVF guest so a scenario can
 // give it an arbitrary WALL CLOCK.
 //
 // This exists because containers cannot do it. Linux time namespaces deliberately
@@ -63,7 +63,7 @@ func (g Guest) Boot(ctx context.Context) (Console, error) {
 	runCtx, cancel := context.WithTimeout(ctx, g.Timeout)
 	defer cancel()
 
-	dir, err := os.MkdirTemp("", "pact-vm")
+	dir, err := os.MkdirTemp("", "hdtp-vm")
 	if err != nil {
 		return Console{}, err
 	}
@@ -104,4 +104,4 @@ func (g Guest) Boot(ctx context.Context) (Console, error) {
 // guestDateMarker is what /init prints so the host can read the guest's own clock
 // back. Asserting on the guest's report rather than on the flag we passed is the
 // difference between testing QEMU and testing our own argv.
-const guestDateMarker = "PACT_GUEST_DATE="
+const guestDateMarker = "HDTP_GUEST_DATE="

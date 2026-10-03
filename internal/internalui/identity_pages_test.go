@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // Settings · identity, as it is once key rotation is gone.
 //
 // This file tested rotation: typing the slug to confirm, the grace period, an
-// incomplete fan-out reported rather than rounded up. PACT 2.0 does not rotate a
+// incomplete fan-out reported rather than rounded up. HDTP 1.0 does not rotate a
 // key — a root is never rotated and a renewal is a new leaf a contact learns from
 // the chain — so the route and its confirmation ceremony went, and what is left to
 // test is what the page still does: list the identities, and create one.

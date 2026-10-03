@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The recovery table in docs/operations.md says a lost master key costs a node its leaves and not
@@ -26,8 +26,8 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	const endpoint = "https://agent.alice.example/mcp"
-	rootKey, _ := pactidentity.GenerateKey("ed25519")
-	rootCert, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Alice", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
+	rootKey, _ := hdtpidentity.GenerateKey("ed25519")
+	rootCert, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alice", Key: rootKey, NotBefore: time.Now().Add(-24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s request: %v", purpose, err)
 		}
-		iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI}, Now: at, ValidDays: 200})
+		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI}, Now: at, ValidDays: 200})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.RootFingerprint != pactidentity.Fingerprint(rootKey.Public().SPKI) {
+	if got.RootFingerprint != hdtpidentity.Fingerprint(rootKey.Public().SPKI) {
 		t.Fatalf("the identity changed: root %s", got.RootFingerprint)
 	}
 	keys, err := after.ActiveLeafKeypairs(ctx, a.ID, now.Add(2*time.Minute))

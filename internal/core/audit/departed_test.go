@@ -19,10 +19,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "modernc.org/sqlite"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/audit"
-	"github.com/pact-cloud/pact-gateway/internal/core/auditstore"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/services/auditsink"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/audit"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/auditstore"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/auditsink"
 )
 
 type engine struct {
@@ -36,7 +36,7 @@ var pgSeq int
 
 func engines(t *testing.T) []engine {
 	out := []engine{{"sqlite", func(t *testing.T) (store.Store, func(string, ...any) error) {
-		path := filepath.Join(t.TempDir(), "pact.db")
+		path := filepath.Join(t.TempDir(), "hdtp.db")
 		st, err := store.OpenSQLite(path)
 		if err != nil {
 			t.Fatal(err)
@@ -55,11 +55,11 @@ func engines(t *testing.T) []engine {
 			return err
 		}
 	}}}
-	if dsn := os.Getenv("PACT_TEST_POSTGRES_DSN"); dsn != "" {
+	if dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN"); dsn != "" {
 		out = append(out, engine{"postgres", func(t *testing.T) (store.Store, func(string, ...any) error) {
 			ctx := context.Background()
 			pgSeq++
-			name := fmt.Sprintf("pact_archive_%d_%d", os.Getpid(), pgSeq)
+			name := fmt.Sprintf("hdtp_archive_%d_%d", os.Getpid(), pgSeq)
 			admin, err := pgx.Connect(ctx, dsn)
 			if err != nil {
 				t.Fatal(err)

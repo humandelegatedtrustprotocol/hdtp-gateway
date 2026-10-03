@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 func account(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -28,7 +28,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&chainPath, "chain", "", "install-leaf: file holding the wallet's answer, two PEM CERTIFICATE blocks, leaf then root")
 	fs.StringVar(&root, "root", "", "address: the root fingerprint waiting at a new address")
 	fs.StringVar(&decision, "decision", "", "address: approve|reject; omitted lists what is pending")
-	fs.StringVar(&policy, "policy", "", "address: auto|ask — what happens when a pinned contact turns up at a new address (PACT §5.3)")
+	fs.StringVar(&policy, "policy", "", "address: auto|ask — what happens when a pinned contact turns up at a new address (HDTP §5.3)")
 	fs.BoolVar(&yes, "yes", false, "leave: erase what the review shows (without it, the review and nothing else)")
 	fs.BoolVar(&forceCurrent, "force-current", false, "leave: erase the identity even though its current leaf is at this node's own address for it")
 	if err := fs.Parse(rest); err != nil {
@@ -162,7 +162,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// Owed handshakes are said first, whatever the leaf's state: an import leaves them waiting
-		// for the next leaf, and this is where the owner looks (PACT §9.2).
+		// for the next leaf, and this is where the owner looks (HDTP §9.2).
 		if line := handshakesOwedLine(fmt.Sprint(out["Slug"]), out["HandshakesOwed"], out["HandshakesUnderWay"], fmt.Sprint(out["Kid"]) != ""); line != "" {
 			fmt.Fprintln(stdout, line)
 		}
@@ -221,7 +221,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway account <create|list|csr|install-leaf|certificate|address|announce|leave> [flags]")
 		return 2
 	}
 }
@@ -271,7 +271,7 @@ func addressDriftLine(publicURL, slug, leafEndpoint string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s answers at %s (the address in its certificate) and this node advertises %s. If the node's address changed, "+
-		"run `pact-gateway account csr -slug %s -purpose move`, have the wallet sign it, then `account install-leaf`: that is what moves an identity and tells its contacts",
+		"run `hdtp-gateway account csr -slug %s -purpose move`, have the wallet sign it, then `account install-leaf`: that is what moves an identity and tells its contacts",
 		slug, leafEndpoint, advertised, slug)
 }
 

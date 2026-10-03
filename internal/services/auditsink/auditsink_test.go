@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // AC (P8-01, defect #2): every audit write must carry an actor kind the store
@@ -18,7 +18,7 @@ import (
 func TestAuditActorKindIsAlwaysWritable(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

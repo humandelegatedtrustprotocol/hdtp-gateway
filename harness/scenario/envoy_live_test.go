@@ -18,13 +18,13 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/peer"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/peer"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 )
 
 // certHeader is the header Envoy forwards a caller's chain in (forward_client_cert_details); the
@@ -97,8 +97,8 @@ func TestTheNodeBehindEnvoyIsLimitedPerCallerAtBothLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := topology.NodeEnv("https://" + host + ":" + port)
-	env["PACT_PROXY_ADDRESS"] = envoyIP
-	env["PACT_SEAL"] = "required"
+	env["HDTP_PROXY_ADDRESS"] = envoyIP
+	env["HDTP_SEAL"] = "required"
 	node, err := topology.Serve(ctx, w.Fab, fabric.Spec{
 		Name: "alice", Image: images.Node, Network: net, Env: env, Cmd: []string{"serve"},
 		// The name envoy.yaml's cluster dials, as compose's service name is.
@@ -122,7 +122,7 @@ func TestTheNodeBehindEnvoyIsLimitedPerCallerAtBothLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The agent trusts Envoy's certificate as a caller trusts a WebPKI one (PACT §2's fallback).
+	// The agent trusts Envoy's certificate as a caller trusts a WebPKI one (HDTP §2's fallback).
 	agent.Client.Roots = pool
 	creds, chainPEM := callerCredentials(t, agent)
 	card, err := json.Marshal(agent.Card("required"))

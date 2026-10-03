@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func TestEdgeAdaptersDeriveEdgeMode(t *testing.T) {
@@ -23,8 +23,8 @@ func TestEdgeAdaptersDeriveEdgeMode(t *testing.T) {
 		dir := t.TempDir()
 		c, err := core.Load("", func(k string) (string, bool) {
 			v, ok := map[string]string{
-				"PACT_DATA_DIR": dir, "PACT_TUNNEL": name,
-				"PACT_MODE": "direct", "PACT_SEAL": "none", "PACT_CLIENT_CERT": "required",
+				"HDTP_DATA_DIR": dir, "HDTP_TUNNEL": name,
+				"HDTP_MODE": "direct", "HDTP_SEAL": "none", "HDTP_CLIENT_CERT": "required",
 			}[k]
 			return v, ok
 		})
@@ -50,19 +50,19 @@ func TestCloudflareOptionsAndSidecarFallback(t *testing.T) {
 	}
 	// env fallback for the token
 	t.Setenv("TUNNEL_TOKEN", "envtok")
-	o, err := cloudflareOptions(Options{Extra: map[string]string{"hostname": "pact.example.com"}})
+	o, err := cloudflareOptions(Options{Extra: map[string]string{"hostname": "hdtp.example.com"}})
 	if err != nil || o.Token != "envtok" {
 		t.Fatalf("%+v %v", o, err)
 	}
 	// sidecar mode: no child is spawned, the adapter still reports its URL
 	a, err := New("cloudflare", Options{Extra: map[string]string{
-		"token": "t", "hostname": "pact.example.com", "sidecar": "true",
+		"token": "t", "hostname": "hdtp.example.com", "sidecar": "true",
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	info, err := a.Start(context.Background())
-	if err != nil || !info.TerminatesAtEdge || info.PublicURL != "https://pact.example.com" {
+	if err != nil || !info.TerminatesAtEdge || info.PublicURL != "https://hdtp.example.com" {
 		t.Fatalf("info: %+v %v", info, err)
 	}
 	if st := a.Status(); !st.Running || !strings.Contains(st.Detail, "sidecar") {
@@ -83,7 +83,7 @@ func TestCloudflareOptionsAndSidecarFallback(t *testing.T) {
 func TestCloudflareSpawnsTheConnector(t *testing.T) {
 	var gotToken string
 	cf := &Cloudflare{
-		opts: cloudflareOpts{Token: "tok", Hostname: "pact.example.com", Binary: "/bin/echo"},
+		opts: cloudflareOpts{Token: "tok", Hostname: "hdtp.example.com", Binary: "/bin/echo"},
 		spawn: func(ctx context.Context, bin, token string) (*exec.Cmd, error) {
 			gotToken = token
 			cmd := exec.CommandContext(ctx, "/bin/echo", "connector")
@@ -117,12 +117,12 @@ func TestNgrokHTTPSIsEdgeAndRefusesTLSURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &NgrokHTTPS{opts: ngrokHTTPSOpts{AuthToken: "t", URL: "https://", Name: "pact"},
+	a := &NgrokHTTPS{opts: ngrokHTTPSOpts{AuthToken: "t", URL: "https://", Name: "hdtp"},
 		listen: func(context.Context, ngrokHTTPSOpts) (net.Listener, string, error) {
-			return local, "https://pact.ngrok.app", nil
+			return local, "https://hdtp.ngrok.app", nil
 		}}
 	info, err := a.Start(context.Background())
-	if err != nil || !info.TerminatesAtEdge || info.Listener == nil || info.PublicURL != "https://pact.ngrok.app" {
+	if err != nil || !info.TerminatesAtEdge || info.Listener == nil || info.PublicURL != "https://hdtp.ngrok.app" {
 		t.Fatalf("info: %+v %v", info, err)
 	}
 	if err := a.Stop(); err != nil {

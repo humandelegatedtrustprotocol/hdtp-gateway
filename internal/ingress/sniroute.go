@@ -24,8 +24,8 @@ import (
 
 // Login metadata keys a paired node sends (frp client Metadatas).
 const (
-	MetaNode   = "pact_node"   // node identity fingerprint
-	MetaSecret = "pact_secret" // per-node secret from pairing
+	MetaNode   = "hdtp_node"   // node identity fingerprint
+	MetaSecret = "hdtp_secret" // per-node secret from pairing
 )
 
 // DataPlane is the embedded frps plus the registry-enforcing plugin.
@@ -143,7 +143,7 @@ func (d *DataPlane) Start(ctx context.Context) error {
 		// terminate-mode node by its internal name.
 		ProxyBindAddr: d.proxyBindAddr(),
 		HTTPPlugins: []v1.HTTPPluginOptions{{
-			Name: "pact-registry", Addr: pl.Addr().String(), Path: "/frp-plugin",
+			Name: "hdtp-registry", Addr: pl.Addr().String(), Path: "/frp-plugin",
 			Ops: []string{"Login", "NewProxy"},
 		}},
 	}

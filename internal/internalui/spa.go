@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pact-cloud/pact-gateway/web"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
 )
 
 // mountSPA registers the asset routes and the history fallback. It is called by

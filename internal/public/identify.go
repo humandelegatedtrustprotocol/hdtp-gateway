@@ -4,13 +4,13 @@ package public
 // rule (§5.3), as code. This is the ONE place a caller's identity is decided:
 // every sealed call passes the numbered open order, every call — sealed or not
 // — passes the seal/client-cert policy gate, and the result is either a
-// resolved identity or one of the three PACT §12 codes.
+// resolved identity or one of the three HDTP §12 codes.
 //
 // Order matters and is spec-pinned: decode → suite → to → kid → OPEN →
 // verify signature → freshness → idempotency → dispatch. Opening precedes
 // verification because HPKE Base needs no sender key, which is exactly what
 // lets a sender this node has never pinned carry its chain inside the
-// ciphertext (PACT §13.2).
+// ciphertext (HDTP §13.2).
 
 import (
 	"context"
@@ -19,22 +19,22 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/envelope"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The policy errors of §4.11; envelope failures use envelope.ErrInvalid
 // (`envelope_invalid`). ErrSealNotAccepted is 1.2's refusal of an envelope
-// sent to a recipient whose policy is none (PACT §13.4: sealed_call absent;
+// sent to a recipient whose policy is none (HDTP §13.4: sealed_call absent;
 // senders MUST NOT seal).
 var (
 	ErrSealRequired     = errors.New("seal_required")
 	ErrIdentityRequired = errors.New("identity_required")
 	ErrSealNotAccepted  = errors.New("seal_not_accepted")
-	// ErrPendingApproval is PACT §5.3 on the transport path: a pinned root
+	// ErrPendingApproval is HDTP §5.3 on the transport path: a pinned root
 	// calling from an address the owner has not yet approved. ErrPendingStatus
 	// is the one call that address is allowed — the update_contact that brought
 	// it — answered `{"status":"pending"}` rather than an error.
@@ -42,7 +42,7 @@ var (
 	ErrPendingStatus   = errors.New("pending")
 )
 
-// Code maps an error to its PACT §12 wire code ("" when it is not one of ours).
+// Code maps an error to its HDTP §12 wire code ("" when it is not one of ours).
 func Code(err error) string {
 	switch {
 	case err == nil:
@@ -66,7 +66,7 @@ func Code(err error) string {
 	}
 }
 
-// Payload is the call an opened request envelope carries (PACT §13.2): the
+// Payload is the call an opened request envelope carries (HDTP §13.2): the
 // method and its params, as the library's Decide read them out of the
 // plaintext. The sender's chain or leaf, which the same plaintext carries, is
 // decided there and reaches the node as EnvelopeFacts, not as a member here.
@@ -78,12 +78,12 @@ type Payload struct {
 // EnvelopeFacts is what a successfully opened envelope yields (SPEC §5.3).
 type EnvelopeFacts struct {
 	Header  envelope.Header
-	From    string // the signer's fingerprint — the caller identity (2.0: the root's)
+	From    string // the signer's fingerprint — the caller identity (the root's)
 	SPKI    []byte // the sender's key: the leaf's, from the chain or the pin
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
-	// PACT 2.0 (decide.go). Protocol is 2 for a `v: 2` envelope; Tier is
+	// What decide.go fills. Tier is
 	// what Decide resolved; Demote says a pin exists for From but the leaf
 	// proved nothing for it (blocked, superseded), so the caller is a guest
 	// whatever the pool would resolve; Endpoint and Leaf are the proven
@@ -124,13 +124,13 @@ type Identifier struct {
 	Now    func() time.Time
 	// Audit records refusals; nil discards.
 	Audit func(action, resource, outcome string)
-	// RecipientState supplies what a `v: 2` envelope is decided against (PACT §13.3):
+	// RecipientState supplies what a `v: 1` envelope is decided against (HDTP §13.3):
 	// the keys this endpoint holds, the chain, the owner's settings. Read per
 	// call, so a setting the owner
 	// changes takes effect without a restart.
 	RecipientState func(ctx context.Context) (*RecipientState, error)
 	// OnEvent is told of a renewal or a new address learned from a chain
-	// (PACT §5.3: shown to the owner as an event); OnPending of an address
+	// (HDTP §5.3: shown to the owner as an event); OnPending of an address
 	// awaiting the owner's answer. Both may be nil.
 	OnEvent   func(event, root, endpoint string)
 	OnPending func(root, endpoint, why string)
@@ -176,13 +176,13 @@ func (id *Identifier) seal() core.Seal {
 // `sealed_call` and `tools/list`, which always answer with whatever identity
 // the transport earned.
 // The request's context carries the node's one-per-request resolution of a
-// 2.0 chain (ResolveTransport); the gate enforces that resolution rather than
+// chain (ResolveTransport); the gate enforces that resolution rather than
 // re-deciding, so a re-pin or a pending address is recorded once per request,
 // not once per tool call.
 func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, tool string, substantive bool) (string, error) {
 	// identity first: identity_required precedes seal_required (§4.11, §5.3).
-	// "A certificate" means a chain that validated (PACT §14.2) and nothing
-	// else — the posture PACT §13.4 permits is about who may knock at all, and
+	// "A certificate" means a chain that validated (HDTP §14.2) and nothing
+	// else — the posture HDTP §13.4 permits is about who may knock at all, and
 	// a lone self-signed certificate is not a knock anyone can be held to.
 	if id.Cert == core.ClientCertRequired && !tf.ChainProven() {
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
@@ -196,7 +196,7 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "seal_required")
 		return "", fmt.Errorf("%w: this node requires sealed calls", ErrSealRequired)
 	}
-	// A 2.0 chain as the client certificate (PACT §2): the root is the caller
+	// A chain as the client certificate (HDTP §2): the root is the caller
 	// once the pin checks the sealed path makes have run (ResolveTransport):
 	// a leaf older than the pinned one proves nothing (§14.3) and a blocked
 	// root is a stranger — both an anonymous guest here; another address is
@@ -211,12 +211,12 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 			if tc.Refusal != "" {
 				// A `sealed_call` is answered by its envelope, not here. The envelope carries the
 				// same chain, meets the same §5.3 decision in `decide.go`, and its refusal goes
-				// back SEALED (PACT §13.2) — whereas refusing at this gate answered in plaintext
+				// back SEALED (HDTP §13.2) — whereas refusing at this gate answered in plaintext
 				// before anything was opened. A caller that holds §13.2 to its word reads a
 				// plaintext `pending_approval` to a sealed call as forged, so a contact presenting
 				// both proofs from a new address — a sealed move announcement over mTLS, say — was
 				// told nothing it could believe. The transport earns no identity for this request;
-				// the both-proofs key match (PACT §2) still runs on the facts, and the envelope
+				// the both-proofs key match (HDTP §2) still runs on the facts, and the envelope
 				// decides.
 				if tool == "sealed_call" {
 					return "", nil
@@ -260,15 +260,15 @@ func (id *Identifier) PoolGate() func(ctx context.Context, tool string) error {
 // OpenSealed runs the numbered open order (SPEC §4.4) for one sealed_call.
 // accountID is the addressed account; tf carries the transport
 // facts of the connection the envelope arrived on.
-func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf TransportFacts, e *pactidentity.Envelope) (*EnvelopeFacts, error) {
-	// 0. Policy. At `none` the recipient does not accept envelopes (PACT §13.4)
+func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf TransportFacts, e *hdtpidentity.Envelope) (*EnvelopeFacts, error) {
+	// 0. Policy. At `none` the recipient does not accept envelopes (HDTP §13.4)
 	// — the card said not to seal. The sealed_call wrapper is the only way an
 	// envelope arrives, and it opens through here. Read live, like
 	// PlaintextGate, so flipping the knob needs no restart.
 	if id.seal() == core.SealNone {
 		return nil, fmt.Errorf("%w: this recipient does not accept sealed calls", ErrSealNotAccepted)
 	}
-	// Every envelope is `v: 2` (PACT §13.1): the header has no `from` and no `to`,
+	// Every envelope is `v: 1` (HDTP §13.1): the header has no `from` and no `to`,
 	// and the open order is the library's (§13.3). A header whose `v` is anything
 	// else is refused there.
 	return id.decideEnvelope(ctx, accountID, tf, e)
@@ -305,9 +305,9 @@ func (id *Identifier) Replay(ctx context.Context, idem IdempotencyStore, account
 	return "", false, nil
 }
 
-// replayWindowEnd is when an envelope's replay record may go: PACT §13.3's "retained until
+// replayWindowEnd is when an envelope's replay record may go: HDTP §13.3's "retained until
 // min(exp, ts + 300 s) — the end of the window in which the envelope could be presented again and
-// accepted". The open accepts `now < exp` and `|now − ts| <= 300` (pactidentity.SkewSeconds), in
+// accepted". The open accepts `now < exp` and `|now − ts| <= 300` (hdtpidentity.SkewSeconds), in
 // whole seconds, so ts + 300 is itself a second the envelope is accepted at and exp is not; and the
 // store removes a record once its expiry is not after the sweep's clock. The record's expiry is
 // therefore the first second the envelope is refused: exp, or ts + 300 + 1.
@@ -315,5 +315,5 @@ func (id *Identifier) Replay(ctx context.Context, idem IdempotencyStore, account
 // It was the header's exp alone, and exp − ts may be thirty days, so a sender chose how long this
 // node remembered each envelope it sent.
 func replayWindowEnd(h envelope.Header) int64 {
-	return min(h.Exp, h.TS+pactidentity.SkewSeconds+1)
+	return min(h.Exp, h.TS+hdtpidentity.SkewSeconds+1)
 }

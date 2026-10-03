@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // The two verbs end to end, and the recovery they are for. A node that has lost its master key
-// cannot start: every leaf key is sealed under it. Under 2.0 that loses no identity — the root is
+// cannot start: every leaf key is sealed under it. Under HDTP that loses no identity — the root is
 // in the wallet — and the way back is the same as moving house: take the contacts and the chats,
 // leave everything else, and have the wallet certify the new home.
 //

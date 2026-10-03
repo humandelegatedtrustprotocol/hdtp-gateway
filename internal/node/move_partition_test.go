@@ -10,10 +10,10 @@ import (
 	toxiproxy "github.com/Shopify/toxiproxy/v2"
 	"github.com/rs/zerolog"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
-// The move campaign under a network partition (PACT §5.3, §9): one contact reachable, one cut off
+// The move campaign under a network partition (HDTP §5.3, §9): one contact reachable, one cut off
 // while the walk runs. The fault is injected with Toxiproxy, in process, between the mover and the
 // contact it cannot reach — a `timeout` toxic, which passes the TCP connection and then lets no
 // data through, as a link that drops packets does. The container harness covers the same ground

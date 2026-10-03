@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/fabric"
-	"github.com/pact-cloud/pact-gateway/harness/images"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/fabric"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/images"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // T6 — a node behind a self-hosted `frps`.
@@ -26,7 +26,7 @@ import (
 //
 // The property that matters: frps forwards RAW BYTES and routes by SNI, so the
 // node's own certificate must reach the caller. A tunnel that terminated TLS
-// would break mTLS identity, which is the whole basis of PACT §2.
+// would break mTLS identity, which is the whole basis of HDTP §2.
 func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	ctx, w := begin(t, registry.Spec{
 		ID: "T6", Name: "a node behind a self-hosted frps keeps its own chain and serves MCP", Tier: registry.Nightly,
@@ -76,7 +76,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	// That is what an owner does, so it is what this exercises.
 	//
 	// Its public URL is the tunnel's from the start, because the account's leaf names the
-	// address it answers at (PACT §2) and the wallet signs it before the tunnel exists.
+	// address it answers at (HDTP §2) and the wallet signs it before the tunnel exists.
 	//
 	// Settings are the owner's, and the portal requires a session on every bind (SPEC §8.3):
 	// so the owner registers a passkey (World.Node does), and sets them as that owner. This
@@ -121,7 +121,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	}
 
 	// frps must accept the proxy, or nothing downstream means anything.
-	if err := waitLog(ctx, f, frps, "new proxy [pact] type [https] success", 90*time.Second); err != nil {
+	if err := waitLog(ctx, f, frps, "new proxy [hdtp] type [https] success", 90*time.Second); err != nil {
 		nl, _ := f.Raw(ctx, "docker", "logs", node.Name)
 		sl, _ := f.Raw(ctx, "docker", "logs", frps.Name)
 		t.Fatalf("frps never registered the node's proxy: %v\nnode: %s\nfrps: %s",
@@ -141,7 +141,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 		"--add-host", domain+":"+frpsIP, images.Alpine, "sh", "-c",
 		"apk add -q openssl; echo | openssl s_client -showcerts -connect "+domain+":8443 -servername "+domain+" 2>&1")
 	// What arrives must be the chain the node serves under — the leaf Alice's wallet issued,
-	// byte for byte, then her root (PACT §2, §14.2) — because that chain IS the identity a
+	// byte for byte, then her root (HDTP §2, §14.2) — because that chain IS the identity a
 	// caller validates, and a hop that re-terminated TLS would present something else. This
 	// looked for `subject=CN=alice`, the lone self-signed certificate of a key-pinned node.
 	var presented [][]byte
@@ -157,7 +157,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	}
 	if len(presented) != 2 || !bytes.Equal(presented[0], pin.Leaf) || !bytes.Equal(presented[1], aliceWallet.RootDER) {
 		t.Fatalf("the node's own chain did not survive the tunnel (%d certificate(s) presented) — "+
-			"identity (PACT §2) depends on it:\n%s", len(presented), shorten(string(out), 500))
+			"identity (HDTP §2) depends on it:\n%s", len(presented), shorten(string(out), 500))
 	}
 	t.Log("through frps: the leaf Alice's wallet issued, and her root, reached the caller")
 
@@ -168,7 +168,7 @@ func TestNodeIsReachableThroughSelfHostedFrps(t *testing.T) {
 	// own regression guard here rather than relying on T5's ingress wrappers.
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
 		`{"protocolVersion":"2025-06-18","capabilities":{},` +
-		`"clientInfo":{"name":"pact-harness","version":"1"}}}`
+		`"clientInfo":{"name":"hdtp-harness","version":"1"}}}`
 	body, _ := f.Raw(ctx, "docker", "run", "--rm", "--network", net.Name,
 		"--add-host", domain+":"+frpsIP, images.Curl,
 		"-sS", "-k", "-m", "30", "-X", "POST",

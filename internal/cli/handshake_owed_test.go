@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // An import leaves its contacts owed this host's handshake until the identity's next leaf is
-// installed (PACT §9.2). That state has a way out only if the owner can see it, so the two places
+// installed (HDTP §9.2). That state has a way out only if the owner can see it, so the two places
 // an owner already looks — `account certificate` and `doctor` — both name it, with the command
 // that ends it; and once nothing is owed, neither says anything. A blocked contact is never owed.
 func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
@@ -19,7 +19,7 @@ func TestOwedHandshakesAreNamedByAccountCertificateAndDoctor(t *testing.T) {
 	owner, friend, blocked := testid.NewWallet(t, "Work"), testid.NewWallet(t, "Friend"), testid.NewWallet(t, "Blocked")
 	var accountID string
 	r := runServe(t, func(t *testing.T, dir string) {
-		st, err := store.OpenSQLite(filepath.Join(dir, "pact.db"))
+		st, err := store.OpenSQLite(filepath.Join(dir, "hdtp.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +96,7 @@ func TestTheOwedHandshakeLineAsksForTheRightLeaf(t *testing.T) {
 }
 
 // Contacts the current leaf's campaign owes wait for `account announce`, not for another leaf:
-// after a move through the real wallet (pact-cloud's live-local L5, then e2e-suite-staging) doctor
+// after a move through the real wallet (batondeck's live-local L5, then e2e-suite-staging) doctor
 // told the owner to have the wallet sign again while the install's own notice named `account
 // announce`. Contacts imported after that leaf was requested still ask for a leaf.
 func TestTheOwedHandshakeLineSendsThisLeafsContactsToAnnounce(t *testing.T) {

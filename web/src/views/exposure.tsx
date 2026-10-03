@@ -74,7 +74,7 @@ export function Exposure({ id }: { id: string }) {
   const setMany = (names: string[], on: boolean) => setChoices((c) => { const n = { ...c }; for (const x of names) n[x] = { ...n[x], on }; return n; });
   const post = async (path: string, fields: Record<string, string>) => fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Pact-Csrf": csrf() },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-HDTP-Csrf": csrf() },
     body: new URLSearchParams({ csrf: csrf(), account: currentAccount(), ...fields }).toString(),
   });
   const reconfirm = async () => {

@@ -1,5 +1,5 @@
 {
- "_": "What a contact is CALLED in a list, and the look-alike table that decides two names are one. Read by pact-gateway internal/internalui (labels.go, Go) and by PACT Cloud portal/src/contact_labels.ts, whose copy of this file is held byte for byte to the node commit portal/HARVESTED records. {short} is each port's short fingerprint.",
+ "_": "What a contact is CALLED in a list, and the look-alike table that decides two names are one. Read by hdtp-gateway internal/internalui (labels.go, Go) and by BatonDeck portal/src/contact_labels.ts, whose copy of this file is held byte for byte to the node commit portal/HARVESTED records. {short} is each port's short fingerprint.",
  "look_alikes": [
   ["\u0430", "a"],
   ["\u0432", "b"],

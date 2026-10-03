@@ -9,22 +9,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // A store with every field a certificate or a card lives in, planted through the store's own
 // API: one row of each that reads, one of each that does not. The run names each refusal by its
 // table, its row and its field, with the reader's reason, counts what it read, and changes
-// nothing. The card is the field pact-identity 0.4.2's reading changed: a stray character before
+// nothing. The card is the field the identity core 0.4.2's reading changed: a stray character before
 // its certificate, which 0.4.1 skipped, is `not base64url` now.
 //
 // Shown red with the card's reading removed from the run (the mutation): the card's refusal is not
 // named and the count of cards read is nought.
 func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	fprs := map[string]string{}
 	for _, p := range []planted{
 		{"good", good, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
-		{"badcard", func(h *testid.Host) string { return strings.Replace(good(h), "X-PACT-CERT:", "X-PACT-CERT:!", 1) }, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
+		{"badcard", func(h *testid.Host) string { return strings.Replace(good(h), "X-HDTP-CERT:", "X-HDTP-CERT:!", 1) }, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
 		{"badleaf", func(*testid.Host) string { return "" }, func(*testid.Host) []byte { return notDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
 		{"badroot", good, func(h *testid.Host) []byte { return h.LeafDER }, func(*testid.Wallet) []byte { return notDER }},
 		{"bare", func(*testid.Host) string { return "" }, func(*testid.Host) []byte { return nil }, func(*testid.Wallet) []byte { return nil }},
 	} {
 		w := testid.NewWallet(t, p.name)
 		h := w.Issue(t, "https://"+p.name+".example/mcp")
-		leaf, _ := pactidentity.Parse(h.LeafDER)
+		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		fprs[p.name] = w.Fpr
 		if _, err := st.InsertContact(ctx, store.Contact{
 			AccountID: alina.ID, Fingerprint: w.Fpr, SPKI: leaf.SPKI, Status: "active", Permissions: []string{"message.text"},
@@ -164,7 +164,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	}
 	// Nothing was changed: the card that does not read is still on file as it was planted.
 	c, err := st.GetContact(ctx, alina.ID, fprs["badcard"])
-	if err != nil || !strings.Contains(c.Card, "X-PACT-CERT:!") {
+	if err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:!") {
 		t.Fatalf("the run changed the store: %v %q", err, c.Card)
 	}
 }
@@ -172,7 +172,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 // The control: a store where everything reads says so, and a store with nothing to read says that.
 func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "pact.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 	}
 	peer := testid.NewWallet(t, "Peer")
 	h := peer.Issue(t, "https://peer.example/mcp")
-	leaf, _ := pactidentity.Parse(h.LeafDER)
+	leaf, _ := hdtpidentity.Parse(h.LeafDER)
 	if _, err := st.InsertContact(ctx, store.Contact{
 		AccountID: a.ID, Fingerprint: peer.Fpr, SPKI: leaf.SPKI, Status: "pending_in", Permissions: []string{"message.text"},
 		Endpoint: h.Endpoint, Card: h.Card("Peer", "required"), Leaf: h.LeafDER, RootCert: peer.RootDER,
@@ -214,7 +214,7 @@ func TestAStoreWhoseFieldsAllReadSaysSo(t *testing.T) {
 }
 
 // forceContactStatus puts a contact in a state the store's own API cannot write: the schema holds
-// a contact's status to the four (migration 0002's CHECK, both engines), so a row in any other
+// a contact's status to the four (the schema's CHECK, both engines), so a row in any other
 // state is a hand-edited store's, and this is that hand — raw SQL, in a test only, with the
 // constraint switched off for the one connection that writes it.
 func forceContactStatus(t *testing.T, dbPath, accountID, root, status string) {
@@ -239,7 +239,7 @@ func forceContactStatus(t *testing.T, dbPath, accountID, root, status string) {
 // no line names it.
 func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "pact.db")
+	path := filepath.Join(t.TempDir(), "hdtp.db")
 	st, err := store.OpenSQLite(path)
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
 	for _, name := range []string{"active", "pending_out", "blocked", "pending_in", "odd", "odder"} {
 		w := testid.NewWallet(t, name)
 		h := w.Issue(t, "https://"+name+".example/mcp")
-		leaf, _ := pactidentity.Parse(h.LeafDER)
+		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		status := name
 		if name == "odd" || name == "odder" {
 			status = "active"
@@ -276,7 +276,7 @@ func TestAContactInAStateNoPinHasIsCountedAndNamed(t *testing.T) {
 		roots[name] = w.Fpr
 	}
 	if err := st.UpdateContactStatus(ctx, alina.ID, roots["odd"], "frozen"); err == nil {
-		t.Fatal("the store moved a contact to state frozen; the schema's CHECK (migration 0002) admits only the four")
+		t.Fatal("the store moved a contact to state frozen; the schema's CHECK admits only the four")
 	}
 	forceContactStatus(t, path, alina.ID, roots["odd"], "frozen")
 

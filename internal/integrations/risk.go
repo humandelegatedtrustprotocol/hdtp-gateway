@@ -55,7 +55,7 @@ func AssessRisk(name string, annotations json.RawMessage) Risk {
 }
 
 // RecipeSuggestion proposes a mapped-mode recipe binding for tools whose names
-// look like PACT core capabilities (SPEC §6.7); rendered pre-selected in the
+// look like HDTP core capabilities (SPEC §6.7); rendered pre-selected in the
 // picker, freely editable.
 func RecipeSuggestion(toolName string) string {
 	n := strings.ToLower(toolName)

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// H2 (review 2026-09-28). PACT §9 and rule 5: a leaf's private key is DESTROYED — at expiry, and
+// H2 (review 2026-09-28). HDTP §9 and rule 5: a leaf's private key is DESTROYED — at expiry, and
 // when the person leaves. A DELETE or an UPDATE to NULL takes the row out of the table and leaves
 // its bytes on disk: in SQLite's free pages and freed cell space, and in the write-ahead log, until
 // something overwrites them. These tests read the database's files, byte for byte, after the key

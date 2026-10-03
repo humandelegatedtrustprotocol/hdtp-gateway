@@ -1,6 +1,6 @@
 package contacts
 
-// The manager's side of the pending-request cap (PACT §12's limits; `pending_in_cap` of the node's
+// The manager's side of the pending-request cap (HDTP §12's limits; `pending_in_cap` of the node's
 // limits sidecar): every path a stranger writes a request by asks AdmitRequest, with the count of
 // requests already held, before it writes; a refusal writes nothing and spends no use of an invite;
 // a request already waiting is not asked about again; and a manager built without the cap writes no

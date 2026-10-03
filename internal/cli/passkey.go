@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pact-cloud/pact-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 func passkey(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: pact-gateway passkey <list|remove|reset-wizard> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway passkey <list|remove|reset-wizard> [flags]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -54,7 +54,7 @@ func passkey(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, out["url"])
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: pact-gateway passkey <list|remove|reset-wizard> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway passkey <list|remove|reset-wizard> [flags]")
 		return 2
 	}
 }

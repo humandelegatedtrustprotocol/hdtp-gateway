@@ -21,14 +21,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/internalui"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/ownermcp"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // P2 exit (PLAN P2-10): full pairing via portal HTTP — wizard gate → account →
@@ -40,9 +40,9 @@ func TestP2ExitPortalPairing(t *testing.T) {
 		runPortalPairing(t, func(name string) store.Store { return openSQLite(t, name) })
 	})
 	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("PACT_TEST_POSTGRES_DSN")
+		dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
 		if dsn == "" {
-			t.Skip("PACT_TEST_POSTGRES_DSN not set")
+			t.Skip("HDTP_TEST_POSTGRES_DSN not set")
 		}
 		runPortalPairing(t, func(name string) store.Store { return openPostgres(t, dsn, name) })
 	})
@@ -123,7 +123,7 @@ func portal(t *testing.T, n *node) (*httptest.Server, *http.Client) {
 		func(mux *http.ServeMux) {
 			internalui.MountManagePages(mux, internalui.ManageDeps{
 				Store: n.st, Contacts: n.cm, Audit: func(_, _, _ string) {},
-				PublicURL: func() string { return "https://pact.example" },
+				PublicURL: func() string { return "https://hdtp.example" },
 				SignCard:  func(_, _ string) (string, error) { return "c2ln", nil },
 			})
 		},
@@ -148,11 +148,11 @@ func csrfOf(t *testing.T, client *http.Client, base string) string {
 	t.Helper()
 	u, _ := url.Parse(base)
 	for _, c := range client.Jar.Cookies(u) {
-		if c.Name == "pact_csrf" {
+		if c.Name == "hdtp_csrf" {
 			return c.Value
 		}
 	}
-	t.Fatal("no pact_csrf cookie after GET")
+	t.Fatal("no hdtp_csrf cookie after GET")
 	return ""
 }
 
@@ -222,7 +222,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}
 	lbody, _ := io.ReadAll(lresp.Body)
 	lresp.Body.Close()
-	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-PACT-CERT:") {
+	if lresp.StatusCode != 200 || !strings.Contains(string(lbody), "X-HDTP-CERT:") {
 		t.Fatalf("landing page: %d\n%s", lresp.StatusCode, lbody)
 	}
 
@@ -239,7 +239,7 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.root); err != nil || !strings.Contains(c.Card, "X-PACT-CERT:") {
+	if c, err := bella.st.GetContact(ctx, bella.acct.ID, alice.root); err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:") {
 		t.Fatalf("alice not in bella's contacts: %+v %v", c, err)
 	}
 
@@ -378,7 +378,7 @@ var pgSeq int
 func openPostgres(t *testing.T, dsn, name string) store.Store {
 	t.Helper()
 	pgSeq++
-	dbName := fmt.Sprintf("pact_exit_%s_%d", name, pgSeq)
+	dbName := fmt.Sprintf("hdtp_exit_%s_%d", name, pgSeq)
 	admin, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)

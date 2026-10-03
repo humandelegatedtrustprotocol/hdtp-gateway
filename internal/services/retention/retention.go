@@ -13,10 +13,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
 // SweepInterval is how often retention is applied. An hour is far finer than any
@@ -77,14 +77,14 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 			archiveTrail(ctx)
 		}
 		// Whatever any account's window is: the records whose OWN window has closed. A sealed call
-		// writes an idempotency record every time, and one past its window protects nothing (PACT
+		// writes an idempotency record every time, and one past its window protects nothing (HDTP
 		// §13.3); an abandoned owner session is never presented again, so nothing else removes it.
 		now := time.Now().Unix()
 		_, err := st.DeleteExpiredIdempotency(ctx, now)
 		report("idempotency records", err)
 		_, err = st.DeleteExpiredSessions(ctx, now)
 		report("sessions", err)
-		// An address an identity left is reserved until the last leaf issued for it expires (PACT §9);
+		// An address an identity left is reserved until the last leaf issued for it expires (HDTP §9);
 		// past that the row reserves nothing, and it names the address and nothing else.
 		_, err = st.DeleteExpiredVacatedAddresses(ctx, now)
 		report("vacated addresses", err)

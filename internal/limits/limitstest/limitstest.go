@@ -1,4 +1,4 @@
-// Package limitstest runs the real limits sidecar (cmd/pact-limitd) for a test, the way
+// Package limitstest runs the real limits sidecar (cmd/hdtp-limitd) for a test, the way
 // internal/testid mints real identities: a test of the node's budgets that ran against a stand-in
 // would pass for the stand-in's reasons.
 //
@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
 )
 
 // BinaryEnv names the sidecar binary a test runs; unset, it is the one `make limitd` builds.
-const BinaryEnv = "PACT_LIMITD"
+const BinaryEnv = "HDTP_LIMITD"
 
 // root is the module's root, from this file's own path.
 func root() string {
@@ -29,7 +29,7 @@ func root() string {
 	return filepath.Join(filepath.Dir(here), "..", "..", "..")
 }
 
-// Binary is the sidecar binary a test runs: $PACT_LIMITD, or what `make limitd` builds. A test
+// Binary is the sidecar binary a test runs: $HDTP_LIMITD, or what `make limitd` builds. A test
 // fails, rather than skips, when neither exists: a budget test that ran against nothing would pass
 // for the wrong reason.
 func Binary(t testing.TB) string {
@@ -45,7 +45,7 @@ func binary() (string, error) {
 	if p := os.Getenv(BinaryEnv); p != "" {
 		return p, nil
 	}
-	p := filepath.Join(root(), "cmd", "pact-limitd", "target", "release", "pact-limitd")
+	p := filepath.Join(root(), "cmd", "hdtp-limitd", "target", "release", "hdtp-limitd")
 	if _, err := os.Stat(p); err != nil {
 		return "", fmt.Errorf("the limits sidecar is not built at %s: run `make limitd` (or set %s)", p, BinaryEnv)
 	}
@@ -84,7 +84,7 @@ func defaultRules() (limits.Rules, error) {
 	return doc.Rules, nil
 }
 
-// Sidecar is a real pact-limitd a test started, with a client of it.
+// Sidecar is a real hdtp-limitd a test started, with a client of it.
 type Sidecar struct {
 	*limits.Client
 	Config string
@@ -153,7 +153,7 @@ func (s *Sidecar) run() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(bin, "-config", s.Config) // #nosec G204 -- the sidecar `make limitd` built, or the one PACT_LIMITD names; test support only
+	cmd := exec.Command(bin, "-config", s.Config) // #nosec G204 -- the sidecar `make limitd` built, or the one HDTP_LIMITD names; test support only
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the limits sidecar: %w", err)

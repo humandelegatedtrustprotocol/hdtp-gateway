@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // racingStore commits one write just before the first transaction begins: an install that lands
@@ -26,7 +26,7 @@ func (r *racingStore) Atomically(ctx context.Context, fn func(tx store.Store) er
 
 // L2 (review 2026-09-28). What a leave reserves is decided from the leaves it reads; it read them
 // before its transaction, so a leaf installed in between named an address the leave then left
-// unreserved, free for another identity while that leaf was still live (PACT §9).
+// unreserved, free for another identity while that leaf was still live (HDTP §9).
 func TestALeafInstalledJustBeforeTheLeaveIsReserved(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()

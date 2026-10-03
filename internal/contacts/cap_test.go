@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // capped is an env whose accounts may hold two contacts, holding them.
@@ -87,7 +87,7 @@ func TestApproveAndUnblockAreHeldToTheCap(t *testing.T) {
 }
 
 // A peer redeeming an auto-accept link at the cap is refused before the use is spent, and a caller
-// this account blocked hears exactly what a stranger hears (PACT §12). A link that only asks still
+// this account blocked hears exactly what a stranger hears (HDTP §12). A link that only asks still
 // lands a request: pending_in does not count.
 func TestARedemptionAtTheCapSpendsNothing(t *testing.T) {
 	e := capped(t)

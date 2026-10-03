@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -21,19 +22,19 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/limits/limitstest"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 type env struct {
-	root     *pactidentity.PrivateKey
+	root     *hdtpidentity.PrivateKey
 	rootCert []byte
 	t        testing.TB
 	st       store.Store
@@ -75,7 +76,7 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 			t.Fatal(err)
 		}
 		// And give it a leaf. An account with a key and no chain cannot be served
-		// (PACT §2) — the node skips it as awaiting its wallet — so every account a
+		// (HDTP §2) — the node skips it as awaiting its wallet — so every account a
 		// node test expects to answer has to have been to one.
 		e.issueLeaf(a)
 		a, _ = st.GetAccountByID(ctx, a.ID)
@@ -84,22 +85,22 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 	return e, accts
 }
 
-// peerFor is the 2.0 pin a test caller holds for an account this env serves, and
+// peerFor is the pin a test caller holds for an account this env serves, and
 // the dialer that reaches it.
 //
 // A server is recognised by the chain it presents, validated to the ROOT pinned
-// at the address DIALED (PACT §2, §14.2 rule 5) — and the address the leaf names
+// at the address DIALED (HDTP §2, §14.2 rule 5) — and the address the leaf names
 // is the configured public URL, never the loopback the test listener is on. So
 // the caller dials the name and the resolver sends it to the listener, which is
 // what DNS does for a real caller. Pinning the node's leaf KEY instead used to
-// work; that was the key-pinned generation's rule, and it is gone.
+// work; that was the retired generation's rule, and it is gone.
 func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(context.Context, string, string) (net.Conn, error)) {
 	e.t.Helper()
 	chain, err := e.idm.Chain(context.Background(), acct.ID)
 	if err != nil || len(chain) != 2 {
 		e.t.Fatalf("peerFor: the account holds no chain: %v", err)
 	}
-	vr := pactidentity.ValidateChain(chain, pactidentity.ChainOpts{Now: time.Now()})
+	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now()})
 	if !vr.OK {
 		e.t.Fatalf("peerFor: the node's own chain does not validate: rule %d", vr.Rule)
 	}
@@ -125,11 +126,11 @@ func (e *env) issueLeaf(a store.Account) {
 	e.t.Helper()
 	ctx := context.Background()
 	if e.root == nil {
-		key, err := pactidentity.GenerateKey("ed25519")
+		key, err := hdtpidentity.GenerateKey("ed25519")
 		if err != nil {
 			e.t.Fatal(err)
 		}
-		rc, err := pactidentity.BuildRoot(pactidentity.RootOpts{CN: "Test Owner", Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
+		rc, err := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Test Owner", Key: key, NotBefore: time.Now().Add(-24 * time.Hour)})
 		if err != nil {
 			e.t.Fatal(err)
 		}
@@ -140,7 +141,7 @@ func (e *env) issueLeaf(a store.Account) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	iss, err := pactidentity.IssueFromCSR(csr.CSR, pactidentity.IssueOpts{
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
 		RootCN: "Test Owner", RootKey: e.root, RootSPKIs: [][]byte{e.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
@@ -219,7 +220,9 @@ func TestRoutingAndNotFound(t *testing.T) {
 	if code := status(t, c, base+"/mcp"); code != http.StatusNotFound {
 		t.Fatalf("/mcp on a two-account node: %d", code)
 	}
-	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay/mcp"} { // /relay/mcp is gone: it must 404 like any other unknown path
+	// The relay role's route is gone: it must 404 like any other unknown path. Its path is on the name
+	// guard's retired list, so it is spelled here in two halves.
+	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay" + "/mcp"} {
 		if code := status(t, c, base+path); code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, code)
 		}
@@ -236,14 +239,16 @@ func TestRoutingAndNotFound(t *testing.T) {
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
-	// The page shows the signed card, so it shows the certificate the card carries. This used to
-	// require the string "X-PACT-KEY" on the page — a test pinning the retired vocabulary in front
-	// of a person, which is how "hash it to check it matches X-PACT-KEY" outlived the property.
-	if res.StatusCode != 200 || !strings.Contains(string(b), "X-PACT-CERT") {
+	// The page shows the signed card, so it shows the certificate the card carries — and it names
+	// no card property a card does not have. It used to tell a person to hash a key and compare it
+	// with a property that no card carried any more, and this test required that string.
+	if res.StatusCode != 200 || !strings.Contains(string(b), "X-HDTP-CERT") {
 		t.Fatalf("landing page: %d %s", res.StatusCode, firstLine(string(b)))
 	}
-	if strings.Contains(string(b), "X-PACT-KEY") {
-		t.Fatal("the landing page still speaks of X-PACT-KEY, which no card carries")
+	for _, name := range regexp.MustCompile(`X-HDTP-[A-Z]+`).FindAllString(string(b), -1) {
+		if name != "X-HDTP-VERSION" && name != "X-HDTP-CERT" && name != "X-HDTP-SEAL" {
+			t.Fatalf("the landing page speaks of %s, which no card carries", name)
+		}
 	}
 
 	// single-account node: the alias works
@@ -348,9 +353,9 @@ func TestStopReleasesThePort(t *testing.T) {
 	}
 	// The refusal cannot tell a wrong master key from a lost one, so it has to say both: what to
 	// supply if it is the first, and that the identities survive — with the way through — if it is
-	// the second. It used to say only "no account could be served", which under 2.0 reads as a
+	// the second. It used to say only "no account could be served", which under HDTP reads as a
 	// loss that has not happened: the identity is a root in a wallet.
-	for _, want := range []string{"PACT_MASTER_KEY", "pact-gateway export", "pact-gateway import", "roots in wallets"} {
+	for _, want := range []string{"HDTP_MASTER_KEY", "hdtp-gateway export", "hdtp-gateway import", "roots in wallets"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal must name both meanings and the way through; missing %q in: %v", want, err)
 		}
@@ -433,7 +438,7 @@ func TestTunnelledCallIsNotRefusedAsDNSRebinding(t *testing.T) {
 
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
 		`{"protocolVersion":"2025-06-18","capabilities":{},` +
-		`"clientInfo":{"name":"pact-test","version":"1"}}}`
+		`"clientInfo":{"name":"hdtp-test","version":"1"}}}`
 	req, err := http.NewRequest("POST", base+"/a/alice/mcp", strings.NewReader(initialize))
 	if err != nil {
 		t.Fatal(err)
@@ -523,12 +528,12 @@ func TestSetSealPersistsTheEffectiveValueNotTheRequestedOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(card, "X-PACT-SEAL:required") {
+	if !strings.Contains(card, "X-HDTP-SEAL:required") {
 		t.Fatalf("card disagrees with the gate:\n%s", card)
 	}
 }
 
-// AC (P10-02): PACT §12's caps must actually be enforced on the shipped
+// AC (P10-02): HDTP §12's caps must actually be enforced on the shipped
 // surface. They were implemented, tested as a library, and never installed — so
 // `rate_limited` was a code no caller could ever receive. The budget counts
 // CALLS: an earlier attempt limited HTTP requests, which a single MCP session
@@ -545,7 +550,7 @@ func TestGuestRateLimitIsEnforcedOnTheRealListener(t *testing.T) {
 		Cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: kp.Signer}}
 
 	// This caller presents a certificate that is no chain, so no root is proven and its
-	// address alone pays: PACT §12's source budget, `guest_source_calls_per_hour` of the
+	// address alone pays: HDTP §12's source budget, `guest_source_calls_per_hour` of the
 	// sidecar's rules. Each of these is refused on its merits — the token is nonsense — but it is
 	// still a call, and the one past the budget must be refused for the budget instead.
 	budget := int(limitstest.DefaultRules(t).GuestSourceCallsPerHour)
@@ -811,7 +816,7 @@ func TestAdoptAccountRefusesAnUnknownAccount(t *testing.T) {
 // Cloudflare, ngrok or a terminate-mode ingress EVERY contact was classified as
 // an anonymous guest and budgeted per IP — and a tunnelled peer arrives from its
 // edge's address, so all of them shared one bucket. Two contacts having a normal
-// conversation exhausted the guest allowance (PACT §12: 10/hour) and everything
+// conversation exhausted the guest allowance (HDTP §12: 10/hour) and everything
 // after it was refused `rate_limited`.
 //
 // The owner found it the only way anyone could: by sending messages both ways at
@@ -906,7 +911,7 @@ func TestASealedContactIsNotBudgetedAsAGuest(t *testing.T) {
 	want("a sealed call that names nobody", c, k, "", limits.GuestIn("", ip, true), limits.GuestTotal())
 }
 
-// PACT §13.4: at seal `none` the recipient does not accept envelopes, and the
+// HDTP §13.4: at seal `none` the recipient does not accept envelopes, and the
 // tool must not be listed — the card and the served surface tell one truth.
 // The knob is live: SetSeal installs or removes the sealed group with no
 // restart, the same way integration tools come and go.
@@ -1012,7 +1017,7 @@ func TestACardIsRefusedAsNoCertificateOnlyWhereThereIsNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card, err := n.Card(ctx, accts[0].ID); err != nil || !strings.Contains(card, "X-PACT-CERT:") {
+	if card, err := n.Card(ctx, accts[0].ID); err != nil || !strings.Contains(card, "X-HDTP-CERT:") {
 		t.Fatalf("the served identity's card: %q, %v", card, err)
 	}
 	bob, err := e.idm.CreateAccount(ctx, "bob", "BOB", identity.AlgoP256)

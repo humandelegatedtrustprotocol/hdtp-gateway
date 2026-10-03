@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 type env struct {
@@ -135,7 +135,7 @@ func TestCSRFCookieOnGETAndEnforcedOnPOST(t *testing.T) {
 	rr := get(t, e.h, "/", "127.0.0.1:1")
 	var csrf string
 	for _, c := range rr.Result().Cookies() {
-		if c.Name == "pact_csrf" {
+		if c.Name == "hdtp_csrf" {
 			csrf = c.Value
 		}
 	}
@@ -145,7 +145,7 @@ func TestCSRFCookieOnGETAndEnforcedOnPOST(t *testing.T) {
 	// POST without header → 403
 	req := httptest.NewRequest("POST", "/setup", nil)
 	req.RemoteAddr = "127.0.0.1:1"
-	req.AddCookie(&http.Cookie{Name: "pact_csrf", Value: csrf})
+	req.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: csrf})
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -154,8 +154,8 @@ func TestCSRFCookieOnGETAndEnforcedOnPOST(t *testing.T) {
 	// POST with matching header passes CSRF (may fail later for other reasons, but not 403-csrf)
 	req2 := httptest.NewRequest("POST", "/setup", nil)
 	req2.RemoteAddr = "127.0.0.1:1"
-	req2.AddCookie(&http.Cookie{Name: "pact_csrf", Value: csrf})
-	req2.Header.Set("X-Pact-Csrf", csrf)
+	req2.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: csrf})
+	req2.Header.Set("X-HDTP-Csrf", csrf)
 	rec2 := httptest.NewRecorder()
 	e.h.ServeHTTP(rec2, req2)
 	if rec2.Code == http.StatusForbidden && strings.Contains(rec2.Body.String(), "csrf") {

@@ -9,7 +9,7 @@ package integrationtest
 //
 // The table is data. Every package under internal/ and cmd/ must have a rank, and a package may
 // import only packages of a strictly lower rank. `cli` is the one package above every other (it
-// wires them) and `cmd/pact-gateway` is above it. Only non-test files are read: a test may reach
+// wires them) and `cmd/hdtp-gateway` is above it. Only non-test files are read: a test may reach
 // up to build its fixture.
 //
 // There is no exception list. The three inversions landed with this test as named exceptions and
@@ -82,7 +82,7 @@ var layerRank = map[string]int{
 	"internal/services/settings": 7,
 	// the wiring, and the binary
 	"internal/cli":     8,
-	"cmd/pact-gateway": 9,
+	"cmd/hdtp-gateway": 9,
 }
 
 // nodeImports reads every non-test Go file under internal/ and cmd/ and returns, per package
@@ -117,7 +117,7 @@ func nodeImports(t *testing.T, root string) map[string]map[string]bool {
 			for _, imp := range f.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
 				// The identity core is its own module under this path; it is not a layer here.
-				if !strings.HasPrefix(p, modulePath+"/") || strings.HasPrefix(p, modulePath+"/pact-identity") {
+				if !strings.HasPrefix(p, modulePath+"/") || strings.HasPrefix(p, modulePath+"/hdtp-identity") {
 					continue
 				}
 				out[rel][strings.TrimPrefix(p, modulePath+"/")] = true

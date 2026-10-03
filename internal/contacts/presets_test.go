@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // A preset is a label over the core switchboard. It has to stay true on its own
@@ -39,7 +39,7 @@ func TestPresetsHolds(t *testing.T) {
 	}
 }
 
-// PACT §8 since 1.2: presets are owner-editable. Rows are the complete set the
+// HDTP §8 since 1.2: presets are owner-editable. Rows are the complete set the
 // moment any exist; none means the documented four; errors degrade to the four
 // rather than to "no presets", which the approval flow cannot work in.
 func TestLoadPresetsResolution(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries (migration 0046):
+// leafFingerprint is the `leaf_fingerprint` column a row holding `leaf` carries:
 // the fingerprint of the leaf's key, which the row keeps beside it in `spki`. NULL exactly when
 // there is no leaf. Every statement that writes `leaf` writes this with it; PinCandidates finds a
 // small form's pin by it, so a writer that left it out would leave that contact unfindable.
@@ -20,12 +20,12 @@ func leafFingerprint(leaf, spki []byte) sql.NullString {
 	return keyFingerprint(spki)
 }
 
-// keyFingerprint is pact-identity's fingerprint of a key, as the column holds it; NULL for no key.
+// keyFingerprint is hdtp-identity's fingerprint of a key, as the column holds it; NULL for no key.
 func keyFingerprint(spki []byte) sql.NullString {
 	if len(spki) == 0 {
 		return sql.NullString{}
 	}
-	return sql.NullString{String: pactidentity.Fingerprint(spki), Valid: true}
+	return sql.NullString{String: hdtpidentity.Fingerprint(spki), Valid: true}
 }
 
 // A domain value becomes a statement's parameters HERE, once, for both engines, with the defaults
@@ -58,7 +58,7 @@ func contactInsert(c *Contact) sqlitedb.InsertContactParams {
 	}
 }
 
-// requestedAt is the request clock a row written with this status starts with (migration 0043):
+// requestedAt is the request clock a row written with this status starts with:
 // its creation, when it is written as a request, and none otherwise.
 func requestedAt(status string, createdAt int64) sql.NullInt64 {
 	if status == "pending_in" || status == "pending_out" {

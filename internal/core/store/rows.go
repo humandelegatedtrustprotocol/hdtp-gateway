@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store/sqlitedb"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
 // A row becomes its domain type HERE, once, for both engines. sqlc generates the two queriers'
@@ -18,7 +18,7 @@ func contactFromRow(r sqlitedb.Contact) Contact {
 		Status: r.Status, Preset: r.Preset, Permissions: permsFromJSON(r.Permissions),
 		TrustFlag: r.TrustFlag, DisplayName: r.DisplayName, Card: r.Card,
 		CreatedAt: r.CreatedAt, PinnedAt: r.PinnedAt.Int64,
-		// What the peer granted US (PACT §6.2). The column and its writer both
+		// What the peer granted US (HDTP §6.2). The column and its writer both
 		// existed; nothing read it back, so the value was write-only.
 		TheirPermissions: permsFromJSON(r.TheirPermissions),
 		Petname:          r.Petname,

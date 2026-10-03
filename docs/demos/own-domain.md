@@ -1,6 +1,6 @@
-# Demo: your own domain — a pact-gateway ingress on a VPS
+# Demo: your own domain — an hdtp-gateway ingress on a VPS
 
-The P5 exit demo: a pact-gateway in the **ingress role** on a public VPS holds
+The P5 exit demo: an hdtp-gateway in the **ingress role** on a public VPS holds
 `example.com`, and two home nodes sit behind it on subdomains — one in
 **passthrough** (raw SNI forwarding, the node's own cert end to end, direct mode) and
 one in **terminate** (ACME certificate at the ingress, fresh mutually-pinned mTLS to
@@ -16,16 +16,16 @@ The live VPS run below has **not yet been executed** — `Last manual run: —`.
   (frp control plane; restrict to your nodes' IPs or keep the frps token secret)
 - `example.com` on Cloudflare DNS (the first DNS adapter) with an API token holding
   `Zone.DNS:Write`
-- The static `pact-gateway` binary on the VPS and on each home machine
+- The static `hdtp-gateway` binary on the VPS and on each home machine
 
 ## 1. Ingress on the VPS
 
 ```
-# PACT_INGRESS_TOKEN is the data-plane credential paired nodes authenticate the
+# HDTP_INGRESS_TOKEN is the data-plane credential paired nodes authenticate the
 # frp tunnel with. It is REQUIRED — the ingress refuses to start without it.
-export PACT_INGRESS_TOKEN="$(openssl rand -hex 32)"
+export HDTP_INGRESS_TOKEN="$(openssl rand -hex 32)"
 
-PACT_DATA_DIR=/var/lib/pact-ingress pact-gateway ingress serve \
+HDTP_DATA_DIR=/var/lib/hdtp-ingress hdtp-gateway ingress serve \
   --domain example.com \
   --dns cloudflare --cloudflare-token $CF_TOKEN \
   --acme-email you@example.com \
@@ -44,13 +44,13 @@ either splices it to the data plane untouched (passthrough — it cannot read
 that traffic) or terminates it (terminate). Nodes dial `:7000`.
 
 It prints its identity fingerprint — write it down; the home nodes pin it. The key
-is kept at `$PACT_DATA_DIR/ingress.key` and reused on every restart: paired nodes
+is kept at `$HDTP_DATA_DIR/ingress.key` and reused on every restart: paired nodes
 pin it, so a fresh key would break every pairing.
 
 Mint one pairing token per node:
 
 ```
-pact-gateway ingress token           # → pair_… (single use, 10 min)
+hdtp-gateway ingress token           # → pair_… (single use, 10 min)
 ```
 
 ## 2. Pair a passthrough node (`alice.example.com`)
@@ -77,8 +77,8 @@ openssl s_client -connect alice.example.com:443 -servername alice.example.com -s
 ```
 
 Two certificates come back: **Alice's own chain**, her leaf and the root that signed it —
-the ingress never touched the TLS session. `pact-gateway doctor` on Alice's node validates
-that chain the way a peer would, to her root at this address (PACT §14.2), and reports
+the ingress never touched the TLS session. `hdtp-gateway doctor` on Alice's node validates
+that chain the way a peer would, to her root at this address (HDTP §14.2), and reports
 `ok probe https://alice.example.com reachable`.
 
 ## 3. Pair a terminate node (`bob.example.com`)
@@ -92,7 +92,7 @@ certificate**. Bob's node derives **edge** mode: `seal required`, `client_cert o
 their TLS.
 
 ```
-curl -sv https://bob.example.com/.well-known/pact-probe?nonce=1 2>&1 | grep -E "issuer|nonce"
+curl -sv https://bob.example.com/.well-known/hdtp-probe?nonce=1 2>&1 | grep -E "issuer|nonce"
 ```
 
 shows a public CA issuer (Let's Encrypt) — that is the edge — and the probe echo from
@@ -114,9 +114,9 @@ the ingress is a trusted edge **you** run (SPEC §13).
 
 - Ingress lost: re-provision, re-mint tokens, re-pair. Contacts pin each person's
   root, not the ingress, so nothing needs re-sharing.
-- Leaf renewed: `pact-gateway account csr -purpose renew`, the wallet signs it,
+- Leaf renewed: `hdtp-gateway account csr -purpose renew`, the wallet signs it,
   `account install-leaf`. Contacts learn the new leaf on their next call
-  (`certificate_renewed`, PACT §14.4). The ingress does not: a renewal makes a fresh
+  (`certificate_renewed`, HDTP §14.4). The ingress does not: a renewal makes a fresh
   key, the ingress pinned the old one at pairing, and in terminate mode it refuses the
   node (`node key … is not the one pinned at pairing`) until you pair again with a
   fresh token.

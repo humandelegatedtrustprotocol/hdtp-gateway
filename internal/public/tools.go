@@ -1,6 +1,6 @@
 package public
 
-// The built-in tool set of PACT §6.2 (SPEC §5.6: "built-in tools ... execute
+// The built-in tool set of HDTP §6.2 (SPEC §5.6: "built-in tools ... execute
 // against the node's own store"). This file is the ONLY place those tools are
 // defined; the registry, the pool and `policy.Allow` decide who sees which.
 //
@@ -12,7 +12,7 @@ package public
 //     out of its arguments.
 //   - Untrusted strings are capped at the boundary and REFUSED when over, never
 //     silently truncated, and never concatenated into an instruction.
-//   - Every call answers with a PACT §12 code on failure, and audits.
+//   - Every call answers with an HDTP §12 code on failure, and audits.
 
 import (
 	"context"
@@ -24,15 +24,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/calendar"
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// Boundary caps (PACT §12, SPEC §5.7). The store enforces them again.
+// Boundary caps (HDTP §12, SPEC §5.7). The store enforces them again.
 const (
 	MaxTextBytes  = 16 * 1024
 	MaxNoteBytes  = 1024
@@ -41,14 +41,14 @@ const (
 )
 
 // Calendar is the calendar capability as the public surface needs it — the
-// three PACT tools, nothing else. `*providers.Calendar` satisfies it.
+// three HDTP tools, nothing else. `*providers.Calendar` satisfies it.
 type Calendar interface {
 	CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]calendar.Slot, error)
 	BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error)
 	CancelBooking(ctx context.Context, bookingID string) error
 }
 
-// Slot is the wire shape PACT §6.2 gives a candidate interval: RFC 3339
+// Slot is the wire shape HDTP §6.2 gives a candidate interval: RFC 3339
 // instants plus the IANA zone they are rendered in. The provider works in
 // time.Time; this boundary is where the zone is chosen and stated.
 type Slot struct {
@@ -87,15 +87,15 @@ type StatusSource interface {
 	GetStatus(ctx context.Context) (string, error)
 }
 
-// CardFn returns this account's current SIGNED card and the signature over it. PACT §4 says
+// CardFn returns this account's current SIGNED card and the signature over it. HDTP §4 says
 // redemption returns the issuer's signed card, and the same card has to read the same over every
 // transport — signed on the landing page and signed over MCP. It used to return the leaf's key as
 // well, for a `spki` member beside the card: 1.2's answer to a card that carried only a key's
-// hash. A 2.0 card carries the certificate, and the chain travels beside it instead.
+// hash. A card carries the certificate, and the chain travels beside it instead.
 type CardFn func(ctx context.Context) (card, sig string, err error)
 
 // ToolDeps is everything the built-in set touches. A nil capability is not an
-// error: its tools answer `unavailable` (PACT §12's code for a capability the
+// error: its tools answer `unavailable` (HDTP §12's code for a capability the
 // implementation is currently withholding).
 type ToolDeps struct {
 	AccountID string
@@ -110,17 +110,17 @@ type ToolDeps struct {
 	Audit      AuditFn
 	// AuditAs, when set, is used instead of Audit and is told who acted (see audit).
 	AuditAs func(kind, action, resource, outcome string)
-	// Limits reports the limits in force, for get_card's metadata (PACT §12): the sizes, and the call
+	// Limits reports the limits in force, for get_card's metadata (HDTP §12): the sizes, and the call
 	// budgets the limits sidecar enforces for this account. Asked per call, because the contact cap
 	// that sizes the aggregate is an owner knob and the sidecar may be restarted with other numbers.
 	// An error, or no function at all, answers get_card `unavailable`: there is no compiled-in copy of
 	// the budgets to advertise instead.
 	Limits func(ctx context.Context) (Limits, error)
-	// Endpoint is this account's own address, for the guard a 2.0 guest's card
-	// must pass (PACT §3: never the receiver's own). nil means unknown.
+	// Endpoint is this account's own address, for the guard a guest's card
+	// must pass (HDTP §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
 	// Chain is this account's [leaf, root]. `redeem_invite` and `get_card` both answer with
-	// it (PACT §6.1, §13.2), so a caller that cannot verify a result has one place to ask.
+	// it (HDTP §6.1, §13.2), so a caller that cannot verify a result has one place to ask.
 	Chain func(ctx context.Context) ([][]byte, error)
 }
 
@@ -134,9 +134,9 @@ func (d ToolDeps) holdsLeaf(ctx context.Context) bool {
 }
 
 // proofOf is what the caller proved this call, for the guest tools to pin: the
-// root, the leaf's key, the endpoint and the leaf the chain carried (PACT §14.2
-// rule 6). A caller that proved no chain proves no identity — there is no longer a
-// generation in which a bare key is one — and the zero Proof is refused upstream.
+// root, the leaf's key, the endpoint and the leaf the chain carried (HDTP §14.2
+// rule 6). A caller that proved no chain proves no identity — a bare key is
+// not one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Refusal == "" {
 		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf, AddressClaim: f.AddressClaim}
@@ -216,7 +216,7 @@ func toolOK(v any) (*mcp.CallToolResult, error) {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
 }
 
-// domainCode maps a domain error to its PACT §12 code. The sentinels carry the
+// domainCode maps a domain error to its HDTP §12 code. The sentinels carry the
 // code as their message, so a new sentinel does not silently become `unavailable`.
 func domainCode(err error) string {
 	switch {
@@ -268,7 +268,7 @@ func callerFpr(ctx context.Context) string {
 
 /* ------------------------------- the set -------------------------------- */
 
-// BuiltinEntries returns the PACT §6.2 core tools for one account, each tagged
+// BuiltinEntries returns the HDTP §6.2 core tools for one account, each tagged
 // with the tier and permission that gate it (SPEC §5.4).
 func BuiltinEntries(d ToolDeps) []Entry {
 	guest := func(name, desc string, h mcp.ToolHandler) Entry {
@@ -335,7 +335,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		if cerr != nil {
 			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
 		}
-		// PACT §6.1: the result carries the issuer's CHAIN, so the redeemer pins a root it can
+		// HDTP §6.1: the result carries the issuer's CHAIN, so the redeemer pins a root it can
 		// verify. It used to carry `spki` instead — 1.2's key-beside-the-card — and no chain.
 		chain, cerr := d.chainB64(ctx)
 		if cerr != nil {
@@ -348,7 +348,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		}
 		resource := "caller:" + fpr
 		if proof.AddressClaim != "" {
-			// PACT §5.2: the owner sees whose address this is; the audit row is where it is kept.
+			// HDTP §5.2: the owner sees whose address this is; the audit row is where it is kept.
 			resource += " address_of:" + proof.AddressClaim
 		}
 		d.audit("redeem_invite", resource, outcome)
@@ -391,7 +391,7 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 				return toolOK(map[string]string{"status": "pending"})
 			case "pending_in":
 				// A repeat while the owner is still deciding is its own code and
-				// creates no duplicate request (SPEC §9.1, PACT §12).
+				// creates no duplicate request (SPEC §9.1, HDTP §12).
 				d.audit("request_contact", "caller:"+fpr, "pending_approval")
 				return toolErr("pending_approval"), nil
 			}
@@ -424,7 +424,7 @@ func (d ToolDeps) contactAccepted() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var a struct {
 			Card string `json:"card"`
-			// what they granted US (PACT §6.2) — the list an agent needs so it
+			// what they granted US (HDTP §6.2) — the list an agent needs so it
 			// does not have to discover a contact's surface by probing
 			Permissions []string `json:"permissions"`
 		}
@@ -482,7 +482,7 @@ func (d ToolDeps) card(ctx context.Context) (string, string, error) {
 }
 
 // chainB64 is this account's [leaf, root], base64url — what `redeem_invite` and `get_card` both
-// answer with (PACT §6.1, §13.2). It is never optional: a result that cannot carry the chain is
+// answer with (HDTP §6.1, §13.2). It is never optional: a result that cannot carry the chain is
 // one the caller cannot verify, and the honest answer then is `unavailable`.
 func (d ToolDeps) chainB64(ctx context.Context) ([]string, error) {
 	if d.Chain == nil {
@@ -495,7 +495,7 @@ func (d ToolDeps) chainB64(ctx context.Context) ([]string, error) {
 	if len(chain) != 2 {
 		return nil, fmt.Errorf("a chain is a leaf and a root, got %d certificates", len(chain))
 	}
-	return []string{pactidentity.B64url(chain[0]), pactidentity.B64url(chain[1])}, nil
+	return []string{hdtpidentity.B64url(chain[0]), hdtpidentity.B64url(chain[1])}, nil
 }
 
 func (d ToolDeps) getCard() mcp.ToolHandler {
@@ -504,7 +504,7 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 		if err != nil {
 			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
-		// "always the chain" (PACT §6.1): this is where a caller that cannot verify a result
+		// "always the chain" (HDTP §6.1): this is where a caller that cannot verify a result
 		// comes to ask, so an answer without one would be no answer.
 		chain, err := d.chainB64(ctx)
 		if err != nil {
@@ -538,7 +538,7 @@ func (d ToolDeps) updateContact() mcp.ToolHandler {
 			return d.refuse(ctx, "update_contact", "too_large"), nil
 		}
 		fpr := callerFpr(ctx)
-		// The chain that carried this call already decided the pin (PACT §5.3,
+		// The chain that carried this call already decided the pin (HDTP §5.3,
 		// §14.3); what this refreshes is the card beside it.
 		if err := d.Contacts.UpdateContact(ctx, d.AccountID, fpr, a.Card); err != nil {
 			d.audit("update_contact", "caller:"+fpr+" "+why(err), domainCode(err))
@@ -565,7 +565,7 @@ func (d ToolDeps) removeContact() mcp.ToolHandler {
 
 /* --------------------- contact tier: permission-gated -------------------- */
 
-// senderLabel takes the peer's claim at face value (PACT §7: honest labeling is
+// senderLabel takes the peer's claim at face value (HDTP §7: honest labeling is
 // the sender's obligation) but only from the fixed vocabulary. Absent, it is
 // `agent` — the safe direction: a node never invents a "human" claim.
 func senderLabel(claimed string) (messaging.Sender, bool) {
@@ -704,7 +704,7 @@ func (d ToolDeps) getStatus() mcp.ToolHandler {
 	}
 }
 
-// clampStatus holds get_status to PACT §6.2's four-value vocabulary at the one
+// clampStatus holds get_status to HDTP §6.2's four-value vocabulary at the one
 // wire boundary every StatusSource passes through. A recipe-sourced status is
 // whatever string the upstream tool's mapped field contained — "in-a-meeting",
 // say — and forwarding it verbatim broke the result contract for every
@@ -747,7 +747,7 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 			d.audit("check_availability", "caller:"+fpr+" "+why(err), "unavailable")
 			return toolErr("unavailable"), nil
 		}
-		// PACT §12: never more than five, and never raw free/busy. The provider
+		// HDTP §12: never more than five, and never raw free/busy. The provider
 		// caps too; this is the boundary's own belt.
 		if len(slots) > calendar.MaxSlots {
 			slots = slots[:calendar.MaxSlots]

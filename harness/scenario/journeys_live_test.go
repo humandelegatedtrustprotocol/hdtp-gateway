@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/owner"
-	"github.com/pact-cloud/pact-gateway/harness/registry"
-	"github.com/pact-cloud/pact-gateway/harness/topology"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/owner"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/topology"
 )
 
 // S21 — the journeys the node had no scenario for, between two real nodes, through their owners'
@@ -38,7 +38,7 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seal := map[string]string{"PACT_SEAL": "optional"}
+	seal := map[string]string{"HDTP_SEAL": "optional"}
 	alice, err := w.Node(ctx, NodeOpts{Slug: "alice", Net: net, Env: seal})
 	if err != nil {
 		t.Fatalf("alice: %v", err)
@@ -213,20 +213,20 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 		}
 		waitStatus(ctx, t, bob, alice.Fpr, "active")
 		// The review writes nothing; the identity still answers.
-		if out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "leave", "-slug", "alice"); err != nil {
+		if out, err := w.Fab.Exec(ctx, alice.Node, "/hdtp-gateway", "account", "leave", "-slug", "alice"); err != nil {
 			t.Fatalf("account leave (the review): %v\n%s", err, out)
 		}
 		if err := send(ctx, bob, alice.Fpr, "after the review"); err != nil {
 			t.Fatalf("a leave's review erased something: bob's message after it: %v", err)
 		}
 		// Alice is served at this node's own address for her, so erasing her takes -force-current.
-		if out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "leave", "-slug", "alice", "-yes", "-force-current"); err != nil {
+		if out, err := w.Fab.Exec(ctx, alice.Node, "/hdtp-gateway", "account", "leave", "-slug", "alice", "-yes", "-force-current"); err != nil {
 			t.Fatalf("account leave: %v\n%s", err, out)
 		}
 		if err := send(ctx, bob, alice.Fpr, "after alice left"); err == nil {
 			t.Errorf("bob's message to an identity that left was answered as sent")
 		}
-		out, err := w.Fab.Exec(ctx, alice.Node, "/pact-gateway", "account", "create", "--slug", "alice", "--name", "Squatter")
+		out, err := w.Fab.Exec(ctx, alice.Node, "/hdtp-gateway", "account", "create", "--slug", "alice", "--name", "Squatter")
 		if err == nil || !strings.Contains(string(out), "reserved until the last leaf issued for it expires") {
 			t.Errorf("a new account at the address alice left, while her leaf is alive, answered %v: %s — want the reservation's refusal", err, out)
 		}
@@ -330,9 +330,9 @@ func refused(raw string) bool {
 // scopedToken mints an owner token limited to one account.
 func scopedToken(ctx context.Context, t *testing.T, w *World, o *Owned, accountID string) string {
 	t.Helper()
-	ownerID := strings.TrimPrefix(field(execS(ctx, w.Fab, o.Node, "/pact-gateway", "passkey", "list"), "owner="), "owner=")
+	ownerID := strings.TrimPrefix(field(execS(ctx, w.Fab, o.Node, "/hdtp-gateway", "passkey", "list"), "owner="), "owner=")
 	for _, l := range strings.Split(execS(ctx, w.Fab, o.Node,
-		"/pact-gateway", "token", "create", "-owner", ownerID, "-label", "scoped", "-account", accountID), "\n") {
+		"/hdtp-gateway", "token", "create", "-owner", ownerID, "-label", "scoped", "-account", accountID), "\n") {
 		if strings.Contains(l, "shown once") {
 			return strings.TrimSpace(l[strings.LastIndex(l, ":")+1:])
 		}

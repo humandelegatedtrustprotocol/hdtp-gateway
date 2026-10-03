@@ -1,8 +1,8 @@
 # Testing
 
 How the suites of this workspace are built and extended: first what every suite shares — its
-result file and where it runs — then one section per repository (pact-cloud's end-to-end suites
-are described beside them, in `pact-cloud/gateway/e2e/TESTING.md`).
+result file and where it runs — then one section per repository (batondeck's end-to-end suites
+are described beside them, in `batondeck/gateway/e2e/TESTING.md`).
 
 ## Results: one schema for every runner
 
@@ -10,7 +10,7 @@ Every runner writes its run as JSON beside its console output, in one shape, so 
 compare as data and a run of record is a file:
 
 ```json
-{ "schema": "pact-results/1", "repo": "pact-cloud | pact-gateway | pact-identity",
+{ "schema": "hdtp-results/1", "repo": "batondeck | hdtp-gateway | hdtp-identity",
   "suite": "pair | ceremony | harness | parity | …", "tier": "…",
   "run": { "started": "…", "ended": "…", "commit": "abc1234", "target": "what it ran against" },
   "cases": [ { "id": "S2", "name": "…", "verdict": "PASS", "evidence": ["…"], "ms": 2100 } ],
@@ -25,13 +25,13 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 
 | Repo | Writer | Where the file goes |
 |---|---|---|
-| pact-cloud | `gateway/e2e/lib/report.mjs` (the pair, the wallet-page suite) | `gateway/e2e/results/`, or `--results <file>` |
-| pact-gateway | `harness/registry` (each scenario, and `harness run`'s `summary.json`) | `PACT_HARNESS_RESULTS` |
-| pact-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `PACT_RESULTS` (`gate.sh`: `target/gate-results`) |
+| batondeck | `gateway/e2e/lib/report.mjs` (the pair, the wallet-page suite) | `gateway/e2e/results/`, or `--results <file>` |
+| hdtp-gateway | `harness/registry` (each scenario, and `harness run`'s `summary.json`) | `HDTP_HARNESS_RESULTS` |
+| hdtp-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `HDTP_RESULTS` (`gate.sh`: `target/gate-results`) |
 
 ## Where each tier runs, and what it costs
 
-| When | pact-cloud | pact-gateway | pact-identity |
+| When | batondeck | hdtp-gateway | hdtp-identity |
 |---|---|---|---|
 | every commit (hooks) | `make check-fast` | gofmt on staged Go, re-staged | its own repository's hooks |
 | every push (hooks) | `make check` (gateway tests, the wallet-page suite in a real Chrome, the portal) | `make check` against a named Postgres container the hook starts, `make analyze`, `make sqlc-check`, `make fuzz`, `make harness` (hermetic); `make web` with `web/dist` unchanged when the push touches `web/` | `sh gate.sh`, in its own repository |
@@ -41,7 +41,7 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 A skip is never a pass: a tier that promised a case and got SKIPPED fails (the harness's `harness
 run`, the identity gate's summary), and every other skip says why in its evidence.
 
-## pact-gateway: the scenario harness
+## hdtp-gateway: the scenario harness
 
 `harness/` is a separate Go module that stands real nodes up in containers (and, for S8, a
 QEMU guest), drives the portal in a real Chrome, and talks to the node over real mTLS. Its design,
@@ -52,14 +52,14 @@ how to use it and how to add to it.
 
 | Command | Runs | Needs on the machine |
 |---|---|---|
-| `make harness` | the hermetic tier: every package's unit tests against recorders, the registry, image and port guards, `go vet`. No scenario runs: each live test skips without `PACT_HARNESS_LIVE`. The `pre-push` hook runs this on every push. | Go |
+| `make harness` | the hermetic tier: every package's unit tests against recorders, the registry, image and port guards, `go vet`. No scenario runs: each live test skips without `HDTP_HARNESS_LIVE`. The `pre-push` hook runs this on every push. | Go |
 | `make harness-live` | the fabric tier, F1–F5 | Docker |
-| `make harness-pr` | fabric + S2, S9 (`PACT_PREPUSH_LIVE=1 git push` runs it too) | Docker, Chrome |
-| `make harness-nightly` | every scenario (`PACT_PREPUSH_LIVE=full git push`) | Docker, Chrome; S8 needs `PACT_HARNESS_KERNEL`, T7 needs `PACT_CF_DOMAIN` |
+| `make harness-pr` | fabric + S2, S9 (`HDTP_PREPUSH_LIVE=1 git push` runs it too) | Docker, Chrome |
+| `make harness-nightly` | every scenario (`HDTP_PREPUSH_LIVE=full git push`) | Docker, Chrome; S8 needs `HDTP_HARNESS_KERNEL`, T7 needs `HDTP_CF_DOMAIN` |
 
-The node image's tag is the Makefile's `HARNESS_IMAGE` (default `pact-gateway:harness`), handed to
-the harness as `PACT_HARNESS_IMAGE`: two worktrees on one machine each take their own
-(`make harness-nightly HARNESS_IMAGE=pact-gateway:harness-<branch>`), or each tests whichever binary
+The node image's tag is the Makefile's `HARNESS_IMAGE` (default `hdtp-gateway:harness`), handed to
+the harness as `HDTP_HARNESS_IMAGE`: two worktrees on one machine each take their own
+(`make harness-nightly HARNESS_IMAGE=hdtp-gateway:harness-<branch>`), or each tests whichever binary
 the other built last.
 
 Each target builds the images it promises (`harness-image`, and for nightly
@@ -85,15 +85,15 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `node-image` | `make harness-image` | every live tier |
 | `chrome` | Google Chrome, launched headless by the portal driver | pr, nightly |
 | `caldav-image` | `make harness-image-caldav` | nightly |
-| `kernel` | `make harness-kernel`, then `export PACT_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
-| `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export PACT_CF_DOMAIN=<domain>` | nightly, when the variable is set |
-| `pact-cli` | pact-identity's `pact` CLI, named by `PACT_CLI`; `make harness-pact-cli` builds it from a pact-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `PACT_CLI`) |
-| `local-cloud` | pact-cloud's local cloud and its live-local runner, named by `PACT_LOCAL_CLOUD` (`gateway/`, with `public/` built: `npm --prefix ../portal run build && node scripts/build-ceremony.mjs`), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when pact-cloud is checked out beside this repository and the WorkOS pair is exported |
-| `cloud-battery` | pact-cloud's Go conformance battery, named by `PACT_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when pact-cloud is checked out beside this repository (the Makefile then sets it) |
+| `kernel` | `make harness-kernel`, then `export HDTP_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
+| `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export HDTP_CF_DOMAIN=<domain>` | nightly, when the variable is set |
+| `hdtp-cli` | hdtp-identity's `hdtp` CLI, named by `HDTP_CLI`; `make harness-hdtp-cli` builds it from an hdtp-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `HDTP_CLI`) |
+| `local-cloud` | batondeck's local cloud and its live-local runner, named by `HDTP_LOCAL_CLOUD` (`gateway/`, with `public/` built: `npm --prefix ../portal run build && node scripts/build-ceremony.mjs`), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when batondeck is checked out beside this repository and the WorkOS pair is exported |
+| `cloud-battery` | batondeck's Go conformance battery, named by `HDTP_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when batondeck is checked out beside this repository (the Makefile then sets it) |
 
 ### Results
 
-Each scenario writes `<id>.json` into `PACT_HARNESS_RESULTS` (`harness run` sets it to a fresh
+Each scenario writes `<id>.json` into `HDTP_HARNESS_RESULTS` (`harness run` sets it to a fresh
 directory and prints where):
 
 ```json
@@ -103,7 +103,7 @@ directory and prints where):
 
 — a case of the schema above — and `harness run` writes `summary.json` beside them in the full
 envelope (`suite: "harness"`), its cases adding `promised` and `ok`
-(`registry.TestResultsAreInTheOneSchema` holds both). With `PACT_HARNESS_ARTIFACTS=<dir>` every
+(`registry.TestResultsAreInTheOneSchema` holds both). With `HDTP_HARNESS_ARTIFACTS=<dir>` every
 container's log is collected there at teardown.
 
 ### Adding a scenario
@@ -117,7 +117,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
 )
 
 // S16 — what it proves, and which defect or SPEC section it holds.
@@ -164,14 +164,14 @@ five seconds before counting that a url was not fetched on arrival); name what y
 not `t.Skip` inside a scenario for a missing tool — declare it as a need, so the tier knows
 whether it promised it.
 
-## pact-identity
+## hdtp-identity
 
-`sh gate.sh` in the pact-identity repository is the whole gate; it is that repository's, and this
-repository's hooks no longer run it (the node consumes pact-identity by version). It needs `../pact-protocol` beside it
+`sh gate.sh` in the hdtp-identity repository is the whole gate; it is that repository's, and this
+repository's hooks no longer run it (the node consumes hdtp-identity by version). It needs `../hdtp-spec` beside it
 (SPEC.md and the seed in `vectors/lib`), the pinned `js/pkg-web` and `js/pkg-node`, and it builds
 the Go adapter itself.
 
-These eight JavaScript suites each write one result file into `pact-identity/target/gate-results/`, which the
+These eight JavaScript suites each write one result file into `hdtp-identity/target/gate-results/`, which the
 gate wipes first: `check-wasm`, `check-go`, `intrude-wasm`, `intrude-go`, `contract-tests`,
 `parity`, `js-tests`, `musts`. Each is a file of the schema at the top of this page
 (`js/results.mjs`); the gate's last step prints one line per suite and fails if a suite
@@ -187,7 +187,7 @@ fresh random keys, for the live battery.
 ### Adding a parity case — one file
 
 A parity case feeds the same arguments to both ports (the Rust core through its Wasm bindings, and
-the Go port through `go/bin/pact-identity-go`, one process per run) and compares the answers.
+the Go port through `go/bin/hdtp-identity-go`, one process per run) and compares the answers.
 
 1. Open `js/cases/<section>.mjs`, where `<section>` is the function's `section` in
    `contract/contract.json` (`keys`, `certificates`, `csr`, `cards`, `envelopes`, `vault`;
@@ -204,8 +204,8 @@ The run fails on: two cases with one id; a case filed under another function's s
 `expect` whose id no case has; a function in the contract, or in either dispatcher, that the three
 do not all name; a function with no case, or none compared whole on an answer that succeeded.
 A new FUNCTION is therefore four places, not one: `contract/contract.json`, both dispatchers
-(`crates/pact-identity/src/api.rs`'s `match name` with the body in
-`crates/pact-identity/src/api/<section>.rs`, and `go/api.go`'s `functions` map with the body in
+(`crates/hdtp-identity/src/api.rs`'s `match name` with the body in
+`crates/hdtp-identity/src/api/<section>.rs`, and `go/api.go`'s `functions` map with the body in
 `go/api_<section>.go`) and a case.
 
 ### Adding an intrusion scenario — two files, in two repositories
@@ -213,7 +213,7 @@ A new FUNCTION is therefore four places, not one: `contract/contract.json`, both
 `js/intrude.mjs` aims the seed's intrusion suite at a port and compares each verdict with the
 seed's, BY NAME.
 
-1. Write the scenario in `pact-protocol/vectors/intrude.mjs` (the seed) and push `pact-protocol`
+1. Write the scenario in `hdtp-spec/vectors/intrude.mjs` (the seed) and push `hdtp-spec`
    first — the umbrella's pointer follows it.
 2. Add the same `scenario(category, name, expect, fn)`, with the same name, to `js/intrude.mjs`.
    Both ports run it (`node js/intrude.mjs`, `--port go`); a name the seed lacks, a verdict that
@@ -223,15 +223,15 @@ seed's, BY NAME.
 ### Adding a live scenario — three files
 
 The live battery is posted to a running endpoint by two drivers, `js/live.mjs` and
-`pact vectors intrude` (`crates/pact/src/vectors/intrude.rs`); its list is data both read.
+`hdtp vectors intrude` (`crates/hdtp/src/vectors/intrude.rs`); its list is data both read.
 
 1. `js/live-scenarios.json`: `{ id, name, expect }` — the code the answer must carry — and
    `twice: true` if the envelope is posted twice. It goes BEFORE the control, which stays last.
 2. `js/live.mjs`: a builder for the id in `scenarios()`'s `build`.
-3. `crates/pact/src/vectors/intrude.rs`: an arm for the id in `Aim::wire`.
+3. `crates/hdtp/src/vectors/intrude.rs`: an arm for the id in `Aim::wire`.
 
 `node --test js/live.test.mjs` runs the battery against the seed's receiving node and fails on an
-id either JS side lacks; `cargo test -p pact` fails on an id the Rust driver cannot build or a
+id either JS side lacks; `cargo test -p hdtp` fails on an id the Rust driver cannot build or a
 control that is not last.
 
 ### Adding a test of the identity suites' own tooling — one file

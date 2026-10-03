@@ -8,7 +8,7 @@
 // a name. The view shows the name alone, with the id in its tooltip and a copy button; only a
 // name the page could not resolve shows its id, short, because there the id is the one handle.
 //
-// ONE module for both portals: the node's (web/src) and PACT Cloud's (portal/src, copied verbatim
+// ONE module for both portals: the node's (web/src) and BatonDeck's (portal/src, copied verbatim
 // from the node commit its portal/HARVESTED file records, held to it by the cloud's
 // gateway/scripts/check-harvested.mjs). Pure — no imports — so both portals' tests run it as it
 // is, the node's with `node --test` and the cloud's with vitest.
@@ -61,7 +61,7 @@ export type Named = {
 /** What each kind is called when the page cannot say which one. */
 const SOME: Record<Kind, string> = {
   owner: "an owner", identity: "an identity", contact: "a contact", caller: "a caller",
-  key: "a key", grant: "a connected app", passkey: "a passkey", webhook: "a webhook", operator: "a PACT Cloud operator",
+  key: "a key", grant: "a connected app", passkey: "a passkey", webhook: "a webhook", operator: "a BatonDeck operator",
   system: "the system", agent: "an agent", cli: "the command line", anonymous: "an anonymous caller",
 };
 
@@ -110,7 +110,7 @@ export function resolved(n: Named): boolean {
 /**
  * Whether a name says its own kind already, so a quiet "owner" or "key" after it would say it twice.
  * Every name the page makes up says it ("deleted key", "removed owner", "not in your contacts", "an
- * owner"), and so do the kinds whose names are the kind ("the system", "PACT Cloud · …"); only a
+ * owner"), and so do the kinds whose names are the kind ("the system", "BatonDeck · …"); only a
  * name somebody chose ("Priya", "CI runner") leaves the kind unsaid.
  */
 export function kindSaid(n: Named): boolean {
@@ -159,13 +159,13 @@ export function eventActorOf(actor: string, dir: Directory): Named {
 }
 
 /**
- * An operator is one of PACT Cloud's own people, and their address is the one fact that says which
- * (Terms §14 is about exactly that), so it is said in full, never shortened: "PACT Cloud ·
- * ops@pact-cloud.com". The id is the address, without the `operator:` the event writes.
+ * An operator is one of BatonDeck's own people, and their address is the one fact that says which
+ * (Terms §14 is about exactly that), so it is said in full, never shortened: "BatonDeck ·
+ * ops@batondeck.com". The id is the address, without the `operator:` the event writes.
  */
 function operatorOf(raw: string): Named {
   const email = raw.startsWith("operator:") ? raw.slice("operator:".length) : raw;
-  return { kind: "operator", id: email, name: email ? `PACT Cloud · ${email}` : SOME.operator, state: "named" };
+  return { kind: "operator", id: email, name: email ? `BatonDeck · ${email}` : SOME.operator, state: "named" };
 }
 
 /** A system row's id names the part of the system that wrote it (`expiry`, `move`, `repair`…). */

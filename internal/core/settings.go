@@ -5,7 +5,7 @@ package core
 //
 // Precedence is unchanged from §12.2 — environment > file > defaults — with the
 // store slotted in as a fourth layer between file and defaults for the knobs an
-// owner can set. That ordering is deliberate: an operator who pins `PACT_SEAL`
+// owner can set. That ordering is deliberate: an operator who pins `HDTP_SEAL`
 // in a compose file must not have it silently overridden by a row in a database,
 // and the portal must not offer a switch that does nothing. A knob the
 // environment pinned is reported through Config.EnvPinned so the page can render
@@ -172,7 +172,7 @@ func ValidateSetting(key, value string) error {
 			return fmt.Errorf("%s: %s is true or false", RuleEnum, key)
 		}
 	case "limit.contacts":
-		// The contact cap sizes every account's call budget (PACT §12), so it is the operator's to
+		// The contact cap sizes every account's call budget (HDTP §12), so it is the operator's to
 		// raise for a node that serves people with many contacts. Empty restores the default.
 		if value == "" {
 			return nil
@@ -188,7 +188,7 @@ func ValidateSetting(key, value string) error {
 // EffectiveSeal is the ONE answer to "does this account require sealing?".
 //
 // It exists because there are two places the policy could be read from — the
-// account row, which the card advertises as `X-PACT-SEAL`, and the node config,
+// account row, which the card advertises as `X-HDTP-SEAL`, and the node config,
 // which the gate used to enforce — and a card advertising `required` while the
 // gate accepts plaintext is a wire-visible lie. Both now call this.
 //

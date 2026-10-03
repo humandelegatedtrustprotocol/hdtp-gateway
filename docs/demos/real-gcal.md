@@ -3,7 +3,7 @@
 The P3 exit demo end to end: an owner connects a Google Calendar MCP server to
 their node, exposes `check_availability` + `book_slot` in **mapped** mode through a
 shipped recipe, and a contact's agent books a slot — receiving a `booking_id` and an
-ICS, never raw free/busy (SPEC §6.7, PACT §6.2/§12).
+ICS, never raw free/busy (SPEC §6.7, HDTP §6.2/§12).
 
 The automated version of this path runs in `make check` against an in-test fake
 (`internal/integrationtest/calendar_test.go`). This document is the manual run
@@ -16,8 +16,8 @@ when it is: `Last manual run: —`.
 
 ## Prerequisites
 
-- A running node: `docker compose up` (or `pact-gateway serve`), portal on
-  `http://127.0.0.1:8080`, one account created (`pact-gateway account create --slug me --name "Your Name"` — both flags are required).
+- A running node: `docker compose up` (or `hdtp-gateway serve`), portal on
+  `http://127.0.0.1:8080`, one account created (`hdtp-gateway account create --slug me --name "Your Name"` — both flags are required).
 - One of the three verified servers. This walkthrough uses
   **nspady/google-calendar-mcp** (`@cocal/google-calendar-mcp`), which runs as a
   supervised stdio child and therefore needs the **`-full`** image (ships `node`/`npx`)
@@ -57,9 +57,9 @@ Portal → the integration → **Exposure**:
 tool names) and **Publish**. Do **not** expose `list-events`, `update-event` or
 `delete-event` — the use-case does not need them.
 
-## 3. Grant a contact the PACT core permissions
+## 3. Grant a contact the HDTP core permissions
 
-Mapped capabilities are authorized by PACT §8 core permissions, not by
+Mapped capabilities are authorized by HDTP §8 core permissions, not by
 `integration.gcal` (SPEC §6.6). Portal → *Contacts* → the contact → switchboard:
 enable `calendar.availability` and `calendar.book`.
 
@@ -84,7 +84,7 @@ confirmed slot, not taken from Google.
 
 - Portal → *Audit*: `exposure_ack`, `exposure_publish`, `catalog_snapshot`,
   `integration_connect`, and the booking's `tools/call` rows.
-- `pact-gateway audit verify` — chain intact.
+- `hdtp-gateway audit verify` — chain intact.
 - Change the tool description upstream (or update the npm package) and hit **Refresh
   catalog**: the changed entry turns **STALE**, is withheld from the contact's
   `tools/list`, and offers one-click **Reconfirm** (SPEC §6.5).

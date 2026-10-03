@@ -49,7 +49,7 @@ func (r *recorder) indexOf(sub string) int {
 	return -1
 }
 
-func newFab(r *recorder) *Fabric { return New("pacttest", r.run) }
+func newFab(r *recorder) *Fabric { return New("hdtptest", r.run) }
 
 func TestNetworksAreNamespacedAndInternalWhenAsked(t *testing.T) {
 	r := &recorder{}
@@ -65,13 +65,13 @@ func TestNetworksAreNamespacedAndInternalWhenAsked(t *testing.T) {
 
 	// Every object carries the run prefix, so a crashed run can be swept without
 	// touching anything else on the developer's machine.
-	if !r.saw("network create pacttest-lan") {
+	if !r.saw("network create hdtptest-lan") {
 		t.Errorf("network not namespaced by the run prefix: %v", r.calls)
 	}
 	// --internal is what makes T2 honest: a node on an internal network has no
 	// route off it at all, so "unreachable" is enforced by Docker rather than by
 	// the test politely not dialling.
-	if !r.saw("network create --internal pacttest-behind") {
+	if !r.saw("network create --internal hdtptest-behind") {
 		t.Errorf("internal network was created without --internal: %v", r.calls)
 	}
 }
@@ -92,7 +92,7 @@ func TestNATRouterJoinsBothSegmentsAndMasquerades(t *testing.T) {
 		t.Errorf("NAT router has no NET_ADMIN, so its iptables rules cannot apply: %v", r.calls)
 	}
 	// It must sit on BOTH segments, or it cannot route between them.
-	if !r.saw("network connect pacttest-lan pacttest-nat1") {
+	if !r.saw("network connect hdtptest-lan hdtptest-nat1") {
 		t.Errorf("NAT router was never attached to the inside segment: %v", r.calls)
 	}
 	if !r.saw("MASQUERADE") {
@@ -109,7 +109,7 @@ func TestShaperNeedsNetAdminAndAppliesNetem(t *testing.T) {
 	r := &recorder{}
 	f := newFab(r)
 	ctx := context.Background()
-	c := &Container{Name: "pacttest-node-a"}
+	c := &Container{Name: "hdtptest-node-a"}
 
 	if err := f.Shape(ctx, c, Netem{Latency: "150ms", Loss: "3%"}); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestShaperNeedsNetAdminAndAppliesNetem(t *testing.T) {
 	}
 	// It must run in the target's NETWORK NAMESPACE, not inside it: the node image
 	// is distroless and has no shell, so `docker exec node sh -c tc` is exit 127.
-	if !r.saw("--network container:pacttest-node-a") {
+	if !r.saw("--network container:hdtptest-node-a") {
 		t.Errorf("shaping was not applied via the target's netns: %v", r.calls)
 	}
 	if !r.saw("--cap-add NET_ADMIN") {
@@ -136,7 +136,7 @@ func TestPartitionIsAppliedAndLiftedSymmetrically(t *testing.T) {
 	r := &recorder{}
 	f := newFab(r)
 	ctx := context.Background()
-	c := &Container{Name: "pacttest-node-a"}
+	c := &Container{Name: "hdtptest-node-a"}
 
 	if err := f.Partition(ctx, c); err != nil {
 		t.Fatal(err)
@@ -156,17 +156,17 @@ func TestPartitionIsAppliedAndLiftedSymmetrically(t *testing.T) {
 
 func TestCollectWritesLogsPerContainer(t *testing.T) {
 	r := &recorder{out: map[string]string{
-		"docker logs pacttest-node-a": "hello from a",
+		"docker logs hdtptest-node-a": "hello from a",
 	}}
 	f := newFab(r)
 	ctx := context.Background()
-	f.track(&Container{Name: "pacttest-node-a"})
+	f.track(&Container{Name: "hdtptest-node-a"})
 
 	dir := t.TempDir()
 	if err := f.Collect(ctx, dir); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "pacttest-node-a.log"))
+	b, err := os.ReadFile(filepath.Join(dir, "hdtptest-node-a.log"))
 	if err != nil {
 		t.Fatalf("no log captured for a tracked container: %v", err)
 	}
@@ -180,20 +180,20 @@ func TestCollectWritesLogsPerContainer(t *testing.T) {
 // exactly the one whose logs go missing.
 func TestCollectKeepsGoingWhenOneContainerFails(t *testing.T) {
 	r := &recorder{
-		out:  map[string]string{"docker logs pacttest-good": "still here"},
-		fail: map[string]bool{"docker logs pacttest-bad": true},
+		out:  map[string]string{"docker logs hdtptest-good": "still here"},
+		fail: map[string]bool{"docker logs hdtptest-bad": true},
 	}
 	f := newFab(r)
 	ctx := context.Background()
-	f.track(&Container{Name: "pacttest-bad"})
-	f.track(&Container{Name: "pacttest-good"})
+	f.track(&Container{Name: "hdtptest-bad"})
+	f.track(&Container{Name: "hdtptest-good"})
 
 	dir := t.TempDir()
 	err := f.Collect(ctx, dir)
 	if err == nil {
 		t.Error("Collect hid a failure entirely; the caller cannot know evidence is incomplete")
 	}
-	if _, rerr := os.ReadFile(filepath.Join(dir, "pacttest-good.log")); rerr != nil {
+	if _, rerr := os.ReadFile(filepath.Join(dir, "hdtptest-good.log")); rerr != nil {
 		t.Errorf("a healthy container's logs were skipped because another failed: %v", rerr)
 	}
 }
@@ -210,8 +210,8 @@ func TestTeardownRemovesContainersBeforeNetworks(t *testing.T) {
 	if err := f.Teardown(ctx); err != nil {
 		t.Fatal(err)
 	}
-	ci := r.indexOf("rm -f pacttest-node-a")
-	ni := r.indexOf("network rm pacttest-lan")
+	ci := r.indexOf("rm -f hdtptest-node-a")
+	ni := r.indexOf("network rm hdtptest-lan")
 	if ci < 0 || ni < 0 {
 		t.Fatalf("teardown did not remove both: %v", r.calls)
 	}
@@ -221,7 +221,7 @@ func TestTeardownRemovesContainersBeforeNetworks(t *testing.T) {
 }
 
 func TestTeardownContinuesAfterAFailedRemoval(t *testing.T) {
-	r := &recorder{fail: map[string]bool{"docker rm -f pacttest-node-a": true}}
+	r := &recorder{fail: map[string]bool{"docker rm -f hdtptest-node-a": true}}
 	f := newFab(r)
 	ctx := context.Background()
 	n, _ := f.Network(ctx, "lan", NetOpts{})
@@ -230,7 +230,7 @@ func TestTeardownContinuesAfterAFailedRemoval(t *testing.T) {
 	if err := f.Teardown(ctx); err == nil {
 		t.Error("Teardown reported success despite a failed removal")
 	}
-	if !r.saw("network rm pacttest-lan") {
+	if !r.saw("network rm hdtptest-lan") {
 		t.Errorf("a failed container removal stopped the network cleanup, leaking it: %v", r.calls)
 	}
 }
@@ -251,11 +251,11 @@ func TestPublishedPortsAndNetworkModeReachDocker(t *testing.T) {
 	// loopback-bound internal surface WITHOUT the node binding non-loopback,
 	// which SPEC §8.3 would refuse without auth and TLS.
 	if _, err := f.Container(ctx, Spec{
-		Name: "sc", Image: "img", NetworkMode: "container:pacttest-node",
+		Name: "sc", Image: "img", NetworkMode: "container:hdtptest-node",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !r.saw("--network container:pacttest-node") {
+	if !r.saw("--network container:hdtptest-node") {
 		t.Errorf("network mode override never reached docker: %v", r.calls)
 	}
 	// An alias is how an image whose certificate has a FIXED SAN stays reachable
@@ -289,7 +289,7 @@ func TestDefaultRouteIsAppliedInTheTargetsNamespace(t *testing.T) {
 	r := &recorder{}
 	f := newFab(r)
 	ctx := context.Background()
-	c := &Container{Name: "pacttest-node"}
+	c := &Container{Name: "hdtptest-node"}
 
 	if err := f.DefaultRoute(ctx, c, "10.9.9.1"); err != nil {
 		t.Fatal(err)
@@ -299,7 +299,7 @@ func TestDefaultRouteIsAppliedInTheTargetsNamespace(t *testing.T) {
 	}
 	// It must run in the TARGET's namespace — the node image is distroless and
 	// has neither a shell nor NET_ADMIN of its own.
-	if !r.saw("--network container:pacttest-node") || !r.saw("--cap-add NET_ADMIN") {
+	if !r.saw("--network container:hdtptest-node") || !r.saw("--cap-add NET_ADMIN") {
 		t.Errorf("the route was not applied inside the target's netns: %v", r.calls)
 	}
 }
@@ -308,7 +308,7 @@ func TestDefaultRouteIsAppliedInTheTargetsNamespace(t *testing.T) {
 // overlaps, and stops at any other refusal.
 func TestARoutableNetworkTakesAFreeSubnetOfTheBenchmarkingBlock(t *testing.T) {
 	create := func(subnet string) string {
-		return "docker network create --subnet " + subnet + " pacttest-pub"
+		return "docker network create --subnet " + subnet + " hdtptest-pub"
 	}
 	r := &recorder{
 		out:  map[string]string{create("198.19.255.0/24"): "Error response from daemon: invalid pool request: Pool overlaps with other one on this address space"},
@@ -339,10 +339,10 @@ func TestARoutableNetworkTakesAFreeSubnetOfTheBenchmarkingBlock(t *testing.T) {
 func TestConnectAttachesAContainerToANetwork(t *testing.T) {
 	r := &recorder{}
 	f := newFab(r)
-	if err := f.Connect(context.Background(), &Container{Name: "pacttest-alice"}, &Network{Name: "pacttest-home"}); err != nil {
+	if err := f.Connect(context.Background(), &Container{Name: "hdtptest-alice"}, &Network{Name: "hdtptest-home"}); err != nil {
 		t.Fatal(err)
 	}
-	if !r.saw("docker network connect pacttest-home pacttest-alice") {
+	if !r.saw("docker network connect hdtptest-home hdtptest-alice") {
 		t.Fatalf("got %v", r.calls)
 	}
 }

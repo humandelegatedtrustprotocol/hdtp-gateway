@@ -1,6 +1,6 @@
 package public
 
-// `sealed_call` (SPEC §4.5, PACT §13.2): the one wrapper tool that carries
+// `sealed_call` (SPEC §4.5, HDTP §13.2): the one wrapper tool that carries
 // sealing MCP-natively. It is present at EVERY tier — guest, pending, contact —
 // so it is registered once per tier and exactly one entry matches any caller.
 //
@@ -20,16 +20,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/policy"
-	"github.com/pact-cloud/pact-gateway/internal/envelope"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // SealedToolName is the wrapper's tool name on every tier.
 const SealedToolName = "sealed_call"
 
-// ResultLifetime bounds a result envelope's exp (well inside PACT's 30-day cap).
+// ResultLifetime bounds a result envelope's exp (well inside HDTP's 30-day cap).
 const ResultLifetime = 5 * time.Minute
 
 // SealedDeps is what the wrapper needs for one account.
@@ -79,7 +79,7 @@ func actorOf(f *EnvelopeFacts) string {
 func sealedTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:        SealedToolName,
-		Description: "Carry a sealed PACT envelope; the inner call is dispatched as the envelope's proven identity and the result is sealed back",
+		Description: "Carry a sealed HDTP envelope; the inner call is dispatched as the envelope's proven identity and the result is sealed back",
 		InputSchema: json.RawMessage(`{"type":"object","required":["protected","enc","ct","sig"],"properties":{"protected":{"type":"string"},"enc":{"type":"string"},"ct":{"type":"string"},"sig":{"type":"string"}},"additionalProperties":false}`),
 	}
 }
@@ -111,7 +111,7 @@ func errEnvelope(code string) *mcp.CallToolResult {
 // writes a row and wakes the owner for every attempt.
 //
 // `as` is which guest budget: ChargeSource for a small form answered chain_required, which proves
-// no root, so its source address alone pays (PACT §12); ChargeGuest for a root the envelope did
+// no root, so its source address alone pays (HDTP §12); ChargeGuest for a root the envelope did
 // prove but that is not served as a contact here — at an address the owner has not approved, or
 // at the pending tier — which pays the guest budget of that root at that address, whatever it is
 // pinned as.
@@ -136,7 +136,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			d.audit("guest", "sealed_call", "account:"+d.AccountID, r.Code())
 			return r.Result(), nil
 		}
-		var env pactidentity.Envelope
+		var env hdtpidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
 			// Not an envelope at all. Refused like any other that does not open, and audited like
 			// one: this answered and wrote nothing.
@@ -154,19 +154,19 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			var renewed *CertificateRenewed
 			switch {
 			case errors.Is(err, ErrChainRequired):
-				// PACT §14.5: a guessed fingerprint spends the source's guest
+				// HDTP §14.5: a guessed fingerprint spends the source's guest
 				// budget. The wrapper is exempt from the per-call budget (see
 				// guarded), so this answer charges it here, as a guest.
 				if limited := spendGuestBudget(ctx, d, ChargeSource); limited != nil {
 					return limited, nil
 				}
 			case errors.As(err, &renewed):
-				// PACT §14.4: plaintext, carrying the current chain — proof of
+				// HDTP §14.4: plaintext, carrying the current chain — proof of
 				// nothing by itself; the caller validates it to its own pin.
 				d.audit("guest", "sealed_call", "account:"+d.AccountID, "certificate_renewed")
 				chain := make([]string, 0, len(renewed.Chain))
 				for _, c := range renewed.Chain {
-					chain = append(chain, pactidentity.B64url(c))
+					chain = append(chain, hdtpidentity.B64url(c))
 				}
 				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": map[string]any{"chain": chain}})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
@@ -175,7 +175,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			return errEnvelope(Code(err)), nil
 		}
 		if facts.Refusal != "" {
-			// A pinned root at an address the owner has not approved (PACT
+			// A pinned root at an address the owner has not approved (HDTP
 			// §5.3): the seed's plain code, nothing dispatched — and charged, so
 			// a host calling from an unapproved address cannot do it for free.
 			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
@@ -185,7 +185,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			return d.sealedCode(ctx, facts, facts.Refusal), nil
 		}
 		if facts.Tier == TierPendingAddress {
-			// PACT §5.3 under `ask`, or a root returned after a removal: the
+			// HDTP §5.3 under `ask`, or a root returned after a removal: the
 			// update_contact that brought the new address answers pending, and
 			// every other call from that address, until the owner decides,
 			// answers pending_approval — nothing runs either way.
@@ -214,7 +214,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		// The budget, after the replay (a replay spends nothing) and before the dispatch looks for
 		// anything: every inner call spends — `tools/list`, and a tool the caller may not see or
-		// that does not exist, as much as one it may call (PACT §12; the cloud's surface spends at
+		// that does not exist, as much as one it may call (HDTP §12; the cloud's surface spends at
 		// the same point). A refusal is sealed back and NOT recorded as the envelope's answer: the
 		// reservation Replay made stays empty, so the same envelope sent again once the budget
 		// holds a call is served rather than answered rate_limited from the record. It is sealed as
@@ -251,7 +251,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 }
 
 // sealLimited seals a budget's refusal as a tool error inside `result`, where the client keeps its
-// `retry_after`; an `error` member is reduced to its code (PACT §12, as the cloud seals it).
+// `retry_after`; an `error` member is reduced to its code (HDTP §12, as the cloud seals it).
 //
 // A refusal that cannot be sealed goes out as itself, in the clear (sealBackErr says when), never
 // as another code.
@@ -267,7 +267,7 @@ func (d SealedDeps) sealLimited(ctx context.Context, facts *EnvelopeFacts, limit
 	return res, nil
 }
 
-// sealBack seals the inner result to the caller (PACT §13.2: a sealed request
+// sealBack seals the inner result to the caller (HDTP §13.2: a sealed request
 // MUST get a sealed result — same format, the request's msg_id). A result is never sent in the
 // clear: one that cannot be sealed is answered `unavailable`.
 func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner json.RawMessage) (*mcp.CallToolResult, error) {
@@ -281,7 +281,7 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 // sealBackErr seals a wrapper-level refusal — one of §12's codes, in §13.2's
 // `error` form.
 //
-// PACT §13.2: "once a request envelope has been successfully opened, an error
+// HDTP §13.2: "once a request envelope has been successfully opened, an error
 // result MUST be sealed back like any other result — a plaintext error is only
 // for an envelope that could not be opened at all, where there is no proven key
 // to seal toward." Past the open there IS a proven key, so the only reason to
@@ -292,14 +292,14 @@ func (d SealedDeps) sealBack(ctx context.Context, facts *EnvelopeFacts, inner js
 // never produces it — so the carrier separates "someone the recipient knows,
 // calling from an address not yet approved" from "a stranger", by reading an
 // answer it was never meant to be able to read. That correlation is precisely
-// what sealing denies it (PACT §13.5, §12).
+// what sealing denies it (HDTP §13.5, §12).
 //
 // Plaintext past the open is for one case: there is no key to seal to — the facts name no caller's
 // key, or this identity holds no current key and chain to answer under — or the seal itself fails.
 // The refusal then goes out as itself: the caller cannot be answered at all otherwise, and the code
 // it is owed beats another. Every path that reaches here names the caller's key: an `ok` decision
 // names the leaf that signed, and a `pending_approval` is sealed to the leaf decideEnvelope reads
-// with signerOf (pact-identity's Decide answers that code with no leaf of its own). A facts with no
+// with signerOf (hdtp-identity's Decide answers that code with no leaf of its own). A facts with no
 // key is signerOf finding no `pending_out` pin for the proof, which Decide's answer rules out.
 func (d SealedDeps) sealBackErr(ctx context.Context, facts *EnvelopeFacts, body json.RawMessage) *mcp.CallToolResult {
 	res, err := d.sealResult(ctx, facts, body, true)
@@ -314,7 +314,7 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 	return d.sealBackErr(ctx, facts, json.RawMessage(`{"code":`+strconv.Quote(code)+`}`))
 }
 
-// sealResult seals a result to a 2.0 caller (PACT §13.2): kid names the
+// sealResult seals a result to a caller (HDTP §13.2): kid names the
 // caller's leaf key, the plaintext carries our chain until this contact has
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.
@@ -335,7 +335,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 		return nil, errors.New("seal: no current key and chain to answer under")
 	}
 	sender := key.Lib
-	recipient, err := pactidentity.ParseSPKI(facts.SPKI)
+	recipient, err := hdtpidentity.ParseSPKI(facts.SPKI)
 	if err != nil {
 		return nil, fmt.Errorf("seal: the caller's key is not in hand: %w", err)
 	}
@@ -350,7 +350,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 		}
 	}
 	now := d.now()
-	opts := pactidentity.SealOpts{
+	opts := hdtpidentity.SealOpts{
 		RecipientKey: recipient, Sender: sender, Form: form, SenderChain: st.Chain, Result: json.RawMessage(inner),
 		MsgID: facts.Header.MsgID, TS: now.Unix(), Exp: now.Add(ResultLifetime).Unix(),
 	}
@@ -358,7 +358,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 		// §13.2's result plaintext is `result` OR `error`, never both.
 		opts.Result, opts.Error = nil, json.RawMessage(inner)
 	}
-	out, err := pactidentity.SealResult(opts)
+	out, err := hdtpidentity.SealResult(opts)
 	if err != nil {
 		return nil, fmt.Errorf("seal: %w", err)
 	}

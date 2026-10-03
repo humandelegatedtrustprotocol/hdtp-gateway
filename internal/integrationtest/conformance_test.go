@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// docs/conformance.md claims a passing test for every PACT §12 clause, error
+// docs/conformance.md claims a passing test for every HDTP §12 clause, error
 // code and limit. This is what stops that claim from rotting: every test name
 // the document cites must exist somewhere in the tree. A renamed or deleted
 // test fails the build here, where the mismatch is cheap to fix, rather than

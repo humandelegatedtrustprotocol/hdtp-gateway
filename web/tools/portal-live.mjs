@@ -32,11 +32,11 @@ try {
   if (argv.includes('--media')) {
     const d = await a.get('/api/conversations?contact=' + encodeURIComponent(bOnA.fingerprint))
     const up = await a.page.evaluate(async ({ fpr, msgId }) => {
-      const csrf = (document.cookie.split('; ').find(c => c.startsWith('pact_csrf')) || '').split('=').slice(1).join('=')
+      const csrf = (document.cookie.split('; ').find(c => c.startsWith('hdtp_csrf')) || '').split('=').slice(1).join('=')
       const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(120).fill(3)])
       const fd = new FormData(); fd.append('file', new Blob([png], { type: 'image/png' }), 'qa.png')
-      fd.append('contact', fpr); fd.append('msg_id', msgId); fd.append('csrf', csrf); fd.append('account', localStorage.getItem('pact.account') || '')
-      const r = await fetch('/messages/send_media', { method: 'POST', headers: { 'X-Pact-Csrf': csrf }, body: fd })
+      fd.append('contact', fpr); fd.append('msg_id', msgId); fd.append('csrf', csrf); fd.append('account', localStorage.getItem('hdtp.account') || '')
+      const r = await fetch('/messages/send_media', { method: 'POST', headers: { 'X-HDTP-Csrf': csrf }, body: fd })
       return { status: r.status, body: (await r.text()).slice(0, 160) }
     }, { fpr: bOnA.fingerprint, msgId: d.new_msg_id })
     log(`media alice→bob: ${up.status} ${up.body}`)

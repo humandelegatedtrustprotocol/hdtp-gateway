@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/integrations"
-	"github.com/pact-cloud/pact-gateway/internal/internalui/auth"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/node"
-	"github.com/pact-cloud/pact-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
 )
 
 // registerAdminHandlers registers the admin socket's commands (SPEC §12.1): the account, passkey
@@ -27,7 +27,7 @@ func (s *serveRun) registerAdminHandlers() {
 	admin.Handle("ping", func(map[string]string) (any, error) {
 		return map[string]string{"status": "serving"}, nil
 	})
-	// PACT 2.0 (PACT §9): the certificate signing request a wallet answers, the
+	// HDTP 1.0 (HDTP §9): the certificate signing request a wallet answers, the
 	// install of the chain it returns, the certificate state, and the owner's
 	// answer to a contact waiting at a new address (§5.3).
 	accountBySlug := func(slug string) (store.Account, error) {
@@ -90,7 +90,7 @@ func (s *serveRun) registerAdminHandlers() {
 				return nil, aerr
 			}
 		}
-		// An account starts as a signup request for its key (PACT §9): it has no
+		// An account starts as a signup request for its key (HDTP §9): it has no
 		// card and no chain to present until the wallet's leaf is installed.
 		// The request is a convenience, not part of creating the account: a node with
 		// no public URL configured yet cannot name an endpoint, and that must not stop
@@ -142,7 +142,7 @@ func (s *serveRun) registerAdminHandlers() {
 			out["Retired"] = res.Retired
 		}
 		if res.Campaign {
-			out["Campaigns"] = "started; `pact-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
+			out["Campaigns"] = "started; `hdtp-gateway account announce -slug " + acct.Slug + "` reports and resumes them"
 		}
 		if res.Notice != "" {
 			out["Notice"] = res.Notice
@@ -237,7 +237,7 @@ func (s *serveRun) registerAdminHandlers() {
 		s.auditFn("contact_address_"+args["decision"], "account:"+acct.ID+" contact:"+args["root"]+" endpoint:"+p.Endpoint, "ok")
 		return map[string]any{"Slug": acct.Slug, "Root": args["root"], "Endpoint": p.Endpoint, "Decision": args["decision"]}, nil
 	})
-	// account.host_policy is the owner's PACT §5.3 choice for one identity: what happens when a
+	// account.host_policy is the owner's HDTP §5.3 choice for one identity: what happens when a
 	// pinned contact turns up at a new address. `auto` follows a leaf the contact's own root
 	// signed; `ask` parks it until the owner decides (`account address`). The node has always read
 	// this setting and honoured it, and until 2026-09-19 NOTHING could set it: the store method
@@ -263,7 +263,7 @@ func (s *serveRun) registerAdminHandlers() {
 		s.auditFn("settings_accept_new_hosts", "account:"+acct.ID+" policy:"+args["policy"], "ok")
 		return map[string]any{"Slug": acct.Slug, "Policy": args["policy"]}, nil
 	})
-	// account.leave is the person leaving this host (PACT §9, "What a host must do when the person
+	// account.leave is the person leaving this host (HDTP §9, "What a host must do when the person
 	// leaves"): every record of the identity and every leaf key it held are erased at once, the
 	// live node forgets it so its address answers as one never served, and the address stays
 	// reserved until the last leaf issued for it expires. It is on the admin socket only, like

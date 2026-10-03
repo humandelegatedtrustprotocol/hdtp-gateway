@@ -13,9 +13,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // wireLog records what reaches a node's public listener: each request's method, its JSON-RPC
@@ -147,12 +147,12 @@ func TestASealedCallCompletesFromEitherMCPEra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recipient, err := pactidentity.ParseSPKI(alina.leafSPKI())
+	recipient, err := hdtpidentity.ParseSPKI(alina.leafSPKI())
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := clock.now()
-	env, err := pactidentity.SealRequest(pactidentity.SealOpts{
+	env, err := hdtpidentity.SealRequest(hdtpidentity.SealOpts{
 		RecipientKey: recipient, Sender: sender, Form: "chain", SenderChain: [][]byte{bharat.leaf(), bharat.rc},
 		Method: "tools/call", Params: json.RawMessage(`{"name":"send_message","arguments":{"msg_id":"legacy-1","text":"over the handshake era"}}`),
 		MsgID: "legacy-1", TS: now.Unix(), Exp: now.Add(5 * time.Minute).Unix(),
@@ -165,13 +165,13 @@ func TestASealedCallCompletesFromEitherMCPEra(t *testing.T) {
 	if err != nil || sealed.IsError {
 		t.Fatalf("sealed_call over 2025-11-25: %v %+v", err, sealed)
 	}
-	var answer pactidentity.Envelope
+	var answer hdtpidentity.Envelope
 	if err := json.Unmarshal([]byte(sealed.Content[0].(*mcp.TextContent).Text), &answer); err != nil {
 		t.Fatal(err)
 	}
-	opened, err := pactidentity.OpenResult(answer, pactidentity.OpenOpts{
+	opened, err := hdtpidentity.OpenResult(answer, hdtpidentity.OpenOpts{
 		Recipient: sender, RecipientPublic: sender.Public(), MsgID: "legacy-1", Now: now,
-		Pins:         []pactidentity.Pin{{Root: peerA.Root, Endpoint: peerA.Endpoint, Leaf: pactidentity.B64url(peerA.Leaf), State: "active"}},
+		Pins:         []hdtpidentity.Pin{{Root: peerA.Root, Endpoint: peerA.Endpoint, Leaf: hdtpidentity.B64url(peerA.Leaf), State: "active"}},
 		ExpectedRoot: peerA.Root, ExpectedEndpoint: peerA.Endpoint,
 	})
 	if err != nil || opened.Error != nil {

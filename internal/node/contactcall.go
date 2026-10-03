@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
 // ContactTool is what a contact's server offers this identity: the peer's own
@@ -44,7 +44,7 @@ func (n *Node) ListContactTools(ctx context.Context, accountID, contactFpr strin
 	if err != nil {
 		return nil, err
 	}
-	// A sealed tools/list is answered for the identity in the envelope (PACT §13.2), so it is
+	// A sealed tools/list is answered for the identity in the envelope (HDTP §13.2), so it is
 	// right even where TLS terminates before the peer and a plaintext list would be answered as
 	// to a stranger. It is sealed to the key in the leaf held for them.
 	var tools []*mcp.Tool
@@ -84,7 +84,7 @@ func (n *Node) ListContactTools(ctx context.Context, accountID, contactFpr strin
 	return out, nil
 }
 
-// looksGuest recognises the stranger's surface (PACT §6.2): the two guest
+// looksGuest recognises the stranger's surface (HDTP §6.2): the two guest
 // tools, with or without sealed_call, and none of the contact tier.
 func looksGuest(tools []ContactTool) bool {
 	guest, contact := false, false

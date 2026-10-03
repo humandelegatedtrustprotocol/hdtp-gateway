@@ -106,7 +106,7 @@ const deleteChangesByAccount = `-- name: DeleteChangesByAccount :execrows
 DELETE FROM changes WHERE account_id = ?
 `
 
-// An identity leaving (PACT sec. 9): its changes go with it.
+// An identity leaving (HDTP sec. 9): its changes go with it.
 func (q *Queries) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteChangesByAccount, accountID)
 	if err != nil {

@@ -20,12 +20,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
 // terminatingEdge is a Cloudflare-shaped edge: it terminates the caller's TLS
@@ -53,7 +53,7 @@ func terminatingEdge(t *testing.T, nodeURL string) *httptest.Server {
 	// httptest's own certificate names example.com; the edge has to answer for the
 	// name the identity's leaf advertises, because that is the name a contact dials.
 	srv := httptest.NewUnstartedServer(proxy)
-	srv.TLS = &tls.Config{Certificates: []tls.Certificate{edgeCertFor(t, "alice.pact.example")}}
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{edgeCertFor(t, "alice.hdtp.example")}}
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	return srv
@@ -64,8 +64,8 @@ func terminatingEdge(t *testing.T, nodeURL string) *httptest.Server {
 func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	ctx := context.Background()
 	// the node is configured EDGE: seal required, client_cert off
-	alice := startPactNode(t, "alice", core.SealRequired)
-	bob := startPactNode(t, "bob", core.SealOptional)
+	alice := startHDTPNode(t, "alice", core.SealRequired)
+	bob := startHDTPNode(t, "bob", core.SealOptional)
 
 	// pair them first (direct), then talk only through the edge
 	token, _, err := alice.cm.CreateInvite(ctx, alice.acct.ID, contacts_InviteOptions())
@@ -88,7 +88,7 @@ func TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored(t *testing.T) {
 	// different address, and the chain in the answer would rightly refuse it
 	// (§14.2 rule 5). So the map is repointed, exactly as DNS would be.
 	edgeHost := strings.TrimPrefix(edge.URL, "https://")
-	pactNet.set("alice.pact.example:443", edgeHost)
+	hdtpNet.set("alice.hdtp.example:443", edgeHost)
 	edgePeer := alice.asPeer("required")
 	edgeRoots := edgeCertPool(t, edge)
 	client := bob.client()
@@ -246,10 +246,10 @@ func TestLANFlagOffRefusesDirectConnectionsAndAudits(t *testing.T) {
 
 // NOT COVERED HERE: an endpoint change fanned out as `update_contact`.
 //
-// This proved the 1.x shape — a new card plus a signature over the unchanged
-// fingerprint, made with the key the peer pinned. 2.0 has no such proof: a move is
+// This proved the retired generation's shape — a new card plus a signature over the unchanged
+// fingerprint, made with the key the peer pinned. HDTP has no such proof: a move is
 // a new leaf for a new address, and the chain the envelope carries is what
-// authorises it (PACT §5.3, §14.3). The 2.0 move, including the receiver following
+// authorises it (HDTP §5.3, §14.3). The move, including the receiver following
 // it under `auto`, is proven end to end by `internal/node.TestExitDemo`.
 
 /* ------------------------------ helpers ------------------------------ */
@@ -265,7 +265,7 @@ func edgeCertPool(t *testing.T, srv *httptest.Server) *x509.CertPool {
 	return pool
 }
 
-func allMessages(t *testing.T, n *pactNode) []store.Message {
+func allMessages(t *testing.T, n *hdtpNode) []store.Message {
 	t.Helper()
 	ctx := context.Background()
 	threads, _ := n.st.ListThreadsByAccount(ctx, n.acct.ID)
@@ -295,7 +295,7 @@ func names(tools []*mcp.Tool) []string {
 }
 
 // edgeCertFor mints a self-signed server certificate for one name — what a
-// terminating edge presents. It is WebPKI-shaped, not a PACT chain: an edge is not
+// terminating edge presents. It is WebPKI-shaped, not an HDTP chain: an edge is not
 // an identity, which is exactly why identity has to come from the envelope.
 func edgeCertFor(t *testing.T, name string) tls.Certificate {
 	t.Helper()

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Two processes' keepers on one store: the first to ask holds each lease and the other does not;

@@ -8,7 +8,7 @@ import (
 
 const carlos = "sha256:carlos"
 
-// Thread ids are SHARED and caller-supplied (PACT §7): a peer sends the id it
+// Thread ids are SHARED and caller-supplied (HDTP §7): a peer sends the id it
 // knows, and we adopt it on first sight. That is also the obvious way to be
 // impersonated without forging anything -- Carlos cannot sign as Alina, but if he
 // could name HER thread, his message would be stored under it and the owner would

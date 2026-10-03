@@ -25,17 +25,17 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/pact-cloud/pact-gateway/internal/contacts"
-	"github.com/pact-cloud/pact-gateway/internal/core"
-	"github.com/pact-cloud/pact-gateway/internal/core/store"
-	"github.com/pact-cloud/pact-gateway/internal/identity"
-	"github.com/pact-cloud/pact-gateway/internal/ingress"
-	"github.com/pact-cloud/pact-gateway/internal/limits"
-	"github.com/pact-cloud/pact-gateway/internal/messaging"
-	"github.com/pact-cloud/pact-gateway/internal/outbound"
-	"github.com/pact-cloud/pact-gateway/internal/public"
-	"github.com/pact-cloud/pact-gateway/internal/tunnel"
-	pactidentity "github.com/pact-cloud/pact-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // MaxBodyBytes is SPEC §5.7's pre-parse body cap: 5 MiB of inline media plus
@@ -94,14 +94,14 @@ type Options struct {
 	// DialContext overrides how outbound calls reach a contact's host; nil
 	// dials it. Tests map the hosts leaves name onto local listeners with it.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-	// Limits is the client of the limits sidecar (internal/limits, cmd/pact-limitd), which decides
-	// every PACT §12 budget of every account: calls in, calls out, the pending-request cap and each
+	// Limits is the client of the limits sidecar (internal/limits, cmd/hdtp-limitd), which decides
+	// every HDTP §12 budget of every account: calls in, calls out, the pending-request cap and each
 	// integration's cap. Required. While it does not answer, every call it would decide is refused
 	// `unavailable`.
 	Limits *limits.Client
 	// ContactCap reports how many contacts each account may hold (limit.contacts) while the node
 	// runs; nil or 0 = core.DefaultLimitContacts. It is enforced where contacts are added and it
-	// sizes every account's call budget (PACT §12). A function, not a snapshot, so raising it from
+	// sizes every account's call budget (HDTP §12). A function, not a snapshot, so raising it from
 	// the portal takes effect on the next call.
 	ContactCap func() int
 	// Quota reports an account's media quota in bytes; 0 = the documented
@@ -121,7 +121,7 @@ type Options struct {
 
 // account is one identity's whole serving state.
 type account struct {
-	// seal is the account's live X-PACT-SEAL policy. It is read by BOTH the
+	// seal is the account's live X-HDTP-SEAL policy. It is read by BOTH the
 	// card builder and the envelope gate, so the two can never disagree — a
 	// card advertising `required` while the gate accepts plaintext would be a
 	// wire-visible lie (SPEC §4.6).
@@ -154,7 +154,7 @@ type Node struct {
 	mu       sync.RWMutex
 	accounts map[string]*account // by account id
 	bySlug   map[string]*account
-	byHost   map[string]*account // PACT 2.0: the leaf's endpoint host → account
+	byHost   map[string]*account // HDTP 1.0: the leaf's endpoint host → account
 	// Slugs the store holds that this node cannot serve yet: they have no
 	// certificate, so there is nothing to present at a handshake. Kept so the
 	// operator can be TOLD which ones and what to run, rather than meeting a
@@ -270,7 +270,7 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// It stays a refusal, and it says the two things it can mean. The likelier one is the wrong
 	// master key, and a node that started anyway would seal new settings and credentials under it
 	// and leave the store sealed under two. The other is a master key that is gone for good, and
-	// under 2.0 that is recoverable — the identities are roots in wallets, not keys in this store —
+	// under HDTP that is recoverable — the identities are roots in wallets, not keys in this store —
 	// by treating this node's own data as another host's (docs/operations.md, Recovery).
 	//
 	// "Every account failing" is judged by the master key, not by how many accounts are served.
@@ -282,9 +282,9 @@ func New(ctx context.Context, o Options) (*Node, error) {
 	// on the banner. One with no key at all proves nothing either way.
 	if !keyProven && len(unavailable) > 0 {
 		return nil, fmt.Errorf("node: no account could be served: %s\n"+
-			"if this is the wrong master key, supply the right one (PACT_MASTER_KEY or keyring.key) and nothing is lost.\n"+
+			"if this is the wrong master key, supply the right one (HDTP_MASTER_KEY or keyring.key) and nothing is lost.\n"+
 			"if the master key is gone for good, the identities are not — they are roots in wallets. Offline: "+
-			"`pact-gateway export -slug <slug> -out <file>` for each, then `pact-gateway import <file> -slug <slug> -yes` into a fresh data directory; "+
+			"`hdtp-gateway export -slug <slug> -out <file>` for each, then `hdtp-gateway import <file> -slug <slug> -yes` into a fresh data directory; "+
 			"the identities arrive with their contacts and chats, awaiting a leaf, and `serve` names the command for each",
 			strings.Join(unavailable, "; "))
 	}
@@ -358,7 +358,7 @@ func (n *Node) contactCap() int {
 	return core.DefaultLimitContacts
 }
 
-// consumeBudget charges one call to a PACT §12 budget of accountID — the caller's own, or the guest
+// consumeBudget charges one call to an HDTP §12 budget of accountID — the caller's own, or the guest
 // or source budget `as` names (public.Pool.Limit) — by asking the limits sidecar, which holds the
 // numbers and the counters (internal/limits). nil when the call may proceed. A sidecar that does
 // not answer refuses the call `unavailable`: a budget nobody can enforce is not one the node guesses
@@ -409,7 +409,7 @@ func (n *Node) refusalOf(accountID, asked string, d limits.Decision, err error) 
 	return &public.Refusal{RetryAfter: d.RetryAfter}
 }
 
-// chargeOf decides which of accountID's budgets a call counts against (PACT §12), and the source
+// chargeOf decides which of accountID's budgets a call counts against (HDTP §12), and the source
 // to remember as known when the open proved the caller a contact. Every budget is the account's the
 // call is ADDRESSED to: being a contact of another account on this node earns nothing here, and a
 // contact's calls to one account never spend another's.
@@ -487,7 +487,7 @@ func probeHandler(publicURL func() string) http.Handler {
 // buildAccount loads one account's key and composes its serving state.
 // ErrAwaitingLeaf marks an account that cannot serve yet: it holds no key (a
 // data-only import), or it holds one and no leaf has been issued over it. Both
-// wait on the same thing — the wallet (PACT §9). Exported because `account
+// wait on the same thing — the wallet (HDTP §9). Exported because `account
 // create` has to tell "cannot serve yet" apart from "could not be created".
 var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 
@@ -517,7 +517,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		return nil, fmt.Errorf("node: account %s has no key: %w", rec.Slug, err)
 	}
 	if len(sealed) == 0 {
-		// A data-only import (PACT §9): the account is here, its key is not,
+		// A data-only import (HDTP §9): the account is here, its key is not,
 		// and it serves nothing until the wallet issues a leaf to this host.
 		return nil, errAwaitingKeyless
 	}
@@ -528,7 +528,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 	if kp.Fingerprint != rec.Fingerprint {
 		return nil, fmt.Errorf("node: account %s: stored key does not match its pinned fingerprint", rec.Slug)
 	}
-	// An account (PACT §2) serves under the leaf the person's root issued: the
+	// An account (HDTP §2) serves under the leaf the person's root issued: the
 	// leaf's key is the key above, and the chain — leaf then root — is what TLS
 	// presents. There is no other shape.
 	var cert tls.Certificate
@@ -560,9 +560,8 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		// malformed chain; it now goes out as no credential.
 		cert = tlsCertOf(kp)
 	} else {
-		// No leaf, so no chain to present and no card to serve — whether this account
-		// was made a moment ago and has not been to a wallet yet, or predates 2.0.
-		// Either way it cannot serve and the remedy is the same: `account csr`, the
+		// No leaf, so no chain to present and no card to serve: this account has not
+		// been to a wallet yet. It cannot serve, and the remedy is `account csr`, the
 		// wallet, `account install-leaf`. Skipped and audited rather than fatal, so
 		// one account waiting on its wallet does not take the node down.
 		return nil, ErrAwaitingLeaf
@@ -622,7 +621,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		SealFn:    func() core.Seal { return a.sealValue() },
 		Now:       n.opts.Now,
 		Audit:     n.opts.audit,
-		// PACT 2.0: what a `v: 2` envelope is decided against, read per call
+		// HDTP 1.0: what a `v: 1` envelope is decided against, read per call
 		// so the owner's settings and a renewal take effect without a restart.
 		RecipientState: func(ctx context.Context) (*public.RecipientState, error) {
 			return n.recipientState(ctx, rec.ID, rec.Slug)
@@ -634,7 +633,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 		},
 		OnPending: func(root, endpoint, why string) {
 			// A contact at a new address awaiting the owner appears beside
-			// contact requests (PACT §5.3), so it wakes the same feed.
+			// contact requests (HDTP §5.3), so it wakes the same feed.
 			if n.opts.Bus != nil {
 				n.opts.Bus.Publish(messaging.Event{Kind: messaging.EventRequest, AccountID: rec.ID, ContactFpr: root})
 			}
@@ -673,7 +672,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 			}
 			// The SAME signature the invite landing page serves: a card that is
 			// signed over one transport and bare over another is a card a
-			// redeemer cannot rely on (PACT §4).
+			// redeemer cannot rely on (HDTP §4).
 			sig, err := n.idm.SignCard(ctx, rec.ID, card)
 			return card, sig, err
 		},
@@ -702,7 +701,7 @@ func (n *Node) buildAccountSealed(ctx context.Context, rec store.Account, seal c
 
 	// sealed_call at every tier, wrapping the same pool (SPEC §4.5). A NAMED
 	// group, not a builtin: at seal `none` the tool must be absent from
-	// tools/list (PACT §13.4 — the card says senders must not seal, and the
+	// tools/list (HDTP §13.4 — the card says senders must not seal, and the
 	// list has to tell the same truth), so SetSeal replaces or deletes the
 	// group the way integration tools come and go.
 	a.sealedEntries = public.SealedEntries(public.SealedDeps{
@@ -780,7 +779,7 @@ func (n *Node) Card(ctx context.Context, accountID string) (string, error) {
 	if err != nil {
 		rec = a.rec // a store blip must not stop us answering with what we know
 	}
-	// PACT §3: the card carries the leaf and nothing the leaf already says. The seal
+	// HDTP §3: the card carries the leaf and nothing the leaf already says. The seal
 	// is the SAME value the gate enforces, never the raw row.
 	chain, err := n.idm.Chain(ctx, accountID)
 	if err != nil {
@@ -796,7 +795,7 @@ func (n *Node) now() time.Time {
 	return time.Now()
 }
 
-// recipientState is what a `v: 2` envelope for an account is decided against (PACT
+// recipientState is what a `v: 1` envelope for an account is decided against (HDTP
 // §13.3): the account's own endpoint and settings, its chain, the keys it holds
 // today, the kids it once held, and the kids every OTHER account on this node
 // holds — a key held for another identity must never answer at this one's path
@@ -824,7 +823,7 @@ func (n *Node) recipientState(ctx context.Context, accountID, slug string) (*pub
 	}
 	// The sibling kids: what this node holds for its OTHER identities, so a kid
 	// that belongs to one of them is `envelope_invalid` and never
-	// `certificate_renewed` with our chain (PACT §13.3, §14.4).
+	// `certificate_renewed` with our chain (HDTP §13.3, §14.4).
 	//
 	// This used to walk every other account and ask for its leaves, one query
 	// each — an N+1 paid on EVERY inbound envelope, so the cost of a message grew
@@ -929,7 +928,7 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 	}
 	a.seal.Store(eff)
 	// The served surface must move with the policy: at `none` sealed_call
-	// leaves tools/list (PACT §13.4), otherwise it is (re)installed — and the
+	// leaves tools/list (HDTP §13.4), otherwise it is (re)installed — and the
 	// cached per-caller servers are dropped so the next request lists the
 	// change, the same mechanics integration tools use.
 	if a.reg != nil {
@@ -1085,7 +1084,7 @@ func (n *Node) SignCard(ctx context.Context, accountID, cardText string) (string
 // Certificate returns an account's identity certificate — what an outbound leg
 // presents so the far side recognizes the key it pinned. Ingress pairing needs
 // it (SPEC §10.6).
-// CertificateInfo is the account's 2.0 certificate state — root, chain, dates,
+// CertificateInfo is the account's certificate state — root, chain, dates,
 // whether a renewal is due (§14). The portal and the owner MCP read the same
 // function, so neither can drift from what the node actually serves.
 func (n *Node) CertificateInfo(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
@@ -1114,7 +1113,7 @@ func (n *Node) OutboundClient(accountID string) (*outbound.Client, error) {
 		return nil, fmt.Errorf("node: unknown account %s", accountID)
 	}
 	// Roots stays nil: nil means the SYSTEM roots, and an empty pool would mean
-	// "trust nothing", which silently kills the WebPKI branch of PACT §2 — so
+	// "trust nothing", which silently kills the WebPKI branch of HDTP §2 — so
 	// this node could reach pinned self-signed peers and nothing behind an edge.
 	return n.wireClient(accountID, &outbound.Client{Keypair: a.kp, Cert: a.cert}), nil
 }
@@ -1161,7 +1160,7 @@ func (n *Node) TLSConfig() *tls.Config {
 // gets that account's identity certificate; anything else — including a caller
 // that dialed by IP and sent no SNI — gets the first account's, which is the
 // only sensible answer on a single-identity node and harmless on a multi-account
-// one, where the caller pins by fingerprint anyway (PACT §2).
+// one, where the caller pins by fingerprint anyway (HDTP §2).
 // RetireExpiredLeaves destroys the key of every leaf past its notAfter, on every account, and stops
 // serving any account whose CURRENT leaf was one of them. It is what makes "until one date" true
 // of the key and not only of the certificate: an expired leaf is refused by every verifier, so
@@ -1230,7 +1229,7 @@ func (n *Node) stopServingLocal(rec store.Account) {
 
 // ForgetAccount takes an identity that has left this host out of the live node entirely: out of
 // every index the listener answers from, and out of the lists of accounts awaiting a leaf or
-// unavailable. Its address is then answered as an address this node never served (PACT §9).
+// unavailable. Its address is then answered as an address this node never served (HDTP §9).
 // stopServingLocal is the other way out and is not this one: it keeps the slug as awaiting a leaf,
 // because that account is still here.
 func (n *Node) ForgetAccount(accountID, slug string) {
@@ -1328,19 +1327,19 @@ func (n *Node) serveAccount(a *account) {
 	delete(n.unavailable, a.rec.Slug)
 }
 
-// indexHost records the host a 2.0 account's leaf names, for SNI selection.
+// indexHost records the host an account's leaf names, for SNI selection.
 // Callers hold n.mu.
 func (n *Node) indexHost(a *account) {
 	if !a.rec.HasRoot() || len(a.kp.Leaf) == 0 {
 		return
 	}
-	if leaf, err := pactidentity.Parse(a.kp.Leaf); err == nil && len(leaf.URIs) == 1 {
+	if leaf, err := hdtpidentity.Parse(a.kp.Leaf); err == nil && len(leaf.URIs) == 1 {
 		host := hostOfEndpoint(leaf.URIs[0])
-		// Two 2.0 accounts naming one host cannot both present their chain on it:
+		// Two accounts naming one host cannot both present their chain on it:
 		// SNI carries the name and nothing else. The first keeps the host and the
 		// clash is audited rather than overwritten in silence — a peer validating
 		// to its own pinned root would refuse whichever chain arrived (docs:
-		// direct 2.0 TLS on a multi-account node wants a host per account, or an
+		// direct TLS on a multi-account node wants a host per account, or an
 		// edge that terminates).
 		if other := n.byHost[host]; other != nil && other.rec.ID != a.rec.ID {
 			n.opts.audit("account_host_clash", "account:"+a.rec.ID+" host:"+host+" kept:"+other.rec.Slug, "skipped")
@@ -1359,7 +1358,7 @@ func (n *Node) certificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	if hello != nil && hello.ServerName != "" {
 		host := hello.ServerName
 		if i := len(host); i > 0 {
-			// A 2.0 leaf names its endpoint (PACT §14.1): the host it names
+			// A leaf names its endpoint (HDTP §14.1): the host it names
 			// selects it, before any slug heuristic.
 			if a := n.byHost[host]; a != nil {
 				return &a.cert, nil
@@ -1410,7 +1409,7 @@ func (n *Node) mcpHandler() http.Handler {
 		f := public.FactsFrom(r.Context())
 		caller := f.ClientCertFingerprint
 		if tc, ok := public.TransportCallerFrom(r.Context()); ok {
-			// A 2.0 chain earns exactly what the pin checks allowed
+			// A chain earns exactly what the pin checks allowed
 			// (resolveTransport): the root, or an anonymous guest.
 			caller = tc.Fingerprint
 		}
@@ -1441,7 +1440,7 @@ func (n *Node) mcpHandler() http.Handler {
 	return n.resolveTransport(inner)
 }
 
-// resolveTransport runs the pin checks of PACT §14.3 and §5.3 on a 2.0 client
+// resolveTransport runs the pin checks of HDTP §14.3 and §5.3 on a client
 // chain ONCE per request, before the per-caller server is composed, and puts the
 // outcome in the context. Without it the
 // transport path composed the contact's surface for any chain that validated
