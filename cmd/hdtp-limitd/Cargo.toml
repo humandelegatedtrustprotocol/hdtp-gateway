@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 # The decision function, by released version: the same crate the cloud runs as Wasm, so the two
 # hosts decide alike (hdtp-identity CHANGELOG 0.4.0; js/cases/limits-vectors.json).
-pact-limits = { git = "ssh://git@github.com/pact-cloud/pact-identity.git", tag = "v0.4.1" }
+hdtp-limits = { git = "ssh://git@github.com/humandelegatedtrustprotocol/hdtp-identity.git", tag = "v0.5.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 

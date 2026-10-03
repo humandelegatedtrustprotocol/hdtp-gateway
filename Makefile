@@ -145,10 +145,16 @@ names:
 
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and
-# fetched over SSH with this machine's agent (cmd/hdtp-limitd/.cargo/config.toml), locally only;
+# fetched over SSH with this machine's agent, by the system git, locally only;
 # the image builds read it from `limitd-vendor` instead, with no credential inside Docker.
+#
+# The system git is asked for HERE. cmd/hdtp-limitd/.cargo/config.toml asks for it too, but cargo
+# reads that file from the directory it is run in, and these recipes run it from the repository's
+# root with --manifest-path: the first fetch of a new tag failed with "no authentication methods
+# succeeded" (the 0.5.0 bump, 2026-10-03). The file still serves a cargo run inside that directory.
 LIMITD := cmd/hdtp-limitd
 LIMITD_VENDOR := .build/limitd-vendor
+export CARGO_NET_GIT_FETCH_WITH_CLI := true
 limitd:
 	cargo build --release --locked --manifest-path $(LIMITD)/Cargo.toml
 

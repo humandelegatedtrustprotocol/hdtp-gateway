@@ -39,7 +39,7 @@
 //! reads it; the answer is the contract's `limits_decide` result without its `writes`, which are
 //! the sidecar's own.
 
-use pact_limits::{decide, Charge, Decision, Level, Rules, StateStore, IDLE_MS, RULE_MEMBERS};
+use hdtp_limits::{decide, Charge, Decision, Level, Rules, StateStore, IDLE_MS, RULE_MEMBERS};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
