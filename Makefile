@@ -131,10 +131,17 @@ check: fmt vet names dependents limitd-check test test-js
 # hdtp-spec's scripts/ files, byte for byte, and the script compares both with that repository's
 # when it is checked out beside this one (or at HDTP_SPEC_DIR). A change to either is made there
 # and copied here. The self-test runs first: a matcher that finds nothing passes every tree.
+#
+# The second step is what the guard cannot see and a rename leaves behind: the old article. The
+# name begins with a vowel sound, so it takes "an", in prose, in comments and in the refusals a
+# caller reads; bare, or behind a mark or the X- prefix. The pattern is hdtp-identity's gate's.
 names:
 	@command -v node >/dev/null || { echo "names: node is not installed; it is what make web needs too"; exit 1; }
 	node scripts/check-names.mjs --selftest
 	node scripts/check-names.mjs
+	@if git grep -n -I -E '(^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)' -- .; then \
+		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
+	fi
 
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and

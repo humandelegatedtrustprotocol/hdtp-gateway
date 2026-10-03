@@ -72,7 +72,7 @@ type Identity struct {
 // and read like an authentication control, which is worse than not being there.
 func (t *TokenService) Validate(ctx context.Context, presented string) (Identity, error) {
 	if !strings.HasPrefix(presented, tokenPrefix) {
-		return Identity{}, errors.New("auth: not a hdtp token")
+		return Identity{}, errors.New("auth: not an hdtp token")
 	}
 	sum := sha256.Sum256([]byte(presented))
 	row, err := t.Store.GetTokenByHash(ctx, sum[:])

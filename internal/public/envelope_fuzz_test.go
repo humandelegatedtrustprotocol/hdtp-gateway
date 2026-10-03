@@ -51,7 +51,7 @@ func FuzzSealedEnvelope(f *testing.F) {
 		facts, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, &env)
 		if err != nil {
 			if c := Code(err); c == "unavailable" {
-				t.Fatalf("an envelope refusal is not a HDTP §12 code: %v", err)
+				t.Fatalf("an envelope refusal is not an HDTP §12 code: %v", err)
 			}
 			return
 		}

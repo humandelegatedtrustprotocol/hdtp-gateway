@@ -1,6 +1,6 @@
 package tunnel
 
-// Ingress-fronted adapters (SPEC §10.6): a node paired with a hdtp-gateway
+// Ingress-fronted adapters (SPEC §10.6): a node paired with an hdtp-gateway
 // ingress reaches it over the embedded frp client, but WHICH deployment mode
 // it derives depends on the subdomain's serving mode — so pairing yields one
 // of two adapter names, each with a fixed TerminatesAtEdge:

@@ -1,4 +1,4 @@
-// Package vm runs a hdtp-gateway node inside a QEMU/HVF guest so a scenario can
+// Package vm runs an hdtp-gateway node inside a QEMU/HVF guest so a scenario can
 // give it an arbitrary WALL CLOCK.
 //
 // This exists because containers cannot do it. Linux time namespaces deliberately

@@ -1,6 +1,6 @@
 package contacts
 
-// vCard handling (SPEC §9.3, HDTP §3): a HDTP card is standard vCard 4.0 plus the
+// vCard handling (SPEC §9.3, HDTP §3): an HDTP card is standard vCard 4.0 plus the
 // X-HDTP-* properties. Parsing is tolerant — phone exports are v3.0 with folded
 // lines and foreign properties — and never trusts input: callers length-cap before
 // parsing, and a parse failure yields an error, never a panic.

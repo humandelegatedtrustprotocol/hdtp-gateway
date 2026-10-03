@@ -45,7 +45,7 @@ HDTP_TUNNEL_HOSTNAME=hdtp HDTP_TUNNEL_AUTH_KEY=tskey-… hdtp-gateway serve
 ```
 
 Adapter settings come from the portal (*Settings → Adapter credentials*) or
-from the environment with a `HDTP_TUNNEL_` prefix: `HDTP_TUNNEL_AUTH_KEY`
+from the environment with an `HDTP_TUNNEL_` prefix: `HDTP_TUNNEL_AUTH_KEY`
 reaches the adapter as `auth_key`. The startup banner
 names the derived mode:
 

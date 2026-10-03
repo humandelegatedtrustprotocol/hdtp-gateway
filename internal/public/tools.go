@@ -12,7 +12,7 @@ package public
 //     out of its arguments.
 //   - Untrusted strings are capped at the boundary and REFUSED when over, never
 //     silently truncated, and never concatenated into an instruction.
-//   - Every call answers with a HDTP §12 code on failure, and audits.
+//   - Every call answers with an HDTP §12 code on failure, and audits.
 
 import (
 	"context"

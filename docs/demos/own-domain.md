@@ -1,6 +1,6 @@
-# Demo: your own domain — a hdtp-gateway ingress on a VPS
+# Demo: your own domain — an hdtp-gateway ingress on a VPS
 
-The P5 exit demo: a hdtp-gateway in the **ingress role** on a public VPS holds
+The P5 exit demo: an hdtp-gateway in the **ingress role** on a public VPS holds
 `example.com`, and two home nodes sit behind it on subdomains — one in
 **passthrough** (raw SNI forwarding, the node's own cert end to end, direct mode) and
 one in **terminate** (ACME certificate at the ingress, fresh mutually-pinned mTLS to

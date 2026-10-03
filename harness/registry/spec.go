@@ -208,7 +208,7 @@ func HowToProvide(n Need) string {
 	case CF:
 		return "run docs/demos/cloudflare-two-users.md, then export " + CFEnv
 	case HDTPCLI:
-		return "make harness-hdtp-cli (a hdtp-identity checkout beside this one), or export " + HDTPCLIEnv + " naming a built hdtp"
+		return "make harness-hdtp-cli (an hdtp-identity checkout beside this one), or export " + HDTPCLIEnv + " naming a built hdtp"
 	case LocalCloud:
 		return "export " + LocalCloudEnv + " naming a batondeck gateway/ with e2e/local-run.mjs and a built public/, and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
 	case CloudBattery:

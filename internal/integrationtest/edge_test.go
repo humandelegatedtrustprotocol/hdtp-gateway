@@ -295,7 +295,7 @@ func names(tools []*mcp.Tool) []string {
 }
 
 // edgeCertFor mints a self-signed server certificate for one name — what a
-// terminating edge presents. It is WebPKI-shaped, not a HDTP chain: an edge is not
+// terminating edge presents. It is WebPKI-shaped, not an HDTP chain: an edge is not
 // an identity, which is exactly why identity has to come from the envelope.
 func edgeCertFor(t *testing.T, name string) tls.Certificate {
 	t.Helper()

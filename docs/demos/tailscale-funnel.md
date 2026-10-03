@@ -34,7 +34,7 @@ run below has **not yet been executed** — record it here when done:
 ```
 
 Adapter settings live in the portal (*Settings → Adapter credentials*, stored
-encrypted with the node's keyring) or in the environment with a `HDTP_TUNNEL_`
+encrypted with the node's keyring) or in the environment with an `HDTP_TUNNEL_`
 prefix — `HDTP_TUNNEL_AUTH_KEY` reaches the adapter as `auth_key`. The
 environment wins where both are set, and the page says so rather than letting
 you save a value that would be ignored.
