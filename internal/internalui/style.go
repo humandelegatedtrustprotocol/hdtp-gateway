@@ -14,7 +14,7 @@ package internalui
 // brandPalette is web/src/brand.css's palette, the tokens these pages use.
 const brandPalette = `:root{--bg:#FFFFFF;--bg-2:#FAF8F4;--ink:#15181E;--text:#2B2F36;--muted:#5E6168;--line:#ECE8E0;--line-2:#DDD8CE;` +
 	`--accent:#F38020;--accent-soft:#FDF0E4;--accent-ink:#AB5309;--accent-ui:#D9690C;--amber:#7A5A00;--red:#B3261E;` +
-	`--sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;` +
+	`--sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;` +
 	`--display:'Bricolage Grotesque',var(--sans);--ease-out:cubic-bezier(.2,.75,.2,1)}
 @media (prefers-color-scheme:dark){:root{--bg:#15181E;--bg-2:#1D2027;--ink:#F4F1EA;--text:#D6D2CA;--muted:#B3AEA5;--line:#2A2E36;--line-2:#373C46;` +
 	`--accent:#F38020;--accent-soft:#33261A;--accent-ink:#FFA552;--accent-ui:#F38020;--amber:#E9B949;--red:#FF9C8A}}
@@ -58,8 +58,8 @@ const portalStyle = `<style>
 
 // portalBrand is the product's wordmark at the top of a server page on the portal's origin: the kit's
 // files (web/public/brand), the dark variant on a dark ground, exactly as the SPA shows it (ui.tsx).
-const portalBrand = `<a class="brand" href="/"><picture><source srcset="/brand/pact-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/>` +
-	`<img src="/brand/pact-gateway-inline.svg" alt="HDTP Gateway" width="139" height="28"/></picture></a>`
+const portalBrand = `<a class="brand" href="/"><picture><source srcset="/brand/hdtp-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/>` +
+	`<img src="/brand/hdtp-gateway-inline.svg" alt="HDTP Gateway" width="151" height="28"/></picture></a>`
 
 // landingStyle is the invite landing's: the same palette and layout, no font files.
 const landingStyle = `<style>

@@ -230,7 +230,7 @@ var walletReturnTmpl = template.Must(template.New("return").Parse(`<!DOCTYPE htm
 <link rel="stylesheet" href="{{.Stylesheet}}"/>
 ` + walletReturnStyle + `</head>
 <body><main class="center wr">
-<div class="brandline"><picture><source srcset="/brand/pact-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/><img class="logo" src="/brand/pact-gateway-inline.svg" alt="HDTP Gateway" width="169" height="34"/></picture></div>
+<div class="brandline"><picture><source srcset="/brand/hdtp-gateway-inline-dark.svg" media="(prefers-color-scheme: dark)"/><img class="logo" src="/brand/hdtp-gateway-inline.svg" alt="HDTP Gateway" width="183" height="34"/></picture></div>
 <h1>Your wallet's answer</h1>
 <div class="card wr-card" id="answer" data-kind="working" role="status" aria-live="polite" aria-busy="true">
 <section id="st-working"><div class="wr-head"><span class="wr-icon"><span class="wr-spin" aria-hidden="true"></span></span><div><span class="pill">Working</span><h2>Installing your certificate…</h2></div></div>

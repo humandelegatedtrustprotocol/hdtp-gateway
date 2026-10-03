@@ -5,9 +5,9 @@ export const PRODUCT = {
   /** What the wordmark says, for a reader that cannot see it. */
   name: "HDTP Gateway",
   /** The wordmark's file in public/brand/ (hdtp-web-kit's brand set): `<logo>-inline.svg` and `-inline-dark.svg`. */
-  logo: "pact-gateway",
+  logo: "hdtp-gateway",
   /** The height the sidebar draws it at, and its width at that height (the file is 84 high), so the layout
    *  holds before it loads. */
   height: 34,
-  width: 169,
+  width: 183,
 } as const;
