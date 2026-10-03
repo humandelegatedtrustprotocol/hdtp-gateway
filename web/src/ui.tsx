@@ -24,15 +24,15 @@ export function Avatar({ name, size, me }: { name: string; size?: "sm" | "lg"; m
 }
 
 /**
- * The product's wordmark: the kit's (public/brand/, hdtp-web-kit), light, and dark on a dark ground. It is
+ * The product's wordmark (product.ts says which, and where it is served from), light, and dark on a dark ground. It is
  * served as a file rather than inlined so a page that shows it twice repeats no SVG ids, and it is the
  * same size everywhere it appears; brand.css crops it to its mark in the collapsed sidebar.
  */
 export function Brand(): ReactNode {
   return (
     <picture>
-      <source srcSet={`/brand/${PRODUCT.logo}-inline-dark.svg`} media="(prefers-color-scheme: dark)" />
-      <img className="logo" src={`/brand/${PRODUCT.logo}-inline.svg`} alt={PRODUCT.name} width={PRODUCT.width} height={PRODUCT.height} />
+      <source srcSet={`/${PRODUCT.dir}/${PRODUCT.logo}-inline-dark.svg`} media="(prefers-color-scheme: dark)" />
+      <img className="logo" src={`/${PRODUCT.dir}/${PRODUCT.logo}-inline.svg`} alt={PRODUCT.name} width={PRODUCT.width} height={PRODUCT.height} />
     </picture>
   );
 }
