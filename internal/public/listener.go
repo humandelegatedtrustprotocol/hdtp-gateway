@@ -41,7 +41,7 @@ type TransportFacts struct {
 	// the root and a lone certificate names none.
 	ClientLeaf     []byte
 	ClientEndpoint string
-	// ClientRoot is the root's own DER from that chain (migration 0029). The pin
+	// ClientRoot is the root's own DER from that chain. The pin
 	// keeps the root's fingerprint, and the chain does not come back: a contact
 	// that connects here is the node's chance to keep the certificate itself.
 	ClientRoot []byte

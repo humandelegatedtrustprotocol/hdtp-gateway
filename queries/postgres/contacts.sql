@@ -1,6 +1,6 @@
 -- name: InsertContact :exec
 -- requested_at is the row's created_at when it is inserted as a request (pending_in, pending_out)
--- and NULL otherwise (migration 0043).
+-- and NULL otherwise.
 INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, display_name, card, created_at, pinned_at, invite_id, endpoint, leaf, leaf_fingerprint, chain_sent_kid, root_cert, ever_active, requested_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
 
@@ -21,7 +21,7 @@ SELECT COUNT(*) FROM contacts WHERE account_id = $1 AND status IN ('active', 'pe
 SELECT * FROM contacts WHERE account_id = $1 ORDER BY created_at, id;
 
 -- name: UpdateContactStatus :execrows
--- Moving a row to active records that it was ever active (migration 0039); nothing clears it.
+-- Moving a row to active records that it was ever active; nothing clears it.
 UPDATE contacts SET status = $1,
     ever_active = CASE WHEN $1 = 'active' THEN 1 ELSE ever_active END
 WHERE account_id = $2 AND fingerprint = $3;
@@ -67,8 +67,8 @@ WHERE account_id = $4 AND fingerprint = $5;
 -- statement, and none it does not. invite_id stays empty because invites do not travel, and
 -- chain_sent_kid stays empty because it records which of THIS host's leaves the contact has
 -- seen - and this host has not been issued one yet. handshake_due is the time of the import: the
--- contact is owed this host's handshake from the first leaf requested after it (sec. 9.2,
--- migration 0043). requested_at is created_at for a row the file carries as pending_out.
+-- contact is owed this host's handshake from the first leaf requested after it (sec. 9.2).
+-- requested_at is created_at for a row the file carries as pending_out.
 INSERT INTO contacts (id, account_id, fingerprint, spki, status, preset, permissions, their_permissions, trust_flag, display_name, petname, card, created_at, pinned_at, endpoint, leaf, leaf_fingerprint, root_cert, ever_active, handshake_due, requested_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21);
 
@@ -99,8 +99,8 @@ WHERE account_id = $11 AND fingerprint = $12 AND status = 'pending_in';
 -- name: DeleteExpiredPendingContacts :many
 -- An unanswered request, ours or theirs, expires (SPEC sec. 9.1): the relationship returns to
 -- none. The status is in the statement, so a request approved between a read and this delete
--- is not the one removed. The window runs from requested_at, when the request was made (migration
--- 0043), not from when the contact was first known.
+-- is not the one removed. The window runs from requested_at, when the request was made, not
+-- from when the contact was first known.
 DELETE FROM contacts
 WHERE account_id = $1 AND status IN ('pending_in', 'pending_out') AND requested_at < $2
 RETURNING fingerprint, status;
@@ -133,13 +133,3 @@ SELECT * FROM contacts WHERE id IN (
     SELECT c.id FROM contacts c WHERE c.account_id = $1 AND c.leaf_fingerprint = $4 AND $4 <> ''
 )
 ORDER BY created_at, id;
-
-
--- name: ListContactLeafKeysUnfilled :many
--- The fill after migration 0046 (Store.Migrate, fillLeafFingerprints): every row that holds a leaf
--- and no fingerprint of it, with the key beside the leaf. After the first fill, none.
-SELECT id, spki FROM contacts WHERE leaf IS NOT NULL AND octet_length(leaf) > 0 AND leaf_fingerprint IS NULL;
-
--- name: SetContactLeafFingerprint :exec
--- The fill after migration 0046: one row's leaf fingerprint.
-UPDATE contacts SET leaf_fingerprint = $1 WHERE id = $2;

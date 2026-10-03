@@ -30,7 +30,7 @@ import (
 // leafKeyAAD binds a sealed leaf key to its column (SPEC §3.7, keyring AAD rule).
 const leafKeyAAD = "leaves.key_sealed"
 
-// Leaf states, as the migration constrains them.
+// Leaf states, as the schema constrains them.
 const (
 	LeafPending    = "pending"
 	LeafCurrent    = "current"
@@ -366,7 +366,7 @@ type CSRResult struct {
 	SuggestedNotAfter time.Time
 	PreviousNotBefore *time.Time
 	// State is the random value a web wallet's answer must carry back (HDTP §9.1): 32 bytes,
-	// base64url, 43 characters. The host keeps only its SHA-256 (migration 0041); an answer is
+	// base64url, 43 characters. The host keeps only its SHA-256; an answer is
 	// accepted once, with it (InstallWalletLeaf).
 	State string
 	// Warnings are what the request did not finish although it is made: a replaced request's key
@@ -424,7 +424,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 		return CSRResult{}, fmt.Errorf("identity: %s: %s; set public_url to the address people reach this node at: %w: %w", endpoint, why, ErrEndpointRefused, ErrLeafRefused)
 	}
 	// An address an identity left stays reserved until the last leaf issued for it expires (HDTP
-	// §9, migration 0040). A request naming it would ask a wallet for a leaf at an address this
+	// §9). A request naming it would ask a wallet for a leaf at an address this
 	// node must not assign; the account slug is guarded where accounts are created (the store).
 	if vacated, verr := m.Store.LiveVacatedEndpoint(ctx, endpoint, now.Unix()); verr != nil {
 		return CSRResult{}, verr
@@ -489,7 +489,7 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	}
 	// The replacement is one step: the pending request goes and this one takes its place, or
 	// nothing changes. Two requests made together used to interleave the three writes and leave
-	// two pending rows (migration 0044 now refuses a second one).
+	// two pending rows (the schema now refuses a second one: `leaves_one_pending`).
 	var replaced int64
 	err = m.Store.Atomically(ctx, func(tx store.Store) error {
 		if err := tx.LockAccount(ctx, accountID); err != nil {
@@ -606,7 +606,7 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		}
 	}
 	if pendings > 1 {
-		// Migration 0044 makes this impossible; a ledger that holds it anyway is not one to guess in.
+		// The schema makes this impossible (`leaves_one_pending`); a ledger that holds it anyway is not one to guess in.
 		return InstallResult{}, fmt.Errorf("identity: %d certificate requests are pending for this account and one is expected; run `account csr` again", pendings)
 	}
 	// The state is judged before the chain, so an answer meant for no request here learns nothing

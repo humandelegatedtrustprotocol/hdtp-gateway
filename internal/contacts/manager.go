@@ -189,7 +189,7 @@ type Proof struct {
 	// RootCert is the root's DER when the proof came with a full chain. Empty
 	// for a sealed call, where the chain is inside the ciphertext and only the
 	// library's Decide sees it - such a pin gets its certificate the first time
-	// the contact connects with a client certificate (migration 0029).
+	// the contact connects with a client certificate.
 	RootCert []byte
 }
 

@@ -229,7 +229,7 @@ test("a count is grouped", () => {
 // ---- the audit trail's filters: every actor kind the node's store can hold (its CHECK) has a word,
 // and none of them is the code itself.
 test("every actor kind the node records has a word of its own", () => {
-  const mig = readFileSync(join(repo, "migrations/sqlite/0001_init.sql"), "utf8");
+  const mig = readFileSync(join(repo, "migrations/sqlite/0001_base.sql"), "utf8");
   const kinds = /actor_kind TEXT NOT NULL CHECK \(actor_kind IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
   assert.ok(kinds.length >= 6, `read ${kinds.length} kinds from the CHECK`);
   for (const k of kinds) {
@@ -280,8 +280,9 @@ test("an invite's state is redemption's: revoked, then expired, then used up", (
 });
 
 test("every contact state the node stores has an owner's word, and only the ordinary one goes unpilled", () => {
-  const mig = readFileSync(join(repo, "migrations/sqlite/0002_contacts.sql"), "utf8");
-  const states = /status\s+TEXT NOT NULL CHECK \(status IN \(([^)]*)\)\)/.exec(mig)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
+  // The contacts table's own CHECK: other tables have a status column too.
+  const contacts = /CREATE TABLE contacts \(([\s\S]*?)\n\);/.exec(readFileSync(join(repo, "migrations/sqlite/0001_base.sql"), "utf8"))[1];
+  const states = /status\s+TEXT NOT NULL CHECK \(status IN \(([^)]*)\)\)/.exec(contacts)[1].match(/'([^']+)'/g).map((k) => k.slice(1, -1));
   assert.deepEqual([...states].sort(), ["active", "blocked", "pending_in", "pending_out"]);
   for (const st of states) assert.ok(!contactStatusWord(st).includes("_"), st);
   assert.equal(contactStatusWord("pending_in"), "asked you");

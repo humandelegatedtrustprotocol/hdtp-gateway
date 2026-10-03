@@ -20,8 +20,7 @@ import (
 //
 //   - an append-only migration, which cannot be edited and records what the schema once was;
 //   - a dated record (`docs/release/`, the build log in `PLAN.md`), which says what was true then;
-//   - a file listed below WITH ITS REASON: a test that feeds 1.x IN to prove it is refused, or a
-//     fixture of a store that lived through it.
+//   - a file listed below WITH ITS REASON: a test that feeds 1.x IN to prove it is refused.
 //
 // A comment is not exempt. "Which is why the retired X-PACT-… is gone" keeps the name greppable
 // for ever, and the sentence survives without it. The generation's own name is not forbidden —
@@ -51,8 +50,6 @@ func TestNoTrackedFileCarriesAOneXName(t *testing.T) {
 		"internal/internalui/chrome_test.go":           "asserts the portal never shows the retired card properties to a person",
 		"internal/node/node_test.go":                   "asserts the relay's route answers 404 and the invite landing names no retired property",
 		"internal/internalui/ownermcp/server_test.go":  "asserts the contact sweep's tool is not offered",
-		"internal/core/store/fanoutkind_test.go":       "a fixture of a store that lived through 1.x, migrated forward from version 34",
-		"internal/core/store/relaystatus_test.go":      "a fixture of a store holding a message left at a relay, migrated forward from version 36",
 	}
 
 	out, err := exec.Command("git", "-C", root, "ls-files").Output()

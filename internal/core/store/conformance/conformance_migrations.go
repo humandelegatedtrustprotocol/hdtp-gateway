@@ -24,13 +24,9 @@ func migrations(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// MigrateUpDownUp above runs against an EMPTY database, so every
-	// down-migration branch that handles DATA is never executed — and that is
-	// the half that can fail. 0021 narrows the messages uniqueness key on the
-	// way down and must first drop rows that are legal under the wide key and
-	// collide under the narrow one; 0024 must rewrite a status the older CHECK
-	// constraint does not allow. Both are exactly the shape that works on an
-	// empty table and destroys, or refuses, a populated one.
+	// MigrateUpDownUp above runs against an EMPTY database, and a Down that drops
+	// tables is exactly the shape that works on empty tables and refuses populated
+	// ones: a table dropped before the tables that reference it fails on their rows.
 	t.Run("MigrateDownAndUpWithDataPresent", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
@@ -38,9 +34,8 @@ func migrations(t *testing.T, newStore Factory) {
 		if err := s.InsertThread(ctx, store.Thread{ID: "t1", AccountID: a.ID, ContactFpr: "sha256:p", CreatedAt: 100, LastAt: 100}); err != nil {
 			t.Fatal(err)
 		}
-		// The two rows a naive rollback trips over: a msg_id used in BOTH
-		// directions (legal now, a duplicate under the older key), and a status
-		// the older CHECK constraint does not know.
+		// Rows in a table that references others (a thread's messages, an account's
+		// thread), one message id used in both directions among them.
 		rows := []store.Message{
 			{ID: "r1", MsgID: "shared", Direction: "in", Status: "delivered"},
 			{ID: "r2", MsgID: "shared", Direction: "out", Status: "failed"},
@@ -54,12 +49,8 @@ func migrations(t *testing.T, newStore Factory) {
 			}
 		}
 
-		// A full rollback runs every down-migration in reverse WITH these rows
-		// present, then drops the tables — so what this pins is that the
-		// down-path does not FAIL on real data. 0021 must dedupe the shared
-		// msg_id before it can narrow the key (the rebuild's INSERT would hit
-		// the UNIQUE constraint otherwise), and 0019 must rewrite `failed` and
-		// `pending` before it can reinstate the CHECK that knew neither.
+		// A full rollback runs every Down WITH these rows present, so what this
+		// pins is that the down-path does not FAIL on real data.
 		//
 		// It cannot assert the rows survive: DownTo(0) drops the schema by
 		// design. That is what a full rollback means, and a test claiming

@@ -1,4 +1,4 @@
--- HDTP 1.0 state (SPEC sec. 2, sec. 14; migration 0027): the account's root and leaf
+-- HDTP 1.0 state (SPEC sec. 2, sec. 14): the account's root and leaf
 -- ledger, 2.0 pins, the removal tombstone, former endpoints, and the
 -- addresses awaiting the owner under `accept_new_hosts = ask`.
 
@@ -30,7 +30,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 UPDATE leaves SET leaf = $1, not_before = $2, not_after = $3, state = $4, endpoint = $5 WHERE account_id = $6 AND kid = $7;
 
 -- name: SetLeafMoved :execrows
--- Whether installing this leaf moved the identity, as the install decided it (migration 0043): what
+-- Whether installing this leaf moved the identity, as the install decided it: what
 -- a resumed campaign reads to know whom it walks.
 UPDATE leaves SET moved = $1 WHERE account_id = $2 AND kid = $3;
 
@@ -107,18 +107,18 @@ UPDATE contacts SET root_cert = $1 WHERE account_id = $2 AND fingerprint = $3 AN
 
 -- name: SetLeafRequest :execrows
 -- The state a web wallet's answer must carry, as its SHA-256, and the wallet the request went to
--- (migration 0041). Only a pending request carries one.
+--. Only a pending request carries one.
 UPDATE leaves SET request_state_hash = $1, wallet_origin = $2 WHERE account_id = $3 AND kid = $4 AND state = 'pending';
 
 -- name: ConsumeLeafRequest :execrows
 -- An answer is accepted once: the check and the consumption are one statement, so two answers
 -- carrying the same state cannot both see it. The consumed hash moves to answered_state_hash
--- (migration 0051; SET reads the row as it was), so an answer that arrives again can be told apart.
+-- (SET reads the row as it was), so an answer that arrives again can be told apart.
 UPDATE leaves SET answered_state_hash = request_state_hash, request_state_hash = NULL
 WHERE account_id = $1 AND kid = $2 AND state = 'pending' AND request_state_hash = $3;
 
 -- name: UpsertVacatedAddress :exec
--- An address an identity has left (migration 0040, HDTP sec. 9). The row keeps the latest
+-- An address an identity has left (HDTP sec. 9). The row keeps the latest
 -- not_after it has been given: a second vacating of the same endpoint never shortens it.
 INSERT INTO vacated_addresses (endpoint, slug, until_at, at) VALUES ($1, $2, $3, $4)
 ON CONFLICT (endpoint) DO UPDATE SET slug = excluded.slug, until_at = GREATEST(vacated_addresses.until_at, excluded.until_at), at = excluded.at;
