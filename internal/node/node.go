@@ -1327,7 +1327,7 @@ func (n *Node) serveAccount(a *account) {
 	delete(n.unavailable, a.rec.Slug)
 }
 
-// indexHost records the host a account's leaf names, for SNI selection.
+// indexHost records the host an account's leaf names, for SNI selection.
 // Callers hold n.mu.
 func (n *Node) indexHost(a *account) {
 	if !a.rec.HasRoot() || len(a.kp.Leaf) == 0 {

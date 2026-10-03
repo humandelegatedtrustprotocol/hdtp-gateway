@@ -11,7 +11,7 @@ import (
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// testIdentity is a identity for a test: a root, a leaf naming an endpoint,
+// testIdentity is an identity for a test: a root, a leaf naming an endpoint,
 // and the leaf's key as the node's keypair with the chain attached.
 type testIdentity struct {
 	root     *hdtpidentity.PrivateKey

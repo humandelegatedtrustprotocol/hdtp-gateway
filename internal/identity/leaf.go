@@ -198,8 +198,8 @@ func (m *Manager) ActiveLeafKeypairsFor(ctx context.Context, a store.Account, no
 		}
 		// A row with a key and no leaf is not a leaf's key, and nothing can have been sealed to it:
 		// a card carries a leaf, so a key that never had one was never anybody's target. Installs
-		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for key-pinned
-		// contacts); a store from before then may still hold one, and it is not served.
+		// stopped making such rows on 2026-09-19 (they held the pre-leaf account key, for the retired
+		// generation's contacts); a store from before then may still hold one, and it is not served.
 		if len(l.KeySealed) == 0 || len(l.Leaf) == 0 {
 			continue
 		}
@@ -386,7 +386,7 @@ type CSRResult struct {
 // dies with its leaf (§9). The endpoint is the account's own unless the purpose is move. One
 // pending request at a time: a new one replaces the last.
 //
-// `upgrade` was the fourth purpose and went with key-pinned identities: it carried the identity's existing key so
+// `upgrade` was the fourth purpose and went with the retired generation: it carried the identity's existing key so
 // that every pin of that key stayed valid, and there is no such pin any more.
 func (m *Manager) IssueCSR(ctx context.Context, accountID, purpose, endpoint string, now time.Time) (CSRResult, error) {
 	return m.issueCSR(ctx, accountID, purpose, endpoint, "", now)

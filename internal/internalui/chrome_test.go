@@ -78,6 +78,8 @@ func TestBundleCarriesTheViews(t *testing.T) {
 	// list REQUIRED "/identity/rotate". Nothing the server cannot answer may be in the bundle.
 	for _, gone := range []string{
 		"/identity/rotate", // key rotation: no route serves it
+		"X-HDTP-KEY",       // a card carries a certificate; no property by this name
+		"X-HDTP-ENDPOINT",  // the address is in the leaf the wallet issues
 		"my gateway",       // the relay role's dashboard cell
 	} {
 		if strings.Contains(js, gone) {

@@ -47,8 +47,8 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	}
 	// An account is nobody until a wallet has signed it a leaf (HDTP §2): this one's owner is
 	// played by the harness. Until that happens the node has no certificate to present, and
-	// every dial ends `tls: internal error` — which is what this test did from the day key-pinned
-	// identities went until 2026-09-19, skipped, because HDTP_HARNESS_LIVE is not set by any hook.
+	// every dial ends `tls: internal error` — which is what this test did from the day the retired
+	// generation went until 2026-09-19, skipped, because HDTP_HARNESS_LIVE is not set by any hook.
 	_, pin, err := topology.Certify(ctx, f, node, "alice")
 	if err != nil {
 		t.Fatal(err)

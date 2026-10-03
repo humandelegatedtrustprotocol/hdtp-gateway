@@ -14,7 +14,7 @@ Most questions are answered by something already written down:
 | Question | Where |
 |---|---|
 | What is this supposed to do? | [`SPEC.md`](SPEC.md) — normative for behaviour |
-| Why does it work this way? | The build plan, `PLAN.md`, in git history before 2026-10-03, including what went wrong; what is still open is [`docs/release/open-items.md`](docs/release/open-items.md) |
+| Why does it work this way? | [`PLAN.md`](PLAN.md) — the build record, including what went wrong |
 | How do I run and operate a node? | [`docs/operations.md`](docs/operations.md) |
 | How do I make it reachable? | [`docs/operations.md`](docs/operations.md), and `hdtp-gateway doctor` |
 | Is behaviour X covered by a test? | [`docs/conformance.md`](docs/conformance.md) — each item cites its test |

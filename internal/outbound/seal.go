@@ -38,7 +38,7 @@ func (c *Client) now() time.Time {
 	return time.Now()
 }
 
-// canSeal reports whether this exchange is a one: our identity holds a
+// canSeal reports whether this exchange can be sealed: our identity holds a
 // chain and the peer is pinned by its root.
 func (c *Client) canSeal(peer Peer) bool { return peer.Known() && c.chain() != nil }
 

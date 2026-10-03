@@ -118,7 +118,7 @@ HDTP_HARNESS_LIVE=1 go test ./scenario/...   # from harness/, needs Docker
 Some scenarios need extra images: `make harness-shaper` (traffic shaping),
 `make harness-image-caldav` (the calendar scenario), `make harness-kernel` (the VM
 topology). [`docs/harness-design.md`](docs/harness-design.md) explains what each
-topology proves. Most of the defects the build plan recorded (`PLAN.md`, in git history) were found here rather than
+topology proves. Most of the defects listed in `PLAN.md` were found here rather than
 by review, which is the argument for adding a scenario when you add a surface.
 
 ## Things that will surprise you
@@ -138,7 +138,7 @@ by review, which is the argument for adding a scenario when you add a surface.
   invocation in the README, this file, `docs/` and the repository's `.github/`, and fails when a
   pasteable command line names a subcommand the binary does not have. Documentation
   that quotes an invented command is worse than none. Its flag check is weaker than it
-  looks; do not rely on it to catch a wrong flag.
+  looks — see the note in `PLAN.md`; do not rely on it to catch a wrong flag.
 
 ## The portal is an embedded React app
 

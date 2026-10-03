@@ -102,7 +102,7 @@ func TestProbeVerdicts(t *testing.T) {
 // A node is moved to a new public URL, or the URL is mistyped, and its leaf goes on naming the old
 // address. It serves the right key under the right root — and every peer refuses it, because a
 // chain is validated at the address that was DIALLED (HDTP §14.2 rule 5). A probe that compares
-// key fingerprints passes this node; it did, for as long as the probe kept the key-pinned rule. The
+// key fingerprints passes this node; it did, for as long as the probe kept the retired generation's rule. The
 // diagnosis has to be the one a peer would make, and it has to say which rule.
 func TestProbeRefusesALeafThatNamesAnotherAddress(t *testing.T) {
 	ctx := context.Background()

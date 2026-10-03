@@ -29,7 +29,7 @@ import (
 
 // Agent is one contact's agent: an identity plus the client that speaks for it.
 //
-// A identity is a person's self-signed ROOT and a leaf the root issued to the
+// An identity is a person's self-signed ROOT and a leaf the root issued to the
 // host, and it is the root a node pins (HDTP §2). The leaf names the address this
 // agent answers at — it never actually serves, but a leaf must name one, and it
 // MUST NOT be a loopback address (§14.2 rule 5), so it names a routable-looking one.

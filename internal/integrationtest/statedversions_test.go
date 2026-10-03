@@ -41,6 +41,11 @@ import (
 // What is read: every Markdown file at the repository's root, every file under docs/, and the
 // COMMENTS of every Go file. A Go string is not read. A test that feeds a wrong version in on
 // purpose writes it in a string, and that is a value, not a statement.
+//
+// Not read: the frozen records. docs/records.sha256 lists the finished plans and reviews that keep
+// the bytes they had before the rename (the owner's decision); each says what was true on its day,
+// so its versions are its day's. A listed file is left alone only while its bytes are the
+// manifest's: a record that has been edited is a living text again, and is read.
 
 // statement is one sentence's claim about a version: its kind, the value it gives, and where.
 type statement struct {
@@ -148,11 +153,39 @@ func goComments(t *testing.T, path string, src []byte) string {
 	return strings.Join(lines, "\n")
 }
 
+// frozenRecords reads docs/records.sha256: path (from the repository's root) to the SHA-256 the
+// manifest gives it, as `shasum -a 256` writes them. No manifest is no frozen record.
+func frozenRecords(t *testing.T, root string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(root, "docs", "records.sha256"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		sum, path, ok := strings.Cut(line, "  ")
+		if !ok || len(sum) != 64 {
+			t.Fatalf("docs/records.sha256: not a `shasum -a 256` line: %q", line)
+		}
+		out[path] = sum
+	}
+	return out
+}
+
 // statedSources is what is read: path (from the repository's root) to the text statements are
-// looked for in. The counts are how many documents and how many Go files were read.
+// looked for in. The counts are how many documents and how many Go files were read; a frozen
+// record whose bytes are the manifest's is neither read nor counted.
 func statedSources(t *testing.T, root string) (texts map[string]string, docs, goFiles int) {
 	t.Helper()
 	texts = map[string]string{}
+	frozen := frozenRecords(t, root)
+	isFrozen := func(rel string, b []byte) bool {
+		sum, listed := frozen[rel]
+		return listed && fmt.Sprintf("%x", sha256.Sum256(b)) == sum
+	}
 	rootDocs, err := filepath.Glob(filepath.Join(root, "*.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +194,9 @@ func statedSources(t *testing.T, root string) (texts map[string]string, docs, go
 		b, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if isFrozen(filepath.Base(p), b) {
+			continue
 		}
 		texts[filepath.Base(p)] = string(b)
 		docs++
@@ -177,6 +213,9 @@ func statedSources(t *testing.T, root string) (texts map[string]string, docs, go
 			return nil // an image
 		}
 		rel, _ := filepath.Rel(root, p)
+		if isFrozen(filepath.ToSlash(rel), b) {
+			return nil
+		}
 		texts[filepath.ToSlash(rel)] = string(b)
 		docs++
 		return nil

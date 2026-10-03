@@ -1,9 +1,10 @@
 # Open items carried from finished plans
 
-On 2026-10-03, at the HDTP rename, the node's finished plans and reviews were deleted from the tree:
-the build plan (`PLAN.md`) and the dated records under `docs/release/`. Their history is in git. This
-file carries what was still open in them, each item with its source and date. Nothing else in those
-files was open.
+At the HDTP rename the node's finished plans and reviews were frozen (the owner's decision): the
+build plan (`PLAN.md`) and fourteen dated records under `docs/release/`, listed with their hashes
+in `docs/records.sha256`, keep the bytes they had on 2026-10-03 and are not edited again. They say what
+was true on their day, under the names of their day. This file carries what was still open in them,
+each item with its source and date. Nothing else in those files was open.
 
 ## Owner's decisions
 

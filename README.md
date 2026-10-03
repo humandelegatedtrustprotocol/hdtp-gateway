@@ -400,7 +400,7 @@ gives outbound and no inbound (`TestLiveNATGivesOutboundButNoInbound`), and a gu
 whose clock is set elsewhere (`TestGuestClockTravelsAndTheNodeBelievesIt`).
 
 **It finds real bugs in this code.** That is what it is for, and the findings stay
-in the open in the build plan, `PLAN.md`, kept in git history — including the embarrassing ones: a whole
+in the open in [`PLAN.md`](PLAN.md) — including the embarrassing ones: a whole
 deployment mode that could not serve a single request, a memory cap that killed
 every Node-based integration, credentials written to disk in the clear. Each entry
 records how the defect was *proved*, not merely that it was fixed.
@@ -416,7 +416,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | Document | What it is |
 |---|---|
 | [`SPEC.md`](SPEC.md) | Normative behaviour — the source of truth |
-| [`docs/release/open-items.md`](docs/release/open-items.md) | What is still open from the finished build plan and reviews (their full record is in git history) |
+| [`PLAN.md`](PLAN.md) | The build record: every task, every defect, how each was proved |
 | [`docs/operations.md`](docs/operations.md) | Running a node: reachability, export and import, recovery |
 | [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, assets, trust boundaries, and what is deliberately out of scope |
 | [`docs/crypto-review-brief.md`](docs/crypto-review-brief.md) | The envelope construction, exactly, and the questions we want a reviewer to answer |

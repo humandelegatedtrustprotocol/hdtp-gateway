@@ -21,7 +21,7 @@ import (
 // foreign keys ON (SQLite leaves them off unless asked — the schema relies on them).
 //
 // The rest of how it is opened was measured against a store of a million messages
-// (scale_test.go; the numbers were recorded in round 2's plan, R7, now in git history), one setting at a time:
+// (scale_test.go; the numbers are in docs/release/round2-2026-09-19-plan.md, R7), one setting at a time:
 //
 //   - `_txlock=immediate`. Every transaction this store opens writes. SQLite's default starts one as
 //     a reader and upgrades it at the first write, and an upgrade that meets another writer fails at

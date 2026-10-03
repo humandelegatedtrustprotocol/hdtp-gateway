@@ -1,6 +1,6 @@
 # One behaviour on every port: fixing the port-parity audit of 2026-09-29
 
-Owner, 2026-09-29: "Make sure functionality is consistently available across platforms in hdtp
+Owner, 2026-09-29: "Make sure functionality is consistently available across platforms in pact
 identity as in rust so in go and others. Also reflect it in gateway."
 
 Status: **the owner's request is the approval** for the identity-core work (§3, P1–P4), which
@@ -30,13 +30,13 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
   lenient base64url findings, the zoned IPv6 endpoint, R40 (out-of-range numbers).
 - **Eight new leads** raised by verifiers and not yet verified (report §4.1), three of them rated high:
   the cloud seals its outbound proof with a 60 s lifetime where the node uses 300 s; the cloud
-  cannot redeem a self-hosted node's invite link; the node treats an absent `X-HDTP-SEAL` as
+  cannot redeem a self-hosted node's invite link; the node treats an absent `X-PACT-SEAL` as
   `required`.
 
 ## 1. Rules for every fix
 
 1. **The contract decides; where it is silent, the stricter reading wins.** Nothing is forgiven on the
-   wire. Where the seed library (`hdtp-spec/vectors/lib`) is the lenient one, the seed changes in
+   wire. Where the seed library (`pact-protocol/vectors/lib`) is the lenient one, the seed changes in
    the same change as the ports, never after (report §2.4).
 2. **Fix the class, then the instance.** Each systemic fix in §2 lands with its guard, and the guard is
    shown red on the code as it was before any instance is fixed, so the guard is what proves the
@@ -70,7 +70,7 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
 - **P3 (verification).** Every confirmed identity finding is re-run against the new branch by a verifier
   that did not write the fix; a finding is closed only when its reproduction now answers the same on
   every port.
-- **P4 (release).** hdtp-identity 0.5.0 (a minor bump: stricter reading changes answers). `gate.sh`, the
+- **P4 (release).** pact-identity 0.5.0 (a minor bump: stricter reading changes answers). `gate.sh`, the
   pin, `make release`, `publish`, `verify-release`.
   - **Cards already stored, read by the stricter core.** The node's intake (`contacts.ValidateInbound`)
     and its seal policy (`contacts.SealOf`) both read a card with the core's `DecodeCard`, today
@@ -81,10 +81,10 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
     the bump is pushed, naming each card it refuses with its contact and the reason. The owner then
     refreshes each of those contacts (the on-demand refresh of ONE contact, standing rule 5) or
     re-adds it from a new card, and the bump ships when the list is empty or the owner has accepted
-    what is left on it. **Built at the 0.4.2 bump instead** (hdtp-gateway #28, 2026-09-30, since
+    what is left on it. **Built at the 0.4.2 bump instead** (pact-gateway #28, 2026-09-30, since
     0.4.2's `DecodeB64url` is already the stricter reading): `internal/storecheck` reads every card
     (`SealOf`) and every certificate held as DER (`Parse`) the store holds — accounts, leaves,
-    contacts, tombstones, pending addresses — and names each refusal; `hdtp-gateway check store`
+    contacts, tombstones, pending addresses — and names each refusal; `pact-gateway check store`
     exits 1 on one, and `serve` prints the same lines in its banner. It stays for 0.5.0.
 - **P5 (node), after the two-layer node PR lands.** Bump to 0.5.0; S8's node lint; S9 (one decision for
   both doors); N4 (card signatures through the port); N5 (the port's private-address list); N9 (the
@@ -92,10 +92,10 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
 - **P6 (cloud), after the two-layer cloud PR lands.** Bump to 0.5.0; S8's cloud lint; R37/CW-01 (the
   core sees the members as received); CW-02; R38 (`media_holds_private_key` from the core); every cloud
   finding; the new leads that verify (the 60 s proof lifetime; redeeming a node's invite).
-  - **A cloud lead to fix: BatonDeck seals to every contact, whatever its card says.** Its outbound
-    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-HDTP-SEAL`, so a
-    contact whose card says `none`, or has no such line (HDTP §3: "Absent = none"), is sent an
-    envelope it said it would not take — HDTP §13.4's "senders MUST NOT seal", broken. The node
+  - **A cloud lead to fix: PACT Cloud seals to every contact, whatever its card says.** Its outbound
+    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-PACT-SEAL`, so a
+    contact whose card says `none`, or has no such line (PACT §3: "Absent = none"), is sent an
+    envelope it said it would not take — PACT §13.4's "senders MUST NOT seal", broken. The node
     reads the policy off the card on file (`contacts.SealOf`, fix/parity-leads). The cloud's fix is
     the same reading, from the core's `DecodeCard`, on every outbound door, with a test that a `none`
     card and a card with no line are called in plaintext.
@@ -105,13 +105,13 @@ TLS door also applies it to a pinned root. The plan makes the TLS door follow th
 If the owner wants a pinned root to be refused after a removal too, that is a SPEC change instead.
 
 **(owner) A contact with no card on file** (found closing lead 4, 2026-09-30). SPEC §3 reads a card
-with no `X-HDTP-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
+with no `X-PACT-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
 `DecodeCard` reading). Two paths write a contact with no card at all: an import, whose contacts.csv
 carries neither a card nor a policy (§9.2), and the owner approving a root that returned after a
 removal (`contacts.DecideAddress`), which re-adds it from the pending address — a leaf and an
 endpoint, no card. Either way the host does not know whether the contact accepts envelopes until a
 card of theirs reaches it. The SPEC does not say what a host assumes then. The node seals to such a
-contact, as it always did; BatonDeck seals to every contact whatever its card says, which breaks
+contact, as it always did; PACT Cloud seals to every contact whatever its card says, which breaks
 §13.4 for a card that says `none` and is a cloud lead to fix (P6). If the owner wants something else
 (plaintext, or asking the contact's plain `tools/list` whether it lists `sealed_call`), that is a
 SPEC sentence first.
@@ -122,7 +122,7 @@ SPEC sentence first.
   and a MUST disagree; each such case is named in its commit.
 - It does not touch the rate-limit work in flight.
 
-## 5. What the node's leads leave for hdtp-identity (fix/parity-leads, 2026-09-30)
+## 5. What the node's leads leave for pact-identity (fix/parity-leads, 2026-09-30)
 
 - **Lead 2: `pending_approval` names no signer.** A `pending_out` contact's sealed call is decided
   `pending_approval`, and Decide's result is `{code}` alone, in both ports and in the contract

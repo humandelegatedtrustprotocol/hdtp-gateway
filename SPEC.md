@@ -78,7 +78,7 @@ flowchart LR
     UPC --> UP
 ```
 
-Internally the binary is organized into twelve packages; the names below are normative. The twelve subsystems, each grounded in an approved decision:
+Internally the binary is organized into twelve packages; the names below are normative and match `PLAN.md` task P0-01's layout. The twelve subsystems, each grounded in an approved decision:
 
 | # | Package (indicative) | Responsibility | Detail |
 |---|---|---|---|
@@ -1272,4 +1272,4 @@ The scenario harness (`docs/harness-design.md`) runs the same ground and more ag
 | P3 | upstream transports + OAuth, catalogs, exposures, three serving modes, providers, recipes, warnings | contact books a real Google Calendar slot |
 | P4 | outbound hardening, tunnel adapters, LAN flag, doctor | NAT-crossing via tailscale; sealed cloudflared edge |
 | P5 | ingress role, export and import, docs | own-domain VPS passthrough + terminate front |
-| P6 | root and leaf, chains on the wire, the move campaign; key-pinned identities and the relay role removed | two nodes pair through Cloudflare under chains they never share a key for |
+| P6 | root and leaf, chains on the wire, the move campaign; the retired generation and its relay role removed | two nodes pair through Cloudflare under chains they never share a key for |
