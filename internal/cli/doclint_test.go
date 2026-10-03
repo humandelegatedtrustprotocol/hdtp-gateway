@@ -509,7 +509,7 @@ func specRoot(t *testing.T) string {
 	return ""
 }
 
-// AC (P10-12d): PLAN.md build-goal item 6 — "manual-verification demo docs exist and are
+// AC (P10-12d): the build goal's item 6 — "manual-verification demo docs exist and are
 // dated" — is mechanically checkable rather than a claim someone has to audit
 // by eye.
 //
@@ -525,7 +525,7 @@ func TestDemoDocsCarryAManualRunMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(files) < 5 {
-		t.Fatalf("found %d demo docs; PLAN.md build-goal item 6 names five runs", len(files))
+		t.Fatalf("found %d demo docs; the build goal named five runs", len(files))
 	}
 	marker := regexp.MustCompile("`Last manual run: (—|[0-9]{4}-[0-9]{2}-[0-9]{2})`")
 	var undated []string

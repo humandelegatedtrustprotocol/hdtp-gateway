@@ -1,5 +1,5 @@
 // Command hdtp-gateway is a self-hosted personal node for the HDTP protocol.
-// See SPEC.md for the product specification and PLAN.md for the build plan.
+// See SPEC.md for the product specification.
 package main
 
 import (

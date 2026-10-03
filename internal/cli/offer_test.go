@@ -70,7 +70,7 @@ func TestVerifyOfferAcceptsARealTwoZeroInvite(t *testing.T) {
 // equal the one in the chain's leaf, which it had validated a few lines earlier and already held.
 // So the member was pure redundancy, and the demand for it meant this node could not redeem an
 // invite from any implementation that follows §4 to the letter. It interoperated with the cloud
-// only because the cloud carries the same leftover: `spki` is pre-HDTP 1.2's "SPKI distribution",
+// only because the cloud carries the same leftover: `spki` is the first generation's "SPKI distribution",
 // from when a card carried a key's HASH and the key had to travel beside it. A 2.0 card carries
 // the leaf certificate, and the key is in it.
 func TestVerifyOfferNeedsOnlyWhatTheSpecSaysALandingCarries(t *testing.T) {

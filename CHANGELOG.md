@@ -6,7 +6,9 @@ Notable changes to hdtp-gateway. The format follows
 
 Nothing has been released yet, so there is no history below to reconstruct. What
 exists is one unreleased version. The per-change record — every task, every defect,
-how each was proved — is in [`PLAN.md`](PLAN.md), which is more detailed than a
+how each was proved — was the build plan, `PLAN.md`, which is in git history (it left the
+tree on 2026-10-03; what it still had open is in
+[`docs/release/open-items.md`](docs/release/open-items.md)). It is more detailed than a
 changelog can be and is not going to be summarized into a fictional release history.
 
 ## [Unreleased]

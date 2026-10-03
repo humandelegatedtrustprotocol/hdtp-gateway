@@ -1,7 +1,7 @@
 // Package testid builds real HDTP 1.0 identities for tests: a person's root, the
 // leaf it issues to a host, and the card that carries that leaf.
 //
-// It exists because pre-HDTP 1.x is gone. A test used to reach a peer's card in one
+// It exists because the protocol's first generation is gone. A test used to reach a peer's card in one
 // line — `contacts.BuildCard(contacts.Card{Key: fpr, Endpoint: url})` — because a
 // 1.x card was just a key and an address spelled out as properties. A 2.0 card IS
 // a certificate (HDTP §3), so the same line now needs a root, a host key, a leaf

@@ -114,7 +114,7 @@ same check on its own node after its probes. It is not run after every scenario.
 Designed and never built, and removed from the code on 2026-09-27 rather than kept as
 checks that report nothing: nothing withdrawn still callable (P12-02, P12-05), and the store passing conformance
 after a scenario's writes. Invariant 4 (the relay held only ciphertext) went with
-pre-HDTP 1.x.
+the protocol's first generation.
 
 ---
 
@@ -124,7 +124,7 @@ pre-HDTP 1.x.
 |---|---|---|---|
 | **T1** `lan` | two nodes, one bridge | direct mTLS, the happy path | `topology.LAN`, used by F4; the scenarios' own networks are this shape |
 | **T2** `nat` | B behind a NAT router; A reachable | §10.1 direct-mode limits: B is reachable only through a tunnel | `topology.BehindNAT`, used by F3 only |
-| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode pre-HDTP 1.x had and this node refuses; it went on 2026-09-19 |
+| **T3** `double-nat` | both behind separate NATs | a tunnel on each side is the only path | no. The builder that existed stood a relay between them and started both nodes in the relay mode the protocol's first generation had and this node refuses; it went on 2026-09-19 |
 | **T4** `edge` | terminating edge in front of B | `client_cert` forced off, `seal` forced required (§10.1) | no local topology; T7 runs through Cloudflare's real edge |
 | **T5** `ingress` | one ingress fronting two nodes on subdomains | passthrough SNI **and** terminate, real ACME | scenario T5 |
 | **T6** `tunnel` | node behind `frps` | a genuine tunnel handshake and SNI routing | scenario T6 |
@@ -196,7 +196,7 @@ were removed from the table on 2026-09-27 rather than left to read as coverage:
   S9's envelope tampering and audit tamper → `repair` refuses
   (P12-14); S11's keyboard-only traversal and a screenshot diff against a baseline (S11 compares
   each page's light and dark renders with each other).
-- **S6** was relay semantics, withdrawn with pre-HDTP 1.x on 2026-09-18; its number is not reused.
+- **S6** was relay semantics, withdrawn with the protocol's first generation on 2026-09-18; its number is not reused.
   **S10** was key rotation, which 2.x does not have; the number now names the MOVE campaign.
 
 ---

@@ -16,7 +16,7 @@ wire-visible. This document is normative for the hdtp-gateway implementation.
 
 ### 1.1 What hdtp-gateway is
 
-hdtp-gateway is a self-hosted personal HDTP node: one static Go binary that gives a person a permanent agent presence on the network. It implements HDTP 1.0 — the protocol spec remains normative for all wire behaviour and is cited throughout as "HDTP §N". There is one generation: the person's self-signed root is the identity, the host holds a leaf the person issued it, and a card is `X-PACT-VERSION:2` plus that leaf. Pre-HDTP 1.x was removed entirely on 2026-09-18; nothing here speaks it. A single node is three things at once:
+hdtp-gateway is a self-hosted personal HDTP node: one static Go binary that gives a person a permanent agent presence on the network. It implements HDTP 1.0 — the protocol spec remains normative for all wire behaviour and is cited throughout as "HDTP §N". There is one generation: the person's self-signed root is the identity, the host holds a leaf the person issued it, and a card is `X-PACT-VERSION:2` plus that leaf. The protocol's first generation was removed entirely on 2026-09-18; nothing here speaks it. A single node is three things at once:
 
 - **An MCP server to the outside.** Contacts and strangers reach the node's public surface (§5) as an MCP server over HTTPS. What a caller sees and may call is decided by caller identity (§3), tier, and the owner's per-contact permission switchboard (HDTP §8) — never by anything the caller asserts.
 - **An MCP client to the inside.** The owner's own integrations — calendar, mail, anything speaking MCP — are upstreams the node connects to as an MCP client (§6). Contacts never reach an upstream directly: every exposed capability passes through versioned catalog snapshots and exposure sets, and is served in one of three modes — passthrough, mapped, or agent-answered (§6).
@@ -78,7 +78,7 @@ flowchart LR
     UPC --> UP
 ```
 
-Internally the binary is organized into twelve packages; the names below are normative and match `PLAN.md` task P0-01's layout. The twelve subsystems, each grounded in an approved decision:
+Internally the binary is organized into twelve packages; the names below are normative. The twelve subsystems, each grounded in an approved decision:
 
 | # | Package (indicative) | Responsibility | Detail |
 |---|---|---|---|
@@ -955,7 +955,7 @@ The deployment mode is **derived from configuration, never declared**. Tunnel ad
 - An inbound path whose adapter has `TerminatesAtEdge = false` (or no tunnel at all) puts the node in **direct mode**: the caller's TLS session terminates at the node, so client certificates are visible end to end.
 - An inbound path whose adapter has `TerminatesAtEdge = true` puts the node in **edge mode**: a third party terminates the public TLS session, client certificates never reach the node, and caller identity rests entirely on sealed envelopes (HDTP §13).
 
-There is no third. The relay role went with the rest of pre-HDTP 1.x: a store-and-forward gateway would see every sender, recipient and timestamp for its trouble, and what 2.0 makes safe instead is **being hosted** — a host runs the identity's server all the time under a leaf the person issued, and can be replaced without the person losing anything (HDTP §9). A node that cannot accept inbound connections uses a tunnel. No card names a gateway, and none would be honoured.
+There is no third. The relay role went with the rest of the protocol's first generation: a store-and-forward gateway would see every sender, recipient and timestamp for its trouble, and what 2.0 makes safe instead is **being hosted** — a host runs the identity's server all the time under a leaf the person issued, and can be replaced without the person losing anything (HDTP §9). A node that cannot accept inbound connections uses a tunnel. No card names a gateway, and none would be honoured.
 
 `TerminatesAtEdge` drives the three knobs:
 

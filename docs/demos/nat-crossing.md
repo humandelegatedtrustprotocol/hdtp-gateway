@@ -3,7 +3,7 @@
 A home machine has no public IP and no port you can forward. HDTP does not care where a
 node lives, only that a caller can open a TLS session to it — so there are two shapes of
 answer, and this walks both on real infrastructure. (There was a third, a store-and-forward
-relay for a node that is often off. The relay role went with pre-HDTP 1.x: it would see every
+relay for a node that is often off. The relay role went with the protocol's first generation: it would see every
 sender, recipient and timestamp for its trouble, and what 2.x makes safe instead is being
 hosted — HDTP §9.)
 

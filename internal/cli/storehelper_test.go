@@ -9,7 +9,7 @@ import (
 )
 
 // migrated opens a SQLite store in dir and brings it up to date. It lived in the
-// relay wiring's test file until pre-HDTP 1.x — and with it the relay role — was
+// relay wiring's test file until the protocol's first generation — and with it the relay role — was
 // removed; several other tests here depend on it, so it has its own file now
 // rather than riding along with whatever happens to survive next.
 func migrated(t *testing.T, dir string) store.Store {

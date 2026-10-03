@@ -15,7 +15,7 @@ import (
 
 // AC (P10-08f): a token scoped to one account must not read another account's
 // audit rows. `audit_query` was the only parity tool that never called `allow`,
-// so any token read the whole node's chain — and PLAN.md recorded the opposite
+// so any token read the whole node's chain — and the build plan recorded the opposite
 // as P9-01's acceptance criterion.
 func TestAuditQueryNeverLeavesTheIdentitysAccounts(t *testing.T) {
 	e := newEnv(t)

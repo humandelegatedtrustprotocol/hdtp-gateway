@@ -1,7 +1,7 @@
 // The move campaign's fan-out (HDTP §5.3, §9): telling every contact, once and
 // durably, that this identity now answers at a new address.
 //
-// This file is what is left of `rotate.go`. That file performed pre-HDTP 1.x key
+// This file is what is left of `rotate.go`. That file performed the first generation's key
 // rotation — a new key, a grace period in which both were live, a proof signed by
 // the old key, and an `update_contact` walk over contacts pinned to a key. 2.0 has
 // none of that: a root is never rotated, a renewal is a new leaf a contact learns

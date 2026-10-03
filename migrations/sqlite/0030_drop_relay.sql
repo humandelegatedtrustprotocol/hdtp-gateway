@@ -1,5 +1,5 @@
 -- +goose Up
--- The relay tables outlived the role. Pre-HDTP 2.0 removed the store-and-forward
+-- The relay tables outlived the role. The root-and-leaf generation removed the store-and-forward
 -- gateway entirely on 2026-09-18: one would see every sender, recipient and
 -- timestamp for its trouble, and what 2.0 makes safe instead is being hosted
 -- (HDTP sec. 9). No Go code and no sqlc query has read these two tables since;

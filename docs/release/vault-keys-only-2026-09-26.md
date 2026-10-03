@@ -92,7 +92,7 @@ No other way remains:
   record; `id_show` and `card_*` read the vault, and `card-attach` writes it when a card takes the
   root (corrected 2026-09-26, review of PR #29, S5: this said all of them used the record). A
   `v: 1` file is refused with the one sentence. The review's CLI findings (C1–C5, C7, C21, S1, S2)
-  are fixed in hdtp-gateway/docs/release/review-pr29-2026-09-26.md, P1.
+  were fixed under P1 of that review's record (in git history).
 - `sh gate.sh`; then the pin: commit → `sh js/reproduce.sh --pin` → commit the manifest → vendor
   into `batondeck/gateway/vendor/hdtp-identity/` → `check-wasm` → `build-ceremony --pin`.
 
@@ -149,7 +149,7 @@ own identity handling; the marketing site.
 
 | Item | State |
 |---|---|
-| I1 · SPEC 2.1.3 corrected in place | hdtp-spec PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
+| I1 · the specification (2.1.3, before HDTP 1.0) corrected in place | hdtp-spec PR #3 open (branch `spec/one-way-vault`, 30d52b5); the owner merges |
 | I2 · core, contract, both ports, CLI, pin | umbrella c146fce + fb11079; gate green (parity 430/430, contract 860/860, B 116/116, intrusion 132/132, 52 MUSTs named) |
 | I3 · the wallet page | cloud 6775b63, then the key download as the product's step (PR #77); `make wallet` on the pinned core; `make check` green |
 | I4 · the pair harness, RB1 | cloud PR #77; pair run 41 143/144 (RB1 pressed the first renewal button, alex2's); run 42 on ad948f7: RB1 re-bound alex and then failed at the fresh file — Chrome wrote it OVER the original of the same name and the driver waited for a new name (measured; fixed by judging name and write time) — and alex's portal frame detached at P12, taking the later alex-page scenarios with it. That the /v1 request of ad948f7 installs nothing was read from the code, not measured: run 42 never reached it. Run 43 on the review's fixes — see the runs of record |
