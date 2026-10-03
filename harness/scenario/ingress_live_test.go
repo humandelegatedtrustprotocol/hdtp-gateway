@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,6 +80,9 @@ func TestOwnDomainIngressServesPassthroughAndTerminate(t *testing.T) {
 	assets := t.TempDir()
 	caRoot := filepath.Join(assets, "pebble-root.pem")
 	if err := copyFromImage(ctx, f, images.Pebble, "/test/certs/pebble.minica.pem", caRoot); err != nil {
+		if errors.Is(err, errImageUnavailable) {
+			t.Fatalf("UNREACHED: %v", err)
+		}
 		t.Fatalf("taking Pebble's root out of its image: %v", err)
 	}
 
@@ -446,14 +450,28 @@ func containerIP(ctx context.Context, f *fabric.Fabric, c *fabric.Container) (st
 	return ip, nil
 }
 
+// errImageUnavailable is a pinned image that could not be pulled: the scenario never reached
+// what it tests, which is not a finding about the node.
+var errImageUnavailable = errors.New("the pinned image could not be pulled")
+
 // copyFromImage lifts one file out of an image without running it — the images
 // involved are distroless, so there is no shell to cat with.
+//
+// The image is pulled first. `docker create` pulls an image it does not have on its own, but it
+// says so on stderr, and the fabric's runner returns stdout and stderr together: on a machine
+// that had never pulled the image, the "Unable to find image … locally" lines were read as the
+// container's id, and the copy failed with "No such container" (the nightly of 2026-10-04).
 func copyFromImage(ctx context.Context, f *fabric.Fabric, image, inside, dst string) error {
+	if out, err := f.Raw(ctx, "docker", "pull", "--quiet", image); err != nil {
+		return fmt.Errorf("%w: %s: %v (%s)", errImageUnavailable, image, err, shorten(string(out), 200))
+	}
 	out, err := f.Raw(ctx, "docker", "create", image)
 	if err != nil {
 		return fmt.Errorf("creating a container from %s: %w (%s)", image, err, shorten(string(out), 200))
 	}
-	id := strings.TrimSpace(string(out))
+	// The id is the last line `docker create` prints; anything it says before it is not an id.
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	id := strings.TrimSpace(lines[len(lines)-1])
 	defer func() { _, _ = f.Raw(context.WithoutCancel(ctx), "docker", "rm", id) }()
 	if out, err := f.Raw(ctx, "docker", "cp", id+":"+inside, dst); err != nil {
 		return fmt.Errorf("copying %s: %w (%s)", inside, err, shorten(string(out), 200))
