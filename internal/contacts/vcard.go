@@ -22,12 +22,17 @@ const (
 	propCert    = "X-HDTP-CERT"
 )
 
+// cardMajor is the one version a card may name here: the protocol's major (HDTP §3), as the
+// identity core writes it into every card it builds. TestValidateInbound holds this to a built
+// card: were the two to differ, the good card would be refused.
+const cardMajor = "1"
+
 // Card is the parsed view of a contact card.
 type Card struct {
 	FN       string
 	Tel      string
 	Email    string
-	Version  string // X-HDTP-VERSION as carried; MUST be "2"
+	Version  string // X-HDTP-VERSION as carried; ValidateInbound takes cardMajor and no other
 	Endpoint string
 	Key      string
 	Seal     string // none|optional|required; "" = absent = none (HDTP §13.4)
@@ -147,8 +152,8 @@ func ValidateInbound(text string) (Card, error) {
 	if c.Version == "" {
 		return Card{}, fmt.Errorf("the card carries no X-HDTP-VERSION")
 	}
-	if c.Version != "1" {
-		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 1 only", c.Version)
+	if c.Version != cardMajor {
+		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks %s only", c.Version, cardMajor)
 	}
 	dc, err := hdtpidentity.DecodeCard(text, time.Now())
 	if err != nil {

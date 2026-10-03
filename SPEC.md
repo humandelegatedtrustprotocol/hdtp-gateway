@@ -929,7 +929,7 @@ The card builder (portal, §8) produces the account's HDTP contact card: a stand
 
 | Property | Derived from |
 |---|---|
-| `X-HDTP-VERSION` | constant `2` |
+| `X-HDTP-VERSION` | constant `1` |
 | `X-HDTP-CERT` | the account's current **leaf**, base64url DER. It carries the endpoint, the leaf's key, the root's fingerprint as its issuer key identifier, and the validity — so the card is one property where it used to be three (HDTP §3, §14.1) |
 | `X-HDTP-SEAL` | the seal knob, `none\|optional\|required` (HDTP §13.4) |
 

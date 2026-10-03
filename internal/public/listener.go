@@ -49,8 +49,7 @@ type TransportFacts struct {
 
 // ChainProven reports whether this connection's client presented a chain that validated — the
 // only thing that establishes an identity at the transport (HDTP §2, §14.2). The fields above
-// are filled together by that one event or not at all, so the leaf's presence is the fact; a
-// `ClientProtocol` field used to sit beside them saying 2 exactly when it was there.
+// are filled together by that one event or not at all, so the leaf's presence is the fact.
 func (f TransportFacts) ChainProven() bool { return len(f.ClientLeaf) > 0 }
 
 type factsKey struct{}
