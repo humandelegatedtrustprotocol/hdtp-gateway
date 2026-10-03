@@ -5,10 +5,10 @@ package tunnel
 // fresh nonce through the probe handler. Hairpin NAT can make a self-originated probe
 // unrepresentative: that is reported as a caveat, never as a clean pass.
 //
-// "The way a peer does" is the point of it, and for a day after the protocol's first generation went it was not true.
+// "The way a peer does" is the point of it, and for a day after key-pinned identities went it was not true.
 // A peer recognises a node by the CHAIN it presents — leaf then root — validated to the root it
 // pinned, AT THE ADDRESS IT DIALLED (HDTP §2, §14.2 rule 5). This compared the fingerprint of the
-// served certificate's KEY with a pinned key instead, which was 1.x's rule, and it has a failure
+// served certificate's KEY with a pinned key instead, which was the key-pinned rule, and it has a failure
 // mode that matters: a node whose leaf names some other address than the one it is reached at
 // serves "the right key", passes its own probe, and is refused by every peer there is. With no
 // identity to validate against — behind a terminating edge — what a peer sees is the edge's
@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // ProbePath is where the node answers probes (no auth: it only echoes a nonce

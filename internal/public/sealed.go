@@ -23,7 +23,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // SealedToolName is the wrapper's tool name on every tier.
@@ -314,7 +314,7 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 	return d.sealBackErr(ctx, facts, json.RawMessage(`{"code":`+strconv.Quote(code)+`}`))
 }
 
-// sealResult seals a result to a 2.0 caller (HDTP §13.2): kid names the
+// sealResult seals a result to a caller (HDTP §13.2): kid names the
 // caller's leaf key, the plaintext carries our chain until this contact has
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.

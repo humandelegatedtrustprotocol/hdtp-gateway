@@ -92,13 +92,13 @@ func TestAccountsCreatedBeforeAnyOwnerAreNotOrphaned(t *testing.T) {
 }
 
 // A display name is written into the account's card as one line (HDTP §3). With a line break in it,
-// the card this node served said what the NAME chose — `X-PACT-SEAL:none` under an account that
+// the card this node served said what the NAME chose — `X-HDTP-SEAL:none` under an account that
 // requires sealing. The card's writer refuses that now, so the account must never exist: refused
 // here, when it is made, not at the first request for a card it cannot write.
 func TestAnAccountCannotBeNamedWithAControlCharacter(t *testing.T) {
 	m := &Manager{Store: newTestStore(t), Keyring: newTestKeyring(t)}
 	ctx := context.Background()
-	for _, name := range []string{"Alice\r\nX-PACT-SEAL:none", "Alice\nX-PACT-SEAL:none", "Ali\x00ce", "Alice\t"} {
+	for _, name := range []string{"Alice\r\nX-HDTP-SEAL:none", "Alice\nX-HDTP-SEAL:none", "Ali\x00ce", "Alice\t"} {
 		if a, err := m.CreateAccount(ctx, "alice", name, AlgoP256); err == nil {
 			t.Fatalf("an account was created with the display name %q: %+v", name, a.Slug)
 		}

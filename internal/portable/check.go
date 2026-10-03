@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"time"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // CheckWritten reads a file this node has just written back as an importer would: hdtpidentity's
@@ -26,7 +26,7 @@ func CheckWritten(zr *zip.Reader, owner string, now time.Time) error {
 // BatonDeck's import ceilings (batondeck gateway/src/router/limits.ts: IMPORT_CEILING,
 // IMPORT_LIMITS and DIRECTORY_LIMITS): what its one upload route takes back in. They are the
 // cloud's, not the format's — another host may take more — so an export over them is written and
-// warned about, never refused (SPEC 2.2.1: a host's own import ceilings never refuse an export).
+// warned about, never refused (HDTP §9.2, Ceilings: a host's own import ceilings never refuse an export).
 // Each value is written as the cloud writes it, a literal, so batondeck's check-node-claims can
 // hold the two lists to each other.
 const (

@@ -456,7 +456,7 @@ type RepinContactAddressParams struct {
 	Fingerprint     string
 }
 
-// The 2.0 pin moves: a renewal at the pinned endpoint or an accepted new
+// The pin moves: a renewal at the pinned endpoint or an accepted new
 // address replaces the leaf, its key and the endpoint; the root (the
 // fingerprint column) never moves (HDTP sec. 14.3, sec. 5.3).
 func (q *Queries) RepinContactAddress(ctx context.Context, arg RepinContactAddressParams) (int64, error) {
@@ -550,7 +550,7 @@ type SetAccountRootParams struct {
 }
 
 // HDTP 1.0 state (SPEC sec. 2, sec. 14): the account's root and leaf
-// ledger, 2.0 pins, the removal tombstone, former endpoints, and the
+// ledger, pins, the removal tombstone, former endpoints, and the
 // addresses awaiting the owner under `accept_new_hosts = ask`.
 // The first leaf installed names the account's root; the root never changes after (HDTP sec. 2).
 func (q *Queries) SetAccountRoot(ctx context.Context, arg SetAccountRootParams) (int64, error) {

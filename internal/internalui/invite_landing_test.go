@@ -55,7 +55,7 @@ func TestLandingRendersSignedCardAndQR(t *testing.T) {
 		t.Fatalf("landing: %d", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Sumit", "X-PACT-CERT:", "data:image/png;base64,", "signature"} {
+	for _, want := range []string{"Sumit", "X-HDTP-CERT:", "data:image/png;base64,", "signature"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("landing missing %q", want)
 		}

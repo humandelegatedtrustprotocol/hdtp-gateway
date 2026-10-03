@@ -21,7 +21,7 @@ import (
 // An address is inside a leaf. Saving a new `public_url` changes what the NEXT certificate request
 // will name and moves nobody, so it has nothing to tell a contact — and it used to tell all of
 // them: `update_contact{card, sig}` to every contact of every account, the signature over the
-// account's own fingerprint. That was 1.x's endpoint announcement. Under 2.0 the card it sent was
+// account's own fingerprint. That was the endpoint announcement of key-pinned identities. Under HDTP the card it sent was
 // the card the contact already held, and the thing that does move an address was not started.
 //
 // Two things are asserted, and the first is the one the old code fails: a contact that is really

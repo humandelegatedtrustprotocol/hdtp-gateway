@@ -13,7 +13,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/portable"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The review of 2026-09-28 on the two verbs.

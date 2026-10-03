@@ -29,10 +29,10 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 	}
 
 	later := now.Add(time.Minute)
-	if _, err := m.IssueWalletCSR(ctx, a.ID, PurposeSignup, endpointA, "https://ceremony.batondeck.com", later); !errors.Is(err, ErrLeafRefused) {
+	if _, err := m.IssueWalletCSR(ctx, a.ID, PurposeSignup, endpointA, "https://ceremony.hdtp.io", later); !errors.Is(err, ErrLeafRefused) {
 		t.Fatalf("a web wallet was asked for a signup: %v", err)
 	}
-	req, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.batondeck.com", later)
+	req, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.hdtp.io", later)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 	leaves, _ := m.Store.ListLeaves(ctx, a.ID)
 	for _, l := range leaves {
 		if l.State == LeafPending {
-			if l.WalletOrigin != "https://ceremony.batondeck.com" || len(l.RequestStateHash) != 32 || strings.Contains(string(l.RequestStateHash), req.State) {
+			if l.WalletOrigin != "https://ceremony.hdtp.io" || len(l.RequestStateHash) != 32 || strings.Contains(string(l.RequestStateHash), req.State) {
 				t.Fatalf("the pending request keeps %q and %x: want the wallet and the state's hash, never the state", l.WalletOrigin, l.RequestStateHash)
 			}
 		}
@@ -62,7 +62,7 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrongKey := w.issue(t, other, later, 365)
-	req, err = m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.batondeck.com", later) // ...and this one replaces it again
+	req, err = m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.hdtp.io", later) // ...and this one replaces it again
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestAWebWalletsAnswerIsAcceptedOnceAndOnlyWithItsState(t *testing.T) {
 	}
 	// A new request waiting does not make the answer installed before it "not for this request": it
 	// is still the answer that was installed.
-	if _, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.batondeck.com", later.Add(time.Minute)); err != nil {
+	if _, err := m.IssueWalletCSR(ctx, a.ID, PurposeRenew, endpointA, "https://ceremony.hdtp.io", later.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.InstallWalletLeaf(ctx, a.ID, good, req.State, later); !errors.Is(err, ErrRequestAnswered) {

@@ -24,12 +24,12 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Agent is one contact's agent: an identity plus the client that speaks for it.
 //
-// A 2.0 identity is a person's self-signed ROOT and a leaf the root issued to the
+// A identity is a person's self-signed ROOT and a leaf the root issued to the
 // host, and it is the root a node pins (HDTP §2). The leaf names the address this
 // agent answers at — it never actually serves, but a leaf must name one, and it
 // MUST NOT be a loopback address (§14.2 rule 5), so it names a routable-looking one.
@@ -139,7 +139,7 @@ func (a *Agent) Card(seal string) string {
 }
 
 // Fingerprint is this agent's HDTP §2 identity — its ROOT. It used to be the
-// identity key's, because in 1.x the key WAS the identity; a leaf key changes at
+// identity key's, because the key WAS the identity; a leaf key changes at
 // every renewal and a root does not, so the root is what a node pins.
 func (a *Agent) Fingerprint() string { return a.Root }
 
@@ -156,7 +156,7 @@ type Target struct {
 	// Dial is where that name is really listening, e.g. 127.0.0.1:18443 — what DNS would say
 	// for a real caller. Empty dials the endpoint as written.
 	Dial string
-	// Seal mirrors the peer's X-PACT-SEAL, which decides whether Call seals.
+	// Seal mirrors the peer's X-HDTP-SEAL, which decides whether Call seals.
 	Seal string
 	// Root and Leaf are the node's identity: the fingerprint of the root its chain must validate
 	// to, and the leaf it presents — whose key is the one a call is sealed to. Without them
@@ -167,7 +167,7 @@ type Target struct {
 
 // Peer is the outbound view of a target.
 //
-// This set a `Protocol: 2` when the root was known and passed the node's key beside the call; the
+// This set a `Protocol` number when the root was known and passed the node's key beside the call; the
 // node dropped both on 2026-09-19 (a pin is a root and a leaf, and the key is the leaf's). This
 // module is compiled by no gate of the node's, so it went on not compiling for the rest of that
 // day, until the pre-push hook — the only thing that builds it — refused the push.

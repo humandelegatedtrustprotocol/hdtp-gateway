@@ -30,7 +30,7 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
   lenient base64url findings, the zoned IPv6 endpoint, R40 (out-of-range numbers).
 - **Eight new leads** raised by verifiers and not yet verified (report §4.1), three of them rated high:
   the cloud seals its outbound proof with a 60 s lifetime where the node uses 300 s; the cloud
-  cannot redeem a self-hosted node's invite link; the node treats an absent `X-PACT-SEAL` as
+  cannot redeem a self-hosted node's invite link; the node treats an absent `X-HDTP-SEAL` as
   `required`.
 
 ## 1. Rules for every fix
@@ -93,7 +93,7 @@ finding, the evidence, the verifiers' corrections and the refuted list, is
   core sees the members as received); CW-02; R38 (`media_holds_private_key` from the core); every cloud
   finding; the new leads that verify (the 60 s proof lifetime; redeeming a node's invite).
   - **A cloud lead to fix: BatonDeck seals to every contact, whatever its card says.** Its outbound
-    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-PACT-SEAL`, so a
+    client (`gateway/src/outbound/client.ts`) seals every call and reads no `X-HDTP-SEAL`, so a
     contact whose card says `none`, or has no such line (HDTP §3: "Absent = none"), is sent an
     envelope it said it would not take — HDTP §13.4's "senders MUST NOT seal", broken. The node
     reads the policy off the card on file (`contacts.SealOf`, fix/parity-leads). The cloud's fix is
@@ -105,7 +105,7 @@ TLS door also applies it to a pinned root. The plan makes the TLS door follow th
 If the owner wants a pinned root to be refused after a removal too, that is a SPEC change instead.
 
 **(owner) A contact with no card on file** (found closing lead 4, 2026-09-30). SPEC §3 reads a card
-with no `X-PACT-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
+with no `X-HDTP-SEAL` line as `none`, and the node now does too (`contacts.SealOf`, the core's
 `DecodeCard` reading). Two paths write a contact with no card at all: an import, whose contacts.csv
 carries neither a card nor a policy (§9.2), and the owner approving a root that returned after a
 removal (`contacts.DecideAddress`), which re-adds it from the pending address — a leaf and an

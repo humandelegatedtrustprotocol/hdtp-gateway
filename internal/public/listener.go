@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // TransportFacts is what the transport layer proved about a request (SPEC §5.1).
@@ -37,7 +37,7 @@ type TransportFacts struct {
 	// the ROOT's, ClientCertSPKI the leaf's key, ClientLeaf the leaf, and
 	// ClientEndpoint the one address it names. That chain is the ONLY thing
 	// that fills these fields: a single certificate, or a chain that does not
-	// validate, establishes no identity at all, because in 2.0 the identity is
+	// validate, establishes no identity at all, because the identity is
 	// the root and a lone certificate names none.
 	ClientLeaf     []byte
 	ClientEndpoint string
@@ -182,9 +182,9 @@ func (s *Server) withFacts(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(WithFacts(r.Context(), f)))
 			return
 		}
-		// Only a validated chain is an identity. The retired generation took the
+		// Only a validated chain is an identity. This used to take the
 		// fingerprint of whatever single certificate arrived, which is a proof
-		// only while the identity IS a key; under 2.0 the identity is the root,
+		// only while the identity IS a key; under HDTP the identity is the root,
 		// a lone certificate names no root, and anyone can mint one in a second.
 		// Reading it as identity made `client_cert: required` — the "who may
 		// knock at all" posture of HDTP §13.4 — satisfiable by any self-signed

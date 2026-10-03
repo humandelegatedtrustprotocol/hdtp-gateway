@@ -22,7 +22,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 var ErrSealRequired = errors.New("seal_required")
@@ -40,13 +40,13 @@ func (e *RateLimited) Error() string {
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
 	Endpoint string // the address the pinned leaf names (HDTP §2) — a card carries no separate one
-	Seal     string // X-PACT-SEAL: none | optional | required ("" = none)
+	Seal     string // X-HDTP-SEAL: none | optional | required ("" = none)
 	// A contact is pinned by its root (HDTP §2, §14.3). Root is that root's fingerprint — the
 	// identity — Leaf is the latest leaf accepted, whose key is what the call is sealed to and
 	// the answer verified under, and ChainSeen says this contact has already seen OUR current
 	// leaf, so the call carries our leaf's fingerprint rather than the chain (§13.2).
 	//
-	// There was a `Fingerprint` beside `Root`, holding the same value. In 1.x it was the pinned
+	// There was a `Fingerprint` beside `Root`, holding the same value. It was once the pinned
 	// KEY's, and it was what TLS and the envelope were checked against; by the time it went,
 	// two error messages were all that read it.
 	Root      string
@@ -65,14 +65,14 @@ func (p Peer) name() string {
 
 // Known reports whether we hold what it takes to recognise this peer: the root it is pinned by
 // and a leaf under it. Every peer built from a pin or a card has both; the zero Peer has
-// neither. It used to be asked as `Protocol == 2`, a field every construction set to 2.
+// neither. It used to be asked of a `Protocol` field that every construction set alike.
 func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
 
 type Client struct {
 	Keypair *identity.Keypair
 	Cert    tls.Certificate
 	Roots   *x509.CertPool // nil = system roots; injectable for tests
-	// Now is the clock the 2.0 exchange dates envelopes and validates chains
+	// Now is the clock the exchange dates envelopes and validates chains
 	// by; nil means time.Now.
 	Now func() time.Time
 	// OnChainSent is told that a peer has been sent our chain, so the host
@@ -130,7 +130,7 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 					return nil
 				}
 			}
-			// There is no third way. A pinned 2.0 peer is recognised by the chain
+			// There is no third way. A pinned peer is recognised by the chain
 			// above — validated to the root we pinned, at the address we dialed —
 			// and everything else by WebPKI for the hostname, which is what a
 			// terminating edge presents.
@@ -244,8 +244,8 @@ func (c *Client) ListTools(ctx context.Context, peer Peer) ([]*mcp.Tool, error) 
 //
 // The key sealed to is the one in the leaf held for the peer (`Peer.Leaf`). It used to be a
 // separate argument that "may be nil: a contact re-pinned but not yet reconnected holds only a
-// fingerprint" — a state 1.x key rotation produced — and a nil one sent the call PLAINTEXT to an
-// `optional` peer and failed it outright for a `required` one. 2.0 had a way into that state too:
+// fingerprint" — a state key rotation produced — and a nil one sent the call PLAINTEXT to an
+// `optional` peer and failed it outright for a `required` one. HDTP had a way into that state too:
 // a contact we requested was stored with its leaf and without the leaf's key, so once they
 // accepted, every call to them downgraded. The key is in the leaf; nothing needs to carry it twice.
 func (c *Client) Call(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {

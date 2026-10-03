@@ -27,7 +27,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // node is a whole hdtp-gateway node in-process: store, identity, public TLS
@@ -66,11 +66,11 @@ func startHDTPNode(t *testing.T, slug string, seal core.Seal) *hdtpNode {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A 2.0 node serves under a leaf its person's root issued, and that leaf names
+	// A node serves under a leaf its person's root issued, and that leaf names
 	// the address it answers at. It CANNOT name a loopback address (HDTP §14.2
 	// rule 5), so the node advertises a public-looking name and `hdtpNet` maps that
 	// name to the httptest listener — the same trick internal/node's exit demo uses,
-	// and the only way to run 2.0 hermetically.
+	// and the only way to run a pair hermetically.
 	rootKey, err := hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func startHDTPNode(t *testing.T, slug string, seal core.Seal) *hdtpNode {
 			return n.pool.Invalidate(ctx, accountID, fpr)
 		},
 		// The node's own chain and endpoint. Without these the tool surface cannot
-		// tell that it speaks 2.0, and a guest arriving with a valid chain is read as
+		// tell that it speaks HDTP, and a guest arriving with a valid chain is read as
 		// having proved nothing.
 		Chain:    func(context.Context) ([][]byte, error) { return [][]byte{n.leafDER, n.rootCert}, nil },
 		Endpoint: func() string { return n.endpoint },
@@ -145,7 +145,7 @@ func startHDTPNode(t *testing.T, slug string, seal core.Seal) *hdtpNode {
 		Store:     st,
 		AccountID: a.ID,
 		Seal:      seal, Cert: core.ClientCertPreferred,
-		// What a `v: 2` envelope is decided against (HDTP §13.3). Without it the
+		// What a `v: 1` envelope is decided against (HDTP §13.3). Without it the
 		// identifier refuses every envelope as "does not speak 2.0" — which is the
 		// right answer for an identity with no leaf, and the wrong one here.
 		RecipientState: func(context.Context) (*public.RecipientState, error) {
@@ -185,7 +185,7 @@ func startHDTPNode(t *testing.T, slug string, seal core.Seal) *hdtpNode {
 		return srv
 	}, &mcp.StreamableHTTPOptions{
 		// The advertised Host with a loopback socket is precisely what the SDK's
-		// DNS-rebinding protection refuses (E14), and it is what a 2.0 leaf forces:
+		// DNS-rebinding protection refuses (E14), and it is what a leaf forces:
 		// the certificate cannot name a loopback address. Production disables the
 		// guard on the public surface for the same reason — it is always TLS and
 		// presents the node's own chain, so a rebinding page cannot complete a
@@ -316,7 +316,7 @@ func fetchInvite(t *testing.T, landingURL, token string) (card string, spki []by
 		t.Fatalf("the landing must serve the issuer's [leaf, root] (HDTP §4), got %d certificates: %s", len(doc.Chain), b)
 	}
 	// The redeemer's own checks, as §4 states them: validate the chain, and require its leaf
-	// to byte-equal the card's X-PACT-CERT. The key to seal to is that leaf's.
+	// to byte-equal the card's X-HDTP-CERT. The key to seal to is that leaf's.
 	issuer, err := contacts.ValidateInbound(doc.Card)
 	if err != nil {
 		t.Fatalf("the landing page served a card that does not validate: %v", err)

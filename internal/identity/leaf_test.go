@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // wallet is the person's side of HDTP §9 in a test: a root, and the ledger the
@@ -64,9 +64,9 @@ func leafEnv(t *testing.T) (*Manager, store.Account) {
 
 const endpointA = "https://agent.alina.example/a/alina/mcp"
 
-// The whole round trip of HDTP §9 for a 1.x account: a request carrying the
-// existing key, the wallet's leaf, the install — and what it changes.
-func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
+// The whole round trip of HDTP §9 for a new account: a request carrying the
+// account's key, the wallet's leaf, the install — and what it changes.
+func TestLeafSignupThenRenewThenMove(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()
 	w := newWallet(t, "Alina Rao")
@@ -77,7 +77,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	if csr.Kid != a.Fingerprint || csr.PreviousNotBefore != nil {
-		t.Fatalf("an upgrade certifies the existing key: %+v", csr)
+		t.Fatalf("a signup certifies the account's key: %+v", csr)
 	}
 	if info := hdtpidentity.CSRCheck(csr.CSR, nil); !info.OK || info.Endpoint != endpointA {
 		t.Fatalf("the request does not check out: %+v", info)
@@ -108,7 +108,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	}
 	acct, _ := m.Store.GetAccountByID(ctx, a.ID)
 	if !acct.HasRoot() || acct.RootFingerprint != w.fpr || acct.Fingerprint != a.Fingerprint {
-		t.Fatalf("account after upgrade: %+v", acct)
+		t.Fatalf("account after the first install: %+v", acct)
 	}
 	chain, err := m.Chain(ctx, a.ID)
 	if err != nil || len(chain) != 2 {
@@ -119,7 +119,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	}
 	keys, err := m.ActiveLeafKeypairs(ctx, a.ID, now)
 	if err != nil || len(keys) != 1 || !keys[0].Current || !keys[0].KP.HasChain() || keys[0].KP.Fingerprint != a.Fingerprint {
-		t.Fatalf("active keys after upgrade: %v %+v", err, keys)
+		t.Fatalf("active keys after the first install: %v %+v", err, keys)
 	}
 	info, _ := m.Certificate(ctx, a.ID, now)
 	if !info.Certified || info.RenewalDue || info.PendingCSR != "" || info.Kid != a.Fingerprint {
@@ -164,7 +164,7 @@ func TestLeafUpgradeThenRenewThenMove(t *testing.T) {
 	}
 
 	// A move names another endpoint; the leaf must name exactly it.
-	elsewhere := "https://alina.id.batondeck.com/alina/mcp"
+	elsewhere := "https://alina.batondeck.com/alina/mcp"
 	csr3, err := m.IssueCSR(ctx, a.ID, PurposeMove, elsewhere, later.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -246,12 +246,12 @@ func TestInstallLeafRefusals(t *testing.T) {
 // A first leaf requested as a renewal mints a fresh key, so the key the account was created with
 // is replaced without ever having been certified. HDTP §14.4 keeps a superseded LEAF's key until
 // its notAfter; this key was never a leaf. Before the first leaf an identity has no card and is
-// not served, so no 2.0 sender can have sealed anything to it, and there is nobody to answer
+// not served, so no sender can have sealed anything to it, and there is nobody to answer
 // `certificate_renewed`.
 //
-// This test used to assert the opposite — `TestFirstInstallKeepsTheRetiringOneXKeyServed` — that
-// the old key is kept for a year in a leafless ledger row and SERVED, because "1.x contacts
-// pinned it and reach us with it until they re-pin". Those were the only callers who ever held it.
+// This test used to assert the opposite: that the old key is kept for a year in a leafless
+// ledger row and SERVED, so that contacts who had pinned it could reach us with it until they
+// re-pinned. Those were the only callers who ever held it.
 func TestAFirstLeafOverAFreshKeyRetiresNothing(t *testing.T) {
 	m, a := leafEnv(t)
 	ctx := context.Background()

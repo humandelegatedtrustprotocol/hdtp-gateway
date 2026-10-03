@@ -27,7 +27,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 type fakeCalendar struct {
@@ -189,7 +189,7 @@ func (e *toolEnv) call(fpr, tool string, args map[string]any, spki []byte) (*mcp
 	return e.callAs(nil, fpr, tool, args, spki)
 }
 
-// callAs is call with a proven 2.0 identity: `guest` is the peer whose chain the
+// callAs is call with a proven identity: `guest` is the peer whose chain the
 // caller presented, which is what the guest tools pin (HDTP §14.2 rule 6). A bare
 // key proves nothing now, so a guest tool reached without one answers
 // identity_required — which is why every guest-tier test here has to bring a peer.
@@ -566,7 +566,7 @@ func TestAlwaysToolsAtContactTier(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("get_card: %v %s", err, body(t, res))
 	}
-	if !strings.Contains(body(t, res), "X-PACT-CERT") {
+	if !strings.Contains(body(t, res), "X-HDTP-CERT") {
 		t.Fatalf("get_card body: %s", body(t, res))
 	}
 

@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"io"
 	"os"
 	"time"

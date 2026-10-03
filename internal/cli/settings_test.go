@@ -432,7 +432,7 @@ func TestSealChangeAppliesLiveAndCardMatchesTheGate(t *testing.T) {
 // retired. Do not add clock_offset_seconds").
 
 // `recordingPeer`/`newRecordingPeer` went with that test on 2026-09-18: a peer's whole node, built
-// listener-first because a 2.0 leaf names the address it answers at, driving the fan-out over real
+// listener-first because a leaf names the address it answers at, driving the fan-out over real
 // TLS. With the test retired they were a fixture for nothing, which reads as coverage and is not.
 
 // AC (P7-01): a restart-scoped save is visible in the page immediately — the
@@ -1027,7 +1027,7 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("export_card: %v %s", err, textOf(res))
 	}
-	if !strings.Contains(textOf(res), "X-PACT-CERT") {
+	if !strings.Contains(textOf(res), "X-HDTP-CERT") {
 		t.Fatalf("export_card returned no card: %s", textOf(res))
 	}
 	// ...and what the owner reads it by, as the portal's card read answers them (contacts.CardFacts):

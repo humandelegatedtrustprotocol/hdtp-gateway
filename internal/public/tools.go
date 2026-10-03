@@ -29,7 +29,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Boundary caps (HDTP §12, SPEC §5.7). The store enforces them again.
@@ -91,7 +91,7 @@ type StatusSource interface {
 // redemption returns the issuer's signed card, and the same card has to read the same over every
 // transport — signed on the landing page and signed over MCP. It used to return the leaf's key as
 // well, for a `spki` member beside the card: 1.2's answer to a card that carried only a key's
-// hash. A 2.0 card carries the certificate, and the chain travels beside it instead.
+// hash. A card carries the certificate, and the chain travels beside it instead.
 type CardFn func(ctx context.Context) (card, sig string, err error)
 
 // ToolDeps is everything the built-in set touches. A nil capability is not an
@@ -116,7 +116,7 @@ type ToolDeps struct {
 	// An error, or no function at all, answers get_card `unavailable`: there is no compiled-in copy of
 	// the budgets to advertise instead.
 	Limits func(ctx context.Context) (Limits, error)
-	// Endpoint is this account's own address, for the guard a 2.0 guest's card
+	// Endpoint is this account's own address, for the guard a guest's card
 	// must pass (HDTP §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
 	// Chain is this account's [leaf, root]. `redeem_invite` and `get_card` both answer with
@@ -135,8 +135,8 @@ func (d ToolDeps) holdsLeaf(ctx context.Context) bool {
 
 // proofOf is what the caller proved this call, for the guest tools to pin: the
 // root, the leaf's key, the endpoint and the leaf the chain carried (HDTP §14.2
-// rule 6). A caller that proved no chain proves no identity — there is no longer a
-// generation in which a bare key is one — and the zero Proof is refused upstream.
+// rule 6). A caller that proved no chain proves no identity — a bare key is
+// not one — and the zero Proof is refused upstream.
 func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 	if f := EnvelopeFactsFrom(ctx); f != nil && f.Refusal == "" {
 		p := contacts.Proof{Fingerprint: f.From, SPKI: f.SPKI, Endpoint: f.Endpoint, Leaf: f.Leaf, AddressClaim: f.AddressClaim}

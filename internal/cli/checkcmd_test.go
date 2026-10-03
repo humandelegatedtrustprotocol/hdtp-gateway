@@ -13,7 +13,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // plantContactCards writes two contacts into the store at dir: one whose card reads, and one whose
@@ -38,7 +38,7 @@ func plantContactCards(t *testing.T, dir string) (accountSlug, badRoot string) {
 		leaf, _ := hdtpidentity.Parse(h.LeafDER)
 		card := h.Card(p.name, "required")
 		if p.bad {
-			card = strings.Replace(card, "X-PACT-CERT:", "X-PACT-CERT:!", 1)
+			card = strings.Replace(card, "X-HDTP-CERT:", "X-HDTP-CERT:!", 1)
 			badRoot = w.Fpr
 		}
 		if _, err := st.InsertContact(ctx, store.Contact{
@@ -71,7 +71,7 @@ func TestCheckStoreNamesTheCardThatDoesNotReadAndExitsOne(t *testing.T) {
 	ctx := context.Background()
 	st := openStoreAt(t, n.dir)
 	c, err := st.GetContact(ctx, accountIDOf(t, st, slug), badRoot)
-	if err != nil || !strings.Contains(c.Card, "X-PACT-CERT:!") {
+	if err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:!") {
 		t.Fatalf("the check changed the store: %v %q", err, c.Card)
 	}
 	// The owner mends it: a card of that contact's that reads arrives (UpdateContactCard is what

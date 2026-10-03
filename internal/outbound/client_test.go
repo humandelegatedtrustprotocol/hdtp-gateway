@@ -76,7 +76,7 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 	pool.AddCert(caCert)
 
 	// The server presents a real chain: a self-signed certificate is not an
-	// identity under 2.0, so pinning one would refuse the dial before the thing
+	// identity under HDTP, so pinning one would refuse the dial before the thing
 	// this test is about — which certificate the CLIENT sends — could be observed.
 	server := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	got := make(chan []*x509.Certificate, 1)
@@ -105,7 +105,7 @@ func TestClientCertSentDespiteCAList(t *testing.T) {
 // A self-signed server certificate is not an identity, whoever the caller thinks it is dialling.
 //
 // This test used to assert the opposite — "pinned self-signed server accepted" — which was
-// right while the identity WAS a key. Under 2.0 the identity is the root, a lone certificate
+// right while the identity WAS a key. Under HDTP the identity is the root, a lone certificate
 // names no root, and the two ways to recognise a server are the chain validated to the pinned
 // root (HDTP §2) and WebPKI for the hostname. A lone certificate is neither — to a caller that
 // holds a pin for this address and to a caller that holds none, in the same words, because a

@@ -20,7 +20,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // LandingDeps is what the landing page reads. Its fields are node.LandingDeps' exactly, so the one

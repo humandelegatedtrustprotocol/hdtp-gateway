@@ -1,7 +1,7 @@
 package contacts
 
 // vCard handling (SPEC §9.3, HDTP §3): a HDTP card is standard vCard 4.0 plus the
-// X-PACT-* properties. Parsing is tolerant — phone exports are v3.0 with folded
+// X-HDTP-* properties. Parsing is tolerant — phone exports are v3.0 with folded
 // lines and foreign properties — and never trusts input: callers length-cap before
 // parsing, and a parse failure yields an error, never a panic.
 
@@ -13,13 +13,13 @@ import (
 
 	govcard "github.com/emersion/go-vcard"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 const (
-	propVersion = "X-PACT-VERSION"
-	propSeal    = "X-PACT-SEAL"
-	propCert    = "X-PACT-CERT"
+	propVersion = "X-HDTP-VERSION"
+	propSeal    = "X-HDTP-SEAL"
+	propCert    = "X-HDTP-CERT"
 )
 
 // Card is the parsed view of a contact card.
@@ -27,7 +27,7 @@ type Card struct {
 	FN       string
 	Tel      string
 	Email    string
-	Version  string // X-PACT-VERSION as carried; MUST be "2"
+	Version  string // X-HDTP-VERSION as carried; MUST be "2"
 	Endpoint string
 	Key      string
 	Seal     string // none|optional|required; "" = absent = none (HDTP §13.4)
@@ -38,8 +38,8 @@ type Card struct {
 	Cert []byte
 }
 
-// BuildCard renders a 2.0 card (HDTP §3): the leaf, the version, the seal. It refuses a name or a
-// seal that carries a control character (HDTP §3, 2.1.3): a card is lines, and a line break in a
+// BuildCard renders a card (HDTP §3): the leaf, the version, the seal. It refuses a name or a
+// seal that carries a control character (HDTP §3): a card is lines, and a line break in a
 // display name wrote a property of the name's choosing into the card this node serves.
 func BuildCard(fn string, leaf []byte, seal string) (string, error) {
 	return hdtpidentity.EncodeCard(fn, leaf, seal, nil)
@@ -108,7 +108,7 @@ func displayName(s string) string {
 	return cleaned
 }
 
-// SealOf is the X-PACT-SEAL policy of a contact this node holds, read off the card on file the way
+// SealOf is the X-HDTP-SEAL policy of a contact this node holds, read off the card on file the way
 // the identity core reads a card (hdtpidentity.DecodeCard), so the node and the core have one
 // reading: the property's value, and `none` for a card with no such line (HDTP §3: "Absent =
 // none"; §13.4: "senders MUST NOT seal").
@@ -137,7 +137,7 @@ func SealOf(card string, now time.Time) (string, error) {
 // peer's card (redeem, request, accept, update). The certificate IS the card: it
 // carries the root to pin, the address to reach and the validity, and the library's
 // intake refuses a card with no root or no address. An expired leaf is not a
-// refusal — the root and the endpoint are what a card is for. Unknown X-PACT-*
+// refusal — the root and the endpoint are what a card is for. Unknown X-HDTP-*
 // properties pass untouched; that is how minors stay compatible.
 func ValidateInbound(text string) (Card, error) {
 	c, err := ParseCard(text)
@@ -145,10 +145,10 @@ func ValidateInbound(text string) (Card, error) {
 		return Card{}, err
 	}
 	if c.Version == "" {
-		return Card{}, fmt.Errorf("the card carries no X-PACT-VERSION")
+		return Card{}, fmt.Errorf("the card carries no X-HDTP-VERSION")
 	}
-	if c.Version != "2" {
-		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 2 only", c.Version)
+	if c.Version != "1" {
+		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks 1 only", c.Version)
 	}
 	dc, err := hdtpidentity.DecodeCard(text, time.Now())
 	if err != nil {

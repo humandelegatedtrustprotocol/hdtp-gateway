@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -124,10 +124,20 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet dependents limitd-check test test-js
+check: fmt vet names dependents limitd-check test test-js
+
+# The name guard: no tracked path or text of this repository carries the protocol's old name, or
+# the name of a behaviour HDTP does not have. scripts/check-names.mjs and scripts/hdtp-names.txt are
+# hdtp-spec's scripts/ files, byte for byte, and the script compares both with that repository's
+# when it is checked out beside this one (or at HDTP_SPEC_DIR). A change to either is made there
+# and copied here. The self-test runs first: a matcher that finds nothing passes every tree.
+names:
+	@command -v node >/dev/null || { echo "names: node is not installed; it is what make web needs too"; exit 1; }
+	node scripts/check-names.mjs --selftest
+	node scripts/check-names.mjs
 
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
-# pact-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and
+# hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and
 # fetched over SSH with this machine's agent (cmd/hdtp-limitd/.cargo/config.toml), locally only;
 # the image builds read it from `limitd-vendor` instead, with no credential inside Docker.
 LIMITD := cmd/hdtp-limitd
@@ -264,12 +274,12 @@ harness: limitd
 	cd harness && go vet ./... && go test -race ./...
 
 # ---- the identity module ---------------------------------------------------
-# The node requires github.com/pact-cloud/pact-identity/go BY VERSION (go.mod, no replace). The
+# The node requires github.com/humandelegatedtrustprotocol/hdtp-identity/go BY VERSION (go.mod, no replace). The
 # repository is private and fetched over SSH, locally only: GOPRIVATE keeps it off the public
 # proxy and checksum database, and the insteadOf, set for the one process through GIT_CONFIG_*
 # (never in anybody's git config), makes the go command's git use SSH instead of HTTPS.
 # GOWORK=off: these targets are about the version go.mod names, not a workspace's checkout.
-IDENTITY_MODULE := github.com/pact-cloud/pact-identity/go
+IDENTITY_MODULE := github.com/humandelegatedtrustprotocol/hdtp-identity/go
 PRIVATE_FETCH := GOWORK=off GOPRIVATE='github.com/humandelegatedtrustprotocol/*' GIT_CONFIG_COUNT=1 \
 	GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
 IDENTITY_PROXY := .build/identity-proxy
@@ -320,11 +330,11 @@ harness-image: identity-proxy limitd-vendor
 # sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
 # when it is not. Override either with HDTP_CLI or HDTP_CLOUD_BATTERY in the environment.
 HDTP_IDENTITY ?= $(CURDIR)/../hdtp-identity
-HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/pact
+HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/hdtp
 harness-hdtp-cli:
 	@if [ -n "$$HDTP_CLI" ]; then echo "harness-hdtp-cli: HDTP_CLI=$$HDTP_CLI"; \
 	elif [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
-		cargo build --release -q -p pact --manifest-path "$(HDTP_IDENTITY)/Cargo.toml" || exit 1; \
+		cargo build --release -q -p hdtp --manifest-path "$(HDTP_IDENTITY)/Cargo.toml" || exit 1; \
 		echo "harness-hdtp-cli: $(HDTP_CLI_BIN)"; \
 	else echo "!! harness-hdtp-cli: no hdtp-identity checkout at $(HDTP_IDENTITY): S18 will be NOT PROMISED"; fi
 # The environment a live tier runs under: the two siblings' paths when they are on disk.

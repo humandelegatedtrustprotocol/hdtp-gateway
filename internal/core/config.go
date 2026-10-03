@@ -96,8 +96,8 @@ type Config struct {
 	// WalletURL is the ORIGIN of the web wallet the portal sends a signing request to (HDTP §9.1):
 	// the page POSTs to WalletURL + "/sign" and the wallet answers at the portal's /wallet/return.
 	// It is bootstrap, never owner-settable: it is the one foreign origin the portal's form-action
-	// admits, so it cannot come from data the authenticated surface writes. Defaults to the cloud's
-	// ceremony host (DefaultWalletURL).
+	// admits, so it cannot come from data the authenticated surface writes. Defaults to
+	// DefaultWalletURL.
 	WalletURL string `json:"wallet_url"`
 
 	InternalAuthEnabled bool   `json:"internal_auth_enabled"`
@@ -481,9 +481,9 @@ func isLoopbackBind(bind string) bool {
 }
 
 // DefaultWalletURL is the web wallet a portal sends a signing request to when nothing else is
-// configured: batondeck's ceremony host (its production TENANT_ADDRESS_TEMPLATE,
-// `{workspace}.id.batondeck.com`, with the workspace `ceremony`).
-const DefaultWalletURL = "https://ceremony.batondeck.com"
+// configured: the ceremony host on the protocol's own domain. It is a fixed host, and is not
+// derived from any hosting product's addresses.
+const DefaultWalletURL = "https://ceremony.hdtp.io"
 
 // validWalletURL holds wallet_url to an origin a form may be sent to: https, or http to a loopback
 // host (a wallet under test on this machine). It is written into the portal's Content-Security-Policy

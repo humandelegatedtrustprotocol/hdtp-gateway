@@ -11,7 +11,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // A store with every field a certificate or a card lives in, planted through the store's own
@@ -70,7 +70,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	fprs := map[string]string{}
 	for _, p := range []planted{
 		{"good", good, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
-		{"badcard", func(h *testid.Host) string { return strings.Replace(good(h), "X-PACT-CERT:", "X-PACT-CERT:!", 1) }, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
+		{"badcard", func(h *testid.Host) string { return strings.Replace(good(h), "X-HDTP-CERT:", "X-HDTP-CERT:!", 1) }, func(h *testid.Host) []byte { return h.LeafDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
 		{"badleaf", func(*testid.Host) string { return "" }, func(*testid.Host) []byte { return notDER }, func(w *testid.Wallet) []byte { return w.RootDER }},
 		{"badroot", good, func(h *testid.Host) []byte { return h.LeafDER }, func(*testid.Wallet) []byte { return notDER }},
 		{"bare", func(*testid.Host) string { return "" }, func(*testid.Host) []byte { return nil }, func(*testid.Wallet) []byte { return nil }},
@@ -164,7 +164,7 @@ func TestTheRunNamesEveryCardAndCertificateThatDoesNotRead(t *testing.T) {
 	}
 	// Nothing was changed: the card that does not read is still on file as it was planted.
 	c, err := st.GetContact(ctx, alina.ID, fprs["badcard"])
-	if err != nil || !strings.Contains(c.Card, "X-PACT-CERT:!") {
+	if err != nil || !strings.Contains(c.Card, "X-HDTP-CERT:!") {
 		t.Fatalf("the run changed the store: %v %q", err, c.Card)
 	}
 }

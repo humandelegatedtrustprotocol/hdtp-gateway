@@ -1,7 +1,7 @@
-// Package identity implements accounts' cryptographic identity (SPEC §3, HDTP §2):
-// one keypair per account — P-256 default, Ed25519 permitted — whose SPKI fingerprint
-// IS the identity, presented as a self-signed long-lived TLS client certificate and,
-// from the first generation, as the signing key of sealed envelopes.
+// Package identity holds what this host has of an account's identity (SPEC §3, HDTP §2): the
+// account's keypair — P-256 default, Ed25519 permitted — and, once a wallet has certified it,
+// the leaf and the root above it. The identity is the root, whose key this node never holds;
+// the key here presents the chain as its TLS certificate and signs sealed envelopes.
 package identity
 
 import (
@@ -13,7 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"math/big"
 	"time"
 )

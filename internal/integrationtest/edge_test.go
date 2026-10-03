@@ -246,10 +246,10 @@ func TestLANFlagOffRefusesDirectConnectionsAndAudits(t *testing.T) {
 
 // NOT COVERED HERE: an endpoint change fanned out as `update_contact`.
 //
-// This proved the 1.x shape — a new card plus a signature over the unchanged
-// fingerprint, made with the key the peer pinned. 2.0 has no such proof: a move is
+// This proved the key-pinned shape — a new card plus a signature over the unchanged
+// fingerprint, made with the key the peer pinned. HDTP has no such proof: a move is
 // a new leaf for a new address, and the chain the envelope carries is what
-// authorises it (HDTP §5.3, §14.3). The 2.0 move, including the receiver following
+// authorises it (HDTP §5.3, §14.3). The move, including the receiver following
 // it under `auto`, is proven end to end by `internal/node.TestExitDemo`.
 
 /* ------------------------------ helpers ------------------------------ */

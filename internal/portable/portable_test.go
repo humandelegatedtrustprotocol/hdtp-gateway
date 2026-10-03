@@ -22,8 +22,8 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
-	"github.com/pact-cloud/pact-identity/go/exportcorpus"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-identity/go/exportcorpus"
 )
 
 // What must never be in an export, planted as recognisable strings so the test can look for them

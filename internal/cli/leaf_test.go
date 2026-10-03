@@ -18,7 +18,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // issueLeafFor plays the person's wallet for a test account: a root, and a leaf
@@ -26,7 +26,7 @@ import (
 //
 // Every test here that expects a node to SERVE needs this. An account with a key
 // and no chain cannot be served (HDTP §2) — the node skips it as awaiting its
-// wallet — so `CreateAccount` alone, which was enough while a 1.x account served
+// wallet — so `CreateAccount` alone, which was enough while an account served
 // under a self-signed certificate, no longer is.
 func issueLeafFor(t *testing.T, idm *identity.Manager, a store.Account, publicURL string) store.Account {
 	t.Helper()
@@ -85,7 +85,7 @@ func configPublicURL(t *testing.T, dir string) string {
 // chain and card that go with them.
 //
 // A peer used to be one self-signed certificate — the key WAS the identity — so a
-// test could make one in two lines. A 2.0 peer is a root, a leaf naming the address
+// test could make one in two lines. A peer is a root, a leaf naming the address
 // it answers at, and a chain it presents; the tests here need all three, so they
 // build them in one place.
 type testPeer struct {
@@ -117,7 +117,7 @@ func newTestPeer(t testing.TB, cn, endpoint string) *testPeer {
 }
 
 // peerIdentity keeps the shape the tests here already use — a peer and the
-// certificate it presents — but the peer is a 2.0 identity and its Fingerprint is
+// certificate it presents — but the peer is a identity and its Fingerprint is
 // the ROOT, which is what a contact row pins.
 func peerIdentity(t *testing.T, cn string) (*testPeer, tls.Certificate) {
 	t.Helper()
@@ -146,7 +146,7 @@ func textOf(res *mcp.CallToolResult) string {
 
 // **`runServeCfg` went on 2026-09-18.** It wrote a config, seeded a store and started the real
 // `serve`, for the two CLI delivery tests that drove one node's portal into another node's store.
-// Those tests were retired with 1.x: a hermetic pair needs loopback addresses, and HDTP §14.2
+// Those tests were retired with key-pinned identities: a hermetic pair needs loopback addresses, and HDTP §14.2
 // rule 5 forbids a leaf from naming one, so a two-node exchange over real certificates cannot be
 // stood up in-process without a dial seam `serve` does not have. `internal/integrationtest`'s
 // `pairing_test.go` is where that exchange is proven, with a dial map joining two nodes that
@@ -202,13 +202,13 @@ func waitFor(t *testing.T, budget time.Duration, msg string, cond func() bool) {
 	}
 }
 
-// nodePeer is the 2.0 pin a caller holds for a node under test, and the dialer
+// nodePeer is the pin a caller holds for a node under test, and the dialer
 // that reaches it.
 //
-// Under 2.0 a server is recognised two ways and no third: the chain it presents,
+// Under HDTP a server is recognised two ways and no third: the chain it presents,
 // validated to the ROOT the caller pinned at the address the caller dialed, or
 // WebPKI for that hostname (HDTP §2). A test that pins the node's LEAF key was
-// relying on a branch that belonged to the key-pinned generation, deleted on
+// relying on a branch that belonged to key-pinned identities, deleted on
 // 2026-09-18 — and while it stood, none of these tests exercised the rule a real
 // caller meets.
 //

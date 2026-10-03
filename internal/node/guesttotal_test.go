@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"

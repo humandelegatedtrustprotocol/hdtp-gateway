@@ -27,7 +27,7 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 |---|---|---|
 | batondeck | `gateway/e2e/lib/report.mjs` (the pair, the wallet-page suite) | `gateway/e2e/results/`, or `--results <file>` |
 | hdtp-gateway | `harness/registry` (each scenario, and `harness run`'s `summary.json`) | `HDTP_HARNESS_RESULTS` |
-| hdtp-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `PACT_RESULTS` (`gate.sh`: `target/gate-results`) |
+| hdtp-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `HDTP_RESULTS` (`gate.sh`: `target/gate-results`) |
 
 ## Where each tier runs, and what it costs
 

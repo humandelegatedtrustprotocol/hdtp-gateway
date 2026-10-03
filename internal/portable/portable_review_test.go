@@ -17,8 +17,8 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
-	"github.com/pact-cloud/pact-identity/go/exportcorpus"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
+	"github.com/humandelegatedtrustprotocol/hdtp-identity/go/exportcorpus"
 )
 
 // The review of 2026-09-28 on export and import.
@@ -216,7 +216,7 @@ func TestAMessageWaitingForItsHumanTravelsQueued(t *testing.T) {
 }
 
 // L12. An export over what BatonDeck takes back in is written, and says so, naming the limits:
-// other hosts may take it, so it is a warning and never a refusal (SPEC 2.2.1: a host's own import
+// other hosts may take it, so it is a warning and never a refusal (HDTP §9.2, Ceilings: a host's own import
 // ceilings never refuse an export). The seed holds one thread: at the ceiling nothing is said, one
 // over it is.
 func TestAnExportOverTheCloudsCeilingsSaysSo(t *testing.T) {

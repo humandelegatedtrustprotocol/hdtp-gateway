@@ -10,7 +10,7 @@ import (
 
 // An account nobody certified is nobody (HDTP §2): the node has no chain to present, and the
 // first dial ends `tls: internal error`. Every live scenario in this module did exactly that for
-// as long as 2.x had existed — create an account, call it — and nothing said so, because a live
+// as long as an account has needed a wallet — create an account, call it — and nothing said so, because a live
 // scenario is skipped unless HDTP_HARNESS_LIVE is set and the hook that runs this module does not
 // set it. This is the hermetic half of the fix: it cannot tell that a scenario PASSES, but it can
 // tell that a file creates an account and never hands it to a wallet.
@@ -45,7 +45,7 @@ func TestEveryAccountAScenarioCreatesIsCertified(t *testing.T) {
 			return nil
 		}
 		if !certifies.MatchString(src) {
-			t.Errorf("%s creates an account and never has a wallet certify it. A 2.x account is nobody until "+
+			t.Errorf("%s creates an account and never has a wallet certify it. An account is nobody until "+
 				"it holds a leaf under its owner's root: use wallet.Certify, or list the file here with why it dials nothing.", rel)
 		}
 		return nil

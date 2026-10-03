@@ -17,7 +17,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Wire error codes (HDTP §12).
@@ -207,7 +207,7 @@ func (p Proof) vet(card string) (Card, error) {
 	if pc.Key != p.Fingerprint {
 		return Card{}, fmt.Errorf("%w: the card names another root than the chain proved", ErrIdentityRequired)
 	}
-	// Unconditional. These two sat inside `if p.Protocol == 2`, so a Proof without the flag —
+	// Unconditional. These two sat behind a flag on the Proof, so a Proof without it —
 	// a key and a fingerprint and nothing else — skipped both the binding of the card to the
 	// proven leaf and the address guard. Nothing in production built one; nothing stopped it.
 	if !bytes.Equal(pc.Cert, p.Leaf) {
@@ -440,7 +440,7 @@ func (m *Manager) ContactRejected(ctx context.Context, accountID, callerFpr stri
 // must carry the leaf the pin now holds.
 //
 // It used to be "verified key rotation": a new card's fingerprint signed by the old
-// pinned key. That was 1.x, where the identity WAS a key and so a key change had to
+// pinned key. That was when the identity WAS a key, and so a key change had to
 // be provable. A root does not change, so there is nothing left to prove here.
 func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard string) error {
 	c, err := m.Store.GetContact(ctx, accountID, oldFpr)
@@ -476,7 +476,7 @@ func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string
 	if err != nil {
 		return fmt.Errorf("%w", ErrUnknownContact)
 	}
-	// HDTP §5.3 "after a removal": a 2.0 root that removed us and returns with a
+	// HDTP §5.3 "after a removal": a root that removed us and returns with a
 	// newer leaf inside 30 days is asked about, whatever the setting says — a
 	// host being left could otherwise erase the person's contacts on its way out.
 	if len(c.Leaf) > 0 {

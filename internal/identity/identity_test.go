@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // loadFixture parses a committed PKCS#8 PEM and its openssl-computed fingerprint.

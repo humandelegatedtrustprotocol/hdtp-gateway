@@ -9,7 +9,7 @@ with no platform in the middle deciding who may talk to whom.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
-[![Protocol](https://img.shields.io/badge/protocol-HDTP%202.0-5b47b3)](https://github.com/humandelegatedtrustprotocol/hdtp-spec)
+[![Protocol](https://img.shields.io/badge/protocol-HDTP%201.0-5b47b3)](https://github.com/humandelegatedtrustprotocol/hdtp-spec)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
@@ -67,11 +67,11 @@ Sharing your agent's address is sharing a contact.
 
 ![Your card: a vCard carrying the HDTP certificate and seal policy](docs/images/card.png)
 
-`X-PACT-CERT` is one certificate — the **leaf** your own root issued this host —
+`X-HDTP-CERT` is one certificate — the **leaf** your own root issued this host —
 and it carries everything: where to reach you, the key to seal to, the
 fingerprint of the root that is your identity, and how long it is good for. What
 a contact pins is that root, never the host's key, which is what lets you change
-hosts without changing who you are. `X-PACT-SEAL` says whether to seal. That is
+hosts without changing who you are. `X-HDTP-SEAL` says whether to seal. That is
 the whole address book.
 
 ---
@@ -83,7 +83,7 @@ SSH access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md
 
 ```
 make identity-proxy     # fetch the identity module on this machine, for the image build
-make limitd-vendor      # and the limits sidecar's crates, which include the identity's pact-limits
+make limitd-vendor      # and the limits sidecar's crates, which include the identity's hdtp-limits
 docker compose up -d    # the node and its limits sidecar (SPEC §5.7)
 docker compose logs hdtp-gateway | grep -A2 "setup"
 ```
@@ -223,12 +223,12 @@ The root never comes to this node, and nothing here can make one: losing the vau
 passphrase is losing that identity.
 
 **A web wallet, from the portal.** Once an identity has its first leaf, *Identity → Sign with my
-web wallet* asks a web wallet (`HDTP_WALLET_URL`, batondeck's ceremony page by default) for the
+web wallet* asks a web wallet (`HDTP_WALLET_URL`, `https://ceremony.hdtp.io` by default) for the
 next one: a renewal, or a move when the address changes. The page shows what it will ask and
 changes nothing until you continue; a request already waiting is replaced only if you confirm it.
 The wallet sends its answer back to this node's `/wallet/return` in the same browser, and the
 portal installs it with your session. This is the node's side of it. The wallet's `/sign` page is
-batondeck's and is not live yet, and how browsers treat a public page sending you back to
+BatonDeck's and is not live yet, and how browsers treat a public page sending you back to
 `http://localhost` has not been measured, so until both are, use the `hdtp` CLI.
 
 **After a move.** When an install moves the identity to a new address, both the CLI and the portal
@@ -361,8 +361,8 @@ with the store's conformance suite run on **both** storage engines, and a fuzz
 target, run under `-fuzz` by `make fuzz` in the pre-push gate, on everything this code parses from untrusted
 input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 `FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
-every push. [SECURITY.md](https://github.com/humandelegatedtrustprotocol/.github/blob/main/SECURITY.md) states plainly what is and
-is not hardened yet.
+every push. Nothing here has had independent cryptographic review:
+[`docs/threat-model.md`](docs/threat-model.md) says so, and says what is out of scope.
 
 **A harness that builds the world.** 23 live scenarios stand the real binary up
 in containers and drive it as a person would:
@@ -423,7 +423,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | [`docs/harness-design.md`](docs/harness-design.md) | The scenario harness and what each topology proves |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and what a change must carry |
 | [`RELEASING.md`](RELEASING.md) | Cutting a release, and how to verify one you downloaded |
-| [`SECURITY.md`](https://github.com/humandelegatedtrustprotocol/.github/blob/main/SECURITY.md) | Report a vulnerability privately — never as an issue |
+| [`SUPPORT.md`](SUPPORT.md) | Where to ask, and how to report a vulnerability privately (security@hdtp.io) — never as an issue |
 
 ## Honest trade-offs
 

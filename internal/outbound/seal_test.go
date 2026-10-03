@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// testIdentity is a 2.0 identity for a test: a root, a leaf naming an endpoint,
+// testIdentity is a identity for a test: a root, a leaf naming an endpoint,
 // and the leaf's key as the node's keypair with the chain attached.
 type testIdentity struct {
 	root     *hdtpidentity.PrivateKey
@@ -63,7 +63,7 @@ func (i *testIdentity) peerOf() Peer {
 }
 
 // TestChainAsServerCertificateValidatesToThePinnedRoot: HDTP §2 server side —
-// a 2.0 node presents its own chain; a caller validates it to the root it
+// a node presents its own chain; a caller validates it to the root it
 // pinned at the address it dialed, refuses another root, refuses another
 // address, and refuses a pin that names a leaf key rather than a root.
 func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
@@ -97,8 +97,8 @@ func TestChainAsServerCertificateValidatesToThePinnedRoot(t *testing.T) {
 	if err := dial(elsewhere); err == nil {
 		t.Fatal("a chain naming another address must be refused (HDTP §14.2 rule 5)")
 	}
-	// And the LEAF's key is not the identity. The retired generation recognised a server by the
-	// key of the certificate it presented; under 2.0 the identity is the root. So a pin that
+	// And the LEAF's key is not the identity. A server used to be recognised by the
+	// key of the certificate it presented; under HDTP the identity is the root. So a pin that
 	// names the leaf key's fingerprint where the root belongs is a pin of somebody who does not
 	// exist: the chain does not validate to it, the chain is not publicly trusted either, and
 	// the dial fails. A test here once asserted the opposite, and passed, which is how a rule

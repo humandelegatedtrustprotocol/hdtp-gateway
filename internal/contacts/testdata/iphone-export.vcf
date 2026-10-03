@@ -7,9 +7,8 @@ TEL;type=CELL;type=VOICE;type=pref:+91 98x xx xx xxx
 EMAIL;type=INTERNET;type=HOME;type=pref:alina@example.com
 item1.URL;type=pref:https://alina.example
 item1.X-ABLabel:_$!<HomePage>!$_
-X-PACT-VERSION:1
-X-PACT-ENDPOINT:https://agent.alina.example
+X-HDTP-VERSION:1
+X-HDTP-FUTURE:https://agent.alina.example
  /mcp
-X-PACT-KEY:sha256:rAGyIJ6GNU-4UyN7XeD0-rE8f8v0M6YcAZNpYX_s8Qs
-X-PACT-SEAL:required
+X-HDTP-SEAL:required
 END:VCARD

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -29,7 +30,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 type env struct {
@@ -84,7 +85,7 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 	return e, accts
 }
 
-// peerFor is the 2.0 pin a test caller holds for an account this env serves, and
+// peerFor is the pin a test caller holds for an account this env serves, and
 // the dialer that reaches it.
 //
 // A server is recognised by the chain it presents, validated to the ROOT pinned
@@ -92,7 +93,7 @@ func newEnv(t testing.TB, slugs ...string) (*env, []store.Account) {
 // is the configured public URL, never the loopback the test listener is on. So
 // the caller dials the name and the resolver sends it to the listener, which is
 // what DNS does for a real caller. Pinning the node's leaf KEY instead used to
-// work; that was the key-pinned generation's rule, and it is gone.
+// work; that was the key-pinned rule, and it is gone.
 func (e *env) peerFor(acct store.Account, base string) (outbound.Peer, func(context.Context, string, string) (net.Conn, error)) {
 	e.t.Helper()
 	chain, err := e.idm.Chain(context.Background(), acct.ID)
@@ -219,7 +220,8 @@ func TestRoutingAndNotFound(t *testing.T) {
 	if code := status(t, c, base+"/mcp"); code != http.StatusNotFound {
 		t.Fatalf("/mcp on a two-account node: %d", code)
 	}
-	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay/mcp"} { // /relay/mcp is gone: it must 404 like any other unknown path
+	// The relay role's route is gone, and the name guard's retired list holds its path out of the tree.
+	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/"} {
 		if code := status(t, c, base+path); code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, code)
 		}
@@ -236,14 +238,16 @@ func TestRoutingAndNotFound(t *testing.T) {
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
-	// The page shows the signed card, so it shows the certificate the card carries. This used to
-	// require the string "X-PACT-KEY" on the page — a test pinning the retired vocabulary in front
-	// of a person, which is how "hash it to check it matches X-PACT-KEY" outlived the property.
-	if res.StatusCode != 200 || !strings.Contains(string(b), "X-PACT-CERT") {
+	// The page shows the signed card, so it shows the certificate the card carries — and it names
+	// no card property a card does not have. It used to tell a person to hash a key and compare it
+	// with a property that no card carried any more, and this test required that string.
+	if res.StatusCode != 200 || !strings.Contains(string(b), "X-HDTP-CERT") {
 		t.Fatalf("landing page: %d %s", res.StatusCode, firstLine(string(b)))
 	}
-	if strings.Contains(string(b), "X-PACT-KEY") {
-		t.Fatal("the landing page still speaks of X-PACT-KEY, which no card carries")
+	for _, name := range regexp.MustCompile(`X-HDTP-[A-Z]+`).FindAllString(string(b), -1) {
+		if name != "X-HDTP-VERSION" && name != "X-HDTP-CERT" && name != "X-HDTP-SEAL" {
+			t.Fatalf("the landing page speaks of %s, which no card carries", name)
+		}
 	}
 
 	// single-account node: the alias works
@@ -348,7 +352,7 @@ func TestStopReleasesThePort(t *testing.T) {
 	}
 	// The refusal cannot tell a wrong master key from a lost one, so it has to say both: what to
 	// supply if it is the first, and that the identities survive — with the way through — if it is
-	// the second. It used to say only "no account could be served", which under 2.0 reads as a
+	// the second. It used to say only "no account could be served", which under HDTP reads as a
 	// loss that has not happened: the identity is a root in a wallet.
 	for _, want := range []string{"HDTP_MASTER_KEY", "hdtp-gateway export", "hdtp-gateway import", "roots in wallets"} {
 		if !strings.Contains(err.Error(), want) {
@@ -523,7 +527,7 @@ func TestSetSealPersistsTheEffectiveValueNotTheRequestedOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(card, "X-PACT-SEAL:required") {
+	if !strings.Contains(card, "X-HDTP-SEAL:required") {
 		t.Fatalf("card disagrees with the gate:\n%s", card)
 	}
 }
@@ -1012,7 +1016,7 @@ func TestACardIsRefusedAsNoCertificateOnlyWhereThereIsNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card, err := n.Card(ctx, accts[0].ID); err != nil || !strings.Contains(card, "X-PACT-CERT:") {
+	if card, err := n.Card(ctx, accts[0].ID); err != nil || !strings.Contains(card, "X-HDTP-CERT:") {
 		t.Fatalf("the served identity's card: %q, %v", card, err)
 	}
 	bob, err := e.idm.CreateAccount(ctx, "bob", "BOB", identity.AlgoP256)

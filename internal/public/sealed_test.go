@@ -11,14 +11,14 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
-	hdtpidentity "github.com/pact-cloud/pact-identity/go"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // The `sealed_call` wrapper: what it is present at, what it lets through, what it
 // spends, and what it seals back.
 //
 // This replaces `sealed_test.go`, which proved the same nine things by building
-// `v: 1` envelopes. The wrapper's behaviour was never generation-specific — tier
+// an envelope that no longer exists. The wrapper's behaviour never depended on the envelope — tier
 // gating, replay, the guest budget and the seal policy are the same rules either
 // way — so the tests are the same tests over the envelope that still exists.
 

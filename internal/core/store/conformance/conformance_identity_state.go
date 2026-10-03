@@ -13,7 +13,7 @@ import (
 // identityState is the suite for the HDTP 1.0 state: the root, the leaf ledger and the side tables.
 func identityState(t *testing.T, newStore Factory) {
 	// HDTP 1.0: the root beside the account, the leaf ledger,
-	// 2.0 pins that move without the root moving, and the §5.3 side tables.
+	// pins that move without the root moving, and the §5.3 side tables.
 	t.Run("IdentityStateRoundTrips", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
@@ -45,7 +45,7 @@ func identityState(t *testing.T, newStore Factory) {
 		}
 		got, _ := s.GetAccountByID(ctx, a.ID)
 		if !got.HasRoot() || got.RootFingerprint != "sha256:root" || string(got.RootCert) != "root-der" || got.AcceptNewHosts != "ask" || got.Fingerprint != "sha256:leaf2" || got.Algo != "p256" {
-			t.Fatalf("2.0 account fields lost: %+v", got)
+			t.Fatalf("account fields lost: %+v", got)
 		}
 		if k, _ := s.GetAccountSealedKey(ctx, a.ID); string(k) != "sealed2" {
 			t.Fatalf("leaf key not moved: %q", k)
@@ -130,7 +130,7 @@ func identityState(t *testing.T, newStore Factory) {
 		if n, _ := s.DeleteLeavesByState(ctx, a.ID, "former"); n != 1 {
 			t.Fatalf("delete former: %d", n)
 		}
-		// A 2.0 pin: the fingerprint column is the root and never moves; the
+		// A pin: the fingerprint column is the root and never moves; the
 		// endpoint, the leaf and its key do (HDTP §14.3, §5.3).
 		c, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:peer-root", SPKI: []byte{1}, Status: "active",
 			Endpoint: "https://p.example/mcp", Leaf: []byte("pl1"), ChainSentKid: "sha256:leaf2"})
@@ -138,7 +138,7 @@ func identityState(t *testing.T, newStore Factory) {
 			t.Fatal(err)
 		}
 		if c.Endpoint != "https://p.example/mcp" || string(c.Leaf) != "pl1" || c.ChainSentKid != "sha256:leaf2" {
-			t.Fatalf("2.0 pin fields lost: %+v", c)
+			t.Fatalf("pin fields lost: %+v", c)
 		}
 		// The ROOT's certificate is kept beside the pin: the chain
 		// travels once, so a host that keeps only the fingerprint cannot prove a

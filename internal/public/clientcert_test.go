@@ -8,7 +8,7 @@ package public
 //
 // It was satisfied by ANY self-signed certificate. The facts middleware filled
 // `ClientCertFingerprint` from whatever single certificate arrived — a proof
-// only while the identity IS a key, which is the generation removed on
+// only while the identity IS a key, which it stopped being on
 // 2026-09-18 — and the gate asked only that the field be non-empty. Two lines
 // of openssl walked through the hardened door.
 

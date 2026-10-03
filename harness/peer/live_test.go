@@ -47,8 +47,8 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	}
 	// An account is nobody until a wallet has signed it a leaf (HDTP §2): this one's owner is
 	// played by the harness. Until that happens the node has no certificate to present, and
-	// every dial ends `tls: internal error` — which is what this test did from the day 1.x
-	// went until 2026-09-19, skipped, because HDTP_HARNESS_LIVE is not set by any hook.
+	// every dial ends `tls: internal error` — which is what this test did from the day key-pinned
+	// identities went until 2026-09-19, skipped, because HDTP_HARNESS_LIVE is not set by any hook.
 	_, pin, err := topology.Certify(ctx, f, node, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestLiveGuestTierSurfaceOverRealMTLS(t *testing.T) {
 	got := strings.Join(names, ",")
 	// SPEC §6.2 guest tier is redeem_invite + request_contact; §13's sealed
 	// addendum adds sealed_call "at every tier", so a node advertising
-	// X-PACT-SEAL offers three. An earlier version of this test asserted the 1.0
+	// X-HDTP-SEAL offers three. An earlier version of this test asserted the 1.0
 	// count of two and failed — the test was wrong, not the node.
 	for _, want := range []string{"redeem_invite", "request_contact", "sealed_call"} {
 		if !strings.Contains(got, want) {
