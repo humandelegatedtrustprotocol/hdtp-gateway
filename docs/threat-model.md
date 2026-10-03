@@ -7,6 +7,9 @@ tests that hold each claim. The protocol it implements is HDTP 1.0: the
 person's self-signed root is the identity, the host holds a leaf that root
 issued it, and a chain is what proves anything.
 
+Read it with the hardening-status table, which says what has **not** been done yet. The table is
+"Current hardening status" in the SECURITY.md of the workspace repository that holds this node
+(tech-sumit/hdtp-workspace, private), not in this repository.
 Nothing here has had independent cryptographic review.
 [`crypto-review-brief.md`](crypto-review-brief.md) states the construction and the questions a
 reviewer is asked, and [`SECURITY.md`](../SECURITY.md) says where a finding is reported.
