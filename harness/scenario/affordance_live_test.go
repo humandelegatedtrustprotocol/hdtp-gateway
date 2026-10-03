@@ -47,7 +47,8 @@ func TestPortalOffersEveryAffordanceAnOwnerNeeds(t *testing.T) {
 	base := p.Portal.Base
 	see := func(path string) portal.Page {
 		t.Helper()
-		pg, err := br.Rendered(ctx, base+path)
+		// A form folded behind its heading is offered: the person opens it (RenderedOpen).
+		pg, err := br.RenderedOpen(ctx, base+path)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}

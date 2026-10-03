@@ -236,11 +236,29 @@ type Page struct {
 // asserted on the drawn page or not at all — fetching the HTML and looking for a form asserts on
 // a document no browser ever shows anybody.
 func (s *Session) Rendered(ctx context.Context, url string) (Page, error) {
+	return s.rendered(ctx, url, false)
+}
+
+// RenderedOpen is Rendered after the person has opened every collapsed section on the page.
+//
+// The portal puts a page's lists before its forms and keeps a form collapsed behind its heading
+// (a `<details>` whose `<summary>` is the heading) once there is a list to show: "Create an
+// invite" is folded away as soon as one invite exists. A control in a closed section is not
+// drawn, so Rendered does not see it, and is right not to. It is still offered: one click on a
+// heading the page shows. This opens each closed section the way a person does, by clicking its
+// summary, and then reads the page; a control the page does not draw even then is still missing.
+func (s *Session) RenderedOpen(ctx context.Context, url string) (Page, error) {
+	return s.rendered(ctx, url, true)
+}
+
+func (s *Session) rendered(ctx context.Context, url string, openSections bool) (Page, error) {
 	runCtx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
 	defer cancel()
 	var page Page
 	const read = `(() => {
-		const label = (e) => (e.innerText || e.value || e.getAttribute("aria-label") || e.getAttribute("placeholder") || e.getAttribute("name") || "").trim();
+		// A control's name as assistive technology reads it: aria-label first (it replaces the
+		// visible text: an icon button's "Remove" is "Remove probe"), then what it shows.
+		const label = (e) => (e.getAttribute("aria-label") || e.innerText || e.value || e.getAttribute("placeholder") || e.getAttribute("name") || "").trim();
 		return {
 			text: document.body.innerText,
 			links: [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")),
@@ -260,6 +278,22 @@ func (s *Session) Rendered(ctx context.Context, url string) (Page, error) {
 					return false, err
 				}
 				return !loading, nil
+			})
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if !openSections {
+				return nil
+			}
+			var opened int
+			if err := chromedp.Evaluate(`(() => { const closed = [...document.querySelectorAll("details:not([open]) > summary")]; closed.forEach((s) => s.click()); return closed.length; })()`, &opened).Do(ctx); err != nil {
+				return err
+			}
+			// Clicking a summary toggles its section; a section that did not open would leave its
+			// controls undrawn, and the read below would report them missing, which is the truth.
+			return until(ctx, 5*time.Second, 50*time.Millisecond, "the opened sections to draw", func(ctx context.Context) (bool, error) {
+				var still int
+				err := chromedp.Evaluate(`document.querySelectorAll("details:not([open]) > summary").length`, &still).Do(ctx)
+				return still == 0, err
 			})
 		}),
 		chromedp.Evaluate(read, &page),
