@@ -18,7 +18,7 @@ import (
 // which do not exist in a clone of it.
 func TestRelativeLinksInTheDocsResolve(t *testing.T) {
 	root := repoRoot(t)
-	docs := []string{"README.md", "RELEASING.md", "SPEC.md", "CONTRIBUTING.md", "SUPPORT.md", "CHANGELOG.md"}
+	docs := []string{"README.md", "RELEASING.md", "SPEC.md", "CONTRIBUTING.md", "SUPPORT.md", "SECURITY.md", "CHANGELOG.md"}
 	more, _ := filepath.Glob(filepath.Join(root, "docs", "*.md"))
 	for _, m := range more {
 		rel, _ := filepath.Rel(root, m)

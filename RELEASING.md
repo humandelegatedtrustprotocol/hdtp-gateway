@@ -56,4 +56,5 @@ maintainer's machine, so nothing binds a binary to a hosted build. A matching re
 is the check. And a matching rebuild says only that the artifact matches this
 repository at that commit — nothing about whether the code is correct or the design
 sound. Nothing here has had independent cryptographic review
-([`docs/threat-model.md`](docs/threat-model.md)).
+([`docs/threat-model.md`](docs/threat-model.md)); a vulnerability is reported as
+[`SECURITY.md`](SECURITY.md) says.

@@ -363,6 +363,7 @@ input — `FuzzSealedEnvelope` (an envelope's decode and the whole open),
 `FuzzVCardParse`, `FuzzInviteOffer` and `FuzzRedact` — plus `govulncheck` on
 every push. Nothing here has had independent cryptographic review:
 [`docs/threat-model.md`](docs/threat-model.md) says so, and says what is out of scope.
+[`SECURITY.md`](SECURITY.md) says how to report a vulnerability.
 
 **A harness that builds the world.** 23 live scenarios stand the real binary up
 in containers and drive it as a person would:
@@ -423,7 +424,7 @@ doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 | [`docs/harness-design.md`](docs/harness-design.md) | The scenario harness and what each topology proves |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and what a change must carry |
 | [`RELEASING.md`](RELEASING.md) | Cutting a release, and how to verify one you downloaded |
-| [`SUPPORT.md`](SUPPORT.md) | Where to ask, and how to report a vulnerability privately (security@hdtp.io) — never as an issue |
+| [`SECURITY.md`](SECURITY.md) | Report a vulnerability privately — never as an issue |
 
 ## Honest trade-offs
 
