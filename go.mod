@@ -3,6 +3,7 @@ module github.com/humandelegatedtrustprotocol/hdtp-gateway
 go 1.26.6
 
 require (
+	filippo.io/edwards25519 v1.2.0
 	github.com/Shopify/toxiproxy/v2 v2.12.0
 	github.com/arran4/golang-ical v0.3.6
 	github.com/caddyserver/certmagic v0.25.4
@@ -31,7 +32,6 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
 	github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa // indirect

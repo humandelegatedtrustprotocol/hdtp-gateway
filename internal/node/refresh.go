@@ -22,7 +22,6 @@ package node
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -226,17 +225,8 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 	if !bytes.Equal(parsed.Cert, vr.Leaf.DER) {
 		return nil, fmt.Errorf("the card's certificate is not the leaf the chain proved")
 	}
-	signer := vr.LeafKey.SPKI
-	pub, err := x509.ParsePKIXPublicKey(signer)
-	if err != nil {
-		return nil, fmt.Errorf("the key to check this card under is unreadable")
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
-	if err != nil {
-		return nil, fmt.Errorf("signature is not base64url")
-	}
-	if !identity.VerifyBytes(pub, []byte(card), sig) {
-		return nil, fmt.Errorf("the card signature does not verify under the proven leaf key")
+	if err := identity.VerifyCardSig(vr.LeafKey.SPKI, card, sigB64); err != nil {
+		return nil, fmt.Errorf("under the proven leaf key: %v", err)
 	}
 	return renewed, nil
 }

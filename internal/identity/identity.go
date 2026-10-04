@@ -9,12 +9,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -118,17 +120,32 @@ func ParsePKCS8(der []byte) (*Keypair, error) {
 	return &kp, nil
 }
 
-// VerifyBytes checks a signature made by signBytes' conventions (ECDSA ASN.1
-// DER over SHA-256, or pure Ed25519) against a public key — the verifier side
-// of card signatures.
-func VerifyBytes(pub crypto.PublicKey, msg, sig []byte) bool {
-	switch pk := pub.(type) {
-	case *ecdsa.PublicKey:
-		sum := sha256.Sum256(msg)
-		return ecdsa.VerifyASN1(pk, sum[:], sig)
-	case ed25519.PublicKey:
-		return ed25519.Verify(pk, msg, sig)
-	default:
-		return false
+// VerifyCardSig checks a card's `card_sig` (HDTP §3) under the leaf key spki names: the one reader
+// of a card signature on this node, for both doors that read one (an invite's landing, a refreshed
+// `get_card`).
+//
+// The signature is unpadded base64url and read strictly: no padding, no `+` or `/`, no spare low
+// bits in the last character, no line break (encoding/base64 skips CR and LF even when strict, so
+// they are refused by hand). A second spelling of one signature is refused, as HDTP §13.1 says of an
+// envelope's members. It decoded with the non-strict reader, which took spare trailing bits.
+//
+// The key and the signature are checked by the identity core's VerifyDetached: an Ed25519 key or
+// R of small order is refused, as the core's Rust verify_strict refuses it. It verified with the
+// standard library's ed25519.Verify, which accepts them.
+func VerifyCardSig(spki []byte, card, sigB64 string) error {
+	if strings.ContainsAny(sigB64, "\r\n") {
+		return errors.New("card_sig is not unpadded base64url")
 	}
+	sig, err := base64.RawURLEncoding.Strict().DecodeString(sigB64)
+	if err != nil || len(sig) == 0 {
+		return errors.New("card_sig is not unpadded base64url")
+	}
+	pub, err := hdtpidentity.ParseSPKI(spki)
+	if err != nil {
+		return fmt.Errorf("the key to check the card under is unreadable: %v", err)
+	}
+	if !hdtpidentity.VerifyDetached(pub, []byte(card), sig) {
+		return errors.New("the card signature does not verify")
+	}
+	return nil
 }
