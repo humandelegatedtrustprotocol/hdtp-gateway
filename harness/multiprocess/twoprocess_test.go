@@ -134,8 +134,12 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := hdtpidentity.Parse(rootCert)
+	if err != nil {
+		t.Fatal(err)
+	}
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI},
+		Root: root, RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {

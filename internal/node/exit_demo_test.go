@@ -25,6 +25,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -122,7 +123,7 @@ func (d *demoNode) contact(fpr string) store.Contact {
 func (d *demoNode) issue(csr identity.CSRResult, days int, now time.Time) [][]byte {
 	d.t.Helper()
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: d.acct.DisplayName, RootKey: d.root, RootSPKIs: [][]byte{d.root.Public().SPKI},
+		Root: testid.Root(d.t, d.rc), RootKey: d.root, RootSPKIs: [][]byte{d.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
 	if err != nil {
