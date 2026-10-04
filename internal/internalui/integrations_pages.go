@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
@@ -47,6 +48,11 @@ type IntegrationsDeps struct {
 func checkIntegration(slug, transport, endpoint, command string) error {
 	if slug == "" {
 		return fmt.Errorf("give it a name (slug), so you can tell it apart from the others")
+	}
+	// The slug is what its permission, integration.<slug>, names (HDTP §8). One that permission
+	// cannot spell was created and then could never be granted to a contact.
+	if !contacts.ValidIntegrationSlug(slug) {
+		return fmt.Errorf("the name (slug) is lowercase letters, digits and hyphens, starting with a letter or digit, 63 characters at most")
 	}
 	switch transport {
 	case "streamable-http", "sse":

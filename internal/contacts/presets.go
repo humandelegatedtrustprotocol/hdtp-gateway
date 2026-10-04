@@ -160,10 +160,22 @@ var AllPermissions = []string{
 	"message.text", "message.media", "status.view", "calendar.availability", "calendar.book",
 }
 
+// integrationSlug is the one rule for an integration's slug (HDTP §8: one switch per integration):
+// what its permission `integration.<slug>` admits — a lowercase letter or digit, then letters,
+// digits and hyphens, 63 characters at most. An integration is refused at creation when its slug
+// does not match (ValidIntegrationSlug), so every slug a row holds can be granted, and the tool
+// name `snake(slug_tool)` and the permission spell one slug.
+const integrationSlug = `[a-z0-9][a-z0-9-]{0,62}`
+
+var integrationSlugRule = regexp.MustCompile(`^` + integrationSlug + `$`)
+
+// ValidIntegrationSlug says whether slug is one an integration may be created under.
+func ValidIntegrationSlug(slug string) bool { return integrationSlugRule.MatchString(slug) }
+
 // integrationGrant is an integration's permission name as a grant carries it: `integration.` and a
 // slug, and only a slug — no dot, no wildcard, so no grant can name them all (batondeck's
 // isIntegrationPermission, the same expression).
-var integrationGrant = regexp.MustCompile(`^integration\.[a-z0-9][a-z0-9-]{0,62}$`)
+var integrationGrant = regexp.MustCompile(`^integration\.` + integrationSlug + `$`)
 
 // TheirPermissions is what a peer says it granted us (contact_accepted, HDTP §6.2), as this node
 // records it: only what a grant can be — HDTP §8's names (AllPermissions) and integration.<slug> —
