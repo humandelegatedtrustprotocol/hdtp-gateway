@@ -103,7 +103,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	issue := func(csr []byte, prev *time.Time, k *hdtpidentity.PrivateKey, root []byte) string {
-		iss, err := hdtpidentity.IssueFromCSR(csr, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: k, RootSPKIs: [][]byte{k.Public().SPKI},
+		iss, err := hdtpidentity.IssueFromCSR(csr, hdtpidentity.IssueOpts{Root: testid.Root(t, root), RootKey: k, RootSPKIs: [][]byte{k.Public().SPKI},
 			Now: time.Now(), PreviousNotBefore: prev, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestTheWebWalletSigningRequestOnARunningNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
+		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, rootDER), RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 		if err != nil {
 			t.Fatal(err)
 		}

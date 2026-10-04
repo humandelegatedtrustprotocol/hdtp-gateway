@@ -11,6 +11,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -62,7 +63,7 @@ func TestAnInstallWhoseNodeCannotReloadIsInstalledWithAWarning(t *testing.T) {
 	key, _ := hdtpidentity.GenerateKey("ed25519")
 	now := time.Now()
 	root, _ := hdtpidentity.BuildRoot(hdtpidentity.RootOpts{CN: "Alina Rao", Key: key, NotBefore: now.Add(-time.Hour)})
-	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alina Rao", RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, root), RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI}, Now: now, ValidDays: 365})
 	if err != nil {
 		t.Fatal(err)
 	}

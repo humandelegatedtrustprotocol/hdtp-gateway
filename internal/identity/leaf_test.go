@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -35,7 +36,7 @@ func newWallet(t *testing.T, cn string) *wallet {
 func (w *wallet) issue(t *testing.T, csr CSRResult, now time.Time, days int) [][]byte {
 	t.Helper()
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now,
+		Root: testid.Root(t, w.root), RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: days,
 	})
 	if err != nil {
@@ -238,7 +239,7 @@ func TestInstallLeafRefusals(t *testing.T) {
 	}
 	// Longer than 398 days: rule 4.
 	csr4, _ := m.IssueCSR(ctx, a.ID, PurposeRenew, endpointA, now.Add(2*time.Hour))
-	if _, err := hdtpidentity.IssueFromCSR(csr4.CSR, hdtpidentity.IssueOpts{RootCN: "Alina Rao", RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now, ValidDays: 400}); err == nil {
+	if _, err := hdtpidentity.IssueFromCSR(csr4.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, w.root), RootKey: w.key, RootSPKIs: [][]byte{w.key.Public().SPKI}, Now: now, ValidDays: 400}); err == nil {
 		t.Fatal("the wallet issued a 400-day leaf")
 	}
 }

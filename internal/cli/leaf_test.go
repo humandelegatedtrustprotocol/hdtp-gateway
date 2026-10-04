@@ -47,7 +47,7 @@ func issueLeafFor(t *testing.T, idm *identity.Manager, a store.Account, publicUR
 		t.Fatalf("issueLeafFor: the node would not ask for a leaf: %v", err)
 	}
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: a.DisplayName, RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI},
+		Root: testid.Root(t, rootCert), RootKey: key, RootSPKIs: [][]byte{key.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {
