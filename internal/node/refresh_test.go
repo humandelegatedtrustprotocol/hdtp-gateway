@@ -3,7 +3,6 @@ package node
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
 	"encoding/base64"
 	"path/filepath"
 	"testing"
@@ -150,15 +149,7 @@ func TestARefreshLearnsARenewalAndNeverAnAddress(t *testing.T) {
 	// And the proof that this case really was broken, kept so it cannot quietly return: the
 	// old decision verified the card under the PINNED leaf key, and a renewal's card is
 	// signed by the fresh one. That check fails — which is the refusal H17 describes.
-	pinnedPub, err := x509.ParsePKIXPublicKey(pin.SPKI)
-	if err != nil {
-		t.Fatal(err)
-	}
-	renewSig, err := base64.RawURLEncoding.DecodeString(sign(fresh, renewCard))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if identity.VerifyBytes(pinnedPub, []byte(renewCard), renewSig) {
+	if identity.VerifyCardSig(pin.SPKI, renewCard, sign(fresh, renewCard)) == nil {
 		t.Fatal("a renewal's card verified under the superseded key, so this test proves nothing")
 	}
 

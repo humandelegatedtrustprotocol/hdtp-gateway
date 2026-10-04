@@ -12,8 +12,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,16 +174,8 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	// three members and that is not one of them, so demanding it made every invite from a
 	// spec-exact issuer unredeemable here.
 	spki = v.LeafKey.SPKI
-	pub, err := x509.ParsePKIXPublicKey(spki)
-	if err != nil {
-		return card, nil, nil, fmt.Errorf("the invite's key is unreadable")
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(off.CardSig)
-	if err != nil || len(sig) == 0 {
-		return card, nil, nil, fmt.Errorf("the invite's card is not signed")
-	}
-	if !identity.VerifyBytes(pub, []byte(off.Card), sig) {
-		return card, nil, nil, fmt.Errorf("the invite's card signature does not verify")
+	if err := identity.VerifyCardSig(spki, off.Card, off.CardSig); err != nil {
+		return card, nil, nil, fmt.Errorf("the invite's card: %v", err)
 	}
 	return card, spki, chain[1], nil
 }
