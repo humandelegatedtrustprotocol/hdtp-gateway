@@ -476,18 +476,24 @@ func (m *Manager) RemoveContact(ctx context.Context, accountID, callerFpr string
 	if err != nil {
 		return fmt.Errorf("%w", ErrUnknownContact)
 	}
-	// HDTP §5.3 "after a removal": a root that removed us and returns with a
-	// newer leaf inside 30 days is asked about, whatever the setting says — a
-	// host being left could otherwise erase the person's contacts on its way out.
-	if len(c.Leaf) > 0 {
-		if err := m.Store.UpsertTombstone(ctx, store.Tombstone{AccountID: accountID, Root: callerFpr, Leaf: c.Leaf, At: m.now().Unix()}); err != nil {
-			return err
-		}
+	if err := m.tombstone(ctx, accountID, c); err != nil {
+		return err
 	}
 	// Status flip to blocked would be silent demotion; removal is the peer-visible
 	// path — the row goes away entirely so re-adding starts fresh (SPEC §9.1:
 	// `active --> none`, "unpins that caller").
 	return m.Store.DeleteContact(ctx, accountID, callerFpr)
+}
+
+// tombstone records a removal, whichever side removed (HDTP §5.3 "after a removal"): a root that
+// returns with a newer leaf inside 30 days is asked about, whatever the setting says — a host
+// being left could otherwise erase the person's contacts on its way out. The removed row's leaf is
+// kept with it; a row that never held a leaf has nothing to compare a return against.
+func (m *Manager) tombstone(ctx context.Context, accountID string, c store.Contact) error {
+	if len(c.Leaf) == 0 {
+		return nil
+	}
+	return m.Store.UpsertTombstone(ctx, store.Tombstone{AccountID: accountID, Root: c.Fingerprint, Leaf: c.Leaf, At: m.now().Unix()})
 }
 
 // DecideAddress is the owner's answer to a contact waiting at a new address
