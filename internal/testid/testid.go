@@ -150,3 +150,14 @@ func DER(t testing.TB, s string) []byte {
 	}
 	return b
 }
+
+// Root is a root certificate as the identity core reads one, for a wallet's IssueOpts.Root (the
+// core issues under the certificate since 0.6.0, so a leaf can end with its root).
+func Root(t testing.TB, der []byte) *hdtpidentity.Cert {
+	t.Helper()
+	c, err := hdtpidentity.Parse(der)
+	if err != nil {
+		t.Fatalf("testid: root certificate: %v", err)
+	}
+	return c
+}

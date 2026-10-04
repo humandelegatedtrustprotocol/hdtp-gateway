@@ -16,6 +16,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -136,7 +137,7 @@ func (e *recvEnv) install(t testing.TB, purpose, endpoint string) {
 		t.Fatal(err)
 	}
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: "Me", RootKey: e.root.key, RootSPKIs: [][]byte{e.root.key.Public().SPKI}, Now: e.nowAt,
+		Root: testid.Root(t, e.root.cert), RootKey: e.root.key, RootSPKIs: [][]byte{e.root.key.Public().SPKI}, Now: e.nowAt,
 		PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {

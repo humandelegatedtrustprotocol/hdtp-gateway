@@ -30,6 +30,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -142,7 +143,7 @@ func (e *env) issueLeaf(a store.Account) {
 		e.t.Fatal(err)
 	}
 	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{
-		RootCN: "Test Owner", RootKey: e.root, RootSPKIs: [][]byte{e.root.Public().SPKI},
+		Root: testid.Root(e.t, e.rootCert), RootKey: e.root, RootSPKIs: [][]byte{e.root.Public().SPKI},
 		Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365,
 	})
 	if err != nil {

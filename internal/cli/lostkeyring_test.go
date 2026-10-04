@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -37,7 +38,7 @@ func TestALostMasterKeyCostsALeafNotTheIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s request: %v", purpose, err)
 		}
-		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{RootCN: "Alice", RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI}, Now: at, ValidDays: 200})
+		iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, rootCert), RootKey: rootKey, RootSPKIs: [][]byte{rootKey.Public().SPKI}, Now: at, ValidDays: 200})
 		if err != nil {
 			t.Fatal(err)
 		}
