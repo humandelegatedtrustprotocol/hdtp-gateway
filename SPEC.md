@@ -566,7 +566,7 @@ An integration is an upstream MCP server the owner connects to their node: a cal
 
 | Field | Meaning |
 |---|---|
-| `slug` | Stable identifier chosen at creation: a lowercase letter or digit, then lowercase letters, digits and hyphens, 63 characters at most (`[a-z0-9][a-z0-9-]{0,62}`, the rule its permission admits), refused at creation otherwise (`contacts.ValidIntegrationSlug`). It prefixes exposed tool names (§6.5) and names the permission `integration.<slug>`; it MUST NOT change after creation. |
+| `slug` | Stable identifier chosen at creation: a lowercase letter or digit, then lowercase letters, digits and hyphens, 2 to 32 characters (`[a-z0-9][a-z0-9-]{1,31}`, the rule both hosts create under; every such slug is one its permission admits), refused at creation otherwise (`contacts.ValidIntegrationSlug`). It prefixes exposed tool names (§6.5) and names the permission `integration.<slug>`; it MUST NOT change after creation. |
 | `transport` | `streamable-http` \| `sse` \| `stdio-supervised` |
 | `endpoint` / `command` | URL for the HTTP transports; the command line (plus environment) for `stdio-supervised` |
 | `auth` | `none` \| `static` (owner-supplied header credential) \| `oauth` (§6.3) |
@@ -893,7 +893,7 @@ Relationship state selects the serving tier — which of the per-caller MCP serv
 
 An unanswered request expires after **30 days** by default, configurable per account from 1 to 365 days (Settings · Storage & retention), returning the relationship to `none` — a `pending_in` request nobody decided, and equally a `pending_out` request of ours nobody answered (HDTP §5 `pending_out --> none : expired`). The window runs from when the request was made (`contacts.requested_at`), not from when the contact was first known — a contact the handshake after an import turns into a request waits the whole window from that moment. The hourly sweep removes them and audits each (`contact_expire`); whoever asked may ask again.
 
-**What a peer granted us** arrives with its `contact_accepted` (HDTP §6.2) and is recorded filtered: only what a grant can be — HDTP §8's names and `integration.<slug>`, the slug by the rule an integration is created under (`[a-z0-9][a-z0-9-]{0,62}`: no dot, no wildcard; §6) — each once, in the order given (`contacts.TheirPermissions`).
+**What a peer granted us** arrives with its `contact_accepted` (HDTP §6.2) and is recorded filtered: only what a grant can be — HDTP §8's names and `integration.<slug>`, the slug as a grant may carry it (`[a-z0-9][a-z0-9-]{0,62}`: no dot, no wildcard; wider than the 2 to 32 characters an integration is created under, §6, because it reads what a peer's host granted) — each once, in the order given (`contacts.TheirPermissions`).
 
 **Approving and rejecting** tell the requester, best-effort and within a few seconds: approval calls their `contact_accepted` with our card and the permissions the row now grants them — the preset the owner chose, or, with none chosen, the grant the request already holds (an invite's) — and rejection calls their `contact_rejected`, which moves their row to `blocked`. Rejection is a demotion, not a deletion (HDTP §5.1): the requester's row becomes `blocked`, so a repeated request from that root is answered as a stranger's and never reaches the owner. Either decision stands if the peer cannot be reached; the owner is told that they were not.
 

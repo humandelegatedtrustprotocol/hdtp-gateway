@@ -52,7 +52,7 @@ func checkIntegration(slug, transport, endpoint, command string) error {
 	// The slug is what its permission, integration.<slug>, names (HDTP §8). One that permission
 	// cannot spell was created and then could never be granted to a contact.
 	if !contacts.ValidIntegrationSlug(slug) {
-		return fmt.Errorf("the name (slug) is lowercase letters, digits and hyphens, starting with a letter or digit, 63 characters at most")
+		return fmt.Errorf("the name (slug) is lowercase letters, digits and hyphens, starting with a letter or digit, 2 to 32 characters")
 	}
 	switch transport {
 	case "streamable-http", "sse":
