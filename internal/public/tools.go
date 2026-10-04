@@ -383,17 +383,22 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 				return toolErr("unavailable"), nil
 			}
 			switch status {
-			case "blocked":
-				// SPEC §9.1: blocked MUST be indistinguishable from never-met.
-				// The stranger's answer is returned verbatim and nothing is
-				// recorded toward the owner; only the audit log knows.
-				d.audit("request_contact", "caller:"+fpr, "blocked_silent")
-				return toolOK(map[string]string{"status": "pending"})
+			case "":
 			case "pending_in":
 				// A repeat while the owner is still deciding is its own code and
 				// creates no duplicate request (SPEC §9.1, HDTP §12).
 				d.audit("request_contact", "caller:"+fpr, "pending_approval")
 				return toolErr("pending_approval"), nil
+			default:
+				// Any other row this account holds: blocked, or an active or pending_out contact the
+				// node served at the guest tier because the leaf that signed is older than the one it
+				// holds (HDTP §14.3). HDTP §5: such a caller hears exactly what a stranger hears, and
+				// nothing is recorded toward the owner; only the audit log knows. The same rule
+				// RedeemAs applies to a held row, and the cloud's request_contact
+				// (batondeck src/identity/tools.ts). An active row here was answered `bad_request`
+				// "already known", which told a demoted caller it is known.
+				d.audit("request_contact", "caller:"+fpr, "blocked_silent")
+				return toolOK(map[string]string{"status": "pending"})
 			}
 			code := domainCode(err)
 			d.audit("request_contact", "caller:"+fpr+" "+why(err), code)

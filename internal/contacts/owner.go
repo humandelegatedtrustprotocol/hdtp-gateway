@@ -268,6 +268,12 @@ func (o Owner) Remove(ctx context.Context, accountID, fpr string) (Decision, err
 		}
 		tell(ctx, &d, call)
 	}
+	// The owner's removal is tombstoned as the peer's is (RemoveContact): the receiver keeps the
+	// removed root for 30 days (HDTP §5.3), whoever ended it. As the cloud does
+	// (batondeck src/identity/identity.ts removeContact).
+	if err := o.Manager.tombstone(ctx, accountID, c); err != nil {
+		return Decision{}, err
+	}
 	if err := o.Manager.Store.DeleteContact(ctx, accountID, fpr); err != nil {
 		return Decision{}, err
 	}
