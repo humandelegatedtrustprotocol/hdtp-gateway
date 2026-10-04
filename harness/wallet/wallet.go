@@ -116,8 +116,14 @@ func (w *Wallet) certify(ctx context.Context, n Node, slug, purpose, endpoint st
 		// is set 23 hours before notAfter.
 		now, days = notAfter.Add(-23*time.Hour), 1
 	}
+	// The core issues under the root CERTIFICATE (hdtp-identity 0.6.0): its name, and its end date,
+	// which a leaf never outlives (SPEC §2.2).
+	root, err := hdtpidentity.Parse(w.RootDER)
+	if err != nil {
+		return Pin{}, fmt.Errorf("wallet: the root certificate: %w", err)
+	}
 	issued, err := hdtpidentity.IssueFromCSR(block.Bytes, hdtpidentity.IssueOpts{
-		RootCN: w.CN, RootKey: w.Key, RootSPKIs: [][]byte{w.Key.Public().SPKI},
+		Root: root, RootKey: w.Key, RootSPKIs: [][]byte{w.Key.Public().SPKI},
 		Now: now, PreviousNotBefore: previous, ValidDays: days,
 	})
 	if err != nil {
