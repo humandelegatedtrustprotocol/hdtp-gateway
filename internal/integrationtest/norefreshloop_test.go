@@ -42,6 +42,7 @@ func TestNothingRefreshesContactsByItself(t *testing.T) {
 		"internal/outbound/seal.go":    "on use: a sealed call that met an unknown kid asks for the renewed leaf (§14.4)",
 		"internal/node/contactcall.go": "the owner agent's call_contact allow-list and the tool list it shows",
 		"internal/public/tools.go":     "SERVING get_card to a contact, which is the other end of the wire",
+		"internal/core/toolnames.go":   "reserving the get_card NAME against an integration's tools; it calls nothing",
 	}
 	isRefresh := func(name string) bool { return name == "RefreshContact" || name == "refreshContact" }
 

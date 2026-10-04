@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
@@ -139,6 +140,11 @@ func (e *Exposures) Publish(ctx context.Context, integrationID string, entries [
 			en.ExposedName = SnakeName(in.Slug + "_" + en.Tool)
 		} else {
 			en.ExposedName = SnakeName(en.ExposedName)
+		}
+		// A mapped entry is exposed under the HDTP capability name it implements; every other entry
+		// sits beside the built-in tools and never takes one of their names (core.ReservedToolNames).
+		if en.Mode != ModeMapped && core.ReservedToolNames[en.ExposedName] {
+			return store.Exposure{}, fmt.Errorf("integrations: %q is a built-in tool's name and cannot be taken by an integration", en.ExposedName)
 		}
 		if seen[en.ExposedName] {
 			return store.Exposure{}, fmt.Errorf("integrations: exposed name %q is not unique", en.ExposedName)
