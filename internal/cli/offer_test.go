@@ -165,7 +165,7 @@ func TestVerifyOfferRefusals(t *testing.T) {
 		}, "the card's certificate"},
 		{"a card of a version this node does not speak", "the version is 1 and nothing else", func(o *inviteOffer) {
 			o.Card = strings.Replace(o.Card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1)
-		}, "names protocol version \"2\""},
+		}, "names a protocol version this node does not speak"},
 	} {
 		t.Run(tc.name+" is refused", func(t *testing.T) {
 			off := offerFor(t, p, "Alina Rao")

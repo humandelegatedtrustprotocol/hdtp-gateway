@@ -6,7 +6,9 @@ package contacts
 // parsing, and a parse failure yields an error, never a panic.
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -23,8 +25,9 @@ const (
 )
 
 // cardMajor is the one version a card may name here: the protocol's major (HDTP §3), as the
-// identity core writes it into every card it builds. TestValidateInbound holds this to a built
-// card: were the two to differ, the good card would be refused.
+// identity core reads it (DecodeCard answers it as Version). TestValidateInbound holds this to what
+// the core answers for a built card: were the two to differ, the refusal would name another version
+// than the one this node takes.
 const cardMajor = "1"
 
 // Card is the parsed view of a contact card.
@@ -144,24 +147,42 @@ func SealOf(card string, now time.Time) (string, error) {
 // intake refuses a card with no root or no address. An expired leaf is not a
 // refusal — the root and the endpoint are what a card is for. Unknown X-HDTP-*
 // properties pass untouched; that is how minors stay compatible.
+//
+// The card is read ONCE, by the identity core (hdtpidentity.DecodeCard), the reading every door of
+// the node and the cloud shares: its §3 "Reading a card" takes a certificate whose folding a paste
+// damaged (continuations without their leading space, blank lines between them). ParseCard read it
+// first here, and refused it before the core saw it: go-vcard drops a line with no colon, so the
+// certificate it handed over was cut, and `X-HDTP-CERT is not base64url`. Nothing on the result comes
+// from another parser: the name, the version, the seal, the certificate, the root and the endpoint
+// are the core's.
 func ValidateInbound(text string) (Card, error) {
-	c, err := ParseCard(text)
-	if err != nil {
-		return Card{}, err
-	}
-	if c.Version == "" {
-		return Card{}, fmt.Errorf("the card carries no X-HDTP-VERSION")
-	}
-	if c.Version != cardMajor {
-		return Card{}, fmt.Errorf("the card names protocol version %q; this node speaks %s only", c.Version, cardMajor)
-	}
 	dc, err := hdtpidentity.DecodeCard(text, time.Now())
 	if err != nil {
-		return Card{}, fmt.Errorf("the card's certificate: %v", err)
+		var ce hdtpidentity.CardError
+		if errors.As(err, &ce) {
+			switch ce.Why {
+			case "no X-HDTP-VERSION":
+				return Card{}, fmt.Errorf("the card carries no X-HDTP-VERSION")
+			case "version not implemented":
+				return Card{}, fmt.Errorf("the card names a protocol version this node does not speak; it speaks %s only", cardMajor)
+			}
+		}
+		return Card{}, fmt.Errorf("the card's certificate: %w", err)
 	}
-	c.Key, c.Endpoint, c.Cert = dc.Root, dc.Endpoint, dc.Cert
+	c := Card{
+		FN: displayName(dc.FN), Version: strconv.Itoa(dc.Version),
+		Key: dc.Root, Endpoint: dc.Endpoint, Cert: dc.Cert,
+	}
 	if dc.Seal != "none" {
 		c.Seal = dc.Seal
 	}
 	return c, nil
+}
+
+// CertificateUnreadable is whether ValidateInbound refused a card because its certificate does not
+// read: the refusal a person who pasted a card can act on, by sending the card's file or its invite
+// link, which no copy-and-paste can damage.
+func CertificateUnreadable(err error) bool {
+	var ce hdtpidentity.CardError
+	return errors.As(err, &ce) && strings.HasPrefix(ce.Why, "certificate does not parse")
 }
