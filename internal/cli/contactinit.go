@@ -427,6 +427,11 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	// nothing. With `ParseCard` this path refused every real card as having no key.
 	peerCard, err := contacts.ValidateInbound(peerCardText)
 	if err != nil {
+		// What the person can do about it, for the agent to relay: a card whose certificate is cut
+		// or changed was damaged in the copy, and its file or its invite link cannot be.
+		if contacts.CertificateUnreadable(err) {
+			return out, fmt.Errorf("that card cannot be pinned: %w; %s", err, contacts.CardUnreadableHint)
+		}
 		return out, fmt.Errorf("that card cannot be pinned: %w", err)
 	}
 	// **The key comes with the card now.** A card used to name a fingerprint and nothing more, so
