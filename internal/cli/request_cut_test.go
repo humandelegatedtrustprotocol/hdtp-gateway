@@ -49,9 +49,14 @@ func TestACutCardSaysWhatToDo(t *testing.T) {
 		t.Fatal("a card that did not read was asked")
 	}
 	// Another refusal does not carry the hint: it is not something a file or a link would fix.
-	_, err = ci.RequestContact(ctx, a.ID, strings.Replace(card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1), "")
-	if err == nil || strings.Contains(err.Error(), "invite link") {
-		t.Fatalf("a card of another version: %v", err)
+	for _, tc := range []struct{ what, text string }{
+		{"a card of another version", strings.Replace(card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1)},
+		{"a card with no certificate", testid.WithoutCert(t, card)},
+	} {
+		_, err = ci.RequestContact(ctx, a.ID, tc.text, "")
+		if err == nil || strings.Contains(err.Error(), "invite link") {
+			t.Fatalf("%s: %v", tc.what, err)
+		}
 	}
 
 	res, err := ci.RequestContact(ctx, a.ID, card, "")

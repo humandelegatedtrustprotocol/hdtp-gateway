@@ -41,9 +41,17 @@ func TestIntakeReadsACardByTheCoreAlone(t *testing.T) {
 	if err == nil || !CertificateUnreadable(err) || !strings.Contains(err.Error(), "the card's certificate") {
 		t.Errorf("a cut certificate: %v, unreadable %v", err, CertificateUnreadable(err))
 	}
-	// A refusal for anything else is not that one.
-	if _, err := ValidateInbound(strings.Replace(card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1)); err == nil || CertificateUnreadable(err) {
-		t.Errorf("a card of another version is not a certificate that does not read: %v", err)
+	// A refusal for anything else is not that one: another version, no certificate at all (a phone's
+	// export), or two of them — the last two refused by the core, as CardErrors, for what a file or a
+	// link would not fix.
+	for _, tc := range []struct{ what, text string }{
+		{"a card of another version", strings.Replace(card, "X-HDTP-VERSION:1", "X-HDTP-VERSION:2", 1)},
+		{"a card with no certificate", testid.WithoutCert(t, card)},
+		{"a card with two certificates", strings.Replace(card, "END:VCARD", "X-HDTP-CERT:"+b64+"\r\nEND:VCARD", 1)},
+	} {
+		if _, err := ValidateInbound(tc.text); err == nil || CertificateUnreadable(err) {
+			t.Errorf("%s is not a certificate that does not read: %v", tc.what, err)
+		}
 	}
 	// One character of the signature changed: intake reads another leaf, as it reads any card altered
 	// in transit; reading cannot find it, a card carrying no root (hdtp-identity's card_paste tests show

@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+// WithoutCert is the card with its X-HDTP-CERT property, and every continuation line of it, removed.
+func WithoutCert(t testing.TB, card string) string {
+	t.Helper()
+	var b strings.Builder
+	in := false
+	for _, line := range strings.SplitAfter(card, "\r\n") {
+		in = strings.HasPrefix(line, "X-HDTP-CERT:") || (in && strings.HasPrefix(line, " "))
+		if !in {
+			b.WriteString(line)
+		}
+	}
+	out := b.String()
+	if out == card || strings.Contains(out, "X-HDTP-CERT") {
+		t.Fatal("testid.WithoutCert: the card did not lose its certificate")
+	}
+	return out
+}
+
 // WithCert is the card with its certificate's value replaced by value, on one line.
 func WithCert(t testing.TB, card, value string) string {
 	t.Helper()
