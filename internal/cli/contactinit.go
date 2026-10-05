@@ -430,7 +430,7 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 		// What the person can do about it, for the agent to relay: a card whose certificate is cut
 		// or changed was damaged in the copy, and its file or its invite link cannot be.
 		if contacts.CertificateUnreadable(err) {
-			return out, fmt.Errorf("that card cannot be pinned: %w; the card's certificate is cut or changed, so send the card's file (.vcf) or its invite link instead of pasted text", err)
+			return out, fmt.Errorf("that card cannot be pinned: %w; %s", err, contacts.CardUnreadableHint)
 		}
 		return out, fmt.Errorf("that card cannot be pinned: %w", err)
 	}
