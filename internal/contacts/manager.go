@@ -544,8 +544,13 @@ func (m *Manager) DecideAddress(ctx context.Context, accountID, root string, app
 
 /* ----------------------------- card helpers ---------------------------- */
 
-// CardName extracts FN for display; "" on any parse failure.
+// CardName extracts FN for display; "" on any parse failure. A card the identity core reads is
+// named by the core's reading (ValidateInbound), so a card whose folding a paste damaged has its
+// name; one it refuses — a phone's export, which carries no certificate — by go-vcard's.
 func CardName(card string) string {
+	if c, err := ValidateInbound(card); err == nil {
+		return c.FN
+	}
 	c, err := ParseCard(card)
 	if err != nil {
 		return ""

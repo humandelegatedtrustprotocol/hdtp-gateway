@@ -141,18 +141,22 @@ func TestValidateInbound(t *testing.T) {
 	if strings.Contains(noCert.String(), "X-HDTP-CERT") || !strings.Contains(noCert.String(), versionLine+"X-HDTP-SEAL:") {
 		t.Fatalf("the card without its certificate is not the good card less one property:\n%s", noCert.String())
 	}
+	// cardMajor is the version the core reads off a built card, so the refusal names the one taken.
+	if c, err := ValidateInbound(good); err != nil || c.Version != cardMajor {
+		t.Fatalf("a built card reads as version %q (%v); this node names %s", c.Version, err, cardMajor)
+	}
 	for _, tc := range []struct {
 		name, card string
 		refused    string // what the refusal says; empty for a card that is taken
 	}{
 		{"a card", good, ""},
 		{"a card with an X- property it does not know", strings.Replace(good, "FN:P", "FN:P\r\nX-HDTP-FUTURE:whatever", 1), ""},
-		{"another major version", version("X-HDTP-VERSION:2\r\n"), `names protocol version "2"`},
-		{"a later major version", version("X-HDTP-VERSION:3\r\n"), `names protocol version "3"`},
-		{"a minor version: the property is the major and nothing else", version("X-HDTP-VERSION:1.3\r\n"), `names protocol version "1.3"`},
+		{"another major version", version("X-HDTP-VERSION:2\r\n"), "names a protocol version this node does not speak; it speaks " + cardMajor + " only"},
+		{"a later major version", version("X-HDTP-VERSION:3\r\n"), "names a protocol version this node does not speak"},
+		{"a minor version: the property is the major and nothing else", version("X-HDTP-VERSION:1.3\r\n"), "names a protocol version this node does not speak"},
 		{"no version at all", version(""), "carries no X-HDTP-VERSION"},
 		{"the right version and no certificate", noCert.String(), "the card's certificate"},
-		{"not a vcard at all", "hello", "vcard"},
+		{"not a vcard at all", "hello", "carries no X-HDTP-VERSION"},
 	} {
 		if tc.refused != "" && tc.card == good {
 			t.Fatalf("%s: the case changed nothing in the good card", tc.name)
