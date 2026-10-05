@@ -179,6 +179,12 @@ func ValidateInbound(text string) (Card, error) {
 	return c, nil
 }
 
+// CardUnreadableHint is what a person who handed over a card whose certificate does not read can do
+// about it: the card's file or its invite link, which no copy-and-paste can damage. BatonDeck's
+// requestContact says the same words (gateway/src/identity/card-hint.ts there), and that
+// repository's check-node-claims.mjs holds the two copies to each other.
+const CardUnreadableHint = "the card's certificate is cut or changed, so send the card's file (.vcf) or its invite link instead of pasted text"
+
 // CertificateUnreadable is whether ValidateInbound refused a card because its certificate does not
 // read: the refusal a person who pasted a card can act on, by sending the card's file or its invite
 // link, which no copy-and-paste can damage.
