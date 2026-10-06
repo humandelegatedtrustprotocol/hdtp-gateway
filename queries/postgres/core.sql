@@ -76,7 +76,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 -- name: LockAuditChain :exec
 -- The chain's one head, taken in the appending transaction and released at its end: every
 -- process that appends to this database takes turns at it (SPEC 11.4). The key is outside
--- int4, so no hashtext() key (LockSlug) can be it.
+-- int4.
 SELECT pg_advisory_xact_lock(7152101200000011);
 
 -- name: LastAuditEvent :one
@@ -201,8 +201,3 @@ DELETE FROM tokens WHERE account_id = $1;
 -- needs no statement for it: every transaction there takes the write lock at BEGIN.
 SELECT id FROM accounts WHERE id = $1 FOR UPDATE;
 
--- name: LockSlug :exec
--- A transaction-scoped lock on one slug: creating an account under it and reserving it for an
--- identity that left (vacated_addresses) take it, so the one that comes second reads what the
--- first wrote. Released at commit or rollback.
-SELECT pg_advisory_xact_lock(hashtext($1));

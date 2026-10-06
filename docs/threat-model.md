@@ -69,8 +69,8 @@ returning hostile tool definitions or results.
 moved. Its leaf is still valid until it expires. It can still answer at the old
 address, and it knows every contact. What it cannot do: issue itself a new leaf,
 follow the person to the new address, or keep a contact that has seen the newer
-leaf — HDTP §14.3 is what makes leaving safe, and HDTP §9 requires the vacated
-address not be reassigned until the last leaf for it has expired.
+leaf — HDTP §14.3 is what makes leaving safe. A later holder of the old address
+is another root, which a contact that pinned this one treats as a stranger (HDTP §5).
 
 **A6 — Local attacker with disk access.** Out of scope below.
 

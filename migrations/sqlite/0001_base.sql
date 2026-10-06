@@ -341,14 +341,6 @@ CREATE INDEX messages_account_created ON messages(account_id, created_at);
 -- Retention learns which media is still referenced from the media messages (ListMediaBodies).
 CREATE INDEX messages_media ON messages(account_id, seq) WHERE kind = 'media';
 
-CREATE TABLE vacated_addresses (
-    endpoint TEXT PRIMARY KEY,
-    slug TEXT NOT NULL,
-    until_at INTEGER NOT NULL,
-    at INTEGER NOT NULL
-);
-CREATE INDEX vacated_addresses_slug ON vacated_addresses(slug, until_at);
-
 CREATE TABLE audit_archive_rows (
     seq INTEGER PRIMARY KEY,
     hash TEXT NOT NULL
@@ -384,7 +376,6 @@ DROP TABLE leases;
 DROP TABLE owner_presence;
 DROP TABLE changes;
 DROP TABLE audit_archive_rows;
-DROP TABLE vacated_addresses;
 DROP TABLE messages;
 DROP TABLE pending_addresses;
 DROP TABLE former_endpoints;

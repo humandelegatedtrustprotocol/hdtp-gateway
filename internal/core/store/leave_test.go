@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -226,7 +225,7 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		t.Fatal(err)
 	}
 	idm := &identity.Manager{Store: st, Keyring: kr}
-	res, err := idm.Leave(ctx, leaving.ID, func(context.Context, store.Store) ([]string, error) { return settings.AccountKeys(leaving.ID), nil }, blobs.Remove, now)
+	res, err := idm.Leave(ctx, leaving.ID, func(context.Context, store.Store) ([]string, error) { return settings.AccountKeys(leaving.ID), nil }, blobs.Remove)
 	if err != nil {
 		t.Fatalf("leave: %v", err)
 	}
@@ -276,58 +275,13 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		t.Errorf("result %+v", res)
 	}
 
-	// The addresses the two live leaves named are reserved until each one's notAfter; the expired
-	// leaf's address and the pending request's are not.
-	vac, err := st.ListVacatedAddresses(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, v := range vac {
-		if v.Slug != "leaving" {
-			t.Errorf("a reservation names slug %q", v.Slug)
-		}
-		got = append(got, v.Endpoint+fmt.Sprintf("@%d", v.UntilAt-now.Unix()))
-	}
-	sort.Strings(got)
-	want := []string{fmt.Sprintf("https://new.example/a/leaving/mcp@%d", 300*day), fmt.Sprintf("https://old.example/a/leaving/mcp@%d", 30*day)}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("reserved %v, want %v", got, want)
-	}
-
-	// The slug is refused to a new identity while a reservation is live, at every door that makes
-	// an account (they all reach the store's CreateAccount) ...
-	if _, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "leaving", DisplayName: "Someone else", Algo: "p256"}); !errors.Is(err, store.ErrAddressVacated) {
-		t.Fatalf("a new identity took the vacated slug: %v", err)
-	}
-	// ... and so is a signing request naming the address, from any identity.
-	if _, err := idm.IssueCSR(ctx, staying.ID, identity.PurposeMove, "https://new.example/a/leaving/mcp", now); !errors.Is(err, store.ErrAddressVacated) {
-		t.Fatalf("a signing request for the vacated address was made: %v", err)
-	}
-	// The control: a request for an address nobody left is made.
-	if _, err := idm.IssueCSR(ctx, staying.ID, identity.PurposeMove, "https://elsewhere.example/a/staying/mcp", now); err != nil {
-		t.Fatalf("a signing request for an ordinary address was refused: %v", err)
-	}
-	// Either side of the last notAfter, with a margin: reserved a minute before, free a minute after.
-	last := now.Unix() + 300*day
-	if live, _ := st.LiveVacatedSlug(ctx, "leaving", last-60); !live {
-		t.Error("the slug was free a minute before its last leaf expires")
-	}
-	if live, _ := st.LiveVacatedSlug(ctx, "leaving", last+60); live {
-		t.Error("the slug was still reserved a minute after its last leaf expired")
-	}
-	if live, _ := st.LiveVacatedEndpoint(ctx, "https://old.example/a/leaving/mcp", now.Unix()+30*day+60); live {
-		t.Error("the old address was still reserved a minute after its leaf expired")
-	}
-	// The sweep drops only reservations that no longer reserve anything; once none is live, the
-	// slug is an ordinary one again.
-	if n, err := st.DeleteExpiredVacatedAddresses(ctx, now.Unix()+30*day+60); err != nil || n != 1 {
-		t.Fatalf("sweep at the first expiry removed %d (%v), want the one expired", n, err)
-	}
-	if n, err := st.DeleteExpiredVacatedAddresses(ctx, last+60); err != nil || n != 1 {
-		t.Fatalf("sweep at the last expiry removed %d (%v), want the last one", n, err)
+	// The address is free at once (HDTP §9, SEP-0002): every identity on this node is its one
+	// operator's, so nothing holds the slug or the endpoint against the next one, while the two
+	// leaves that named them are still live.
+	if _, err := idm.IssueCSR(ctx, staying.ID, identity.PurposeMove, "https://new.example/a/leaving/mcp", now); err != nil {
+		t.Fatalf("a signing request for the address the identity left was refused: %v", err)
 	}
 	if _, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "leaving", DisplayName: "Someone else", Algo: "p256"}); err != nil {
-		t.Fatalf("the slug stayed refused with no reservation left: %v", err)
+		t.Fatalf("the slug the identity left was refused to a new one: %v", err)
 	}
 }

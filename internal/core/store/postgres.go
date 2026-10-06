@@ -176,28 +176,11 @@ func (s *Postgres) DeleteOwner(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateAccount refuses a slug an identity has vacated while the last leaf issued for it is live
-// (ErrAddressVacated, HDTP §9). It is here, and not in identity.Manager, because every door that
-// creates an account reaches this method and not all of them go through the manager: an import
-// (internal/portable) creates its identities in the store's own transaction.
 func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
 		t := tx.(*Postgres)
-		// Wait for a leave of this slug that has not committed yet, then read what it reserved.
-		// Without the lock the check below ran before such a leave committed and the insert, held
-		// on the slug's unique index, went through after it.
-		if err := t.q.LockSlug(ctx, p.Slug); err != nil {
-			return err
-		}
 		at := now()
-		vacated, err := t.LiveVacatedSlug(ctx, p.Slug, at)
-		if err != nil {
-			return err
-		}
-		if vacated {
-			return ErrAddressVacated
-		}
 		id := newID()
 		if err := t.q.InsertAccount(ctx, pgdb.InsertAccountParams{
 			ID: id, Slug: p.Slug, DisplayName: p.DisplayName, Algo: p.Algo, CreatedAt: at,

@@ -117,20 +117,3 @@ UPDATE leaves SET request_state_hash = ?, wallet_origin = ? WHERE account_id = ?
 UPDATE leaves SET answered_state_hash = request_state_hash, request_state_hash = NULL
 WHERE account_id = ? AND kid = ? AND state = 'pending' AND request_state_hash = ?;
 
--- name: UpsertVacatedAddress :exec
--- An address an identity has left (HDTP sec. 9). The row keeps the latest
--- not_after it has been given: a second vacating of the same endpoint never shortens it.
-INSERT INTO vacated_addresses (endpoint, slug, until_at, at) VALUES (?, ?, ?, ?)
-ON CONFLICT (endpoint) DO UPDATE SET slug = excluded.slug, until_at = MAX(vacated_addresses.until_at, excluded.until_at), at = excluded.at;
-
--- name: CountLiveVacatedSlug :one
-SELECT COUNT(*) FROM vacated_addresses WHERE slug = ? AND until_at > ?;
-
--- name: CountLiveVacatedEndpoint :one
-SELECT COUNT(*) FROM vacated_addresses WHERE endpoint = ? AND until_at > ?;
-
--- name: ListVacatedAddresses :many
-SELECT * FROM vacated_addresses ORDER BY endpoint;
-
--- name: DeleteExpiredVacatedAddresses :execrows
-DELETE FROM vacated_addresses WHERE until_at <= ?;
