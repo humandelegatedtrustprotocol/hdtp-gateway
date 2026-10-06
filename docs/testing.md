@@ -36,7 +36,7 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 | every commit (hooks) | `make check-fast` | gofmt on staged Go, re-staged | its own repository's hooks |
 | every push (hooks) | `make check` (gateway tests, the wallet-page suite in a real Chrome, the portal) | `make check` against a named Postgres container the hook starts, `make analyze`, `make sqlc-check`, `make fuzz`, `make harness` (hermetic); `make web` with `web/dist` unchanged when the push touches `web/` | `sh gate.sh`, in its own repository |
 | by hand, with Docker and Chrome | — | `harness run -tier pr` / `nightly` | — |
-| on staging | `make ship-staging` (the one-identity journey and the conformance battery); `make e2e-pair` (the pair, about an hour) | — | — |
+| on staging | `make ship-staging` (the one-identity journey and the conformance battery); `make test-staging SUITE=pair` (the pair, about an hour) | — | — |
 
 A skip is never a pass: a tier that promised a case and got SKIPPED fails (the harness's `harness
 run`, the identity gate's summary), and every other skip says why in its evidence.
