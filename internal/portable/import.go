@@ -57,8 +57,6 @@ type Plan struct {
 //   - A slug that is here must be that same root, and the file's contacts are merged with the
 //     ones it holds: a pin this host holds is never replaced by one from a file.
 //   - A root that is here under ANOTHER slug is refused: one identity, one slug on a host.
-//   - A slug reserved after an identity left this node (HDTP §9) is refused here, in the review,
-//     and not first by the write.
 //   - Into a slug that is here, a file thread whose id this identity already holds for another
 //     contact is refused: thread ids are the account's own, and the file's messages would be
 //     written into the other contact's conversation.
@@ -85,14 +83,6 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 			if a.RootFingerprint == p.Owner {
 				return nil, refuse("the identity %s is already on this node as %q; import into that slug", p.Owner, a.Slug)
 			}
-		}
-		// The store refuses the account too (CreateAccount); this says so before the review, not
-		// after the person has agreed to it. It does not say whose the address was: it may be this
-		// very identity, returning.
-		if reserved, err := st.LiveVacatedSlug(ctx, slug, now.Unix()); err != nil {
-			return nil, fmt.Errorf("import: %w", err)
-		} else if reserved {
-			return nil, refuse("%q is reserved: an identity left this node from that address, and a leaf issued for it has not yet expired; choose another slug", slug)
 		}
 	}
 	// What is read into memory is bounded before it is read (ImportMessagesCeiling).
@@ -250,11 +240,6 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		accountID := p.AccountID
 		if p.New {
 			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: p.Slug, DisplayName: p.OwnerName, Algo: string(identity.AlgoP256)})
-			if errors.Is(err, store.ErrAddressVacated) {
-				// An identity left this node from that address, and a leaf issued for it is still
-				// live (HDTP §9): the store's one guard, said as a refusal of this import.
-				return refuse("%q is reserved: an identity left this node from that address, and a leaf issued for it has not yet expired; choose another slug", p.Slug)
-			}
 			if err != nil {
 				return fmt.Errorf("import: %w", err)
 			}

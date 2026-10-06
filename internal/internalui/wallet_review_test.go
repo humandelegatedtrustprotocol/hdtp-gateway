@@ -60,7 +60,6 @@ func TestTheWalletStartPageCarriesNoErrorText(t *testing.T) {
 		status int
 	}{
 		{"failure", errors.New("pq: connection to 10.0.0.7 refused SECRET-DETAIL"), http.StatusInternalServerError},
-		{"vacated", errors.Join(errors.New("SECRET-DETAIL"), store.ErrAddressVacated), http.StatusConflict},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			mux, _ := walletReviewEnv(t, func(*http.Request, store.Account, string, string, string) (identity.CSRResult, error) {

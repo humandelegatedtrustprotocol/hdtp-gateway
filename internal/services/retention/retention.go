@@ -84,10 +84,6 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		report("idempotency records", err)
 		_, err = st.DeleteExpiredSessions(ctx, now)
 		report("sessions", err)
-		// An address an identity left is reserved until the last leaf issued for it expires (HDTP §9);
-		// past that the row reserves nothing, and it names the address and nothing else.
-		_, err = st.DeleteExpiredVacatedAddresses(ctx, now)
-		report("vacated addresses", err)
 		// The change log wakes waiters (SPEC §7.8); a change a week old has woken everyone it
 		// ever will, and a cursor older than the log is answered as such (wait_for_updates).
 		_, err = st.DeleteChangesBefore(ctx, now-int64(ChangeLogKept/time.Second))

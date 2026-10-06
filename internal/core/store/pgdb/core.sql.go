@@ -943,21 +943,9 @@ SELECT pg_advisory_xact_lock(7152101200000011)
 
 // The chain's one head, taken in the appending transaction and released at its end: every
 // process that appends to this database takes turns at it (SPEC 11.4). The key is outside
-// int4, so no hashtext() key (LockSlug) can be it.
+// int4.
 func (q *Queries) LockAuditChain(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockAuditChain)
-	return err
-}
-
-const lockSlug = `-- name: LockSlug :exec
-SELECT pg_advisory_xact_lock(hashtext($1))
-`
-
-// A transaction-scoped lock on one slug: creating an account under it and reserving it for an
-// identity that left (vacated_addresses) take it, so the one that comes second reads what the
-// first wrote. Released at commit or rollback.
-func (q *Queries) LockSlug(ctx context.Context, hashtext string) error {
-	_, err := q.db.Exec(ctx, lockSlug, hashtext)
 	return err
 }
 

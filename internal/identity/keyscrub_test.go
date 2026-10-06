@@ -103,7 +103,7 @@ func TestALeaveLeavesNoLeafKeyOnDisk(t *testing.T) {
 	if got := residue(t, path, keys); len(got) == 0 {
 		t.Fatal("the scan finds no key while the keys are live: it is looking at nothing")
 	}
-	if _, err := m.Leave(ctx, a.ID, nil, nil, now); err != nil {
+	if _, err := m.Leave(ctx, a.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := residue(t, path, keys); len(got) > 0 {

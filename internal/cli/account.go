@@ -141,15 +141,7 @@ func account(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		fmt.Fprintf(stdout, "%v has left this node: its records and its %v leaf key(s) are erased, and %v media file(s) no other identity used\n", out["Slug"], out["Leaves"], out["MediaRemoved"])
-		reserved, _ := out["Reserved"].([]any)
-		for _, r := range reserved {
-			if m, ok := r.(map[string]any); ok {
-				fmt.Fprintf(stdout, "  %v stays reserved until %v, when the last leaf issued for it expires; no identity can be given it before then\n", m["Endpoint"], m["Until"])
-			}
-		}
-		if len(reserved) == 0 {
-			fmt.Fprintln(stdout, "  no live leaf named an address here, so none is reserved")
-		}
+		fmt.Fprintln(stdout, "  its address is free for another identity here; the root is the person's, and their wallet is not touched")
 		if w, ok := out["Warning"].(string); ok {
 			fmt.Fprintln(stderr, "account:", w)
 			return 1
