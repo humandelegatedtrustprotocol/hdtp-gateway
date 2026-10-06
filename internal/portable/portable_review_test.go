@@ -131,20 +131,6 @@ func TestAnOwnerNameWithAControlCharacterIsRefusedAtTheReview(t *testing.T) {
 	}
 }
 
-// L4. A slug an identity left, while a leaf issued for it is live, is refused by the REVIEW - the
-// run without -yes - and not first by the write; and the words do not claim who left it (it may be
-// this very identity, returning).
-func TestAVacatedSlugIsRefusedAtTheReview(t *testing.T) {
-	ctx := context.Background()
-	valid, _, now := corpusValid(t)
-	e := newEnv(t, sqliteStore)
-	must(t, e.st.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://node.example/a/vacated/mcp", Slug: "vacated", UntilAt: time.Now().Add(24 * time.Hour).Unix()}))
-	_, err := Read(ctx, e.st, zipReader(t, valid), "vacated", now)
-	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "reserved") || strings.Contains(err.Error(), "another identity") {
-		t.Fatalf("the review of an import into a vacated slug: %v", err)
-	}
-}
-
 // L10. An import's counts are what it wrote: a file already here is counted as already here, not as
 // written, and a contact held with no leaf that the file's pin fills is a fill, shown and counted
 // as one, not a new contact.

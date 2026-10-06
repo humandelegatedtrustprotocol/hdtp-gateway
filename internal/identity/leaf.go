@@ -423,14 +423,6 @@ func (m *Manager) issueCSR(ctx context.Context, accountID, purpose, endpoint, wa
 	if ok, why := hdtpidentity.AddressGuard(endpoint, "", false); !ok {
 		return CSRResult{}, fmt.Errorf("identity: %s: %s; set public_url to the address people reach this node at: %w: %w", endpoint, why, ErrEndpointRefused, ErrLeafRefused)
 	}
-	// An address an identity left stays reserved until the last leaf issued for it expires (HDTP
-	// §9). A request naming it would ask a wallet for a leaf at an address this
-	// node must not assign; the account slug is guarded where accounts are created (the store).
-	if vacated, verr := m.Store.LiveVacatedEndpoint(ctx, endpoint, now.Unix()); verr != nil {
-		return CSRResult{}, verr
-	} else if vacated {
-		return CSRResult{}, fmt.Errorf("identity: %s was vacated by an identity that left this node; it stays reserved until the last leaf issued for it expires (HDTP §9): %w", endpoint, store.ErrAddressVacated)
-	}
 	// "The endpoint is the account's own unless the purpose is move" was the
 	// documented rule and nothing enforced it, so `csr renew -endpoint <other>`
 	// was a move in everything but name — and a move re-pins every contact.

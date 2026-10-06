@@ -260,22 +260,11 @@ func (s *SQLite) DeleteOwner(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateAccount refuses a slug an identity has vacated while the last leaf issued for it is live
-// (ErrAddressVacated, HDTP §9). It is here, and not in identity.Manager, because every door that
-// creates an account reaches this method and not all of them go through the manager: an import
-// (internal/portable) creates its identities in the store's own transaction.
 func (s *SQLite) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
 		t := tx.(*SQLite)
 		at := now()
-		vacated, err := t.LiveVacatedSlug(ctx, p.Slug, at)
-		if err != nil {
-			return err
-		}
-		if vacated {
-			return ErrAddressVacated
-		}
 		id := newID()
 		if err := t.q.InsertAccount(ctx, sqlitedb.InsertAccountParams{
 			ID: id, Slug: p.Slug, DisplayName: p.DisplayName, Algo: p.Algo, CreatedAt: at,

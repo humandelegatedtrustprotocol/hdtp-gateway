@@ -265,8 +265,8 @@ func (s *serveRun) registerAdminHandlers() {
 	})
 	// account.leave is the person leaving this host (HDTP §9, "What a host must do when the person
 	// leaves"): every record of the identity and every leaf key it held are erased at once, the
-	// live node forgets it so its address answers as one never served, and the address stays
-	// reserved until the last leaf issued for it expires. It is on the admin socket only, like
+	// live node forgets it so its address answers as one never served, and the address is free (every
+	// identity here is the operator's, HDTP §9). It is on the admin socket only, like
 	// `import`: shell access on the host is its authorisation, and no portal or owner-MCP door has
 	// it (a named divergence: README "Leave this node", SPEC.md §3.11).
 	admin.Handle("account.leave", func(args map[string]string) (any, error) {
@@ -305,7 +305,7 @@ func (s *serveRun) registerAdminHandlers() {
 			res, err = idm.Leave(ctx, acct.ID, func(ctx context.Context, tx store.Store) ([]string, error) {
 				keys, err := integrations.ClientKeys(ctx, tx, acct.ID)
 				return append(settings.AccountKeys(acct.ID), keys...), err
-			}, messaging.BlobDir{Root: cfg.Blobs()}.Remove, time.Now())
+			}, messaging.BlobDir{Root: cfg.Blobs()}.Remove)
 			return err
 		}
 		if s.nd != nil {
@@ -325,12 +325,8 @@ func (s *serveRun) registerAdminHandlers() {
 		if s.nd != nil {
 			s.nd.ForgetAccount(acct.ID, acct.Slug)
 		}
-		reserved := make([]map[string]any, 0, len(res.Vacated))
-		for _, v := range res.Vacated {
-			reserved = append(reserved, map[string]any{"Endpoint": v.Endpoint, "Until": time.Unix(v.UntilAt, 0).UTC().Format(time.RFC3339)})
-		}
-		erased := " leaves:" + strconv.Itoa(res.Leaves) + " reserved:" + strconv.Itoa(len(res.Vacated)) + " media:" + strconv.Itoa(res.BlobsRemoved)
-		out := map[string]any{"Slug": acct.Slug, "Leaves": res.Leaves, "Reserved": reserved, "MediaRemoved": res.BlobsRemoved}
+		erased := " leaves:" + strconv.Itoa(res.Leaves) + " media:" + strconv.Itoa(res.BlobsRemoved)
+		out := map[string]any{"Slug": acct.Slug, "Leaves": res.Leaves, "MediaRemoved": res.BlobsRemoved}
 		if err != nil {
 			// Erased, with media files left on disk that no record refers to any more.
 			s.auditFn("account_leave", "account:"+acct.ID+" slug:"+acct.Slug+erased, "partial")

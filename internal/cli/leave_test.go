@@ -174,7 +174,7 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		}
 	}
 	code, out = run("leave", "-slug", "alice", "-yes")
-	if code != 0 || !strings.Contains(out, "alice has left this node") || !strings.Contains(out, "/a/alice/mcp stays reserved until") {
+	if code != 0 || !strings.Contains(out, "alice has left this node") || !strings.Contains(out, "its address is free") {
 		t.Fatalf("leave: %d %s", code, out)
 	}
 	rowsAfter, err := st.ListAuditEvents(ctx, "")
@@ -206,7 +206,7 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		t.Fatalf("the rows kept name the slug (%v) and a contact's fingerprint (%v): the prose says they do", sawSlug, sawContact)
 	}
 	if got, want := publicAnswer(t, r.public, "alice", token), publicAnswer(t, r.public, never, neverToken); got != want {
-		t.Fatalf("the vacated address answers unlike one never served:\n%s\n---\n%s", got, want)
+		t.Fatalf("the address alice left answers unlike one never served:\n%s\n---\n%s", got, want)
 	}
 	// The OAuth client's credentials went with the identity (M2).
 	settingsLeft, err := st.ListSettings(ctx)
@@ -221,10 +221,6 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 	// Bob, on the same node, is untouched.
 	if _, err := st.GetAccountBySlug(ctx, "bob"); err != nil {
 		t.Fatalf("bob went with alice: %v", err)
-	}
-	// The slug is reserved: a new identity cannot be created under it.
-	if code, out := run("create", "-slug", "alice", "-name", "Someone Else"); code == 0 || !strings.Contains(out, "vacated") {
-		t.Fatalf("a new identity took alice's address: %d %s", code, out)
 	}
 	// And the audit trail names the account, with each outcome as it happened.
 	events, err := st.ListAuditEvents(ctx, "")

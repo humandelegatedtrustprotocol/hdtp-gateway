@@ -428,9 +428,6 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	origin, _ := walletPortalOrigin(r) // prepare checked it
 	res, err := d.Mint(r, a, ask.purpose, ask.endpoint, d.WalletOrigin)
 	switch {
-	case errors.Is(err, store.ErrAddressVacated):
-		http.Error(w, "That address was left by an identity whose last certificate has not expired yet; it cannot be asked for until then.", http.StatusConflict)
-		return
 	case errors.Is(err, identity.ErrLeafRefused):
 		http.Error(w, "A web wallet signs a renewal or a move of an identity it already certified; this request is neither.", http.StatusConflict)
 		return

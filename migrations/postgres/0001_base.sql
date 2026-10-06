@@ -404,15 +404,6 @@ CREATE INDEX messages_media ON messages (account_id, seq) WHERE (kind = 'media':
 CREATE INDEX messages_pending_out ON messages (seq) WHERE ((direction = 'out'::text) AND (status = 'pending'::text));
 CREATE INDEX messages_thread ON messages (account_id, thread_id, seq);
 
-CREATE TABLE vacated_addresses (
-    endpoint text NOT NULL,
-    slug text NOT NULL,
-    until_at bigint NOT NULL,
-    at bigint NOT NULL,
-    CONSTRAINT vacated_addresses_pkey PRIMARY KEY (endpoint)
-);
-CREATE INDEX vacated_addresses_slug ON vacated_addresses (slug, until_at);
-
 CREATE TABLE audit_archive_rows (
     seq bigint NOT NULL,
     hash text NOT NULL,
@@ -453,7 +444,6 @@ DROP TABLE leases;
 DROP TABLE owner_presence;
 DROP TABLE changes;
 DROP TABLE audit_archive_rows;
-DROP TABLE vacated_addresses;
 DROP TABLE messages;
 DROP TABLE pending_addresses;
 DROP TABLE former_endpoints;
