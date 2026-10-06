@@ -275,9 +275,9 @@ deleted row stays as a dead tuple until VACUUM reuses its space, in the write-ah
 segment is recycled, and in every backup — sealed under the node's keyring, but not destroyed. SPEC
 §3.9 names this divergence.
 
-The address stays **reserved** until the last leaf issued for it expires (HDTP §9): until then no
-identity can be created under that slug here, and no signing request can name that address. The
-command prints each address it reserved and until when. It is refused while a move campaign for
+The address is **free** at once: HDTP §9 keeps an address an identity leaves for the person 24 hours,
+and every identity on this node is its operator's, so a new one may take the slug straight away. The
+root is the person's and their wallet is not touched. It is refused while a move campaign for
 that identity is running (`account announce -slug me` says when it has finished). There is no undo,
 and no portal or owner-MCP button: like `import`, it needs shell access on the host.
 

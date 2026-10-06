@@ -161,45 +161,6 @@ func TestTheSweepExpiresRequestsNobodyAnswered(t *testing.T) {
 	}
 }
 
-// An address an identity left is reserved until the last leaf issued for it expires (HDTP §9), and
-// no longer: the sweep drops a reservation whose date has passed and keeps one that has not.
-func TestTheSweepDropsAReservationOnlyOnceItsLeafHasExpired(t *testing.T) {
-	dir := t.TempDir()
-	st := migrated(t, dir)
-	defer st.Close()
-	bg := context.Background()
-	now := time.Now().Unix()
-	for _, v := range []store.VacatedAddress{
-		{Endpoint: "https://n.example/a/gone/mcp", Slug: "gone", UntilAt: now - 60, At: now - 100},
-		{Endpoint: "https://n.example/a/held/mcp", Slug: "held", UntilAt: now + 24*3600, At: now - 100},
-	} {
-		if err := st.UpsertVacatedAddress(bg, v); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ctx, cancel := context.WithCancel(bg)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		Run(ctx, settings.New(st, nil, nil, nil), st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard, nil, nil, nil, nil)
-	}()
-	defer func() { cancel(); <-done }()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		left, err := st.ListVacatedAddresses(bg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(left) == 1 && left[0].Slug == "held" {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("after the sweep the reservations are %+v, want only the live one", left)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
 // The retention pass runs only on the process that holds its lease (SPEC §11.1): at start, a
 // process that does not lead sweeps nothing, and one that leads sweeps.
 func TestTheRetentionPassRunsOnlyWhileItLeads(t *testing.T) {

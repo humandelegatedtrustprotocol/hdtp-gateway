@@ -82,8 +82,6 @@ func (l leafService) Mint(ctx context.Context, acct store.Account, purpose, endp
 		// The reason is a code, never the error's text.
 		outcome, reason := "error", "failed"
 		switch {
-		case errors.Is(err, store.ErrAddressVacated):
-			outcome, reason = "refused", "vacated"
 		case errors.Is(err, identity.ErrEndpointRefused):
 			outcome, reason = "refused", "address"
 		case errors.Is(err, identity.ErrLeafRefused):

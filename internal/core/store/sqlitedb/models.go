@@ -301,10 +301,3 @@ type Tombstone struct {
 	Leaf      []byte
 	At        int64
 }
-
-type VacatedAddress struct {
-	Endpoint string
-	Slug     string
-	UntilAt  int64
-	At       int64
-}

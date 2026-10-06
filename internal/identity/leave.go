@@ -4,19 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
-	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// LeaveResult is what an identity leaving this host erased and what it left reserved.
+// LeaveResult is what an identity leaving this host erased.
 type LeaveResult struct {
 	AccountID string
 	Slug      string
-	// Vacated is one row per endpoint the identity's leaves named whose last leaf is still live:
-	// the address stays reserved until then (HDTP §9).
-	Vacated []store.VacatedAddress
 	// Leaves is how many leaf rows were erased. Every leaf key this host held for the identity
 	// went with them, and so did the account's own copy of its current key.
 	Leaves int
@@ -67,9 +62,10 @@ func (m *Manager) PreviewLeave(ctx context.Context, accountID string) (LeavePrev
 }
 
 // Leave erases an identity from this host (HDTP §9, "What a host must do when the person leaves"):
-// the leaf keys and every record of the identity go at once, in one transaction, and the address
-// is kept reserved — by a row that holds the endpoint, its slug and a date, and nothing that
-// names the identity — until the last leaf issued for it has expired.
+// the leaf keys and every record of the identity go at once, in one transaction. Its address is
+// free at once: every identity on this node is its one operator's, the person HDTP §9 keeps a left
+// address for, and nothing about the identity is kept to hold it by. The root is the person's and is
+// not touched.
 //
 // The keys are destroyed, not only deleted, where the engine allows it: store.Store.Scrub runs after
 // the commit (SPEC §3.9 names what Postgres cannot do).
@@ -81,14 +77,14 @@ func (m *Manager) PreviewLeave(ctx context.Context, accountID string) (LeavePrev
 // transaction. Media files are removed after the commit by `removeBlob`
 // (messaging.BlobDir.Remove), and only when no other identity still refers to the hash.
 //
-// Everything the erase decides from — the account, its leaves (what to reserve), its media (what
-// to remove after) — is read INSIDE the transaction, so a leaf installed or a file received a
-// moment before cannot be missed by the reservation or left behind on disk.
+// Everything the erase decides from — the account, its leaves, its media (what to remove after) —
+// is read INSIDE the transaction, so a leaf installed or a file received a moment before cannot be
+// missed by the count or left behind on disk.
 //
 // The audit trail is append-only and is not erased here: its rows naming the account stay in the
 // live trail for audit_archive_after, and the hourly sweep then moves them to the identity's own
 // archive file (audit.Departed, SPEC §3.11).
-func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(ctx context.Context, tx store.Store) ([]string, error), removeBlob func(hash string) error, now time.Time) (LeaveResult, error) {
+func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(ctx context.Context, tx store.Store) ([]string, error), removeBlob func(hash string) error) (LeaveResult, error) {
 	var res LeaveResult
 	var held []store.Blob
 	err := m.Store.Atomically(ctx, func(tx store.Store) error {
@@ -100,30 +96,9 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(
 		if err != nil {
 			return err
 		}
-		// The last leaf issued for each address: a leaf this host installed (a pending request has none).
-		until := map[string]int64{}
-		for _, l := range leaves {
-			if len(l.Leaf) == 0 || l.Endpoint == "" {
-				continue
-			}
-			if l.NotAfter > until[l.Endpoint] {
-				until[l.Endpoint] = l.NotAfter
-			}
-		}
 		res = LeaveResult{AccountID: a.ID, Slug: a.Slug, Leaves: len(leaves)}
-		for ep, na := range until {
-			if na > now.Unix() {
-				res.Vacated = append(res.Vacated, store.VacatedAddress{Endpoint: ep, Slug: a.Slug, UntilAt: na, At: now.Unix()})
-			}
-		}
-		sort.Slice(res.Vacated, func(i, j int) bool { return res.Vacated[i].Endpoint < res.Vacated[j].Endpoint })
 		if held, err = tx.ListBlobs(ctx, accountID); err != nil {
 			return err
-		}
-		for _, v := range res.Vacated {
-			if err := tx.UpsertVacatedAddress(ctx, v); err != nil {
-				return err
-			}
 		}
 		if _, err := tx.DeleteTokensByAccount(ctx, accountID); err != nil {
 			return err

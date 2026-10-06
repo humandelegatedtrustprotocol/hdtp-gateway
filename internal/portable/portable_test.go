@@ -419,16 +419,6 @@ func TestANewSlugHoldsOnlyTheFilesRoot(t *testing.T) {
 	if _, _, err := importFile(t, e, valid, "someone", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "manifest.json: owner: the file is "+idx.Owner+"'s, not this identity's") {
 		t.Fatalf("a file imported into another identity: %v", err)
 	}
-	// A slug another identity left, while a leaf issued for it is live (HDTP §9), is refused as the
-	// store refuses any new account there, and nothing is written.
-	left := newEnv(t, sqliteStore)
-	must(t, left.st.UpsertVacatedAddress(ctx, store.VacatedAddress{Endpoint: "https://node.example/a/vacated/mcp", Slug: "vacated", UntilAt: time.Now().Add(24 * time.Hour).Unix()}))
-	if _, _, err := importFile(t, left, valid, "vacated", now); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), `"vacated" is reserved`) {
-		t.Fatalf("an import into a vacated slug: %v", err)
-	}
-	if accts, _ := left.st.ListAccounts(ctx); len(accts) != 0 {
-		t.Fatal("an import made an account at a vacated slug")
-	}
 	// A slug the wallet never certified cannot be any file's.
 	_, err = e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "nobody-yet", DisplayName: "Nobody", Algo: "p256"})
 	must(t, err)

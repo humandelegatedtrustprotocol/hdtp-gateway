@@ -155,7 +155,7 @@ func (n *node) leave(a store.Account) {
 	if _, err := n.st.DeleteAccount(context.Background(), a.ID); err != nil {
 		n.t.Fatal(err)
 	}
-	n.write("account_leave", "account:"+a.ID+" slug:"+a.Slug+" leaves:1 reserved:1 media:0", "ok")
+	n.write("account_leave", "account:"+a.ID+" slug:"+a.Slug+" leaves:1 media:0", "ok")
 }
 
 // activity is a few rows naming the identity, the way the surfaces write them, and one row of the
@@ -292,7 +292,7 @@ func TestTheTrailOfAnIdentityThatLeftMovesOnlyAfterItsPeriod(t *testing.T) {
 			n.write("account_leave", "account:"+carol.ID+" slug:carol reason:current_endpoint", "refused")
 			// dave has a leave row that says it went through, and his account is here: whatever
 			// wrote that row, he has not left, and his trail is his.
-			n.write("account_leave", "account:"+dave.ID+" slug:dave leaves:0 reserved:0 media:0", "ok")
+			n.write("account_leave", "account:"+dave.ID+" slug:dave leaves:0 media:0", "ok")
 			n.leave(alice)
 			n.activity(bob, "sha256:peer-b")
 			before := n.live()

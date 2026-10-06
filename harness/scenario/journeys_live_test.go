@@ -23,8 +23,8 @@ import (
 //   - a block refuses the blocked peer's message, and an unblock restores the contact as it was;
 //   - a removal reaches the peer, and the removed peer's message is refused;
 //   - a token scoped to one identity reaches that identity and not another on the same node;
-//   - an identity that leaves is gone: its peer's message is refused, and its address stays
-//     reserved (no new account may take the slug while a leaf naming it is alive).
+//   - an identity that leaves is gone: its peer's message is refused, and its address is free (a
+//     new account takes the slug while a leaf naming it is alive; HDTP §9, SEP-0002).
 //
 // The cloud's pair proves the same journeys through its own doors (e2e/tables/scenarios.mjs S1, S6,
 // S5b, S14, S18, S13, S5, T41a–c); the journey list both hold is docs/release/node-functional-suite-2026-09-28.md §2.2.
@@ -206,7 +206,7 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 		}
 	})
 
-	t.Run("an identity that leaves is gone, and its address stays reserved", func(t *testing.T) {
+	t.Run("an identity that leaves is gone, and its address is free", func(t *testing.T) {
 		link := inviteLink(ctx, t, alice, true)
 		if code, detail := addContact(ctx, t, bob, link.URL); code != "" {
 			t.Fatalf("bob's redemption before the leave refused: %s %s", code, detail)
@@ -226,9 +226,8 @@ func TestTheJourneysTheNodeHadNoScenarioFor(t *testing.T) {
 		if err := send(ctx, bob, alice.Fpr, "after alice left"); err == nil {
 			t.Errorf("bob's message to an identity that left was answered as sent")
 		}
-		out, err := w.Fab.Exec(ctx, alice.Node, "/hdtp-gateway", "account", "create", "--slug", "alice", "--name", "Squatter")
-		if err == nil || !strings.Contains(string(out), "reserved until the last leaf issued for it expires") {
-			t.Errorf("a new account at the address alice left, while her leaf is alive, answered %v: %s — want the reservation's refusal", err, out)
+		if out, err := w.Fab.Exec(ctx, alice.Node, "/hdtp-gateway", "account", "create", "--slug", "alice", "--name", "Next"); err != nil {
+			t.Errorf("a new account at the address alice left, while her leaf is alive, was refused: %v: %s", err, out)
 		}
 	})
 }

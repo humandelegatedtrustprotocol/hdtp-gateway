@@ -61,50 +61,6 @@ func (q *Queries) ConsumeLeafRequest(ctx context.Context, arg ConsumeLeafRequest
 	return result.RowsAffected()
 }
 
-const countLiveVacatedEndpoint = `-- name: CountLiveVacatedEndpoint :one
-SELECT COUNT(*) FROM vacated_addresses WHERE endpoint = ? AND until_at > ?
-`
-
-type CountLiveVacatedEndpointParams struct {
-	Endpoint string
-	UntilAt  int64
-}
-
-func (q *Queries) CountLiveVacatedEndpoint(ctx context.Context, arg CountLiveVacatedEndpointParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countLiveVacatedEndpoint, arg.Endpoint, arg.UntilAt)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countLiveVacatedSlug = `-- name: CountLiveVacatedSlug :one
-SELECT COUNT(*) FROM vacated_addresses WHERE slug = ? AND until_at > ?
-`
-
-type CountLiveVacatedSlugParams struct {
-	Slug    string
-	UntilAt int64
-}
-
-func (q *Queries) CountLiveVacatedSlug(ctx context.Context, arg CountLiveVacatedSlugParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countLiveVacatedSlug, arg.Slug, arg.UntilAt)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const deleteExpiredVacatedAddresses = `-- name: DeleteExpiredVacatedAddresses :execrows
-DELETE FROM vacated_addresses WHERE until_at <= ?
-`
-
-func (q *Queries) DeleteExpiredVacatedAddresses(ctx context.Context, untilAt int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredVacatedAddresses, untilAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const deleteLeavesByState = `-- name: DeleteLeavesByState :execrows
 DELETE FROM leaves WHERE account_id = ? AND state = ?
 `
@@ -410,38 +366,6 @@ func (q *Queries) ListTombstones(ctx context.Context, accountID string) ([]Tombs
 	return items, nil
 }
 
-const listVacatedAddresses = `-- name: ListVacatedAddresses :many
-SELECT endpoint, slug, until_at, at FROM vacated_addresses ORDER BY endpoint
-`
-
-func (q *Queries) ListVacatedAddresses(ctx context.Context) ([]VacatedAddress, error) {
-	rows, err := q.db.QueryContext(ctx, listVacatedAddresses)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []VacatedAddress
-	for rows.Next() {
-		var i VacatedAddress
-		if err := rows.Scan(
-			&i.Endpoint,
-			&i.Slug,
-			&i.UntilAt,
-			&i.At,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const repinContactAddress = `-- name: RepinContactAddress :execrows
 UPDATE contacts SET endpoint = ?, leaf = ?, leaf_fingerprint = ?, spki = ?, pinned_at = ? WHERE account_id = ? AND fingerprint = ?
 `
@@ -725,30 +649,6 @@ func (q *Queries) UpsertTombstone(ctx context.Context, arg UpsertTombstoneParams
 		arg.AccountID,
 		arg.Root,
 		arg.Leaf,
-		arg.At,
-	)
-	return err
-}
-
-const upsertVacatedAddress = `-- name: UpsertVacatedAddress :exec
-INSERT INTO vacated_addresses (endpoint, slug, until_at, at) VALUES (?, ?, ?, ?)
-ON CONFLICT (endpoint) DO UPDATE SET slug = excluded.slug, until_at = MAX(vacated_addresses.until_at, excluded.until_at), at = excluded.at
-`
-
-type UpsertVacatedAddressParams struct {
-	Endpoint string
-	Slug     string
-	UntilAt  int64
-	At       int64
-}
-
-// An address an identity has left (HDTP sec. 9). The row keeps the latest
-// not_after it has been given: a second vacating of the same endpoint never shortens it.
-func (q *Queries) UpsertVacatedAddress(ctx context.Context, arg UpsertVacatedAddressParams) error {
-	_, err := q.db.ExecContext(ctx, upsertVacatedAddress,
-		arg.Endpoint,
-		arg.Slug,
-		arg.UntilAt,
 		arg.At,
 	)
 	return err
