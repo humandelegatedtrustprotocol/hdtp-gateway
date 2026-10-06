@@ -180,7 +180,7 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		must(err)
 		must(st.UpsertMoveFanout(ctx, store.MoveFanout{AccountID: a.ID, ContactFpr: "sha256:c-" + slug, LeafKid: "k1-" + slug, Status: "done", UpdatedAt: 1}))
 		// The ledger: a live current leaf, a live superseded one at the address it moved from, an
-		// expired former one, and a pending request. Only the two live ones reserve an address.
+		// expired former one, and a pending request. The two live ones hold nothing after the leave.
 		must(st.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "k1-" + slug, Leaf: []byte{1}, KeySealed: []byte{9}, State: "current",
 			NotBefore: now.Unix() - day, NotAfter: now.Unix() + 300*day, Endpoint: "https://new.example/a/" + slug + "/mcp", CreatedAt: 3}))
 		must(st.InsertLeaf(ctx, store.Leaf{AccountID: a.ID, Kid: "k0-" + slug, Leaf: []byte{1}, KeySealed: []byte{9}, State: "superseded",
