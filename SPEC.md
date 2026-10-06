@@ -175,9 +175,9 @@ An account is one HDTP identity served by this node; a node serves one or many. 
 
 ### 3.3 Membership and node administration
 
-`memberships` (§11) relates owners to accounts many-to-many, with a role attribute on each row: several owners can share one account (a family assistant), and one owner can hold several accounts (personal and business personas). The role attribute is data handed to Cedar as an entity attribute (§3.6); the shipped static policies decide what each role may do. v1 defines exactly one membership role: `admin` — full control of the account. Finer-grained roles are post-v1; the role column is pre-shaped for them the same way `credentials` is pre-shaped for later login kinds (§3.1).
+A node has exactly one owner. The setup wizard creates it with the first passkey, and every later passkey ceremony — another key, a recovery through `passkey reset-wizard` — joins that owner rather than creating a second (`internal/internalui/auth/passkeys.go`); once a passkey exists the wizard is closed to everything but a recovery token (§3.1, §8.6). The owner may hold several passkeys and several accounts (personal and business personas). `memberships` (§11) relates the owner to each account, with a role attribute on each row, and is granted in both directions, because either can be created first (`internal/identity/membership.go`). The role attribute is data handed to Cedar as an entity attribute (§3.6); the shipped static policies decide what each role may do. v1 defines exactly one membership role: `admin` — full control of the account. Finer-grained roles are post-v1; the role column is pre-shaped for them the same way `credentials` is pre-shaped for later login kinds (§3.1).
 
-`node_admin` is node-scoped — a flag on the owner, not a membership role. Node-wide configuration — tunnel settings and the LAN connections flag, ingress pairing, storage, and the owner roster itself (§8) — requires `node_admin`; account-scoped actions require membership in that account.
+There is no node-scoped administrator flag: the one owner administers the node — tunnel settings and the LAN connections flag, ingress pairing and storage (§8) — and account-scoped actions require membership in that account.
 
 ### 3.4 Bearer tokens for the owner MCP
 
@@ -1059,7 +1059,7 @@ What one process changes about what it serves, every other applies from the chan
 | `sessions` | Portal sessions (§8) |
 | `tokens` | Named revocable owner-MCP bearer tokens (§3, §8) |
 | `accounts` | Accounts on this node (§3) |
-| `memberships` | Owner-to-account membership with role attribute (§3) |
+| `memberships` | The owner's membership of each account, with role attribute (§3) |
 | `contacts` | Pinned contacts per account: fingerprint, card, relationship state (§9.1), permissions, trust flag (§9) |
 | `invites` | Invite state — expiry, uses, auto_accept, preset, label; stores the token **hash only**, never the token (§9) |
 | `threads` | Conversation threads (§7) |
