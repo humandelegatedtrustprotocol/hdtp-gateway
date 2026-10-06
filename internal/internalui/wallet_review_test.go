@@ -3,6 +3,7 @@ package internalui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -58,8 +59,12 @@ func TestTheWalletStartPageCarriesNoErrorText(t *testing.T) {
 		name   string
 		err    error
 		status int
+		says   string
 	}{
-		{"failure", errors.New("pq: connection to 10.0.0.7 refused SECRET-DETAIL"), http.StatusInternalServerError},
+		{"failure", errors.New("pq: connection to 10.0.0.7 refused SECRET-DETAIL"), http.StatusInternalServerError, "could not be made"},
+		// identity/leaf.go's address refusal wraps both sentinels; the page names the address, not the purpose.
+		{"address", fmt.Errorf("identity: https://10.0.0.7/a/alina/mcp: SECRET-DETAIL: %w: %w", identity.ErrEndpointRefused, identity.ErrLeafRefused), http.StatusConflict, "public URL is not an address"},
+		{"purpose", fmt.Errorf("identity: SECRET-DETAIL: %w", identity.ErrLeafRefused), http.StatusConflict, "this request is neither"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			mux, _ := walletReviewEnv(t, func(*http.Request, store.Account, string, string, string) (identity.CSRResult, error) {
@@ -70,7 +75,7 @@ func TestTheWalletStartPageCarriesNoErrorText(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), ownerKey{}, "owner-a"))
 			rr := httptest.NewRecorder()
 			mux.ServeHTTP(rr, req)
-			if rr.Code != c.status || strings.Contains(rr.Body.String(), "SECRET-DETAIL") {
+			if rr.Code != c.status || strings.Contains(rr.Body.String(), "SECRET-DETAIL") || !strings.Contains(rr.Body.String(), c.says) {
 				t.Fatalf("status %d, body %q", rr.Code, rr.Body.String())
 			}
 		})
