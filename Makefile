@@ -134,6 +134,7 @@ sbom:
 	@mkdir -p dist
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
 		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .
+	scripts/frp-patch.sh --sbom dist/sbom.cdx.json
 	@echo "wrote dist/sbom.cdx.json"
 
 # check covers the PRODUCT only. The harness is a separate module (harness/go.mod),
