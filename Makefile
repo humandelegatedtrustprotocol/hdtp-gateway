@@ -31,10 +31,12 @@ staticcheck:
 # G101 fires on generated sqlc SQL text, G104 on Close(), and G304 on file paths
 # the OWNER supplies on the command line. The rules that matter — G402 TLS
 # posture, G203 escaping, G115 conversions, G204 subprocess — stay on, and the
-# handful of by-design hits carry #nosec with a reason.
+# handful of by-design hits carry #nosec with a reason. third_party/frp is a dependency, held byte
+# for byte to upstream plus one patch (frp-check), so it is not ours to restyle: it is excluded
+# here as the module cache it replaces always was, and govulncheck still covers it.
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
-		-quiet -exclude-dir=harness -exclude=G101,G104,G304 ./...
+		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude=G101,G104,G304 ./...
 
 # Whole-program reachability from the shipped binary (review N-15). The report goes to a file, not
 # a pipe: make runs /bin/sh, where a pipeline's status is its last command's, so a deadcode that
