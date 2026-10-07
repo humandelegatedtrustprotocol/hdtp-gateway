@@ -58,9 +58,9 @@ This repository has no CI: every gate runs on the machine that pushes. `make hoo
 points git at `githooks/` (`core.hooksPath githooks`, relative, so each worktree runs
 its own copy):
 
-- **pre-commit** refuses any staged file over 5 MB, then runs every staged `*.go` file through
-  gofmt (and every `*.rs` file through rustfmt) and re-stages it, so a commit is styled before it
-  exists. A partly staged Go or Rust file is refused, not styled.
+- **pre-commit** refuses any staged file over 5 MiB (5,242,880 bytes), then runs every staged
+  `*.go` file through gofmt (and every `*.rs` file through rustfmt) and re-stages it, so a commit
+  is styled before it exists. A partly staged Go or Rust file is refused, not styled.
 - **pre-push** runs, in order: `make web` and a check that it left `web/dist`
   unchanged (only when the push touches `web/`); `make check` with
   `HDTP_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
@@ -185,7 +185,7 @@ make screenshots
 - Sign off your commits: `git commit -s` adds a `Signed-off-by: Your Name <you@example.com>`
   line, which certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/):
   that you wrote the contribution or otherwise have the right to submit it under this repository's
-  licence. There is no CLA. A pull request with a commit that has no sign-off is not merged.
+  licence. There is no CLA. A pull request with a non-merge commit that has no sign-off is not merged; the merge commit GitHub makes is not signed off and is not held to it.
 - Inbound is outbound: a contribution is accepted under the Apache License 2.0
   ([`LICENSE`](LICENSE)), the terms the repository gives out.
 - Tests come with the change, in the same commit. A test that has never been seen
