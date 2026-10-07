@@ -201,7 +201,7 @@ limitd-vendor:
 # usual because v1.30.0 slices statements out of the query files by a RUNE offset
 # while reading BYTES — one em dash in a comment silently corrupts every statement
 # after it (see TestQuerySourcesAreASCII, and F8 in
-# batondeck/docs/release/findings-2026-09-18-rig.md). v1.27.0 and below do not
+# batondeck/docs/release/findings-2026-09-18-rig.md, a repository that is not public). v1.27.0 and below do not
 # build on a current macOS SDK at all (strchrnul, pg_query_go v5).
 SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
