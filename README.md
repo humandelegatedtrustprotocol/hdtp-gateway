@@ -14,10 +14,10 @@ with no platform in the middle deciding who may talk to whom.
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
 
-> **Status: feature-complete against [`SPEC.md`](SPEC.md), not yet released.** The
-> repository is private while the last owner-only checks are done, so there is no
-> public issue tracker yet — see [SUPPORT.md](SUPPORT.md). If you are reading
-> this, you were invited: [CONTRIBUTING.md](CONTRIBUTING.md) is the place to start.
+> **Status: feature-complete against [`SPEC.md`](SPEC.md), not yet released.** No release has
+> been tagged, so the [Quickstart](#quickstart) builds from source. Questions and bugs go to this
+> repository's issues ([SUPPORT.md](SUPPORT.md)), vulnerabilities to [SECURITY.md](SECURITY.md),
+> and [CONTRIBUTING.md](CONTRIBUTING.md) is the place to start a change.
 
 ---
 

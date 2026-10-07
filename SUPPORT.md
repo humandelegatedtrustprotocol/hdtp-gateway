@@ -1,8 +1,7 @@
 # Support
 
-**This repository is private and has not been released**, so there is no public issue
-tracker or discussion forum yet. Reach the maintainer at **security@hdtp.io** with the
-subject `[hdtp-gateway support]`.
+**Nothing has been released yet.** Questions and bug reports go to this repository's
+issues; the bug report template asks for what helps most. There is no discussion forum.
 
 **A security report is not a support question.** It goes privately to the same address, under the
 subject and the policy [`SECURITY.md`](SECURITY.md) gives, and never into an issue.
