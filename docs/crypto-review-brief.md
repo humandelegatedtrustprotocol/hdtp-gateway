@@ -107,6 +107,8 @@ conforming validator accepts that it should not?**
 
 ## What is already checked, so you need not
 
+The `hdtp-identity/…` paths in this brief are in the hdtp-identity repository, which is not public.
+
 - **Test vectors**: HDTP Appendix B — `v: 1` envelopes, certificates, chain cases and the
   derivation. The Rust core, its Wasm build and an independently written Go port open and
   reproduce them: the core
