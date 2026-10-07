@@ -147,3 +147,5 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 )
+
+replace github.com/fatedier/frp v0.71.0 => ./third_party/frp

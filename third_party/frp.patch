@@ -1,0 +1,53 @@
+--- a/client/proxy/proxy_wrapper.go
++++ b/client/proxy/proxy_wrapper.go
+@@ -267,8 +267,9 @@
+ 	xl := pw.xl
+ 	pw.mu.RLock()
+ 	pxy := pw.pxy
++	running := pw.Phase == ProxyPhaseRunning
+ 	pw.mu.RUnlock()
+-	if pxy != nil && pw.Phase == ProxyPhaseRunning {
++	if pxy != nil && running {
+ 		xl.Debugf("start a new work connection, localAddr: %s remoteAddr: %s", workConn.LocalAddr().String(), workConn.RemoteAddr().String())
+ 		go pxy.InWorkConn(workConn, m)
+ 	} else {
+--- a/client/service.go
++++ b/client/service.go
+@@ -275,7 +275,11 @@
+ }
+ 
+ func (svr *Service) keepControllerWorking() {
+-	<-svr.ctl.Done()
++	ctl := svr.control()
++	if ctl == nil {
++		return // stopped before this started
++	}
++	<-ctl.Done()
+ 
+ 	// There is a situation where the login is successful but due to certain reasons,
+ 	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
+@@ -285,8 +289,8 @@
+ 		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
+ 		// login to the server until successful.
+ 		svr.loopLoginUntilSuccess(20*time.Second, false)
+-		if svr.ctl != nil {
+-			<-svr.ctl.Done()
++		if ctl := svr.control(); ctl != nil {
++			<-ctl.Done()
+ 			return false, errors.New("control is closed and try another loop")
+ 		}
+ 		// If the control is nil, it means that the login failed and the service is also closed.
+@@ -303,6 +307,13 @@
+ 			FastRetryJitter: 0.5,
+ 		},
+ 	), true, svr.ctx.Done())
++}
++
++// control reads svr.ctl under ctlMu: stop and the login loop replace it.
++func (svr *Service) control() *Control {
++	svr.ctlMu.RLock()
++	defer svr.ctlMu.RUnlock()
++	return svr.ctl
+ }
+ 
+ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
