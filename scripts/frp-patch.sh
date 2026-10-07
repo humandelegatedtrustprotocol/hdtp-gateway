@@ -33,6 +33,11 @@
 #                                 no version to match advisories against; this scans upstream
 #                                 frp v0.71.0 in a module of its own and fails on any advisory for
 #                                 frp itself (run by `make vulncheck`)
+#   scripts/frp-patch.sh --sbom <sbom.cdx.json>
+#                                 cyclonedx-gomod labels a directory replace with the MAIN module's
+#                                 version; this puts frp's component back at v0.71.0 and records
+#                                 the patch as its pedigree (run by `make sbom`; the check runs it
+#                                 against a stub)
 #
 # The upstream module comes from the Go module cache (downloaded once if absent) and is held to
 # the h1 hash below, which is the hash go.sum carried for it before the replace.
@@ -53,6 +58,33 @@ mode="${1:-check}"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+# sbom_fix FILE: frp's component in a CycloneDX document gets upstream's version and purl, and
+# the patch as an unofficial pedigree patch. Refuses a document with no frp component.
+sbom_fix() {
+  node -e '
+    const fs = require("fs")
+    const [file, mod, ver, patchFile] = process.argv.slice(1)
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"))
+    const all = []
+    const walk = cs => (cs || []).forEach(c => { all.push(c); walk(c.components) })
+    walk(doc.components)
+    const frp = all.filter(c => c.name === mod)
+    if (frp.length !== 1) { console.error(`frp-patch: ${file} has ${frp.length} components named ${mod}, want 1`); process.exit(1) }
+    const c = frp[0]
+    c.version = ver
+    if (c.purl) c.purl = c.purl.replace(/@[^?#]*/, "@" + ver)
+    c.pedigree = { patches: [{ type: "unofficial", diff: { text: { contentType: "text/x-diff", content: fs.readFileSync(patchFile, "utf8") } } }] }
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2) + "\n")
+    console.log(`frp-patch: ${file}: ${mod} is ${ver} with third_party/frp.patch as its pedigree`)
+  ' "$1" "$MODULE" "$VERSION" "$patchfile"
+}
+
+if [ "$mode" = --sbom ]; then
+  [ "$#" -eq 2 ] || { echo "usage: scripts/frp-patch.sh --sbom <sbom.cdx.json>" >&2; exit 2; }
+  sbom_fix "$2"
+  exit
+fi
 
 # upstream, from the module cache, held to its hash
 info="$(cd "$work" && GOWORK=off GOFLAGS=-mod=mod go mod download -json "$MODULE@$VERSION")"
@@ -149,6 +181,19 @@ check)
   # the node, so a bump here that left the replaces behind would build upstream frp in both.
   if ! grep -q "^[[:space:]]*$MODULE $VERSION\$" "$top/go.mod"; then
     echo "frp-patch: go.mod does not require $MODULE $VERSION, the version the patch is for" >&2
+    problems=1
+  fi
+  # the sbom fix, against a stub shaped as cyclonedx-gomod writes a directory replace
+  printf '{"components":[{"name":"%s","version":"v1.2.3-main","purl":"pkg:golang/%s@v1.2.3-main?type=module"}]}' \
+    "$MODULE" "$MODULE" >"$work/sbom.json"
+  if ! sbom_fix "$work/sbom.json" >/dev/null || ! node -e '
+      const [file, mod, ver, patchFile] = process.argv.slice(1)
+      const c = JSON.parse(require("fs").readFileSync(file, "utf8")).components[0]
+      const ok = c.version === ver && c.purl === `pkg:golang/${mod}@${ver}?type=module` &&
+        c.pedigree.patches[0].diff.text.content === require("fs").readFileSync(patchFile, "utf8")
+      process.exit(ok ? 0 : 1)
+    ' "$work/sbom.json" "$MODULE" "$VERSION" "$patchfile"; then
+    echo "frp-patch: --sbom does not put $MODULE back at $VERSION with the patch as its pedigree" >&2
     problems=1
   fi
   [ "$problems" = 0 ] || exit 1
