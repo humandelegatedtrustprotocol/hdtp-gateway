@@ -251,3 +251,31 @@ func TestFRPCallersDuringRegistrationAreServed(t *testing.T) {
 		}
 	}
 }
+
+// AC: the adapter can be stopped the moment it is started — serve does exactly
+// that when the node fails to start after the tunnel came up. frp v0.71.0's
+// GracefulClose called the cancel func Run sets on its own goroutine: a data
+// race, and a nil call (a panic) when Run had not set it yet
+// (third_party/frp.patch). Nothing listens on the frps port; Stop must still
+// return, and return Run's goroutine with it.
+func TestFRPStopRightAfterStart(t *testing.T) {
+	a, err := New("frp", Options{PublicBind: "127.0.0.1:1", Extra: map[string]string{
+		"server_addr": "127.0.0.1", "server_port": strconv.Itoa(freePort(t)), "remote_port": "2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f := a.(*FRP)
+	done := f.runDone
+	if err := a.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("Stop returned with frp's Run still running")
+	}
+}
