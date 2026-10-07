@@ -22,8 +22,12 @@ all: web check analyze build dist sbom
 # pinned HERE and the hook calls these targets — one list, not two to drift apart.
 analyze: vulncheck staticcheck gosec deadcode
 
+# The second line: the replace leaves the node's scan no version of frp to match advisories
+# against, so upstream frp v0.71.0 is scanned on its own (scripts/frp-patch.sh).
+GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 vulncheck:
-	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+	$(GOVULNCHECK) ./...
+	scripts/frp-patch.sh --vulncheck $(GOVULNCHECK)
 
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
