@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Modified for hdtp-gateway: this file differs from frp v0.71.0 by third_party/frp.patch;
+// scripts/frp-patch.sh says what the change is and why.
 
 package server
 

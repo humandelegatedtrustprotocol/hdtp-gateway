@@ -470,7 +470,7 @@ const LONGEST_PIECE = 20;
 /**
  * A name as the runs of it a line may break between, each run a list of pieces: a name with spaces
  * breaks between its words (and, as a browser does, after a hyphen); an address only after its `@`
- * (never inside `priya.raman` or `shailka.com`); a handle or a snake_case name after its underscores
+ * (never inside `priya.raman` or `example.com`); a handle or a snake_case name after its underscores
  * and dots. A piece with a stretch longer than any column gives it is marked `long`, and only that
  * piece may break anywhere — so one 60-letter name neither breaks an ordinary name mid-word nor
  * pushes its column off the page. Whitespace runs come back as they are.

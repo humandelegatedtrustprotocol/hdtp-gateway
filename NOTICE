@@ -1,0 +1,12 @@
+hdtp-gateway — the HDTP node
+Copyright 2026 Sumit Agrawal
+
+This repository is licensed under the Apache License, Version 2.0 (the file
+LICENSE). Section 4(d) of that licence requires anyone who redistributes it,
+or a work derived from it, to carry the attribution notices in this NOTICE
+file.
+
+This product includes a modified copy of frp (https://github.com/fatedier/frp),
+version 0.71.0, in third_party/frp, licensed under the Apache License, Version
+2.0 (third_party/frp/LICENSE). The modifications are third_party/frp.patch;
+each modified file says so at its top.
