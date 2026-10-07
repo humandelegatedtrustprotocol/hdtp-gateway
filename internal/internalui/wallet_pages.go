@@ -428,6 +428,11 @@ func (d WalletDeps) postWalletStart(w http.ResponseWriter, r *http.Request) {
 	origin, _ := walletPortalOrigin(r) // prepare checked it
 	res, err := d.Mint(r, a, ask.purpose, ask.endpoint, d.WalletOrigin)
 	switch {
+	case errors.Is(err, identity.ErrEndpointRefused):
+		// Before ErrLeafRefused, which an address refusal also wraps (identity/leaf.go): the purpose
+		// was fine, the address was not (SPEC §3.12).
+		http.Error(w, "This node's public URL is not an address a wallet certifies; set public_url to the address people reach this node at.", http.StatusConflict)
+		return
 	case errors.Is(err, identity.ErrLeafRefused):
 		http.Error(w, "A web wallet signs a renewal or a move of an identity it already certified; this request is neither.", http.StatusConflict)
 		return
