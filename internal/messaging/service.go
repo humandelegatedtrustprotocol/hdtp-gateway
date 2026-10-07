@@ -85,6 +85,10 @@ const (
 
 const maxTextBytes = 16 * 1024 // HDTP §12
 
+// maxOwnerTopicBytes bounds the topic an owner starts a thread with at what a BatonDeck host accepts
+// in `send_message`, so it reaches a hosted peer; a peer's reaches this node under MaxFieldBytes.
+const maxOwnerTopicBytes = 256
+
 type Service struct {
 	Store store.MessageStore
 	Bus   *Bus // optional: events fan out when set (SPEC §7.6)
@@ -150,6 +154,10 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	if len(in.Text) > maxTextBytes {
 		return Result{}, fmt.Errorf("%w: text over 16 KiB", ErrTooLarge)
 	}
+	owner := in.Origin == OriginPortal || in.Origin == OriginMCP
+	if owner && len(in.Topic) > maxOwnerTopicBytes {
+		return Result{}, fmt.Errorf("%w: topic over 256 bytes", ErrTooLarge)
+	}
 
 	// Idempotency first: the same msg_id is acknowledged, never re-executed.
 	if prev, err := s.Store.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); err == nil {
@@ -172,6 +180,9 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	case err == nil:
 		if th.ContactFpr != contactFpr {
 			return Result{}, fmt.Errorf("%w: thread belongs to another contact", ErrBadRequest)
+		}
+		if owner && in.Topic != "" {
+			return Result{}, fmt.Errorf("%w: a topic is given when a thread is started, and that thread exists", ErrBadRequest)
 		}
 		if err := s.Store.TouchThread(ctx, accountID, threadID, nowTS); err != nil {
 			return Result{}, err

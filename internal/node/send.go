@@ -231,8 +231,9 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 		"msg_id": in.MsgID, "text": in.Text, "thread_id": threadID,
 		"sender": string(in.Label()),
 	}
-	if in.Topic != "" {
-		args["topic"] = in.Topic
+	// The thread's, not the input's: a retry's input carries none (SPEC §7).
+	if th, err := n.opts.Store.GetThread(ctx, accountID, threadID); err == nil && th.Topic != "" {
+		args["topic"] = th.Topic
 	}
 	if in.ReplyTo != "" {
 		args["reply_to"] = in.ReplyTo
