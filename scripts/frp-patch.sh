@@ -4,14 +4,19 @@
 # module with that directory (a replace does not reach a module that depends on this one, and the
 # harness compiles the tunnel and ingress packages through `replace hdtp-gateway => ..`).
 #
-# Why: v0.71.0 (and frp's master as of 2026-10-07) has two data races in its client, each a field
+# Why: v0.71.0 (and frp's master as of 2026-10-07) has three data races in its client, each a field
 # read without the lock its writers hold:
 #   - client/proxy/proxy_wrapper.go, Wrapper.InWorkConn reads the proxy's phase after releasing
 #     pw.mu, while SetRunningStatus writes it: a caller who reaches frps while the client is still
 #     recording the proxy as running;
 #   - client/service.go, keepControllerWorking reads svr.ctl without ctlMu, while stop sets it to
-#     nil: every Stop (and a nil dereference if stop wins before the goroutine's first read).
-# TestFRPCallersDuringRegistrationAreServed (internal/tunnel) reproduces both under -race.
+#     nil: a Stop while that goroutine runs (and a nil dereference if stop wins before its first
+#     read);
+#   - client/service.go, GracefulClose calls svr.cancel, which Run sets on its own goroutine: a
+#     Stop right after Start reads it concurrently, and calls nil if Run has not set it yet (a
+#     panic: serve stops the tunnel when the node fails to start).
+# TestFRPCallersDuringRegistrationAreServed reproduces the first two under -race, and
+# TestFRPStopRightAfterStart the third (both in internal/tunnel).
 #
 # The copy is every non-test .go file under client/, pkg/, server/ and assets/ (the library; frp's
 # cmd/, web/, test/ and doc/ are not compiled by anything here), with frp's go.mod and LICENSE.
@@ -19,6 +24,7 @@
 #   scripts/frp-patch.sh          check: the tree is exactly upstream + the patch, and both go.mod
 #                                 files carry the same replace (run by `make check`)
 #   scripts/frp-patch.sh --write  rebuild the tree from upstream + the patch
+#   scripts/frp-patch.sh --diff   write the patch from the tree as edited (after a change to it)
 #
 # The upstream module comes from the Go module cache (downloaded once if absent) and is held to
 # the h1 hash below, which is the hash go.sum carried for it before the replace.
@@ -49,16 +55,28 @@ if [ "$sum" != "$SUM" ] || [ -z "$dir" ]; then
   exit 1
 fi
 
-# the expected tree: the copy rule over upstream, then the patch
-want="$work/frp"
-mkdir -p "$want"
-cp "$dir/go.mod" "$dir/LICENSE" "$want/"
+# the copy rule over upstream: base; and the expected tree: base with the patch applied
+base="$work/a"
+mkdir -p "$base"
+cp "$dir/go.mod" "$dir/LICENSE" "$base/"
 (cd "$dir" && find client pkg server assets -type f -name '*.go' ! -name '*_test.go') | while IFS= read -r f; do
-  mkdir -p "$want/$(dirname "$f")"
-  cp "$dir/$f" "$want/$f"
+  mkdir -p "$base/$(dirname "$f")"
+  cp "$dir/$f" "$base/$f"
 done
-chmod -R u+w "$want"
-patch -s -p1 -d "$want" --no-backup-if-mismatch < "$patchfile" || {
+chmod -R u+w "$base"
+
+if [ "$mode" = --diff ]; then
+  # paths a/ and b/, no timestamps, so the patch is the same bytes wherever it is made
+  mkdir -p "$work/d" && cp -R "$base" "$work/d/a" && cp -R "$tree" "$work/d/b"
+  (cd "$work/d" && diff -ruN a b || true) | grep -v '^diff -ruN ' |
+    sed -e 's|^\(---\) \(a/[^[:space:]]*\).*$|\1 \2|' -e 's|^\(+++\) \(b/[^[:space:]]*\).*$|\1 \2|' >"$patchfile"
+  echo "frp-patch: wrote third_party/frp.patch from third_party/frp"
+  exit 0
+fi
+
+want="$work/frp"
+cp -R "$base" "$want"
+patch -s -p1 -d "$want" < "$patchfile" || {
   echo "frp-patch: third_party/frp.patch does not apply to $MODULE@$VERSION" >&2
   exit 1
 }
@@ -93,7 +111,7 @@ check)
   echo "frp-patch: third_party/frp is $MODULE@$VERSION + third_party/frp.patch; both go.mod files replace it"
   ;;
 *)
-  echo "usage: scripts/frp-patch.sh [--write]" >&2
+  echo "usage: scripts/frp-patch.sh [--write|--diff]" >&2
   exit 2
   ;;
 esac

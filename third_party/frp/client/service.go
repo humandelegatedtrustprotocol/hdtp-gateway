@@ -155,6 +155,10 @@ type Service struct {
 	ctx context.Context
 	// call cancel to stop service
 	cancel context.CancelCauseFunc
+	// cancelMu guards cancel and closed: GracefulClose may run before Run has
+	// set cancel, from another goroutine (frpc's own signal handler does).
+	cancelMu sync.Mutex
+	closed   bool
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
@@ -226,7 +230,13 @@ func NewService(options ServiceOptions) (*Service, error) {
 func (svr *Service) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	svr.ctx = xlog.NewContext(ctx, xlog.FromContextSafe(ctx))
+	svr.cancelMu.Lock()
 	svr.cancel = cancel
+	closed := svr.closed
+	svr.cancelMu.Unlock()
+	if closed {
+		cancel(nil) // closed before Run started
+	}
 
 	// set custom DNSServer
 	if svr.common.DNSServer != "" {
@@ -428,7 +438,13 @@ func (svr *Service) Close() {
 
 func (svr *Service) GracefulClose(d time.Duration) {
 	svr.gracefulShutdownDuration.Store(int64(d))
-	svr.cancel(nil)
+	svr.cancelMu.Lock()
+	svr.closed = true
+	cancel := svr.cancel
+	svr.cancelMu.Unlock()
+	if cancel != nil {
+		cancel(nil)
+	}
 }
 
 func (svr *Service) stop() {

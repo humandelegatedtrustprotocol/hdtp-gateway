@@ -13,7 +13,32 @@
  	} else {
 --- a/client/service.go
 +++ b/client/service.go
-@@ -275,7 +275,11 @@
+@@ -155,6 +155,10 @@
+ 	ctx context.Context
+ 	// call cancel to stop service
+ 	cancel context.CancelCauseFunc
++	// cancelMu guards cancel and closed: GracefulClose may run before Run has
++	// set cancel, from another goroutine (frpc's own signal handler does).
++	cancelMu sync.Mutex
++	closed   bool
+ 
+ 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
+ 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
+@@ -226,7 +230,13 @@
+ func (svr *Service) Run(ctx context.Context) error {
+ 	ctx, cancel := context.WithCancelCause(ctx)
+ 	svr.ctx = xlog.NewContext(ctx, xlog.FromContextSafe(ctx))
++	svr.cancelMu.Lock()
+ 	svr.cancel = cancel
++	closed := svr.closed
++	svr.cancelMu.Unlock()
++	if closed {
++		cancel(nil) // closed before Run started
++	}
+ 
+ 	// set custom DNSServer
+ 	if svr.common.DNSServer != "" {
+@@ -275,7 +285,11 @@
  }
  
  func (svr *Service) keepControllerWorking() {
@@ -26,7 +51,7 @@
  
  	// There is a situation where the login is successful but due to certain reasons,
  	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
-@@ -285,8 +289,8 @@
+@@ -285,8 +299,8 @@
  		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
  		// login to the server until successful.
  		svr.loopLoginUntilSuccess(20*time.Second, false)
@@ -37,17 +62,32 @@
  			return false, errors.New("control is closed and try another loop")
  		}
  		// If the control is nil, it means that the login failed and the service is also closed.
-@@ -303,6 +307,13 @@
- 			FastRetryJitter: 0.5,
- 		},
+@@ -305,6 +319,13 @@
  	), true, svr.ctx.Done())
-+}
-+
+ }
+ 
 +// control reads svr.ctl under ctlMu: stop and the login loop replace it.
 +func (svr *Service) control() *Control {
 +	svr.ctlMu.RLock()
 +	defer svr.ctlMu.RUnlock()
 +	return svr.ctl
++}
++
+ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
+ 	xl := xlog.FromContextSafe(svr.ctx)
+ 
+@@ -417,7 +438,13 @@
+ 
+ func (svr *Service) GracefulClose(d time.Duration) {
+ 	svr.gracefulShutdownDuration.Store(int64(d))
+-	svr.cancel(nil)
++	svr.cancelMu.Lock()
++	svr.closed = true
++	cancel := svr.cancel
++	svr.cancelMu.Unlock()
++	if cancel != nil {
++		cancel(nil)
++	}
  }
  
- func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
+ func (svr *Service) stop() {
