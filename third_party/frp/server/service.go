@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/fatedier/golib/crypto"
@@ -134,6 +135,10 @@ type Service struct {
 	ctx context.Context
 	// call cancel to stop service
 	cancel context.CancelFunc
+	// cancelMu guards cancel and closed: Close may run before Run has set
+	// cancel, from another goroutine.
+	cancelMu sync.Mutex
+	closed   bool
 }
 
 func NewService(cfg *v1.ServerConfig) (*Service, error) {
@@ -366,7 +371,14 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 func (svr *Service) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	svr.ctx = ctx
+	svr.cancelMu.Lock()
 	svr.cancel = cancel
+	closed := svr.closed
+	svr.cancelMu.Unlock()
+	if closed {
+		cancel() // closed before Run started: Close released everything
+		return
+	}
 
 	// run dashboard web server.
 	if svr.webServer != nil {
@@ -434,8 +446,12 @@ func (svr *Service) Close() error {
 	svr.rc.Close()
 	svr.muxer.Close()
 	svr.ctlManager.Close()
-	if svr.cancel != nil {
-		svr.cancel()
+	svr.cancelMu.Lock()
+	svr.closed = true
+	cancel := svr.cancel
+	svr.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	return nil
 }
