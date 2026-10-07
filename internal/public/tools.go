@@ -344,7 +344,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		outcome := res.Status
 		if res.Silent {
 			// SPEC §9.1: answered as a stranger; only the audit log knows.
-			outcome = "blocked_silent"
+			outcome = silentOutcome(known(ctx, d, fpr))
 		}
 		resource := "caller:" + fpr
 		if proof.AddressClaim != "" {
@@ -397,7 +397,7 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 				// RedeemAs applies to a held row, and the cloud's request_contact
 				// (batondeck src/identity/tools.ts). An active row here was answered `bad_request`
 				// "already known", which told a demoted caller it is known.
-				d.audit("request_contact", "caller:"+fpr, "blocked_silent")
+				d.audit("request_contact", "caller:"+fpr, silentOutcome(status))
 				return toolOK(map[string]string{"status": "pending"})
 			}
 			code := domainCode(err)
@@ -407,6 +407,18 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 		d.audit("request_contact", "caller:"+fpr, "pending")
 		return toolOK(map[string]string{"status": "pending"})
 	}
+}
+
+// silentOutcome is the audit verdict for a guest tool that answered a held root as it answers a
+// stranger and wrote nothing (HDTP §5). A blocked row is `blocked_silent`. An active or pending_out
+// row reaches a guest tool only demoted, and nobody blocked it: `ok`, the call answered and nothing
+// refused, which is the row the cloud writes for the same answer (batondeck
+// src/identity/surface.ts, the pipeline's write after a tool that does not throw).
+func silentOutcome(status string) string {
+	if status == "blocked" {
+		return "blocked_silent"
+	}
+	return "ok"
 }
 
 // known returns the caller's stored relationship status, or "" when there is
