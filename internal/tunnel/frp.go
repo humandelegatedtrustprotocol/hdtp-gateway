@@ -6,7 +6,10 @@ package tunnel
 // terminates TLS, so the node's own mTLS survives end to end: direct mode,
 // TerminatesAtEdge=false. Incoming connections are delivered by the frp client
 // dialing the node's local public bind, so no Listener is handed back.
-// Off-the-shelf on purpose: everything network-shaped is frp's.
+// Off-the-shelf on purpose: everything network-shaped is frp's. The build takes
+// frp from third_party/frp, upstream v0.71.0 with data races in its client and
+// server fixed (third_party/frp.patch; scripts/frp-patch.sh names each, and holds
+// the copy to exactly that).
 
 import (
 	"context"
@@ -200,8 +203,9 @@ func (a *FRP) Status() Status {
 }
 
 // Stop shuts frp down the way frpc does — GracefulClose, then wait for Run to
-// return — and only THEN releases the context; cancelling first races frp's
-// own keepalive goroutine against its stop path.
+// return — and only THEN releases the context. GracefulClose closes the proxies
+// and gives work connections already in flight 2 s before the session goes;
+// cancelling the context first would close it at once.
 func (a *FRP) Stop() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
