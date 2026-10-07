@@ -388,12 +388,6 @@ func calledTool(req mcp.Request) string {
 	return name
 }
 
-// refusalCode is the code a caller sees when a tool is out of reach. The
-// distinction is required by HDTP §12 and is a privacy rule, not cosmetics: at
-// guest tier "you may not" and "there is no such tool" must be the SAME answer,
-// because a blocked caller resolves to guest and must be indistinguishable from
-// somebody this node has never met (§5.4). A contact, by contrast, is known — so
-// a tool their switchboard does not grant is an honest `permission_denied`.
 // resolveCaller is Resolve with one override: a `v: 1` envelope whose chain
 // proved nothing for the pinned root — a blocked contact, or a leaf older than
 // the pinned one (HDTP §14.3) — is a guest whatever row the root has. The
@@ -405,9 +399,19 @@ func (p *Pool) resolveCaller(ctx context.Context, accountID, fpr string) (policy
 	return p.Resolve(ctx, accountID, fpr)
 }
 
+// refusalCode is the code a caller sees when a tool is out of reach. The
+// distinction is required by HDTP §12 and is a privacy rule, not cosmetics: at
+// guest tier "you may not" and "there is no such tool" must be the SAME answer,
+// because a blocked caller resolves to guest and must be indistinguishable from
+// somebody this node has never met (§5.4). A contact, by contrast, is known — so
+// a tool their switchboard does not grant is an honest `permission_denied`; a
+// caller at the pending tier is told its request still waits (§6.1).
 func refusalCode(tier policy.Tier) string {
-	if tier == policy.TierContact || tier == policy.TierPending {
+	switch tier {
+	case policy.TierContact:
 		return "permission_denied"
+	case policy.TierPending:
+		return "pending_approval"
 	}
 	return "blocked_or_unknown"
 }
