@@ -50,6 +50,9 @@ type MoveProgress struct {
 
 // MoveProgress reads the ledger for the identity's current leaf.
 func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MoveProgress, error) {
+	// Before the ledger: once the flag is gone the walk has finished writing, so Walking false
+	// means the ledger read below is final.
+	_, walking := n.campaigns.Load(accountID)
 	st := n.idm.Store
 	camp, err := n.idm.CampaignFor(ctx, accountID, kid)
 	if err != nil {
@@ -64,7 +67,7 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 		return MoveProgress{}, err
 	}
 	told, noLeaf, refused := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	var out MoveProgress
+	out := MoveProgress{Walking: walking}
 	for _, r := range rows {
 		if r.LeafKid != kid {
 			continue // progress of an earlier leaf's campaign: not this address
@@ -99,7 +102,6 @@ func (n *Node) MoveProgress(ctx context.Context, accountID, kid string) (MovePro
 		}
 	}
 	sort.Slice(out.Unreached, func(i, j int) bool { return out.Unreached[i].Attempts > out.Unreached[j].Attempts })
-	_, out.Walking = n.campaigns.Load(accountID)
 	return out, nil
 }
 
