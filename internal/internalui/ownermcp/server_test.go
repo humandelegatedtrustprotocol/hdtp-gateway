@@ -182,6 +182,28 @@ func TestSendToContactStoresAgentLabel(t *testing.T) {
 	}
 }
 
+// SPEC §7: the agent starts a thread with a topic, and is told when it gives one for a thread that exists.
+func TestSendToContactStartsAThreadWithItsTopic(t *testing.T) {
+	e := newEnv(t)
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{
+		"account_id": e.acctA, "contact_fpr": "sha256:alina", "msg_id": "m1", "text": "coffee?", "topic": "Coffee catch-up",
+	})
+	if isErr {
+		t.Fatalf("send failed: %s", text)
+	}
+	var res messaging.Result
+	_ = json.Unmarshal([]byte(text), &res)
+	if th, err := e.st.GetThread(context.Background(), e.acctA, res.ThreadID); err != nil || th.Topic != "Coffee catch-up" {
+		t.Fatalf("thread: %+v %v", th, err)
+	}
+	if text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{
+		"account_id": e.acctA, "contact_fpr": "sha256:alina", "msg_id": "m2", "text": "renamed?", "thread_id": res.ThreadID, "topic": "Another",
+	}); !isErr || !strings.Contains(text, "bad_request") {
+		t.Fatalf("a topic for a thread that exists: %s", text)
+	}
+}
+
 func TestTokenAccountScopingEnforced(t *testing.T) {
 	e := newEnv(t)
 	// token narrowed to account A: B must be invisible and denied

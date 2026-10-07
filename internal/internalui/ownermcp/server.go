@@ -181,6 +181,7 @@ type SendArgs struct {
 	ThreadID   string `json:"thread_id,omitempty"`
 	MsgID      string `json:"msg_id"`
 	Text       string `json:"text"`
+	Topic      string `json:"topic,omitempty" jsonschema:"a new thread's topic, at most 256 bytes; refused for a thread that exists"`
 }
 
 type PermissionsArgs struct {
@@ -521,7 +522,7 @@ func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolReq
 	}
 	// This surface IS the agent: the label is fixed here (SPEC §7.2).
 	in := messaging.Input{
-		MsgID: a.MsgID, ThreadID: a.ThreadID, Text: a.Text, Origin: messaging.OriginMCP,
+		MsgID: a.MsgID, ThreadID: a.ThreadID, Text: a.Text, Topic: a.Topic, Origin: messaging.OriginMCP,
 	}
 	send := ot.d.Send
 	if send == nil {
