@@ -200,7 +200,7 @@ check)
   echo "frp-patch: third_party/frp is $MODULE@$VERSION + third_party/frp.patch; both go.mod files replace it"
   ;;
 *)
-  echo "usage: scripts/frp-patch.sh [--write|--diff|--vulncheck <govulncheck command>]" >&2
+  echo "usage: scripts/frp-patch.sh [--write|--diff|--vulncheck <govulncheck command>|--sbom <sbom.cdx.json>]" >&2
   exit 2
   ;;
 esac
