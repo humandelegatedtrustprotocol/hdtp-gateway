@@ -58,7 +58,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260804232424-e85f50dbfd32
 	github.com/chromedp/chromedp v0.16.0
 	github.com/humandelegatedtrustprotocol/hdtp-gateway v0.0.0
-	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.1
+	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.3
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	modernc.org/sqlite v1.57.0
