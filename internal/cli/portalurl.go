@@ -38,11 +38,12 @@ func portalBase(cfg *core.Config) string {
 		// The name passkeys bind to wins: a credential registered against a bare
 		// IP will not work once the owner uses the hostname (§12.2).
 		host = cfg.InternalHost
-	case host == "" || host == "0.0.0.0" || host == "::" || host == "[::]":
-		// A wildcard bind is not an address. Loopback is the one host that is
-		// always correct for the machine running the node, and is a secure
+	case host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" || isLoopbackIP(host):
+		// A wildcard bind is not an address, and a loopback IP is not a relying-party ID: the
+		// portal registers and accepts passkeys on loopback only as `localhost`
+		// (internalui.OriginPolicy.RelyingParty), so that is the name printed. It is a secure
 		// context, so the ceremony can actually run.
-		host = "127.0.0.1"
+		host = "localhost"
 	}
 	if port != "" && !strings.Contains(host, ":") {
 		return scheme + "://" + net.JoinHostPort(host, port)
@@ -51,6 +52,11 @@ func portalBase(cfg *core.Config) string {
 		return scheme + "://" + net.JoinHostPort(host, port)
 	}
 	return scheme + "://" + host
+}
+
+func isLoopbackIP(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 // setupURL is the one-time first-run/lockout link (§3.1, §12.4).
