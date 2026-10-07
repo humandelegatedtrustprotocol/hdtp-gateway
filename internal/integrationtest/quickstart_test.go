@@ -54,20 +54,23 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 		}
 	}
 
-	// (b) If the README says to open a portal URL, compose has to publish it.
-	if strings.Contains(string(readme), "Open the URL") {
-		if !strings.Contains(string(compose), "127.0.0.1:8080:") {
-			t.Error("the README tells the owner to open the portal URL, but compose publishes " +
-				"nothing on host loopback — `docker compose up` prints a URL that cannot be reached")
-		}
+	// (b) The README tells the owner to open the portal URL the log prints, so compose has to
+	// publish it. This keyed on the words "Open the URL" after the README had stopped using them,
+	// and checked nothing: it now refuses to pass when the sentence it reads is gone.
+	if !strings.Contains(string(readme), "The log prints your portal URL") {
+		t.Error("README no longer says the log prints the portal URL where this test reads it")
+	}
+	if !strings.Contains(string(compose), "127.0.0.1:8080:") {
+		t.Error("the README tells the owner to open the portal URL, but compose publishes " +
+			"nothing on host loopback — `docker compose up` prints a URL that cannot be reached")
 	}
 
-	// (c) …and only on loopback. Publishing "8080:8080" would put an
-	// unauthenticated portal (SPEC §8.3: no login on a loopback bind) on the
-	// owner's whole LAN.
+	// (c) …and only on loopback. The portal is plain HTTP in compose, which SPEC §8.3 allows on
+	// loopback only; publishing "8080:8080" would put the setup wizard and the sign-in,
+	// unencrypted, on the owner's whole LAN.
 	if regexp.MustCompile(`(?m)^\s*-\s*"?8080:`).Match(compose) {
-		t.Error("compose publishes the portal on ALL interfaces; the portal has no login on a " +
-			"loopback bind, so this would expose it to the LAN. Bind it to 127.0.0.1 only")
+		t.Error("compose publishes the portal on ALL interfaces; it is plain HTTP, which SPEC §8.3 " +
+			"allows on loopback only, so this would expose it to the LAN. Bind it to 127.0.0.1 only")
 	}
 }
 

@@ -79,7 +79,10 @@ the whole address book.
 ## Quickstart
 
 Five minutes from nothing to a working node. You need Docker with Compose, Go, Rust (cargo), and
-SSH access to the private identity module (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
+SSH read access to the hdtp-identity repository, which is **not public**: the node's Go module, the
+limits sidecar's `hdtp-limits` crate and the `hdtp` wallet CLI used below all come from it. Without
+that access the first command fails, and nothing here builds
+(see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
 
 ```
 make identity-proxy     # fetch the identity module on this machine, for the image build
@@ -95,8 +98,10 @@ deliberately no online recovery path. If you lose them all, recovery needs shell
 access on the host — `hdtp-gateway passkey reset-wizard` mints a one-time link
 that re-opens registration.
 
-Then create the identity people will reach, and have your wallet certify this node for it (see
-[Your wallet](#your-wallet)):
+Then set the address people's agents will reach this node at: the portal's *Settings*, public URL
+(how to get one is [Be reachable](#be-reachable)). The certificate names that address, so until it
+is set `account csr` refuses (`no public URL is configured`). Create the identity people will reach,
+and have your wallet certify this node for it (see [Your wallet](#your-wallet)):
 
 ```
 docker compose exec hdtp-gateway hdtp-gateway account create --slug me --name "Your Name"
@@ -405,8 +410,8 @@ deployment mode that could not serve a single request, a memory cap that killed
 every Node-based integration, credentials written to disk in the clear. Each entry
 records how the defect was *proved*, not merely that it was fixed.
 
-**A small dependency surface.** 25 direct dependencies, each a maintained library
-doing something deliberately not hand-rolled: `certmagic` for ACME, `frp` and
+**A small dependency surface.** The direct dependencies (`go.mod`) are maintained libraries
+doing what is deliberately not hand-rolled: `certmagic` for ACME, `frp` and
 `ngrok` for tunnels, `cedar-go` for authorization, `pgx` for Postgres.
 
 ---
