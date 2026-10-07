@@ -237,3 +237,41 @@ func TestAStoredMessageKeepsTheLabelItWasComposedWith(t *testing.T) {
 		t.Fatal("a stored message was recorded a second time")
 	}
 }
+
+// SPEC §7: a thread's topic is the one given when it was created. The owner's surfaces are told so
+// when they give one for a thread that exists; a peer's is not refused for it, because a sender may
+// carry its thread's topic on every message, and a replay of the send that made the thread is
+// answered from the record.
+func TestOwnersTopicOnlyStartsAThread(t *testing.T) {
+	svc, acct := newSvc(t)
+	ctx := context.Background()
+	r, err := svc.Record(ctx, acct, alina, DirOut, Input{Origin: OriginMCP, MsgID: "o1", Text: "coffee?", Topic: "Coffee catch-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th, _ := svc.Store.GetThread(ctx, acct, r.ThreadID); th.Topic != "Coffee catch-up" {
+		t.Fatalf("topic not stored: %q", th.Topic)
+	}
+	if again, err := svc.Record(ctx, acct, alina, DirOut, Input{Origin: OriginMCP, MsgID: "o1", Text: "coffee?", Topic: "Coffee catch-up"}); err != nil || again != r {
+		t.Fatalf("a replay was not answered from the record: %v %+v", err, again)
+	}
+	for _, o := range []Origin{OriginMCP, OriginPortal} {
+		_, err := svc.Record(ctx, acct, alina, DirOut, Input{Origin: o, MsgID: "o2-" + string(o), ThreadID: r.ThreadID, Text: "renamed?", Topic: "Another"})
+		if !errors.Is(err, ErrBadRequest) {
+			t.Fatalf("%s: a topic for a thread that exists was accepted: %v", o, err)
+		}
+	}
+	if _, err := svc.Record(ctx, acct, alina, DirOut, Input{Origin: OriginMCP, MsgID: "o3", ThreadID: r.ThreadID, Text: "still on?"}); err != nil {
+		t.Fatalf("no topic continues the thread: %v", err)
+	}
+	if _, err := svc.Record(ctx, acct, alina, DirIn, Input{Origin: OriginPeer, MsgID: "p1", ThreadID: r.ThreadID, Text: "yes", Topic: "Coffee catch-up", Sender: SenderAgent}); err != nil {
+		t.Fatalf("a peer carrying the thread's topic was refused: %v", err)
+	}
+	if th, _ := svc.Store.GetThread(ctx, acct, r.ThreadID); th.Topic != "Coffee catch-up" {
+		t.Fatalf("topic changed: %q", th.Topic)
+	}
+	_, err = svc.Record(ctx, acct, alina, DirOut, Input{Origin: OriginMCP, MsgID: "o4", Text: "x", Topic: strings.Repeat("é", 129)})
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("a topic over 256 bytes was accepted: %v", err)
+	}
+}
