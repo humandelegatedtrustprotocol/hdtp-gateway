@@ -14,6 +14,21 @@ set -euo pipefail
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
 
+# Nothing over 5 MB is committed. A 67 MB test binary was, on 2026-09-18, and taking it out
+# meant rewriting history (docs/release/history-purge-2026-09-21-sha-map.txt); the largest file
+# the history holds otherwise is the portal bundle, under 400 KB.
+max=$((5 * 1024 * 1024))
+big=()
+while IFS= read -r f; do
+  size="$(git cat-file -s ":$f")"
+  [ "$size" -le "$max" ] || big+=("$f ($size bytes)")
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+if [ "${#big[@]}" -gt 0 ]; then
+  echo "pre-commit: refusing files over 5 MB; a build output or a binary does not belong in git:" >&2
+  printf '              %s\n' "${big[@]}" >&2
+  exit 1
+fi
+
 staged=()
 while IFS= read -r f; do
   case "$f" in *.go|*.rs) staged+=("$f") ;; esac
