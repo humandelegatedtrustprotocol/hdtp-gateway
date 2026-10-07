@@ -17,7 +17,7 @@ when it is: `Last manual run: —`.
 ## Prerequisites
 
 - A running node: `docker compose up` (or `hdtp-gateway serve`), portal on
-  `http://127.0.0.1:8080`, one account created (`hdtp-gateway account create --slug me --name "Your Name"` — both flags are required).
+  `http://localhost:8080`, one account created (`hdtp-gateway account create --slug me --name "Your Name"` — both flags are required).
 - One of the three verified servers. This walkthrough uses
   **nspady/google-calendar-mcp** (`@cocal/google-calendar-mcp`), which runs as a
   supervised stdio child and therefore needs the **`-full`** image (ships `node`/`npx`)
