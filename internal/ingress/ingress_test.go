@@ -163,9 +163,7 @@ func TestSNIPassthroughRoutesAndKeepsClientCertVisible(t *testing.T) {
 		if _, err := a.Start(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if !raceEnabled { // frp's shutdown race; see tunnel/frp_test.go
-			defer a.Stop()
-		}
+		defer a.Stop()
 	}
 
 	callerKP, callerCert := keypairCert(t, "caller")
@@ -216,9 +214,7 @@ func TestSNIPassthroughRoutesAndKeepsClientCertVisible(t *testing.T) {
 	if _, err := bad.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if !raceEnabled {
-		defer bad.Stop()
-	}
+	defer bad.Stop()
 	time.Sleep(1500 * time.Millisecond) // let the hijack attempt be refused
 	if got, err := dial("alpha.example.test", 5*time.Second); err != nil || !strings.HasPrefix(got, "alpha ") {
 		t.Fatalf("alpha hijacked or lost: %q %v", got, err)
