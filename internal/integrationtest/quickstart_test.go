@@ -55,8 +55,7 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 	}
 
 	// (b) The README tells the owner to open the portal URL the log prints, so compose has to
-	// publish it. This keyed on the words "Open the URL" after the README had stopped using them,
-	// and checked nothing: it now refuses to pass when the sentence it reads is gone.
+	// publish it.
 	if !strings.Contains(string(readme), "The log prints your portal URL") {
 		t.Error("README no longer says the log prints the portal URL where this test reads it")
 	}
