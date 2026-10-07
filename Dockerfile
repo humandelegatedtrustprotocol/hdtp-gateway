@@ -25,6 +25,8 @@ WORKDIR /src
 COPY --from=identityproxy . /identity-proxy
 ENV GOPROXY=file:///identity-proxy,https://proxy.golang.org GONOSUMDB=github.com/humandelegatedtrustprotocol/*
 COPY go.mod go.sum ./
+# go.mod replaces frp with this directory (scripts/frp-patch.sh), so it is there before the download.
+COPY third_party/frp ./third_party/frp
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG VERSION=0.1.0-dev

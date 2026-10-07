@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -134,7 +134,13 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names dependents limitd-check test test-js
+check: fmt vet names frp-check dependents limitd-check test test-js
+
+# The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
+# (a data race in the frp client, unfixed upstream). The check holds the tree to exactly that and both
+# go.mod files to the same replace; scripts/frp-patch.sh says why, and when to remove it.
+frp-check:
+	scripts/frp-patch.sh
 
 # The name guard: no tracked path or text of this repository carries the protocol's old name, or
 # the name of a behaviour HDTP does not have. scripts/check-names.mjs and scripts/hdtp-names.txt are
