@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/humandelegatedtrustprotocol/hdtp-gateway/blob/main/SECURITY.md
+    about: Privately, to security@hdtp.io, never as an issue.
+  - name: A change to the protocol
+    url: https://github.com/humandelegatedtrustprotocol/hdtp-spec
+    about: Wire-level behaviour is specified in hdtp-spec; propose it there.

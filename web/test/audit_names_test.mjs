@@ -270,13 +270,13 @@ test("a name the page made up says its kind; only a chosen name takes the quiet 
 
 test("a name breaks between words, after an address's @, after a handle's underscores; only a piece too long for a column anywhere", () => {
   const pieces = (n) => nameBreaks(n).map((run) => run.map((p) => p.text));
-  // The owner's own example: 'priya.raman@shailka.c' / 'om' was a break inside the domain.
-  assert.deepEqual(pieces("priya.raman@shailka.com"), [["priya.raman@", "shailka.com"]]);
+  // The owner's own example: 'priya.raman@example.c' / 'om' was a break inside the domain.
+  assert.deepEqual(pieces("priya.raman@example.com"), [["priya.raman@", "example.com"]]);
   assert.deepEqual(pieces("deepwiki_research_assistant_eu_west_production"), [["deepwiki_", "research_", "assistant_", "eu_", "west_", "production"]]);
   assert.deepEqual(pieces("Research Agent (EU)"), [["Research"], [" "], ["Agent"], [" "], ["(EU)"]]);
   assert.deepEqual(pieces("Dr. Konstantin"), [["Dr."], [" "], ["Konstantin"]]);
   // Every piece put back together is the name, whatever it is.
-  for (const n of ["priya.raman@shailka.com", "a  b", "x_", "@", "Maximiliano Alessandro Bartholomew-Featherstonehaugh"]) {
+  for (const n of ["priya.raman@example.com", "a  b", "x_", "@", "Maximiliano Alessandro Bartholomew-Featherstonehaugh"]) {
     assert.equal(nameBreaks(n).flat().map((p) => p.text).join(""), n);
   }
   assert.ok(nameBreaks("Maximiliano Bartholomew-Featherstonehaugh").flat().every((p) => !p.long));

@@ -2,7 +2,8 @@
 
 How the suites of this workspace are built and extended: first what every suite shares — its
 result file and where it runs — then one section per repository (batondeck's end-to-end suites
-are described beside them, in `batondeck/gateway/e2e/TESTING.md`).
+are described beside them, in `batondeck/gateway/e2e/TESTING.md`; the BatonDeck repository is not
+public).
 
 ## Results: one schema for every runner
 
@@ -165,6 +166,9 @@ not `t.Skip` inside a scenario for a missing tool — declare it as a need, so t
 whether it promised it.
 
 ## hdtp-identity
+
+This section describes the hdtp-identity repository, which is not public; the node consumes its
+releases by version.
 
 `sh gate.sh` in the hdtp-identity repository is the whole gate; it is that repository's, and this
 repository's hooks no longer run it (the node consumes hdtp-identity by version). It needs `../hdtp-spec` beside it

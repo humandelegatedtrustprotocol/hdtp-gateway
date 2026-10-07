@@ -34,10 +34,11 @@ services:
     volumes:
       - hdtp-data:/data
     ports:
-      # ONLY host loopback. The portal has no login on a loopback bind (SPEC §8.3),
-      # so it must not be reachable from your LAN — "127.0.0.1:" is what keeps it
-      # off. Publishing "8080:8080" instead would expose an unauthenticated portal
-      # to your whole network. Port 8081 is the forwarder below, not the node.
+      # ONLY host loopback. The portal is plain HTTP here, which SPEC §8.3 allows on a loopback
+      # bind only (any other bind needs TLS), and the forwarder below must not undo that:
+      # "127.0.0.1:" is what keeps it off your LAN. Publishing "8080:8080" instead would put the
+      # setup wizard and the sign-in, unencrypted, on your whole network. Port 8081 is the
+      # forwarder, not the node.
       - "127.0.0.1:8080:8081"
 
   # The limits sidecar (SPEC §5.7): the same image, run as /hdtp-limitd with its shipped
