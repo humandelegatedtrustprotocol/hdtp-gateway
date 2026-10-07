@@ -9,9 +9,10 @@ package identity
 // was unusable. The gap was found by driving a real node's owner MCP through
 // mcp-remote (P14-05c).
 //
-// v1 defines exactly one role, `admin`, and no `node_admin` flag exists on the
-// owner record yet — so in v1 every owner administers the node. Membership is
-// therefore granted in BOTH directions, because either object can be created
+// v1 defines exactly one role, `admin`, and a node has exactly one owner (SPEC
+// §3.3): every passkey ceremony joins the owner that exists. There is no
+// node-scoped administrator flag; that owner administers the node, and is
+// granted every account. Membership is therefore granted in BOTH directions, because either object can be created
 // first: the CLI can provision accounts before anyone opens the setup wizard, and
 // the wizard can mint the first owner long after accounts exist.
 //
