@@ -28,6 +28,11 @@
 #                                 files carry the same replace (run by `make check`)
 #   scripts/frp-patch.sh --write  rebuild the tree from upstream + the patch
 #   scripts/frp-patch.sh --diff   write the patch from the tree as edited (after a change to it)
+#   scripts/frp-patch.sh --vulncheck <govulncheck command>
+#                                 the node's govulncheck sees frp only as ./third_party/frp, with
+#                                 no version to match advisories against; this scans upstream
+#                                 frp v0.71.0 in a module of its own and fails on any advisory for
+#                                 frp itself (run by `make vulncheck`)
 #
 # The upstream module comes from the Go module cache (downloaded once if absent) and is held to
 # the h1 hash below, which is the hash go.sum carried for it before the replace.
@@ -56,6 +61,42 @@ sum="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*"Sum": "\(.*\)",$/\1/p')"
 if [ "$sum" != "$SUM" ] || [ -z "$dir" ]; then
   echo "frp-patch: $MODULE@$VERSION hashes to '$sum', want $SUM" >&2
   exit 1
+fi
+
+if [ "$mode" = --vulncheck ]; then
+  shift
+  [ "$#" -gt 0 ] || { echo "usage: scripts/frp-patch.sh --vulncheck <govulncheck command>" >&2; exit 2; }
+  v="$work/v"
+  mkdir -p "$v"
+  printf 'package main\n\nimport (\n\t_ "%s/client"\n\t_ "%s/server"\n)\n\nfunc main() {}\n' "$MODULE" "$MODULE" >"$v/main.go"
+  (cd "$v" && export GOWORK=off GOFLAGS=-mod=mod &&
+    go mod init frpvulncheck >/dev/null 2>&1 &&
+    go mod edit -require="$MODULE@$VERSION" && go mod tidy >/dev/null 2>&1 &&
+    "$@" -scan module -json >"$work/vuln.json") || {
+    echo "frp-patch: govulncheck did not run over $MODULE@$VERSION" >&2
+    exit 1
+  }
+  # The scan must have seen frp at this version (a scan that saw nothing finds nothing), and no
+  # finding may be in frp itself; frp's dependencies are the node's own scan's, at the node's
+  # versions.
+  node -e '
+    const [file, mod, ver] = process.argv.slice(1)
+    const text = require("fs").readFileSync(file, "utf8")
+    const objs = []
+    for (let i = 0, depth = 0, start = 0, str = false, esc = false; i < text.length; i++) {
+      const c = text[i]
+      if (str) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === "\"") str = false; continue }
+      if (c === "\"") str = true
+      else if (c === "{") { if (depth++ === 0) start = i }
+      else if (c === "}" && --depth === 0) objs.push(JSON.parse(text.slice(start, i + 1)))
+    }
+    const seen = objs.some(o => o.SBOM && (o.SBOM.modules || []).some(m => m.path === mod && m.version === ver))
+    if (!seen) { console.error(`frp-patch: govulncheck did not scan ${mod}@${ver}`); process.exit(1) }
+    const hits = [...new Set(objs.filter(o => o.finding && (o.finding.trace || [])[0]?.module === mod).map(o => o.finding.osv))]
+    if (hits.length) { console.error(`frp-patch: ${mod}@${ver} is affected by ${hits.join(", ")}: the patched copy carries it too`); process.exit(1) }
+    console.log(`frp-patch: govulncheck scanned ${mod}@${ver}: no advisory for it`)
+  ' "$work/vuln.json" "$MODULE" "$VERSION"
+  exit
 fi
 
 # the copy rule over upstream: base; and the expected tree: base with the patch applied
@@ -114,7 +155,7 @@ check)
   echo "frp-patch: third_party/frp is $MODULE@$VERSION + third_party/frp.patch; both go.mod files replace it"
   ;;
 *)
-  echo "usage: scripts/frp-patch.sh [--write|--diff]" >&2
+  echo "usage: scripts/frp-patch.sh [--write|--diff|--vulncheck <govulncheck command>]" >&2
   exit 2
   ;;
 esac
