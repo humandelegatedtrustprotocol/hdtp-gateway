@@ -51,6 +51,8 @@ type DataPlane struct {
 	plugin  *http.Server
 	pluginL net.Listener
 	running bool
+	// served is the plugin endpoint's Serve and frps' Run: Stop waits for both.
+	served sync.WaitGroup
 }
 
 func (d *DataPlane) audit(action, resource, outcome string) {
@@ -130,8 +132,9 @@ func (d *DataPlane) Start(ctx context.Context) error {
 		return err
 	}
 	d.pluginL = pl
-	d.plugin = &http.Server{Handler: d.pluginHandler(), ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = d.plugin.Serve(pl) }()
+	plugin := &http.Server{Handler: d.pluginHandler(), ReadHeaderTimeout: 10 * time.Second}
+	d.plugin = plugin
+	d.served.Go(func() { _ = plugin.Serve(pl) })
 
 	cfg := &v1.ServerConfig{
 		BindAddr: d.BindAddr, BindPort: d.BindPort, VhostHTTPSPort: d.VhostHTTPSPort,
@@ -152,15 +155,19 @@ func (d *DataPlane) Start(ctx context.Context) error {
 		cfg.Auth.Token = d.Token
 	}
 	if err := cfg.Complete(); err != nil {
-		_ = pl.Close()
+		_ = plugin.Close()
+		d.served.Wait()
+		d.plugin, d.pluginL = nil, nil
 		return fmt.Errorf("ingress: frps config: %w", err)
 	}
 	svc, err := server.NewService(cfg)
 	if err != nil {
-		_ = pl.Close()
+		_ = plugin.Close()
+		d.served.Wait()
+		d.plugin, d.pluginL = nil, nil
 		return fmt.Errorf("ingress: frps: %w", err)
 	}
-	go svc.Run(ctx)
+	d.served.Go(func() { svc.Run(ctx) })
 	d.svc, d.running = svc, true
 	return nil
 }
@@ -174,6 +181,7 @@ func (d *DataPlane) Stop() error {
 	if d.plugin != nil {
 		_ = d.plugin.Close()
 	}
+	d.served.Wait()
 	d.svc, d.plugin, d.pluginL, d.running = nil, nil, nil, false
 	return nil
 }

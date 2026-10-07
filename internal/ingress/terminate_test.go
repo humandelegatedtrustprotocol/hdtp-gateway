@@ -206,9 +206,7 @@ func TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode(t *testing.T) {
 	if _, err := rev.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if !raceEnabled {
-		defer rev.Stop()
-	}
+	defer rev.Stop()
 
 	// the terminator on the public port
 	pubLn, err := net.Listen("tcp", "127.0.0.1:0")

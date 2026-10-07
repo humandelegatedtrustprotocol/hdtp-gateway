@@ -66,3 +66,5 @@ require (
 )
 
 replace github.com/humandelegatedtrustprotocol/hdtp-gateway => ..
+
+replace github.com/fatedier/frp v0.71.0 => ../third_party/frp

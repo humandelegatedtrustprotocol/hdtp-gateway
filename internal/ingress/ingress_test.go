@@ -163,9 +163,7 @@ func TestSNIPassthroughRoutesAndKeepsClientCertVisible(t *testing.T) {
 		if _, err := a.Start(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if !raceEnabled { // frp's shutdown race; see tunnel/frp_test.go
-			defer a.Stop()
-		}
+		defer a.Stop()
 	}
 
 	callerKP, callerCert := keypairCert(t, "caller")
@@ -216,9 +214,7 @@ func TestSNIPassthroughRoutesAndKeepsClientCertVisible(t *testing.T) {
 	if _, err := bad.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if !raceEnabled {
-		defer bad.Stop()
-	}
+	defer bad.Stop()
 	time.Sleep(1500 * time.Millisecond) // let the hijack attempt be refused
 	if got, err := dial("alpha.example.test", 5*time.Second); err != nil || !strings.HasPrefix(got, "alpha ") {
 		t.Fatalf("alpha hijacked or lost: %q %v", got, err)
@@ -273,5 +269,27 @@ func TestTerminatePairingAnnouncesItsNameForACertificate(t *testing.T) {
 	}
 	if len(managed) != 1 {
 		t.Fatalf("a passthrough pairing asked for a certificate: %v", managed)
+	}
+}
+
+// AC: the data plane can be stopped the moment it is started (the ingress
+// command defers Stop, so a failure right after Start does exactly that), and
+// Stop releases its ports. frp v0.71.0's server Close read the cancel func Run
+// sets on its own goroutine — a data race this test fails on under -race
+// (third_party/frp.patch).
+func TestDataPlaneStopRightAfterStart(t *testing.T) {
+	dp := &DataPlane{Registry: NewMemoryRegistry(nil), Domain: "example.test", BindAddr: "127.0.0.1", BindPort: freePort(t), VhostHTTPSPort: freePort(t), Token: "dp"}
+	if err := dp.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dp.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	for _, port := range []int{dp.BindPort, dp.VhostHTTPSPort} {
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			t.Fatalf("port %d still held after Stop: %v", port, err)
+		}
+		_ = l.Close()
 	}
 }

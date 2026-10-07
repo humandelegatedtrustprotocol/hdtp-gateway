@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -22,8 +22,12 @@ all: web check analyze build dist sbom
 # pinned HERE and the hook calls these targets — one list, not two to drift apart.
 analyze: vulncheck staticcheck gosec deadcode
 
+# The second line: the replace leaves the node's scan no version of frp to match advisories
+# against, so upstream frp v0.71.0 is scanned on its own (scripts/frp-patch.sh).
+GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 vulncheck:
-	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+	$(GOVULNCHECK) ./...
+	scripts/frp-patch.sh --vulncheck $(GOVULNCHECK)
 
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
@@ -31,10 +35,12 @@ staticcheck:
 # G101 fires on generated sqlc SQL text, G104 on Close(), and G304 on file paths
 # the OWNER supplies on the command line. The rules that matter — G402 TLS
 # posture, G203 escaping, G115 conversions, G204 subprocess — stay on, and the
-# handful of by-design hits carry #nosec with a reason.
+# handful of by-design hits carry #nosec with a reason. third_party/frp is a dependency, held byte
+# for byte to upstream plus one patch (frp-check), so it is not ours to restyle: it is excluded
+# here as the module cache it replaces always was, and govulncheck still covers it.
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
-		-quiet -exclude-dir=harness -exclude=G101,G104,G304 ./...
+		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude=G101,G104,G304 ./...
 
 # Whole-program reachability from the shipped binary (review N-15). The report goes to a file, not
 # a pipe: make runs /bin/sh, where a pipeline's status is its last command's, so a deadcode that
@@ -128,13 +134,21 @@ sbom:
 	@mkdir -p dist
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
 		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .
+	scripts/frp-patch.sh --sbom dist/sbom.cdx.json
 	@echo "wrote dist/sbom.cdx.json"
 
 # check covers the PRODUCT only. The harness is a separate module (harness/go.mod),
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names dependents limitd-check test test-js
+check: fmt vet names frp-check dependents limitd-check test test-js
+
+# The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
+# (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
+# The check holds the tree to exactly that and both go.mod files to the same replace;
+# scripts/frp-patch.sh names each race, and says when to remove it.
+frp-check:
+	scripts/frp-patch.sh
 
 # The name guard: no tracked path or text of this repository carries the protocol's old name, or
 # the name of a behaviour HDTP does not have. scripts/check-names.mjs and scripts/hdtp-names.txt are
