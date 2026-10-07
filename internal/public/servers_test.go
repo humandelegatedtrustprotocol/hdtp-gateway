@@ -190,6 +190,37 @@ func TestCallTimeDenyOnAServerComposedBeforeTheRevocation(t *testing.T) {
 	}
 }
 
+// A caller at the pending tier calling anything but its own tools is refused pending_approval
+// (HDTP §6.1, §6.2); a contact is still refused permission_denied, and the pending tier's own tool runs.
+func TestThePendingTierIsRefusedPendingApproval(t *testing.T) {
+	dir := &fakeDirectory{
+		tiers: map[string]policy.Tier{"sha256:asked": policy.TierPending, "sha256:vendor": policy.TierContact},
+		perms: map[string]map[string]bool{"sha256:vendor": {}},
+	}
+	pool := newTestPool(dir)
+	text := func(fpr, tool string) string {
+		t.Helper()
+		cs, done := connect(t, pool, "acct", fpr, nil)
+		defer done()
+		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: map[string]any{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Content[0].(*mcp.TextContent).Text
+	}
+	for _, tool := range []string{"send_message", "no_such_tool"} {
+		if got := text("sha256:asked", tool); got != `{"code":"pending_approval"}` {
+			t.Fatalf("pending tier, %s: %s", tool, got)
+		}
+	}
+	if got := text("sha256:vendor", "send_message"); got != `{"code":"permission_denied"}` {
+		t.Fatalf("contact tier, send_message: %s", got)
+	}
+	if got := text("sha256:asked", "contact_accepted"); got != "contact_accepted" {
+		t.Fatalf("pending tier, contact_accepted: %s", got)
+	}
+}
+
 func TestGuestServersSharedAndCallerServersDistinct(t *testing.T) {
 	dir := &fakeDirectory{tiers: map[string]policy.Tier{"sha256:a": policy.TierContact}, perms: map[string]map[string]bool{}}
 	pool := newTestPool(dir)
