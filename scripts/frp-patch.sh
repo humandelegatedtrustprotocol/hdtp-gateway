@@ -4,8 +4,8 @@
 # module with that directory (a replace does not reach a module that depends on this one, and the
 # harness compiles the tunnel and ingress packages through `replace hdtp-gateway => ..`).
 #
-# Why: v0.71.0 (and frp's master as of 2026-10-07) has three data races in its client, each a field
-# read without the lock its writers hold:
+# Why: v0.71.0 (and frp's master as of 2026-10-07) has these data races, each a field read without
+# the lock its writers hold, or written on a goroutine the reader has no order with:
 #   - client/proxy/proxy_wrapper.go, Wrapper.InWorkConn reads the proxy's phase after releasing
 #     pw.mu, while SetRunningStatus writes it: a caller who reaches frps while the client is still
 #     recording the proxy as running;
@@ -14,9 +14,12 @@
 #     read);
 #   - client/service.go, GracefulClose calls svr.cancel, which Run sets on its own goroutine: a
 #     Stop right after Start reads it concurrently, and calls nil if Run has not set it yet (a
-#     panic: serve stops the tunnel when the node fails to start).
-# TestFRPCallersDuringRegistrationAreServed reproduces the first two under -race, and
-# TestFRPStopRightAfterStart the third (both in internal/tunnel).
+#     panic: serve stops the tunnel when the node fails to start);
+#   - server/service.go, the same between frps' Close and Run: the ingress data plane stopped
+#     right after it started.
+# Under -race, TestFRPCallersDuringRegistrationAreServed reproduces the first two,
+# TestFRPStopRightAfterStart the third (internal/tunnel), TestDataPlaneStopRightAfterStart the
+# fourth (internal/ingress).
 #
 # The copy is every non-test .go file under client/, pkg/, server/ and assets/ (the library; frp's
 # cmd/, web/, test/ and doc/ are not compiled by anything here), with frp's go.mod and LICENSE.

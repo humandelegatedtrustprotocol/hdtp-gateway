@@ -7,9 +7,9 @@ package tunnel
 // TerminatesAtEdge=false. Incoming connections are delivered by the frp client
 // dialing the node's local public bind, so no Listener is handed back.
 // Off-the-shelf on purpose: everything network-shaped is frp's. The build takes
-// frp from third_party/frp, upstream v0.71.0 with three data races in its client
-// fixed (third_party/frp.patch; scripts/frp-patch.sh says why and holds the copy
-// to exactly that).
+// frp from third_party/frp, upstream v0.71.0 with data races in its client and
+// server fixed (third_party/frp.patch; scripts/frp-patch.sh names each, and holds
+// the copy to exactly that).
 
 import (
 	"context"
