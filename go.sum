@@ -105,8 +105,6 @@ github.com/emersion/go-vcard v0.1.0/go.mod h1:HMJKR5wlh/ziNp+sHEDV2ltblO4JD2+IdD
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
-github.com/fatedier/frp v0.71.0 h1:hrzMepFp/asl2oAxxLMgffCI/wrzvg6lZyMzxEEnWbQ=
-github.com/fatedier/frp v0.71.0/go.mod h1:331xzwO1dn+7QoHwW65q2FA2Zn/DaYqfxFUM7TUaH8I=
 github.com/fatedier/golib v0.8.2 h1:02n2Dg7KJ7rR7p7n4/6hBUjaLQf2J7EiHYZQsgGTvww=
 github.com/fatedier/golib v0.8.2/go.mod h1:ArUGvPg2cOw/py2RAuBt46nNZH2VQ5Z70p109MAZpJw=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
@@ -185,8 +183,8 @@ github.com/hdevalence/ed25519consensus v0.2.0 h1:37ICyZqdyj0lAZ8P4D1d1id3HqbbG1N
 github.com/hdevalence/ed25519consensus v0.2.0/go.mod h1:w3BHWjwJbFU29IRHL1Iqkw3sus+7FctEyM4RqDxYNzo=
 github.com/huin/goupnp v1.3.0 h1:UvLUlWDNpoUdYzb2TCn+MuTWtcjXKSza2n6CBdQ0xXc=
 github.com/huin/goupnp v1.3.0/go.mod h1:gnGPsThkYa7bFi/KWmEysQRf48l2dvR5bxr2OFckNX8=
-github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.0 h1:xObR6RZPzVd3fXZkDxNfrhp5JosrBUG+hs3uKXSiMR4=
-github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.0/go.mod h1:A5Mu+AT99BRV8YP3W0XYKDa2zQo0oEzIy/JkbDeAbIg=
+github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.1 h1:gLgldV7rVDk0kygtKCEEizLCs1V9enIqsQ6i4+ojYrs=
+github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.1/go.mod h1:A5Mu+AT99BRV8YP3W0XYKDa2zQo0oEzIy/JkbDeAbIg=
 github.com/illarion/gonotify/v3 v3.0.2 h1:O7S6vcopHexutmpObkeWsnzMJt/r1hONIEogeVNmJMk=
 github.com/illarion/gonotify/v3 v3.0.2/go.mod h1:HWGPdPe817GfvY3w7cx6zkbzNZfi3QjcBm/wgVvEL1U=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=

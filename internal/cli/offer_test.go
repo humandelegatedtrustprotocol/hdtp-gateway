@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -148,6 +149,34 @@ func TestVerifyOfferRefusals(t *testing.T) {
 		// "a key that is not the leaf's" was a case here: the offer carried the key a second time
 		// as `spki`, and swapping it was refused. There is no second key now — the one sealed to is
 		// read from the validated leaf — so the swap cannot be attempted rather than being caught.
+		{
+			"a leaf that is the card's certificate in a chain §14.2 refuses",
+			"the redeemer MUST validate the chain (§14.2): an expired leaf its own root signed, carried by its own card and signing it, passes every other check",
+			func(o *inviteOffer) {
+				hostKey, err := hdtpidentity.GenerateKey("p256")
+				if err != nil {
+					t.Fatal(err)
+				}
+				now := time.Now()
+				leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
+					CN: p.Wallet.CN, RootCN: p.Wallet.CN, RootKey: p.Wallet.Key, HostPub: hostKey.Public(),
+					URIs: []string{p.Endpoint}, NotBefore: now.Add(-48 * time.Hour), NotAfter: now.Add(-24 * time.Hour),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				card, err := hdtpidentity.EncodeCard("Alina Rao", leaf, "", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sig, err := hdtpidentity.SignDetached(hostKey, []byte(card))
+				if err != nil {
+					t.Fatal(err)
+				}
+				o.Card, o.CardSig = card, base64.RawURLEncoding.EncodeToString(sig)
+				o.Chain = []string{hdtpidentity.B64url(leaf), hdtpidentity.B64url(p.Wallet.RootDER)}
+			}, "the invite's chain is refused by rule",
+		},
 		{"no signature", "SPEC §9.2 serves a SIGNED card", func(o *inviteOffer) { o.CardSig = "" }, ""},
 		{
 			"a signature over something else",

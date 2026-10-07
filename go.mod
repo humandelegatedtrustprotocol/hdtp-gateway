@@ -13,7 +13,7 @@ require (
 	github.com/fatedier/frp v0.71.0
 	github.com/go-webauthn/webauthn v0.18.1
 	github.com/google/jsonschema-go v0.4.3
-	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.0
+	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/libdns/cloudflare v0.2.2
@@ -147,3 +147,5 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 )
+
+replace github.com/fatedier/frp v0.71.0 => ./third_party/frp

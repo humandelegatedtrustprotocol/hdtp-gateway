@@ -35,7 +35,8 @@ export const OUTCOMES = {
   unpaired: "bad", unreachable: "bad", unreadable: "bad",
   certificate_renewed: "neutral", passthrough: "neutral", terminate: "neutral",
   // Written through a variable, so no literal names them at the call: the limiter's refusal
-  // (internal/public/servers.go, Refusal.Code) and the peer refusals the sealed door audits.
+  // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, and the
+  // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome).
   rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad",
 };
 
@@ -44,6 +45,7 @@ const VIA_VARIABLE = {
   rate_limited: "internal/public/servers.go",
   permission_denied: "internal/public/servers.go",
   blocked_or_unknown: "internal/public/servers.go",
+  blocked_silent: "internal/public/tools.go",
 };
 
 function goFiles(dir, out = []) {

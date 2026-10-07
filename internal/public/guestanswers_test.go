@@ -18,7 +18,9 @@ import (
 // stranger hears. A blocked one always did. An active or pending_out contact reaches the guest
 // tier only demoted — the leaf that signed is older than the one held (HDTP §14.3) — and
 // `request_contact` answered it `bad_request` "already known", which tells it that it is known.
-// The cloud answers `{"status":"pending"}` and writes nothing (batondeck src/identity/tools.ts).
+// The cloud answers `{"status":"pending"}` (batondeck src/identity/tools.ts) and its pipeline
+// audits the call `ok` (src/identity/surface.ts). Only a blocked row is audited `blocked_silent`
+// here: an active or pending_out one was never blocked.
 func TestADemotedContactAskingHearsWhatAStrangerHears(t *testing.T) {
 	ctx := context.Background()
 	for _, status := range []string{"active", "pending_out", "blocked"} {
@@ -41,8 +43,27 @@ func TestADemotedContactAskingHearsWhatAStrangerHears(t *testing.T) {
 			if err != nil || c.Status != status || len(c.Permissions) != 1 {
 				t.Fatalf("the %s row was changed: %+v %v", status, c, err)
 			}
-			if !slices.Contains(e.rows, "request_contact caller:"+h.RootFpr+" blocked_silent") {
-				t.Fatalf("no audit row says the answer was silent: %v", e.rows)
+			want, not := "request_contact caller:"+h.RootFpr+" ok", "request_contact caller:"+h.RootFpr+" blocked_silent"
+			if status == "blocked" {
+				want, not = not, want
+			}
+			if !slices.Contains(e.rows, want) || slices.Contains(e.rows, not) {
+				t.Fatalf("the %s row is audited %v; want %q", status, e.rows, want)
+			}
+			// redeem_invite answers a held row the same way (RedeemAs), and audits it the same way.
+			token, _, err := (&contacts.Manager{Store: e.st}).CreateInvite(ctx, e.acct.ID, contacts.InviteOptions{MaxUses: 5, Label: "badge"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res, err := e.callAs(h, "", "redeem_invite", map[string]any{"token": token, "card": card}, h.Key.Public().SPKI); err != nil || res.IsError {
+				t.Fatalf("redeem_invite: %v %v", res, err)
+			}
+			want, not = "redeem_invite caller:"+h.RootFpr+" ok", "redeem_invite caller:"+h.RootFpr+" blocked_silent"
+			if status == "blocked" {
+				want, not = not, want
+			}
+			if !slices.Contains(e.rows, want) || slices.Contains(e.rows, not) {
+				t.Fatalf("the %s row's redemption is audited %v; want %q", status, e.rows, want)
 			}
 		})
 	}
