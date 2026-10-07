@@ -3,7 +3,7 @@
 **Nothing has been released yet.** Questions and bug reports go to this repository's
 issues; the bug report template asks for what helps most. There is no discussion forum.
 
-**A security report is not a support question.** It goes privately to the same address, under the
+**A security report is not a support question.** It goes privately to **security@hdtp.io**, under the
 subject and the policy [`SECURITY.md`](SECURITY.md) gives, and never into an issue.
 
 ## Before you ask
