@@ -18,8 +18,6 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
 - **Node role** — the personal HDTP server: contacts, invites, a per-contact
   permission switchboard, messaging with threads, media with quotas, availability and
   calendar booking, all as MCP tools over mTLS with sealed envelopes.
-- **Relay role** — store-and-forward for contacts who cannot be reached directly,
-  carrying ciphertext and metadata only.
 - **Ingress role** — an own-domain front door for one or more nodes, in passthrough
   (SNI-routed, end-to-end) or terminate (ACME certificate, re-originated) mode.
 - **Portal** — the owner's private web surface: setup wizard, passkey login, contacts

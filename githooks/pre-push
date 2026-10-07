@@ -23,7 +23,7 @@
 #     HDTP_PREPUSH_LIVE=1 git push          # the PR tier (make harness-pr)
 #     HDTP_PREPUSH_LIVE=full git push       # every scenario (make harness-nightly)
 #
-# This project does not bypass its hooks (CLAUDE.md): a gate that is wrong is fixed, not skipped.
+# This project does not bypass its hooks (CONTRIBUTING.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
 
 # The tree being gated is the working tree git runs this hook in: the repository's top level,
@@ -74,7 +74,7 @@ step() {
   echo "pre-push: make $1"
   if ! make "$1"; then
     echo >&2
-    echo "pre-push: make $1 failed. Fix it before pushing: hooks are never bypassed here (CLAUDE.md)." >&2
+    echo "pre-push: make $1 failed. Fix it before pushing: hooks are never bypassed here (CONTRIBUTING.md)." >&2
     exit 1
   fi
 }
