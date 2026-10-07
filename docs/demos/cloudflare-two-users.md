@@ -6,7 +6,7 @@ pairing and messaging across the public internet.
 
 Executed against `hdtp.dev` — `Last manual run: 2026-09-18`; the first run, on `hdtp.io`, was 2026-08-26. It found
 E17 on its first attempt, and F9 through F11 on the run of 2026-09-18 (see
-`batondeck/docs/release/findings-2026-09-18-rig.md`).
+`batondeck/docs/release/findings-2026-09-18-rig.md`, in the BatonDeck repository, which is not public).
 
 It is worth the setup because edge mode cannot be faked convincingly. Cloudflare
 terminates TLS, so the node never sees a caller's certificate and identity comes
