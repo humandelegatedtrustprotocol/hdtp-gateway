@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // HDTP §8: integration tools sit beside the core ones. An exposure under a built-in tool's name
@@ -32,5 +33,34 @@ func TestAnExposureNeverTakesABuiltInName(t *testing.T) {
 	}
 	if _, err := e.Publish(ctx, id, []ExposureEntry{{Tool: "find_slots", Mode: ModePassthrough, ExposedName: "cal_send_message"}}); err != nil {
 		t.Fatalf("the control was refused: %v", err)
+	}
+
+	// Defaulted: an entry that names nothing is exposed as `<slug>_<tool>`, so an integration slugged
+	// `get` with a tool `card` would default to the built-in `get_card`.
+	c, srv, st, cal := catalogEnv(t)
+	addEcho(srv, "card", "Read a card")
+	get, err := st.InsertIntegration(ctx, store.Integration{AccountID: cal.AccountID, Slug: "get", Transport: "streamable-http", Endpoint: cal.Endpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Manager.Disconnect(context.Background(), get.ID) })
+	if err := c.Manager.Connect(ctx, get.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Refresh(ctx, get.ID); err != nil {
+		t.Fatal(err)
+	}
+	ge := &Exposures{Store: st, Audit: (&auditRec{}).fn}
+	for _, mode := range []string{ModePassthrough, ModeAgent} {
+		if _, err := ge.Publish(ctx, get.ID, []ExposureEntry{{Tool: "card", Mode: mode}}); err == nil || !strings.Contains(err.Error(), "built-in") {
+			t.Errorf("get_card, defaulted, as %s: %v", mode, err)
+		}
+	}
+	if latest, err := st.LatestExposure(ctx, get.ID); err == nil {
+		t.Fatalf("a refused defaulted publish minted v%d", latest.Version)
+	}
+	// The control: a defaulted name beside the built-ins publishes.
+	if _, err := ge.Publish(ctx, get.ID, []ExposureEntry{{Tool: "find_slots", Mode: ModePassthrough}}); err != nil {
+		t.Fatalf("the defaulted control get_find_slots was refused: %v", err)
 	}
 }
