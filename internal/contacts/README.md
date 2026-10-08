@@ -79,8 +79,7 @@ Wire codes are the package's sentinel errors (manager.go:24-29, owner.go:20):
   card's leaf key.
 - `bad_request`: an invite TTL over 90 days; a card that does not read; an endpoint the address guard
   refuses (loopback, link-local, private, or the node's own); a note over 1024 bytes; a card in
-  `ContactAccepted`/`UpdateContact` naming another root; an unknown preset in `Approve`; a root already
-  known in `RequestContactAs`, `Initiated`, `InitiatedByFingerprint`.
+  `ContactAccepted`/`UpdateContact` naming another root; an unknown preset in `Approve`; a failed `InsertContact` in `RequestContactAs` (answered "already known" whatever the store's error was, not only a duplicate root), and in `Initiated` and `InitiatedByFingerprint` (answered "already a contact or already pending" likewise).
 - `unknown_contact`: no such row, or not `pending_out` for `ContactAccepted`/`ContactRejected`.
 - `conflict` (`ErrWrongState`): the row is not in a state the owner action applies to, or changed
   between the read and the guarded write (`moved`, owner.go:85).

@@ -1,6 +1,6 @@
 # portable
 
-The node's side of HDTP's portable export (HDTP §9.2, SPEC §3.10): one identity's contacts, its chats and the files in them, written to one unencrypted zip, and read back from one. The zip format and every rule about what a file may say belong to hdtp-identity (`hdtpidentity.WriteExportZip`, `ReadExportZip`, and the `export_merge` call); this package maps the node's store rows to the format's rows and back, and reads and writes the node's files. Its only caller is `internal/cli/portablecmd.go`: `portable.Export` (line 115), `CheckWritten` (155), `CloudCeilings` (166), `Read` (225) and `Plan.Apply` (238). It calls `core/store`, `internal/messaging` (blob directory, `MediaMeta`) and `internal/identity` (`ValidDisplayName`, `GrantToAllOwners`, `AlgoP256`).
+The node's side of HDTP's portable export (HDTP §9.2, SPEC §3.10): one identity's contacts, its chats and the files in them, written to one unencrypted zip, and read back from one. The zip format and every rule about what a file may say belong to hdtp-identity (`hdtpidentity.WriteExportZip`, `ReadExportZip`, and the `export_merge` call); this package maps the node's store rows to the format's rows and back, and reads and writes the node's files. Its only caller is `internal/cli/portablecmd.go`: `portable.Export`, `CheckWritten`, `CloudCeilings`, `Read` and `Plan.Apply`. It calls `core/store`, `internal/messaging` (blob directory, `MediaMeta`) and `internal/identity` (`ValidDisplayName`, `GrantToAllOwners`, `AlgoP256`).
 
 ## What it holds
 
@@ -26,10 +26,10 @@ Shared (`portable.go`)
 
 ### The archive as the code writes it
 
-`export.go:20-125`. The members are `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and `media/<sha256 hex>` (`TestAnExportCarriesContactsChatsAndFilesAndNothingElse` asserts the exact member list). The manifest owner is the account's `RootFingerprint`; `OwnerName` is its display name; `Tool` and the export time come from the caller.
+`export.go:20-125`. The members are `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and `media/<sha256 hex>` per file, plus a `media/` directory entry (`TestAnExportCarriesContactsChatsAndFilesAndNothingElse` asserts the exact member list, including that directory entry). The manifest owner is the account's `RootFingerprint`; `OwnerName` is its display name; `Tool` and the export time come from the caller.
 
 - Contacts (`contactRow`, `export.go:130`): root fingerprint, endpoint, petname, display name, status, was-active (`EverActive` or status `active`), both permission lists, leaf and root certificate (base64url, null when absent), added time. Not exported: the preset, the trust flag, the card, the SPKI.
-- Contacts in status `pending_in` (a stranger's request, `aRequest`, `portable.go:51`) are left out and named in `Result.LeftOut`.
+- Contacts in status `pending_in` (a stranger's request, `aRequest` in `portable.go`) are left out and named in `Result.LeftOut`.
 - Threads: id, contact, topic, created and last time; ordered by `CreatedAt`. A thread whose contact is not carried is left out with a truthful reason (a request never accepted, or a contact removed from this identity).
 - Messages (`messageRow`, `export.go:145`): id, thread, contact, msg id, direction, sender, time, body, status, reply_to. A media message's description JSON (`messaging.MediaMeta`) is lifted into one attachment and the body is emptied; a media message with no hash (a link never fetched) travels the link as the body.
 - Status mapping (`exportStatus`): `pending` and `queued_for_human` become `queued`; `failed` stays; everything else is `delivered`.
@@ -40,8 +40,8 @@ Shared (`portable.go`)
 
 `import.go`.
 
-1. `Read` finds the slug. A slug that exists must have a root; a new slug takes the owner the manifest names (`manifestOwner`) and its display name (`ownerName`), checked with `identity.ValidDisplayName`.
-2. `ReadExportZip` validates the whole file under that owner and `ImportCeiling`.
+1. `Read` finds the slug. A slug that exists must have a root; a new slug takes the owner the manifest names (`manifestOwner`).
+2. `ReadExportZip` validates the whole file under that owner and `ImportCeiling`; only after it succeeds is the new slug's display name (`ownerName`) checked with `identity.ValidDisplayName`.
 3. For an existing slug, held contacts (except requests) are handed to `export_merge` with the file's rows (`merge`); a held pin is never replaced.
 4. `Apply` creates the account when `New` (algo `identity.AlgoP256`, `SetAccountRoot` with the fingerprint and no certificate, `GrantToAllOwners`), imports contacts (`HandshakeDueAt = now`), checks the contact cap, imports threads, then each message with its blob row, then writes the media files to the blob directory.
 5. Status on import (`storeMessage`): inbound arrives `delivered`; an outbound `queued` or `failed` arrives `failed` (this host was not asked to deliver it); everything else `delivered`. Contacts get `TrustFlag` `messages_only`. A contact with a leaf is pinned (SPKI from the parsed leaf; `PinnedAt` set for `active`, `blocked`, `pending_out`).

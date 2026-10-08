@@ -4,7 +4,7 @@ The node's single writer of the audit chain as the surfaces see it. Every surfac
 
 ## What it holds
 
-- `New(ctx, st, stderr)` returns a `*Sink`. Rows are written with the values of `ctx` but not its cancellation (`context.WithoutCancel`), so the rows written while the node stops are not lost. The stderr mirror is on unless the environment variable `HDTP_LOG` is `off` (`auditsink.go:46`).
+- `New(ctx, st, stderr)` returns a `*Sink`. Rows are written with the values of `ctx` but not its cancellation (`context.WithoutCancel`), so the rows written while the node stops are not lost. The stderr mirror is on unless the environment variable `HDTP_LOG` is `off` (read in `New`).
 - `Sink` methods, each returning `func(action, resource, outcome string)` unless noted:
   - `Owner()`: actor kind `owner`, for the portal and the owner MCP.
   - `System()`: actor kind `system`, for the node's own lifecycle.

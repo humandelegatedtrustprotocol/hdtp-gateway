@@ -108,7 +108,6 @@ func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef
 
 // Cataloger persists snapshots and reports diffs.
 type Cataloger struct {
-	// Store persists the catalog versions.
 	Store store.IntegrationStore
 	// Manager supplies the live session Snapshot walks.
 	Manager *Manager

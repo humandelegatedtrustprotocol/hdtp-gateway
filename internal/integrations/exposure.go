@@ -26,7 +26,8 @@ const (
 	// ModeMapped exposes the entry under an HDTP capability name through a
 	// recipe (package providers); the entry must name a Recipe.
 	ModeMapped = "mapped"
-	// ModeAgent parks the call for the owner's agent to answer (AgentAnswered).
+	// ModeAgent routes the call to AgentAnswered.Handler, which holds it for the wait budget
+	// (DefaultWaitBudget, 30 seconds) while the owner's agent may answer.
 	ModeAgent = "agent"
 )
 

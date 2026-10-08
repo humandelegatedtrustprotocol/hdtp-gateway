@@ -12,7 +12,7 @@ The owner-set configuration layer (SPEC §8.2, §12.2): settings rows are read f
   - `Deps` builds `internalui.SettingsDeps`: effective settings, save, adapter settings (names and set-ness of `tunnel.*` rows, never values), pairing and unpairing, per-account storage rows, presets (`savePreset` seeds every resolved bundle on first write; `deletePreset` of the last row restores defaults), and the reachability probe.
 - Per-account keys: `StorageKeyQuota` (`storage.quota.<id>`), `StorageKeyRetention` (`storage.retention.<id>`), `ContactsKeyRequestExpiry` (`contacts.request_expiry.<id>`), and `AccountKeys(accountID)`, the list of all three, which `identity.Manager.Leave` erases.
 - `MaxRetentionDays` = 36500. `RequestExpiryFor` reads the owner's days when 1 to `internalui.MaxRequestExpiryDays` (365), else `contacts.DefaultRequestExpiry` (30 days). `StorageFor` returns quota bytes and a retention window; zero is default quota and unlimited retention.
-- Ingress pairing (`ingresspair.go`): `pair` runs the one-time-token exchange with `ingress.Pair`, stores the result as `tunnel.<adapter>.*` rows with `subdomain` written last, then selects the adapter and sets `public_url`; `unpair` deletes the pairing rows; `PinnedIngress(adapter, stored)` returns the ingress fingerprint only for `ingress-terminate`.
+- Ingress pairing (`ingresspair.go`): `pair` runs the one-time-token exchange with `ingress.Pair`, stores the result as `tunnel.<adapter>.*` rows writing `subdomain` after the other adapter rows and `ingress_fpr` after it, then selects the adapter and sets `public_url`; `unpair` deletes the pairing rows; `PinnedIngress(adapter, stored)` returns the ingress fingerprint only for `ingress-terminate`.
 - `LeafAddress(ctx, st, accountID)`: the endpoint of the account's current leaf, or empty. `ServedIdentities(publicURL, accts)`: for each account with a root, its root fingerprint and the endpoint a leaf must name here (used by the probe).
 
 ## What it refuses, and how
@@ -26,7 +26,7 @@ The owner-set configuration layer (SPEC §8.2, §12.2): settings rows are read f
 ## Invariants
 
 - A secret goes in and never comes back out through rendering: the page reads only non-secret top-level rows and, for adapters, names plus `Set` flags. Credentials are sealed with the node keyring under `core.SettingsAAD()` before they touch the database.
-- A pairing write that fails partway is not selectable: `subdomain` is written last, and `pairedAdapters` treats it as the marker.
+- `pairedAdapters` treats a stored non-empty `subdomain` as the marker that an ingress adapter is paired. A write that fails before `subdomain` leaves the pairing not selectable. `ingress_fpr` is written after `subdomain`, so a failure on that last row leaves the adapter reading as paired with no ingress fingerprint to pin (`PinnedIngress` then returns empty). The `tunnel` selection and `public_url` are written only after every row succeeds.
 - A changed `public_url` moves nothing by itself: accounts keep answering at the endpoint their leaf names; for each account whose leaf was certified for the node's old derived address, an `account_move_needed` audit row names the move (`settings.go:380-392`).
 - `AccountKeys` names every per-account key function in the package.
 

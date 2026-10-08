@@ -24,7 +24,6 @@ type Recipe struct {
 
 // Binding maps one HDTP capability onto one upstream tool.
 type Binding struct {
-	// Tool is the upstream tool name the capability calls.
 	Tool string `json:"tool"`
 	// Kind tells the provider which computation applies:
 	// check_availability: "suggest" (upstream returns candidate times) or

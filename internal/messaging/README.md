@@ -47,7 +47,7 @@ message touches it (`TouchThread`). A thread belongs to the one contact that cre
 A message row's status, as this package writes it: `delivered` for an inbound message, `pending` for
 an outbound one (service.go, status assignment in `record`). It then leaves this package: `internal/node`
 sets `delivered` when a peer accepts it, `failed`, or gives it up at its deadline
-(node/send.go:39-41). The deadline is the message's `ExpiresAt`, or its creation time plus
+(`StatusDelivered` and `StatusFailed` in `internal/node/send.go`, set by `Node.setStatus` and its callers there). The deadline is the message's `ExpiresAt`, or its creation time plus
 `store.DefaultMessageExpiry` (24 hours) when it has none (store.go:252-261). `queued_for_human` is not
 written by this package.
 

@@ -90,7 +90,8 @@ func (in Input) Label() Sender {
 type Direction string
 
 const (
-	// DirIn: received from a contact. Recorded as delivered.
+	// DirIn: a message a contact sent. It is recorded as delivered; its msg_id is not shared
+	// with DirOut's in the idempotency key.
 	DirIn Direction = "in"
 	// DirOut: composed here for a contact. Recorded as pending until a peer accepts it.
 	DirOut Direction = "out"

@@ -122,8 +122,7 @@ func EndpointFor(publicURL, slug string) string {
 // keypair at every call (ToLib, from outbound/seal.go).
 type LeafKey struct {
 	// Kid is the key's fingerprint, the leaf's identifier in the ledger.
-	Kid string
-	// Leaf is the leaf certificate, DER.
+	Kid  string
 	Leaf []byte
 	KP   *Keypair
 	// PKCS8 is the unsealed private key, DER: key material, held in memory only.
@@ -134,7 +133,6 @@ type LeafKey struct {
 	Current bool
 	// NotAfter is when the leaf stops being served and its key is due for destruction.
 	NotAfter time.Time
-	// Endpoint is the address the leaf names.
 	Endpoint string
 }
 

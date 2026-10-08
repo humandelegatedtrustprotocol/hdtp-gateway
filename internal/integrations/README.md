@@ -46,7 +46,7 @@ The store holds a status string per integration: `connecting` (set at the start 
 ## Invariants
 
 - The upstream is never consulted for what a call may do: arguments are validated against the snapshot the exposure was confirmed on, not the live schema (`TestSnapshotSchemaGovernsNotLive`).
-- A changed or vanished tool is withheld until the owner reconfirms (`Reconcile`, `ActiveEntries`; `TestStaleGuardWithholdsAndReconfirmRestores`, `TestVanishedToolCannotBeReconfirmed`).
+- A changed tool is withheld until the owner reconfirms it (`Reconcile`, `ActiveEntries`; `TestStaleGuardWithholdsAndReconfirmRestores`). A vanished tool cannot be reconfirmed: it stays stale and withheld (`Reconcile`'s "tool vanished" branch; `TestVanishedToolCannotBeReconfirmed` asserts exactly that).
 - A caller's identity never reaches an upstream: `upstreamHTTPClient` consults only the integration row; the static credential is attached only when the request host equals the endpoint's host, so a redirect elsewhere does not carry it (`TestStaticCredentialStaysOnItsHost`).
 - Exposed names are unique across an account and never a built-in tool's name (`TestExposedNamesUniqueAcrossAccount`, `TestAnExposureNeverTakesABuiltInName`).
 - A child's environment is exactly its allow-list (`TestChildEnvIsExactlyTheAllowList`); argv is never passed through a shell (`TestSplitCommandTokenizesAndRefusesShell`).

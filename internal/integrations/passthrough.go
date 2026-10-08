@@ -36,8 +36,10 @@ type Passthrough struct {
 	Timeout time.Duration
 	// MaxResultBytes caps the relayed result; 0 = DefaultMaxResultBytes.
 	MaxResultBytes int
-	// Audit receives passthrough_call rows for bad_request, unavailable and
-	// too_large outcomes; nil discards. Successful forwards are not audited here.
+	// Audit receives passthrough_call rows for arguments that fail the snapshot's schema
+	// (bad_request), an upstream call that errors (unavailable) and a result over the cap
+	// (too_large); nil discards. Not audited here: arguments that are not JSON, an integration
+	// that is not available, a missing session, and successful forwards.
 	Audit func(action, resource, outcome string)
 }
 

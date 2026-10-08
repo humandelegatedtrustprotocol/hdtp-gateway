@@ -374,7 +374,8 @@ func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root st
 // RequestContactAs is the unsolicited guest path (HDTP §6.2): it writes a pending_in row for the
 // owner to approve, under the same identity binding as RedeemAs (Proof.vet). It refuses a note over
 // 1024 bytes with ErrBadRequest, asks the pending-request cap (admitRequest) before the insert, and
-// answers ErrBadRequest "already known" for a root that has any row, a blocked one included.
+// answers ErrBadRequest "already known" when InsertContact fails for any reason (a duplicate
+// root, a blocked one included, is the expected one; the store's error is not inspected).
 func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note string, p Proof) error {
 	if _, err := p.vet(card); err != nil {
 		return err

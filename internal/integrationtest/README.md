@@ -1,6 +1,6 @@
 # integrationtest
 
-A package of tests only: it has no non-test Go file, so nothing imports it and `go build` has nothing to compile in it. It holds two kinds of test. The first are scenario tests that stand real nodes up in process (real stores on SQLite and, where a DSN is given, Postgres; real HTTP and TLS listeners) and drive them through the phase exits of PLAN.md. The second are repository guards that read the source tree, the documents, the compose and Envoy files, and `go.mod`, and fail when a claim, a boundary or a list drifts from the code. It sits above everything it imports: it builds nodes from `internal/public`, `internal/internalui`, `internal/outbound`, `internal/ingress`, `internal/tunnel`, `internal/integrations`, `internal/contacts`, `internal/messaging`, `internal/identity` and the store (with `internal/testid` for fixtures), and reads files from the module root (and, for two guards, the sibling `harness/` module and the module cache). It runs with `go test ./internal/integrationtest/`, part of `make check` (its `test` target). The package comment is in `portal_test.go`.
+A package of tests only: it has no non-test Go file, so nothing imports it and `go build` has nothing to compile in it. It holds two kinds of test. The first are scenario tests that stand real nodes up in process (real stores on SQLite and, where a DSN is given, Postgres; real HTTP and TLS listeners) and drive them through the phase exits of PLAN.md. The second are repository guards that read the source tree, the documents, the compose and Envoy files, and `go.mod`, and fail when a claim, a boundary or a list drifts from the code. It has no non-test file, so `layering_test.go`'s rank for it is moot; it builds nodes from `internal/public`, `internal/internalui`, `internal/outbound`, `internal/ingress`, `internal/tunnel`, `internal/integrations`, `internal/contacts`, `internal/messaging`, `internal/identity` and the store (with `internal/testid` for fixtures), and reads files from the module root (and, for two guards, the sibling `harness/` module and the module cache). `TestTheCloudsCopyOfTheOwnerToolsIsCurrent` skips, with a message saying the cloud's copy is unchecked, when the `batondeck` repository is not beside this one. It runs with `go test ./internal/integrationtest/`, part of `make check` (its `test` target). The package comment is in `portal_test.go`.
 
 ## What it holds
 
@@ -40,7 +40,7 @@ Guards over the documents
 
 ## What it refuses, and how
 
-It refuses nothing at runtime; it fails the build. Each guard names the file and line (or the document and the claim) and says what to change. Several guards also fail when they read too little (for example `TestImportsPointDownTheLayers` fails if it reads fewer packages than the node has, `TestNoHandWrittenSQLOutsideTheStore` if it sees no files or literals, `TestQueriesMatchTheHandWrittenCode` if it reads too few queries), so a broken reader cannot pass by finding nothing.
+It refuses nothing at runtime; it fails the build. Each guard names the file and line (or the document and the claim) and says what to change. Several guards also fail when they read too little (for example `TestImportsPointDownTheLayers` fails if it reads fewer than 25 packages or if `internal/cli` is read as importing fewer than 15 node packages, `TestNoHandWrittenSQLOutsideTheStore` if it sees no files or literals, `TestQueriesMatchTheHandWrittenCode` if it reads too few queries), so a broken reader cannot pass by finding nothing.
 
 ## Invariants
 
@@ -59,6 +59,7 @@ The files above are the tests. The scenarios exercise the production tool set (`
 
 ## What it does not do
 
+- `TestTheCloudsCopyOfTheOwnerToolsIsCurrent` checks nothing when the sibling `batondeck` checkout is absent; it skips.
 - The reachability gate is a floor, not a proof (its own comment): it counts by bare name, and a function called only from another unreachable function reads as reached.
 - `TestNothingRefreshesContactsByItself` reads the syntax tree for `RefreshContact` and `get_card`; it does not observe the running node.
 - The envoy tests read configuration; they do not run Envoy (the harness's S23 does, with Docker).
