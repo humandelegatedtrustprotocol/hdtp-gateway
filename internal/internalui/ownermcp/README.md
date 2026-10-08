@@ -62,7 +62,7 @@ Registered always (`NewServerWithExtra`):
 | `set_trust_flag` | `messages_only` or `may_instruct`; audited as `trust_update`. |
 | `create_invite` | Mints an invite; answers `id`, `url` (the link, which holds the token) and `expires_at`. The token is shown only in that link. |
 | `list_invites`, `revoke_invite` | Invites of one account (never the token); revoke scoped by the account. `revoke_invite` is audited as `invite_revoke`. |
-| `list_pending`, `answer_request` | Open agent-answered requests (SPEC §6.8) and the answer that the node relays to the waiting caller. |
+| `list_pending`, `answer_request` | Open agent-answered requests (SPEC §6.8) read from the store, and the answer that the node relays to the waiting caller (`answer_request` needs `Deps.Pending`). |
 
 Registered by `AddParityTools`, each only when its `Extra` field is non-nil:
 
@@ -81,7 +81,7 @@ Registered by `AddWatchTools`:
 
 | Tool | Contract |
 |---|---|
-| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. |
+| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on a moved thread, a contact's call, a waiting contact request, an open agent-answered request or an expired cursor; a contact held at a new address, or an integration needing re-authorization, is reported on every answer but does not by itself end a wait. |
 | `digest` | Per contact in a window (default the last 24 hours): messages in and out, unread, whether their word was last, plus the three queue counts. |
 
 Resources: `hdtp://inbox` (unread count per administered account), `hdtp://requests` (contacts in

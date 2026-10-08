@@ -55,8 +55,8 @@ const (
 
 // Deps is what the owner surface acts through. A nil Approved, Rejected, Removed, Invalidate,
 // ServedPermissions, Audit or Send skips the effect it names and the tool still answers; a nil
-// RefreshContact leaves refresh_contact unregistered; a nil Pending disables list_pending's and
-// answer_request's work.
+// RefreshContact leaves refresh_contact unregistered; a nil Pending makes answer_request answer
+// that dispatch is not enabled and keeps the pending count out of wait_for_updates and digest.
 type Deps struct {
 	// Store is the node's store. It is read for scope (memberships) and for every tool.
 	Store store.Store
@@ -90,8 +90,10 @@ type Deps struct {
 	// Contacts runs the contact lifecycle and mints invites. The lifecycle tools and create_invite
 	// call it without a nil check.
 	Contacts *contacts.Manager
-	// Pending serves agent-answered dispatch (SPEC §6.8); nil disables the
-	// list_pending / answer_request pair and hdtp://pending stays empty.
+	// Pending serves agent-answered dispatch (SPEC §6.8). Nil makes answer_request answer
+	// {"error":"agent-answered dispatch is not enabled"}, and leaves the pending count out of
+	// wait_for_updates and digest. list_pending and hdtp://pending read the store and do not
+	// consult it.
 	Pending *integrations.AgentAnswered
 	// Send delivers a message to a contact AND records it. `internal/messaging`
 	// has no path to the wire, so a tool wired straight to Msg.Record recorded
