@@ -21,9 +21,8 @@ below is how it will work when it opens, and how it works now.
 
 You need Go (the version in [`go.mod`](go.mod)), Rust with cargo (the limits sidecar,
 `cmd/hdtp-limitd`, is built and tested by `make check`), Node (the name guard, the page scripts
-and `make web`), Docker (the pre-push gate starts a Postgres container, and the scenario harness
-needs it), and read access to the private identity repository ([below](#the-identity-module)):
-without it neither the node nor the sidecar builds, so no gate runs.
+and `make web`), and Docker (the pre-push gate starts a Postgres container, and the scenario harness
+needs it).
 
 ```
 make build      # static binary
@@ -80,29 +79,15 @@ Hooks are never bypassed: a gate that is wrong is fixed, not skipped.
 ## The identity module
 
 The node requires `github.com/humandelegatedtrustprotocol/hdtp-identity/go` **by version**: `go.mod` names a
-release (the tag `go/vX.Y.Z` in the hdtp-identity repository) and carries no `replace`. The limits
-sidecar requires the same repository's `hdtp-limits` crate by tag (`cmd/hdtp-limitd/Cargo.toml`),
-and the `hdtp` wallet CLI the README's quickstart uses is built from it too. The repository is
-private and is fetched over SSH, from this machine only; no CI key exists for it. Without read
-access to it, `go build` stops at `reading github.com/humandelegatedtrustprotocol/hdtp-identity/go/go.mod
-… could not read Username`, and `make limitd` at cargo's failed clone of the same repository.
-With access, the go command needs to be told two things, which the Makefile's fetching targets and the
-pre-push hook set for their own process and nothing else:
-
-```
-export GOPRIVATE='github.com/humandelegatedtrustprotocol/*'      # not through the public proxy or checksum DB
-# and git over SSH rather than HTTPS, for this process only:
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
-```
+release (the tag `go/vX.Y.Z` in the
+[hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity) repository) and
+carries no `replace`, and the go command fetches it through the public module proxy and checksum
+database like every other dependency. The limits sidecar requires the same repository's
+`hdtp-limits` crate by tag (`cmd/hdtp-limitd/Cargo.toml`), and the `hdtp` wallet CLI the README's
+quickstart uses is built from it too.
 
 - `make identity-bump VERSION=0.3.0` moves the node and the harness to another release
   (`go get` and `go mod tidy` in both modules) and runs `make check` on the result.
-- `make identity-proxy` fetches the required version on the host into `.build/identity-proxy`
-  (gitignored and dockerignored), laid out as a Go module proxy. The image builds
-  (`make harness-image`, `docker compose build`) read it as the named context `identityproxy`,
-  so no credential enters Docker; `go.sum` still verifies what it serves. `make harness-image`
-  refreshes it every time; before `docker compose build`, run it again after the required
-  version changes, or the build asks the proxy for a version it does not hold and fails.
 - To work on the identity library and the node together without a release in between, point a
   `go.work` OUTSIDE this repository at both checkouts and set `GOWORK` to it. Use a `replace`
   line for the identity module rather than a `use` line: the node requires a version, and with

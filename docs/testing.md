@@ -167,8 +167,8 @@ whether it promised it.
 
 ## hdtp-identity
 
-This section describes the hdtp-identity repository, which is not public; the node consumes its
-releases by version.
+This section describes the [hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity)
+repository; the node consumes its releases by version.
 
 `sh gate.sh` in the hdtp-identity repository is the whole gate; it is that repository's, and this
 repository's hooks no longer run it (the node consumes hdtp-identity by version). It needs `../hdtp-spec` beside it

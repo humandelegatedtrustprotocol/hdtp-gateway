@@ -4,8 +4,7 @@
 # which a first run has not got. The container healthcheck exercises the portal,
 # over TLS when internal TLS is configured.
 # The node's limits sidecar runs beside it (`limitd`, SPEC §5.7): until it answers, the node refuses
-# every sealed call. `make identity-proxy limitd-vendor` first: the build reads the private
-# identity module and the sidecar's crates from them.
+# every sealed call. `make limitd-vendor` first: the build reads the sidecar's crates from it.
 # Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
 services:
   # Named volumes are created root-owned and ownership propagation from the image
@@ -20,12 +19,10 @@ services:
     restart: "no"
 
   hdtp-gateway:
-    # `make identity-proxy limitd-vendor` first: the build reads the private identity module and
-    # the sidecar's crates from them (Dockerfile).
+    # `make limitd-vendor` first: the build reads the sidecar's crates from it (Dockerfile).
     build:
       context: .
       additional_contexts:
-        identityproxy: ./.build/identity-proxy
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
     depends_on:
@@ -49,7 +46,6 @@ services:
     build:
       context: .
       additional_contexts:
-        identityproxy: ./.build/identity-proxy
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
     entrypoint: ["/hdtp-limitd"]

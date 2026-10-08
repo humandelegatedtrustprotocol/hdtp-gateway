@@ -171,7 +171,7 @@ the one below.
 `deploy/envoy/` is the node behind a proxy of its own, the first of the two layers of its rate
 limits (the second is the sidecar above): `docker compose -f deploy/envoy/compose.yaml up -d` runs
 Envoy, the node and the limits sidecar, and only Envoy publishes a port. Before it: `make
-identity-proxy limitd-vendor` (the image build), a certificate for the node's public name at
+limitd-vendor` (the image build), a certificate for the node's public name at
 `deploy/envoy/tls/cert.pem` and `key.pem`, and `HDTP_PUBLIC_URL`, that name, in the environment.
 
 What Envoy does (`deploy/envoy/envoy.yaml`, whose numbers are its own and nowhere else):
