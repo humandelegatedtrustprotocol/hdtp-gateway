@@ -12,8 +12,11 @@ import (
 )
 
 // Sink is the slice of the store the writer needs: the store's AppendAuditEvent, in the audit
-// package's terms (auditstore.Adapter is the join).
+// package's terms (store.AuditAppender is the join).
 type Sink interface {
+	// AppendAuditEvent reads the chain's head (0 and "" when the chain is empty), calls seal with it,
+	// and inserts the Event seal returns, all in one transaction that holds the head, so no other
+	// writer can append between the read and the insert. An error from seal writes nothing.
 	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (Event, error)) error
 }
 

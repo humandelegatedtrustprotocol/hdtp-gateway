@@ -34,9 +34,15 @@ import (
 // Store is the slice of the store the head archive needs, in this package's terms so that audit
 // does not import the store. auditstore.Adapter is the join.
 type Store interface {
+	// ListAuditEvents returns the live rows ascending by seq, or one actor's rows when actorFilter
+	// is not empty. The checks here pass "": verifying a chain is reading all of it.
 	ListAuditEvents(ctx context.Context, actorFilter string) ([]Row, error)
+	// AuditAnchor returns the anchor; the zero Anchor when nothing was ever archived.
 	AuditAnchor(ctx context.Context) (Anchor, error)
+	// SetAuditAnchor records the anchor. Archive calls it after the archive file is written and
+	// verified and before the rows go.
 	SetAuditAnchor(ctx context.Context, a Anchor) error
+	// DeleteAuditEventsThrough deletes the rows with seq at or below seq and returns how many went.
 	DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error)
 }
 

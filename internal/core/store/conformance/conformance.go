@@ -14,6 +14,7 @@ import (
 // up/down/up cleanliness check.
 type Migratable interface {
 	store.Store
+	// MigrateDown rolls the schema back to version 0.
 	MigrateDown(ctx context.Context) error
 }
 

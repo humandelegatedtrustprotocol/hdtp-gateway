@@ -14,6 +14,7 @@ import (
 // Backing is what the adapter reads: the audit trail, and whether an account is still here.
 type Backing interface {
 	store.AuditStore
+	// GetAccountByID returns the account, or store.ErrNotFound; AccountExists is its only use here.
 	GetAccountByID(ctx context.Context, id string) (store.Account, error)
 }
 
