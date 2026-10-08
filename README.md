@@ -82,7 +82,8 @@ Five minutes from nothing to a working node. You need Docker with Compose, Rust 
 first command), and the `hdtp` wallet CLI used below, which is built from
 [hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity): the repository
 the node's Go module and the limits sidecar's `hdtp-limits` crate also come from
-(see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
+(see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)). The long form, with every screen
+and every command's output, is [docs/quickstart.md](docs/quickstart.md).
 
 ```
 make limitd-vendor      # the limits sidecar's crates, laid out for the image build
