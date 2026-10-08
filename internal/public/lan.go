@@ -16,7 +16,9 @@ import (
 	"strings"
 )
 
-// LANGuard refuses private-range connections when the flag is off.
+// LANGuard refuses private-range connections when the flag is off. A refusal is HTTP 403 with
+// `{"code":"unavailable"}`. Loopback sources are never refused (the carrier's own delivery), and a
+// request carrying the TrustedHeader is judged to have come through the tunnel, not off the LAN.
 type LANGuard struct {
 	// Adapter is the active tunnel adapter name ("" or "direct" = inert).
 	Adapter string
@@ -28,7 +30,8 @@ type LANGuard struct {
 	// TrustedHeader, when set (edge adapters only), names the header the real
 	// source address comes from — the socket address is the connector's.
 	TrustedHeader string
-	Audit         func(action, resource, outcome string)
+	// Audit, when set, hears each refused connection as `lan_refused`, resource `src:<host>`, outcome `denied`.
+	Audit func(action, resource, outcome string)
 	// isPrivate is a seam for tests; nil uses the SPEC §7.5 range list.
 	isPrivate func(net.IP) bool
 }

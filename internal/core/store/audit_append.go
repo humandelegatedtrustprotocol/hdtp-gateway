@@ -12,6 +12,8 @@ import (
 // AppendAuditEvent read, and the store inserts it in the same transaction.
 type AuditAppender struct{ St AuditStore }
 
+// AppendAuditEvent calls St.AppendAuditEvent, converting the audit.Event that seal returns to the
+// AuditRow the store inserts. An error from seal is returned unchanged and nothing is written.
 func (a AuditAppender) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (audit.Event, error)) error {
 	return a.St.AppendAuditEvent(ctx, func(prevSeq int64, prevHash string) (AuditRow, error) {
 		e, err := seal(prevSeq, prevHash)

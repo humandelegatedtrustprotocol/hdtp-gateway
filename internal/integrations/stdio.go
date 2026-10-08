@@ -22,9 +22,12 @@ import (
 const (
 	backoffFloor   = 1 * time.Second
 	backoffCeiling = 60 * time.Second
-	// DefaultMaxRestarts / DefaultFailureWindow: give-up after 5 consecutive
-	// failures within 5 minutes (SPEC §6.2).
-	DefaultMaxRestarts   = 5
+	// DefaultMaxRestarts is the consecutive failures after which the supervisor
+	// gives up (SPEC §6.2); StdioConfig.MaxRestarts 0 selects it.
+	DefaultMaxRestarts = 5
+	// DefaultFailureWindow is the span from the first failure after which the
+	// count is forgiven (Gate): 5 minutes, SPEC §6.2. StdioConfig.FailureWindow
+	// 0 selects it.
 	DefaultFailureWindow = 5 * time.Minute
 )
 
@@ -41,11 +44,16 @@ const (
 
 // StdioConfig is the owner-configured child description.
 type StdioConfig struct {
-	Command           string            // argv line; conservatively tokenized, never a shell
-	Env               map[string]string // allow-list: exactly what the child receives
+	Command string            // argv line; conservatively tokenized, never a shell
+	Env     map[string]string // allow-list: exactly what the child receives
+	// TerminateDuration is passed to mcp.CommandTransport as the grace period
+	// between asking the child to exit and killing it.
 	TerminateDuration time.Duration
-	MaxRestarts       int
-	FailureWindow     time.Duration
+	// MaxRestarts is the consecutive failures tolerated before give-up;
+	// 0 = DefaultMaxRestarts.
+	MaxRestarts int
+	// FailureWindow forgives failures older than this; 0 = DefaultFailureWindow.
+	FailureWindow time.Duration
 	// MaxMemoryBytes caps the memory the child may allocate (RLIMIT_DATA, the
 	// enforceable approximation of SPEC §6.2's RSS); 0 = the 512 MiB default;
 	// negative = uncapped (explicit owner choice).
@@ -76,6 +84,8 @@ func defaultShim() []string {
 // SDK transport owns the process; the supervisor owns whether and when a new
 // one may be started.
 type Supervisor struct {
+	// Config is the child description; replace it with SetConfig, which takes
+	// the supervisor's lock.
 	Config StdioConfig
 	Sleep  func(time.Duration) // seam; nil = time.Sleep
 	Now    func() time.Time    // seam; nil = time.Now

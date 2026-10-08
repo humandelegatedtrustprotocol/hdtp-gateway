@@ -27,12 +27,20 @@ const (
 	DefaultMaxResultBytes = 1 << 20
 )
 
-// Passthrough forwards exposed tools to their upstream (SPEC §6.6).
+// Passthrough forwards exposed tools to their upstream (SPEC §6.6). Zero
+// Timeout and MaxResultBytes select DefaultCallTimeout and DefaultMaxResultBytes.
 type Passthrough struct {
-	Manager        *Manager
-	Timeout        time.Duration
+	// Manager supplies the live upstream session and its availability.
+	Manager *Manager
+	// Timeout bounds one forward; 0 = DefaultCallTimeout.
+	Timeout time.Duration
+	// MaxResultBytes caps the relayed result; 0 = DefaultMaxResultBytes.
 	MaxResultBytes int
-	Audit          func(action, resource, outcome string)
+	// Audit receives passthrough_call rows for arguments that fail the snapshot's schema
+	// (bad_request), an upstream call that errors (unavailable) and a result over the cap
+	// (too_large); nil discards. Not audited here: arguments that are not JSON, an integration
+	// that is not available, a missing session, and successful forwards.
+	Audit func(action, resource, outcome string)
 }
 
 func (p *Passthrough) timeout() time.Duration {

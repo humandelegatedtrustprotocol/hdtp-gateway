@@ -10,11 +10,17 @@ import (
 // Status implements get_status (HDTP §6.2): node-local status by default; a
 // recipe MAY source it from an upstream tool instead (SPEC §6.7).
 type Status struct {
-	Local  func(ctx context.Context) (string, error)
+	// Local answers when no recipe sources the status; nil = "available".
+	Local func(ctx context.Context) (string, error)
+	// Call reaches the upstream tool a get_status binding names.
 	Call   Caller
 	Recipe *integrations.Recipe // nil or recipe without get_status = local
 }
 
+// GetStatus returns the recipe-sourced status when Recipe binds get_status: it
+// calls the bound tool and returns the string at Out["status"], or an error if
+// the call fails or that path is absent or not a string. Otherwise it returns
+// Local's answer, or "available" when Local is nil.
 func (s *Status) GetStatus(ctx context.Context) (string, error) {
 	if s.Recipe != nil {
 		if b, ok := s.Recipe.Capabilities["get_status"]; ok {

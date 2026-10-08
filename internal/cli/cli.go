@@ -1,7 +1,3 @@
-// Package cli implements the command-line interface of SPEC §12.1: one binary,
-// subcommand-per-concern, stdlib flag parsing. Against a running node the CLI talks
-// over the admin unix socket; offline database commands take the store lock and
-// therefore refuse to run while the node is serving.
 package cli
 
 import (
@@ -19,7 +15,18 @@ import (
 )
 
 // Run dispatches os.Args-style arguments; version is the build-stamped version
-// string. Returns a process exit code.
+// string. It returns a process exit code. The commands' output, their usage and their flag parse
+// errors go to the stdout and stderr it is given (commonFlags and the ingress flag sets point at stderr), not
+// to the process's; the hidden __child shim is not covered by that statement.
+//
+// The first argument names the command: version, serve, ingress, migrate, doctor, healthcheck,
+// account, passkey, token, audit, export, import, check, or the hidden __child (the resource-cap
+// shim for supervised stdio children, SPEC §6.2). No arguments, or a command it does not know,
+// prints the usage to stderr and returns 2. Across the commands 0 is success, 1 is a failure of
+// the work, and 2 is a usage error (a flag that does not parse, a missing required argument, an
+// unknown subcommand, except that account, passkey, token and audit judge the subcommand only after
+// the config has loaded, and audit after it has taken the lock and opened the store, so those
+// failures come first with status 1).
 func Run(args []string, version string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)

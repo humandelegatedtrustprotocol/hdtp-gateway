@@ -36,12 +36,6 @@ type DashboardDeps struct {
 	// (IdentityDeps.Certificate), so the two pages cannot disagree about a leaf. Nil (a test's
 	// mount) answers each identity's certificate as null.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
-	// Setup and SignedIn are set by the wiring (cli/compose.go) and are not read by this package's
-	// dashboard handler: the wizard redirect is the SPA's, from /api/session, and the handler
-	// takes the owner from the session gate (OwnerFrom).
-	Setup *SetupTokens
-	// SignedIn: see Setup.
-	SignedIn func(*http.Request) bool
 }
 
 // DashboardPosture is the resolved node state.

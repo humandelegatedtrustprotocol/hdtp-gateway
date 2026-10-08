@@ -130,7 +130,7 @@ func TestDashboardLinksAreReachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := HandlerWithAuth(e.st, NewSetupTokens(), nil,
-		func(mux *http.ServeMux) { MountDashboard(mux, DashboardDeps{Store: e.st, Setup: NewSetupTokens()}) },
+		func(mux *http.ServeMux) { MountDashboard(mux, DashboardDeps{Store: e.st}) },
 		func(mux *http.ServeMux) { MountManagePages(mux, ManageDeps{Store: e.st}) },
 	)
 	rr := httptest.NewRecorder()

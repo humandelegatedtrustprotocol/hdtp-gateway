@@ -24,6 +24,8 @@ func init() {
 	})
 }
 
+// Start marks the adapter running and returns the configured PublicURL with TerminatesAtEdge
+// false and no Listener. It starts no process and opens no port.
 func (d *Direct) Start(ctx context.Context) (Info, error) {
 	d.mu.Lock()
 	d.running = true
@@ -31,6 +33,7 @@ func (d *Direct) Start(ctx context.Context) (Info, error) {
 	return Info{PublicURL: d.publicURL, TerminatesAtEdge: false}, nil
 }
 
+// Status reports the configured PublicURL; Running is whether Start has been called since the last Stop.
 func (d *Direct) Status() Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -38,6 +41,7 @@ func (d *Direct) Status() Status {
 		Detail: "no tunnel process; the node's own listener is the public endpoint"}
 }
 
+// Stop clears the running flag. It always returns nil.
 func (d *Direct) Stop() error {
 	d.mu.Lock()
 	d.running = false

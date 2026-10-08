@@ -135,8 +135,9 @@ func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accoun
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "wait_for_updates",
 		Description: "Block until something changes for this account — a message arrives, a contact asks to connect, " +
-			"a request needs answering — then return what moved since your cursor. Call it in a loop with the cursor " +
-			"it returns as since. Omitting since starts from now with no backlog.",
+			"a request needs answering, a contact waits at a new address, an integration needs re-authorizing — then " +
+			"return what moved since your cursor. Call it in a loop with the cursor it returns as since. Omitting since " +
+			"starts from now with no backlog.",
 	}, ot.waitForUpdatesTool)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -217,7 +218,8 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 // news is whether a wait has something to answer with rather than park on: a thread moved, a
 // contact acted, or one of the queues only the owner clears holds something.
 func (r waitResult) news() bool {
-	return len(r.Threads) > 0 || len(r.Calls) > 0 || r.Waiting > 0 || r.Pending > 0 || r.CursorExpired
+	return len(r.Threads) > 0 || len(r.Calls) > 0 || r.Waiting > 0 || r.Pending > 0 || r.Addresses > 0 ||
+		len(r.NeedsAttention) > 0 || r.CursorExpired
 }
 
 // digestTool is the `digest` tool.

@@ -1,6 +1,6 @@
-// Package public implements the HDTP-facing surface (SPEC §5): the TLS listener,
-// transport-fact extraction, and the route shell. Tiering, per-caller servers, and
-// dispatch land in later tasks; this file owns everything at and below the connection.
+// The TLS listener shell, transport-fact extraction and routes (SPEC §5.1–§5.3): everything
+// at and below the connection.
+
 package public
 
 import (
@@ -22,6 +22,8 @@ import (
 // The certificate fingerprint here is a FACT, not an authorization: tiering and the
 // unified identity rule (§3.5) are applied above.
 type TransportFacts struct {
+	// ClientCertFingerprint is the fingerprint of the ROOT of the chain the client presented and
+	// that validated; "" when none did (a lone certificate establishes nothing).
 	ClientCertFingerprint string // "" when no certificate was presented
 	// ClientCertSPKI is the presented key itself (SubjectPublicKeyInfo DER).
 	// Pinning stores the full key, never just its hash (§9.2), so the plaintext
@@ -31,7 +33,9 @@ type TransportFacts struct {
 	// adapter's own header behind a terminating edge, the socket otherwise, and
 	// never a generic forwarded-for header (SPEC §5.7). Guest budgets key on it.
 	RemoteIP string
-	SrcAddr  string
+	// SrcAddr is the connection's socket address as the HTTP server saw it (host:port); behind a
+	// proxy or tunnel it is the connector's.
+	SrcAddr string
 	// HDTP 1.0 (HDTP §2, §14.2): a client that presented a chain — a leaf and
 	// the root that issued it — that validated. ClientCertFingerprint is then
 	// the ROOT's, ClientCertSPKI the leaf's key, ClientLeaf the leaf, and
@@ -39,7 +43,8 @@ type TransportFacts struct {
 	// that fills these fields: a single certificate, or a chain that does not
 	// validate, establishes no identity at all, because the identity is
 	// the root and a lone certificate names none.
-	ClientLeaf     []byte
+	ClientLeaf []byte
+	// ClientEndpoint is the one address the leaf names.
 	ClientEndpoint string
 	// ClientRoot is the root's own DER from that chain. The pin
 	// keeps the root's fingerprint, and the chain does not come back: a contact
@@ -54,6 +59,7 @@ func (f TransportFacts) ChainProven() bool { return len(f.ClientLeaf) > 0 }
 
 type factsKey struct{}
 
+// FactsFrom returns the facts WithFacts attached, or the zero TransportFacts (no identity) when none were.
 func FactsFrom(ctx context.Context) TransportFacts {
 	f, _ := ctx.Value(factsKey{}).(TransportFacts)
 	return f
@@ -70,10 +76,12 @@ func WithFacts(ctx context.Context, f TransportFacts) context.Context {
 // surface composes without import cycles; Accounts feeds slug routing and the
 // single-account /mcp alias rule (SPEC §5.2).
 type Server struct {
+	// GetCertificate picks the server certificate per SNI (SPEC §5.1).
 	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
-	Accounts       func() []string
-	MCP            http.Handler // /a/{slug}/mcp (and /mcp alias when exactly one account)
-	Invite         http.Handler // /i/{token}
+	// Accounts lists the account slugs this node serves; an unknown slug is a 404.
+	Accounts func() []string
+	MCP      http.Handler // /a/{slug}/mcp (and /mcp alias when exactly one account)
+	Invite   http.Handler // /i/{token}
 	// Probe answers the reachability probe (SPEC §10.4) at tunnel.ProbePath;
 	// nil disables it.
 	Probe http.Handler
@@ -111,7 +119,10 @@ func (s *Server) now() time.Time {
 	return time.Now()
 }
 
-// Handler builds the route mux with facts extraction (SPEC §5.1–§5.2).
+// Handler builds the route mux with facts extraction (SPEC §5.1–§5.2). Routes: /a/{slug}/mcp
+// (404 for a slug not in Accounts), /mcp (served as the single account's endpoint only while
+// Accounts returns exactly one, else 404), /i/{token}, and tunnel.ProbePath when Probe is set;
+// any other path is the mux's 404. Inner, when set, wraps the routes inside the facts middleware.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -302,7 +313,8 @@ func splitOutsideQuotes(s string, sep rune) []string {
 // request is seen as, rather than asserting on the flag that decides it.
 func (s *Server) WithFactsForTest(next http.Handler) http.Handler { return s.withFacts(next) }
 
-// TLSConfig: RequestClientCert — never Require, never chain-verify. Unknown and
+// TLSConfig returns the listener's TLS configuration: TLS 1.2 or later, GetCertificate for the
+// server certificate. RequestClientCert — never Require, never chain-verify. Unknown and
 // absent certificates MUST complete the handshake; identity decisions happen above
 // the transport (HDTP §2, SPEC §5.1).
 func (s *Server) TLSConfig() *tls.Config {

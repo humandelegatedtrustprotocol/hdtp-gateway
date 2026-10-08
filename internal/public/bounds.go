@@ -68,11 +68,17 @@ func tooLarge(w http.ResponseWriter) {
 // rate_limited. Members are stable wire contract — the spec names them. The call budgets are
 // numbers, not counts: a configuration may set a contact's rate below one call a second.
 type Limits struct {
-	TextBytes         int `json:"text_bytes"`
-	NoteBytes         int `json:"note_bytes"`
-	MediaInlineBytes  int `json:"media_inline_bytes"`
+	// TextBytes is MaxTextBytes: the cap on a message's text.
+	TextBytes int `json:"text_bytes"`
+	// NoteBytes is MaxNoteBytes: the cap on a request note.
+	NoteBytes int `json:"note_bytes"`
+	// MediaInlineBytes is MaxInlineData: the cap on decoded inline media.
+	MediaInlineBytes int `json:"media_inline_bytes"`
+	// AvailabilitySlots is calendar.MaxSlots: the most slots one answer carries.
 	AvailabilitySlots int `json:"availability_slots"`
-	InviteTTLDays     int `json:"invite_ttl_days"`
+	// InviteTTLDays is contacts.MaxInviteTTL in whole days.
+	InviteTTLDays int `json:"invite_ttl_days"`
+	// Advertised (embedded) carries the call-budget members, as the limits sidecar computes them.
 	limits.Advertised
 }
 

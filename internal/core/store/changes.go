@@ -20,11 +20,14 @@ func pgLimit(n int) int32 {
 	return math.MaxInt32
 }
 
+// AppendChange records c in the change log (its ID is ignored) and returns the id assigned. SQLite
+// writes one transaction at a time, so ids commit in the order they are assigned.
 func (s *SQLite) AppendChange(ctx context.Context, c Change) (int64, error) {
 	return s.q.InsertChange(ctx, sqlitedb.InsertChangeParams{AccountID: c.AccountID, Kind: c.Kind,
 		ThreadID: c.ThreadID, ContactFpr: c.ContactFpr, Ref: c.Ref, At: c.At})
 }
 
+// ChangesAfter returns up to limit changes with ids above after, in id order.
 func (s *SQLite) ChangesAfter(ctx context.Context, after int64, limit int) ([]Change, error) {
 	rs, err := s.q.ChangesAfter(ctx, sqlitedb.ChangesAfterParams{ID: after, Limit: int64(limit)})
 	if err != nil {
@@ -37,6 +40,8 @@ func (s *SQLite) ChangesAfter(ctx context.Context, after int64, limit int) ([]Ch
 	return out, nil
 }
 
+// AccountChangesAfter returns up to limit of one account's changes with ids above after, in id
+// order.
 func (s *SQLite) AccountChangesAfter(ctx context.Context, accountID string, after int64, limit int) ([]Change, error) {
 	rs, err := s.q.AccountChangesAfter(ctx, sqlitedb.AccountChangesAfterParams{AccountID: accountID, ID: after, Limit: int64(limit)})
 	if err != nil {
@@ -49,6 +54,7 @@ func (s *SQLite) AccountChangesAfter(ctx context.Context, accountID string, afte
 	return out, nil
 }
 
+// ChangeBounds returns the oldest and newest change ids held, 0 and 0 for an empty log.
 func (s *SQLite) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	oldest, err := s.q.OldestChangeID(ctx)
 	if err != nil {
@@ -58,10 +64,14 @@ func (s *SQLite) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	return oldest, newest, err
 }
 
+// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 func (s *SQLite) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	return s.q.DeleteChangesByAccount(ctx, accountID)
 }
 
+// DeleteChangesBefore deletes the change rows written before at (unix seconds) and returns how many
+// went.
 func (s *SQLite) DeleteChangesBefore(ctx context.Context, at int64) (int64, error) {
 	return s.q.DeleteChangesBefore(ctx, at)
 }
@@ -70,6 +80,10 @@ func (s *SQLite) DeleteChangesBefore(ctx context.Context, at int64) (int64, erro
 // another's changes.
 func (s *SQLite) WatchChanges(context.Context, func()) error { return nil }
 
+// AppendChange records c in the change log (its ID is ignored) and returns the id assigned. In one
+// transaction it takes the changes advisory lock (LockChanges) so ids commit in the order they are
+// assigned, inserts the row, and sends the notification WatchChanges listens for (NotifyChanges),
+// which Postgres delivers at commit.
 func (s *Postgres) AppendChange(ctx context.Context, c Change) (int64, error) {
 	var id int64
 	err := s.Atomically(ctx, func(tx Store) error {
@@ -87,6 +101,7 @@ func (s *Postgres) AppendChange(ctx context.Context, c Change) (int64, error) {
 	return id, err
 }
 
+// ChangesAfter returns up to limit changes with ids above after, in id order.
 func (s *Postgres) ChangesAfter(ctx context.Context, after int64, limit int) ([]Change, error) {
 	rs, err := s.q.ChangesAfter(ctx, pgdb.ChangesAfterParams{ID: after, Limit: pgLimit(limit)})
 	if err != nil {
@@ -99,6 +114,8 @@ func (s *Postgres) ChangesAfter(ctx context.Context, after int64, limit int) ([]
 	return out, nil
 }
 
+// AccountChangesAfter returns up to limit of one account's changes with ids above after, in id
+// order.
 func (s *Postgres) AccountChangesAfter(ctx context.Context, accountID string, after int64, limit int) ([]Change, error) {
 	rs, err := s.q.AccountChangesAfter(ctx, pgdb.AccountChangesAfterParams{AccountID: accountID, ID: after, Limit: pgLimit(limit)})
 	if err != nil {
@@ -111,6 +128,7 @@ func (s *Postgres) AccountChangesAfter(ctx context.Context, accountID string, af
 	return out, nil
 }
 
+// ChangeBounds returns the oldest and newest change ids held, 0 and 0 for an empty log.
 func (s *Postgres) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	oldest, err := s.q.OldestChangeID(ctx)
 	if err != nil {
@@ -120,10 +138,14 @@ func (s *Postgres) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	return oldest, newest, err
 }
 
+// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 func (s *Postgres) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	return s.q.DeleteChangesByAccount(ctx, accountID)
 }
 
+// DeleteChangesBefore deletes the change rows written before at (unix seconds) and returns how many
+// went.
 func (s *Postgres) DeleteChangesBefore(ctx context.Context, at int64) (int64, error) {
 	return s.q.DeleteChangesBefore(ctx, at)
 }

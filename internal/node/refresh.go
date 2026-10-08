@@ -47,6 +47,7 @@ const (
 
 // ContactRefresh is the answer to "refresh this contact".
 type ContactRefresh struct {
+	// Outcome is one of the Refresh constants.
 	Outcome string `json:"outcome"`
 	// Why says what did not verify, when the outcome is refused.
 	Why string `json:"why,omitempty"`

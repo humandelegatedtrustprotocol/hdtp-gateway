@@ -10,7 +10,45 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The portal's session gate is an allow-list. A `GET` of a registered route outside `/api/` fell
+  through to its handler with no session: `GET /media/{hash}?account=<id>` answered the stored
+  bytes and `GET /events?account=<id>` opened the account's event stream to anyone who could reach
+  the portal. Without a session the portal now serves the sign-in and setup ceremonies,
+  `/api/session`, the wallet's return page, `/oauth/callback`, the static shell and the SPA's views;
+  every other `GET` is sent to sign in, and a fetch under `/api/` or a mutation is refused `401`.
+- `POST /messages/send_media` acts on the account the query names, which account resolution checks
+  against the owner's memberships. It took the account from the multipart body first, which
+  resolution never reads, so a signed-in owner could send media as an account they do not
+  administer; the same id in the query was refused `404`.
+- `list_passkeys` and `remove_passkey` on the owner MCP refuse a token narrowed to one account
+  with `permission_denied`, as every account-scoped tool does; any valid token could list and
+  remove the owner's passkeys. `remove_passkey` of an id that names no passkey answers
+  `not_found`, where it returned the raw error.
+- `wait_for_updates` answers when a contact is parked at a new address (`pending_addresses`) or an
+  integration needs re-authorizing (`needs_attention`); the node woke the wait for both and the
+  wait parked again until its timeout.
+- An ingress pairing writes `subdomain`, the marker that makes the adapter selectable, as the last
+  of its rows. `ingress_fpr` was written after it, so a failure on that write left a selectable
+  adapter with no ingress pin; `unpair` now deletes `ingress_fpr` with the other rows.
+- `GET /oauth/callback`, served without a session, completes a flow only for a `state` the node
+  minted: it no longer takes an integration id from the query, no longer creates a connector
+  entry per id it is given (unbounded from an unauthenticated request), no longer writes a
+  result with a foreign state into an owner's pending flow, and audits the callback under the
+  integration's own account rather than an `account` named in the query.
+- `SPEC.md` §8.3 names the requests the portal serves without a session as the gate's
+  allow-list has them (`/api/session`, the wallet's return page, `/oauth/callback` and the SPA's
+  views among them); it said only the ceremonies, the shell and the health probe were served.
+- `SPEC.md` §5.4 and §12 said a pending-tier caller invoking a tool beyond its own is refused
+  `permission_denied`. The node answers `pending_approval` (`refusalCode`,
+  `TestThePendingTierIsRefusedPendingApproval`), as HDTP 1.0 amended by SEP-0003 requires; the
+  two lines say so.
+
+### Removed
+
+- `DashboardDeps.Setup` and `DashboardDeps.SignedIn`, set by the composition and read by nothing,
+  and `ownermcp.ErrNoCard`, returned by nothing.
 
 ## [0.1.0] — 2026-10-08
 

@@ -167,7 +167,7 @@ func HandlerWithAuth(st store.Store, setup *SetupTokens, authDeps *AuthDeps, mou
 	}
 	h := csrfMiddleware(accountMiddleware(st, mux, audit), audit)
 	if authDeps != nil {
-		h = authDeps.SessionMiddleware(h)
+		h = authDeps.SessionMiddleware(h, mux)
 	}
 	// Outermost, so it applies to error responses and redirects too — a 403 from
 	// the csrf check is still a page a browser renders.

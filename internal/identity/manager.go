@@ -40,7 +40,10 @@ const keyAAD = "accounts.key_sealed"
 // Manager creates and loads account identities: keypair generation, fingerprinting,
 // and private-key sealing through the node keyring.
 type Manager struct {
-	Store   store.Store
+	// Store holds the accounts and the leaf ledger.
+	Store store.Store
+	// Keyring seals and opens every private key this package stores (AAD "accounts.key_sealed" for
+	// the account row, "leaves.key_sealed" for a ledger row).
 	Keyring *core.Keyring
 
 	// beforeInstallWrites, when a test sets it, runs after an install has passed every check and
@@ -64,8 +67,12 @@ func ValidDisplayName(name string) error {
 	return nil
 }
 
-// CreateAccount makes the account row, generates its keypair, and binds the
-// fingerprint + sealed key in one flow (SPEC §3.2).
+// CreateAccount makes the account row, generates its keypair (AlgoP256 when algo is empty), seals
+// the private key under the node keyring and binds the fingerprint and the sealed key to the row
+// (SPEC §3.2), then grants every existing owner admin membership of it (GrantToAllOwners). A
+// display name with a control character is refused before any key is made (ValidDisplayName).
+// The account then has a key but no root and no leaf: it is served only after a wallet's leaf is
+// installed (InstallLeaf). The steps are separate store writes, not one transaction.
 func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, algo Algo) (store.Account, error) {
 	if err := ValidDisplayName(displayName); err != nil {
 		return store.Account{}, err
@@ -103,7 +110,10 @@ func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, a
 	return a, nil
 }
 
-// LoadKeypair unseals an account's private key.
+// LoadKeypair unseals the sealed private key of an account row (the accounts.key_sealed column,
+// bound to that column by its AAD) and parses it. A ciphertext from another column, or one sealed
+// under a master key this node no longer has, fails with "identity: unseal". The returned keypair
+// carries no Leaf or Root; ActiveLeafKeypairs attaches those.
 func (m *Manager) LoadKeypair(sealed []byte) (*Keypair, error) {
 	der, err := m.Keyring.Decrypt(sealed, []byte(keyAAD))
 	if err != nil {
@@ -112,10 +122,12 @@ func (m *Manager) LoadKeypair(sealed []byte) (*Keypair, error) {
 	return ParsePKCS8(der)
 }
 
-// SignCard builds and signs the account's card (SPEC §9.3): BuildCard is the
-// caller's job (card layout lives in contacts); this signs arbitrary card bytes
-// with the account identity key — ECDSA ASN.1 DER or pure Ed25519, matching the
-// envelope's pinned encodings.
+// SignCard signs cardText with the account's own key and returns the signature as unpadded
+// base64url (SPEC §9.3, HDTP §3). It builds nothing: the card's layout is the caller's job (it
+// lives in contacts). The signature is ECDSA over SHA-256 as ASN.1 DER or pure Ed25519, matching
+// the envelope's pinned encodings. An account whose key column is empty (an identity that arrived
+// in a data-only archive, or whose last leaf expired and its key was destroyed) is refused with an
+// error saying to install a leaf first; no key is made here.
 func (m *Manager) SignCard(ctx context.Context, accountID string, cardText string) (string, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {

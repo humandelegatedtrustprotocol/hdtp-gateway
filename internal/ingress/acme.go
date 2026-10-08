@@ -17,17 +17,23 @@ import (
 
 // ACMEOptions configures the issuer.
 type ACMEOptions struct {
+	// StorageDir is certmagic's file storage path (certificates and account keys).
+	// NewACME refuses an empty one.
 	StorageDir string
 	CA         string // directory URL; "" = certmagic's default (Let's Encrypt)
-	Email      string
+	// Email is the ACME account contact. Terms of service are always agreed.
+	Email string
 	// TrustedRoots for the CA's own HTTPS (test CAs like Pebble); nil = system.
 	TrustedRoots *x509.CertPool
 	// HTTP01Port: the port the HTTP-01 challenge listens on (80 in production;
 	// tests use a free port, which Pebble is told about).
 	HTTP01Port int
+	// ListenHost is the host (no port) the HTTP-01 challenge listener binds.
 	ListenHost string
 	// DNS is the libdns provider for DNS-01 (needed for wildcards); nil = off.
-	DNS         certmagic.DNSProvider
+	DNS certmagic.DNSProvider
+	// DNSResolver lists the resolvers certmagic uses to check DNS-01 propagation;
+	// it has effect only when DNS is set.
 	DNSResolver []string
 }
 
@@ -39,7 +45,11 @@ type ACME struct {
 	cache *certmagic.Cache
 }
 
-// NewACME builds the certmagic config and issuer.
+// NewACME builds the certmagic config and issuer. The TLS-ALPN challenge is disabled (the
+// public port carries the node's traffic), so a single name is proven by HTTP-01 on
+// HTTP01Port and a wildcard by DNS-01 when DNS is set. It refuses an empty StorageDir with an
+// error and contacts no CA: issuance happens in Manage. The cache is its own, not certmagic's
+// process-wide default. Close it when done.
 func NewACME(o ACMEOptions) (*ACME, error) {
 	if o.StorageDir == "" {
 		return nil, fmt.Errorf("ingress: acme needs a storage dir")
@@ -71,12 +81,15 @@ func NewACME(o ACMEOptions) (*ACME, error) {
 // Close stops the cache's maintenance goroutine.
 func (a *ACME) Close() { a.cache.Stop() }
 
-// Manage obtains (or loads) and keeps renewing certificates for names.
+// Manage obtains (or loads from storage) a certificate for each name, waiting for issuance
+// (certmagic's ManageSync), and keeps renewing them afterwards. It returns certmagic's error
+// if a name cannot be obtained.
 func (a *ACME) Manage(ctx context.Context, names ...string) error {
 	return a.cfg.ManageSync(ctx, names)
 }
 
-// TLSConfig serves the managed certificates per SNI.
+// TLSConfig returns a server config that serves the managed certificates per SNI, with
+// MinVersion TLS 1.2 and ALPN "http/1.1" offered first (no h2; the reason is below).
 func (a *ACME) TLSConfig() *tls.Config {
 	c := a.cfg.TLSConfig()
 	c.MinVersion = tls.VersionTLS12

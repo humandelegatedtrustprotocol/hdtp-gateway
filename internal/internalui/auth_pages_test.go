@@ -34,7 +34,9 @@ type portalEnv struct {
 	rows   []string
 }
 
-func newPortalEnv(t *testing.T) *portalEnv {
+// newPortalEnv composes the portal as production does (HandlerWithAuth with AuthDeps), with the
+// page mounts given, each handed the store.
+func newPortalEnv(t *testing.T, mounts ...func(*http.ServeMux, store.Store)) *portalEnv {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
@@ -68,8 +70,27 @@ func newPortalEnv(t *testing.T) *portalEnv {
 		},
 		SetupDone: func(r *http.Request) { e.setup.Consume(r.URL.Query().Get("token")) },
 	}
-	e.h = HandlerWithAuth(st, e.setup, deps)
+	var mount []func(*http.ServeMux)
+	for _, m := range mounts {
+		mount = append(mount, func(mux *http.ServeMux) { m(mux, st) })
+	}
+	e.h = HandlerWithAuth(st, e.setup, deps, mount...)
 	return e
+}
+
+// signIn creates an owner and mints a portal session for them, as a login does.
+func (e *portalEnv) signIn(t *testing.T, name string) (ownerID string, session *http.Cookie) {
+	t.Helper()
+	ctx := context.Background()
+	o, err := e.st.CreateOwnerWithID(ctx, "", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := auth.New(e.st).MintSession(ctx, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o.ID, &http.Cookie{Name: sessionCookieName(), Value: tok}
 }
 
 // do issues a request carrying the CSRF cookie/header pair and any session.

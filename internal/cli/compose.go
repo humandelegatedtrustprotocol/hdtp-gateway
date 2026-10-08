@@ -224,14 +224,8 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 		func(mux *http.ServeMux) {
 			internalui.MountDashboard(mux, internalui.DashboardDeps{
 				Store: st,
-				Setup: setup,
 				// The SAME reader Settings · identity renders, so the two cannot disagree about a leaf.
 				Certificate: identityDeps.Certificate,
-				// Only offer to sign out of a session that exists: a loopback
-				// portal serves with no login at all (SPEC §8.3).
-				SignedIn: func(r *http.Request) bool {
-					return internalui.OwnerFrom(r.Context()) != ""
-				},
 				Posture: func() internalui.DashboardPosture {
 					return internalui.DashboardPosture{
 						Mode: string(cfg.Mode), Seal: string(cfg.Seal),
@@ -396,8 +390,14 @@ func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 // no endpoint on its card until the owner sets one.
 type noTunnel struct{}
 
+// Start returns an empty tunnel.Info, so the node is handed no listener of its own.
 func (noTunnel) Start(context.Context) (tunnel.Info, error) { return tunnel.Info{}, nil }
-func (noTunnel) Stop() error                                { return nil }
+
+// Stop returns nil.
+func (noTunnel) Stop() error { return nil }
+
+// Status reports the adapter as `direct` and not running, with the detail that tells the owner to
+// set public_url in the portal.
 func (noTunnel) Status() tunnel.Status {
 	return tunnel.Status{Name: "direct", Running: false,
 		Detail: "no public_url configured yet — set one in the portal (Settings → Tunnel) so your card can carry an endpoint"}

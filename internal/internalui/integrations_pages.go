@@ -443,20 +443,22 @@ func (d IntegrationsDeps) getOAuthCallback(audit func(action string, resource st
 			http.Error(w, "no authorization is pending", http.StatusBadRequest)
 			return
 		}
-		// The provider sends back exactly the registered redirect URI plus
-		// code and state; the state is what names the waiting flow.
-		id := q.Get("integration")
-		if id == "" {
-			id, _ = d.Connector.IntegrationForState(q.Get("state"))
-		}
-		if id == "" {
+		// Served without a session (the provider's redirect arrives without the cookie), so the
+		// state the node minted is the whole authority: it names the pending flow, and a state
+		// that names none is refused with nothing created, written or audited.
+		id, ok := d.Connector.Deliver(auth.AuthorizationResult{
+			Code: q.Get("code"), State: q.Get("state"), Iss: q.Get("iss"),
+		})
+		if !ok {
 			http.Error(w, "no authorization is pending for this callback", http.StatusBadRequest)
 			return
 		}
-		d.Connector.Deliver(id, auth.AuthorizationResult{
-			Code: q.Get("code"), State: q.Get("state"), Iss: q.Get("iss"),
-		})
-		audit("integration_oauth_callback", withAccount(r, "integration:"+id), "ok")
+		// The row is the integration's account's, read from its row: a delivery for an integration
+		// whose row is gone names no account and writes none; the connect it completes audits
+		// its own outcome.
+		if in, err := d.Store.GetIntegrationByID(r.Context(), id); err == nil {
+			audit("integration_oauth_callback", "account:"+in.AccountID+" integration:"+id, "ok")
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Connected · hdtp-gateway</title>` + portalStyle + `</head><body><main>` + portalBrand + `<h1>Authorization received</h1><p>The node is finishing the connection. Go back to the portal tab — it updates on its own — and close this one.</p></main></body></html>`))
 	}
