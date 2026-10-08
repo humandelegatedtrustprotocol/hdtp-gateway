@@ -11,7 +11,7 @@ Callers are test files in `internal/cli` (17 files), `internal/contacts`, `inter
 `internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/node`,
 `internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
 `internal/storecheck`'s tests. No non-test file imports it. It is a leaf (rank 0 in
-`internal/integrationtest/layering_test.go`). Every function takes a `testing.TB`, not a
+`internal/integrationtest/layering_test.go`). Every function but `Host.Card` takes a `testing.TB`, not a
 `*testing.T`, so a fuzz target can build a real identity for its seed corpus
 (`internal/cli/offer_fuzz_test.go`).
 

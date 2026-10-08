@@ -111,7 +111,8 @@ type Rules struct {
 	// IdentityCapacityPerSecond is the capacity of the identity's aggregate across its contacts; the
 	// crate computes Advertised.IdentityCallsPerSecond for a contact cap from it.
 	IdentityCapacityPerSecond float64 `json:"identity_capacity_per_second"`
-	// GuestCallsPerHour is the quota of one guest root at one source (GuestIn).
+	// GuestCallsPerHour is the quota of one guest root (GuestIn with a root): per root and source
+	// when the transport gave a source address (addressed), per root alone when it did not.
 	GuestCallsPerHour float64 `json:"guest_calls_per_hour"`
 	// GuestSourceCallsPerHour is the quota of one source address alone, charged when the open proved
 	// no root (GuestIn with an empty root).
@@ -119,7 +120,7 @@ type Rules struct {
 	// StrangerCallsOutPerHour is the quota of calls out to anybody who is not an active contact
 	// (StrangerOut).
 	StrangerCallsOutPerHour float64 `json:"stranger_calls_out_per_hour"`
-	// IntegrationCallsPerHour is the quota the Integration charge spends.
+	// IntegrationCallsPerHour is the quota of one integration called by one contact (Integration).
 	IntegrationCallsPerHour float64 `json:"integration_calls_per_hour"`
 	// GuestTotalCallsPerHour is the quota of the identity's guest total (GuestTotal).
 	GuestTotalCallsPerHour float64 `json:"guest_total_calls_per_hour"`
@@ -131,16 +132,17 @@ type Rules struct {
 // for an identity allowed a number of contacts: the sidecar's rules, and the identity's aggregate as
 // the crate computes it, so this host holds no copy of that formula.
 type Advertised struct {
-	// ContactCallsPerSecond is Rules.ContactCallsPerSecond.
+	// ContactCallsPerSecond is the per-contact rate the card advertises.
 	ContactCallsPerSecond float64 `json:"contact_calls_per_second"`
-	// ContactBurst is Rules.ContactBurst.
+	// ContactBurst is the per-contact burst the card advertises.
 	ContactBurst float64 `json:"contact_burst"`
 	// IdentityCallsPerSecond is the identity's aggregate for the contact cap Advertise was asked
 	// about, computed by the crate.
 	IdentityCallsPerSecond float64 `json:"identity_calls_per_second"`
-	// GuestCallsPerHour is Rules.GuestCallsPerHour.
+	// GuestCallsPerHour is the per-guest hourly quota the card advertises.
 	GuestCallsPerHour float64 `json:"guest_calls_per_hour"`
-	// GuestSourceCallsPerHour is Rules.GuestSourceCallsPerHour.
+	// GuestSourceCallsPerHour is the per-source hourly quota the card advertises for callers that
+	// proved no root.
 	GuestSourceCallsPerHour float64 `json:"guest_source_calls_per_hour"`
 }
 
@@ -253,8 +255,7 @@ func (c *Client) Rules(ctx context.Context) (Rules, error) {
 	return c.Probe(ctx)
 }
 
-// Probe asks the sidecar for its rules, which is the one exchange that spends nothing and proves
-// the sidecar answers: /healthz, doctor and serve's banner make it (node.LimitsAnswer).
+// Probe asks the sidecar for its rules. It spends nothing and proves the sidecar answers: /healthz, doctor and serve's banner make it (node.LimitsAnswer).
 func (c *Client) Probe(ctx context.Context) (Rules, error) {
 	a, err := c.exchange(ctx, map[string]any{"op": "rules"})
 	if err != nil {

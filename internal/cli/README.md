@@ -16,7 +16,9 @@ audit chain), `internal/node` (the public surface), `internal/identity`, `intern
 `internal/ingress` (the ingress role), `internal/limits` (the call-budget client) and
 `internal/storecheck`.
 
-Two kinds of command exist:
+Two kinds of command act on a node, and three commands are neither (`version`, `healthcheck`,
+which asks the internal listener's `/healthz`, and `ingress serve`, which is the ingress role and
+opens no store):
 
 - Admin-socket clients, which act on a node that is running: `account`, `passkey`, `token`,
   `ingress token`. Each sends one named call over the unix socket under the data directory
@@ -43,6 +45,7 @@ Unexported, by file:
 
 | File | What it is |
 |---|---|
+| `doc.go` | the package comment |
 | `cli.go` | `Run`, the usage text, `commonFlags` (the `-config` flag every command shares), `loadConfig`, `openStore` |
 | `serve.go` | `serve`: the stages in order, the startup banner, the background group |
 | `serve_admin.go` | the admin socket's handlers: `ping`, `account.*`, `passkey.*`, `token.*` |
@@ -98,11 +101,11 @@ an unknown command and exits 2.
 | `token revoke` | `-id` | `revoked` | missing `-id` |
 | `audit verify` | | `audit chain verified: N events, intact`, plus archive counts | `chain BROKEN` with the row, or the unfinished-archive error: exit 1 |
 | `audit export` | | the chain as JSONL on stdout | |
-| `audit archive` | `-through SEQ` | `archived N events through seq S to PATH`, or `nothing to archive` | |
-| `audit repair` | | finishes an interrupted archive run | |
+| `audit archive` | `-through SEQ` | `archived N events through seq S to PATH`, or `audit: nothing to archive` | |
+| `audit repair` | | `audit: nothing to repair`, or `audit: repaired an interrupted archive; removed N row(s)` | |
 | `audit erase-archive` | `-file NAME` | `erased N row(s)` | no `-file`: exit 2; a name that is not in `<data_dir>/audit-archive`; an archive run not finished; the audit row not written: exit 1 |
 | `export` | `-slug`, `-out FILE` (both required) | the notice that the file is not encrypted, then `exported <slug> to <file>: counts`, what was left out, ceilings BatonDeck's import would refuse | an existing `-out` file (it is created `O_EXCL`, mode 0600); a file that does not read back through the importer's check is removed: exit 1 |
-| `import` | `FILE.zip` first, `-slug`, `-yes` | the review (always), then with `-yes` the counts and a request for a new leaf; without it `nothing was written` | missing file or `-slug`: exit 2; a file the core refuses: `nothing was written`, exit 1 |
+| `import` | `FILE.zip` first, `-slug`, `-yes` | the review (always), then with `-yes` the counts, and a `next:` text: a request for a new leaf, or, with no `public_url`, the commands to run once there is one; without it `nothing was written` | missing file or `-slug`: exit 2; a file the core refuses: `nothing was written`, exit 1 |
 | `check store` | `-config` | `store:` summary line, `NOT READ ...` and `NO PIN ...` lines | exit 1 on any refusal or unknown-state contact; a store that is not migrated is refused and `migrate` is named |
 | `__child` | internal | | the resource-cap shim for supervised stdio children (SPEC §6.2); not for operators |
 
@@ -110,14 +113,16 @@ Every `account`, `passkey` and `token` subcommand parses the same flag set, so `
 lists the flags of all eight `account` subcommands; each subcommand reads only its own. The same is
 true of `audit` (`-through`, `-file`).
 
-`serve`'s banner, in order, each line only when it applies: `hdtp-gateway serving: data=... internal=...
+`serve`'s banner, in order, each line only when it applies: `admin:` (the admin socket is served by
+another process on this data dir); `hdtp-gateway serving: data=... internal=...
 public=... mode=... tunnel=...`; `public:`; `tunnel:` detail; `limits:` (`... answering` or `NOT
 ANSWERING`); `NOT SERVED:` per account whose key cannot be opened; `awaiting a certificate, not
 served:` per account with no leaf (naming the `account csr` and `account install-leaf` commands,
 with the purpose `signup`, `renew` or `move` the account's history calls for); `address:` where an
 account's leaf names another address than the node advertises; the `store:` report of
 `internal/storecheck`; and, when no passkey is registered, `portal:` and `setup:` with the setup URL
-(valid until a passkey is registered, at most 24 hours).
+(valid until a passkey is registered, at most 24 hours), then the secure-context `note:` when the
+portal address is not https or loopback.
 
 ## What it refuses, and how
 
@@ -149,8 +154,10 @@ argument, an unknown subcommand (but see the last section: for `account`, `passk
   `ingressServe`, with the reason written out.
 - `serve`'s teardown runs in the reverse order of acquisition: background loops, integrations, node,
   tunnel, admin socket, store, lock.
-- Every command's flag set writes usage and parse errors to the stderr passed to `Run`, never to the
-  process's (`TestRunWritesUsageToTheWritersItIsGiven`).
+- Every flag set is pointed at the stderr passed to `Run` (`commonFlags`, and `SetOutput(stderr)` in
+  the ingress flag sets). `TestRunWritesUsageToTheWritersItIsGiven` holds it for `serve`, `doctor`,
+  `healthcheck`, `migrate`, `account create`, `passkey list`, `token create`, `audit verify`, `export`
+  and `import`; `check store`, `ingress serve` and `ingress token` are by reading.
 - The portal and the admin socket sign and install leaves through one `leafService`, so their audit
   rows, the live node's reload and the move campaign cannot differ.
 - The owner MCP is stateless: a bearer token is validated on every request, not once per session.

@@ -16,7 +16,7 @@ import (
 
 // Run dispatches os.Args-style arguments; version is the build-stamped version
 // string. It returns a process exit code. The commands' output, their usage and their flag parse
-// errors go to the stdout and stderr it is given (commonFlags points every flag set at stderr), not
+// errors go to the stdout and stderr it is given (commonFlags and the ingress flag sets point at stderr), not
 // to the process's; the hidden __child shim is not covered by that statement.
 //
 // The first argument names the command: version, serve, ingress, migrate, doctor, healthcheck,

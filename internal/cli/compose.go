@@ -396,10 +396,10 @@ func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 // no endpoint on its card until the owner sets one.
 type noTunnel struct{}
 
-// Start starts nothing and returns an empty tunnel.Info: no listener is handed to the node.
+// Start returns an empty tunnel.Info, so the node is handed no listener of its own.
 func (noTunnel) Start(context.Context) (tunnel.Info, error) { return tunnel.Info{}, nil }
 
-// Stop has nothing to stop and returns nil.
+// Stop returns nil.
 func (noTunnel) Stop() error { return nil }
 
 // Status reports the adapter as `direct` and not running, with the detail that tells the owner to

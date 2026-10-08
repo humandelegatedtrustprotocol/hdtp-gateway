@@ -39,8 +39,9 @@ error. The caller decides what that means: `check store` exits 1 when there is a
 
 ## Invariants
 
-- It writes nothing, to the store or elsewhere. `serve` does not audit it either: the banner says
-  nothing changed (`serve.go`).
+- It writes nothing, to the store or elsewhere. `serve` writes no audit row for it: a comment in
+  `announce` (`serve.go`) says that, like the rest of the banner, it writes none because nothing
+  changed, and the code calls no audit function there.
 - The readers are the node's own, one per field, so a row that passes here is one the core will read
   where it reads it.
 

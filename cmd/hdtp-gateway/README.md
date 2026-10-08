@@ -22,8 +22,10 @@ Nothing of its own: the exit status is `cli.Run`'s. See the exit statuses in the
 ## Invariants
 
 - `main` hands `cli.Run` the process's own stdout and stderr and nothing else; the usage a
-  subcommand's `-h` prints goes to the writers `Run` is given, not to the process's stderr
-  (`internal/cli` `TestRunWritesUsageToTheWritersItIsGiven`).
+  subcommand's `-h` prints goes to the writers `Run` is given. `TestRunWritesUsageToTheWritersItIsGiven`
+  holds that for `serve`, `doctor`, `healthcheck`, `migrate`, `account create`, `passkey list`,
+  `token create`, `audit verify`, `export` and `import`; for `check store` and `ingress` it is by
+  reading: their flag sets call `SetOutput(stderr)` too.
 
 ## Held by
 

@@ -25,7 +25,7 @@ Callers: `internal/node` builds charges (`chargeOf`, `outbound.go`) and calls `D
 - `Client.Advertise` returns the `Advertised` call budgets for an identity allowed a number of
   contacts, for `get_card`; it spends nothing.
 - `Client.Rules` returns the sidecar's `Rules`, read once and kept; `Client.Probe` reads them again
-  and refreshes the kept copy. It is the one exchange that spends nothing and proves the sidecar
+  and refreshes the kept copy. It spends nothing and proves the sidecar
   answers: `/healthz` and `serve`'s banner ask it through `node.LimitsAnswer`, `doctor` calls it directly.
 - `Decision`: `Allowed`, `RetryAfter`, `RefusedBy`, `Countable`.
 - `DefaultTimeout`, `Client.Timeout`, `Client.Path`.

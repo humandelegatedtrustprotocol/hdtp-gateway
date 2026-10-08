@@ -31,7 +31,7 @@ type Wallet struct {
 	CN string
 	// Key is the root's private key; it signs the leaves.
 	Key *hdtpidentity.PrivateKey
-	// RootDER is the root certificate, DER encoded.
+	// RootDER is the second certificate of every Chain this wallet issues.
 	RootDER []byte
 	// Fpr is the root fingerprint — the identity's name everywhere (HDTP §2).
 	Fpr string
@@ -63,7 +63,7 @@ type Host struct {
 	// Key is the host's own key, which the leaf certifies. It is nil on a Host made by IssueOver,
 	// whose caller holds the key.
 	Key *hdtpidentity.PrivateKey
-	// LeafDER is the leaf certificate, DER encoded.
+	// LeafDER is the first certificate of Chain and the one Card carries.
 	LeafDER []byte
 	Chain   [][]byte // leaf then root, as HDTP §14.2 requires
 	// Endpoint is the address the leaf names.
