@@ -78,15 +78,14 @@ the whole address book.
 
 ## Quickstart
 
-Five minutes from nothing to a working node. You need Docker with Compose, Go, Rust (cargo), and
-SSH read access to the hdtp-identity repository, which is **not public**: the node's Go module, the
-limits sidecar's `hdtp-limits` crate and the `hdtp` wallet CLI used below all come from it. Without
-that access the first command fails, and nothing here builds
+Five minutes from nothing to a working node. You need Docker with Compose, Rust (cargo, for the
+first command), and the `hdtp` wallet CLI used below, which is built from
+[hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity): the repository
+the node's Go module and the limits sidecar's `hdtp-limits` crate also come from
 (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)).
 
 ```
-make identity-proxy     # fetch the identity module on this machine, for the image build
-make limitd-vendor      # and the limits sidecar's crates, which include the identity's hdtp-limits
+make limitd-vendor      # the limits sidecar's crates, laid out for the image build
 docker compose up -d    # the node and its limits sidecar (SPEC §5.7)
 docker compose logs hdtp-gateway | grep -A2 "setup"
 ```
