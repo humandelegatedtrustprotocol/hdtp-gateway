@@ -211,10 +211,13 @@ func (s *Service) plainValues(ctx context.Context) (map[string]string, error) {
 // policy, and safely inside what a time.Duration can represent.
 const MaxRetentionDays = 36500
 
-// StorageKeyQuota and StorageKeyRetention are the dotted per-account keys.
-// `core.Config` has no account dimension, and dotted keys are ignored by
-// ApplyStoreSettings by design — the same seam adapter settings use.
-func StorageKeyQuota(accountID string) string     { return "storage.quota." + accountID }
+// StorageKeyQuota is the settings key of one account's storage quota in bytes
+// ("storage.quota.<accountID>"). `core.Config` has no account dimension, and dotted keys are
+// ignored by ApplyStoreSettings by design — the same seam adapter settings use.
+func StorageKeyQuota(accountID string) string { return "storage.quota." + accountID }
+
+// StorageKeyRetention is the settings key of one account's message-retention window in days
+// ("storage.retention.<accountID>"); see StorageKeyQuota for why it is dotted.
 func StorageKeyRetention(accountID string) string { return "storage.retention." + accountID }
 
 // ContactsKeyRequestExpiry is the per-account key for how long an unanswered request waits.

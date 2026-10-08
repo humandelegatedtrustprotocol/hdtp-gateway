@@ -26,8 +26,8 @@ var writeWords = []string{
 
 // Risk is the picker's advisory assessment of one tool.
 type Risk struct {
-	Write   bool     `json:"write"`
-	Reasons []string `json:"reasons,omitempty"`
+	Write   bool     `json:"write"`             // true when either signal flags the tool write-capable
+	Reasons []string `json:"reasons,omitempty"` // one line per signal that fired
 }
 
 // AssessRisk flags a tool write-capable by either signal (SPEC §6.9):

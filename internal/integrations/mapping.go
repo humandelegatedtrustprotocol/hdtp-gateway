@@ -15,11 +15,11 @@ import (
 // Recipe is one per-server map (SPEC §6.7): which upstream tools implement
 // which HDTP capabilities, and how fields line up.
 type Recipe struct {
-	Name         string             `json:"name"`
-	Server       string             `json:"server"`
-	Description  string             `json:"description"`
-	Caveats      []string           `json:"caveats,omitempty"`
-	Capabilities map[string]Binding `json:"capabilities"`
+	Name         string             `json:"name"`              // the key ExposureEntry.Recipe refers to
+	Server       string             `json:"server"`            // the upstream the recipe was written for
+	Description  string             `json:"description"`       // prose for the owner
+	Caveats      []string           `json:"caveats,omitempty"` // known gaps, shown to the owner
+	Capabilities map[string]Binding `json:"capabilities"`      // HDTP capability name -> binding
 }
 
 // Binding maps one HDTP capability onto one upstream tool.

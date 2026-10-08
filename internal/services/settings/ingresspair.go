@@ -95,11 +95,11 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 	// The subdomain is not echoed back; derive it from the name the ingress
 	// assigned, so what we store is what it will actually route.
 	subdomain := strings.TrimSuffix(res.PublicName, "."+res.Domain)
-	// `subdomain` is written LAST and deliberately: it is the marker
-	// `pairedAdapters` reads, so a write that fails partway leaves the pairing
-	// incomplete AND not-yet-selectable, rather than half-configured and
-	// advertised as ready. There is no cross-row transaction here, so ordering
-	// is what carries the invariant.
+	// `subdomain` is written after the other adapter rows but before `ingress_fpr`. It is the
+	// marker `pairedAdapters` reads, so a write that fails on any row before it leaves the pairing
+	// not-yet-selectable. A failure on the `ingress_fpr` row, the last, leaves `subdomain` stored:
+	// the adapter then reads as paired while its ingress fingerprint, the pin PinnedIngress returns,
+	// is missing. There is no cross-row transaction here; ordering is all the guard there is.
 	ordered := []struct{ k, v string }{
 		{"domain", res.Domain},
 		{"data_plane_addr", res.DataPlaneAddr},

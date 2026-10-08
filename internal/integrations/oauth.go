@@ -141,6 +141,9 @@ func (p *persistingSource) stored() (*oauth2.Token, error) {
 	return blob.Token, nil
 }
 
+// Token serves the stored token if it is valid (or cannot be refreshed because
+// there is no config); otherwise it refreshes it under the integration's lease,
+// or waits up to RefreshWait for the process that holds the lease to seal one.
 func (p *persistingSource) Token() (*oauth2.Token, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -208,7 +211,9 @@ func resumable(s OAuthSetup, integrationID string) (*storedOAuth, error) {
 
 // OAuthSetup is what NewOAuthHandler needs beyond the integration row.
 type OAuthSetup struct {
-	Store   store.IntegrationStore
+	// Store holds the sealed token blob (SetIntegrationSecret).
+	Store store.IntegrationStore
+	// Keyring seals and opens that blob, bound to the integration id as AAD.
 	Keyring Sealer
 	// Leases hands an expired token's refresh to one node process on the store at a time
 	// (persistingSource); nil refreshes without asking, which is right for one process alone.
@@ -307,9 +312,9 @@ func NewOAuthHandler(integrationID string, s OAuthSetup) (auth.OAuthHandler, err
 // AS URL, the portal redirects the owner there, and the callback route delivers
 // the result. Buffered so neither side can wedge the other.
 type ConnectFlow struct {
-	URL    chan string
-	Result chan auth.AuthorizationResult
-	Err    chan error
+	URL    chan string                   // the authorization URL for the owner's browser
+	Result chan auth.AuthorizationResult // the callback's code, state and iss
+	Err    chan error                    // a reason the flow will produce no URL (Connector.Fail)
 }
 
 // Connector tracks in-flight portal Connect flows by integration id.
@@ -654,6 +659,8 @@ type registrationCapture struct {
 	onRegistered func(clientID, clientSecret string)
 }
 
+// RoundTrip passes the request through and, for a POST answered 201, reads up to
+// 1 MiB of the body to look for a client_id before handing the body back intact.
 func (rc *registrationCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 	res, err := rc.next.RoundTrip(req)
 	if err != nil || req.Method != http.MethodPost || res.StatusCode != http.StatusCreated {

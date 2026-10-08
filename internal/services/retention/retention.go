@@ -31,7 +31,20 @@ type Windows interface {
 	StorageFor(ctx context.Context, accountID string) (quota int64, retention time.Duration)
 }
 
+// ChangeLogKept is how long a change-log row is kept (seven days). The change log wakes waiters
+// (SPEC §7.8); a cursor older than the log is answered as such by wait_for_updates.
+const ChangeLogKept = 7 * 24 * time.Hour
+
 // Run applies retention every SweepInterval, once at startup first.
+//
+// A pass, on the process that leads (leading nil means always; SPEC §11.1), runs in this order:
+// retireLeaves and archiveTrail when non-nil; then, store-wide, the records whose own window
+// has closed (idempotency records, owner sessions, change-log rows older than ChangeLogKept);
+// then, per account, requests nobody answered within settings.RequestExpiryFor
+// (each audited as contact_expire, and passed to invalidate); then, only when the account's
+// retention window is positive, the message sweep (messaging.Sweeper). A zero window deletes no
+// message. A failed step is printed to stderr as "retention: ..." unless ctx has ended, and the
+// pass goes on to the next step; a failed account listing ends the pass silently.
 //
 // The same tick retires expired leaves (`retireLeaves`, the node's own pass): a leaf's key is
 // destroyed when the leaf runs out, and "when" has to mean within the hour on a node that is up,
@@ -44,9 +57,6 @@ type Windows interface {
 // It BLOCKS until ctx ends, and it never returns while a pass is running. `serve` runs it in its
 // background group and waits for that group before returning, so the store is not closed under a
 // pass. It used to start a goroutine of its own and return at once, and nothing ever waited for it.
-// ChangeLogKept is how long a change-log row is kept.
-const ChangeLogKept = 7 * 24 * time.Hour
-
 func Run(ctx context.Context, settings Windows, st store.Store,
 	cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer, retireLeaves func(context.Context),
 	archiveTrail func(context.Context), invalidate func(ctx context.Context, accountID, fpr string) error,
