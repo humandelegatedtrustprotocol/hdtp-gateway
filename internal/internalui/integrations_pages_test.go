@@ -22,6 +22,13 @@ import (
 
 func integrationsEnv(t *testing.T) (*http.ServeMux, store.Store, *integrations.Connector, string) {
 	t.Helper()
+	mux, st, conn, acct, _ := integrationsEnvAudited(t)
+	return mux, st, conn, acct
+}
+
+// integrationsEnvAudited is integrationsEnv with the rows the pages audit.
+func integrationsEnvAudited(t *testing.T) (*http.ServeMux, store.Store, *integrations.Connector, string, *[]string) {
+	t.Helper()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "ip.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -34,11 +41,13 @@ func integrationsEnv(t *testing.T) (*http.ServeMux, store.Store, *integrations.C
 	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
 	conn := &integrations.Connector{}
 	mux := http.NewServeMux()
+	var rows []string
 	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t),
 		Store: st, Manager: &integrations.Manager{Store: st}, Connector: conn,
 		ConnectTimeout: 2 * time.Second,
+		Audit:          func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) },
 	})
-	return mux, st, conn, a.ID
+	return mux, st, conn, a.ID, &rows
 }
 
 func TestIntegrationCreateListAndConnectRedirect(t *testing.T) {
@@ -71,7 +80,7 @@ func TestIntegrationCreateListAndConnectRedirect(t *testing.T) {
 	// a pending OAuth flow publishes its AS URL; /authorize bounces there
 	fetchDone := make(chan *sdkauth.AuthorizationResult, 1)
 	go func() {
-		res, _ := conn.Fetcher(in.ID)(ctx, &sdkauth.AuthorizationArgs{URL: "https://as.example/authorize?x=1"})
+		res, _ := conn.Fetcher(in.ID)(ctx, &sdkauth.AuthorizationArgs{URL: "https://as.example/authorize?x=1&state=s1"})
 		fetchDone <- res
 	}()
 	deadline := time.Now().Add(2 * time.Second)
@@ -84,13 +93,13 @@ func TestIntegrationCreateListAndConnectRedirect(t *testing.T) {
 			break
 		}
 	}
-	if loc != "https://as.example/authorize?x=1" {
+	if loc != "https://as.example/authorize?x=1&state=s1" {
 		t.Fatalf("authorize redirect: %q", loc)
 	}
 	// the AS calls back; the waiting fetcher receives code/state/iss verbatim
 	rr4 := httptest.NewRecorder()
 	mux.ServeHTTP(rr4, httptest.NewRequest("GET",
-		"/oauth/callback?integration="+in.ID+"&code=c1&state=s1&iss=https%3A%2F%2Fas.example", nil))
+		"/oauth/callback?code=c1&state=s1&iss=https%3A%2F%2Fas.example", nil))
 	if rr4.Code != 200 {
 		t.Fatalf("callback: %d", rr4.Code)
 	}
@@ -406,11 +415,14 @@ func TestConnectAnswersTheAuthorizeURLAsJSON(t *testing.T) {
 	}
 }
 
-// The provider calls back with the registered redirect URI verbatim plus code
-// and state — never with our integration id. The callback used to demand
-// `integration=` and answered a real provider with 400 "missing integration".
-func TestCallbackFindsTheFlowByState(t *testing.T) {
-	mux, st, conn, acct := integrationsEnv(t)
+// The provider calls back with the registered redirect URI verbatim plus code and state — never
+// with our integration id. The callback used to demand `integration=` and answered a real provider
+// with 400 "missing integration"; then it took `integration=` when given, which the route serves
+// with no session: a GET naming any id made the connector a flow entry for it, one naming a
+// pending integration with a foreign state ended the owner's pending connect, and the row it
+// wrote took its account from the query. The state the node minted is the whole authority.
+func TestCallbackFindsTheFlowByStateAlone(t *testing.T) {
+	mux, st, conn, acct, rows := integrationsEnvAudited(t)
 	ctx := context.Background()
 	if rr := postForm(t, mux, "/integrations/create?account="+acct, url.Values{
 		"slug": {"gcal"}, "transport": {"streamable-http"},
@@ -424,17 +436,37 @@ func TestCallbackFindsTheFlowByState(t *testing.T) {
 		res, _ := conn.Fetcher(in.ID)(ctx, &sdkauth.AuthorizationArgs{URL: "https://as.example/authorize?client_id=c&state=S7&redirect_uri=http%3A%2F%2Flocalhost%3A18120%2Foauth%2Fcallback"})
 		got <- res
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok := conn.IntegrationForState("S7"); ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The fetcher publishes its URL once the state is remembered.
+	if _, err := conn.AuthorizeURL(ctx, in.ID, 5*time.Second); err != nil {
+		t.Fatal(err)
 	}
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/oauth/callback?code=c9&state=S7", nil))
-	if rr.Code != 200 {
-		t.Fatalf("callback without integration id: %d %s", rr.Code, rr.Body.String())
+	*rows = nil
+	callback := func(query string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/oauth/callback?"+query, nil))
+		return rr
+	}
+
+	// A state the node did not mint names nothing: refused, no row, and the pending flow is not
+	// touched — naming the pending integration, or any other id, changes none of that.
+	for _, query := range []string{"code=x&state=NOPE", "integration=" + in.ID + "&code=x&state=NOPE",
+		"integration=ghost&code=x&state=NOPE&account=" + acct, "code=x"} {
+		if rr := callback(query); rr.Code != http.StatusBadRequest {
+			t.Errorf("callback ?%s: %d, want 400", query, rr.Code)
+		}
+	}
+	if len(*rows) != 0 {
+		t.Errorf("a callback for a state the node did not mint was audited: %v", *rows)
+	}
+	select {
+	case res := <-got:
+		t.Fatalf("a foreign state ended the owner's pending connect: %+v", res)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// The control: the state the flow was minted with completes it, once, under its own account.
+	if rr := callback("code=c9&state=S7"); rr.Code != 200 {
+		t.Fatalf("callback with the minted state: %d %s", rr.Code, rr.Body.String())
 	}
 	select {
 	case res := <-got:
@@ -444,14 +476,11 @@ func TestCallbackFindsTheFlowByState(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the waiting fetcher never received the code")
 	}
-	if _, ok := conn.IntegrationForState("S7"); ok {
-		t.Fatal("a delivered state is still pending")
+	if want := "integration_oauth_callback account:" + acct + " integration:" + in.ID + " ok"; len(*rows) != 1 || (*rows)[0] != want {
+		t.Errorf("rows %v, want [%s]", *rows, want)
 	}
-	// an unknown state names nothing: refused, nothing delivered
-	rr = httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/oauth/callback?code=x&state=NOPE", nil))
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("unknown state accepted: %d", rr.Code)
+	if rr := callback("code=c9&state=S7"); rr.Code != http.StatusBadRequest {
+		t.Fatalf("a delivered state was accepted again: %d", rr.Code)
 	}
 }
 

@@ -30,6 +30,8 @@ func TestTheSessionGateIsAnAllowList(t *testing.T) {
 	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
 		MountMediaPages(mux, MediaDeps{Store: st, Blobs: blobs})
 		MountInboxPages(mux, InboxDeps{Store: st, Bus: messaging.NewBus(st)})
+		MountWalletPages(mux, WalletDeps{Store: st})
+		MountIntegrationPages(mux, IntegrationsDeps{Store: st, Background: joined(t)})
 		mux.HandleFunc("GET /probe", func(w http.ResponseWriter, r *http.Request) {
 			reached = append(reached, r.URL.Path)
 		})
@@ -101,6 +103,20 @@ func TestTheSessionGateIsAnAllowList(t *testing.T) {
 		if hasAuditRow(e.rows, "portal_request") {
 			t.Errorf("GET %s, a view, was audited as refused: %v", path, e.rows)
 		}
+	}
+
+	// The two pages a browser arrives at from another site reach their handlers without a session
+	// and without a refusal row: the wallet's return page renders, and the OAuth callback answers
+	// its own refusal of a state nothing is pending for.
+	e.rows = nil
+	if rec := get("/wallet/return"); rec.Code != http.StatusOK {
+		t.Errorf("GET /wallet/return with no session: %d", rec.Code)
+	}
+	if rec := get("/oauth/callback?code=x&state=NOPE"); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "no authorization is pending") {
+		t.Errorf("GET /oauth/callback with no session: %d %q", rec.Code, rec.Body.String())
+	}
+	if hasAuditRow(e.rows, "portal_request") {
+		t.Errorf("an open page was audited as refused: %v", e.rows)
 	}
 
 	// The control: with the session, the same routes answer.
