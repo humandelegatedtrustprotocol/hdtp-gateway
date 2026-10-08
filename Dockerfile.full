@@ -9,7 +9,7 @@
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7), a static binary beside the node's. Its crates are
 # `make limitd-vendor`'s, received as the named context `limitdvendor` (the Makefile's
 # --build-context, compose.yaml's additional_contexts), so this build fetches nothing and holds no
-# credential: hdtp-identity's hdtp-limits crate is private. Alpine's Rust links against musl, so the
+# credential. Alpine's Rust links against musl, so the
 # binary is static and runs on distroless's static base.
 FROM rust:1.92-alpine AS limitd
 COPY --from=limitdvendor . /vendor

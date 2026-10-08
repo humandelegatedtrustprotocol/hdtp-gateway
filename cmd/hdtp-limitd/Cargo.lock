@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "hdtp-limits"
 version = "0.5.0"
-source = "git+ssh://git@github.com/humandelegatedtrustprotocol/hdtp-identity.git?tag=v0.5.0#6bf9b7782dd9b15c275c2ec9df3db3ee0ba0a8b6"
+source = "git+https://github.com/humandelegatedtrustprotocol/hdtp-identity.git?tag=v0.5.0#44fbfed9ba2b9b96bf18f0226d89300e2af6b351"
 
 [[package]]
 name = "indexmap"
