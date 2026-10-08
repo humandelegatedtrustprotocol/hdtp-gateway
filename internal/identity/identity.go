@@ -1,7 +1,3 @@
-// Package identity holds what this host has of an account's identity (SPEC §3, HDTP §2): the
-// account's keypair — P-256 default, Ed25519 permitted — and, once a wallet has certified it,
-// the leaf and the root above it. The identity is the root, whose key this node never holds;
-// the key here presents the chain as its TLS certificate and signs sealed envelopes.
 package identity
 
 import (
@@ -20,13 +16,20 @@ import (
 	"time"
 )
 
+// Algo names a key algorithm. Only AlgoP256 and AlgoEd25519 are accepted: Generate refuses any
+// other value, and ParsePKCS8 refuses a key of another type.
 type Algo string
 
+// The two algorithms HDTP permits for an identity's keys. The values equal the identity library's
+// algorithm names (AlgP256, AlgEd25519), and are what the accounts table stores in its algo column.
 const (
 	AlgoP256    Algo = "p256"
 	AlgoEd25519 Algo = "ed25519"
 )
 
+// Keypair is an unsealed private key in memory: the signer, its algorithm, and the fingerprint of
+// its public key. It is never written out as it is; at rest it exists only as PKCS#8 sealed under
+// the node keyring (Manager.LoadKeypair, the leaf ledger's key_sealed column).
 type Keypair struct {
 	Algo        Algo
 	Signer      crypto.Signer

@@ -104,7 +104,9 @@ func FromLib(k *hdtpidentity.PrivateKey) (*Keypair, error) {
 	return &Keypair{Algo: algo, Signer: signer, Fingerprint: hdtpidentity.Fingerprint(k.Public().SPKI)}, nil
 }
 
-// EndpointFor is the one address an account answers at (SPEC §5.2, HDTP §14.1).
+// EndpointFor is the one address an account answers at (SPEC §5.2, HDTP §14.1):
+// publicURL with trailing slashes removed, then "/a/<slug>/mcp". It is "" when publicURL is empty,
+// which IssueCSR then refuses.
 func EndpointFor(publicURL, slug string) string {
 	if publicURL == "" {
 		return ""
@@ -119,13 +121,20 @@ func EndpointFor(publicURL, slug string) string {
 // on every sealed call. That is the inbound path only: a call this host makes still converts its
 // keypair at every call (ToLib, from outbound/seal.go).
 type LeafKey struct {
-	Kid      string
-	Leaf     []byte
-	KP       *Keypair
-	PKCS8    []byte
-	Lib      *hdtpidentity.PrivateKey
-	Current  bool
+	// Kid is the key's fingerprint, the leaf's identifier in the ledger.
+	Kid string
+	// Leaf is the leaf certificate, DER.
+	Leaf []byte
+	KP   *Keypair
+	// PKCS8 is the unsealed private key, DER: key material, held in memory only.
+	PKCS8 []byte
+	Lib   *hdtpidentity.PrivateKey
+	// Current is true for the leaf the identity is served under, false for a superseded one still
+	// inside its notAfter.
+	Current bool
+	// NotAfter is when the leaf stops being served and its key is due for destruction.
 	NotAfter time.Time
+	// Endpoint is the address the leaf names.
 	Endpoint string
 }
 
@@ -331,7 +340,7 @@ func (m *Manager) FormerKids(ctx context.Context, accountID string, now time.Tim
 	return out, nil
 }
 
-// Chain is [current leaf, root], or nil for an account the wallet has not issued a leaf to yet.
+// Chain is [current leaf, root] as DER, or nil for an account the wallet has not issued a leaf to yet.
 func (m *Manager) Chain(ctx context.Context, accountID string) ([][]byte, error) {
 	a, err := m.Store.GetAccountByID(ctx, accountID)
 	if err != nil {
@@ -359,11 +368,15 @@ var ErrNoCertificate = errors.New("identity: no current certificate")
 
 // CSRResult is what the host hands the wallet.
 type CSRResult struct {
-	CSR               []byte // PKCS #10 DER
-	Purpose           string
-	Endpoint          string
-	Kid               string // fingerprint of the key the request carries
+	CSR      []byte // PKCS #10 DER
+	Purpose  string
+	Endpoint string
+	Kid      string // fingerprint of the key the request carries
+	// SuggestedNotAfter is a year after the request (365 days): what the wallet is asked for; the
+	// wallet chooses the lifetime and the installed leaf's own notAfter governs.
 	SuggestedNotAfter time.Time
+	// PreviousNotBefore is the current leaf's notBefore, nil when there is none; a wallet uses it
+	// to issue a leaf newer than the one it replaces (HDTP §14.3).
 	PreviousNotBefore *time.Time
 	// State is the random value a web wallet's answer must carry back (HDTP §9.1): 32 bytes,
 	// base64url, 43 characters. The host keeps only its SHA-256; an answer is
@@ -533,12 +546,16 @@ type InstallResult struct {
 	OldNotAfter time.Time
 	// Moved says this leaf put the identity at an address its contacts do not know yet, so they
 	// are owed `update_contact` from it (HDTP §5.3, §9). See InstallLeaf for how it is decided.
-	Moved        bool
-	KeyChanged   bool
+	Moved bool
+	// KeyChanged says the key now current differs from the one the account named before: a renewal
+	// or move over a fresh key, or a first leaf over a key other than the account's.
+	KeyChanged bool
+	// FirstInstall says the account had no root before this install, so this leaf named it.
 	FirstInstall bool
-	Endpoint     string
-	NotBefore    time.Time
-	NotAfter     time.Time
+	// Endpoint, NotBefore and NotAfter are the installed leaf's address and validity window.
+	Endpoint  string
+	NotBefore time.Time
+	NotAfter  time.Time
 	// Retired names every superseded leaf whose key this node could not open, and which was
 	// therefore made `former` — key destroyed, kid kept — instead of being kept to serve.
 	// Empty on an ordinary renewal. Not empty after the master key was lost: see InstallLeaf.

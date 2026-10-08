@@ -30,7 +30,8 @@ import (
 // MembershipRoleAdmin is v1's only role (SPEC §3.3).
 const MembershipRoleAdmin = "admin"
 
-// GrantToAllOwners gives every existing owner admin membership of one account.
+// GrantToAllOwners gives every existing owner admin membership (MembershipRoleAdmin) of one
+// account. CreateAccount calls it so an account made after the owner exists is visible to them.
 func GrantToAllOwners(ctx context.Context, st store.Store, accountID string) error {
 	owners, err := st.ListOwners(ctx)
 	if err != nil {
