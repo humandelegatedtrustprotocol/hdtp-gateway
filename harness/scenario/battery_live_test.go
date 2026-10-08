@@ -148,9 +148,7 @@ func battery(ctx context.Context, t *testing.T, env map[string]string) ([]testEv
 
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-json", "-timeout", "15m", "./")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(ws, "go.work"),
-		"GOPRIVATE=github.com/humandelegatedtrustprotocol/*", "GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf", "GIT_CONFIG_VALUE_0=https://github.com/")
+	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(ws, "go.work"))
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

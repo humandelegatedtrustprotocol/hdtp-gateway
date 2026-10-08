@@ -4,8 +4,7 @@
 # which a first run has not got. The container healthcheck exercises the portal,
 # over TLS when internal TLS is configured.
 # The node's limits sidecar runs beside it (`limitd`, SPEC §5.7): until it answers, the node refuses
-# every sealed call. `make identity-proxy limitd-vendor` first: the build reads the private
-# identity module and the sidecar's crates from them.
+# every sealed call. `make limitd-vendor` first: the build reads the sidecar's crates from it.
 # Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
 services:
   # Named volumes are created root-owned and ownership propagation from the image
@@ -20,12 +19,10 @@ services:
     restart: "no"
 
   hdtp-gateway:
-    # `make identity-proxy limitd-vendor` first: the build reads the private identity module and
-    # the sidecar's crates from them (Dockerfile).
+    # `make limitd-vendor` first: the build reads the sidecar's crates from it (Dockerfile).
     build:
       context: .
       additional_contexts:
-        identityproxy: ./.build/identity-proxy
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
     depends_on:
@@ -49,7 +46,6 @@ services:
     build:
       context: .
       additional_contexts:
-        identityproxy: ./.build/identity-proxy
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
     entrypoint: ["/hdtp-limitd"]
@@ -74,7 +70,9 @@ services:
   # guard is untouched: it still refuses to bind anywhere but loopback, and the
   # portal is still reachable only from this machine.
   portal:
-    image: alpine/socat:latest
+    # Pinned by digest, the tag kept for the reader: `alpine/socat:latest` as resolved on 2026-10-08
+    # (the multi-platform index; its images were built 2026-10-03).
+    image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
     restart: unless-stopped
     network_mode: "service:hdtp-gateway"
     depends_on:
@@ -95,7 +93,9 @@ services:
 
   cloudflared:
     profiles: ["cloudflared"]
-    image: cloudflare/cloudflared:latest
+    # Pinned by digest, the tag kept for the reader: `cloudflare/cloudflared:latest` as resolved on
+    # 2026-10-08 (the multi-platform manifest list; its images were built 2026-10-05).
+    image: cloudflare/cloudflared:latest@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:

@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-proxy identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names notices notices-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -100,9 +100,7 @@ build:
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 # dist builds every platform and writes SHA256SUMS. A release is cut locally from
-# this exact target (RELEASING.md), so what ships is what anyone with read access to
-# this repository and the identity module can rebuild. It fetches nothing private
-# itself: set GOPRIVATE and the SSH insteadOf first (CONTRIBUTING.md).
+# this exact target (RELEASING.md), so what ships is what anyone can rebuild from the tag.
 dist:
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
@@ -141,7 +139,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names frp-check dependents limitd-check test test-js
+check: fmt vet names notices-check frp-check dependents limitd-check test test-js
 
 # The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
 # (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
@@ -167,6 +165,17 @@ names:
 		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
 	fi
 
+# notices writes THIRD_PARTY_NOTICES: the licence texts of every Go module the shipped binary
+# links, every crate the limits sidecar builds and every npm package the portal bundles, as their
+# own sources hold them (scripts/notices.mjs says how each set is read). notices-check holds the
+# file to the three inputs its header names (go.sum, Cargo.lock, package-lock.json) by hash: it
+# reads four files and nothing else, so it is part of `check`. A dependency change that forgets
+# `make notices` fails there.
+notices:
+	node scripts/notices.mjs
+notices-check:
+	node scripts/notices.mjs --check
+
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is fetched over
 # https (hdtp-identity is public since 2026-10-08), by the system git, locally only; the image
@@ -190,8 +199,8 @@ limitd-check:
 	cargo clippy --release --locked --all-targets --manifest-path $(LIMITD)/Cargo.toml -- -D warnings
 	cargo test --release --locked --manifest-path $(LIMITD)/Cargo.toml
 
-# The sidecar's crates laid out for an offline build ($(LIMITD_VENDOR), gitignored and dockerignored
-# like the identity proxy), which the image builds read as the named context `limitdvendor`.
+# The sidecar's crates laid out for an offline build ($(LIMITD_VENDOR), gitignored and dockerignored),
+# which the image builds read as the named context `limitdvendor`.
 limitd-vendor:
 	rm -rf $(LIMITD_VENDOR) && mkdir -p $(LIMITD_VENDOR)
 	cargo vendor --locked --manifest-path $(LIMITD)/Cargo.toml $(LIMITD_VENDOR)/crates > $(LIMITD_VENDOR)/config.toml
@@ -312,30 +321,10 @@ harness: limitd
 	cd harness && go vet ./... && go test -race ./...
 
 # ---- the identity module ---------------------------------------------------
-# The node requires github.com/humandelegatedtrustprotocol/hdtp-identity/go BY VERSION (go.mod, no replace). The
-# repository is private and fetched over SSH, locally only: GOPRIVATE keeps it off the public
-# proxy and checksum database, and the insteadOf, set for the one process through GIT_CONFIG_*
-# (never in anybody's git config), makes the go command's git use SSH instead of HTTPS.
-# GOWORK=off: these targets are about the version go.mod names, not a workspace's checkout.
+# The node requires github.com/humandelegatedtrustprotocol/hdtp-identity/go BY VERSION (go.mod, no replace),
+# through the public module proxy and checksum database like every other dependency.
+# GOWORK=off: this target is about the version go.mod names, not a workspace's checkout.
 IDENTITY_MODULE := github.com/humandelegatedtrustprotocol/hdtp-identity/go
-PRIVATE_FETCH := GOWORK=off GOPRIVATE='github.com/humandelegatedtrustprotocol/*' GIT_CONFIG_COUNT=1 \
-	GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
-IDENTITY_PROXY := .build/identity-proxy
-
-# identity-proxy fetches the version go.mod requires on the host and lays it out as a Go module
-# proxy in $(IDENTITY_PROXY) (gitignored and dockerignored), which the image builds read as the
-# named context `identityproxy`: the image builds with no credential inside Docker.
-identity-proxy:
-	@set -e; \
-	v=$$($(PRIVATE_FETCH) go list -m -f '{{.Version}}' $(IDENTITY_MODULE)); \
-	test -n "$$v" || { echo "identity-proxy: go.mod requires no version of $(IDENTITY_MODULE)"; exit 1; }; \
-	$(PRIVATE_FETCH) go mod download $(IDENTITY_MODULE)@$$v; \
-	src="$$(go env GOMODCACHE)/cache/download/$(IDENTITY_MODULE)/@v"; \
-	dst="$(IDENTITY_PROXY)/$(IDENTITY_MODULE)/@v"; \
-	rm -rf "$(IDENTITY_PROXY)"; mkdir -p "$$dst"; \
-	cp "$$src/$$v.info" "$$src/$$v.mod" "$$src/$$v.zip" "$$dst/"; \
-	echo "$$v" > "$$dst/list"; \
-	echo "identity-proxy: $(IDENTITY_MODULE)@$$v in $(IDENTITY_PROXY)"
 
 # identity-bump moves the node and the harness to another release of the identity module and
 # runs the gate on the result: `make identity-bump VERSION=0.3.0` (or v0.3.0). The Go tag is
@@ -343,13 +332,13 @@ identity-proxy:
 identity-bump:
 	@test "$(origin VERSION)" = "command line" || { echo "usage: make identity-bump VERSION=x.y.z"; exit 1; }
 	@set -e; v=v$(patsubst v%,%,$(VERSION)); \
-	$(PRIVATE_FETCH) go get $(IDENTITY_MODULE)@$$v; \
-	$(PRIVATE_FETCH) go mod tidy; \
+	GOWORK=off go get $(IDENTITY_MODULE)@$$v; \
+	GOWORK=off go mod tidy; \
 	cd harness; \
-	$(PRIVATE_FETCH) go get $(IDENTITY_MODULE)@$$v; \
-	$(PRIVATE_FETCH) go mod tidy; \
+	GOWORK=off go get $(IDENTITY_MODULE)@$$v; \
+	GOWORK=off go mod tidy; \
 	echo "identity-bump: node and harness require $(IDENTITY_MODULE) $$v"
-	$(PRIVATE_FETCH) $(MAKE) check
+	GOWORK=off $(MAKE) check
 
 # The node image the harness stands topologies up from: the shipped artifact,
 # built from the repo's own Dockerfile. HARNESS_IMAGE is its tag, exported to the harness as
@@ -358,8 +347,8 @@ identity-bump:
 # the other built last.
 HARNESS_IMAGE ?= hdtp-gateway:harness
 export HDTP_HARNESS_IMAGE := $(HARNESS_IMAGE)
-harness-image: identity-proxy limitd-vendor
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -t $(HARNESS_IMAGE) .
+harness-image: limitd-vendor
+	docker build --build-context limitdvendor=$(LIMITD_VENDOR) -t $(HARNESS_IMAGE) .
 
 # The live batteries that are DATA in the sibling repositories, run against a node by the nightly
 # tier: hdtp-identity's intrusion battery through its `hdtp` CLI (S18), the cloud's Go conformance
@@ -390,8 +379,8 @@ LIVE_ENV = HDTP_CLI="$${HDTP_CLI:-$$(test -x '$(HDTP_CLI_BIN)' && echo '$(HDTP_C
 HARNESS_FULL_IMAGE ?= hdtp-gateway:harness-full
 HARNESS_CALDAV_IMAGE ?= hdtp-gateway:harness-caldav
 export HDTP_HARNESS_CALDAV_IMAGE := $(HARNESS_CALDAV_IMAGE)
-harness-image-caldav: identity-proxy limitd-vendor
-	docker build --build-context identityproxy=$(IDENTITY_PROXY) --build-context limitdvendor=$(LIMITD_VENDOR) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
+harness-image-caldav: limitd-vendor
+	docker build --build-context limitdvendor=$(LIMITD_VENDOR) -f Dockerfile.full -t $(HARNESS_FULL_IMAGE) .
 	printf 'FROM $(HARNESS_FULL_IMAGE)\nUSER root\nRUN npm install -g caldav-mcp@0.10.0 && chown -R 65532:65532 /usr/local/lib/node_modules\nUSER 65532:65532\n' \
 	  | docker build -t $(HARNESS_CALDAV_IMAGE) -
 

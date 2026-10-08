@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Pre-push: the node's whole gate, run here because nothing else runs it.
 #
-# This repository has no CI. The node depends on the private module
-# github.com/humandelegatedtrustprotocol/hdtp-identity/go, fetched over SSH, and no CI runner is given a key
-# (the owner's decision: "No CI key required, we deploy from local only"). So every check that
-# used to run on a runner runs on this machine, before anything leaves it:
+# This repository has no CI (the owner's decision: "No CI key required, we deploy from local
+# only"), so every check that used to run on a runner runs on this machine, before anything
+# leaves it:
 #
 #   make check        fmt, vet, the name guard, the dependents (the harness, and the cloud's battery when it is on
 #                     disk), race tests — with HDTP_TEST_POSTGRES_DSN pointing at a Postgres this
@@ -31,18 +30,10 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-# The identity module is private and fetched over SSH. GOPRIVATE keeps it off the public proxy
-# and checksum database; the insteadOf, set for this process only (never in anybody's git
-# config), makes the go command's git fetch it over SSH rather than HTTPS.
-export GOPRIVATE="${GOPRIVATE:-github.com/humandelegatedtrustprotocol/*}"
-
 # The gate proves the COMMITTED go.mod and go.sum: no go.work the pusher's environment happens to
 # resolve (an umbrella's, a GOWORK variable) may stand in for them. The one workspace a gate builds
 # is `make dependents`' own, for the cloud's battery (Makefile).
 export GOWORK=off
-if [ -z "${GIT_CONFIG_COUNT:-}" ]; then
-  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@github.com:.insteadOf GIT_CONFIG_VALUE_0=https://github.com/
-fi
 
 # A push that only deletes refs has nothing to test. The same pass answers whether the push
 # touches web/: a new ref, or a base this clone has never fetched, counts as yes.

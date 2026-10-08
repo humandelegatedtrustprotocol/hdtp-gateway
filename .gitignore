@@ -13,7 +13,7 @@
 web/node_modules/
 docs/conformance-hdtp-*.json
 
-# The identity module laid out as a Go proxy for the image builds (`make identity-proxy`).
+# The limits sidecar's crates laid out for the image builds (`make limitd-vendor`).
 /.build/
 
 # The limits sidecar's build (`make limitd`).

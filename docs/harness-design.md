@@ -368,8 +368,7 @@ Chrome nor a reason to build the product image, so running them there reported t
 runner's missing browser (`chrome failed to start`) rather than anything about the
 product. The machine that can run this is a developer's, so that is where it
 runs — `make hooks` installs the `pre-push` hook that does it. The repository has
-no CI at all now (the node depends on a private module no runner is given a key
-for), so the same hook also runs `make check` on both storage engines, the
+no CI at all, so the same hook also runs `make check` on both storage engines, the
 analyzers and the fuzzers.
 
 **What the PR tier does not run, stated so it is not mistaken for full coverage:**

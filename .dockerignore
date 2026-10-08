@@ -1,5 +1,5 @@
-# The identity proxy reaches the image build as its own named context (`identityproxy`), never
-# through `COPY . .`.
+# The sidecar's vendored crates reach the image build as their own named context (`limitdvendor`),
+# never through `COPY . .`.
 .build/
 # The limits sidecar's host build: the image builds its own (Dockerfile, stage `limitd`).
 cmd/hdtp-limitd/target/

@@ -8,7 +8,7 @@
 #   node:             the node, trusting the forwarded chain and address from envoy's address alone
 #                     (HDTP_PROXY_ADDRESS), and refusing every sealed call while limitd is down.
 #
-# Before `docker compose -f deploy/envoy/compose.yaml up -d`: `make identity-proxy limitd-vendor`
+# Before `docker compose -f deploy/envoy/compose.yaml up -d`: `make limitd-vendor`
 # (the image build), a certificate for the node's public name at deploy/envoy/tls/cert.pem and
 # key.pem (WebPKI: a peer that dials the node sees it), and HDTP_PUBLIC_URL, that name, in the
 # environment. Only envoy publishes a port; the node's own listener is reached through it alone.
@@ -30,7 +30,6 @@ services:
     build:
       context: ../..
       additional_contexts:
-        identityproxy: ../../.build/identity-proxy
         limitdvendor: ../../.build/limitd-vendor
     restart: unless-stopped
     depends_on:
@@ -51,7 +50,6 @@ services:
     build:
       context: ../..
       additional_contexts:
-        identityproxy: ../../.build/identity-proxy
         limitdvendor: ../../.build/limitd-vendor
     restart: unless-stopped
     entrypoint: ["/hdtp-limitd"]

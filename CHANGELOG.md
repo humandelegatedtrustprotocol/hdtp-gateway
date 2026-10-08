@@ -37,3 +37,20 @@ The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
   configuration change. The rows naming an identity that left the node move to an
   archive file of its own after `audit_archive_after` (90 days by default), and verify
   with the rest of the chain (SPEC §3.11).
+- **`THIRD_PARTY_NOTICES`** — the licence text of the Go modules the binary links, the
+  crates the limits sidecar builds and the npm packages the portal bundles, written by
+  `make notices` and held to `go.sum`, `Cargo.lock` and `package-lock.json` by
+  `make notices-check`, which `make check` runs; a release ships the file.
+
+### Changed
+
+- The identity module, `github.com/humandelegatedtrustprotocol/hdtp-identity/go`, comes
+  through the public Go module proxy and checksum database: hdtp-identity is public since
+  2026-10-08, so `GOPRIVATE`, the SSH `insteadOf`, `make identity-proxy` and the
+  `identityproxy` image-build context are gone, and a clone builds, vets and gates with no
+  credential.
+- The docs say where the identity repository is, where they said it was not public: the
+  README quickstart, CONTRIBUTING, RELEASING, the pre-push hook, `docs/testing.md`,
+  `docs/crypto-review-brief.md`, `docs/harness-design.md` and `docs/operations.md`.
+- `compose.yaml` pins `alpine/socat` and `cloudflare/cloudflared` by digest (each `:latest`
+  as resolved on 2026-10-08), the tag kept beside the digest for the reader.
