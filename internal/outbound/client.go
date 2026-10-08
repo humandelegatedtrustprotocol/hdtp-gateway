@@ -25,6 +25,9 @@ import (
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
+// ErrSealRequired is the local refusal to send a plaintext call to a peer whose card says
+// `seal: required` (SPEC §4.6, HDTP §13.4). It is returned wrapped (errors.Is) by CallTool and by
+// the get_card fallback of the sealed exchange, before any bytes leave the node.
 var ErrSealRequired = errors.New("seal_required")
 
 // RateLimited is a call this host refused to send because the calling identity's outbound budget
@@ -32,6 +35,7 @@ var ErrSealRequired = errors.New("seal_required")
 // Nothing left the host. RetryAfter is how long until the budget holds a call again.
 type RateLimited struct{ RetryAfter time.Duration }
 
+// Error reports the wait in whole seconds, rounded up, in the `rate_limited:` form.
 func (e *RateLimited) Error() string {
 	secs := int(math.Ceil(e.RetryAfter.Seconds()))
 	return fmt.Sprintf("rate_limited: this identity has sent as many calls as its budget allows for now; try again in %d s (retry_after %d)", secs, secs)
@@ -68,10 +72,16 @@ func (p Peer) name() string {
 // neither. It used to be asked of a `Protocol` field that every construction set alike.
 func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
 
+// Client makes calls from one account's identity to contacts. Build one per account and set the
+// hooks the host needs; the zero value of each hook means "do nothing".
 type Client struct {
+	// Keypair is the account's identity key; its chain, when it has one, is what sealed calls carry.
+	// A keypair with no chain cannot seal.
 	Keypair *identity.Keypair
-	Cert    tls.Certificate
-	Roots   *x509.CertPool // nil = system roots; injectable for tests
+	// Cert is the certificate presented as the TLS client certificate, to every server, unconditionally.
+	Cert tls.Certificate
+	// Roots are the roots the WebPKI branch of server validation uses.
+	Roots *x509.CertPool // nil = system roots; injectable for tests
 	// Now is the clock the exchange dates envelopes and validates chains
 	// by; nil means time.Now.
 	Now func() time.Time
@@ -154,7 +164,11 @@ func (c *Client) tlsConfig(peer Peer, hostname string) *tls.Config {
 	}
 }
 
-// HTTPClient returns a client that dials the peer under the rules above.
+// HTTPClient returns a client that dials the peer under the rules above: TLS 1.2 or later, the
+// account's certificate offered whatever the server asks for, and the server accepted only if it
+// presents the peer's chain (leaf then root) validating to the pinned root at Peer.Endpoint, or a
+// WebPKI-valid certificate for the endpoint's hostname. Requests time out after 30 seconds. It
+// returns an error only when Endpoint does not parse as a URL.
 func (c *Client) HTTPClient(peer Peer) (*http.Client, error) {
 	u, err := url.Parse(peer.Endpoint)
 	if err != nil {
@@ -169,14 +183,18 @@ func (c *Client) HTTPClient(peer Peer) (*http.Client, error) {
 	}, nil
 }
 
+// CallOptions are the per-call choices of CallTool.
 type CallOptions struct {
 	// Plaintext forces an unsealed call; refused locally against a
 	// seal-required peer (SPEC §4.6) before any bytes leave the node.
 	Plaintext bool
 }
 
-// CallTool invokes one tool on the peer. Sealing of the call itself rides the sealed_call wrapper
-// wired in P1-08/P1-11; the outbound seal DECISION lives here so policy has exactly one home.
+// CallTool invokes one tool on the peer as an unsealed MCP call; the seal decision is Call's, not
+// this method's. It returns an error wrapping ErrSealRequired when the peer requires sealing and
+// opts.Plaintext is set, spends the outbound budget (when set) before dialling, and does nothing
+// else with opts. Sealing of the call itself rides the sealed_call wrapper (SealedCall); the outbound
+// seal DECISION is Call's, so policy has exactly one home.
 //
 // The go-sdk client speaks MCP 2026-07-28 first: against a stateless peer — a node, BatonDeck —
 // the exchange is two POSTs, `server/discover` and the call, with no session, no standalone GET
@@ -257,6 +275,13 @@ func (c *Client) Call(ctx context.Context, peer Peer, tool string, args map[stri
 
 // SealedCall wraps one inner tools/call in an envelope sealed to the peer's leaf key, invokes the
 // peer's `sealed_call`, and opens the sealed answer (HDTP §13.2).
+//
+// It returns an error, with nothing sent, for a peer we hold no root and leaf for or an account
+// whose keypair has no chain, and the budget's error when the budget refuses. A refusal the peer
+// sent in plaintext that is legal before the envelope opens (see plaintextLegal in seal.go)
+// comes back as an IsError result carrying its code; any other plaintext refusal is an error,
+// because past the open the peer would have sealed it. msgID is the envelope's msg_id, which the
+// answer has to echo.
 func (c *Client) SealedCall(ctx context.Context, peer Peer, tool string, args map[string]any, msgID string) (*mcp.CallToolResult, error) {
 	plain, refusal, err := c.exchange(ctx, peer, "tools/call",
 		map[string]any{"name": tool, "arguments": args}, msgID)
