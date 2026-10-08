@@ -106,13 +106,12 @@ func Next(prevHash string, e Event) (Event, error) {
 	return e, nil
 }
 
-// Verify re-walks a chain segment in order. The first event's PrevHash anchors the
-// segment (GenesisHash for a full chain; an archived segment's terminal hash after
-// re-anchoring — SPEC §11.6). It returns the index of the first broken row.
-// Verify checks a chain against whatever its first row claims to follow. It
-// cannot detect a truncated head — the shortened chain is self-consistent — so
-// it is only correct for a segment whose anchor the caller already trusts.
-// Prefer VerifyFrom, which takes that anchor explicitly.
+// Verify re-walks a chain segment in order and returns the index of the first broken row, or -1
+// with a nil error when every row links and hashes. It anchors the segment at whatever its first
+// row claims to follow (events[0].PrevHash), so it cannot detect a truncated head: the shortened
+// chain is self-consistent. It is only correct for a segment whose anchor the caller already trusts;
+// prefer VerifyFrom, which takes the anchor explicitly (GenesisHash for a chain never archived, an
+// archived segment's terminal hash after re-anchoring, SPEC §11.6). An empty segment verifies.
 func Verify(events []Event) (int, error) {
 	if len(events) == 0 {
 		return -1, nil

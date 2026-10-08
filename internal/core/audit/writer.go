@@ -17,6 +17,11 @@ type Sink interface {
 	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (Event, error)) error
 }
 
+// Writer seals events onto the chain and hands them to Sink to be inserted. It is the only code
+// that builds a chain row (through Next): the node's audit sink (internal/services/auditsink) holds
+// one for every row `serve` writes, and `audit erase-archive` holds one for its own. Now defaults to
+// time.Now. A Writer is safe for concurrent use, within one process and across processes that
+// share a store.
 type Writer struct {
 	Sink Sink
 	Now  func() time.Time
@@ -33,7 +38,10 @@ func (w *Writer) now() time.Time {
 	return time.Now()
 }
 
-// Append seals and persists one event, extending the chain.
+// Append seals one event onto the chain and persists it. Seq is the head's plus one, TS is Now in
+// unix seconds, and an empty details is stored as "{}". On an empty chain the event follows
+// GenesisHash. The Sink reads the head and inserts the row in one transaction, so Append never
+// writes two rows on one head; an error from the Sink means no row was written.
 func (w *Writer) Append(ctx context.Context, accountID, actorKind, actorID, action, resource, outcome, requestID, details string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
