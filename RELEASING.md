@@ -19,6 +19,11 @@ rebuild a tag and compare.
    make sbom
    ```
 
+   `make sbom` reads the repository through its own git library (cyclonedx-gomod), so run it in
+   a checkout whose `.git` is a directory: a linked worktree, whose `.git` is a `gitdir:` file,
+   fails with `reference not found`. The version it stamps on the main module is the tag on
+   HEAD, or a pseudo-version when there is none.
+
 5. Publish, with the notes taken from `CHANGELOG.md`:
 
    ```
