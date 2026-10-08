@@ -199,7 +199,7 @@ of it, and are listed so a reader can tell the two apart.
 | the media quota applies without a restart (§7.4, §8.2) | `TestQuotaIsReadPerCallNotCapturedAtBuildTime`, `TestStorageSettingsPersistAndApply` |
 | every demo doc carries a manual-run marker (GOAL item 6) | `TestDemoDocsCarryAManualRunMarker` |
 | §11.2's tables and §12.1's commands match the code | `TestSpecTablesMatchTheCode` |
-| config precedence is environment > file > store > defaults (§12.2) | `TestConfigFileOutranksOwnerSetSettings`, `TestSettingsPersistAcrossRestartAndReDerive` |
+| config precedence is environment > file > store > defaults (§12.2), for `doctor` as for `serve` | `TestConfigFileOutranksOwnerSetSettings`, `TestSettingsPersistAcrossRestartAndReDerive`, `TestDoctorReadsThePublicURLThePortalSaved` |
 | the audit chain distinguishes owner actions from caller actions | `TestOwnerActionsAreAuditedAsOwner`, `TestAuditPageFiltersByActor` |
 | `audit_query` never leaves the identity's accounts | `TestAuditQueryNeverLeavesTheIdentitysAccounts`, `TestScopedTokenCannotReadNodeLevelAuditRows` |
 | owner-MCP tools cannot reach another account's integration | `TestSetExposureCannotReachAnotherAccountsIntegration` |

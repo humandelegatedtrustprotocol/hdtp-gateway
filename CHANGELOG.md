@@ -16,6 +16,10 @@ changelog can be and is not summarized into a fictional release history.
   asks the sidecar for its rules over the socket the node asks it on. It inherited the image's,
   which asks the node's portal, so `docker compose ps` listed `limitd` unhealthy for as long as it
   ran; `compose.yaml` and `deploy/envoy/compose.yaml` run the new one.
+- `doctor` reads `public_url` the way the node does: the environment, else the configuration file,
+  else what the portal's Settings saved. It read the first two alone, so on a node whose address
+  was set in the portal it printed `warn probe skipped: public_url not configured` and never
+  dialled it.
 
 ## [0.1.1] — 2026-10-09
 

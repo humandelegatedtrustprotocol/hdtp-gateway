@@ -298,13 +298,15 @@ ok   store-open
 ok   leaf         alex valid until 2027-10-08 (root sha256:PoPMfwR8DxSxIJtRe3FgJc15YNfMwVGiYfgHbpNvpjI)
 ok   tunnel       direct (mode direct, seal required, client_cert preferred)
 ok   limits       /data/limits.sock answering
-warn probe        skipped: public_url not configured
+FAIL probe        https://alex.example.com unreachable: Get "https://alex.example.com/.well-known/hdtp-probe?nonce=…": dial tcp: lookup alex.example.com: no such host
 ```
 
-The last line is literal: `doctor` reads `public_url` from the environment or the configuration
-file, not from what the portal saved, so after step 4 it still skips the probe. The leaf line
-above it is the proof that matters here. To have `doctor` probe your endpoint from outside, set
-`HDTP_PUBLIC_URL` in the environment as well (it then shows locked in Settings).
+The last line is `doctor` dialling the address from step 4 as a contact would, from where the node
+runs: it reads `public_url` the way the node does — the environment, else the configuration file,
+else what the portal saved. `alex.example.com` is a placeholder that resolves nowhere, so with it
+the probe fails and what follows `unreachable:` is the dialer's reason. With your real address, a
+node the world can reach prints `ok   probe        https://… reachable (…)` instead, and a `FAIL`
+names what is in the way ([Be reachable](../README.md#be-reachable)).
 
 ## 8. Invite your first contact
 
