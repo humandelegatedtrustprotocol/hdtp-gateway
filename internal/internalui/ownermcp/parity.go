@@ -419,6 +419,3 @@ func (ot ownerTools) auditQueryTool(ctx context.Context, req *mcp.CallToolReques
 	r, jerr := jsonResult(rows)
 	return r, nil, jerr
 }
-
-// ErrNoCard is returned when a node cannot render a card for an account.
-var ErrNoCard = fmt.Errorf("ownermcp: no card available")

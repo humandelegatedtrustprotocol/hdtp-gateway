@@ -35,13 +35,6 @@ type DashboardDeps struct {
 	// (IdentityDeps.Certificate), so the two pages cannot disagree about a leaf. Nil (a test's
 	// mount) answers each identity's certificate as null.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
-	// Setup gates the first-run wizard this page auto-shows at zero passkeys.
-	Setup *SetupTokens
-	// SignedIn reports whether this request carries a portal session. Nil means
-	// no authentication is configured — a loopback portal serves with no login
-	// (SPEC §8.3), and offering to sign out of a session that does not exist
-	// promises something the button cannot do.
-	SignedIn func(*http.Request) bool
 }
 
 // DashboardPosture is the resolved node state.
