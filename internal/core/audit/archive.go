@@ -31,15 +31,25 @@ import (
 	"time"
 )
 
-// Store is the slice of the store this package needs.
+// Store is the slice of the store the head archive needs, in this package's terms so that audit
+// does not import the store. auditstore.Adapter is the join.
 type Store interface {
+	// ListAuditEvents returns the live rows ascending by seq, or one actor's rows when actorFilter
+	// is not empty. The checks here pass "": verifying a chain is reading all of it.
 	ListAuditEvents(ctx context.Context, actorFilter string) ([]Row, error)
+	// AuditAnchor returns the anchor; the zero Anchor when nothing was ever archived.
 	AuditAnchor(ctx context.Context) (Anchor, error)
+	// SetAuditAnchor records the anchor. Archive calls it after the archive file is written and
+	// verified and before the rows go.
 	SetAuditAnchor(ctx context.Context, a Anchor) error
+	// DeleteAuditEventsThrough deletes the rows with seq at or below seq (the bound is inclusive) and
+	// returns how many went. Archive calls it with the last archived seq, after the anchor has been
+	// set; the engine's prune trigger refuses rows the anchor does not cover.
 	DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error)
 }
 
-// Row is one stored audit row, in the store's shape.
+// Row is one stored audit row, in the store's shape: the fields of Event without the Erased mark,
+// since a row in the live table is never erased.
 type Row struct {
 	Seq       int64
 	TS        int64
@@ -55,7 +65,9 @@ type Row struct {
 	Hash      string
 }
 
-// Anchor is what the retained chain must extend.
+// Anchor is what the retained chain must extend: the last seq archived from the head, the hash of
+// that row, the archive file it went to, and when the anchor was recorded. The zero Anchor means
+// nothing was ever archived and the chain starts at GenesisHash.
 type Anchor struct {
 	ArchivedThroughSeq int64
 	TerminalHash       string
@@ -175,7 +187,9 @@ func within(events []Event, from, through int64) []Event {
 	return out
 }
 
-// ArchiveResult reports what an archive run moved.
+// ArchiveResult reports what an archive run moved: how many rows, the file they went to, the last
+// seq archived and its hash. A run that found nothing to archive reports Archived 0 and the
+// existing anchor's Through and Terminal.
 type ArchiveResult struct {
 	Archived int
 	Path     string

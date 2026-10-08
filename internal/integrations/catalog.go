@@ -22,13 +22,15 @@ import (
 
 type mcpListToolsParams = mcp.ListToolsParams
 
-// ToolDef is one snapshotted tool definition.
+// ToolDef is one tool as snapshotted from an upstream. Hash is HashTool over
+// name, description and InputSchema; Annotations are stored for the picker but
+// are not hashed, so annotation drift never mints a snapshot.
 type ToolDef struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema,omitempty"`
-	Annotations json.RawMessage `json:"annotations,omitempty"`
-	Hash        string          `json:"hash"`
+	Name        string          `json:"name"`                   // upstream tool name
+	Description string          `json:"description"`            // upstream description, hashed
+	InputSchema json.RawMessage `json:"input_schema,omitempty"` // upstream JSON Schema, hashed in canonical form
+	Annotations json.RawMessage `json:"annotations,omitempty"`  // untrusted hints, not hashed
+	Hash        string          `json:"hash"`                   // HashTool over name, description, schema
 }
 
 // canonicalJSON re-marshals arbitrary JSON with lexicographically sorted keys
@@ -106,9 +108,11 @@ func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef
 
 // Cataloger persists snapshots and reports diffs.
 type Cataloger struct {
-	Store   store.IntegrationStore
+	Store store.IntegrationStore
+	// Manager supplies the live session Snapshot walks.
 	Manager *Manager
-	Audit   func(action, resource, outcome string)
+	// Audit receives catalog_refresh (on error) and catalog_snapshot rows; nil discards.
+	Audit func(action, resource, outcome string)
 	// OnMinted fires after a NEW snapshot version lands — the stale guard
 	// (Exposures.Reconcile) hangs off this (SPEC §6.5).
 	OnMinted func(integrationID string)

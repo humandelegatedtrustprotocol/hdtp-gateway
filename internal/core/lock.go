@@ -21,6 +21,9 @@ import (
 	"time"
 )
 
+// Lock is a hold on the data-dir lock file (<data_dir>/hdtp.lock), exclusive or shared. AcquireLock
+// and AcquireServeLock return one; Release gives it up, and the kernel gives it up if the process
+// dies.
 type Lock struct {
 	f         *os.File
 	exclusive bool
@@ -95,6 +98,8 @@ func (l *Lock) Share() error {
 	return nil
 }
 
+// Release unlocks the data dir and closes the lock file. It returns an error if the unlock fails,
+// and then does not close the file.
 func (l *Lock) Release() error {
 	if err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN); err != nil {
 		return fmt.Errorf("lock: %w", err)

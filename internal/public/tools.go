@@ -34,17 +34,25 @@ import (
 
 // Boundary caps (HDTP §12, SPEC §5.7). The store enforces them again.
 const (
-	MaxTextBytes  = 16 * 1024
-	MaxNoteBytes  = 1024
+	// MaxTextBytes caps a message's text, and a card argument.
+	MaxTextBytes = 16 * 1024
+	// MaxNoteBytes caps a request note and a cancel or reject reason.
+	MaxNoteBytes = 1024
+	// MaxInlineData caps decoded inline media.
 	MaxInlineData = 5 * 1024 * 1024
-	MaxFieldBytes = 1024 // filename, mime, subject, topic, reason, booking_id
+	// MaxFieldBytes caps a short field.
+	MaxFieldBytes = 1024 // filename, mime, subject, topic, booking_id, msg_id, thread_id, token, url
 )
 
 // Calendar is the calendar capability as the public surface needs it — the
 // three HDTP tools, nothing else. `*providers.Calendar` satisfies it.
 type Calendar interface {
+	// CheckAvailability returns candidate slots for a meeting of length d between from and to. The
+	// tool caps them at calendar.MaxSlots before answering.
 	CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]calendar.Slot, error)
+	// BookSlot books slot for the contact; msgID is the call's idempotency key.
 	BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error)
+	// CancelBooking cancels a booking by id.
 	CancelBooking(ctx context.Context, bookingID string) error
 }
 
@@ -52,9 +60,12 @@ type Calendar interface {
 // instants plus the IANA zone they are rendered in. The provider works in
 // time.Time; this boundary is where the zone is chosen and stated.
 type Slot struct {
+	// Start is the interval's start, RFC 3339 in the zone TZ names.
 	Start string `json:"start"`
-	End   string `json:"end"`
-	TZ    string `json:"tz"`
+	// End is the interval's end, RFC 3339 in the zone TZ names.
+	End string `json:"end"`
+	// TZ is the IANA zone the instants are rendered in; UTC when the caller asked for none or an unknown one.
+	TZ string `json:"tz"`
 }
 
 // zoneOf resolves a caller-supplied IANA zone, falling back to UTC. An
@@ -84,6 +95,7 @@ func wireSlots(in []calendar.Slot, loc *time.Location) []Slot {
 
 // StatusSource answers `get_status`. `*providers.Status` satisfies it.
 type StatusSource interface {
+	// GetStatus returns the owner's availability; the tool clamps it to available, busy, dnd or offline.
 	GetStatus(ctx context.Context) (string, error)
 }
 
@@ -98,16 +110,24 @@ type CardFn func(ctx context.Context) (card, sig string, err error)
 // error: its tools answer `unavailable` (HDTP §12's code for a capability the
 // implementation is currently withholding).
 type ToolDeps struct {
+	// AccountID scopes every store call and audit row the tools make.
 	AccountID string
-	Contacts  *contacts.Manager
-	Messages  *messaging.Service
-	Media     *messaging.MediaService
-	Calendar  Calendar
-	Status    StatusSource
-	Card      CardFn
+	// Contacts is the contact manager; the guest, pending and contact-management tools need it.
+	Contacts *contacts.Manager
+	// Messages records inbound messages; send_message and send_media answer `unavailable` without it.
+	Messages *messaging.Service
+	// Media receives inline and URL media; send_media answers `unavailable` without it.
+	Media *messaging.MediaService
+	// Calendar backs check_availability, book_slot and cancel_booking.
+	Calendar Calendar
+	// Status backs get_status; with none the tool answers `unavailable` (internal/node supplies one that defaults to available).
+	Status StatusSource
+	// Card returns the signed card for redeem_invite and get_card.
+	Card CardFn
 	// Invalidate drops a caller's cached MCP server after its tier changes.
 	Invalidate func(ctx context.Context, accountID, fpr string) error
-	Audit      AuditFn
+	// Audit receives each tool's audit row when AuditAs is not set.
+	Audit AuditFn
 	// AuditAs, when set, is used instead of Audit and is told who acted (see audit).
 	AuditAs func(kind, action, resource, outcome string)
 	// Limits reports the limits in force, for get_card's metadata (HDTP §12): the sizes, and the call
@@ -269,7 +289,9 @@ func callerFpr(ctx context.Context) string {
 /* ------------------------------- the set -------------------------------- */
 
 // BuiltinEntries returns the HDTP §6.2 core tools for one account, each tagged
-// with the tier and permission that gate it (SPEC §5.4).
+// with the tier and permission that gate it (SPEC §5.4). The README of this
+// package lists each tool's gate and refusals. The set is held equal to core.ReservedToolNames
+// (with sealed_call) by TestTheReservedToolNamesAreTheBuiltInSet.
 func BuiltinEntries(d ToolDeps) []Entry {
 	guest := func(name, desc string, h mcp.ToolHandler) Entry {
 		return Entry{Tool: tool(name, desc), Rule: policy.Rule{Tier: policy.TierGuest}, Handler: h}

@@ -53,8 +53,6 @@ func (n *Node) PeerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 	}, nil
 }
 
-// wireClient attaches to a client what it must be able to write back about the
-// contacts it reaches (HDTP §13.2, §14.3).
 // strangerTools are what an identity sends to somebody who is not, or not yet, its contact: the
 // two ways in (HDTP §5.1) and the two answers to a request (§6.2). They spend the identity's
 // stranger budget whatever the row says — an approval's `contact_accepted` goes to a row the
@@ -74,6 +72,10 @@ func (n *Node) outboundToContact(accountID string, peer outbound.Peer, tool stri
 	return err == nil && c.Status == "active"
 }
 
+// wireClient attaches to a client what it must be able to write back about the
+// contacts it reaches (HDTP §13.2, §14.3): the clock and dialer, `OnChainSent` (records that our
+// leaf has been sent), `OnRepin` (moves the pin to a newer leaf, audited as `contact_renewal`),
+// and `Budget` (spendOutbound).
 func (n *Node) wireClient(accountID string, client *outbound.Client) *outbound.Client {
 	client.Now = n.opts.Now
 	client.DialContext = n.opts.DialContext

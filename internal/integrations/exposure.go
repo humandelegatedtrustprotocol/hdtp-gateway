@@ -18,11 +18,17 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// Serving modes (SPEC §6.6).
+// Serving modes (SPEC §6.6). Publish refuses any other value.
 const (
+	// ModePassthrough forwards the caller's arguments to the upstream tool
+	// after validating them against the snapshotted schema (Passthrough).
 	ModePassthrough = "passthrough"
-	ModeMapped      = "mapped"
-	ModeAgent       = "agent"
+	// ModeMapped exposes the entry under an HDTP capability name through a
+	// recipe (package providers); the entry must name a Recipe.
+	ModeMapped = "mapped"
+	// ModeAgent routes the call to AgentAnswered.Handler, which holds it for the wait budget
+	// (DefaultWaitBudget, 30 seconds) while the owner's agent may answer.
+	ModeAgent = "agent"
 )
 
 // ExposureEntry is one exposed capability.
@@ -33,12 +39,15 @@ type ExposureEntry struct {
 	Recipe        string `json:"recipe,omitempty"`   // mapped entries: recipe binding (§6.7)
 	Fallback      string `json:"fallback,omitempty"` // agent entries: passthrough|mapped|""
 	ConfirmedHash string `json:"confirmed_hash"`     // tool hash the owner confirmed
-	Stale         bool   `json:"stale,omitempty"`
+	Stale         bool   `json:"stale,omitempty"`    // set by Reconcile; stale entries are withheld
 }
 
 // Exposures publishes, reconciles, and reads exposure sets.
 type Exposures struct {
+	// Store holds catalogs, integrations and exposure versions.
 	Store store.Store
+	// Audit receives exposure_publish, exposure_reconcile, exposure_stale and
+	// exposure_reconfirm rows; nil discards.
 	Audit func(action, resource, outcome string)
 	// OnChange fires whenever the served surface changes (publish, stale,
 	// reconfirm): the serving layer drops the per-caller servers, so each

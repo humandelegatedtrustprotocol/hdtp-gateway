@@ -26,7 +26,8 @@ import (
 // tail of the first.
 type Campaign struct {
 	AccountID string
-	NewKid    string
+	// NewKid is the kid that keys the campaign's move_fanout rows (LeafKid).
+	NewKid string
 	// Moved is the install's decision that this leaf moved the identity (store.Leaf.Moved): a
 	// move is news to every active contact. Any other leaf is news to nobody — a renewal reaches a
 	// contact in the chain of the next envelope — and its campaign is only the handshake an import
@@ -76,9 +77,15 @@ var ErrFanoutIncomplete = errors.New("identity: move fan-out incomplete; re-run 
 
 // Announcer runs campaigns for a node's accounts.
 type Announcer struct {
+	// Manager supplies the store the walk reads and records its progress in.
 	Manager *Manager
-	Audit   func(action, resource, outcome string)
-	Now     func() time.Time
+	// Audit, when set, receives an "account_move_fanout" row for each contact the walk acts on:
+	// the call's outcome, FanoutUnreached when no leaf is held, or "error" with a "why:" reason
+	// when its progress or handshake mark could not be recorded. A contact already recorded for
+	// this leaf produces none. Nil records nothing.
+	Audit func(action, resource, outcome string)
+	// Now is the clock for progress rows; nil means time.Now.
+	Now func() time.Time
 }
 
 func (a *Announcer) now() time.Time {

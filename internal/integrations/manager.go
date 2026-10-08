@@ -4,7 +4,8 @@ package integrations
 // per-integration connect/disconnect over the SDK's struct-literal transports,
 // a health cycle whose failures first make tools fail `unavailable` and then —
 // past a threshold — withhold them from tools/list, and automatic reconnection
-// on recovery. Every transition is audited. stdio-supervised lands with P3-02.
+// on recovery. Every transition is audited. A stdio-supervised integration is
+// dialled through its Supervisor (dialStdio) rather than a transport.
 
 import (
 	"context"
@@ -29,8 +30,17 @@ const DefaultWithholdAfter = 5
 // DefaultPingEvery matches SPEC §6.10: ping every 60 s.
 const DefaultPingEvery = 60 * time.Second
 
+// Manager holds one live upstream MCP client session per connected integration
+// and runs its health cycle. Every field is a seam or a callback; the zero
+// value of each optional one is "off" or the SPEC default named on the field.
+// A conn's failure count and withheld flag live in memory only: the store holds
+// the integration's status string (connecting, ok, unreachable, auth_error,
+// disabled), never the withheld state, which a restart therefore clears.
 type Manager struct {
+	// Store holds the integration rows whose status the Manager writes.
 	Store store.IntegrationStore
+	// Audit receives integration_connect, _disconnect, _health, _recover,
+	// _withhold, _restore, _auth, _call and _child_crash rows; nil discards.
 	Audit func(action, resource, outcome string)
 	// OnAuthError fires when a dial or health check lands in auth_error: the
 	// token is dead and only the owner can fix it, so whoever is listening
@@ -39,10 +49,14 @@ type Manager struct {
 	// OnAvailability fires on withhold (true) and restore (false): the serving
 	// layer rebuilds per-caller servers and emits tools/list_changed (SPEC §6.10).
 	OnAvailability func(integrationID string, withheld bool)
-	HTTPClient     *http.Client
+	// HTTPClient is the base client for streamable-http and sse upstreams;
+	// nil = http.DefaultClient.
+	HTTPClient *http.Client
 	// PingEvery: 0 = SPEC §6.10 default (60 s); negative disables the
 	// background cycle (tests drive HealthCheck directly).
-	PingEvery     time.Duration
+	PingEvery time.Duration
+	// WithholdAfter is the consecutive health failures after which an
+	// integration's tools are withheld; 0 = DefaultWithholdAfter.
 	WithholdAfter int
 	// OnConnected fires after a successful connect AND after recovery — the
 	// catalog machinery takes its snapshot here (SPEC §6.3, §6.4, §6.10).
@@ -157,6 +171,8 @@ type headerRoundTripper struct {
 	host  string
 }
 
+// RoundTrip sets the static header only when the request's host is the
+// integration endpoint's host; any other host is forwarded untouched.
 func (h headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Host != h.host {
 		return h.next.RoundTrip(req)
@@ -169,7 +185,9 @@ func (h headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 // isAuthError classifies an upstream failure as an authorization failure
 // (SPEC §6.3): the SDK's OAuth sentinel, oauth2's token-endpoint error, or a
 // 401/403-shaped message. Heuristic on purpose — the transports wrap errors
-// as text — and only consulted for auth=oauth integrations.
+// as text. It is consulted for every integration regardless of its auth kind
+// (failStatus, NoteCallFailure), so an `auth: none` row whose upstream answers
+// 401 also lands in auth_error.
 func isAuthError(err error) bool {
 	if err == nil {
 		return false
@@ -400,7 +418,9 @@ func (m *Manager) Reconnect(ctx context.Context, integrationID string) error {
 	return m.Connect(ctx, integrationID)
 }
 
-// Disconnect stops the cycle, closes the session, and disables the integration.
+// Disconnect stops the health cycle, closes and forgets the session (so
+// Available, Withheld and Session report nothing for it), and sets the status
+// to "disabled". It does not clear a supervised child's give-up state.
 func (m *Manager) Disconnect(ctx context.Context, integrationID string) error {
 	in, err := m.Store.GetIntegrationByID(ctx, integrationID)
 	if err != nil {
@@ -421,8 +441,10 @@ func (m *Manager) Disconnect(ctx context.Context, integrationID string) error {
 	return nil
 }
 
-// Available reports whether the integration's tools may run right now: connected
-// and not mid-outage. Unavailable tools fail with `unavailable` (SPEC §6.10).
+// Available reports whether the integration's tools may run right now: a session
+// is installed and the consecutive-failure count is zero. Unavailable tools fail
+// with `unavailable` (SPEC §6.10). One failed health cycle already makes this
+// false; withholding (Withheld) only follows at WithholdAfter failures.
 func (m *Manager) Available(integrationID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -430,7 +452,9 @@ func (m *Manager) Available(integrationID string) bool {
 	return c != nil && c.failures == 0
 }
 
-// Withheld reports whether the integration's tools are hidden from tools/list.
+// Withheld reports whether the integration's tools are hidden from tools/list:
+// true once WithholdAfter consecutive health failures have been counted, false
+// again after the next healthy cycle. False when nothing is connected.
 func (m *Manager) Withheld(integrationID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -438,7 +462,9 @@ func (m *Manager) Withheld(integrationID string) bool {
 	return c != nil && c.withheld
 }
 
-// Session hands the live session to the serving modes (passthrough etc.).
+// Session hands the live session to the serving modes (passthrough etc.); nil
+// when the integration is not connected. The session is shared: callers must
+// not Close it.
 func (m *Manager) Session(integrationID string) *mcp.ClientSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()

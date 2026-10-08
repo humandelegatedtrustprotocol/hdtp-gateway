@@ -2,7 +2,9 @@
 // internal/testid mints real identities: a test of the node's budgets that ran against a stand-in
 // would pass for the stand-in's reasons.
 //
-// Test-only by construction: nothing a production package builds imports it (layering_test.go).
+// Test-only by use: no non-test file in the module imports it today. internal/integrationtest's
+// layering_test.go gives it a rank (1, above internal/limits) but does not forbid a production
+// package from importing it.
 package limitstest
 
 import (
@@ -87,6 +89,7 @@ func defaultRules() (limits.Rules, error) {
 // Sidecar is a real hdtp-limitd a test started, with a client of it.
 type Sidecar struct {
 	*limits.Client
+	// Config is the path of the configuration file the sidecar was started with.
 	Config string
 	cmd    *exec.Cmd
 }

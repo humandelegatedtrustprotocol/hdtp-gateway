@@ -11,6 +11,8 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
+// AuditAnchor reads the archive anchor row. A node that has never archived has none, and the zero
+// AuditAnchorRow is returned with a nil error.
 func (p *Postgres) AuditAnchor(ctx context.Context) (AuditAnchorRow, error) {
 	row, err := p.q.GetAuditAnchor(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -42,10 +44,15 @@ func (p *Postgres) setAuditAnchor(ctx context.Context, a AuditAnchorRow) error {
 	})
 }
 
+// DeleteAuditEventsThrough deletes the audit rows with seq at or below seq and returns how many
+// went. The prune trigger refuses the delete unless the anchor already covers them, so
+// SetAuditAnchor comes first.
 func (p *Postgres) DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error) {
 	return p.q.DeleteAuditEventsThrough(ctx, seq)
 }
 
+// ListDueLeaves returns up to limit account_leave audit rows whose erase went through (outcome ok or
+// partial) at or before the time `before`, oldest first.
 func (p *Postgres) ListDueLeaves(ctx context.Context, before int64, limit int) ([]AuditRow, error) {
 	rs, err := p.q.ListDueLeaves(ctx, pgdb.ListDueLeavesParams{Ts: before, Limit: pgLimit(limit)})
 	if err != nil {
@@ -58,6 +65,9 @@ func (p *Postgres) ListDueLeaves(ctx context.Context, before int64, limit int) (
 	return out, nil
 }
 
+// ArchiveAuditRows removes exactly the named rows from the audit chain in one transaction, see
+// AuditStore.ArchiveAuditRows. It empties audit_archive_rows, lists the named seqs with their
+// hashes, deletes each, and rolls everything back unless the number deleted equals the number named.
 func (p *Postgres) ArchiveAuditRows(ctx context.Context, rows []AuditArchiveRow) (int64, error) {
 	var n int64
 	err := p.Atomically(ctx, func(tx Store) error {

@@ -11,7 +11,9 @@ import (
 //go:embed *.json
 var files embed.FS
 
-// All decodes every shipped recipe, keyed by name.
+// All decodes every embedded *.json recipe, keyed by the recipe's own name.
+// It fails on the first file integrations.DecodeRecipe refuses, naming the
+// file; a second file with the same name silently replaces the first.
 func All() (map[string]integrations.Recipe, error) {
 	entries, err := files.ReadDir(".")
 	if err != nil {

@@ -142,7 +142,10 @@ func (f frpOpts) proxyConfig() (v1.ProxyConfigurer, error) {
 	return cfg, nil
 }
 
-// FRP is the adapter; the frp client Service owns all networking.
+// FRP is the adapter for an owner-run frps (TerminatesAtEdge false); the frp client Service owns
+// all networking. Its constructor refuses a missing server_addr, a proxy_type other than tcp or
+// https, a tcp proxy without remote_port, an https proxy without custom_domain, a port outside
+// 1..65535, and a PublicBind that is not host:port.
 type FRP struct {
 	opts frpOpts
 
@@ -163,6 +166,10 @@ func init() {
 	})
 }
 
+// Start runs the frp client with one proxy to the node's PublicBind (0.0.0.0 and :: are dialled as
+// 127.0.0.1), logging in with the token and any meta_ settings. It returns the advertised URL with
+// TerminatesAtEdge false and no Listener, and does not wait for the login to succeed; the client
+// outlives ctx's cancellation and ends only at Stop.
 func (a *FRP) Start(ctx context.Context) (Info, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -194,6 +201,7 @@ func (a *FRP) Start(ctx context.Context) (Info, error) {
 	return Info{PublicURL: a.opts.publicURL(), TerminatesAtEdge: false}, nil
 }
 
+// Status reports the advertised URL and the proxy and frps in use.
 func (a *FRP) Status() Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -41,17 +41,24 @@ const ProbePath = "/.well-known/hdtp-probe"
 type Verdict string
 
 const (
-	VerdictReachable     Verdict = "reachable"
-	VerdictUnreachable   Verdict = "unreachable"
-	VerdictWrongCert     Verdict = "wrong_cert"
+	// VerdictReachable: a chain a peer would accept was served and the nonce came back from this instance.
+	VerdictReachable Verdict = "reachable"
+	// VerdictUnreachable: the endpoint is not a URL, or the request failed for a reason other than the certificate.
+	VerdictUnreachable Verdict = "unreachable"
+	// VerdictWrongCert: the served certificate (or chain) is not one a peer would accept.
+	VerdictWrongCert Verdict = "wrong_cert"
+	// VerdictWrongInstance: something answered that did not echo the nonce, or another instance's id.
 	VerdictWrongInstance Verdict = "wrong_instance"
 )
 
 // Result is the probe report the portal and doctor surface.
 type Result struct {
-	Verdict  Verdict `json:"verdict"`
-	Endpoint string  `json:"endpoint"`
-	Detail   string  `json:"detail,omitempty"`
+	// Verdict is one of the four Verdict values; Detail says why unless it is reachable.
+	Verdict Verdict `json:"verdict"`
+	// Endpoint is the URL that was probed, as given.
+	Endpoint string `json:"endpoint"`
+	// Detail is the error or the observation behind a verdict other than reachable.
+	Detail string `json:"detail,omitempty"`
 	// Caveat is set when the probe originated from the node itself (hairpin
 	// NAT may make the result unrepresentative).
 	Caveat string `json:"caveat,omitempty"`
@@ -60,11 +67,13 @@ type Result struct {
 // Served is one identity this node serves, as a peer holds it: the root it pins, and the address
 // the leaf under that root has to name.
 type Served struct {
-	Root     string
+	// Root is the fingerprint of the identity's root, which the served chain must validate to.
+	Root string
+	// Endpoint is the address the leaf under that root must name.
 	Endpoint string
 }
 
-// Options select how what is served is validated.
+// ProbeOptions select how what is served is validated.
 type ProbeOptions struct {
 	// Identities are the identities this node serves. The chain presented at the endpoint must
 	// validate to ONE of them at its own address (a listener presents one chain however many
@@ -73,7 +82,8 @@ type ProbeOptions struct {
 	// InstanceID is this node's id; the handler echoes its own and a mismatch
 	// means the endpoint reaches some OTHER instance.
 	InstanceID string
-	Timeout    time.Duration
+	// Timeout bounds the dial and the whole request; zero or negative means 10 seconds.
+	Timeout time.Duration
 	// SelfOriginated marks a probe dialed from the node itself (hairpin caveat).
 	SelfOriginated bool
 	// Now is the clock the chain is judged by, and DialContext how the endpoint's host is
@@ -82,7 +92,8 @@ type ProbeOptions struct {
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
-// ProbeHandler answers ProbePath: {"nonce": <echo>, "instance": <id>}.
+// ProbeHandler answers ProbePath with {"nonce": <echo>, "instance": <id>}, whatever the method. The
+// nonce is the `nonce` query parameter cut to its first 64 bytes.
 func ProbeHandler(instanceID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nonce := r.URL.Query().Get("nonce")
@@ -94,7 +105,16 @@ func ProbeHandler(instanceID string) http.Handler {
 	})
 }
 
-// Probe runs one reachability check against endpoint (scheme://host[:port]).
+// Probe runs one reachability check against endpoint (scheme://host[:port]) and always returns a
+// Result; it never returns an error. It GETs ProbePath with a fresh random nonce and reads at most
+// 4096 bytes of the answer. With o.Identities set, Go's WebPKI verification is replaced by hdtp-identity's
+// ValidateChain: the server must present exactly two certificates, leaf then root, and the chain
+// must validate to one of the identities' roots at that identity's address (HDTP §14.2); with none,
+// the hostname is verified against the system roots. A certificate verification failure (an x509 error, or the chain check above refusing the
+// served chain) is wrong_cert, any other failure, a TLS handshake failure included, unreachable; a non-200 answer or one without the nonce, or with another
+// instance id, is wrong_instance. A SelfOriginated probe carries a hairpin caveat on every verdict.
+// TLS 1.2 is the minimum. The endpoint is dialled as given: this function does not refuse
+// inward addresses, and the HTTP client follows net/http's default redirect policy.
 func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 	res := Result{Endpoint: endpoint}
 	if o.SelfOriginated {

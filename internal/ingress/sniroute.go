@@ -24,14 +24,24 @@ import (
 
 // Login metadata keys a paired node sends (frp client Metadatas).
 const (
-	MetaNode   = "hdtp_node"   // node identity fingerprint
-	MetaSecret = "hdtp_secret" // per-node secret from pairing
+	// MetaNode is the key carrying the node's identity fingerprint.
+	MetaNode = "hdtp_node"
+	// MetaSecret is the key carrying the per-node secret from pairing.
+	MetaSecret = "hdtp_secret"
 )
 
-// DataPlane is the embedded frps plus the registry-enforcing plugin.
+// DataPlane is the embedded frps plus the registry-enforcing plugin. The plugin is an HTTP
+// server on a random loopback port that frps calls on every Login and NewProxy. Login is
+// rejected unless the metadata names a paired fingerprint and carries that node's secret.
+// NewProxy is rejected unless that node is authenticated and asks for exactly one https proxy
+// whose custom domain is <subdomain>.<Domain> (passthrough) or the internal name (terminate),
+// compared case-insensitively. Other operations are passed through unchanged. Login and proxy
+// outcomes are audited as `ingress_login` and `ingress_proxy`.
 type DataPlane struct {
+	// Registry is the book of pairings the plugin checks against.
 	Registry Registry
-	Domain   string
+	// Domain is the base domain the allowed proxy names are built on.
+	Domain string
 	// BindAddr/BindPort: where nodes' frp clients connect (control plane).
 	BindAddr string
 	BindPort int
@@ -44,6 +54,7 @@ type DataPlane struct {
 	ProxyBindAddr string
 	// Token: shared frps transport token; per-node auth is the plugin's job.
 	Token string
+	// Audit, when set, hears each Login and NewProxy decision as (action, resource, outcome).
 	Audit func(action, resource, outcome string)
 
 	mu      sync.Mutex
@@ -123,7 +134,9 @@ func reply(w http.ResponseWriter, r plugin.Response) {
 	_ = json.NewEncoder(w).Encode(r)
 }
 
-// Start brings up the plugin endpoint and the embedded frps.
+// Start brings up the plugin endpoint and the embedded frps. ctx is handed to frps's Run, and a
+// non-empty Token turns on frp token auth. An invalid frps configuration or a failure to create
+// the service is returned with the plugin endpoint shut down again.
 func (d *DataPlane) Start(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -172,6 +185,8 @@ func (d *DataPlane) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop closes frps and the plugin endpoint and waits for both to finish. It always returns nil
+// and is safe to call again.
 func (d *DataPlane) Stop() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

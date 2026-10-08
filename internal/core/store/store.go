@@ -8,12 +8,19 @@ import (
 	"time"
 )
 
+// Owner is a person who administers accounts on this node, the principal that credentials, sessions
+// and owner-MCP tokens authenticate (OwnerStore). ID is the id a WebAuthn user handle names when the
+// owner was created by CreateOwnerWithID.
 type Owner struct {
 	ID          string
 	DisplayName string
 	CreatedAt   int64
 }
 
+// Account is one identity this node answers for (SPEC §3). Fingerprint names the key it signs and
+// seals with today and Seal is the sealing policy its card advertises. RootFingerprint, RootCert and
+// AcceptNewHosts are set once a wallet has issued the first leaf; the certificates themselves are
+// Leaf rows. Status is active or suspended, as the table's CHECK holds it.
 type Account struct {
 	ID          string
 	Slug        string
@@ -114,12 +121,16 @@ type Setting struct {
 	UpdatedAt int64
 }
 
+// Membership records that an owner administers an account. Role is a value the table's CHECK admits,
+// and that is "admin" alone.
 type Membership struct {
 	OwnerID   string
 	AccountID string
 	Role      string
 }
 
+// Credential is something an owner authenticates with. Kind is passkey, oauth or password, as the
+// table's CHECK holds it; Data is opaque to the store and Tag is a label.
 type Credential struct {
 	ID        string
 	OwnerID   string
@@ -129,6 +140,13 @@ type Credential struct {
 	CreatedAt int64
 }
 
+// Contact is one relationship an account holds, and the pin that goes with it (HDTP §14.3). Status
+// is active, pending_in, pending_out or blocked, as the table's CHECK holds it, and TrustFlag is
+// messages_only or may_instruct. Permissions is what the account granted the contact and
+// TheirPermissions what the contact granted it; both are stored as JSON arrays, and stored text that
+// is not valid JSON reads back as an empty list. In the pin, Fingerprint is the root's, SPKI is the
+// pinned leaf's key, and Endpoint, Leaf and RootCert are the address, the leaf and the root
+// certificate it was made from.
 type Contact struct {
 	ID          string
 	AccountID   string
@@ -190,6 +208,10 @@ type ExpiredContact struct {
 	Status      string // pending_in | pending_out
 }
 
+// Invite is an account's invitation to become a contact (SPEC §9.2). Only the hash of its token is
+// stored. An invite is revoked, never deleted: RevokedAt is set and the row stays, so the label on a
+// contact that redeemed it stays live. ExpiresAt, MaxUses and Uses bound its redemption
+// (ConsumeInviteUse).
 type Invite struct {
 	ID          string
 	AccountID   string
@@ -205,6 +227,9 @@ type Invite struct {
 	CreatedAt   int64
 }
 
+// Thread is one conversation topic between an account and a contact. LastAt is its last activity
+// time; the read marker (last_read_seq) is kept in the table and is reached through the read-state
+// methods of MessageStore, not through this type.
 type Thread struct {
 	ID         string
 	AccountID  string
@@ -214,6 +239,8 @@ type Thread struct {
 	LastAt     int64
 }
 
+// Blob is the record of an inline media file an account holds, named by the hash of its content. The
+// file is on disk under the node's blob directory; the row is only its record.
 type Blob struct {
 	AccountID string
 	Hash      string
@@ -223,6 +250,10 @@ type Blob struct {
 	CreatedAt int64
 }
 
+// Message is one message of a thread. Seq is the order the store wrote it in, ID is the store's id,
+// and MsgID is the sender-chosen idempotency key, unique per account, contact and Direction.
+// Direction is in or out, Sender is agent or human, Kind is text or media, and Status is delivered,
+// queued_for_human, pending or failed, all as the table's CHECKs hold them.
 type Message struct {
 	Seq        int64
 	ID         string
@@ -311,6 +342,9 @@ type PendingRequest struct {
 	AnsweredAt int64
 }
 
+// Token is an owner-MCP token, found by the hash of its secret and never holding the secret.
+// AccountID is empty for a token that acts for the owner on every account. RevokedAt is zero until
+// it is revoked.
 type Token struct {
 	ID        string
 	OwnerID   string
@@ -341,6 +375,9 @@ type AuditPage struct {
 	Limit   int
 }
 
+// AuditRow is one row of the audit chain as the store holds it. PrevHash and Hash are lowercase hex;
+// the audit package is what computes them (audit.Next), and the store only keeps what it is given.
+// AccountID is empty for a row about no account, stored as NULL.
 type AuditRow struct {
 	Seq       int64
 	TS        int64
@@ -356,6 +393,8 @@ type AuditRow struct {
 	Hash      string
 }
 
+// CreateAccountParams are the fields a new account is made from. Algo is p256 or ed25519, as the
+// table's CHECK holds it.
 type CreateAccountParams struct {
 	Slug        string
 	DisplayName string
@@ -392,6 +431,8 @@ type LeaseStore interface {
 // PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so
 // that every node process sharing the store answers "is the agent attached" the same.
 type PresenceStore interface {
+	// TouchOwnerPresence records that the owner's agent asked at the given time, replacing the
+	// single presence row. The time is stored as given and may be earlier than the one it replaces.
 	TouchOwnerPresence(ctx context.Context, at int64) error
 	// OwnerPresenceSeenAt is 0 when the agent has never asked.
 	OwnerPresenceSeenAt(ctx context.Context) (int64, error)
@@ -432,12 +473,17 @@ type ChangeStore interface {
 
 // Lifecycle opens, migrates, closes and transacts: what every engine does before it holds anything.
 type Lifecycle interface {
+	// Migrate applies every pending migration of the engine's schema (migrations/sqlite or
+	// migrations/postgres). Postgres processes sharing a database take turns under a session-level
+	// advisory lock.
 	Migrate(ctx context.Context) error
 	// SchemaCurrent reports whether the store's schema is exactly the one this binary migrates
 	// to: an error names the two versions when it is behind (a migration has not run) or ahead (a
 	// newer binary migrated it). A `serve` that shares the data dir and did not migrate checks it
 	// before serving (SPEC §11.1).
 	SchemaCurrent(ctx context.Context) error
+	// Close releases the engine's connections. SQLite's closes its pool and returns the driver's error;
+	// Postgres's closes the pool and returns nil.
 	Close() error
 
 	// Atomically runs fn against a Store whose every write is ONE transaction: all of it lands,
@@ -462,8 +508,15 @@ type OwnerStore interface {
 	// every later login. An owner whose id was minted afterwards can never match
 	// it (§3.1).
 	CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error)
+	// InsertCredential inserts a credential, giving it a random id and the current time when it has
+	// none. Kind must be one the table's CHECK admits (passkey, oauth, password), and an owner that
+	// does not exist is refused by the foreign key.
 	InsertCredential(ctx context.Context, c Credential) error
+	// CountCredentialsByKind counts the credentials whose kind equals kind, across every owner. The
+	// kind is not validated against the table's list, so an unknown kind counts 0.
 	CountCredentialsByKind(ctx context.Context, kind string) (int64, error)
+	// ListCredentialsByKind returns the credentials of one kind, across owners, ordered by creation
+	// time and then id.
 	ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error)
 
 	// There is deliberately NO unguarded RemoveCredential. It existed, with zero
@@ -475,51 +528,99 @@ type OwnerStore interface {
 	// same kind survives, in one statement. It reports whether it removed one;
 	// false with a nil error means "that was the last".
 	RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error)
+	// InsertSession inserts an owner session as given. The id is the primary key, and an owner that
+	// does not exist is refused by the foreign key. The expiry is not checked here: GetSession
+	// returns it, and DeleteExpiredSessions removes sessions past it.
 	InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error
+	// GetSession returns the session's owner and expiry, or ErrNotFound. It does not compare the
+	// expiry with the clock; the caller does.
 	GetSession(ctx context.Context, id string) (ownerID string, expiresAt int64, err error)
+	// RemoveSession deletes the session; one that is not there is not an error.
 	RemoveSession(ctx context.Context, id string) error
 
 	// DeleteExpiredSessions removes owner sessions past their time. Signing out deletes one and so
 	// does presenting an expired one; an abandoned session is never presented again.
 	DeleteExpiredSessions(ctx context.Context, now int64) (int64, error)
+	// InsertToken inserts an owner-MCP token by the hash of its secret; an empty accountID stores
+	// NULL, an owner-wide token.
 	InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error
+	// GetTokenByHash returns the owner-MCP token with this hash, revoked or not, or ErrNotFound.
 	GetTokenByHash(ctx context.Context, hash []byte) (Token, error)
+	// ListTokens returns every owner-MCP token, revoked ones included (RevokedAt is set), ordered by
+	// creation time and then id.
 	ListTokens(ctx context.Context) ([]Token, error)
+	// RevokeToken stamps the token revoked at now; a token that is missing or already revoked is an
+	// error.
 	RevokeToken(ctx context.Context, id string, now int64) error
+	// GetOwner returns the owner, or ErrNotFound.
 	GetOwner(ctx context.Context, id string) (Owner, error)
+	// ListOwners returns every owner ordered by creation time and then id.
 	ListOwners(ctx context.Context) ([]Owner, error)
+	// DeleteOwner deletes the owner; one that is not there is ErrNotFound.
 	DeleteOwner(ctx context.Context, id string) error
+	// AddMembership records that ownerID administers accountID with the given role. An owner or
+	// account that does not exist is refused by the foreign keys.
 	AddMembership(ctx context.Context, ownerID, accountID, role string) error
+	// ListMembershipsByOwner returns the owner's memberships, ordered by account id.
 	ListMembershipsByOwner(ctx context.Context, ownerID string) ([]Membership, error)
+	// RemoveMembership removes the owner's membership of the account; one that is not there is
+	// ErrNotFound.
 	RemoveMembership(ctx context.Context, ownerID, accountID string) error
 }
 
 // AccountStore holds the identities this node answers for: the account rows, their keys, the HDTP
 // root and leaf ledger, and a move's campaign (SPEC §3, HDTP §5.3, §9).
 type AccountStore interface {
+	// CreateAccount inserts an account under a fresh random id with the current time as CreatedAt and
+	// returns the stored row. It runs in a transaction; a slug already taken is refused by the table's
+	// constraint.
 	CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error)
 
 	// SetAccountKey binds the account's first key once: it refuses to overwrite an
 	// existing fingerprint. A leaf install moves it, through SetAccountLeafKey.
 	SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error
+	// GetAccountBySlug returns the account with this slug, or ErrNotFound.
 	GetAccountBySlug(ctx context.Context, slug string) (Account, error)
+	// ListAccounts returns every account ordered by creation time and then id.
 	ListAccounts(ctx context.Context) ([]Account, error)
+	// GetAccountByID returns the account, or ErrNotFound.
 	GetAccountByID(ctx context.Context, id string) (Account, error)
+	// GetAccountSealedKey returns the account's sealed leaf key. An account with no key returns nil
+	// and a nil error: no key is a state, and each caller decides what it means.
 	GetAccountSealedKey(ctx context.Context, id string) ([]byte, error)
 
 	// UpdateAccountSeal sets the account's X-HDTP-SEAL policy (SPEC §4.6).
 	UpdateAccountSeal(ctx context.Context, accountID, seal string) error
+	// UpsertMoveFanout writes the progress of a move campaign for one contact, one row per account and
+	// contact, stamped now when UpdatedAt is zero.
 	UpsertMoveFanout(ctx context.Context, f MoveFanout) error
+	// ListMoveFanout returns the account's move-campaign progress rows, ordered by contact
+	// fingerprint.
 	ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error)
 
 	// HDTP 1.0: the account's root and leaf ledger. The pins, removal tombstones,
 	// former endpoints and pending addresses are ContactStore's.
 	SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error
+	// SetAccountLeafKey points the account at its current leaf key: the fingerprint, the sealed key
+	// and the algorithm. Unlike SetAccountKey it moves an existing key; an account that is not there
+	// is an error.
 	SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error
+	// SetAccountHostPolicy sets the owner's accept_new_hosts setting (auto or ask) for the account; an
+	// account that is not there is an error.
 	SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error
+	// InsertLeaf inserts a leaf row, stamped now when CreatedAt is zero. It writes the leaf's
+	// certificate, sealed key, validity window, state and endpoint, and not the wallet request
+	// columns, which SetLeafRequest owns. An account may hold only one pending leaf (the unique index
+	// leaves_one_pending); a second is refused.
 	InsertLeaf(ctx context.Context, l Leaf) error
+	// UpdateLeaf rewrites a leaf's certificate, validity window, state and endpoint; a leaf that is
+	// not there is an error.
 	UpdateLeaf(ctx context.Context, l Leaf) error
+	// SetLeafMoved records whether installing the leaf moved the identity; a leaf that is not there is
+	// an error.
 	SetLeafMoved(ctx context.Context, accountID, kid string, moved bool) error
+	// ListLeaves returns every leaf row of the account, whatever its state, ordered by creation time
+	// and then kid; an account with none yields an empty list.
 	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)
 
 	// ListKidsExcept is every leaf kid on this node that belongs to some OTHER
@@ -528,11 +629,16 @@ type AccountStore interface {
 	// one query rather than one per sibling: the per-account form made the cost
 	// of every message grow with the number of identities the node hosts.
 	ListKidsExcept(ctx context.Context, accountID string) ([]string, error)
+	// RetireLeafKey destroys a superseded leaf's sealed key (it sets the column to NULL) and marks the
+	// leaf former, keeping its kid so an envelope still sealed to it is answered certificate_renewed.
+	// It does not report a leaf that is not there.
 	RetireLeafKey(ctx context.Context, accountID, kid string) error
 
 	// ClearAccountKey destroys the account's copy of its current leaf's key and keeps the
 	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
 	ClearAccountKey(ctx context.Context, accountID string) error
+	// DeleteLeavesByState deletes the account's leaf rows whose state equals state (pending, current,
+	// superseded or former) and returns how many went. Any other value matches nothing and returns 0.
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
 	// LockAccount, inside Atomically, makes every other transaction that locks the same account
 	// wait until this one ends: a signing request replacing the pending one is one step, never
@@ -542,6 +648,9 @@ type AccountStore interface {
 	// that also checks it, when an answer carrying it is installed. That statement keeps it as the
 	// leaf's AnsweredStateHash.
 	SetLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte, walletOrigin string) error
+	// ConsumeLeafRequest takes the state off the pending request for kid if, and only if, it is the
+	// one given, keeps it as the leaf's AnsweredStateHash, and reports whether it did; false when the
+	// request was never minted, carries another state, or was already used.
 	ConsumeLeafRequest(ctx context.Context, accountID, kid string, stateHash []byte) (bool, error)
 
 	// An identity leaving this host (HDTP §9, identity.Manager.Leave). DeleteAccount deletes the
@@ -549,19 +658,31 @@ type AccountStore interface {
 	// DeleteTokensByAccount, DeleteIdempotencyByAccount and DeleteChangesByAccount are the tables
 	// that name it without one.
 	DeleteAccount(ctx context.Context, accountID string) (int64, error)
+	// DeleteTokensByAccount deletes, rather than revokes, the tokens scoped to the account, so no row
+	// goes on naming an identity that left.
 	DeleteTokensByAccount(ctx context.Context, accountID string) (int64, error)
+	// DeleteIdempotencyByAccount deletes the account's idempotency records, which have no foreign key
+	// to cascade from.
 	DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error)
+	// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+	// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 	DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error)
 }
 
 // InviteStore holds an account's invites (SPEC §9.2).
 type InviteStore interface {
+	// InsertInvite inserts an invite, defaulting its id, creation time and a MaxUses of zero to one,
+	// and returns it.
 	InsertInvite(ctx context.Context, inv Invite) (Invite, error)
+	// GetInviteByHash returns the account's invite whose token hash is tokenHash, or ErrNotFound. It
+	// does not look at expiry, revocation or uses.
 	GetInviteByHash(ctx context.Context, accountID string, tokenHash []byte) (Invite, error)
 
 	// GetInviteByHashGlobal resolves a landing-page token with no account in the
 	// URL (SPEC §9.2 — /i/<token> carries only the bearer token).
 	GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) (Invite, error)
+	// ListInvites returns the account's invites, revoked and spent ones included, ordered by
+	// creation time and then id.
 	ListInvites(ctx context.Context, accountID string) ([]Invite, error)
 
 	// ConsumeInviteUse atomically increments uses; false when expired/revoked/exhausted.
@@ -598,22 +719,50 @@ type ContactStore interface {
 	// verified: a refresh the owner asked for (node.RefreshContact) or the peer's own
 	// `update_contact`. The pinned root never changes here.
 	UpdateContactCard(ctx context.Context, accountID, fingerprint, card, displayName string) error
+	// UpsertTombstone inserts the account's tombstone for one root or, if it has one (the key is
+	// account and root), replaces its leaf and time. At is stamped now when zero.
 	UpsertTombstone(ctx context.Context, t Tombstone) error
+	// ListTombstones returns the account's removal tombstones, ordered by time and then root.
 	ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error)
+	// DeleteTombstone removes the tombstone of one root; one that is not there is not an error.
 	DeleteTombstone(ctx context.Context, accountID, root string) error
+	// InsertFormerEndpoint records where a pinned root used to answer, stamped now when At is zero.
+	// The key is (account, root, endpoint, at): a root may have several former endpoints, and the
+	// same endpoint recorded at the same instant twice is refused.
 	InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) error
+	// ListFormerEndpoints returns the account's former endpoints ordered by time, then root, then
+	// endpoint; an account with none yields an empty list.
 	ListFormerEndpoints(ctx context.Context, accountID string) ([]FormerEndpoint, error)
+	// UpsertPendingAddress inserts the address waiting under one root or, if there is one (the key
+	// is account and root), replaces its endpoint, leaf, reason and time. A replacement without a
+	// root certificate keeps the one already stored, because the root of a pending address cannot
+	// change. At is stamped now when zero.
 	UpsertPendingAddress(ctx context.Context, p PendingAddress) error
+	// ListPendingAddresses returns the account's addresses waiting for the owner, ordered by time
+	// and then root.
 	ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error)
+	// GetPendingAddress returns the pending address of one root, or ErrNotFound.
 	GetPendingAddress(ctx context.Context, accountID, root string) (PendingAddress, error)
+	// DeletePendingAddress removes the pending address of one root; one that is not there is not an
+	// error.
 	DeletePendingAddress(ctx context.Context, accountID, root string) error
+	// RepinContactAddress moves a contact's pin to a new endpoint, leaf and key, stamping PinnedAt,
+	// and recomputes the leaf fingerprint with it. The root (the contact's fingerprint) never moves; a
+	// contact that is not there is an error.
 	RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, now int64) error
 
 	// SetContactRootCert fills a pin's root certificate when it has none, and
 	// leaves an existing one alone: the root of a pin cannot change (HDTP sec. 14.3).
 	SetContactRootCert(ctx context.Context, accountID, root string, cert []byte) error
+	// SetContactChainSentKid records which of this host's leaves was last carried to the contact; a
+	// contact that is not there is an error.
 	SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error
+	// ClearChainSentKids forgets, for every contact of the account, which of this host's leaves was
+	// last carried to it, so the next leaf's chain is sent once to each (HDTP §13.2).
 	ClearChainSentKids(ctx context.Context, accountID string) error
+	// InsertContact inserts a contact, giving it a random id, the current time as CreatedAt,
+	// ever_active for an active status and a request clock for pending_in and pending_out, and returns
+	// the stored row.
 	InsertContact(ctx context.Context, c Contact) (Contact, error)
 
 	// ImportContact writes a contact that arrived in an export (SPEC §3.10): every column an
@@ -626,7 +775,9 @@ type ContactStore interface {
 	// its key, the root's certificate) and marks it owed the handshake. A contact held with a leaf
 	// is left as it is, and false says so: a pin this host validated is never replaced by a file's.
 	ImportContactPin(ctx context.Context, c Contact) (bool, error)
+	// GetContact returns the contact, or ErrNotFound.
 	GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error)
+	// ListContacts returns the account's contacts ordered by creation time and id.
 	ListContacts(ctx context.Context, accountID string) ([]Contact, error)
 	// CountContactsByStatus counts one account's contacts in one state, reading those rows alone.
 	CountContactsByStatus(ctx context.Context, accountID, status string) (int64, error)
@@ -675,22 +826,38 @@ type ContactStore interface {
 	// DeleteContact removes the row entirely (SPEC §9.1 `--> none`): the pin
 	// and the relationship go, so re-adding starts fresh.
 	DeleteContact(ctx context.Context, accountID, fingerprint string) error
+	// UpdateContactPermissions sets what we granted the contact, as a permission list and a preset; a
+	// contact that is not there is an error.
 	UpdateContactPermissions(ctx context.Context, accountID, fingerprint string, permissions []string, preset string) error
+	// UpdateContactTrust sets the contact's trust flag; a contact that is not there is an error.
 	UpdateContactTrust(ctx context.Context, accountID, fingerprint, trustFlag string) error
 }
 
 // MessageStore holds conversations: threads, messages, media blobs, the idempotency records that
 // make a call safe to repeat, and the local deletes retention makes (SPEC §7, §11.2).
 type MessageStore interface {
+	// InsertThread inserts a thread as given. The primary key is (account, id), so a thread id the
+	// account already uses is refused by the table; ImportThread is the form that leaves an existing
+	// thread as it is.
 	InsertThread(ctx context.Context, t Thread) error
 	// ImportThread, ImportMessage and ImportBlob write what an export carried (SPEC §3.10). Each
 	// leaves a row that is already here as it is, so an import into an identity this host already
 	// holds adds what it lacks and changes nothing it has; each reports whether it wrote.
 	ImportThread(ctx context.Context, t Thread) (bool, error)
+	// ImportMessage writes a message an export carried, keeping its id and giving it no retry
+	// schedule, and reports whether it wrote; one already here by id or by the sender's msg_id is left
+	// as it is.
 	ImportMessage(ctx context.Context, m Message) (bool, error)
+	// ImportBlob writes a blob record an export carried and reports whether it wrote; one already here
+	// by hash is left as it is.
 	ImportBlob(ctx context.Context, b Blob) (bool, error)
+	// GetThread returns the account's thread, or ErrNotFound.
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)
+	// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it,
+	// and a thread that is not there is not reported.
 	TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error
+	// InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already
+	// taken in that direction of that conversation is refused by the table.
 	InsertMessage(ctx context.Context, m Message) error
 
 	// GetMessageByMsgID looks a message up by the CALLER's idempotency key.
@@ -713,26 +880,40 @@ type MessageStore interface {
 	// ListPendingOutbound returns outbound messages still awaiting delivery,
 	// oldest first, across every account (SPEC §7.1).
 	ListPendingOutbound(ctx context.Context, limit int32) ([]Message, error)
+	// ListMessagesByThread returns a thread's messages in the order they were written (seq).
 	ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]Message, error)
+	// InsertBlob inserts the account's record of an inline media file as given. A hash the account
+	// already has is refused by the primary key (account, hash); ImportBlob is the form that leaves
+	// an existing record as it is.
 	InsertBlob(ctx context.Context, b Blob) error
+	// GetBlob returns the account's blob record for hash, or ErrNotFound.
 	GetBlob(ctx context.Context, accountID, hash string) (Blob, error)
+	// SumBlobBytes returns the total size in bytes of the account's blob records, 0 when it has none.
 	SumBlobBytes(ctx context.Context, accountID string) (int64, error)
 
 	// Retention (SPEC §7.9). All of these delete LOCAL copies only: there is no
 	// wire protocol for remote deletion, and the peer's copy is the peer's.
 	DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error)
+	// DeleteEmptyThreads deletes the account's threads that hold no message and returns how many went.
+	// Empty is judged in the same account: a message of another account under the same thread id does
+	// not keep the thread alive.
 	DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error)
 
 	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what
 	// retention reads to learn which media a retained message still references.
 	ListMediaBodies(ctx context.Context, accountID string) ([]string, error)
+	// ListBlobs returns the account's blob records ordered by creation time.
 	ListBlobs(ctx context.Context, accountID string) ([]Blob, error)
+	// DeleteBlob deletes the account's blob record for hash and returns how many rows went. It removes
+	// the record, not the file.
 	DeleteBlob(ctx context.Context, accountID, hash string) (int64, error)
 
 	// CountBlobRefs counts rows for a hash ACROSS accounts: the blob store is
 	// content-addressed, so the file may only be removed once nobody refers to it.
 	CountBlobRefs(ctx context.Context, hash string) (int64, error)
+	// ListThreadsByAccount returns the account's threads, most recently active first.
 	ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error)
+	// UnreadCount counts the inbound messages of one thread above its read marker.
 	UnreadCount(ctx context.Context, accountID, threadID string) (int64, error)
 
 	// Read state (SPEC §7.6): local, never wire-visible. The marker is threads.last_read_seq, a
@@ -743,6 +924,8 @@ type MessageStore interface {
 	// message its reader was shown; MarkConversationReadThrough raises every thread of one
 	// contact's. Each answers how many threads moved: 0 when nothing was unread through it.
 	MarkThreadReadThrough(ctx context.Context, accountID, threadID string, through int64) (int64, error)
+	// MarkConversationReadThrough raises the read marker of every thread with one contact to `through`
+	// where it is lower, and returns how many threads moved. The marker is never lowered.
 	MarkConversationReadThrough(ctx context.Context, accountID, contactFpr string, through int64) (int64, error)
 	// ConversationHasMessage says whether `seq` is a message of this account's conversation with
 	// this contact: the only thing a conversation's read marker may name.
@@ -779,26 +962,48 @@ type MessageStore interface {
 type IntegrationStore interface {
 	// Integrations (SPEC §6.1): CRUD + node-local status.
 	InsertIntegration(ctx context.Context, in Integration) (Integration, error)
+	// GetIntegration returns the account's integration by slug; an error wrapping ErrNotFound when
+	// there is none.
 	GetIntegration(ctx context.Context, accountID, slug string) (Integration, error)
+	// GetIntegrationByID returns the integration by id; an error wrapping ErrNotFound when there is
+	// none.
 	GetIntegrationByID(ctx context.Context, id string) (Integration, error)
+	// ListIntegrations returns the account's integrations ordered by slug.
 	ListIntegrations(ctx context.Context, accountID string) ([]Integration, error)
+	// UpdateIntegrationStatus sets an integration's status and touches its update time; one that is
+	// not there is an error wrapping ErrNotFound.
 	UpdateIntegrationStatus(ctx context.Context, id, status string) error
+	// UpdateIntegrationConfig rewrites an integration's transport, endpoint, command and auth kind;
+	// one that is not there is an error wrapping ErrNotFound.
 	UpdateIntegrationConfig(ctx context.Context, id, transport, endpoint, command, authKind string) error
+	// DeleteIntegration deletes the integration by id; one that is not there is an error wrapping
+	// ErrNotFound.
 	DeleteIntegration(ctx context.Context, id string) error
 
 	// InsertCatalog stores an immutable snapshot; Version must be Latest+1.
 	InsertCatalog(ctx context.Context, c Catalog) (Catalog, error)
+	// LatestCatalog returns the highest catalog version of an integration; an error wrapping
+	// ErrNotFound when it has none.
 	LatestCatalog(ctx context.Context, integrationID string) (Catalog, error)
+	// GetCatalog returns one catalog version of an integration; an error wrapping ErrNotFound when
+	// there is none.
 	GetCatalog(ctx context.Context, integrationID string, version int64) (Catalog, error)
 
 	// InsertExposure stores an immutable exposure set; Version must be Latest+1.
 	InsertExposure(ctx context.Context, e Exposure) (Exposure, error)
+	// LatestExposure returns the highest exposure version of an integration; an error wrapping
+	// ErrNotFound when it has none.
 	LatestExposure(ctx context.Context, integrationID string) (Exposure, error)
+	// GetExposure returns one exposure version of an integration; an error wrapping ErrNotFound when
+	// there is none.
 	GetExposure(ctx context.Context, integrationID string, version int64) (Exposure, error)
 
 	// Pending agent-answered requests (SPEC §6.8).
 	InsertPendingRequest(ctx context.Context, p PendingRequest) (PendingRequest, error)
+	// GetPendingRequest returns the pending request by id, or an error wrapping ErrNotFound. It
+	// returns the row whatever its status or expiry.
 	GetPendingRequest(ctx context.Context, id string) (PendingRequest, error)
+	// ListOpenPendingRequests returns the account's open requests that expire after now, oldest first.
 	ListOpenPendingRequests(ctx context.Context, accountID string, now int64) ([]PendingRequest, error)
 
 	// AnswerPendingRequest closes an OPEN, unexpired row; reports whether it did.
@@ -806,6 +1011,8 @@ type IntegrationStore interface {
 
 	// SetIntegrationSecret stores the keyring-sealed credential blob (SPEC §6.3).
 	SetIntegrationSecret(ctx context.Context, id string, sealed []byte) error
+	// GetIntegrationSecret returns the integration's keyring-sealed credential blob; an error wrapping
+	// ErrNotFound when the integration is not there.
 	GetIntegrationSecret(ctx context.Context, id string) ([]byte, error)
 }
 
@@ -818,8 +1025,16 @@ type AuditStore interface {
 	// lock at BEGIN, on Postgres it takes an advisory lock (LockAuditChain) before it reads. No
 	// process carries the head in memory between appends.
 	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error
+	// InsertAuditEvent inserts one audit row exactly as given, with an empty accountID stored as NULL.
+	// It does not read the head or check the hashes: AppendAuditEvent is the path that extends the
+	// chain.
 	InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error
+	// LastAuditEvent returns the seq and hash of the newest audit row, or ErrNotFound for an empty
+	// chain.
 	LastAuditEvent(ctx context.Context) (seq int64, hash string, err error)
+	// ListAuditEvents returns the whole trail ascending by seq, or only one actor's rows when
+	// actorFilter is not empty. It is the trail as it is verified; ListAuditEventsPage is the trail as
+	// it is read.
 	ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error)
 
 	// ListAuditEventsPage is the trail as it is READ: newest first and bounded.

@@ -83,7 +83,9 @@ func ngrokListen(ctx context.Context, o ngrokOpts) (net.Listener, string, error)
 	return ln, ln.URL().String(), nil
 }
 
-// Ngrok is the adapter; the ngrok agent owns all networking.
+// Ngrok is the paid-plan adapter (TerminatesAtEdge false); the ngrok agent owns all networking. Its
+// constructor refuses a missing auth token (Extra auth_token, else $NGROK_AUTHTOKEN) and a url that
+// is not a tls:// endpoint; the default url is "tls://".
 type Ngrok struct {
 	opts   ngrokOpts
 	listen listenFunc
@@ -104,6 +106,8 @@ func init() {
 	})
 }
 
+// Start opens the ngrok tls:// endpoint and returns the https base for it (the port is omitted when
+// it is 443) with TerminatesAtEdge false and the raw Listener, on which the node runs its own TLS.
 func (a *Ngrok) Start(ctx context.Context) (Info, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -121,6 +125,7 @@ func (a *Ngrok) Start(ctx context.Context) (Info, error) {
 	return Info{PublicURL: pub, TerminatesAtEdge: false, Listener: ln}, nil
 }
 
+// Status reports the advertised URL and that the endpoint is passthrough.
 func (a *Ngrok) Status() Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -128,6 +133,7 @@ func (a *Ngrok) Status() Status {
 		Detail: "tls:// endpoint (paid); ngrok forwards the raw stream without terminating TLS"}
 }
 
+// Stop closes the ngrok listener and returns its close error.
 func (a *Ngrok) Stop() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

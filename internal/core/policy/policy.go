@@ -12,9 +12,13 @@ import (
 	"github.com/cedar-policy/cedar-go/types"
 )
 
-// Tier per HDTP §6.1.
+// Tier is the surface a caller reaches, per HDTP §6.1: what a tool is offered at, and what a
+// caller's relationship to the account entitles it to. A tool belongs to exactly one tier.
 type Tier string
 
+// The three tiers. A guest is a caller with no relationship, a blocked one, or one who asked us and
+// awaits approval; pending is a peer the owner asked (pending_out), who may answer with
+// contact_accepted or contact_rejected; contact is an active contact (TierFor).
 const (
 	TierGuest   Tier = "guest"
 	TierPending Tier = "pending"
@@ -78,8 +82,11 @@ var policies = func() *cedar.PolicySet {
 var callAction = types.NewEntityUID("Action", "call")
 var manageAction = types.NewEntityUID("Action", "manage")
 
-// Allow decides whether the caller may see and call a tool. Same contract since
-// P1-05; Cedar under the hood.
+// Allow reports whether the caller may see and call a tool whose demands are r. It permits exactly
+// when the caller's tier equals r.Tier and, if r.Permission is not empty, the caller holds that
+// permission. A Blocked caller is refused every rule whose tier is not guest, whatever its tier or
+// permissions. The decision is Cedar's over the static policy set; the diagnostics are discarded and the
+// result is true exactly when Cedar's decision is Allow.
 func Allow(c Caller, r Rule) bool {
 	principalUID := types.NewEntityUID("Contact", types.String(callerID(c)))
 	resourceUID := types.NewEntityUID("Tool", types.String(r.Tier)+"/"+types.String(r.Permission))
@@ -128,7 +135,8 @@ type OwnerCtx struct {
 	AdminAccounts []string
 }
 
-// AllowOwnerManage decides whether the owner may manage the account.
+// AllowOwnerManage reports whether the owner may manage accountID: true only when accountID is one
+// of o.AdminAccounts. The decision is Cedar's over the static policy set.
 func AllowOwnerManage(o OwnerCtx, accountID string) bool {
 	principalUID := types.NewEntityUID("Owner", types.String(o.OwnerID))
 	resourceUID := types.NewEntityUID("Account", types.String(accountID))

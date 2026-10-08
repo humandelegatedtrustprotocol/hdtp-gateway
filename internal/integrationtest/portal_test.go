@@ -1,5 +1,9 @@
 // Package integrationtest holds cross-package scenario tests: the phase exit
 // demos of PLAN.md, run against real stores and real HTTP.
+//
+// It also holds the repository guards: tests that read the source tree, the documents, the
+// compose and Envoy files and go.mod, and fail when a layering rule, a boundary or a claim the
+// documents make about the code stops being true. The package has no non-test file.
 package integrationtest
 
 import (
