@@ -32,6 +32,13 @@ changelog can be and is not summarized into a fictional release history.
 - An ingress pairing writes `subdomain`, the marker that makes the adapter selectable, as the last
   of its rows. `ingress_fpr` was written after it, so a failure on that write left a selectable
   adapter with no ingress pin; `unpair` now deletes `ingress_fpr` with the other rows.
+- `SPEC.md` §8.3 names the requests the portal serves without a session as the gate's
+  allow-list has them (`/api/session`, the wallet's return page, `/oauth/callback` and the SPA's
+  views among them); it said only the ceremonies, the shell and the health probe were served.
+- `SPEC.md` §5.4 and §12 said a pending-tier caller invoking a tool beyond its own is refused
+  `permission_denied`. The node answers `pending_approval` (`refusalCode`,
+  `TestThePendingTierIsRefusedPendingApproval`), as HDTP 1.0 amended by SEP-0003 requires; the
+  two lines say so.
 
 ### Removed
 
