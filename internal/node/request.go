@@ -18,8 +18,12 @@ import (
 
 // ErrRequestRefused is a peer's answer refusing `request_contact`. Code names why, in the peer's
 // words (HDTP §12); `pending_approval` means the peer already holds a request from us.
-type ErrRequestRefused struct{ Code string }
+type ErrRequestRefused struct {
+	// Code is the HDTP §12 code the peer answered with, or "" when it sent none.
+	Code string
+}
 
+// Error says the peer refused the request and, when it named one, the code.
 func (e ErrRequestRefused) Error() string {
 	if e.Code == "" {
 		return "the peer refused the request"

@@ -15,8 +15,11 @@ import (
 // ContactTool is what a contact's server offers this identity: the peer's own
 // switchboard has already filtered the list, so every entry here is callable.
 type ContactTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
+	// Name is the tool's name on the contact's server.
+	Name string `json:"name"`
+	// Description is the contact's description of it.
+	Description string `json:"description,omitempty"`
+	// InputSchema is the tool's JSON schema as the contact published it; empty when the list was rebuilt from grants.
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 

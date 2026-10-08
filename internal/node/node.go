@@ -47,8 +47,12 @@ const MaxBodyBytes = 8 * 1024 * 1024
 // node with no calendar provider still serves, answering `unavailable` for the
 // tools that would need one.
 type Options struct {
-	Config  core.Config
-	Store   store.Store
+	// Config is the resolved configuration: mode, seal and client_cert knobs, public bind and URL,
+	// proxy address, LAN flag.
+	Config core.Config
+	// Store holds accounts, contacts, messages and the audit chain. Required.
+	Store store.Store
+	// Keyring opens the sealed account keys.
 	Keyring *core.Keyring
 
 	// Landing builds the invite landing page of SPEC §9.2 from what the node gives it. It is the
@@ -62,7 +66,8 @@ type Options struct {
 	// AuditAs records events attributable to a resolved public caller, tagged
 	// with that caller's tier. Nil falls back to Audit.
 	AuditAs func(actorKind, action, resource, outcome string)
-	Now     func() time.Time
+	// Now is the node's clock (envelopes, chains, retries); nil means time.Now.
+	Now func() time.Time
 
 	// Calendar and Status are per-account capability providers, keyed by
 	// account id. A missing entry is not an error (SPEC §6.10).
@@ -70,7 +75,8 @@ type Options struct {
 	// They are read ONCE, when the account is built, so they cannot express an
 	// integration connected later. Prefer Capabilities for anything dynamic.
 	Calendar map[string]public.Calendar
-	Status   map[string]public.StatusSource
+	// Status is the same snapshot for get_status; with none, a node answers `available` (SPEC §6.7).
+	Status map[string]public.StatusSource
 
 	// Capabilities resolves an account's providers at CALL time (escalation E5,
 	// option B). The maps above are a snapshot taken during composition; an
@@ -204,6 +210,13 @@ func (o Options) auditAs(kind, action, resource, outcome string) {
 
 // New assembles the node. It loads every account's key eagerly: a node that
 // cannot open one of its identities must fail at startup, not on the first call.
+//
+// It returns an error when Store, Landing or Limits is missing, when listing accounts fails, and
+// when no account's key opened under the master key while at least one account could not be built
+// (the likely wrong master key; the message says what to do). An account that merely awaits a leaf
+// (ErrAwaitingLeaf) is skipped and audited as `account_awaiting_leaf`; one that cannot be built is
+// kept in Unavailable and audited as `account_unavailable`, and the others serve. New first retires
+// the keys of leaves past their notAfter (RetireExpiredLeaves).
 func New(ctx context.Context, o Options) (*Node, error) {
 	if o.Store == nil {
 		return nil, fmt.Errorf("node: no store")
@@ -484,7 +497,6 @@ func probeHandler(publicURL func() string) http.Handler {
 	})
 }
 
-// buildAccount loads one account's key and composes its serving state.
 // ErrAwaitingLeaf marks an account that cannot serve yet: it holds no key (a
 // data-only import), or it holds one and no leaf has been issued over it. Both
 // wait on the same thing — the wallet (HDTP §9). Exported because `account
@@ -496,6 +508,7 @@ var ErrAwaitingLeaf = errors.New("node: account awaits a leaf from its wallet")
 // one that did is proof this master key is the store's, and one with no key proves nothing.
 var errAwaitingKeyless = fmt.Errorf("%w (it holds no key here)", ErrAwaitingLeaf)
 
+// buildAccount loads one account's key and composes its serving state.
 func (n *Node) buildAccount(ctx context.Context, rec store.Account) (*account, error) {
 	return n.buildAccountSealed(ctx, rec, n.sealPolicy())
 }
@@ -968,8 +981,6 @@ func (n *Node) Contacts(accountID string) *contacts.Manager {
 	return nil
 }
 
-// Invalidate drops a caller's cached server on any account — the portal calls
-// it when a switchboard changes (SPEC §5.5).
 // ServedPermissions is every contact-tier permission this account's public
 // surface currently gates a tool with: the core five, plus one per live
 // integration exposure (SPEC §6.4). The portal's switchboard is built from it,
@@ -1081,9 +1092,6 @@ func (n *Node) SignCard(ctx context.Context, accountID, cardText string) (string
 	return n.idm.SignCard(ctx, accountID, cardText)
 }
 
-// Certificate returns an account's identity certificate — what an outbound leg
-// presents so the far side recognizes the key it pinned. Ingress pairing needs
-// it (SPEC §10.6).
 // CertificateInfo is the account's certificate state — root, chain, dates,
 // whether a renewal is due (§14). The portal and the owner MCP read the same
 // function, so neither can drift from what the node actually serves.
@@ -1091,6 +1099,10 @@ func (n *Node) CertificateInfo(ctx context.Context, accountID string) (identity.
 	return n.idm.Certificate(ctx, accountID, n.now())
 }
 
+// Certificate returns an account's identity certificate — what an outbound leg
+// presents so the far side recognizes the key it pinned. Ingress pairing needs
+// it (SPEC §10.6). It is the chain, leaf then root, or no certificate at all for a key
+// with no leaf; it errors for an account this node does not serve.
 func (n *Node) Certificate(accountID string) (tls.Certificate, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -1129,7 +1141,9 @@ func (n *Node) Pool(accountID string) *public.Pool {
 	return nil
 }
 
-// Handler is the fully wrapped public HTTP surface.
+// Handler is the fully wrapped public HTTP surface: the body cap outermost, then the LAN guard,
+// then the routes and the facts middleware (New). It does not include the TLS or the connection cap,
+// which Start adds.
 func (n *Node) Handler() http.Handler { return n.handler }
 
 // TLSConfig is the listener posture of SPEC §5.1: request client certificates,
@@ -1470,11 +1484,16 @@ func (n *Node) resolveTransport(next http.Handler) http.Handler {
 // for the account that issued the token, that account's chain, the base invite links are built
 // from, and the clock.
 type LandingDeps struct {
-	Store     store.Store
-	SignCard  func(accountID string) (cardText string, sigB64 string, err error)
-	Chain     func(accountID string) ([][]byte, error)
+	// Store is read for the invite token the page was asked for.
+	Store store.Store
+	// SignCard returns the card and its signature for the account that issued the token.
+	SignCard func(accountID string) (cardText string, sigB64 string, err error)
+	// Chain returns that account's [leaf, root].
+	Chain func(accountID string) ([][]byte, error)
+	// PublicURL is the base invite links are built from, read when the page is served.
 	PublicURL func() string
-	Now       func() time.Time
+	// Now is the clock for the token's expiry.
+	Now func() time.Time
 }
 
 // inviteHandler serves the landing page of SPEC §9.2 for whichever account
@@ -1509,9 +1528,11 @@ const (
 	PublicMaxHeaderBytes = 64 << 10
 )
 
-// Addr is the listening address, or "" before Start.
-// Start listens and serves. A nil listener means "dial the configured bind";
-// a tunnel adapter supplies its own.
+// Start listens and serves. A nil listener means "listen on the configured bind";
+// a tunnel adapter supplies its own. The listener is wrapped in the connection cap and then in TLS
+// (TLSConfig), and served with the PublicHeaderTimeout, PublicRequestTimeout, PublicAnswerTimeout,
+// PublicIdleTimeout and PublicMaxHeaderBytes bounds. It returns an error if the node is already
+// started or the bind cannot be listened on; serving then runs in a goroutine.
 func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 	n.lnMu.Lock()
 	defer n.lnMu.Unlock()
@@ -1545,7 +1566,6 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 }
 
 // Addr is the listening address, or "" before Start.
-
 func (n *Node) Addr() string {
 	n.lnMu.Lock()
 	defer n.lnMu.Unlock()
@@ -1555,7 +1575,8 @@ func (n *Node) Addr() string {
 	return n.ln.Addr().String()
 }
 
-// Stop shuts the listener down and releases the port.
+// Stop shuts the listener down gracefully (http.Server.Shutdown, bounded by ctx) and releases the
+// port. It is a no-op returning nil when the node was never started or is already stopped.
 func (n *Node) Stop(ctx context.Context) error {
 	n.lnMu.Lock()
 	srv, ln := n.http, n.ln
