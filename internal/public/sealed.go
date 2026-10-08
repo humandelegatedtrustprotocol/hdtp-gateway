@@ -34,12 +34,17 @@ const ResultLifetime = 5 * time.Minute
 
 // SealedDeps is what the wrapper needs for one account.
 type SealedDeps struct {
-	Pool       *Pool
+	// Pool dispatches the inner call and spends the budgets.
+	Pool *Pool
+	// Identifier opens and decides the envelope.
 	Identifier *Identifier
-	AccountID  string
+	// AccountID is the account addressed.
+	AccountID string
 	// Idem is optional; nil disables envelope-level msg_id replay.
-	Idem  IdempotencyStore
-	Now   func() time.Time
+	Idem IdempotencyStore
+	// Now dates result envelopes; nil means time.Now.
+	Now func() time.Time
+	// Audit receives each row when AuditAs is not set.
 	Audit func(action, resource, outcome string)
 	// AuditAs, when set, is used instead of Audit and is told who acted in the store's actor
 	// vocabulary: `guest` for an envelope that did not open or opened at the guest tier,
@@ -84,8 +89,10 @@ func sealedTool() *mcp.Tool {
 	}
 }
 
-// SealedEntries returns the registry entries for `sealed_call` — one per tier,
-// ungated by any permission, so every caller sees exactly one (SPEC §4.5).
+// SealedEntries returns the registry entries for `sealed_call` — one per tier (guest, pending,
+// contact), ungated by any permission, so every caller sees exactly one (SPEC §4.5). The handler
+// is the numbered pipeline: the guest total before the open; the open; the budget a refusal costs;
+// the replay; the inner call's budget; Dispatch; and the sealed answer.
 func SealedEntries(d SealedDeps) []Entry {
 	h := sealedHandler(d)
 	out := make([]Entry, 0, 3)

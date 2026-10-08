@@ -31,8 +31,12 @@ var ErrChainRequired = errors.New("chain_required")
 // CertificateRenewed is HDTP §14.4: an envelope sealed to a key this endpoint
 // once held for the identity and holds no longer is answered, in plaintext,
 // with the identity's current chain.
-type CertificateRenewed struct{ Chain [][]byte }
+type CertificateRenewed struct {
+	// Chain is this identity's current [leaf, root], DER.
+	Chain [][]byte
+}
 
+// Error returns the HDTP §12 code, "certificate_renewed", which Code maps back.
 func (e *CertificateRenewed) Error() string { return "certificate_renewed" }
 
 // TierPendingAddress is the seed's fourth outcome: a pinned root at a new
@@ -45,8 +49,11 @@ const TierPendingAddress policy.Tier = "pending_new_address"
 type RecipientState struct {
 	// HasRoot is whether the wallet has issued this identity a leaf: until it has, there is no
 	// chain to speak under and nothing sealed can be opened (HDTP §2).
-	HasRoot        bool
-	Endpoint       string
+	HasRoot bool
+	// Endpoint is this identity's own address, which a chain's leaf must not name for a guest (HDTP §14.5).
+	Endpoint string
+	// AcceptNewHosts is the owner's policy for a pinned root calling from a new address
+	// (HDTP §5.3): "auto" re-pins, anything else asks the owner. Empty is read as "auto".
 	AcceptNewHosts string
 	Chain          [][]byte           // [current leaf, root]
 	Keys           []identity.LeafKey // current first, superseded until notAfter
@@ -557,9 +564,12 @@ func (id *Identifier) notePendingAddress(ctx context.Context, accountID, root, e
 // superseded or conflicting leaf, a blocked contact). Refusal names the code
 // every substantive call answers while a new address awaits the owner.
 type TransportCaller struct {
+	// Fingerprint is the root to compose the per-caller server for; "" is an anonymous guest.
 	Fingerprint string
-	Demote      bool
-	Refusal     string
+	// Demote says a pin exists but the chain proved nothing for it: serve a guest whatever the row says.
+	Demote bool
+	// Refusal is the code every substantive call answers (`pending_approval`), or "".
+	Refusal string
 }
 
 type transportCallerKey struct{}

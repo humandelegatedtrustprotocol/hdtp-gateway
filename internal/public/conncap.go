@@ -14,11 +14,13 @@ import (
 // per source address, or for the whole node — are not the node's: they belong to what stands in
 // front of it (the owner's decision of 2026-09-28).
 type ConnCap struct {
+	// Max is the most connections held open at once.
 	Max int
 	// Audit receives one row a minute at most, counting the connections refused since the last:
 	// a row per refusal would turn a flood of connections into a flood of the audit chain.
 	Audit func(action, resource, outcome string)
-	Now   func() time.Time
+	// Now is the clock for the once-a-minute audit; nil means time.Now.
+	Now func() time.Time
 
 	open     atomic.Int64
 	refused  atomic.Int64
@@ -37,7 +39,10 @@ func (c *ConnCap) now() time.Time {
 	return time.Now()
 }
 
-// Listener wraps the raw listener, beneath TLS.
+// Listener wraps the raw listener, beneath TLS. The wrapper's Accept never returns a connection past
+// Max: it closes it and accepts the next, counting the refusal toward `listener_full`
+// (resource `max:<Max> count:<n>`, outcome `refused`). A slot is released when the accepted
+// connection is closed, once.
 func (c *ConnCap) Listener(ln net.Listener) net.Listener { return &capListener{Listener: ln, c: c} }
 
 type capListener struct {

@@ -1,13 +1,12 @@
 package public
 
-// The envelope validation pipeline (SPEC §4.4) and the unified caller-identity
+// The envelope validation pipeline (SPEC §4, §5.3) and the unified caller-identity
 // rule (§5.3), as code. This is the ONE place a caller's identity is decided:
-// every sealed call passes the numbered open order, every call — sealed or not
-// — passes the seal/client-cert policy gate, and the result is either a
-// resolved identity or one of the three HDTP §12 codes.
+// every sealed call is opened and decided by OpenSealed (decide.go), every call — sealed or
+// not — passes the seal/client-cert policy gate, and the result is either a
+// resolved identity or an HDTP §12 code.
 //
-// Order matters and is spec-pinned: decode → suite → to → kid → OPEN →
-// verify signature → freshness → idempotency → dispatch. Opening precedes
+// The numbered open order is HDTP §13.3 and hdtp-identity's Decide; opening precedes
 // verification because HPKE Base needs no sender key, which is exactly what
 // lets a sender this node has never pinned carry its chain inside the
 // ciphertext (HDTP §13.2).
@@ -71,15 +70,20 @@ func Code(err error) string {
 // plaintext. The sender's chain or leaf, which the same plaintext carries, is
 // decided there and reaches the node as EnvelopeFacts, not as a member here.
 type Payload struct {
-	Method string          `json:"method"`
+	// Method is "tools/call" or "tools/list"; Dispatch returns an error for any other, which the
+	// sealed wrapper seals back as `unavailable`.
+	Method string `json:"method"`
+	// Params are the inner call's parameters as sent: {"name", "arguments"} for tools/call.
 	Params json.RawMessage `json:"params,omitempty"`
 }
 
 // EnvelopeFacts is what a successfully opened envelope yields (SPEC §5.3).
 type EnvelopeFacts struct {
-	Header  envelope.Header
-	From    string // the signer's fingerprint — the caller identity (the root's)
-	SPKI    []byte // the sender's key: the leaf's, from the chain or the pin
+	// Header is the protected header, read from the bytes Decide decided on.
+	Header envelope.Header
+	From   string // the signer's fingerprint — the caller identity (the root's)
+	SPKI   []byte // the sender's key: the leaf's, from the chain or the pin
+	// Payload is the inner call.
 	Payload Payload
 	Card    string // guest card from the inner call, when one was carried
 	Guest   bool   // true when `from` was not in the contact store
@@ -90,14 +94,21 @@ type EnvelopeFacts struct {
 	// address and certificate; Form is chain or leaf; Refusal is a code the
 	// wrapper answers with nothing dispatched (pending_approval), sealed to the
 	// key in SPKI (sealed.go, sealBackErr).
-	Tier         policy.Tier
-	Demote       bool
-	Endpoint     string
-	Leaf         []byte
-	Form         string
-	Why          string
+	Tier policy.Tier
+	// Demote: see above.
+	Demote bool
+	// Endpoint is the address the sender's leaf names.
+	Endpoint string
+	// Leaf is the sender's leaf, DER.
+	Leaf []byte
+	// Form is "chain" or "leaf": which the sender's plaintext carried.
+	Form string
+	// Why is Decide's reason for the tier (for example "blocked", "superseded leaf").
+	Why string
+	// AddressClaim is Decide's address-claim finding (HDTP §5.2), "" for none; redeem_invite records it in its audit row.
 	AddressClaim string
-	Refusal      string
+	// Refusal: see above.
+	Refusal string
 	// state is the recipient state the open was decided against: the answer is sealed under the
 	// key it holds, and reads none of its own (sealed.go, sealResult).
 	state *RecipientState
@@ -110,18 +121,22 @@ type IdempotencyStore interface {
 
 // Identifier runs the pipeline for one node.
 type Identifier struct {
+	// Store holds the pins (contacts), tombstones, former endpoints and pending addresses.
 	Store store.ContactStore
 	// AccountID is the account this identifier serves. One is built per account
 	// (SPEC §5.2), so this is fixed for its lifetime.
 	AccountID string
-	Seal      core.Seal
-	Cert      core.ClientCert
+	// Seal is the account's seal policy (none, optional, required) when SealFn is nil.
+	Seal core.Seal
+	// Cert is the client_cert knob; only core.ClientCertRequired changes what this type does.
+	Cert core.ClientCert
 	// SealFn, when set, overrides Seal per call. The settings page changes the
 	// policy while the node is serving, and a switch that only takes effect on
 	// the next restart is a footgun — so the gate reads through this rather
 	// than a value captured when the surface was built.
 	SealFn func() core.Seal
-	Now    func() time.Time
+	// Now is the clock envelopes and chains are judged by; nil means time.Now.
+	Now func() time.Time
 	// Audit records refusals; nil discards.
 	Audit func(action, resource, outcome string)
 	// RecipientState supplies what a `v: 1` envelope is decided against (HDTP §13.3):
@@ -132,7 +147,9 @@ type Identifier struct {
 	// OnEvent is told of a renewal or a new address learned from a chain
 	// (HDTP §5.3: shown to the owner as an event); OnPending of an address
 	// awaiting the owner's answer. Both may be nil.
-	OnEvent   func(event, root, endpoint string)
+	OnEvent func(event, root, endpoint string)
+	// OnPending is told when a new address for a pinned root is parked for the owner, only when the
+	// parked row is new or changed.
 	OnPending func(root, endpoint, why string)
 }
 
@@ -274,9 +291,6 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf Trans
 	return id.decideEnvelope(ctx, accountID, tf, e)
 }
 
-// Replay checks step 8: a msg_id already processed for this caller returns its
-// recorded acknowledgment instead of re-executing. Reserving before dispatch
-// and finalizing after is the caller's job (the ack text is the tool result).
 // EnvelopeKey namespaces an envelope's replay guard away from tool-level
 // idempotency. SPEC §4.5 keeps the two separate on purpose — "the envelope
 // msg_id deduplicates the envelope; an inner tool that itself takes a msg_id
@@ -291,6 +305,11 @@ func (id *Identifier) OpenSealed(ctx context.Context, accountID string, tf Trans
 // passed. The prefix is storage-local and invisible on the wire.
 func EnvelopeKey(msgID string) string { return "env:" + msgID }
 
+// Replay checks step 8: a msg_id already processed for this caller returns its
+// recorded acknowledgment instead of re-executing. Reserving before dispatch
+// and finalizing after is the caller's job (the ack text is the tool result). With no
+// store, or an envelope whose header has no msg_id, it records nothing and reports no replay. The
+// reservation's expiry is replayWindowEnd: the first second the envelope would be refused.
 func (id *Identifier) Replay(ctx context.Context, idem IdempotencyStore, accountID string, f *EnvelopeFacts) (ack string, replayed bool, err error) {
 	if idem == nil || f.Header.MsgID == "" {
 		return "", false, nil

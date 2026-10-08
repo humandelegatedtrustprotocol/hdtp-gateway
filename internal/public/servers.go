@@ -23,8 +23,11 @@ import (
 
 // Entry is one registry row: the tool, its gating rule, and its handler.
 type Entry struct {
-	Tool    *mcp.Tool
-	Rule    policy.Rule
+	// Tool is the MCP tool definition tools/list shows.
+	Tool *mcp.Tool
+	// Rule is the tier and permission policy.Allow requires of a caller.
+	Rule policy.Rule
+	// Handler runs the call; it sees the resolved caller (CallerFromContext).
 	Handler mcp.ToolHandler
 }
 
@@ -129,9 +132,12 @@ type CallerResolver func(ctx context.Context, accountID, fingerprint string) (po
 // anonymous guests share one key per account. Bounded LRU — rebuilding is cheap,
 // so eviction is harmless (SPEC §2.4).
 type Pool struct {
+	// Registry is the set of tools to compose servers from.
 	Registry *Registry
-	Resolve  CallerResolver
-	MaxSize  int
+	// Resolve maps a fingerprint to the caller policy judges.
+	Resolve CallerResolver
+	// MaxSize bounds the cached servers; NewPool sets 256 when given a size that is not positive.
+	MaxSize int
 	// CallAudit records refusals, tagged with the tier the caller reached us at.
 	// SPEC §5.8 is explicit that every deny on this surface produces an audit
 	// event — a denial nobody can see afterwards is the one an operator most
@@ -168,8 +174,11 @@ type Pool struct {
 type Charge int
 
 const (
+	// ChargeCaller spends the caller's own budget: a contact's, or a guest's.
 	ChargeCaller Charge = iota
+	// ChargeGuest spends the guest budget whatever the caller is: a pinned root at an address the owner has not approved, or the pending tier.
 	ChargeGuest
+	// ChargeSource spends the source address's budget alone, for a caller that proved no root.
 	ChargeSource
 	// ChargeOpened is a call the open found and answered with a refusal that spends nothing else
 	// (an envelope_invalid, a certificate_renewed, a client certificate that is not the envelope's
@@ -182,7 +191,9 @@ const (
 // asked — the limits sidecar is not answering, and the node refuses rather than guess (the owner's
 // rule of 2026-09-29, docs/release/two-layer-limits-2026-09-28.md §6).
 type Refusal struct {
-	RetryAfter  time.Duration
+	// RetryAfter is how long until the refusing budget holds a call again.
+	RetryAfter time.Duration
+	// Unavailable is set when no budget could be asked; RetryAfter is then unused and the code is `unavailable`.
 	Unavailable bool
 }
 
@@ -227,6 +238,8 @@ type poolEntry struct {
 	server *mcp.Server
 }
 
+// NewPool returns a Pool over reg whose cache holds at most maxSize composed servers (256 when
+// maxSize is not positive). Set the hooks (Limit, PreOpen, Gate, CallAudit, AccountID) before use.
 func NewPool(reg *Registry, resolve CallerResolver, maxSize int) *Pool {
 	if maxSize <= 0 {
 		maxSize = 256
@@ -239,7 +252,8 @@ func NewPool(reg *Registry, resolve CallerResolver, maxSize int) *Pool {
 
 func key(accountID, fpr string) string { return accountID + "\x00" + fpr }
 
-// ServerFor returns the composed server for this caller, cached until invalidated.
+// ServerFor returns the composed server for this caller, cached until invalidated. fpr "" is an
+// anonymous guest and shares one cache key per account. It returns the resolver's error, if any.
 func (p *Pool) ServerFor(ctx context.Context, accountID, fpr string) (*mcp.Server, error) {
 	k := key(accountID, fpr)
 	p.mu.Lock()
@@ -505,13 +519,14 @@ func (p *Pool) checked(accountID, fpr string, e Entry) mcp.ToolHandler {
 
 type callerKey struct{}
 
-// CallerFromContext returns the policy-resolved caller inside a guarded handler.
 // WithCaller attaches a resolved caller: the pool's guard calls it per call, and
 // a test exercising a handler built outside this package calls the same function.
 func WithCaller(ctx context.Context, c policy.Caller) context.Context {
 	return context.WithValue(ctx, callerKey{}, c)
 }
 
+// CallerFromContext returns the policy-resolved caller inside a guarded handler, and false
+// outside one. Handlers read the caller here, never from an argument.
 func CallerFromContext(ctx context.Context) (policy.Caller, bool) {
 	c, ok := ctx.Value(callerKey{}).(policy.Caller)
 	return c, ok
