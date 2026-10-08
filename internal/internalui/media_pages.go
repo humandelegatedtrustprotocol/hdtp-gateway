@@ -26,11 +26,14 @@ import (
 
 // MediaDeps is what the media routes need.
 type MediaDeps struct {
+	// Store holds the blob rows that authorize a read.
 	Store store.Store
+	// Blobs is the content-addressed byte store a blob row points into.
 	Blobs messaging.BlobDir
 	// Fetch performs an owner-initiated fetch of a contact-supplied URL.
 	// nil disables the route rather than half-serving it.
 	Fetch func(ctx context.Context, accountID, rawURL string) (string, error)
+	// Audit records reads and fetches; nil records nothing.
 	Audit func(action, resource, outcome string)
 }
 

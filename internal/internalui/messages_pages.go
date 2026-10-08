@@ -30,6 +30,7 @@ import (
 
 // MessagesDeps is what the conversation view needs.
 type MessagesDeps struct {
+	// Store supplies contacts, threads, messages and the read markers.
 	Store store.Store
 	// Send delivers AND records. Without it the page can show history but not
 	// write, which is the state the portal was in.
@@ -37,7 +38,8 @@ type MessagesDeps struct {
 	// SendMedia is the file counterpart of Send: bytes the owner picked in the
 	// browser, delivered through the peer's send_media.
 	SendMedia func(ctx context.Context, accountID, contactFpr string, in messaging.Input, filename, mime string, data []byte) (messaging.Result, error)
-	Audit     func(action, resource, outcome string)
+	// Audit records failed sends; nil records nothing.
+	Audit func(action, resource, outcome string)
 }
 
 type convContact struct {

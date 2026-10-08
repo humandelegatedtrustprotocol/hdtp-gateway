@@ -36,6 +36,7 @@ import (
 
 // WalletInstalled is what an install did, as the return page reports it.
 type WalletInstalled struct {
+	// Endpoint is the address the installed leaf names.
 	Endpoint string
 	// NotBefore and NotAfter are the installed leaf's validity, as the wallet's chain gives it.
 	NotBefore, NotAfter time.Time
@@ -48,6 +49,7 @@ type WalletInstalled struct {
 // WalletDeps is what the web-wallet pages call. Mint and Install are the node's one signing-request
 // service (cli/leafservice.go), the same the admin socket calls.
 type WalletDeps struct {
+	// Store resolves the slug in a route to an account and lists its leaves.
 	Store store.Store
 	// WalletOrigin is the web wallet's origin (config wallet_url); the request goes to its /sign.
 	WalletOrigin string
@@ -55,10 +57,17 @@ type WalletDeps struct {
 	Endpoint func(slug string) string
 	// Purpose is identity.Manager.WalletPurpose: renew or move, or a refusal for an account with no root.
 	Purpose func(r *http.Request, accountID, endpoint string) (string, error)
-	Mint    func(r *http.Request, acct store.Account, purpose, endpoint, walletOrigin string) (identity.CSRResult, error)
+	// Mint creates the pending signing request for the account (audited by the service as
+	// account_csr). The start route calls it without a nil check.
+	Mint func(r *http.Request, acct store.Account, purpose, endpoint, walletOrigin string) (identity.CSRResult, error)
+	// Install verifies the wallet's answer against the pending request and installs the leaf. Its
+	// errors are mapped to the install route's codes by walletRefusal. Called without a nil check.
 	Install func(r *http.Request, acct store.Account, chain [][]byte, state string) (WalletInstalled, error)
-	Audit   func(action, resource, outcome string)
-	Now     func() time.Time
+	// Audit records the page's own refusals; nil records nothing.
+	Audit func(action, resource, outcome string)
+	// Now is the clock for the request's expiry and the "made N minutes ago" line; nil means
+	// time.Now.
+	Now func() time.Time
 }
 
 func (d WalletDeps) now() time.Time {

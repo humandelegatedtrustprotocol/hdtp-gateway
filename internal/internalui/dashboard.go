@@ -28,6 +28,7 @@ import (
 
 // DashboardDeps is the state the page reports.
 type DashboardDeps struct {
+	// Store supplies the accounts, memberships, contacts and pending addresses the page counts.
 	Store store.Store
 	// Posture is the resolved deployment state — what is in effect now.
 	Posture func() DashboardPosture
@@ -35,22 +36,26 @@ type DashboardDeps struct {
 	// (IdentityDeps.Certificate), so the two pages cannot disagree about a leaf. Nil (a test's
 	// mount) answers each identity's certificate as null.
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
-	// Setup gates the first-run wizard this page auto-shows at zero passkeys.
+	// Setup and SignedIn are set by the wiring (cli/compose.go) and are not read by this package's
+	// dashboard handler: the wizard redirect is the SPA's, from /api/session, and the handler
+	// takes the owner from the session gate (OwnerFrom).
 	Setup *SetupTokens
-	// SignedIn reports whether this request carries a portal session. Nil means
-	// no authentication is configured — a loopback portal serves with no login
-	// (SPEC §8.3), and offering to sign out of a session that does not exist
-	// promises something the button cannot do.
+	// SignedIn: see Setup.
 	SignedIn func(*http.Request) bool
 }
 
 // DashboardPosture is the resolved node state.
 type DashboardPosture struct {
-	Mode       string `json:"mode"`
+	// Mode is the deployment mode in effect.
+	Mode string `json:"mode"`
+	// Seal and ClientCert are the sealed-envelope and client-certificate policies in effect, not
+	// the configured values (an edge adapter forces seal: required and client_cert: off).
 	Seal       string `json:"seal"`
 	ClientCert string `json:"client_cert"`
-	Tunnel     string `json:"tunnel"`
-	PublicURL  string `json:"public_url"`
+	// Tunnel is the tunnel adapter's name.
+	Tunnel string `json:"tunnel"`
+	// PublicURL is the node's externally reachable base, as the node reports it now.
+	PublicURL string `json:"public_url"`
 }
 
 type dashAccount struct {

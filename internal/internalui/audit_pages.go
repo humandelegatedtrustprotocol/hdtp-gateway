@@ -15,6 +15,7 @@ import (
 
 // AuditDeps is what the audit page reads: the trail, and the lists its ids are named from.
 type AuditDeps struct {
+	// Store supplies the trail and the lists the names are read from.
 	Store store.Store
 	// Tokens names the owner-MCP tokens a row mentions (`token:<id>`), revoked ones included:
 	// revoking is a timestamp, and the rows the token wrote still name it. Nil leaves them unnamed.

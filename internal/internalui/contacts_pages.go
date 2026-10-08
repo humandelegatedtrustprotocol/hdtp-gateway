@@ -19,8 +19,12 @@ import (
 // Invalidator drops a caller's composed server (public.Pool.Invalidate).
 type Invalidator func(ctx context.Context, accountID, fpr string) error
 
+// ContactsDeps is what the contact routes need: the list, the per-contact switchboard, the
+// lifecycle (remove, block, unblock), and the calls to a contact's server.
 type ContactsDeps struct {
-	Store      store.Store
+	Store store.Store
+	// Invalidate drops the caller's composed server after a grant changes. The permissions route
+	// calls it without a nil check.
 	Invalidate Invalidator
 	// ListTools and Call reach a contact's server as this account — what they
 	// let us call there, and calling it. Both go through the node's outbound
@@ -28,7 +32,9 @@ type ContactsDeps struct {
 	// MCP's call_contact uses, so the two surfaces cannot disagree.
 	ListTools func(ctx context.Context, accountID, fpr string) ([]ContactTool, error)
 	Call      func(ctx context.Context, accountID, fpr, tool string, args map[string]any) (string, error)
-	Audit     func(action, resource, outcome string)
+	// Audit records the page's mutations and contact calls. The permissions, petname and trust
+	// handlers call it without a nil check.
+	Audit func(action, resource, outcome string)
 	// AddContact is the owner reaching out with THIS account's identity — the
 	// owner-initiated half of contact establishment (SPEC §9): redeem the invite
 	// link they were sent, or, with no link, ask the holder of a card they have out
@@ -97,10 +103,12 @@ func redirectContacts(w http.ResponseWriter, r *http.Request, account, notice, e
 	http.Redirect(w, r, "/contacts?"+q.Encode(), http.StatusSeeOther)
 }
 
-// ContactTool is one entry of a contact's tools/list for this identity.
+// ContactTool is one entry of a contact's tools/list for this identity, as the peer answered it.
 type ContactTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
+	// Name is the tool's name on the contact's server, what POST /contacts/{fpr}/call takes as `tool`.
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// InputSchema is the peer's JSON Schema for the tool's arguments, passed through untouched.
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 

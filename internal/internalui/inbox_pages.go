@@ -14,10 +14,13 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
+// InboxDeps is what the thread routes and the event stream need.
 type InboxDeps struct {
 	Store store.Store
-	Msg   *messaging.Service
-	Bus   *messaging.Bus
+	// Msg reads a thread's messages (and records one when Send is nil).
+	Msg *messaging.Service
+	// Bus is the in-process event bus GET /events subscribes to, per account.
+	Bus *messaging.Bus
 	// Send delivers an owner-composed message to the contact AND records it.
 	// It is a seam because `internal/messaging` has no path to the wire — it
 	// imports only the store — so a page wired straight to Msg.Record wrote a
@@ -35,6 +38,8 @@ func formOrQuery(r *http.Request, key string) string {
 	return r.URL.Query().Get(key)
 }
 
+// MountInboxPages registers GET /api/inbox, GET /api/threads/{id}, POST /threads/{id}/send and the
+// server-sent-events stream GET /events.
 func MountInboxPages(mux *http.ServeMux, d InboxDeps) {
 	mux.HandleFunc("GET /api/inbox", d.getAPIInbox)
 	mux.HandleFunc("GET /api/threads/{id}", d.getAPIThreadsID)

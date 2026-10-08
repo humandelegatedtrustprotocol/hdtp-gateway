@@ -24,6 +24,8 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
+// SettingsDeps is what the settings routes need. A nil optional callback hides its section and
+// leaves its route unregistered (SaveStorage, SavePreset, Pair, Probe; see MountSettingsPages).
 type SettingsDeps struct {
 	// Effective is the resolved view of every owner-settable knob.
 	Effective func() []core.Effective
@@ -58,16 +60,21 @@ type SettingsDeps struct {
 	SaveStorage func(ctx context.Context, accountID string, quotaGiB int64, retentionDays, requestExpiryDays int) error
 	// Presets/SavePreset/DeletePreset edit the owner's permission bundles
 	// (HDTP §8: presets are owner-editable). nil hides the section.
-	Presets      func(ctx context.Context) (map[string][]string, error)
-	SavePreset   func(ctx context.Context, name string, perms []string) error
+	Presets func(ctx context.Context) (map[string][]string, error)
+	// SavePreset stores one named bundle after contacts.ValidatePreset accepts it.
+	SavePreset func(ctx context.Context, name string, perms []string) error
+	// DeletePreset removes one named bundle.
 	DeletePreset func(ctx context.Context, name string) error
 	// Probe runs the reachability check of SPEC §10.4; nil hides the control.
 	Probe func(ctx context.Context) (verdict, detail string)
+	// Audit records settings changes (keys and outcomes, never values). Nil records nothing.
 	Audit func(action, resource, outcome string)
 }
 
 // PairInput is what the owner types to pair with an ingress (SPEC §10.6).
 type PairInput struct {
+	// PairURL and Token are the pairing URL and the one-time token the owner was given. The route
+	// refuses a pairing without either (and without a Subdomain).
 	PairURL string
 	Token   string
 	// Subdomain is the name they want under the ingress's domain.
@@ -85,12 +92,16 @@ type PairInput struct {
 
 // AccountChoice names one identity for the pairing selector.
 type AccountChoice struct {
+	// ID is the account id; Label is the text the selector shows for it.
 	ID    string `json:"id"`
 	Label string `json:"label"`
 }
 
 // PairResult is what a completed pairing tells the owner.
 type PairResult struct {
+	// PublicName and Adapter are what the success notice reports ("Paired as <PublicName> over
+	// <Adapter>"). Fingerprint is the ingress key that was presented: the page prints it when the
+	// owner supplied none to check against, and appends it to a refusal when they did.
 	PublicName  string
 	Fingerprint string
 	Adapter     string
@@ -109,6 +120,7 @@ const (
 
 // StorageRow is one account's storage policy, as the page shows it.
 type StorageRow struct {
+	// AccountID names the account the policy belongs to; Label is how the page names it.
 	AccountID string `json:"account_id"`
 	Label     string `json:"label"`
 	// QuotaGiB is the media quota; 0 renders as the documented default.
@@ -122,6 +134,8 @@ type StorageRow struct {
 
 // AdapterSetting is one stored adapter credential or option.
 type AdapterSetting struct {
+	// Key is the stored settings key (tunnel.<adapter>.<setting>). Secret says the value is a
+	// credential, Set whether one is stored; the value itself is never returned.
 	Key    string `json:"key"`
 	Secret bool   `json:"secret"`
 	Set    bool   `json:"set"`

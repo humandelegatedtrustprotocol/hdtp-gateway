@@ -21,13 +21,21 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
+// OwnersDeps is what Settings · owners needs: the passkeys and bearer tokens it lists, removes,
+// mints and revokes.
 type OwnersDeps struct {
-	Store  store.Store
+	// Store supplies the accounts a token can be narrowed to and, with no session, the node's
+	// first owner.
+	Store store.Store
+	// Tokens mints, lists and revokes owner-MCP bearer tokens.
 	Tokens *auth.TokenService
 	// Passkeys lists and removes registered passkeys.
 	Passkeys func(ctx context.Context) ([]auth.PasskeyInfo, error)
-	Remove   func(ctx context.Context, id string) error
-	Audit    func(action, resource, outcome string)
+	// Remove deletes a passkey by id (auth.Service.RemovePasskey, which refuses the last one).
+	// Nil answers 503 from the remove route.
+	Remove func(ctx context.Context, id string) error
+	// Audit records the page's mutations. Nil records nothing.
+	Audit func(action, resource, outcome string)
 }
 
 func (d OwnersDeps) audit(action, resource, outcome string) {
@@ -36,7 +44,9 @@ func (d OwnersDeps) audit(action, resource, outcome string) {
 	}
 }
 
-// MountOwnerPages registers the owners page.
+// MountOwnerPages registers Settings · owners: GET /api/owners, POST /owners/passkeys/{id}/remove,
+// POST /owners/tokens/create and POST /owners/tokens/{id}/revoke. Every answer, including a
+// mutation's, is the page's whole state as JSON.
 func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, newToken string) {
 		var passkeys []auth.PasskeyInfo
@@ -106,9 +116,8 @@ func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r 
 		label := strings.TrimSpace(r.PostForm.Get("label"))
 		owner := OwnerFrom(r.Context())
 		if owner == "" {
-			// A loopback portal has no session, so the token belongs to the
-			// node's single owner; with none registered there is nobody to
-			// issue for.
+			// With no session in the context the token belongs to the node's
+			// first owner; with none registered there is nobody to issue for.
 			owners, err := d.Store.ListOwners(r.Context())
 			if err != nil || len(owners) == 0 {
 				render(w, r, "register a passkey first — a token belongs to an owner", "")

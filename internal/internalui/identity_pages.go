@@ -22,13 +22,15 @@ import (
 
 // IdentityDeps is what the identity page needs.
 type IdentityDeps struct {
+	// Accounts lists every identity on the node; the identity routes call it without a nil check.
 	Accounts func(ctx context.Context) ([]store.Account, error)
 	// Create provisions a new identity, running the SAME procedure `account
 	// create` does — a portal that generated keys its own way would be a second
 	// identity path to keep in step. Nil hides the affordance rather than
 	// offering a button that cannot work.
 	Create func(ctx context.Context, slug, displayName, algo string) (store.Account, error)
-	Audit  func(action, resource, outcome string)
+	// Audit records identity creation; nil records nothing.
+	Audit func(action, resource, outcome string)
 	// Certificate reports an account's leaf (HDTP §2): the root that is
 	// the identity, the endpoint, the dates, and whether renewal is due —
 	// the thirty-day prompt a host owes the person. nil hides the columns.
@@ -59,6 +61,8 @@ type identityRow struct {
 	WebWallet bool `json:"web_wallet,omitempty"`
 }
 
+// MountIdentityPages registers GET /api/identity and POST /identity/create, and, when d.Wallet is
+// set, the web-wallet routes (MountWalletPages).
 func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, errMsg string) {
 		accts, err := d.Accounts(r.Context())

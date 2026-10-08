@@ -129,14 +129,6 @@ func soleAccountID(ctx context.Context, st store.AccountStore) string {
 	return accounts[0].ID
 }
 
-// withChrome adds what the shared shell needs to a page's template data.
-//
-// Both values come from the request, so no page has to be given a new dependency
-// to wear the chrome — which is what kept the header on the dashboard alone.
-// SignedIn is false when nothing signed in: a loopback portal serves with no
-// login (SPEC §8.3), and a sign-out button there would promise something it
-// cannot do.
-
 // ownerAdmins reports whether the request may act on this account.
 //
 // SPEC §3.3 makes owner→account a MEMBERSHIP, and the owner MCP enforces it on

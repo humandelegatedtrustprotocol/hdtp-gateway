@@ -1,7 +1,6 @@
-// Package internalui implements the internal surface: portal and (later) owner MCP
-// (SPEC §8). This file carries the listener plumbing: routing, the setup-wizard gate
-// (SPEC §3.1, §8.6, §12.4), and CSRF protection — which stays on even for the
-// loopback-no-login rule.
+// This file carries the listener plumbing of the internal surface (SPEC §8): the handler
+// composition, the setup-wizard gate (SPEC §3.1, §8.6, §12.4), CSRF protection, the security
+// headers, the TLS loader and the listener.
 package internalui
 
 import (
@@ -20,12 +19,14 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
-// SetupTokens: setup URLs (SPEC §12.4) — ≥128 bits entropy, 24 h expiry, and
+// SetupTokens holds the one-time tokens that open the first-run wizard to a non-loopback caller
+// (and, minted as recovery tokens, re-open it). Setup URLs (SPEC §12.4) — ≥128 bits entropy, 24 h expiry, and
 // consumed when setup COMPLETES rather than on first use, because a WebAuthn
 // ceremony is two requests and burning the token on the first would guarantee
 // the second failed. So a token is a bearer credential for the wizard until a
-// passkey exists or 24 h pass — not a one-shot. All tokens are invalidated the
-// moment any passkey exists (checked at use).
+// passkey exists or 24 h pass — not a one-shot. Every ordinary token stops
+// being accepted the moment any passkey exists (checked at use); a recovery token (MintRecovery)
+// is the exception.
 type SetupTokens struct {
 	mu     sync.Mutex
 	tokens map[string]setupToken
@@ -40,6 +41,8 @@ type setupToken struct {
 	recovery bool
 }
 
+// NewSetupTokens returns an empty store of setup tokens. The tokens live in memory only: a
+// restart of the node discards every outstanding one.
 func NewSetupTokens() *SetupTokens {
 	return &SetupTokens{tokens: map[string]setupToken{}}
 }
