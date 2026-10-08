@@ -26,6 +26,7 @@ import (
 // LandingDeps is what the landing page reads. Its fields are node.LandingDeps' exactly, so the one
 // converts to the other: the node builds it, and `serve` hands this package's page to the node.
 type LandingDeps struct {
+	// Store resolves the invite by the hash of its token, and the issuing account.
 	Store store.Store
 	// SignCard produces the issuer's card text and its signature for an account (SPEC §9.3).
 	SignCard func(accountID string) (cardText string, sigB64 string, err error)
@@ -39,7 +40,8 @@ type LandingDeps struct {
 	// captured value would keep printing links at the old host while the card
 	// advertises the new one.
 	PublicURL func() string
-	Now       func() time.Time
+	// Now is the clock the expiry check reads; nil means time.Now.
+	Now func() time.Time
 }
 
 var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>

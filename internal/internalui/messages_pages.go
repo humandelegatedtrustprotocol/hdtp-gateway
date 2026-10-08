@@ -30,6 +30,7 @@ import (
 
 // MessagesDeps is what the conversation view needs.
 type MessagesDeps struct {
+	// Store supplies contacts, threads, messages and the read markers.
 	Store store.Store
 	// Send delivers AND records. Without it the page can show history but not
 	// write, which is the state the portal was in.
@@ -37,7 +38,8 @@ type MessagesDeps struct {
 	// SendMedia is the file counterpart of Send: bytes the owner picked in the
 	// browser, delivered through the peer's send_media.
 	SendMedia func(ctx context.Context, accountID, contactFpr string, in messaging.Input, filename, mime string, data []byte) (messaging.Result, error)
-	Audit     func(action, resource, outcome string)
+	// Audit records failed sends; nil records nothing.
+	Audit func(action, resource, outcome string)
 }
 
 type convContact struct {
@@ -110,13 +112,13 @@ func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
 const ConversationsPage = 50
 
 // UnreadCap is where a conversation's unread count stops, and the page's total too: past it the
-// row, or the sidebar's Inbox chip, says "50+". It is HDTP
-// Cloud's BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
+// row, or the sidebar's Inbox chip, says "50+". It is BatonDeck's
+// BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
 // reads every row's count on every visit, which is why a count is bounded rather than exact.
 const UnreadCap = 50
 
-// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape HDTP
-// Cloud's GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
+// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape BatonDeck's
+// GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
 // `count`.
 type tally struct {
 	Count  int64 `json:"count"`

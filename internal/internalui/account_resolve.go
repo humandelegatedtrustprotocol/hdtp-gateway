@@ -13,9 +13,9 @@ package internalui
 // not something a link should have to spell out, and an id in the URL is one more
 // thing to leak into a screenshot, a bookmark or a shared link.
 //
-// This is NOT an authorization boundary. The portal is the owner's own surface
-// (SPEC §8.3) and shows every account on its dashboard; resolution decides what a
-// page is ABOUT, never what the owner may see.
+// Resolution itself only fills a gap and decides what a page is ABOUT. The check that an account
+// a request names is one the owner administers is the separate refusal in accountMiddleware
+// (404, audited), and covers only the `account` values in the query and in a urlencoded form body.
 
 import (
 	"context"

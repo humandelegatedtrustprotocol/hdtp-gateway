@@ -1,8 +1,20 @@
-// Package ownermcp is the owner's MCP surface (SPEC §8.4): bearer-token-authed
-// tools mirroring the portal, plus readable hdtp:// resources; what changes is
-// waited for with `wait_for_updates` (SPEC §8.5). Every authorization decision routes
-// through policy (Cedar): a token narrowed to one account acts on that account
-// alone, and every tool that names an account re-checks AllowOwnerManage.
+// Package ownermcp is the owner's MCP surface (SPEC §8.4): the tools and hdtp:// resources an
+// owner's agent uses to run the node with a bearer token (internalui/auth.TokenService), mirroring
+// what the portal does for a person. What changes is waited for with `wait_for_updates`
+// (SPEC §8.5). Every authorization decision routes through policy (Cedar): a token narrowed to one
+// account acts on that account alone, and every tool that names an account re-checks
+// AllowOwnerManage.
+//
+// internal/cli (compose.go) builds one server per request with NewServerWithExtra, for the
+// identity the request's token validated as, and mounts it at /owner/mcp outside the portal's
+// session and CSRF layers; the token check there is the only gate in front of this package. The
+// package does not authenticate: it is handed an auth.Identity and decides, per account, what
+// that identity may touch.
+//
+// The tools are registered in three places: NewServerWithExtra (the core and the contact
+// lifecycle), AddParityTools (the ones whose dependencies come in Extra; each is registered only
+// when its dependency is non-nil), AddWatchTools (wait_for_updates, digest). The README lists
+// them with their refusals.
 package ownermcp
 
 import (
@@ -27,16 +39,26 @@ import (
 )
 
 const (
-	URIInbox    = "hdtp://inbox"
+	// URIInbox is the resource of unread counts, one number per administered account.
+	URIInbox = "hdtp://inbox"
+	// URIRequests is the resource of contacts waiting for the owner's approval (pending_in), across
+	// the administered accounts.
 	URIRequests = "hdtp://requests"
-	URIPending  = "hdtp://pending"
+	// URIPending is the resource of open agent-answered requests (SPEC §6.8), across the
+	// administered accounts.
+	URIPending = "hdtp://pending"
 	// URIThreadPrefix is the per-thread resource SPEC §8.5 lists alongside the
 	// three collection resources: one conversation, read without reading the
 	// whole inbox.
 	URIThreadPrefix = "hdtp://thread/"
 )
 
+// Deps is what the owner surface acts through. A nil Approved, Rejected, Removed, Invalidate,
+// ServedPermissions, Audit or Send skips the effect it names and the tool still answers; a nil
+// RefreshContact leaves refresh_contact unregistered; a nil Pending makes answer_request answer
+// that dispatch is not enabled and keeps the pending count out of wait_for_updates and digest.
 type Deps struct {
+	// Store is the node's store. It is read for scope (memberships) and for every tool.
 	Store store.Store
 	// PublicURL is this node's public address, read live (it changes from Settings): where an
 	// invite's link lands (`/i/<token>`). "" is no address, and create_invite then mints nothing.
@@ -50,7 +72,8 @@ type Deps struct {
 	// an active contact it was removed (their `remove_contact`): the same calls the portal makes.
 	// Nil skips the call; the decision still stands and the result says they were not told.
 	Rejected func(ctx context.Context, accountID, contactFpr string) error
-	Removed  func(ctx context.Context, accountID, contactFpr string) error
+	// Removed: see Rejected.
+	Removed func(ctx context.Context, accountID, contactFpr string) error
 	// ServedPermissions names every contact-tier permission this account's surface gates a tool
 	// with beyond the core five — the portal's switchboard offers the same (contacts.Offered).
 	ServedPermissions func(accountID string) []string
@@ -60,11 +83,17 @@ type Deps struct {
 	// and that contact stays at guest tier until the node restarts (P14-05e).
 	// The portal's contact pages have always had this; the owner MCP did not.
 	Invalidate func(ctx context.Context, accountID, contactFpr string) error
-	Msg        *messaging.Service
-	Bus        *messaging.Bus
-	Contacts   *contacts.Manager
-	// Pending serves agent-answered dispatch (SPEC §6.8); nil disables the
-	// list_pending / answer_request pair and hdtp://pending stays empty.
+	// Msg reads threads (and records a message when Send is nil).
+	Msg *messaging.Service
+	// Bus wakes wait_for_updates; nil leaves it to wait out its timeout.
+	Bus *messaging.Bus
+	// Contacts runs the contact lifecycle and mints invites. The lifecycle tools and create_invite
+	// call it without a nil check.
+	Contacts *contacts.Manager
+	// Pending serves agent-answered dispatch (SPEC §6.8). Nil makes answer_request answer
+	// {"error":"agent-answered dispatch is not enabled"}, and leaves the pending count out of
+	// wait_for_updates and digest. list_pending and hdtp://pending read the store and do not
+	// consult it.
 	Pending *integrations.AgentAnswered
 	// Send delivers a message to a contact AND records it. `internal/messaging`
 	// has no path to the wire, so a tool wired straight to Msg.Record recorded
@@ -88,8 +117,6 @@ func (d Deps) audit(action, resource, outcome string) {
 	}
 }
 
-// scope resolves what this identity may touch: the token's account narrow, else
-// every account where the owner holds admin (SPEC §3.4).
 // reconcile applies a switchboard change to any live per-caller server. A nil
 // hook is tolerated so tests can build Deps without one, but production wires it.
 func (d Deps) reconcile(ctx context.Context, accountID, contactFpr string) {
@@ -99,6 +126,8 @@ func (d Deps) reconcile(ctx context.Context, accountID, contactFpr string) {
 	_ = d.Invalidate(ctx, accountID, contactFpr)
 }
 
+// scope resolves what this identity may touch: the token's account narrow, else
+// every account where the owner holds admin (SPEC §3.4).
 func (d Deps) scope(ctx context.Context, ident auth.Identity) (policy.OwnerCtx, error) {
 	ms, err := d.Store.ListMembershipsByOwner(ctx, ident.OwnerID)
 	if err != nil {
@@ -160,21 +189,27 @@ func jsonResult(v any) (*mcp.CallToolResult, error) {
 
 /* --------------------------------- args ---------------------------------- */
 
+// AccountArg is the argument of every tool that takes only an account.
 type AccountArg struct {
 	AccountID string `json:"account_id" jsonschema:"the account to act on"`
 }
 
+// AnswerArgs are answer_request's arguments: one pending request of one account, and the payload
+// the node relays to the waiting caller.
 type AnswerArgs struct {
 	AccountID string `json:"account_id" jsonschema:"the account the request belongs to"`
 	RequestID string `json:"request_id" jsonschema:"the pending request id"`
 	Result    string `json:"result" jsonschema:"the answer payload relayed to the caller"`
 }
 
+// ReadThreadArgs are read_thread's arguments.
 type ReadThreadArgs struct {
 	AccountID string `json:"account_id"`
 	ThreadID  string `json:"thread_id"`
 }
 
+// SendArgs are send_to_contact's arguments. MsgID is the idempotency key. ThreadID is empty to
+// start a new thread; Topic is for that case only.
 type SendArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
@@ -184,6 +219,8 @@ type SendArgs struct {
 	Topic      string `json:"topic,omitempty" jsonschema:"a new thread's topic, at most 256 bytes; refused for a thread that exists"`
 }
 
+// PermissionsArgs are set_permissions' arguments: the contact's whole new grant, not a delta.
+// Preset is kept only while Permissions still equals that bundle.
 type PermissionsArgs struct {
 	AccountID   string   `json:"account_id"`
 	ContactFpr  string   `json:"contact_fpr"`
@@ -191,6 +228,7 @@ type PermissionsArgs struct {
 	Preset      string   `json:"preset,omitempty"`
 }
 
+// TrustArgs are set_trust_flag's arguments; Trust is messages_only or may_instruct.
 type TrustArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
@@ -233,6 +271,7 @@ type InviteIDArgs struct {
 	InviteID  string `json:"invite_id" jsonschema:"the invite to revoke, as list_invites names it"`
 }
 
+// InviteArgs are create_invite's arguments; they are contacts.InviteOptions.
 type InviteArgs struct {
 	AccountID  string   `json:"account_id"`
 	Label      string   `json:"label,omitempty"`

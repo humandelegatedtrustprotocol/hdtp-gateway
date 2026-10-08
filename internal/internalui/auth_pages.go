@@ -8,10 +8,9 @@ package internalui
 // also stops a token minting a durable credential for itself. These handlers are
 // therefore the only place a passkey is created.
 //
-// Binding decides authentication and is fixed at startup (§8.3): a loopback
-// portal has no login, and a non-loopback one refuses to start without passkeys
-// and TLS. That is a startup invariant, so the middleware below captures the
-// decision once rather than re-deciding per request. CSRF stays on either way.
+// A session is required on every bind, loopback included (SessionMiddleware); a non-loopback
+// bind additionally refuses to start without passkeys and TLS, which the config check enforces
+// before this package is built.
 
 import (
 	"context"
@@ -24,13 +23,19 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
-// AuthDeps is what the ceremonies and the session gate need.
+// AuthDeps is what the ceremonies and the session gate need. HandlerWithAuth mounts the
+// ceremonies and wraps everything in SessionMiddleware when it is given one.
 type AuthDeps struct {
+	// Service runs the WebAuthn ceremonies and owns the sessions (auth.Service).
 	Service *auth.Service
-	Origin  OriginPolicy
+	// Origin decides which relying party a ceremony runs under; a Host it does not accept is
+	// refused with 400 and audited as refused_origin.
+	Origin OriginPolicy
 	// Secure marks the session cookie as https-only.
 	Secure bool
-	Audit  func(action, resource, outcome string)
+	// Audit records the portal's authentication events and the session gate's refusals.
+	// Nil records nothing.
+	Audit func(action, resource, outcome string)
 	// SetupAllowed gates first-passkey registration the way the wizard does:
 	// zero passkeys, and loopback or a one-time token. It must NOT consume the
 	// token — a ceremony is two requests.
@@ -73,16 +78,9 @@ func (d AuthDeps) audit(action, resource, outcome string) {
 	}
 }
 
-// setupTmpl is the first-run wizard (SPEC §8.3). It replaces the P2-era
-// placeholder that said "Passkey registration arrives with phase P2" and shipped
-// no JavaScript at all — so `/setup/begin` and `/setup/finish` worked while no
-// browser ever called them, and a real owner could not register a first passkey.
-//
-// It is hand-written imperative JS for the same reason loginTmpl is: a WebAuthn
-// ceremony is a sequence of promises over binary values, which no declarative
-// attribute library expresses. Everything is inline; nothing loads from a host.
-
-// MountAuthPages registers the ceremonies and the login page.
+// MountAuthPages registers the five POST endpoints of the ceremonies: /login/begin,
+// /login/finish, /logout, /setup/begin and /setup/finish. The pages that drive them are the
+// SPA's.
 func MountAuthPages(mux *http.ServeMux, d AuthDeps) {
 	mux.HandleFunc("POST /login/begin", d.postLoginBegin)
 	mux.HandleFunc("POST /login/finish", d.postLoginFinish)
@@ -200,8 +198,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 type ownerKey struct{}
 
-// OwnerFrom returns the signed-in owner, or "" on a loopback portal where §8.3
-// says there is no login.
+// OwnerFrom returns the owner the session gate resolved for this request, or "" when the request
+// carries no valid session (a route the gate leaves open, or a handler mounted without
+// SessionMiddleware).
 func OwnerFrom(ctx context.Context) string {
 	id, _ := ctx.Value(ownerKey{}).(string)
 	return id

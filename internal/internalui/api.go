@@ -34,6 +34,7 @@ func apiJSON(w http.ResponseWriter, v any) {
 
 // SessionAPIDeps drives /api/session, the first call the SPA makes.
 type SessionAPIDeps struct {
+	// Store supplies the accounts and the owner's memberships.
 	Store store.Store
 	// NeedsSetup reports zero registered passkeys — the §8.3 state in which the
 	// portal must lead to the wizard and nowhere else.

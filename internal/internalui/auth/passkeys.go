@@ -1,8 +1,8 @@
 // Package auth implements owner authentication (SPEC §3.1, §8.3): WebAuthn
 // passkeys — multiple per owner, each with an owner-supplied tag, managed from
-// portal, owner MCP, and CLI — plus cookie sessions. Registration is gated the
-// same way as the setup wizard: first passkey via loopback/one-time token; later
-// passkeys require a logged-in owner session.
+// portal, owner MCP, and CLI — plus cookie sessions. Registration is gated like
+// the setup wizard: the first passkey from loopback or with a one-time token, later ones only
+// with a recovery token minted over the admin socket (AuthDeps.SetupAllowed in internalui).
 package auth
 
 import (
@@ -51,9 +51,18 @@ type ceremony struct {
 	handle string
 }
 
+// Service runs the WebAuthn ceremonies and the portal's sessions. New builds one; the zero value
+// has no ceremony table and must not be used.
+//
+// In-flight ceremonies are held in memory, keyed by the id the Begin call returns, and are taken
+// out by the matching Finish call whether it succeeds or not: a ceremony id is single-use. The
+// table has no expiry of its own, so a ceremony that is begun and never finished stays until the
+// process exits.
 type Service struct {
+	// Store holds owners, passkey credentials and sessions.
 	Store store.Store
-	Now   func() time.Time
+	// Now is the clock for session issue and expiry; nil means time.Now.
+	Now func() time.Time
 
 	mu      sync.Mutex
 	pending map[string]ceremony // ceremony id -> in-flight challenge + its RP
@@ -375,19 +384,27 @@ func (s *Service) SessionOwner(ctx context.Context, token string) string {
 	return ownerID
 }
 
+// Logout removes the session. The removal error is discarded, and an unknown token is not an
+// error: the call is safe to repeat, and after it SessionOwner answers "" for that token.
 func (s *Service) Logout(ctx context.Context, token string) {
 	_ = s.Store.RemoveSession(ctx, token)
 }
 
 /* ------------------------------- management ------------------------------- */
 
+// PasskeyInfo is a registered passkey as the portal, the owner MCP and the audit page name it:
+// metadata only, never the credential.
 type PasskeyInfo struct {
-	ID        string `json:"id"`
-	OwnerID   string `json:"owner_id"`
-	Tag       string `json:"tag"`
-	CreatedAt int64  `json:"created_at"`
+	// ID is the credential row's id, what RemovePasskey and the audit trail's passkey:<id> take.
+	ID      string `json:"id"`
+	OwnerID string `json:"owner_id"`
+	// Tag is the label the owner gave at registration ("passkey" when none).
+	Tag string `json:"tag"`
+	// CreatedAt is unix seconds.
+	CreatedAt int64 `json:"created_at"`
 }
 
+// ListPasskeys lists every passkey on the node, across owners, in the store's order.
 func (s *Service) ListPasskeys(ctx context.Context) ([]PasskeyInfo, error) {
 	all, err := s.Store.ListCredentialsByKind(ctx, "passkey")
 	if err != nil {

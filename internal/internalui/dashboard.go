@@ -28,6 +28,7 @@ import (
 
 // DashboardDeps is the state the page reports.
 type DashboardDeps struct {
+	// Store supplies the accounts, memberships, contacts and pending addresses the page counts.
 	Store store.Store
 	// Posture is the resolved deployment state — what is in effect now.
 	Posture func() DashboardPosture
@@ -39,11 +40,16 @@ type DashboardDeps struct {
 
 // DashboardPosture is the resolved node state.
 type DashboardPosture struct {
-	Mode       string `json:"mode"`
+	// Mode is the deployment mode in effect.
+	Mode string `json:"mode"`
+	// Seal and ClientCert are the sealed-envelope and client-certificate policies in effect, not
+	// the configured values (an edge adapter forces seal: required and client_cert: off).
 	Seal       string `json:"seal"`
 	ClientCert string `json:"client_cert"`
-	Tunnel     string `json:"tunnel"`
-	PublicURL  string `json:"public_url"`
+	// Tunnel is the tunnel adapter's name.
+	Tunnel string `json:"tunnel"`
+	// PublicURL is the node's externally reachable base, as the node reports it now.
+	PublicURL string `json:"public_url"`
 }
 
 type dashAccount struct {

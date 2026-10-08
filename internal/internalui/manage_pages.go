@@ -16,10 +16,14 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
+// ManageDeps is what the Requests, Invites and card routes need.
 type ManageDeps struct {
-	Store    store.Store
+	Store store.Store
+	// Contacts runs the approve/reject/address decisions and mints invites (contacts.Manager). The
+	// invite-create route calls it without a nil check.
 	Contacts *contacts.Manager
-	Audit    func(action, resource, outcome string)
+	// Audit records every mutation on these routes. The handlers call it without a nil check.
+	Audit func(action, resource, outcome string)
 	// Invalidate drops a caller's composed tool surface, so their next request is composed anew. Approving a
 	// request changes their tier; without this the pool keeps serving the
 	// surface it composed when they first called — the guest one — and an
@@ -31,8 +35,8 @@ type ManageDeps struct {
 	// Card renders the account's card. It MUST be the same function the public
 	// surface serves from (node.Card): a portal that builds its own card can
 	// show the owner something peers never receive — a stale endpoint, or a seal
-	// policy the gate does not enforce. Nil falls back to a local build from
-	// PublicURL, which is for tests only.
+	// policy the gate does not enforce. Nil means no card: the card routes
+	// answer 404 no_card.
 	Card func(ctx context.Context, accountID string) (string, error)
 	// PublicURL is a FUNC, like Card, because the owner can change it in Settings
 	// while the node serves: a value captured once at wiring time is stale from
@@ -128,6 +132,8 @@ func (d ManageDeps) decideAddress(approve bool) http.HandlerFunc {
 	}
 }
 
+// MountManagePages registers the Requests tab (contact requests and contacts waiting at a new
+// address), the invite lifecycle, and the card: see the README's route table.
 func MountManagePages(mux *http.ServeMux, d ManageDeps) {
 	mux.HandleFunc("GET /api/requests", d.getAPIRequests)
 	mux.HandleFunc("POST /requests/addresses/{root}/approve", d.decideAddress(true))

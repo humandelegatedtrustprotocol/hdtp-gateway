@@ -20,13 +20,23 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
+// IntegrationsDeps is what the integration pages need. MountIntegrationPages panics without
+// Background; the other fields are used as each one says.
 type IntegrationsDeps struct {
-	Store     store.Store
-	Manager   *integrations.Manager
+	Store store.Store
+	// Manager dials and re-dials an integration (Reconnect, from POST .../connect).
+	Manager *integrations.Manager
+	// Connector carries an OAuth flow between the Connect request, the authorization server and the
+	// callback. Nil makes Connect and authorize answer as for a non-OAuth integration, and the
+	// callback answer 400.
 	Connector *integrations.Connector
+	// Exposures publishes and reconfirms an integration's exposure set. The exposure routes call it
+	// without a nil check.
 	Exposures *integrations.Exposures
+	// Cataloger refreshes an integration's tool catalogue; nil makes the refresh route answer 409.
 	Cataloger *integrations.Cataloger
-	Audit     func(action, resource, outcome string)
+	// Audit records the page's mutations; nil records nothing.
+	Audit func(action, resource, outcome string)
 	// ConnectTimeout bounds the wait for the AS URL (default 15 s).
 	ConnectTimeout time.Duration
 	// SetStatic stores an `auth: static` integration's sealed credential
@@ -72,6 +82,9 @@ func checkIntegration(slug, transport, endpoint, command string) error {
 	return nil
 }
 
+// MountIntegrationPages registers the integration routes (see the README's route table). It
+// panics when d.Background is nil: a Connect's dial outlives its request and must run in the
+// node's joined group.
 func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 	if d.Background == nil {
 		panic("internalui: MountIntegrationPages needs Background, the node's joined group for work a request starts")
