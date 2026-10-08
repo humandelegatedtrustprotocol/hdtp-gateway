@@ -45,8 +45,8 @@ func (d OwnersDeps) audit(action, resource, outcome string) {
 }
 
 // MountOwnerPages registers Settings · owners: GET /api/owners, POST /owners/passkeys/{id}/remove,
-// POST /owners/tokens/create and POST /owners/tokens/{id}/revoke. Every answer, including a
-// mutation's, is the page's whole state as JSON.
+// POST /owners/tokens/create and POST /owners/tokens/{id}/revoke. Every successful answer, and a
+// refused passkey removal, is the page's whole state as JSON.
 func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, newToken string) {
 		var passkeys []auth.PasskeyInfo

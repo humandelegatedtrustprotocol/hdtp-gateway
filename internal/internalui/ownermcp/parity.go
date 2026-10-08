@@ -1,8 +1,8 @@
 package ownermcp
 
 // The owner-MCP tools SPEC §8.4 names and §8.6 requires, which the server did
-// not register: `audit_query`, `call_contact`, `export_card`, and the passkey
-// pair.
+// not register: `audit_query`, `call_contact`, `export_card`, `identity_certificate`,
+// `list_integrations`, `set_exposure`, `add_contact`, and the passkey pair.
 //
 // One boundary shapes this file. SPEC §8.6 allows an owner-MCP session to LIST
 // and REMOVE passkeys but never to register one: a bearer token cannot perform a
@@ -14,8 +14,6 @@ package ownermcp
 // to a contact. It does not get its own path to the wire — it goes through the
 // same outbound client a portal-initiated call uses, and the peer applies its
 // own switchboard, so this cannot reach anything the contact has not granted.
-// The sender label is `agent` and is set here, never taken from the caller
-// (SPEC §7.3).
 
 import (
 	"context"
@@ -57,7 +55,8 @@ type Extra struct {
 	// truncates — filtering afterwards would silently return fewer rows than
 	// asked for whenever a row the caller cannot see got there first.
 	Audit func(ctx context.Context, actorFilter string, limit int, permit func(accountID string) bool) ([]store.AuditRow, error)
-	// Log records a mutation. Owner-MCP actions are `token`-attributed: a bearer
+	// Log records the owner-MCP audit rows: one owner_mcp_call per tools/call, and the per-tool
+	// rows (call_contact, passkey_remove, ...). Owner-MCP actions are `token`-attributed: a bearer
 	// token acted, which is not the same as the owner sitting at the portal.
 	Log func(action, resource, outcome string)
 	// Integrations serves §8.4's "integration management" row: what is

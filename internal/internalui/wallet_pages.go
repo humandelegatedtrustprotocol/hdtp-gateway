@@ -258,8 +258,9 @@ var walletReturnTmpl = template.Must(template.New("return").Parse(`<!DOCTYPE htm
 type walletField struct{ Name, Value string }
 
 // MountWalletPages registers the web-wallet routes. /wallet/return and its script are in the
-// session middleware's open set (auth_pages.go); everything else needs a signed-in owner who
-// administers the account, and every POST passes the CSRF check.
+// session middleware's open set (auth_pages.go); the pages and the install need a
+// signed-in owner who administers the account, /wallet/submit.js needs only a session, and every
+// POST passes the CSRF check.
 func MountWalletPages(mux *http.ServeMux, d WalletDeps) {
 	mux.HandleFunc("GET /identity/{slug}/wallet", d.getWallet)
 	mux.HandleFunc("POST /identity/{slug}/wallet/start", d.postWalletStart)

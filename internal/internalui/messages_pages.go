@@ -112,13 +112,13 @@ func MountMessagePages(mux *http.ServeMux, d MessagesDeps) {
 const ConversationsPage = 50
 
 // UnreadCap is where a conversation's unread count stops, and the page's total too: past it the
-// row, or the sidebar's Inbox chip, says "50+". It is HDTP
-// Cloud's BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
+// row, or the sidebar's Inbox chip, says "50+". It is BatonDeck's
+// BADGE_UNREAD_CAP, so the two inboxes say the same thing about the same backlog. The page
 // reads every row's count on every visit, which is why a count is bounded rather than exact.
 const UnreadCap = 50
 
-// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape HDTP
-// Cloud's GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
+// tally is a count the server may have stopped at a cap: web/src/words.ts's Tally, the shape BatonDeck's
+// GET /v1/identities/:slug/badges answers `unread` in. `capped` says there are more than
 // `count`.
 type tally struct {
 	Count  int64 `json:"count"`

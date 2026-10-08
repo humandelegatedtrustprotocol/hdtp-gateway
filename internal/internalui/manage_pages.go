@@ -35,8 +35,8 @@ type ManageDeps struct {
 	// Card renders the account's card. It MUST be the same function the public
 	// surface serves from (node.Card): a portal that builds its own card can
 	// show the owner something peers never receive — a stale endpoint, or a seal
-	// policy the gate does not enforce. Nil falls back to a local build from
-	// PublicURL, which is for tests only.
+	// policy the gate does not enforce. Nil means no card: the card routes
+	// answer 404 no_card.
 	Card func(ctx context.Context, accountID string) (string, error)
 	// PublicURL is a FUNC, like Card, because the owner can change it in Settings
 	// while the node serves: a value captured once at wiring time is stale from

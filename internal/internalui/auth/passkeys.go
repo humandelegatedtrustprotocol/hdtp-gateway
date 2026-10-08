@@ -1,8 +1,8 @@
 // Package auth implements owner authentication (SPEC §3.1, §8.3): WebAuthn
 // passkeys — multiple per owner, each with an owner-supplied tag, managed from
-// portal, owner MCP, and CLI — plus cookie sessions. Registration is gated the
-// same way as the setup wizard: first passkey via loopback/one-time token; later
-// passkeys require a logged-in owner session.
+// portal, owner MCP, and CLI — plus cookie sessions. Registration is gated like
+// the setup wizard: the first passkey from loopback or with a one-time token, later ones only
+// with a recovery token minted over the admin socket (AuthDeps.SetupAllowed in internalui).
 package auth
 
 import (

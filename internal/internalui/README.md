@@ -5,12 +5,13 @@ embedded React portal (`web/`), the passkey ceremonies and the session gate in f
 setup wizard's gate, and the few pages the node renders itself (the web-wallet pages, the OAuth
 "authorization received" page, the public invite landing).
 
-`internal/cli` builds it. `compose.go` (`internalHandler`) creates one `*ServeMux`, registers each
-page group with its `Mount*` function, hands `HandlerWithAuth` that mux, and serves the result on
-the internal listener with `Serve`; `serve.go` builds `AuthDeps` and `WalletDeps` and calls
-`SetCookieTag`. `internal/cli` also mounts `/healthz` (`Health`) and the owner MCP (`/owner/mcp`)
-on the same mux, outside `HandlerWithAuth`: neither goes through this package's session, CSRF or
-account layers. The package calls the store, `internal/contacts`, `internal/messaging`,
+`internal/cli` builds it. `compose.go` (`internalHandler`) builds a list of mount closures, each
+calling one page group's `Mount*` function, and an outer `*ServeMux` that holds `GET /healthz`
+(`Health`), `/owner/mcp` and `/`, where `/` is `HandlerWithAuth(st, setup, authDeps, mounts...)`.
+`HandlerWithAuth` creates the portal's own mux, applies the mounts to it and wraps it; the `Mount*`
+functions are not called on the outer mux. `Serve` serves the outer mux on the internal listener;
+`serve.go` builds `AuthDeps` and `WalletDeps` and calls `SetCookieTag`. `/healthz` and `/owner/mcp`
+never pass this package's session, CSRF or account layers. The package calls the store, `internal/contacts`, `internal/messaging`,
 `internal/integrations`, `internal/identity`, `internal/core` (settings), and its sub-packages
 `internalui/auth` (passkeys, sessions, tokens) and `internalui/ownermcp` (the agent surface; this
 package does not import it).
@@ -56,8 +57,8 @@ Page groups, each a `*Deps` struct and a `Mount*` function:
 but GET, HEAD and OPTIONS, a CSRF token. A request that names an `account` (in the query, or in a
 urlencoded form body) for an account the owner does not administer is answered 404 and audited, on
 every session route below. The check does not read a multipart body, so
-`POST /messages/send_media` takes `account` from the query alone (400 "which conversation?"
-without it).
+`POST /messages/send_media` takes `account` from the query alone (400 "which conversation?" when
+no account is named and none is filled in, as when the node has several accounts).
 When the node has exactly one account and the owner administers it, a request that names none is
 given it; with several accounts nothing is filled in. No route below takes a bearer token: the
 token surface is the owner MCP.
@@ -98,15 +99,15 @@ row, and is the one route of this table that is open.
 | `GET /api/card`, `GET /card.vcf` | The account's card with its signature, root and endpoint; the vCard as a download. 404 `no_card` when it has no leaf yet; 500 `card_unavailable`. |
 | `GET /api/inbox`, `GET /api/threads/{id}`, `POST /threads/{id}/send` | Threads with unread counts; one thread (opening it marks it read through its newest message); send (origin fixed to the portal). 502 "recorded, but delivery failed". |
 | `GET /events` | Server-sent events for the account, from the message bus; sends `: connected`, then `event: <kind>` frames. |
-| `GET /api/conversations`, `POST /messages/read`, `POST /messages/send`, `POST /messages/send_media` | The conversation view; mark read through a message (400, 404, 500 as JSON); send text (errors come back in the redirect's `err`); send a file (multipart, 5 MiB; 413, 400, 503, 502). |
+| `GET /api/conversations`, `POST /messages/read`, `POST /messages/send`, `POST /messages/send_media` | The conversation view; mark read through a message (400, 404, 500 as JSON); send text (errors come back in the redirect's `err`); send a file (multipart, 5 MiB; 413, 400 "which conversation?" when no account is named and none is filled in, 503, 502). |
 | `GET /media/{hash}`, `POST /media/fetch` | Serve stored bytes as an attachment; deliberately fetch a contact-supplied URL (503 when `Fetch` is nil; a refusal is 200 with `{"error":...}`). `/media/{hash}`: 400 without `account` or hash, 404 without a blob row for the account, 410 when the bytes are gone. |
 | `GET /api/integrations`, `POST /integrations/create`, `/{id}/remove`, `/{id}/credential`, `/{id}/oauth-client` | List; add (400 from `checkIntegration`, 409 when the insert fails, e.g. a duplicate slug); remove (403 for another account's); store a sealed static credential or OAuth client (503 when unconfigured, 400 on failure). |
 | `POST /integrations/{id}/connect`, `GET /integrations/{id}/authorize`, `GET /oauth/callback` | Start the dial in the node's background group; hand the browser to the authorization server; receive its answer. The callback answers 400 "no authorization is pending" when no connector is wired and 400 "no authorization is pending for this callback" when the `state` names no flow the node minted; in that case nothing is created, written or audited. Otherwise it audits `integration_oauth_callback` under the integration's account, read from its row. |
-| `POST /integrations/{id}/refresh`, `GET`/`POST /integrations/{id}/exposure`, `POST /integrations/{id}/reconfirm` | Refresh the catalogue; read and publish the exposure set (400 without the acknowledgment when write-capable tools are chosen; 409 without a catalogue snapshot); reconfirm stale entries. |
+| `POST /integrations/{id}/refresh`, `GET /api/integrations/{id}/exposure`, `POST /integrations/{id}/exposure`, `POST /integrations/{id}/reconfirm` | Refresh the catalogue; read and publish the exposure set (400 without the acknowledgment when write-capable tools are chosen; 409 without a catalogue snapshot); reconfirm stale entries. |
 | `GET /api/identity`, `POST /identity/create` | Identities and their certificate state; create one (503 when `Create` is nil; a missing field or a failed create is a 200 with `error` set). |
 | `GET /identity/{slug}/wallet`, `POST /identity/{slug}/wallet/start`, `POST /identity/{slug}/wallet/install`, `GET /wallet/submit.js` | Web-wallet signing request (below). Registered only when `IdentityDeps.Wallet` is set. |
 | `GET /api/settings`, `POST /settings` | The knobs the deployment lets the owner change; save (a locked knob is never accepted; a bad value is rendered back with the error). |
-| `POST /settings/adapter`, `/settings/storage`, `/settings/presets`, `/settings/presets/{name}/delete`, `/settings/pair`, `/settings/unpair`, `/settings/probe` | Adapter credentials (keyed `tunnel.<adapter>.<name>` or `integration.<slug>.<name>`), storage policy, presets, ingress pairing, reachability probe. The last six are registered only when their `SettingsDeps` field is set. |
+| `POST /settings/adapter`, `/settings/storage`, `/settings/presets`, `/settings/presets/{name}/delete`, `/settings/pair`, `/settings/unpair`, `/settings/probe` | Adapter credentials (keyed `tunnel.<adapter>.<name>` or `integration.<slug>.<name>`), storage policy, presets, ingress pairing, reachability probe. The last six routes are registered only when their `SettingsDeps` field is set: four fields govern them, `SaveStorage` (storage), `SavePreset` (presets and presets delete), `Pair` (pair and unpair) and `Probe`. |
 | `GET /api/owners`, `POST /owners/passkeys/{id}/remove`, `POST /owners/tokens/create`, `POST /owners/tokens/{id}/revoke` | Passkeys and tokens. A new token's plaintext appears once, in `new_token` of that answer. |
 | `GET /api/audit` | The trail, newest first, for the identities the session's owner administers. `actor`, `account`, `limit` (default 500, at most 5000). 401 with no owner; 404 for an account not administered; `names` maps the ids rows mention to names. |
 
@@ -132,8 +133,9 @@ request's lifetime is 8 minutes (`walletRequestLifetime`).
 
 ## What it refuses, and how
 
-- Session gate (`SessionMiddleware`): see above; every refusal under `/api/` or of a mutating
-  method is audited as `portal_request` / `identity_required`.
+- Session gate (`SessionMiddleware`): see above; every refusal outside the allow-list (401 under `/api/`
+  or for a mutating method, a redirect for a browser GET) is audited as `portal_request` /
+  `identity_required`.
 - CSRF (`csrfMiddleware`): a state change needs the double-submit token (`X-HDTP-Csrf` header, or
   the form field `csrf`) equal to the CSRF cookie, 403 "csrf token missing or wrong"; and a
   browser must say the request is same-origin (`Sec-Fetch-Site` same-origin or none, or, with no
@@ -145,24 +147,27 @@ request's lifetime is 8 minutes (`walletRequestLifetime`).
 - Relying party (`OriginPolicy.RelyingParty`): the Host must be the configured `InternalHost`, or
   `localhost`; `127.0.0.1` and `[::1]` are refused because an IP address cannot be a relying-party
   id. Refusals answer 400 and are audited `refused_origin`.
-- Security headers on every response: `Content-Security-Policy` (`portalCSP`: `'self'` only,
-  `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+- Security headers on every response: `Content-Security-Policy` (`portalCSP`: scripts
+  `'self'` only; styles `'self'` and inline; images `'self'` and `data:`; no objects;
+  `base-uri 'none'`; `form-action 'self'`; `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer`. The wallet start page alone widens `form-action` to the wallet's
   origin and sends `strict-origin-when-cross-origin`; `/media/{hash}` sets its own stricter CSP.
 - Cookies: session `hdtp_session[_<tag>]` (HttpOnly, SameSite=Strict, `Secure` when the surface is
   served over TLS, 12 hours); CSRF `hdtp_csrf[_<tag>]` (readable by the page's script,
   SameSite=Strict).
-- Invite landing (`LandingHandler`): unknown, revoked, expired and exhausted tokens are the same
-  404, so the page is not an oracle for invite state; 503 "unavailable" when the card, the account
+- Invite landing (`LandingHandler`): unknown, revoked, expired and exhausted tokens take the same
+  404 branch, so the page is not an oracle for invite state; 503 "unavailable" when the card, the account
   or (for the JSON view) the chain cannot be produced.
 - TLS (`LoadTLS`): neither file set is plain HTTP; one without the other, or a pair that does not
   load, is an error naming the paths and the minimum version is TLS 1.2.
 
 ## Invariants
 
-- Every state change passes the CSRF check, and every `/api/` route and every method other than
-  GET and HEAD needs a session; a GET outside the allow-list is sent to sign in
-  (`TestTheSessionGateIsAnAllowList`: no session reaches `/media/{hash}` or `/events`). Held in the real composition by `internal/cli`'s
+- Every state change passes the CSRF check. Outside the allow-list (the ceremonies,
+  `/api/session`, `/wallet/return`, `/oauth/callback`, the static shell and the SPA views) a
+  request needs a session: `/api/` and every non-GET/HEAD method are refused with 401, any other
+  GET with a redirect to sign in (`TestTheSessionGateIsAnAllowList`: no session reaches
+  `/media/{hash}` or `/events`). Held in the real composition by `internal/cli`'s
   `TestEveryMutatingPortalRouteRefusesAForgedRequest`, and here by
   `TestCSRFCookieOnGETAndEnforcedOnPOST` and `TestLoopbackStillDemandsALoginAndHostIsNotTrusted`.
 - A signed-in owner cannot name an account they do not administer in the query or a urlencoded
@@ -189,10 +194,13 @@ request's lifetime is 8 minutes (`walletRequestLifetime`).
   `TestContactLabelsAnswerTheSharedCases`.
 - A stored media file is served only to the account whose blob row names it, always as an
   attachment: `TestOwnerCanReadStoredMediaButNotAnotherAccounts`.
-- A contact's file is fetched only when the owner asks: `TestMediaFetchIsOwnerInitiatedAndReportsRefusal`.
+- The fetch route calls `Fetch` only on `POST /media/fetch` and reports a refusal:
+  `TestMediaFetchIsOwnerInitiatedAndReportsRefusal`. No other handler holds a `Fetch` reference
+  (by construction; no test holds it).
 - Write-capable tools are exposed only with a recorded acknowledgment:
   `TestExposingDestructiveToolNeedsRecordedAck`.
-- An invite's state is not observable from the landing page: `TestLandingNoOracle404`.
+- Unknown, revoked and expired invite tokens are byte-identical 404s (`TestLandingNoOracle404`);
+  exhausted takes the same branch in `LandingHandler` and has no test.
 - Every wallet install refusal answers its code and is worded on the return page:
   `TestEachInstallRefusalAnswersItsCode`, `TestEveryWalletRefusalIsWordedOnTheReturnPage`.
 - The portal's loopback rule for a wallet's redirect is the wallet's:

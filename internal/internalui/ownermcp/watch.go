@@ -111,7 +111,7 @@ type waitResult struct {
 	Pending int64 `json:"pending_requests"`
 	// Addresses is the count of contacts waiting at a new address for the owner's answer (HDTP
 	// §5.3, list_pending_addresses): a third queue only the owner clears. It is reported on every
-	// answer, but a held address alone does not end a wait (news does not test it).
+	// answer, and a held address alone ends a wait (news tests it).
 	Addresses int64 `json:"pending_addresses"`
 	// Calls: substantive tool calls contacts made since the cursor (bookings,
 	// media, availability), so an agent learns a peer ACTED, not only that a

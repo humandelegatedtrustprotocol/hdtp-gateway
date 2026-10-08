@@ -126,9 +126,9 @@ bad token, without saying which way).
   so two racing removals cannot both pass. The statement lives in the store
   (`RemoveCredentialIfNotLast`); this package maps its answer to `ErrLastPasskey` or
   `ErrNoSuchPasskey`.
-- Only the SHA-256 of a token is stored; the plaintext exists only in `Create`'s return. Held by
-  `TestTokenListNeverLeaksSecrets` (the listing carries neither the plaintext nor its hex part)
-  and `TestTokenLifecycle`.
+- Only the SHA-256 of a token is stored (`Create`, `tokens.go`; no test reads the row); the
+  plaintext exists only in `Create`'s return. `List` carries neither the plaintext nor its hex
+  part: `TestTokenListNeverLeaksSecrets`.
 - Validation looks a token up by its hash, so there is no comparison of secrets to time.
 - Revocation takes effect on the next `Validate`, and a second revocation is refused. Held by
   `TestTokenLifecycle`.

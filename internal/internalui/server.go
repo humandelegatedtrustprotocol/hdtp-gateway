@@ -199,8 +199,7 @@ const portalCSP = "default-src 'self'; " +
 // cross-site FORM posts but does nothing about the portal being framed and
 // clicked through. X-Frame-Options repeats it for browsers that predate CSP 2.
 //
-// 'unsafe-inline' is honest rather than aspirational: the passkey ceremony and
-// the message pages carry inline <script>, and every page carries inline <style>.
+// 'unsafe-inline' stays on style-src only: React style props render as style attributes.
 // Nonces would be stricter and are worth doing later; the directives that need no
 // refactor are worth having now.
 func securityHeaders(next http.Handler) http.Handler {
