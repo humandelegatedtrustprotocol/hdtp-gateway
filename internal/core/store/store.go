@@ -968,6 +968,10 @@ type IntegrationStore interface {
 	// GetIntegrationByID returns the integration by id; an error wrapping ErrNotFound when there is
 	// none.
 	GetIntegrationByID(ctx context.Context, id string) (Integration, error)
+	// GetAccountIntegration returns the account's integration by id; an error wrapping ErrNotFound
+	// when there is none, and the same error when the id names another account's. The two are not
+	// told apart, so a door built on this cannot tell a caller whether an id exists.
+	GetAccountIntegration(ctx context.Context, accountID, id string) (Integration, error)
 	// ListIntegrations returns the account's integrations ordered by slug.
 	ListIntegrations(ctx context.Context, accountID string) ([]Integration, error)
 	// UpdateIntegrationStatus sets an integration's status and touches its update time; one that is

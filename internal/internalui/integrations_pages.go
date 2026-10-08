@@ -115,10 +115,11 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 // integrationOf is the integration a route's path names, when it is the account's the request
 // names — the account accountMiddleware checked the owner administers. The id is the caller's: a
 // row of another account answers as a row that does not exist, since whether that id exists is
-// not this owner's business, and every route that acts on an integration asks here first.
+// not this owner's business, and every route that acts on an integration asks here first. The
+// store's account-bound read is what tells the two apart for no door, this one or the owner MCP's.
 func (d IntegrationsDeps) integrationOf(w http.ResponseWriter, r *http.Request) (store.Integration, bool) {
-	in, err := d.Store.GetIntegrationByID(r.Context(), r.PathValue("id"))
-	if err != nil || in.AccountID != accountParam(r) {
+	in, err := d.Store.GetAccountIntegration(r.Context(), accountParam(r), r.PathValue("id"))
+	if err != nil {
 		http.NotFound(w, r)
 		return store.Integration{}, false
 	}

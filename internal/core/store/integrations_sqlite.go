@@ -37,6 +37,16 @@ func (s *SQLite) GetIntegrationByID(ctx context.Context, id string) (Integration
 	return integrationFromRow(r), nil
 }
 
+// GetAccountIntegration returns the account's integration by id; an error wrapping ErrNotFound
+// when there is none, and the same error when the id names another account's.
+func (s *SQLite) GetAccountIntegration(ctx context.Context, accountID, id string) (Integration, error) {
+	r, err := s.q.GetAccountIntegration(ctx, sqlitedb.GetAccountIntegrationParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Integration{}, fmt.Errorf("store: %w", err)
+	}
+	return integrationFromRow(r), nil
+}
+
 // ListIntegrations returns the account's integrations ordered by slug.
 func (s *SQLite) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
 	rows, err := s.q.ListIntegrations(ctx, accountID)
