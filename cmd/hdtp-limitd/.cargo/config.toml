@@ -1,5 +1,6 @@
-# hdtp-identity is a private repository fetched over SSH, with the credential the machine's ssh
-# agent holds, never one inside this tree or a container (standing rule 4). Cargo's built-in git
-# does not speak to an agent; the system git does.
+# hdtp-identity was private and fetched over SSH with the credential the machine's ssh agent
+# holds, never one inside this tree or a container (standing rule 4); cargo's built-in git does
+# not speak to an agent, the system git does. The repository is public since 2026-10-08 and the
+# crate is fetched over https (Cargo.toml), still by the system git.
 [net]
 git-fetch-with-cli = true
