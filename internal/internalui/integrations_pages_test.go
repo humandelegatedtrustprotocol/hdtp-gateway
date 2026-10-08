@@ -554,7 +554,8 @@ func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
 // compared the row's account with the named one and refused 403; the other eight routes compared
 // nothing, so an owner of account A could connect, re-credential, refresh, read and set the
 // exposure of account B's integration by naming its id. Each now answers the 404 a missing row
-// gets, and writes nothing. The control, the same call as B, runs last: it changes B's row.
+// gets, and writes nothing. The control, the same call as B, runs last, since it changes B's row:
+// it must answer what the route answers when it works, not merely something other than 404.
 func TestIntegrationRoutesRefuseAnotherAccountsIntegration(t *testing.T) {
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "fa.db"))
 	if err != nil {
@@ -590,54 +591,64 @@ func TestIntegrationRoutesRefuseAnotherAccountsIntegration(t *testing.T) {
 		Background:     func(work func(ctx context.Context)) { note("background"); bg(work) },
 	})
 
-	routes := []struct {
+	type route struct {
 		name, method, path string // the path with {id} for the integration's id
 		form               url.Values
-	}{
-		{"oauth-client", "POST", "/integrations/{id}/oauth-client", url.Values{"client_id": {"c"}, "client_secret": {"s"}}},
-		{"credential", "POST", "/integrations/{id}/credential", url.Values{"header": {"Authorization"}, "value": {"v"}}},
-		{"connect", "POST", "/integrations/{id}/connect", url.Values{}},
-		{"authorize", "GET", "/integrations/{id}/authorize", nil},
-		{"refresh", "POST", "/integrations/{id}/refresh", url.Values{}},
-		{"exposure-read", "GET", "/api/integrations/{id}/exposure", nil},
-		{"exposure", "POST", "/integrations/{id}/exposure", url.Values{"expose_get_freebusy": {"1"}, "mode_get_freebusy": {"passthrough"}}},
-		{"reconfirm", "POST", "/integrations/{id}/reconfirm", url.Values{}},
-		{"remove", "POST", "/integrations/{id}/remove", url.Values{}},
+		want               int // what the route answers the integration's own account; each measured
+	}
+	routes := []route{
+		{"oauth-client", "POST", "/integrations/{id}/oauth-client", url.Values{"client_id": {"c"}, "client_secret": {"s"}}, http.StatusSeeOther},
+		{"credential", "POST", "/integrations/{id}/credential", url.Values{"header": {"Authorization"}, "value": {"v"}}, http.StatusSeeOther},
+		{"connect", "POST", "/integrations/{id}/connect", url.Values{}, http.StatusSeeOther},
+		{"authorize", "GET", "/integrations/{id}/authorize", nil, http.StatusSeeOther},
+		// Refresh reaches the endpoint, which refuses: "refresh failed", the 409 of a route that ran.
+		{"refresh", "POST", "/integrations/{id}/refresh", url.Values{}, http.StatusConflict},
+		{"exposure-read", "GET", "/api/integrations/{id}/exposure", nil, http.StatusOK},
+		{"exposure", "POST", "/integrations/{id}/exposure", url.Values{"expose_get_freebusy": {"1"}, "mode_get_freebusy": {"passthrough"}}, http.StatusSeeOther},
+		{"reconfirm", "POST", "/integrations/{id}/reconfirm", url.Values{}, http.StatusSeeOther},
+		{"remove", "POST", "/integrations/{id}/remove", url.Values{}, http.StatusSeeOther},
+	}
+	// insert makes B's integration for a route: with a catalog so the exposure routes have
+	// something to show, and for reconfirm an exposure to reconfirm. The endpoint refuses the
+	// connection at once.
+	insert := func(t *testing.T, rt route, slug string) store.Integration {
+		t.Helper()
+		in, err := st.InsertIntegration(ctx, store.Integration{
+			AccountID: b.ID, Slug: slug, Transport: "streamable-http", Endpoint: "http://127.0.0.1:1/mcp",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		seedCatalog(t, st, in.ID)
+		if rt.name == "reconfirm" {
+			if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{{Tool: "get_freebusy", Mode: integrations.ModePassthrough}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return in
+	}
+	call := func(t *testing.T, rt route, id, account string) *httptest.ResponseRecorder {
+		t.Helper()
+		path := strings.ReplaceAll(rt.path, "{id}", id) + "?account=" + account
+		if rt.method == "POST" {
+			return postForm(t, mux, path, rt.form)
+		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(rt.method, path, nil))
+		return rr
 	}
 	for _, rt := range routes {
 		t.Run(rt.name, func(t *testing.T) {
-			// B's integration, with a catalog so the exposure routes have something to show, and
-			// for reconfirm an exposure to reconfirm. The endpoint refuses the connection at once.
-			in, err := st.InsertIntegration(ctx, store.Integration{
-				AccountID: b.ID, Slug: rt.name, Transport: "streamable-http", Endpoint: "http://127.0.0.1:1/mcp",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			seedCatalog(t, st, in.ID)
-			if rt.name == "reconfirm" {
-				if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{{Tool: "get_freebusy", Mode: integrations.ModePassthrough}}); err != nil {
-					t.Fatal(err)
-				}
-			}
+			in := insert(t, rt, rt.name)
 			before, err := st.GetIntegrationByID(ctx, in.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			hadExposure := hasExposure(ctx, st, in.ID)
 			reachedBefore, rowsBefore := count(), len(aud.rows)
-			call := func(account string) *httptest.ResponseRecorder {
-				path := strings.ReplaceAll(rt.path, "{id}", in.ID) + "?account=" + account
-				if rt.method == "POST" {
-					return postForm(t, mux, path, rt.form)
-				}
-				rr := httptest.NewRecorder()
-				mux.ServeHTTP(rr, httptest.NewRequest(rt.method, path, nil))
-				return rr
-			}
 
 			// As A, naming B's integration: the answer a missing row gets, and nothing done.
-			rr := call(a.ID)
+			rr := call(t, rt, in.ID, a.ID)
 			if rr.Code != http.StatusNotFound {
 				t.Fatalf("%s %s as another account: %d %s, want 404", rt.method, rt.path, rr.Code, strings.TrimSpace(rr.Body.String()))
 			}
@@ -665,12 +676,26 @@ func TestIntegrationRoutesRefuseAnotherAccountsIntegration(t *testing.T) {
 				}
 			}
 
-			// The control: the same call as B gets through.
-			if rr := call(b.ID); rr.Code == http.StatusNotFound {
-				t.Fatalf("%s %s as the integration's own account: 404 %s", rt.method, rt.path, strings.TrimSpace(rr.Body.String()))
+			// The control: the same call as B gets through, to the answer the route gives when it
+			// works.
+			if rr := call(t, rt, in.ID, b.ID); rr.Code != rt.want {
+				t.Fatalf("%s %s as the integration's own account: %d %s, want %d", rt.method, rt.path, rr.Code, strings.TrimSpace(rr.Body.String()), rt.want)
 			}
 		})
 	}
+
+	// The helper's claim, on every route: a row of another account answers as a row that does not
+	// exist. As A, B's integration and an id that is nobody's get the same status and the same body.
+	t.Run("made-up-id", func(t *testing.T) {
+		for _, rt := range routes {
+			in := insert(t, rt, "made-up-"+rt.name)
+			foreign, missing := call(t, rt, in.ID, a.ID), call(t, rt, "no-such-integration", a.ID)
+			if foreign.Code != missing.Code || foreign.Body.String() != missing.Body.String() {
+				t.Errorf("%s %s as another account: B's integration answers %d %q, an id that is nobody's %d %q",
+					rt.method, rt.path, foreign.Code, strings.TrimSpace(foreign.Body.String()), missing.Code, strings.TrimSpace(missing.Body.String()))
+			}
+		}
+	})
 }
 
 // hasExposure reports whether the integration has a published exposure.
