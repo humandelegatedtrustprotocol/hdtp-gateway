@@ -22,6 +22,20 @@ all: web check analyze build dist sbom
 # pinned HERE and the hook calls these targets — one list, not two to drift apart.
 analyze: vulncheck staticcheck gosec deadcode
 
+# The Go the analyzers run under: the one go.mod names (its `toolchain` line when it has one, else
+# its `go` line, which is a full version: the go command refuses a bare language version here, by
+# name), with the go command free to switch higher. Each recipe is `go run <tool>@<version>` under
+# whatever Go is on PATH, and with GOTOOLCHAIN=local in the environment a machine whose Go is older
+# than go.mod's fails at the tool's `go list` ("go.mod requires go >= …; GOTOOLCHAIN=local") and
+# scans nothing. Exported for these targets alone, the name wins over the environment: the go
+# command downloads that toolchain once and the recipe runs under it. A Go older than 1.21 has no
+# switching and is not helped.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
+ifeq ($(GO_TOOLCHAIN),)
+GO_TOOLCHAIN := go$(shell sed -n 's/^go //p' go.mod)
+endif
+analyze vulncheck staticcheck gosec deadcode: export GOTOOLCHAIN = $(GO_TOOLCHAIN)+auto
+
 # The second line: the replace leaves the node's scan no version of frp to match advisories
 # against, so upstream frp v0.71.0 is scanned on its own (scripts/frp-patch.sh).
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
