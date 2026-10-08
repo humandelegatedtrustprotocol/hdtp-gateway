@@ -10,7 +10,14 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The portal's integration routes refuse an integration of another account with `404`, the answer
+  an id that names no row gets. `POST /integrations/{id}/remove` refused it `403`; the other eight
+  (`oauth-client`, `credential`, `connect`, `authorize`, `refresh`, `exposure` read and write,
+  `reconfirm`) compared nothing, so an owner who administers one account could connect,
+  re-credential, refresh, read and set the exposure of another account's integration by naming
+  its id.
 
 ## [0.1.1] — 2026-10-09
 

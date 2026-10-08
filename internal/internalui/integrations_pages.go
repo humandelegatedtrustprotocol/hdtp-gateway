@@ -99,6 +99,19 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 	mux.HandleFunc("GET /oauth/callback", d.getOAuthCallback(audit))
 }
 
+// integrationOf is the integration a route's path names, when it is the account's the request
+// names — the account accountMiddleware checked the owner administers. The id is the caller's: a
+// row of another account answers as a row that does not exist, since whether that id exists is
+// not this owner's business, and every route that acts on an integration asks here first.
+func (d IntegrationsDeps) integrationOf(w http.ResponseWriter, r *http.Request) (store.Integration, bool) {
+	in, err := d.Store.GetIntegrationByID(r.Context(), r.PathValue("id"))
+	if err != nil || in.AccountID != accountParam(r) {
+		http.NotFound(w, r)
+		return store.Integration{}, false
+	}
+	return in, true
+}
+
 // getAPIIntegrations serves `GET /api/integrations`.
 func (d IntegrationsDeps) getAPIIntegrations(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
@@ -115,6 +128,10 @@ func (d IntegrationsDeps) getAPIIntegrations(w http.ResponseWriter, r *http.Requ
 // postIntegrationsIDOAuthClient serves `POST /integrations/{id}/oauth-client`.
 func (d IntegrationsDeps) postIntegrationsIDOAuthClient(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		in, ok := d.integrationOf(w, r)
+		if !ok {
+			return
+		}
 		if d.SetOAuthClient == nil {
 			http.Error(w, "OAuth clients are not configurable on this node", http.StatusServiceUnavailable)
 			return
@@ -123,14 +140,13 @@ func (d IntegrationsDeps) postIntegrationsIDOAuthClient(audit func(action string
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
 		}
-		id := r.PathValue("id")
-		if err := d.SetOAuthClient(r.Context(), id,
+		if err := d.SetOAuthClient(r.Context(), in.ID,
 			strings.TrimSpace(r.PostForm.Get("client_id")), r.PostForm.Get("client_secret")); err != nil {
-			audit("oauth_client", withAccount(r, "integration:"+id), "error")
+			audit("oauth_client", withAccount(r, "integration:"+in.ID), "error")
 			http.Error(w, "could not store that client", http.StatusBadRequest)
 			return
 		}
-		audit("oauth_client", withAccount(r, "integration:"+id), "stored")
+		audit("oauth_client", withAccount(r, "integration:"+in.ID), "stored")
 		http.Redirect(w, r, "/integrations?account="+accountParam(r), http.StatusSeeOther)
 	}
 }
@@ -138,6 +154,10 @@ func (d IntegrationsDeps) postIntegrationsIDOAuthClient(audit func(action string
 // postIntegrationsIDCredential serves `POST /integrations/{id}/credential`.
 func (d IntegrationsDeps) postIntegrationsIDCredential(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		in, ok := d.integrationOf(w, r)
+		if !ok {
+			return
+		}
 		if d.SetStatic == nil {
 			http.Error(w, "static credentials are not configured on this node", http.StatusServiceUnavailable)
 			return
@@ -146,16 +166,15 @@ func (d IntegrationsDeps) postIntegrationsIDCredential(audit func(action string,
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
 		}
-		id := r.PathValue("id")
 		header := strings.TrimSpace(r.PostForm.Get("header"))
 		value := r.PostForm.Get("value")
-		if err := d.SetStatic(r.Context(), id, header, value); err != nil {
+		if err := d.SetStatic(r.Context(), in.ID, header, value); err != nil {
 			// The value never appears in an error, a log line or an audit row.
-			audit("static_credential", withAccount(r, "integration:"+id), "error")
+			audit("static_credential", withAccount(r, "integration:"+in.ID), "error")
 			http.Error(w, "could not store that credential", http.StatusBadRequest)
 			return
 		}
-		audit("static_credential", withAccount(r, "integration:"+id), "stored")
+		audit("static_credential", withAccount(r, "integration:"+in.ID), "stored")
 		http.Redirect(w, r, "/integrations?account="+accountParam(r), http.StatusSeeOther)
 	}
 }
@@ -201,23 +220,18 @@ func (d IntegrationsDeps) postIntegrationsCreate(audit func(action string, resou
 // no route, so an integration added by mistake was permanent.
 func (d IntegrationsDeps) postIntegrationsIDRemove(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		account := accountParam(r)
-		// The id comes from the caller. Without this check any account could
-		// delete any other account's integration by guessing one.
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil || in.AccountID != account {
-			audit("integration_remove", withAccount(r, "integration:"+id), "refused")
-			http.Error(w, "that integration belongs to another account", http.StatusForbidden)
+		in, ok := d.integrationOf(w, r)
+		if !ok {
+			audit("integration_remove", withAccount(r, "integration:"+r.PathValue("id")), "refused")
 			return
 		}
-		if err := d.Store.DeleteIntegration(r.Context(), id); err != nil {
+		if err := d.Store.DeleteIntegration(r.Context(), in.ID); err != nil {
 			audit("integration_remove", withAccount(r, "integration:"+in.Slug), "error")
 			http.Error(w, "could not remove it", http.StatusInternalServerError)
 			return
 		}
 		audit("integration_remove", withAccount(r, "integration:"+in.Slug), "ok")
-		http.Redirect(w, r, "/integrations?account="+account, http.StatusSeeOther)
+		http.Redirect(w, r, "/integrations?account="+accountParam(r), http.StatusSeeOther)
 	}
 }
 
@@ -227,26 +241,22 @@ func (d IntegrationsDeps) postIntegrationsIDRemove(audit func(action string, res
 // blocks inside the code fetcher until the callback lands.
 func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		in, ok := d.integrationOf(w, r)
+		if !ok {
+			return
+		}
 		account := accountParam(r)
 		if d.Connector != nil {
-			d.Connector.SetOrigin(id, browserOrigin(r))
-		}
-		// Read the row before the connect starts, so that once it has, the
-		// JSON path below goes straight to waiting for the authorization URL.
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
-			return
+			d.Connector.SetOrigin(in.ID, browserOrigin(r))
 		}
 		d.Background(func(bg context.Context) {
 			ctx, cancel := context.WithTimeout(bg, 5*time.Minute)
 			defer cancel()
 			// Reconnect, not Connect: this is the owner's decision, the one thing that re-arms a
 			// supervised child that gave up (SPEC §6.2).
-			if err := d.Manager.Reconnect(ctx, id); err != nil && d.Connector != nil {
+			if err := d.Manager.Reconnect(ctx, in.ID); err != nil && d.Connector != nil {
 				// The authorize request may be waiting on this; tell it why.
-				d.Connector.Fail(id, err)
+				d.Connector.Fail(in.ID, err)
 			}
 		})
 		// The portal asks for JSON and navigates to the provider itself. A form
@@ -259,7 +269,7 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 				apiJSON(w, map[string]any{"ok": true})
 				return
 			}
-			u, err := d.Connector.AuthorizeURL(r.Context(), id, timeout)
+			u, err := d.Connector.AuthorizeURL(r.Context(), in.ID, timeout)
 			if err != nil {
 				apiJSONStatus(w, http.StatusGatewayTimeout, map[string]any{"error": "authorization did not start: " + err.Error()})
 				return
@@ -267,7 +277,7 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 			apiJSON(w, map[string]any{"authorize_url": u})
 			return
 		}
-		http.Redirect(w, r, "/integrations/"+id+"/authorize?account="+account, http.StatusSeeOther)
+		http.Redirect(w, r, "/integrations/"+in.ID+"/authorize?account="+account, http.StatusSeeOther)
 	}
 }
 
@@ -277,19 +287,17 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 // Non-OAuth integrations connect without one; show the list again.
 func (d IntegrationsDeps) getIntegrationsIDAuthorize(timeout time.Duration) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		account := accountParam(r)
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
+		in, ok := d.integrationOf(w, r)
+		if !ok {
 			return
 		}
+		account := accountParam(r)
 		if in.AuthKind != "oauth" || d.Connector == nil {
 			http.Redirect(w, r, "/integrations?account="+account, http.StatusSeeOther)
 			return
 		}
-		d.Connector.SetOrigin(id, browserOrigin(r))
-		u, err := d.Connector.AuthorizeURL(r.Context(), id, timeout)
+		d.Connector.SetOrigin(in.ID, browserOrigin(r))
+		u, err := d.Connector.AuthorizeURL(r.Context(), in.ID, timeout)
 		if err != nil {
 			http.Error(w, "authorization did not start: "+err.Error(), http.StatusGatewayTimeout)
 			return
@@ -302,29 +310,25 @@ func (d IntegrationsDeps) getIntegrationsIDAuthorize(timeout time.Duration) func
 //
 // Manual catalog refresh (SPEC §6.4 "on manual refresh from the portal").
 func (d IntegrationsDeps) postIntegrationsIDRefresh(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	in, err := d.Store.GetIntegrationByID(r.Context(), id)
-	if err != nil {
-		http.NotFound(w, r)
+	in, ok := d.integrationOf(w, r)
+	if !ok {
 		return
 	}
 	if d.Cataloger == nil {
 		http.Error(w, "catalog refresh is not wired", http.StatusConflict)
 		return
 	}
-	if _, _, err := d.Cataloger.Refresh(r.Context(), id); err != nil {
+	if _, _, err := d.Cataloger.Refresh(r.Context(), in.ID); err != nil {
 		http.Error(w, "refresh failed: "+err.Error(), http.StatusConflict)
 		return
 	}
-	http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
+	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
 }
 
 // getAPIIntegrationsIDExposure serves `GET /api/integrations/{id}/exposure`.
 func (d IntegrationsDeps) getAPIIntegrationsIDExposure(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	in, err := d.Store.GetIntegrationByID(r.Context(), id)
-	if err != nil {
-		http.NotFound(w, r)
+	in, ok := d.integrationOf(w, r)
+	if !ok {
 		return
 	}
 	page, err := d.buildPicker(r, in)
@@ -338,10 +342,8 @@ func (d IntegrationsDeps) getAPIIntegrationsIDExposure(w http.ResponseWriter, r 
 // postIntegrationsIDExposure serves `POST /integrations/{id}/exposure`.
 func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, resource string, outcome string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		in, err := d.Store.GetIntegrationByID(r.Context(), id)
-		if err != nil {
-			http.NotFound(w, r)
+		in, ok := d.integrationOf(w, r)
+		if !ok {
 			return
 		}
 		if err := r.ParseForm(); err != nil {
@@ -385,12 +387,12 @@ func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, r
 		if len(riskyChosen) > 0 {
 			audit("exposure_ack", withAccount(r, "integration:"+in.Slug+" ack:"+strings.Join(riskyChosen, ",")), "ok")
 		}
-		if _, err := d.Exposures.Publish(r.Context(), id, entries); err != nil {
+		if _, err := d.Exposures.Publish(r.Context(), in.ID, entries); err != nil {
 			audit("exposure_publish", withAccount(r, "integration:"+in.Slug), "error")
 			http.Error(w, "publish failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
+		http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
 	}
 }
 
@@ -398,21 +400,19 @@ func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, r
 //
 // One-click reconfirm of stale entries (SPEC §6.5): named ones, or all.
 func (d IntegrationsDeps) postIntegrationsIDReconfirm(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	in, err := d.Store.GetIntegrationByID(r.Context(), id)
-	if err != nil {
-		http.NotFound(w, r)
+	in, ok := d.integrationOf(w, r)
+	if !ok {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	if _, err := d.Exposures.Reconfirm(r.Context(), id, r.PostForm["name"]); err != nil {
+	if _, err := d.Exposures.Reconfirm(r.Context(), in.ID, r.PostForm["name"]); err != nil {
 		http.Error(w, "reconfirm failed: "+err.Error(), http.StatusConflict)
 		return
 	}
-	http.Redirect(w, r, "/integrations/"+id+"/exposure?account="+in.AccountID, http.StatusSeeOther)
+	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
 }
 
 // getOAuthCallback serves `GET /oauth/callback`.
