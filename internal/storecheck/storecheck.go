@@ -44,13 +44,16 @@ type Refusal struct {
 	Table string // accounts | leaves | contacts | tombstones | pending_addresses
 	Row   string // account:<slug>, then what tells the row apart: contact:<root>, kid:<kid>, root:<root>
 	Field string // root_cert | leaf | card
-	Why   string
+	// Why is the reader's reason: the error of contacts.SealOf for a card, `certificate does not
+	// parse: ` and the error of hdtpidentity.Parse for a certificate.
+	Why string
 }
 
 // NoPin is one contact row the node hands the identity core no pin for because its status is one
 // this node does not know (public.UnknownContactState): what names its row, and the status found.
 type NoPin struct {
-	Row    string // account:<slug> contact:<root>
+	Row string // account:<slug> contact:<root>
+	// Status is the status the row holds.
 	Status string
 }
 
@@ -58,7 +61,8 @@ type NoPin struct {
 type Report struct {
 	// Read counts the fields read, by `<table>.<field>`: a contact holding a card, a leaf and a root
 	// certificate counts once under each.
-	Read     map[string]int
+	Read map[string]int
+	// Refusals is every field the core's reader refused, in the order the walk met them.
 	Refusals []Refusal
 	// NoPin is every contact whose status is neither a state a pin has nor `pending_in`, in the
 	// order the store lists them.

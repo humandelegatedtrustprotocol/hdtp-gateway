@@ -12,7 +12,9 @@ import (
 // CardSigs is one card signed by an Ed25519 host key the test holds the seed of, with its honest
 // `card_sig` and the second spellings and signatures a strict reader must refuse (HDTP §3, §13.1).
 type CardSigs struct {
+	// Host is the host whose leaf the card carries; its leaf certifies the key that signed the card.
 	Host *Host
+	// Card is the card text the signatures are over.
 	Card string
 	// Honest is the RFC 8032 signature, unpadded base64url: the control that must get through.
 	Honest string

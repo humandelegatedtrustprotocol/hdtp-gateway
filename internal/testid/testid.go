@@ -27,8 +27,11 @@ import (
 
 // Wallet is the person's side of HDTP §9: a root key, and the certificate for it.
 type Wallet struct {
-	CN      string
-	Key     *hdtpidentity.PrivateKey
+	// CN is the common name of the root and of every leaf it issues.
+	CN string
+	// Key is the root's private key; it signs the leaves.
+	Key *hdtpidentity.PrivateKey
+	// RootDER is the root certificate, DER encoded.
 	RootDER []byte
 	// Fpr is the root fingerprint — the identity's name everywhere (HDTP §2).
 	Fpr string
@@ -57,9 +60,13 @@ func NewWallet(t testing.TB, cn string, alg ...string) *Wallet {
 
 // Host is a host the root has issued to: its own key, its leaf, and the chain.
 type Host struct {
-	Key      *hdtpidentity.PrivateKey
-	LeafDER  []byte
-	Chain    [][]byte // leaf then root, as HDTP §14.2 requires
+	// Key is the host's own key, which the leaf certifies. It is nil on a Host made by IssueOver,
+	// whose caller holds the key.
+	Key *hdtpidentity.PrivateKey
+	// LeafDER is the leaf certificate, DER encoded.
+	LeafDER []byte
+	Chain   [][]byte // leaf then root, as HDTP §14.2 requires
+	// Endpoint is the address the leaf names.
 	Endpoint string
 	// Kid is the leaf key's fingerprint — what a peer names in an envelope's `kid`.
 	Kid string
