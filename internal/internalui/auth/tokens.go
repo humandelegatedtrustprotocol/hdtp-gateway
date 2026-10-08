@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -113,5 +112,3 @@ func (t *TokenService) List(ctx context.Context) ([]TokenInfo, error) {
 	}
 	return out, nil
 }
-
-var _ = fmt.Sprintf

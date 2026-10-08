@@ -11,7 +11,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
@@ -140,5 +139,3 @@ func wantsJSON(r *http.Request) bool {
 	return r.URL.Query().Get("format") == "json" ||
 		strings.Contains(a, "application/json") || strings.Contains(a, "application/hdtp-invite+json")
 }
-
-var _ = fmt.Sprintf // reserved for future use in error paths
