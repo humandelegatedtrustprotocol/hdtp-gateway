@@ -1,8 +1,7 @@
 # Contributing
 
-This repository is private while v1 is finished; it is licensed Apache-2.0 and
-structured to open. Until it does, contributions are by invitation — but everything
-below is how it will work when it opens, and how it works now.
+Contributions come as pull requests against `main`, under the Apache License 2.0. Everything below
+is what a change must carry and how to run the gates it is held to.
 
 ## Ground rules that will not change
 
