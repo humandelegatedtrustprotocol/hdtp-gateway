@@ -12,6 +12,7 @@
 // human, or leave it for the digest — is the agent's judgment, and putting that
 // policy in the node would be a second, worse agent (SPEC §7.7: the node labels
 // and hands over; it does not act on a contact's words).
+
 package ownermcp
 
 import (
@@ -48,6 +49,7 @@ type WaitArgs struct {
 // not cut a call mid-wait.
 const WaitMaxSec = 25
 
+// DigestArgs are digest's arguments.
 type DigestArgs struct {
 	AccountID string `json:"account_id"`
 	// SinceTS bounds the window; omit for the last 24 hours.

@@ -45,7 +45,8 @@ type Extra struct {
 	Certificate func(ctx context.Context, accountID string) (identity.CertificateInfo, error)
 	// Passkeys lists and removes registered passkeys (§8.6). Registration is
 	// deliberately absent.
-	Passkeys      func(ctx context.Context) ([]auth.PasskeyInfo, error)
+	Passkeys func(ctx context.Context) ([]auth.PasskeyInfo, error)
+	// RemovePasskey deletes one passkey (auth.Service.RemovePasskey, which refuses the last one).
 	RemovePasskey func(ctx context.Context, id string) error
 	// CallContact performs one permitted call to a contact on the owner's
 	// behalf, through the ordinary outbound path.
@@ -398,5 +399,6 @@ func (ot ownerTools) auditQueryTool(ctx context.Context, req *mcp.CallToolReques
 	return r, nil, jerr
 }
 
-// ErrNoCard is returned when a node cannot render a card for an account.
+// ErrNoCard is declared as the error for a node that cannot render a card for an account. Nothing in
+// this repository returns or tests it: export_card passes through the error Extra.Card gives.
 var ErrNoCard = fmt.Errorf("ownermcp: no card available")
