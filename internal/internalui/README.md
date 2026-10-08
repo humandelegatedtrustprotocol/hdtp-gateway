@@ -54,9 +54,11 @@ Page groups, each a `*Deps` struct and a `Mount*` function:
 
 "Session" means a signed-in owner (the session cookie resolves to an owner) and, for every method
 but GET, HEAD and OPTIONS, a CSRF token. A request that names an `account` (in the query, or in a
-form body) for an account the owner does not administer is answered 404 and audited, on every session
-route below. With a single account the owner administers, a request that names none is given it. No route below takes a
-bearer token: the token surface is the owner MCP.
+urlencoded form body) for an account the owner does not administer is answered 404 and audited, on
+every session route below. A multipart body is not read by that check (see "What it does not do").
+When the node has exactly one account and the owner administers it, a request that names none is
+given it; with several accounts nothing is filled in. No route below takes a bearer token: the
+token surface is the owner MCP.
 
 Open (no session needed):
 
@@ -70,7 +72,9 @@ Open (no session needed):
 | `GET /assets/*`, `/fonts/*`, `/brand/*` | The SPA's static shell; not audited when unauthenticated. |
 | `GET /`, any other unmatched GET | The SPA shell (`no-store`), or a file at the root of the embedded build; an unmatched `/api/...` is 404 `{"error":"not_found"}`. |
 
-Session (JSON reads, then mutations):
+Session (JSON reads, then mutations). Five GET routes in this table, `GET /media/{hash}`,
+`GET /card.vcf`, `GET /events`, `GET /integrations/{id}/authorize` and `GET /oauth/callback`, are
+also reachable with no session; see the last items of "What it does not do".
 
 | Method, path | What it does |
 |---|---|
@@ -150,10 +154,12 @@ request's lifetime is 8 minutes (`walletRequestLifetime`).
 
 ## Invariants
 
-- Every state change passes the CSRF check, and every non-open route needs a session. Held in the
-  real composition by `internal/cli`'s `TestEveryMutatingPortalRouteRefusesAForgedRequest`, and
-  here by `TestCSRFCookieOnGETAndEnforcedOnPOST` and `TestLoopbackStillDemandsALoginAndHostIsNotTrusted`.
-- An owner cannot name another owner's account: `TestPortalRefusesAnAccountTheOwnerDoesNotAdminister`,
+- Every state change passes the CSRF check, and every `/api/` route and every method other than
+  GET and HEAD needs a session. Held in the real composition by `internal/cli`'s
+  `TestEveryMutatingPortalRouteRefusesAForgedRequest`, and here by
+  `TestCSRFCookieOnGETAndEnforcedOnPOST` and `TestLoopbackStillDemandsALoginAndHostIsNotTrusted`.
+- A signed-in owner cannot name an account they do not administer in the query or a urlencoded
+  form (not in a multipart body: see below): `TestPortalRefusesAnAccountTheOwnerDoesNotAdminister`,
   `TestAnExplicitAccountIsNeverOverridden`, `TestSeveralAccountsAreNeverGuessedBetween`; in the
   real composition `internal/cli`'s `TestAnotherOwnersAccountIsNotFoundAndTheRefusalAudited`.
 - An unauthenticated `/api/session` names no identity: `TestSessionEndpointDoesNotEnumerateIdentities`.
@@ -210,11 +216,22 @@ holds the portal as composed.
 - It does not authenticate by itself: `SessionMiddleware` is installed only when `HandlerWithAuth`
   is given an `AuthDeps`, and a nil one (tests) leaves it off. `serve` always passes one.
 - The session gate does not refuse an unauthenticated GET or HEAD outside `/api/`: it passes it on
-  to the handler, which is how the SPA shell and the OAuth callback (reached by a cross-site
-  redirect that carries no Strict cookie) are served. Handlers for such GET routes
-  (`/media/{hash}`, `/card.vcf`, `/events`, `/integrations/{id}/authorize`, `/oauth/callback`)
-  then run with no owner and no resolved account, and each answers by its own checks.
-- It does not trust loopback as identity: a loopback portal still demands a login.
+  to the handler. That serves the SPA shell, and it is also how `/media/{hash}`, `/card.vcf`,
+  `/events`, `/integrations/{id}/authorize` and `/oauth/callback` are reached with no session
+  (`/oauth/callback` is not in the open set). Such a request runs with no owner, and the account
+  middleware neither resolves nor refuses an account for it. Measured with a scratch test (not
+  kept) on `HandlerWithAuth` with a non-nil `AuthDeps`: an unauthenticated
+  `GET /media/{hash}?account=<id>` answered 200 with the stored bytes for an account the caller
+  had no session for, and an unauthenticated `GET /events?account=<id>` answered 200 and opened
+  the event stream for that account. What stands in the way is that the caller must know the blob
+  hash (for media) and the account id.
+- The account check does not cover a multipart body. `accountMiddleware` reads `account` only from
+  the query and a urlencoded form, and `POST /messages/send_media` takes `account` from its
+  multipart body. Measured with the same scratch test: a signed-in owner who administers account A
+  posted a multipart `account=<B, which they do not administer>` and `SendMedia` was called for B
+  (200); the same request naming B in the query was 404.
+- It does not trust loopback as identity: a loopback portal still demands a login
+  (`TestLoopbackStillDemandsALoginAndHostIsNotTrusted`).
 - It does not hold the portal's UI. The pages are the SPA's (`web/`); the server-rendered pages
   here are only the wallet pages, the OAuth "authorization received" page and the invite landing.
 - It does not hold the agent surface (`ownermcp`) or the passkey and token logic (`auth`).

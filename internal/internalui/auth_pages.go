@@ -197,8 +197,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 type ownerKey struct{}
 
-// OwnerFrom returns the signed-in owner, or "" on a loopback portal where §8.3
-// says there is no login.
+// OwnerFrom returns the owner the session gate resolved for this request, or "" when the request
+// carries no valid session (a route the gate leaves open, or a handler mounted without
+// SessionMiddleware).
 func OwnerFrom(ctx context.Context) string {
 	id, _ := ctx.Value(ownerKey{}).(string)
 	return id

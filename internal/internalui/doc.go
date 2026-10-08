@@ -11,7 +11,8 @@
 // MCP server, which is mounted beside this handler at /owner/mcp and is not behind its session
 // or CSRF layers.
 //
-// What the pages show or change lives behind the store and the callbacks in the Deps structs; a
-// nil callback changes what its route does (hides the control, answers 404, 503 or 400), as each
-// Deps field says.
+// What the pages show or change lives behind the store and the callbacks in the Deps structs.
+// What a nil callback does is stated on each field: some hide a control or leave a route
+// unregistered, some change the route's answer (404, 409, 503, 400), and some are called without a
+// nil check.
 package internalui
