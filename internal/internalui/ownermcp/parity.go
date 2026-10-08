@@ -19,6 +19,7 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -215,8 +216,17 @@ func (ot ownerTools) identityCertificateTool(ctx context.Context, req *mcp.CallT
 	return r, nil, err
 }
 
+// allowNode decides the tools that act on the node rather than on an account: the passkeys,
+// which are the owner's (SPEC §3.1), and the trail's node-level rows. A token narrowed to one
+// account (SPEC §3.4) administers that account alone.
+func (ot ownerTools) allowNode() bool { return ot.ident.AccountID == "" }
+
 // listPasskeysTool is the `list_passkeys` tool.
 func (ot ownerTools) listPasskeysTool(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	if !ot.allowNode() {
+		r, err := deny()
+		return r, nil, err
+	}
 	list, err := ot.e.Passkeys(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -229,6 +239,10 @@ func (ot ownerTools) listPasskeysTool(ctx context.Context, req *mcp.CallToolRequ
 func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolRequest, a struct {
 	ID string `json:"id" jsonschema:"the passkey id to remove"`
 }) (*mcp.CallToolResult, any, error) {
+	if !ot.allowNode() {
+		r, err := deny()
+		return r, nil, err
+	}
 	if a.ID == "" {
 		r, err := jsonResult(map[string]string{"code": "bad_request"})
 		return r, nil, err
@@ -238,7 +252,8 @@ func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolReq
 	// enforced in auth.Service as one statement, so this surface and
 	// the portal cannot race each other to zero.
 	if err := ot.e.RemovePasskey(ctx, a.ID); err != nil {
-		if errors.Is(err, auth.ErrLastPasskey) {
+		switch {
+		case errors.Is(err, auth.ErrLastPasskey):
 			ot.e.log("passkey_remove", "passkey:"+a.ID, "refused_last")
 			r, jerr := jsonResult(map[string]string{
 				"code": "bad_request",
@@ -246,6 +261,13 @@ func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolReq
 					"register another before removing it",
 			})
 			return r, nil, jerr
+		case errors.Is(err, auth.ErrNoSuchPasskey):
+			ot.e.log("passkey_remove", "passkey:"+a.ID, "not_found")
+			b, jerr := json.Marshal(map[string]string{"code": "not_found", "detail": "no passkey with that id"})
+			if jerr != nil {
+				return nil, nil, jerr
+			}
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
 		}
 		ot.e.log("passkey_remove", "passkey:"+a.ID, "error")
 		return nil, nil, err
@@ -385,7 +407,7 @@ func (ot ownerTools) auditQueryTool(ctx context.Context, req *mcp.CallToolReques
 			// alike is how a scoping rule ends up permitting
 			// everything — which is exactly what happened while
 			// every row was written with an empty account.
-			return ot.ident.AccountID == ""
+			return ot.allowNode()
 		}
 		return ot.allow(ctx, accountID)
 	})
@@ -397,6 +419,3 @@ func (ot ownerTools) auditQueryTool(ctx context.Context, req *mcp.CallToolReques
 	r, jerr := jsonResult(rows)
 	return r, nil, jerr
 }
-
-// ErrNoCard is returned when a node cannot render a card for an account.
-var ErrNoCard = fmt.Errorf("ownermcp: no card available")

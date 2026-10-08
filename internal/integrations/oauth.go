@@ -341,18 +341,6 @@ type stateEntry struct {
 // generous, because a person signing in to a provider can take a while.
 const stateTTL = 15 * time.Minute
 
-// IntegrationForState names the integration whose authorization carried this
-// state. The callback route has no other way to tell flows apart: the redirect
-// URI registered with the provider must be used verbatim, so it cannot carry
-// the integration id, and state is the one value OAuth guarantees comes back.
-func (c *Connector) IntegrationForState(state string) (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneStatesLocked()
-	e, ok := c.states[state]
-	return e.id, ok && state != ""
-}
-
 func (c *Connector) pruneStatesLocked() {
 	now := time.Now()
 	for k, e := range c.states {
@@ -476,17 +464,29 @@ func (c *Connector) AuthorizeURL(ctx context.Context, integrationID string, time
 	}
 }
 
-// Deliver completes the flow from the portal callback route. The NEWEST
-// result always wins: a stale unread one is replaced, never the other way.
-func (c *Connector) Deliver(integrationID string, res auth.AuthorizationResult) {
-	f := c.flow(integrationID)
+// Deliver completes the pending flow the result's state names, from the portal's callback
+// route. The state is the one key: the redirect URI registered with the provider is used
+// verbatim, so it cannot carry the integration id, and state is the one value OAuth guarantees
+// comes back. It is one the node minted for that flow (Fetcher, rememberState) and still
+// pending. A state the node did not mint, or one already delivered or expired, names nothing,
+// and nothing is touched — no flow is created, no pending flow is written to — and false is
+// answered. Within a flow the NEWEST result wins: a stale unread one is replaced, never the
+// other way. The integration delivered to is answered for the caller's audit row.
+func (c *Connector) Deliver(res auth.AuthorizationResult) (string, bool) {
 	c.mu.Lock()
+	c.pruneStatesLocked()
+	e, ok := c.states[res.State]
+	f := c.flows[e.id]
+	if !ok || res.State == "" || f == nil {
+		c.mu.Unlock()
+		return "", false
+	}
 	delete(c.states, res.State)
 	c.mu.Unlock()
 	for {
 		select {
 		case f.Result <- res:
-			return
+			return e.id, true
 		default:
 			select {
 			case <-f.Result: // drop the stale one and retry

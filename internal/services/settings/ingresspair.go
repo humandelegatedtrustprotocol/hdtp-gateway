@@ -92,37 +92,7 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 	}
 
 	adapter := adapterFor(mode)
-	// The subdomain is not echoed back; derive it from the name the ingress
-	// assigned, so what we store is what it will actually route.
-	subdomain := strings.TrimSuffix(res.PublicName, "."+res.Domain)
-	// `subdomain` is written after the other adapter rows but before `ingress_fpr`. It is the
-	// marker `pairedAdapters` reads, so a write that fails on any row before it leaves the pairing
-	// not-yet-selectable. A failure on the `ingress_fpr` row, the last, leaves `subdomain` stored:
-	// the adapter then reads as paired while its ingress fingerprint, the pin PinnedIngress returns,
-	// is missing. There is no cross-row transaction here; ordering is all the guard there is.
-	ordered := []struct{ k, v string }{
-		{"domain", res.Domain},
-		{"data_plane_addr", res.DataPlaneAddr},
-		{"data_plane_port", fmt.Sprintf("%d", res.DataPlanePort)},
-		{"data_plane_token", res.DataPlaneToken},
-		{"node_fpr", acct.Fingerprint},
-		{"node_secret", res.NodeSecret},
-		{"subdomain", subdomain},
-		// The ingress's identity, so the node can PIN it on the onward leg
-		// (§10.6). It was shown to the owner and thrown away, which left the
-		// node accepting a terminating front door it could not recognise.
-		{"ingress_fpr", res.IngressFingerprint},
-	}
-	for _, kv := range ordered {
-		if err := s.saveRaw(ctx, "tunnel."+adapter+"."+kv.k, kv.v); err != nil {
-			return internalui.PairResult{}, err
-		}
-	}
-	// Only now is the adapter selectable; both of these are restart-scoped.
-	if err := s.saveRaw(ctx, "tunnel", adapter); err != nil {
-		return internalui.PairResult{}, err
-	}
-	if err := s.save(ctx, "public_url", "https://"+res.PublicName); err != nil {
+	if err := s.storePairing(ctx, adapter, res, acct.Fingerprint); err != nil {
 		return internalui.PairResult{}, err
 	}
 	s.audit("ingress_pair", "ingress:"+res.IngressFingerprint+" name:"+res.PublicName, "paired")
@@ -131,6 +101,42 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		Fingerprint: res.IngressFingerprint,
 		Adapter:     adapter,
 	}, nil
+}
+
+// pairingKeys are the rows a pairing writes under `tunnel.<adapter>.`, in the order storePairing
+// writes them, and the rows unpair deletes.
+var pairingKeys = []string{"domain", "data_plane_addr", "data_plane_port", "data_plane_token",
+	"node_fpr", "node_secret", "ingress_fpr", "subdomain"}
+
+// storePairing writes what a completed pairing produced: the adapter's rows, then the adapter as
+// the selected tunnel and the public URL under the name the ingress assigned (the subdomain is
+// not echoed back; it is derived from that name, so what is stored is what the ingress routes).
+// There is no cross-row transaction — store.SettingStore writes one row at a time — so the order
+// carries the invariant: `subdomain`, the marker pairedAdapters reads, is the last of the
+// adapter's rows, and a write that fails before it leaves the pairing incomplete and not
+// selectable. The rows a failed pairing leaves are overwritten by the next pairing and deleted by
+// unpair. `ingress_fpr` is the ingress's identity, which the node pins on the onward leg (§10.6).
+func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.PairResponse, nodeFpr string) error {
+	values := map[string]string{
+		"domain":           res.Domain,
+		"data_plane_addr":  res.DataPlaneAddr,
+		"data_plane_port":  fmt.Sprintf("%d", res.DataPlanePort),
+		"data_plane_token": res.DataPlaneToken,
+		"node_fpr":         nodeFpr,
+		"node_secret":      res.NodeSecret,
+		"ingress_fpr":      res.IngressFingerprint,
+		"subdomain":        strings.TrimSuffix(res.PublicName, "."+res.Domain),
+	}
+	for _, k := range pairingKeys {
+		if err := s.saveRaw(ctx, "tunnel."+adapter+"."+k, values[k]); err != nil {
+			return err
+		}
+	}
+	// Only now is the adapter selectable; both of these are restart-scoped.
+	if err := s.saveRaw(ctx, "tunnel", adapter); err != nil {
+		return err
+	}
+	return s.save(ctx, "public_url", "https://"+res.PublicName)
 }
 
 // unpair forgets a pairing. It refuses while that adapter is the selected one,
@@ -157,8 +163,7 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 		return fmt.Errorf("%s is the selected tunnel — choose another adapter first, "+
 			"otherwise the node would have no way to start", adapter)
 	}
-	for _, k := range []string{"subdomain", "domain", "data_plane_addr", "data_plane_port",
-		"data_plane_token", "node_fpr", "node_secret"} {
+	for _, k := range pairingKeys {
 		if err := s.store.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {
 			return err
 		}

@@ -180,9 +180,10 @@ export function Messages() {
     const fd = new FormData();
     fd.append("file", file, file.name);
     fd.append("contact", sel); fd.append("msg_id", d.new_msg_id);
-    fd.append("csrf", csrfCookie()); if (currentAccount()) fd.append("account", currentAccount());
+    fd.append("csrf", csrfCookie());
+    const url = "/messages/send_media" + (currentAccount() ? "?account=" + encodeURIComponent(currentAccount()) : "");
     try {
-      const r = await fetch("/messages/send_media", { method: "POST", headers: { "X-HDTP-Csrf": csrfCookie() }, body: fd });
+      const r = await fetch(url, { method: "POST", headers: { "X-HDTP-Csrf": csrfCookie() }, body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setSendErr(j.error || "the file was not sent");
     } catch { setSendErr("could not reach this node"); }

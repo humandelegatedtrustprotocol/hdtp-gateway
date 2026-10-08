@@ -224,14 +224,8 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 		func(mux *http.ServeMux) {
 			internalui.MountDashboard(mux, internalui.DashboardDeps{
 				Store: st,
-				Setup: setup,
 				// The SAME reader Settings · identity renders, so the two cannot disagree about a leaf.
 				Certificate: identityDeps.Certificate,
-				// Only offer to sign out of a session that exists: a loopback
-				// portal serves with no login at all (SPEC §8.3).
-				SignedIn: func(r *http.Request) bool {
-					return internalui.OwnerFrom(r.Context()) != ""
-				},
 				Posture: func() internalui.DashboardPosture {
 					return internalui.DashboardPosture{
 						Mode: string(cfg.Mode), Seal: string(cfg.Seal),

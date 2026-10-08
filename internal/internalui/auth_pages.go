@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -216,10 +217,13 @@ func OwnerFrom(ctx context.Context) string {
 // reaches the forwarder. It also made a registered passkey optional in practice,
 // which is the opposite of what registering one means.
 //
-// Ceremony and health routes stay open — a login page nobody can reach is not a
-// login page — and so does the static shell that delivers them, which is code,
-// not data.
-func (d AuthDeps) SessionMiddleware(next http.Handler) http.Handler {
+// What serves without a session is an allow-list: the ceremonies — a login page
+// nobody can reach is not a login page — the two pages a browser arrives at from
+// another site, the static shell that delivers them and the views the SPA routes
+// client-side, which are code, not data (view). Every other route is refused: a
+// fetch under /api/ and every mutation with 401, a browser's GET by sending it to
+// sign in with the page to come back to.
+func (d AuthDeps) SessionMiddleware(next http.Handler, mux *http.ServeMux) http.Handler {
 	open := map[string]bool{
 		"/login": true, "/login/begin": true, "/login/finish": true,
 		"/setup": true, "/setup/begin": true, "/setup/finish": true,
@@ -232,6 +236,10 @@ func (d AuthDeps) SessionMiddleware(next http.Handler) http.Handler {
 		// with it. The page and its script hold no data; the install they POST to is not open
 		// (wallet_pages.go).
 		"/wallet/return": true, "/wallet/return.js": true,
+		// The OAuth provider redirects the owner's browser back here cross-site, with the same
+		// consequence for the cookie. The flow it completes is named by the state the node minted
+		// (integrations_pages.go).
+		"/oauth/callback": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookieName()); err == nil && c.Value != "" {
@@ -247,28 +255,35 @@ func (d AuthDeps) SessionMiddleware(next http.Handler) http.Handler {
 		// as a refused request buried the real refusals under a browser's
 		// ordinary asset fetches — dozens of rows per visit, all counted as
 		// refusals by the audit view.
-		if open[r.URL.Path] || staticShell(r.URL.Path) {
+		api := strings.HasPrefix(r.URL.Path, "/api/")
+		if open[r.URL.Path] || staticShell(r.URL.Path) || (!api && view(mux, r)) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		d.audit("portal_request", "path:"+r.URL.Path, "identity_required")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if api {
 			// A fetch cannot use a login redirect; the SPA routes to sign-in on 401.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"identity_required"}`))
 			return
 		}
-		// Only a VIEW may fall through: serving the SPA shell to a GET hands out
-		// static code, and the data behind it still 401s above. A mutating method
-		// falling through would reach the actual handler unauthenticated — the
-		// old 303-to-login refused those, and refused they stay.
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "sign in first", http.StatusUnauthorized)
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			// The sign-in view returns to `next` once signed in, for a path on this portal
+			// (web/src/views/login.tsx).
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 			return
 		}
-		next.ServeHTTP(w, r)
+		http.Error(w, "sign in first", http.StatusUnauthorized)
 	})
+}
+
+// view reports whether the SPA's catch-all would serve the request (spa.go): a view the SPA
+// routes client-side, or a file at the root of its build. Both are the shell's own code; the
+// data a view shows is under /api/, which a session-less request is refused above.
+func view(mux *http.ServeMux, r *http.Request) bool {
+	_, pattern := mux.Handler(r)
+	return pattern == "GET /"
 }
 
 // staticShell reports whether a path is part of the portal's own static shell:

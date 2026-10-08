@@ -379,12 +379,9 @@ func (d WalletDeps) prepare(w http.ResponseWriter, r *http.Request, a store.Acco
 // a request is already waiting. It mints nothing and writes nothing.
 func (d WalletDeps) getWallet(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	// Signed out: to sign-in, and back here after (the page is the link an import and a move
-	// notice give). Signed in as somebody who does not administer it stays a 404 (walletAccount).
-	if OwnerFrom(r.Context()) == "" {
-		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
-		return
-	}
+	// Signed out, the session gate sends the person to sign in and back here after (the page is
+	// the link an import and a move notice give). Signed in as somebody who does not administer
+	// it is a 404 (walletAccount).
 	a, ok := d.walletAccount(w, r)
 	if !ok {
 		return

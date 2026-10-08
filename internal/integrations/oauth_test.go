@@ -255,7 +255,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	cbMux := http.NewServeMux()
 	cbMux.HandleFunc("GET /oauth/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		conn.Deliver(q.Get("integration"), auth.AuthorizationResult{
+		conn.Deliver(auth.AuthorizationResult{
 			Code: q.Get("code"), State: q.Get("state"), Iss: q.Get("iss"),
 		})
 	})
@@ -265,7 +265,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	m.OAuthFor = func(row store.Integration) (auth.OAuthHandler, error) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr,
-			RedirectURL:   cbSrv.URL + "/oauth/callback?integration=" + row.ID,
+			RedirectURL:   cbSrv.URL + "/oauth/callback",
 			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
 			Fetch:         conn.Fetcher(row.ID),
 		})
@@ -337,7 +337,7 @@ func TestOAuthCodeFlowSealsTokensAndRefreshRotates(t *testing.T) {
 	m.OAuthFor = func(row store.Integration) (auth.OAuthHandler, error) {
 		return NewOAuthHandler(row.ID, OAuthSetup{
 			Store: st, Keyring: kr,
-			RedirectURL:   cbSrv.URL + "/oauth/callback?integration=" + row.ID,
+			RedirectURL:   cbSrv.URL + "/oauth/callback",
 			Preregistered: &oauthex.ClientCredentials{ClientID: "hdtp", ClientSecretAuth: &oauthex.ClientSecretAuth{ClientSecret: "s3cret"}},
 			Fetch: func(context.Context, *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 				t.Error("a resumed handler sent the owner to sign in again")
@@ -564,6 +564,8 @@ func TestOAuthClientRoundTripsSealed(t *testing.T) {
 // authorization answered "no authorization is pending for this callback".
 func TestPendingStatesOutliveNewerFlows(t *testing.T) {
 	c := &Connector{}
+	c.flow("integ-1")
+	c.flow("integ-2")
 	c.rememberState("integ-1", "https://as.example/authorize?state=first")
 	c.rememberState("integ-1", "https://as.example/authorize?state=second") // background retry
 	c.rememberState("integ-2", "https://as.example/authorize?state=other")
@@ -573,28 +575,29 @@ func TestPendingStatesOutliveNewerFlows(t *testing.T) {
 		{"second", "integ-1"},
 		{"other", "integ-2"},
 	} {
-		if id, ok := c.IntegrationForState(tc.state); !ok || id != tc.want {
+		if id, ok := c.Deliver(auth.AuthorizationResult{State: tc.state}); !ok || id != tc.want {
 			t.Fatalf("state %q -> %q,%v; want %q", tc.state, id, ok, tc.want)
 		}
 	}
-	if _, ok := c.IntegrationForState(""); ok {
+	if _, ok := c.Deliver(auth.AuthorizationResult{State: ""}); ok {
 		t.Fatal("the empty state resolved")
 	}
 
 	// Expiry, not eviction, is what bounds the map.
+	c.rememberState("integ-1", "https://as.example/authorize?state=late")
 	c.mu.Lock()
-	e := c.states["first"]
+	e := c.states["late"]
 	e.expires = time.Now().Add(-time.Minute)
-	c.states["first"] = e
+	c.states["late"] = e
 	c.mu.Unlock()
-	if _, ok := c.IntegrationForState("first"); ok {
+	if _, ok := c.Deliver(auth.AuthorizationResult{State: "late"}); ok {
 		t.Fatal("an expired state resolved")
 	}
 	c.mu.Lock()
-	_, still := c.states["first"]
+	_, still := c.states["late"]
 	n := len(c.states)
 	c.mu.Unlock()
-	if still || n != 2 {
+	if still || n != 0 {
 		t.Fatalf("expired state not pruned: present=%v len=%d", still, n)
 	}
 }

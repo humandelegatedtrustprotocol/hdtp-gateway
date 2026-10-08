@@ -109,19 +109,18 @@ func TestThePortalsLoopbackRuleIsTheWallets(t *testing.T) {
 }
 
 // Coordinator (QA of 2026-09-28), item 3. A signed-out GET of the wallet page answered a bare 404,
-// so the link the import and the move notice give led nowhere. It sends the person to sign in,
-// with the page to come back to; the sign-in view returns there (web/src/views/login.tsx) only for
-// a path on this portal.
+// so the link the import and the move notice give led nowhere. The session gate sends the person
+// to sign in, with the page to come back to; the sign-in view returns there
+// (web/src/views/login.tsx) only for a path on this portal.
 func TestASignedOutWalletPageSendsThePersonToSignIn(t *testing.T) {
-	mux, _ := walletReviewEnv(t, nil)
-	req := httptest.NewRequest("GET", "https://portal.example/identity/alina/wallet", nil)
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
+	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) { MountWalletPages(mux, WalletDeps{Store: st}) })
+	rr := e.do(t, http.MethodGet, "/identity/alina/wallet", nil, nil)
 	if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/login?next=%2Fidentity%2Falina%2Fwallet" {
 		t.Fatalf("signed out: %d %q", rr.Code, rr.Header().Get("Location"))
 	}
 	// Signed in as somebody who does not administer it: still not found, as before.
-	req = httptest.NewRequest("GET", "https://portal.example/identity/alina/wallet", nil)
+	mux, _ := walletReviewEnv(t, nil)
+	req := httptest.NewRequest("GET", "https://portal.example/identity/alina/wallet", nil)
 	req = req.WithContext(context.WithValue(req.Context(), ownerKey{}, "someone-else"))
 	rr = httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)

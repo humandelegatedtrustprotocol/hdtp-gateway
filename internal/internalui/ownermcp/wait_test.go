@@ -90,6 +90,62 @@ func TestAWaitWakesForAChangeAnotherProcessMade(t *testing.T) {
 	}
 }
 
+// The queues only the owner clears end a wait (waitResult): a contact parked at a new address is
+// published as a request (node.OnPending) and an integration whose token died as attention
+// (serve.go), and each wakes the wait, which then answers with the queue. It used to re-read the
+// store on the wake, find neither counted as news, and park again until the clock ran out.
+func TestAWaitAnswersForAParkedAddressAndForAttention(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+
+	wait := func(t *testing.T, acct string, change func()) waitResult {
+		t.Helper()
+		var start waitResult
+		first, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": acct})
+		if err := json.Unmarshal([]byte(first), &start); err != nil {
+			t.Fatal(err)
+		}
+		woke := make(chan waitResult, 1)
+		go func() {
+			text, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": acct, "since": start.Cursor, "timeout_sec": 4})
+			var r waitResult
+			_ = json.Unmarshal([]byte(text), &r)
+			woke <- r
+		}()
+		time.Sleep(500 * time.Millisecond) // parked
+		change()
+		return <-woke
+	}
+
+	root, oldLeaf := movedLeaf(t, "Alina", "https://old.example/alina")
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: root, SPKI: []byte{1}, Status: "active",
+		Endpoint: "https://old.example/alina", Leaf: oldLeaf, DisplayName: "Alina"}); err != nil {
+		t.Fatal(err)
+	}
+	_, newLeaf := movedLeaf(t, "Alina", "https://new.example/alina")
+	got := wait(t, e.acctA, func() {
+		if err := e.st.UpsertPendingAddress(ctx, store.PendingAddress{AccountID: e.acctA, Root: root, Endpoint: "https://new.example/alina", Leaf: newLeaf, Why: "ask", At: 1}); err != nil {
+			t.Error(err)
+		}
+		e.deps.Bus.Publish(messaging.Event{Kind: messaging.EventRequest, AccountID: e.acctA, ContactFpr: root})
+	})
+	if got.TimedOut || got.Addresses != 1 {
+		t.Errorf("a wait parked while a contact was held at a new address: %+v", got)
+	}
+
+	got = wait(t, e.acctB, func() {
+		if _, err := e.st.InsertIntegration(ctx, store.Integration{AccountID: e.acctB, Slug: "cal", Transport: "streamable-http",
+			Endpoint: "https://cal.example/mcp", AuthKind: "oauth", Status: "auth_error"}); err != nil {
+			t.Error(err)
+		}
+		e.deps.Bus.Publish(messaging.Event{Kind: messaging.EventAttention, AccountID: e.acctB})
+	})
+	if got.TimedOut || len(got.NeedsAttention) != 1 || got.NeedsAttention[0].Integration != "cal" {
+		t.Errorf("a wait parked while an integration needed re-authorizing: %+v", got)
+	}
+}
+
 // A cursor older than the change log (which keeps a week) is answered as such, at once, rather
 // than as if nothing had moved.
 func TestACursorOlderThanTheLogIsSaidToBe(t *testing.T) {

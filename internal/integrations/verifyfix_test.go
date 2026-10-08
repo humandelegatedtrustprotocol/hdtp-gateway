@@ -79,11 +79,67 @@ func TestExposedNamesUniqueAcrossAccount(t *testing.T) {
 
 func TestDeliverNewestWins(t *testing.T) {
 	c := &Connector{}
-	c.Deliver("i1", auth.AuthorizationResult{Code: "stale"})
-	c.Deliver("i1", auth.AuthorizationResult{Code: "fresh"})
-	res, err := c.Fetcher("i1")(context.Background(), &auth.AuthorizationArgs{URL: "https://as/x"})
+	// Two authorizations minted for one flow and abandoned (their fetch ended): each state stays
+	// pending until it expires, and a result for either is delivered to the flow.
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, state := range []string{"S1", "S2"} {
+		if _, err := c.Fetcher("i1")(gone, &auth.AuthorizationArgs{URL: "https://as/x?state=" + state}); err == nil {
+			t.Fatal("a fetch whose context ended returned a result")
+		}
+	}
+	if _, ok := c.Deliver(auth.AuthorizationResult{Code: "stale", State: "S1"}); !ok {
+		t.Fatal("a minted state was not delivered")
+	}
+	if _, ok := c.Deliver(auth.AuthorizationResult{Code: "fresh", State: "S2"}); !ok {
+		t.Fatal("a minted state was not delivered")
+	}
+	res, err := c.Fetcher("i1")(context.Background(), &auth.AuthorizationArgs{URL: "https://as/x?state=S3"})
 	if err != nil || res.Code != "fresh" {
 		t.Fatalf("got %+v %v", res, err)
+	}
+}
+
+// A result whose state the node did not mint names no flow: Deliver creates none (the callback
+// route is served without a session, so a flow per distinct id was unbounded growth from an
+// unauthenticated GET), writes to none, and a pending flow stays pending. The control is the
+// state the flow was minted with.
+func TestDeliverTouchesNothingForAStateItDidNotMint(t *testing.T) {
+	c := &Connector{}
+	for _, state := range []string{"NOPE", "", "ghost-2"} {
+		if id, ok := c.Deliver(auth.AuthorizationResult{Code: "x", State: state}); ok || id != "" {
+			t.Errorf("state %q was delivered to %q", state, id)
+		}
+	}
+	if n := len(c.flows); n != 0 {
+		t.Fatalf("results for states the node did not mint created %d flow entries", n)
+	}
+	got := make(chan *auth.AuthorizationResult, 1)
+	go func() {
+		res, _ := c.Fetcher("i1")(context.Background(), &auth.AuthorizationArgs{URL: "https://as/x?state=S7"})
+		got <- res
+	}()
+	if _, err := c.AuthorizeURL(context.Background(), "i1", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Deliver(auth.AuthorizationResult{Code: "x", State: "NOPE"}); ok {
+		t.Fatal("an unminted state was delivered to a pending flow")
+	}
+	select {
+	case res := <-got:
+		t.Fatalf("the pending flow was ended by an unminted state: %+v", res)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if id, ok := c.Deliver(auth.AuthorizationResult{Code: "c9", State: "S7"}); !ok || id != "i1" {
+		t.Fatalf("the minted state was not delivered: %q %v", id, ok)
+	}
+	select {
+	case res := <-got:
+		if res == nil || res.Code != "c9" {
+			t.Fatalf("delivered %+v", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pending flow never received the minted state's result")
 	}
 }
 
