@@ -10,7 +10,8 @@ node, only `cedar-go`. Its callers are in `internal/public` (`public.StoreResolv
 contact row with `TierFor`; `servers.go` and `sealed.go` call `Allow` to build `tools/list` and to re-check
 at call time, and `decide.go` and `identify.go` use `policy.Tier` as a type), `internal/internalui/ownermcp/server.go`
 (`AllowOwnerManage`, with an `OwnerCtx` built from the owner's memberships) and `internal/cli`
-(`integrationsurface.go` builds a `Rule`).
+(`integrationsurface.go` builds a `Rule` for an integration's tools). `public.BuiltinEntries`
+(`internal/public/tools.go`) builds a `Rule` for every built-in tool too.
 
 ## What it holds
 

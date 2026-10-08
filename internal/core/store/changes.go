@@ -64,7 +64,8 @@ func (s *SQLite) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	return oldest, newest, err
 }
 
-// DeleteChangesByAccount deletes every change row of one account, for an identity that left.
+// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 func (s *SQLite) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	return s.q.DeleteChangesByAccount(ctx, accountID)
 }
@@ -137,7 +138,8 @@ func (s *Postgres) ChangeBounds(ctx context.Context) (int64, int64, error) {
 	return oldest, newest, err
 }
 
-// DeleteChangesByAccount deletes every change row of one account, for an identity that left.
+// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 func (s *Postgres) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	return s.q.DeleteChangesByAccount(ctx, accountID)
 }

@@ -238,7 +238,8 @@ func (s *SQLite) InsertCredential(ctx context.Context, c Credential) error {
 	})
 }
 
-// CountCredentialsByKind counts the credentials of one kind across every owner.
+// CountCredentialsByKind counts the credentials whose kind equals kind, across every owner. The kind
+// is not validated against the table's list, so an unknown kind counts 0.
 func (s *SQLite) CountCredentialsByKind(ctx context.Context, kind string) (int64, error) {
 	return s.q.CountCredentialsByKind(ctx, kind)
 }

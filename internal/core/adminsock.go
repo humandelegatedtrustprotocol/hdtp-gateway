@@ -53,7 +53,8 @@ func (s *AdminServer) releaseLock() {
 	}
 }
 
-// NewAdminServer returns a server for the socket at path. It listens only after Start.
+// NewAdminServer returns a server for the socket at path. It registers no handler and takes no lock: Handle adds handlers, and Start takes <path>.lock and
+// listens.
 func NewAdminServer(path string) *AdminServer {
 	return &AdminServer{path: path, handlers: map[string]AdminHandler{}}
 }

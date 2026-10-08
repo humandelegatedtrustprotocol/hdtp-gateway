@@ -482,7 +482,8 @@ type Lifecycle interface {
 	// newer binary migrated it). A `serve` that shares the data dir and did not migrate checks it
 	// before serving (SPEC §11.1).
 	SchemaCurrent(ctx context.Context) error
-	// Close releases the engine's connections.
+	// Close releases the engine's connections. SQLite's closes its pool and returns the driver's error;
+	// Postgres's closes the pool and returns nil.
 	Close() error
 
 	// Atomically runs fn against a Store whose every write is ONE transaction: all of it lands,
@@ -511,7 +512,8 @@ type OwnerStore interface {
 	// none. Kind must be one the table's CHECK admits (passkey, oauth, password), and an owner that
 	// does not exist is refused by the foreign key.
 	InsertCredential(ctx context.Context, c Credential) error
-	// CountCredentialsByKind counts the credentials of one kind across every owner.
+	// CountCredentialsByKind counts the credentials whose kind equals kind, across every owner. The
+	// kind is not validated against the table's list, so an unknown kind counts 0.
 	CountCredentialsByKind(ctx context.Context, kind string) (int64, error)
 	// ListCredentialsByKind returns the credentials of one kind, across owners, ordered by creation
 	// time and then id.
@@ -635,7 +637,8 @@ type AccountStore interface {
 	// ClearAccountKey destroys the account's copy of its current leaf's key and keeps the
 	// fingerprint. With RetireLeafKey it is what an expired leaf's key becomes: nothing.
 	ClearAccountKey(ctx context.Context, accountID string) error
-	// DeleteLeavesByState deletes the account's leaf rows in one state and returns how many went.
+	// DeleteLeavesByState deletes the account's leaf rows whose state equals state (pending, current,
+	// superseded or former) and returns how many went. Any other value matches nothing and returns 0.
 	DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error)
 	// LockAccount, inside Atomically, makes every other transaction that locks the same account
 	// wait until this one ends: a signing request replacing the pending one is one step, never
@@ -661,7 +664,8 @@ type AccountStore interface {
 	// DeleteIdempotencyByAccount deletes the account's idempotency records, which have no foreign key
 	// to cascade from.
 	DeleteIdempotencyByAccount(ctx context.Context, accountID string) (int64, error)
-	// DeleteChangesByAccount deletes every change row of one account, for an identity that left.
+	// DeleteChangesByAccount deletes every change row of one account, for an identity that left. Change
+	// rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 	DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error)
 }
 
@@ -891,6 +895,8 @@ type MessageStore interface {
 	// wire protocol for remote deletion, and the peer's copy is the peer's.
 	DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error)
 	// DeleteEmptyThreads deletes the account's threads that hold no message and returns how many went.
+	// Empty is judged in the same account: a message of another account under the same thread id does
+	// not keep the thread alive.
 	DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error)
 
 	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what

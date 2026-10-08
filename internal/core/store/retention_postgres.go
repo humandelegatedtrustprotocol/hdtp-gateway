@@ -8,12 +8,16 @@ import (
 )
 
 // DeleteMessagesBefore deletes the account's messages created before cutoff and returns how many
-// went. It deletes local copies only.
+// went. It deletes the messages of both directions and every status, pending outbound ones included,
+// and nothing else: threads (left for DeleteEmptyThreads), blob records, files and idempotency records
+// stay. The peer's copy is the peer's.
 func (p *Postgres) DeleteMessagesBefore(ctx context.Context, accountID string, cutoff int64) (int64, error) {
 	return p.q.DeleteMessagesBefore(ctx, pgdb.DeleteMessagesBeforeParams{AccountID: accountID, CreatedAt: cutoff})
 }
 
 // DeleteEmptyThreads deletes the account's threads that hold no message and returns how many went.
+// Empty is judged in the same account: a message of another account under the same thread id does
+// not keep the thread alive.
 func (p *Postgres) DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error) {
 	return p.q.DeleteEmptyThreads(ctx, accountID)
 }

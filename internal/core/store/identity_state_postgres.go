@@ -141,7 +141,8 @@ func (s *Postgres) ClearAccountKey(ctx context.Context, accountID string) error 
 	return nil
 }
 
-// DeleteLeavesByState deletes the account's leaf rows in one state and returns how many went.
+// DeleteLeavesByState deletes the account's leaf rows whose state equals state (pending, current,
+// superseded or former) and returns how many went. Any other value matches nothing and returns 0.
 func (s *Postgres) DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error) {
 	n, err := s.q.DeleteLeavesByState(ctx, pgdb.DeleteLeavesByStateParams{AccountID: accountID, State: state})
 	if err != nil {

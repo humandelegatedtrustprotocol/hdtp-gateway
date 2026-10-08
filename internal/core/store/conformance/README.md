@@ -17,7 +17,8 @@ interface, and nothing else: it does not know which engine it is judging.
 - `Migratable`: `store.Store` plus `MigrateDown`, which the suite needs for the up/down/up check and which
   is not on the interface.
 - `Factory`: `func(t *testing.T) Migratable`, returning a new, empty, unmigrated store. The suite migrates
-  it; the factory's cleanup must drop whatever it made.
+  it; clean-up is the factory's. (`Factory`'s own comment used to say the cleanup "must drop whatever it
+  created"; the Postgres caller does not, see below, and the comment now says what the callers do.)
 - `Run(t, newStore)`: judges one engine by every area below, in this fixed order, each area a set of
   subtests that start from a fresh store.
 
@@ -40,8 +41,8 @@ interface, and nothing else: it does not know which engine it is judging.
 
 ### How a new engine plugs in
 
-Write a `Factory` that opens the engine on an empty database (a fresh file, or a fresh throwaway database
-on a shared server, dropped in `t.Cleanup`) and return it from a test that calls `conformance.Run`:
+Write a `Factory` that opens the engine on an empty database (a fresh file, or a fresh database on a shared
+server) and close it in `t.Cleanup`; return it from a test that calls `conformance.Run`:
 
 ```go
 func TestMyEngineConformance(t *testing.T) {
@@ -53,9 +54,12 @@ func TestMyEngineConformance(t *testing.T) {
 }
 ```
 
-The two existing callers are the models. `TestSQLiteConformance` opens a file in `t.TempDir()`.
+The two existing callers are the models, and neither drops anything in `t.Cleanup`; each only closes the
+store. `TestSQLiteConformance` opens a file in `t.TempDir()`, which the testing package removes.
 `TestPostgresConformance` creates a database `hdtp_conf_<n>` on the server `HDTP_TEST_POSTGRES_DSN` names
-for each store the suite asks for, and skips when the variable is unset.
+for each store the suite asks for, after `DROP DATABASE IF EXISTS` on that name, so a database left by an
+earlier run is dropped by the next run's factory call and the last run's databases stay on the server. It
+skips when the variable is unset.
 
 ## What it refuses, and how
 

@@ -12,7 +12,9 @@ The store, the audit chain and authorization are not here but in `core/store`, `
 Callers: `internal/cli` is the wiring and uses nearly all of it (`Load`, `OpenKeyring`, `AcquireLock` and
 `AcquireServeLock`, `NewAdminServer` and `AdminCall`, `ApplyStoreSettings`, `ProcessName`, `Tag`);
 `internal/node` (`EffectiveSeal`, `Redact`), `internal/public` (`Redact`), `internal/contacts` and
-`internal/portable` (`ErrContactCap`, `ContactCapRefusal`), `internal/integrations` (`ReservedToolNames`,
+`internal/portable` (`ErrContactCap`, `ContactCapRefusal`; `contacts.ErrContactCap` is the same value, and
+`internal/internalui/manage_pages.go` and `internal/internalui/ownermcp/server.go` match it with
+`errors.Is` to answer `payment_required`), `internal/integrations` (`ReservedToolNames`,
 `ProcessName`), `internal/services/settings` (`EffectiveSettings`, `ValidateSetting`, `SettingsAAD`),
 `internal/internalui` (`ValidateSetting`) and `internal/tunnel` (`RegisterTunnel`).
 

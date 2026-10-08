@@ -7,7 +7,8 @@ leaf ledger, contacts and pins, threads and messages, integrations, settings, th
 archive anchor, the change log, leases and owner presence.
 
 It sits at rank 1 of the layer table in `internal/integrationtest/layering_test.go`: above the two
-generated packages `core/store/sqlitedb` and `core/store/pgdb`, below everything else. Its callers are
+generated packages `core/store/sqlitedb` and `core/store/pgdb` (rank 0, as are `core`, `core/audit` and
+`core/policy`), below the services and surfaces. Its callers are
 the domain services and the surfaces (`identity`, `contacts`, `messaging`, `integrations`, `portable`,
 `public`, `node`, `internalui` and its `ownermcp` and `auth` packages, `services/*`, `storecheck`) and
 the wiring in `cli`. A consumer takes the role interface it needs (`store.ContactStore`,
@@ -90,7 +91,11 @@ interface.
 ## What it refuses, and how
 
 - **`ErrNotFound`** is `sql.ErrNoRows`, the same value, on either engine (pgx's `ErrNoRows` wraps it, so
-  `errors.Is(err, store.ErrNotFound)` holds on both). Reads return it when the row is not there. A caller
+  `errors.Is(err, store.ErrNotFound)` holds on both). The reads that return one row (`GetOwner`, `GetAccountByID`, `GetContact`, `GetThread`, `GetBlob` and the other single-row gets)
+  return it when the row is not there. Four shapes are not that: `AuditAnchor` returns the zero
+  `AuditAnchorRow` with a nil error when nothing was archived; `GetAccountSealedKey` returns nil bytes with
+  a nil error for an account with no key; `OwnerPresenceSeenAt` returns 0 when the agent never asked; and
+  `TakeLease` returns false, not an error, when another holder has the lease. A caller
   outside this package asks the question with it, because `database/sql` may not be imported outside the
   store.
 - Some writes report an absent row with `ErrNotFound` (or an error wrapping it): `DeleteOwner`,

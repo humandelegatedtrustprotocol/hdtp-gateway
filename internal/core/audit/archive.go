@@ -42,7 +42,9 @@ type Store interface {
 	// SetAuditAnchor records the anchor. Archive calls it after the archive file is written and
 	// verified and before the rows go.
 	SetAuditAnchor(ctx context.Context, a Anchor) error
-	// DeleteAuditEventsThrough deletes the rows with seq at or below seq and returns how many went.
+	// DeleteAuditEventsThrough deletes the rows with seq at or below seq (the bound is inclusive) and
+	// returns how many went. Archive calls it with the last archived seq, after the anchor has been
+	// set; the engine's prune trigger refuses rows the anchor does not cover.
 	DeleteAuditEventsThrough(ctx context.Context, seq int64) (int64, error)
 }
 

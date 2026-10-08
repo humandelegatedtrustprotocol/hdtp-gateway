@@ -18,8 +18,10 @@ type Migratable interface {
 	MigrateDown(ctx context.Context) error
 }
 
-// Factory returns a NEW, empty, unmigrated store. The suite migrates it and the
-// factory's cleanup must drop whatever it created.
+// Factory returns a NEW, empty, unmigrated store. The suite migrates it. Clean-up is the factory's:
+// the SQLite caller's file is under t.TempDir(), and the Postgres caller closes the store in
+// t.Cleanup but leaves its database hdtp_conf_N, which the next run's factory call drops
+// (DROP DATABASE IF EXISTS) before it creates the database again.
 type Factory func(t *testing.T) Migratable
 
 // Run judges one engine by the whole suite, area by area, in one fixed order.
