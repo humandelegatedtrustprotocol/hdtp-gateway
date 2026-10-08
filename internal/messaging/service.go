@@ -15,6 +15,10 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
+// Wire error codes this package returns, wrapped with a detail after a colon (HDTP section 12):
+// ErrTooLarge for text over 16 KiB, a topic over 256 bytes, or media over its caps; ErrBadRequest
+// for a missing msg_id, a missing or invalid origin or sender, a thread of another contact, or a
+// topic given for a thread that exists.
 var (
 	ErrTooLarge   = errors.New("too_large")
 	ErrBadRequest = errors.New("bad_request")
@@ -24,8 +28,12 @@ var (
 // constant; there is no string parameter a caller could spoof through.
 type Sender string
 
+// The two sender labels (HDTP 6.2). Origin.Sender maps every surface to one of them.
 const (
+	// SenderAgent labels a message an agent composed or, for an inbound one, a peer that said so
+	// or said nothing.
 	SenderAgent Sender = "agent"
+	// SenderHuman labels a message a person typed: the portal compose box, or a peer claiming so.
 	SenderHuman Sender = "human"
 )
 
@@ -76,10 +84,15 @@ func (in Input) Label() Sender {
 	return in.Origin.Sender()
 }
 
+// Direction is whether a message came to this node or is going from it; it is stored as the
+// message's direction and is part of the idempotency key, so a msg_id used inbound never swallows
+// an outbound message.
 type Direction string
 
 const (
-	DirIn  Direction = "in"
+	// DirIn: received from a contact. Recorded as delivered.
+	DirIn Direction = "in"
+	// DirOut: composed here for a contact. Recorded as pending until a peer accepts it.
 	DirOut Direction = "out"
 )
 
@@ -89,6 +102,9 @@ const maxTextBytes = 16 * 1024 // HDTP §12
 // in `send_message`, so it reaches a hosted peer; a peer's reaches this node under MaxFieldBytes.
 const maxOwnerTopicBytes = 256
 
+// Service records messages and threads in a store.MessageStore. It writes rows only; it has no path
+// to the wire, delivery of an outbound message is internal/node's. Bus, when set, receives an
+// EventMessage for each message newly recorded.
 type Service struct {
 	Store store.MessageStore
 	Bus   *Bus // optional: events fan out when set (SPEC §7.6)
@@ -102,6 +118,8 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
+// Input is one message to record. MsgID is required and is the idempotency key together with the
+// account, the contact and the direction.
 type Input struct {
 	MsgID    string
 	ThreadID string // "" = start a new thread
@@ -120,9 +138,12 @@ type Input struct {
 	ExpiresAt int64
 }
 
+// Result is what Record answers: the thread the message is in, and the status of its row. Status is
+// delivered for a message recorded inbound, pending for one recorded outbound, and the original
+// row's current status when msg_id was already recorded (a replay writes nothing).
 type Result struct {
 	ThreadID string
-	Status   string // delivered | queued_for_human
+	Status   string
 }
 
 // Record stores one message in the given direction with full idempotency: a

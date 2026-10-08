@@ -24,8 +24,11 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
+// MaxMediaBytes is the most one inline media item may hold, received, sent or fetched (HDTP 12).
 const MaxMediaBytes = 5 << 20 // HDTP §12: media ≤ 5 MiB inline
 
+// ErrQuota is the account's media quota exhausted; it carries the same wire code as ErrTooLarge,
+// so errors.Is(err, ErrTooLarge) is false for it and callers match ErrQuota to tell them apart.
 var ErrQuota = errors.New("too_large") // quota exhausted maps to the §12 code
 
 // BlobDir stores blob content on disk, content-addressed (SPEC §7.4).
@@ -71,6 +74,7 @@ func (b BlobDir) Put(data []byte) (string, error) {
 	return hash, os.Rename(tmp, p)
 }
 
+// Get reads the bytes behind a hash; a string that is not a lowercase hex SHA-256 is fs.ErrNotExist.
 func (b BlobDir) Get(hash string) ([]byte, error) {
 	p := b.path(hash)
 	if p == "" {
@@ -103,6 +107,9 @@ type MediaMeta struct {
 	Size     int64  `json:"size,omitempty"`
 }
 
+// MediaService stores and fetches media for an account under its byte quota. Inline media is
+// content-addressed into Blobs and recorded as a kind=media message through a Service; url media
+// is recorded without fetching, and Fetch is the explicit act that retrieves it.
 type MediaService struct {
 	Store store.MessageStore
 	Blobs BlobDir

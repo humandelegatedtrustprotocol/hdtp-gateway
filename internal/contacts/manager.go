@@ -36,6 +36,11 @@ var ErrContactCap = core.ErrContactCap
 const MaxInviteTTL = 90 * 24 * time.Hour
 const defaultInviteTTL = 14 * 24 * time.Hour
 
+// Manager is the inbound half of the contact lifecycle for every account on one store: it mints
+// and redeems invites, takes unsolicited contact requests, and answers a peer's accept, reject,
+// update and remove calls. Every contact row it writes is pinned from a Proof, never from the
+// card's say-so. The owner's decisions on those rows are Owner's (owner.go). Its caps are read
+// through ContactCap and AdmitRequest at the moment of each write; Now is the only clock.
 type Manager struct {
 	Store store.Store
 	Now   func() time.Time // injectable clock
@@ -115,6 +120,9 @@ func (m *Manager) now() time.Time {
 
 /* ------------------------------- invites ------------------------------- */
 
+// InviteOptions are the server-side settings CreateInvite stores with an invite's token hash.
+// TTL and MaxUses carry their zero-value meanings in the field comments; Preset, when set without
+// Permissions, grants that preset's bundle as resolved by LoadPresets at creation time.
 type InviteOptions struct {
 	TTL         time.Duration // 0 = default 14d; capped at 90d
 	MaxUses     int64         // 0 = 1 (one-time); <0 = unlimited (stored as a large cap)
@@ -363,8 +371,10 @@ func (m *Manager) AddressClaim(ctx context.Context, accountID, endpoint, root st
 	return "", nil
 }
 
-// RequestContact is the unsolicited guest path (HDTP §6.2): lands pending_in for
-// owner approval; same identity binding rule as redemption.
+// RequestContactAs is the unsolicited guest path (HDTP §6.2): it writes a pending_in row for the
+// owner to approve, under the same identity binding as RedeemAs (Proof.vet). It refuses a note over
+// 1024 bytes with ErrBadRequest, asks the pending-request cap (admitRequest) before the insert, and
+// answers ErrBadRequest "already known" for a root that has any row, a blocked one included.
 func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note string, p Proof) error {
 	if _, err := p.vet(card); err != nil {
 		return err
@@ -390,7 +400,6 @@ func (m *Manager) RequestContactAs(ctx context.Context, accountID, card, note st
 
 /* ---------------------------- pending tier ----------------------------- */
 
-// ContactAccepted: the peer we invited (pending_out) confirms (HDTP §6.2).
 // ContactAccepted records a peer's approval: their post-approval card and the
 // permissions they granted us (HDTP §6.2). Both used to be discarded — the card
 // was accepted and ignored, and the permission list was never even decoded — so

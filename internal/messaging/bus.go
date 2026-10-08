@@ -18,11 +18,16 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
+// EventKind names what an Event is about; it is stored as the change log's kind column and read
+// back by EventOf. The constants below are all the kinds the node publishes.
 type EventKind string
 
 const (
+	// EventMessage: a message was recorded in a thread (ThreadID, ContactFpr).
 	EventMessage EventKind = "message"
+	// EventRequest: a contact request or redemption is waiting for the owner (ContactFpr).
 	EventRequest EventKind = "request"
+	// EventPending: an agent-answered call is waiting for the owner's agent; Ref names the request.
 	EventPending EventKind = "pending"
 	// EventDelivery fires when an outbound message's delivery status changes —
 	// delivered, or finally given up on. Without it a message
@@ -62,6 +67,9 @@ var FeedCalls = map[string]bool{
 	"send_media": true, "get_status": true,
 }
 
+// Event is one wake-up hint carried by the Bus and the change log. It names what changed, never
+// the new value: a subscriber re-reads the store. JSON tags are the wire form of the owner MCP's
+// feed; Local is process-local and never serialised.
 type Event struct {
 	// ID is the change log's id for this event: the cursor `wait_for_updates` answers with.
 	ID         int64     `json:"id,omitempty"`
@@ -101,6 +109,10 @@ type subscriber struct {
 	ch        chan Event
 }
 
+// Bus fans events out to this process's subscribers and, through the store's change log, to every
+// other process sharing the store. Build one with NewBus, start its single reader with Run, and
+// Publish from anywhere; the zero value is not usable. A Bus never blocks a publisher on a slow
+// subscriber (deliverLocked drops the event for a full channel).
 type Bus struct {
 	log ChangeLog
 	now func() time.Time
