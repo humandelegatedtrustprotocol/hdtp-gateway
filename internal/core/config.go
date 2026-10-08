@@ -18,19 +18,32 @@ import (
 	"time"
 )
 
-// Knob and mode values (SPEC §2.5, §4.6, §5.1).
+// Mode is the deployment mode (SPEC §2.5, §10.1): direct, the node's own listener, or edge, a
+// tunnel adapter that terminates at an edge. When a tunnel adapter is named, Config.Derive sets the
+// mode from it; with none, it is what the file or HDTP_MODE says, and direct by default.
 type Mode string
+
+// Seal is the sealing policy the node enforces and its cards advertise as X-HDTP-SEAL (SPEC §4.6).
 type Seal string
+
+// ClientCert is whether the node asks the caller for a TLS client certificate (SPEC §5.1).
 type ClientCert string
 
+// The two deployment modes. Edge forces SealRequired and ClientCertOff (Config.Derive).
 const (
 	ModeDirect Mode = "direct"
 	ModeEdge   Mode = "edge"
+)
 
+// The sealing policies. EffectiveSeal is the one answer to which of them applies.
+const (
 	SealNone     Seal = "none"
 	SealOptional Seal = "optional"
 	SealRequired Seal = "required"
+)
 
+// The client-certificate policies.
+const (
 	ClientCertRequired  ClientCert = "required"
 	ClientCertPreferred ClientCert = "preferred"
 	ClientCertOff       ClientCert = "off"
@@ -73,6 +86,10 @@ func (c *Config) ContactCap() int {
 	return DefaultLimitContacts
 }
 
+// Config is the node's resolved configuration (SPEC §12.2). Highest precedence first: the HDTP_*
+// environment, the JSON file, the owner-set values from the store (ApplyStoreSettings, for the
+// knobs OwnerSettableKeys names), the defaults. Load reads the first, second and last; Derive
+// re-resolves the whole after any layer changes.
 type Config struct {
 	// LimitContacts is how many contacts each account on this node may hold: active contacts plus
 	// the requests it sent. It is enforced wherever a contact is added, and it sizes the account's

@@ -31,8 +31,13 @@ func AdminSocketPath(dataDir string) string {
 	return filepath.Join(os.TempDir(), "hdtp-"+hex.EncodeToString(h[:6])+".sock")
 }
 
+// AdminHandler serves one admin command. args are the request's string arguments; the returned
+// value is JSON-encoded into the response, and a returned error becomes the response's error text.
 type AdminHandler func(args map[string]string) (any, error)
 
+// AdminServer serves the admin unix socket: one JSON request per connection, dispatched to the
+// handler registered for its command, with a thirty-second deadline on each connection. The socket
+// is mode 0600, and filesystem permissions are its only gate.
 type AdminServer struct {
 	path     string
 	mu       sync.RWMutex
@@ -48,16 +53,22 @@ func (s *AdminServer) releaseLock() {
 	}
 }
 
+// NewAdminServer returns a server for the socket at path. It listens only after Start.
 func NewAdminServer(path string) *AdminServer {
 	return &AdminServer{path: path, handlers: map[string]AdminHandler{}}
 }
 
+// Handle registers h for cmd, replacing any handler already registered for it. A request for a
+// command with no handler is answered with an "unknown command" error.
 func (s *AdminServer) Handle(cmd string, h AdminHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers[cmd] = h
 }
 
+// Start takes the socket's lock (<socket>.lock), replaces a stale socket file, listens with mode
+// 0600 and serves until ctx ends or Close is called. If another process already holds the socket's
+// lock it serves nothing and returns nil; Serving reports which of the two happened.
 func (s *AdminServer) Start(ctx context.Context) error {
 	// Several `serve` processes may share a data dir (core.AcquireServeLock), and they share its
 	// socket path. The one holding the socket's own lock (<socket>.lock, flock, released when the
