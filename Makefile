@@ -38,9 +38,14 @@ staticcheck:
 # handful of by-design hits carry #nosec with a reason. third_party/frp is a dependency, held byte
 # for byte to upstream plus one patch (frp-check), so it is not ours to restyle: it is excluded
 # here as the module cache it replaces always was, and govulncheck still covers it.
+# `.claude` holds this checkout's worktrees. gosec walks the filesystem itself (its PackagePaths, a
+# filepath.Walk from `.`) instead of asking the go command, so unlike `./...` under go vet,
+# govulncheck, staticcheck and deadcode, which resolve it through go/packages and skip a
+# dot-directory, it took every worktree's tree in: 492 package directories against 41 on
+# 2026-10-09, each loaded and scanned, in a checkout with sixteen worktrees.
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
-		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude=G101,G104,G304 ./...
+		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude-dir=.claude -exclude=G101,G104,G304 ./...
 
 # Whole-program reachability from the shipped binary (review N-15). The report goes to a file, not
 # a pipe: make runs /bin/sh, where a pipeline's status is its last command's, so a deadcode that
