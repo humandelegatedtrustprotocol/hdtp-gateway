@@ -30,7 +30,12 @@ type fileRegistry struct {
 	path string
 }
 
-// NewFileRegistry returns a Registry whose pairings survive a restart.
+// NewFileRegistry returns a Registry whose pairings survive a restart: it loads the JSON book at
+// path (a missing file is a first run, not an error) and puts each row into an in-memory
+// registry, so a row that fails Put's checks, or a file that does not parse, is an error naming
+// the path. Tokens stay in memory and are never written. Put persists; MintToken, ConsumeToken
+// and the lookups are the in-memory registry's. The file is written 0600, through a temporary
+// file renamed over it, after the in-memory Put has succeeded.
 func NewFileRegistry(path string, now func() time.Time) (Registry, error) {
 	r := &fileRegistry{Registry: NewMemoryRegistry(now), path: path}
 	nodes, err := readNodes(path)

@@ -29,17 +29,25 @@ const helloTimeout = 10 * time.Second
 // accepts in a tight loop, so anything approaching this means it is not running.
 const handoffTimeout = 5 * time.Second
 
-// ConnSink receives connections routed to it, and may refuse.
+// ConnSink receives connections the front door routes to terminate mode, and may refuse.
+// ChanListener is the one implementation.
 type ConnSink interface {
 	// Deliver hands over one connection, reporting whether it was taken. It
 	// MUST NOT block indefinitely: the caller is holding a public connection.
 	Deliver(c net.Conn, timeout time.Duration) bool
 }
 
-// FrontDoor accepts on the public port and routes by SNI.
+// FrontDoor accepts on the public port and routes by SNI. It reads one TLS record (the
+// ClientHello, within a 10 second deadline) and replays it intact to whichever side takes the
+// connection; it never terminates TLS. A connection with no readable SNI, an SNI outside Domain,
+// or a subdomain with no pairing is closed without a reply, each recorded through Audit
+// (`ingress_route`: bad_hello, not_our_domain, unpaired). A terminate-mode subdomain is handed
+// to Terminate; a passthrough one is spliced to PassthroughAddr.
 type FrontDoor struct {
+	// Registry is consulted by subdomain to learn the pairing's mode.
 	Registry Registry
-	Domain   string
+	// Domain is the base domain; an SNI must end in "."+Domain.
+	Domain string
 	// Terminate receives connections for terminate-mode subdomains. It is a
 	// sink rather than a bare channel because handing over must be able to GIVE
 	// UP: a plain blocking send on an unbuffered channel parks a goroutine and
@@ -49,8 +57,10 @@ type FrontDoor struct {
 	Terminate ConnSink
 	// PassthroughAddr is the SNI-routing data plane (the frps vhost port).
 	PassthroughAddr string
-	Audit           func(action, resource, outcome string)
-	DialTimeout     time.Duration
+	// Audit, when set, hears every routing outcome as (action, resource, outcome).
+	Audit func(action, resource, outcome string)
+	// DialTimeout bounds the dial to PassthroughAddr; zero or negative means 10 seconds.
+	DialTimeout time.Duration
 
 	mu sync.Mutex
 	ln net.Listener
@@ -62,7 +72,8 @@ func (f *FrontDoor) audit(action, resource, outcome string) {
 	}
 }
 
-// Serve accepts until the listener closes.
+// Serve accepts on ln and routes each connection in its own goroutine, until Accept fails; it
+// returns that error.
 func (f *FrontDoor) Serve(ln net.Listener) error {
 	f.mu.Lock()
 	f.ln = ln
@@ -76,6 +87,8 @@ func (f *FrontDoor) Serve(ln net.Listener) error {
 	}
 }
 
+// Close closes the listener Serve was given, which ends Serve. Connections already routed are
+// not interrupted. With no Serve started it does nothing.
 func (f *FrontDoor) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -163,12 +176,15 @@ func subdomainOf(sni, domain string) (string, bool) {
 // Terminator can go on consuming a listener while the front door decides which
 // connections belong to it.
 type ChanListener struct {
-	C      chan net.Conn
+	// C is the unbuffered channel Deliver sends on and Accept receives from.
+	C chan net.Conn
+	// Addr_ is what Addr returns.
 	Addr_  net.Addr
 	closed chan struct{}
 	once   sync.Once
 }
 
+// NewChanListener returns an open ChanListener that reports addr as its address.
 func NewChanListener(addr net.Addr) *ChanListener {
 	return &ChanListener{C: make(chan net.Conn), Addr_: addr, closed: make(chan struct{})}
 }
@@ -188,6 +204,7 @@ func (l *ChanListener) Deliver(c net.Conn, timeout time.Duration) bool {
 	}
 }
 
+// Accept returns the next delivered connection, or net.ErrClosed once the listener is closed.
 func (l *ChanListener) Accept() (net.Conn, error) {
 	select {
 	case c := <-l.C:
@@ -197,11 +214,14 @@ func (l *ChanListener) Accept() (net.Conn, error) {
 	}
 }
 
+// Close makes every pending and later Deliver return false and Accept return net.ErrClosed.
+// It is safe to call more than once and always returns nil.
 func (l *ChanListener) Close() error {
 	l.once.Do(func() { close(l.closed) })
 	return nil
 }
 
+// Addr returns the address given to NewChanListener.
 func (l *ChanListener) Addr() net.Addr { return l.Addr_ }
 
 /* ----------------------------- ClientHello ----------------------------- */

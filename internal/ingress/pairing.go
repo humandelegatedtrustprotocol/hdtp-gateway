@@ -25,31 +25,45 @@ import (
 
 // PairRequest is the node's one-shot registration.
 type PairRequest struct {
-	Token     string `json:"token"`
+	// Token is the one-time pairing token minted on the ingress.
+	Token string `json:"token"`
+	// Subdomain is the label the node asks for; it must satisfy ValidSubdomain.
 	Subdomain string `json:"subdomain"`
-	Mode      Mode   `json:"mode"`
+	// Mode is passthrough or terminate.
+	Mode Mode `json:"mode"`
 }
 
 // PairResponse hands the node everything it needs for the data plane.
 type PairResponse struct {
+	// IngressFingerprint is the identity fingerprint of the ingress's own certificate.
 	IngressFingerprint string `json:"ingress_fingerprint"`
 	Domain             string `json:"domain"` // base domain; public name is <subdomain>.<domain>
-	PublicName         string `json:"public_name"`
-	DataPlaneAddr      string `json:"data_plane_addr"` // frps host
-	DataPlanePort      int    `json:"data_plane_port"`
-	DataPlaneToken     string `json:"data_plane_token"` // shared frps token (transport auth)
-	NodeSecret         string `json:"node_secret"`      // per-node login metadata the plugin verifies
+	// PublicName is <subdomain>.<domain>, the name callers reach the node at.
+	PublicName    string `json:"public_name"`
+	DataPlaneAddr string `json:"data_plane_addr"` // frps host
+	// DataPlanePort is the port of the frps control plane the node dials.
+	DataPlanePort  int    `json:"data_plane_port"`
+	DataPlaneToken string `json:"data_plane_token"` // shared frps token (transport auth)
+	NodeSecret     string `json:"node_secret"`      // per-node login metadata the plugin verifies
 }
 
-// PairingServer serves POST /pair on a TLS listener that REQUESTS client certs.
+// PairingServer serves POST /pair on a TLS listener that REQUESTS client certs. The fields
+// other than Registry, Audit and OnPaired are returned to the node verbatim in PairResponse.
 type PairingServer struct {
-	Registry           Registry
-	Domain             string
+	// Registry holds the outstanding tokens and receives the pairing.
+	Registry Registry
+	// Domain is the base domain the subdomain is under.
+	Domain string
+	// IngressFingerprint is the identity fingerprint of the certificate this listener serves.
 	IngressFingerprint string
-	DataPlaneAddr      string
-	DataPlanePort      int
-	DataPlaneToken     string
-	Audit              func(action, resource, outcome string)
+	// DataPlaneAddr is the frps host the node is told to dial.
+	DataPlaneAddr string
+	// DataPlanePort is the frps control port the node is told to dial.
+	DataPlanePort int
+	// DataPlaneToken is the shared frps transport token handed to the node.
+	DataPlaneToken string
+	// Audit, when set, hears each pairing attempt as action "ingress_pair".
+	Audit func(action, resource, outcome string)
 	// OnPaired fires after a node is recorded. Terminate-mode pairings need a
 	// certificate for their name before the ingress can answer for it at all
 	// (§10.6); nothing was hooked here, so a newly paired terminate subdomain
@@ -65,6 +79,14 @@ func (p *PairingServer) audit(action, resource, outcome string) {
 
 // Handler is the pairing endpoint; mount under a TLS server with
 // ClientAuth >= RequestClientCert so the node's identity cert is visible.
+//
+// POST /pair answers 401 identity_required without a client certificate (or one whose key has no
+// identity fingerprint), 400 bad_request for a body that does not decode as JSON within its first 4096 bytes, an invalid
+// subdomain or a mode that is not passthrough|terminate, 403 invite_invalid for a token that is
+// unknown, used or expired, and 409 conflict when the registry refuses the row (the subdomain is
+// paired to another node). The token is consumed before the registry's Put, so a conflict spends
+// it. On success it records the pairing with a fresh 16-byte random secret, calls OnPaired, and
+// answers 200 with a PairResponse. Every other route is the mux's 404.
 func (p *PairingServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pair", func(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +149,12 @@ func (p *PairingServer) Handler() http.Handler {
 // Pair is the node side: connect outbound with the node's identity cert, pin
 // the ingress by the fingerprint the owner typed alongside the token (or trust
 // on first use when empty — the response carries the fingerprint to record).
+//
+// It returns the response and the ingress fingerprint it saw, which is set even when pairing
+// fails. A fingerprint other than expectIngressFpr aborts the handshake before the request is
+// sent. A non-200 answer is a *PairError. The certificate chain is never validated; the pin is
+// the only check. Pair replaces the Transport of the client it is given, so pass nil (a client
+// with a 15 second timeout is made) unless that is wanted.
 func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIngressFpr string, req PairRequest) (PairResponse, string, error) {
 	var seenFpr string
 	client := ctx_
@@ -171,10 +199,13 @@ func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIng
 
 // PairError is a non-200 pairing answer (the body carries the HDTP code).
 type PairError struct {
+	// Status is the HTTP status the ingress answered.
 	Status int
-	Body   string
+	// Body is the start of the answer body, at most 512 bytes.
+	Body string
 }
 
+// Error returns "ingress: pairing refused: " and the body.
 func (e *PairError) Error() string { return "ingress: pairing refused: " + e.Body }
 
 var (

@@ -22,10 +22,16 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
-// Terminator listens on the public port for terminate-mode subdomains.
+// Terminator serves terminate-mode subdomains: it completes the public TLS handshake with Public,
+// looks the SNI up in Registry, and pipes the decrypted stream to the node over DialNode. A
+// connection whose handshake fails, whose SNI is outside Domain, or whose subdomain is unpaired
+// or not terminate-mode is closed (the last two audited as `ingress_terminate` unknown); a
+// failed onward dial is audited as unavailable.
 type Terminator struct {
+	// Registry is consulted by subdomain for the pairing and its pinned SPKI.
 	Registry Registry
-	Domain   string
+	// Domain is the base domain; the SNI must end in "."+Domain.
+	Domain string
 	// Public is the ACME-backed server config (certmagic TLSConfig); its
 	// GetCertificate answers per SNI.
 	Public *tls.Config
@@ -33,8 +39,10 @@ type Terminator struct {
 	IngressCert tls.Certificate
 	// DataPlaneAddr is where the internal SNI routes (frps vhost port).
 	DataPlaneAddr string
-	Audit         func(action, resource, outcome string)
-	DialTimeout   time.Duration
+	// Audit, when set, hears each terminate outcome as (action, resource, outcome).
+	Audit func(action, resource, outcome string)
+	// DialTimeout bounds the TCP dial to DataPlaneAddr; zero or negative means 10 seconds.
+	DialTimeout time.Duration
 
 	mu sync.Mutex
 	ln net.Listener
@@ -46,7 +54,8 @@ func (t *Terminator) audit(action, resource, outcome string) {
 	}
 }
 
-// Serve accepts public TLS connections on ln until it closes.
+// Serve accepts public TLS connections on ln, one goroutine each, until Accept fails; it returns
+// that error. ln may be a ChanListener fed by a FrontDoor.
 func (t *Terminator) Serve(ln net.Listener) error {
 	t.mu.Lock()
 	t.ln = ln
@@ -60,6 +69,8 @@ func (t *Terminator) Serve(ln net.Listener) error {
 	}
 }
 
+// Close closes the listener Serve was given, which ends Serve. Connections being piped are not
+// interrupted. With no Serve started it does nothing.
 func (t *Terminator) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
