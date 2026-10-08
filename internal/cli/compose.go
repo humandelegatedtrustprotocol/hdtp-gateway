@@ -396,8 +396,14 @@ func contactsManager(st store.Store, nd *node.Node) *contacts.Manager {
 // no endpoint on its card until the owner sets one.
 type noTunnel struct{}
 
+// Start returns an empty tunnel.Info, so the node is handed no listener of its own.
 func (noTunnel) Start(context.Context) (tunnel.Info, error) { return tunnel.Info{}, nil }
-func (noTunnel) Stop() error                                { return nil }
+
+// Stop returns nil.
+func (noTunnel) Stop() error { return nil }
+
+// Status reports the adapter as `direct` and not running, with the detail that tells the owner to
+// set public_url in the portal.
 func (noTunnel) Status() tunnel.Status {
 	return tunnel.Status{Name: "direct", Running: false,
 		Detail: "no public_url configured yet — set one in the portal (Settings → Tunnel) so your card can carry an endpoint"}
