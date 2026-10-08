@@ -27,7 +27,8 @@ import (
 
 // TrustedClientIPHeader names the ONE header an edge adapter's own listener may
 // take the source address from (SPEC §5.7). Generic X-Forwarded-For is never
-// honored, anywhere.
+// honored, anywhere. Only "cloudflare" has one ("CF-Connecting-IP"); every other adapter name
+// returns "".
 func TrustedClientIPHeader(adapter string) string {
 	switch adapter {
 	case "cloudflare":
@@ -87,7 +88,8 @@ func cloudflareOptions(o Options) (cloudflareOpts, error) {
 }
 
 // ComposeSidecar is the snippet the node prints when it cannot spawn the
-// connector itself — the same service compose.yaml already carries.
+// connector itself — the same service compose.yaml already carries. A non-empty token is never
+// written into the snippet: it shows the reference ${TUNNEL_TOKEN}; an empty token shows a placeholder.
 func ComposeSidecar(token string) string {
 	shown := "${TUNNEL_TOKEN}"
 	if token == "" {
@@ -98,7 +100,9 @@ func ComposeSidecar(token string) string {
 		"    environment:\n      TUNNEL_TOKEN: " + shown + "\n"
 }
 
-// Cloudflare is the edge adapter.
+// Cloudflare is the edge adapter for the Cloudflare Tunnel connector (TerminatesAtEdge true).
+// Its constructor refuses an empty tunnel token (the Extra key token, else $TUNNEL_TOKEN) and an
+// empty hostname.
 type Cloudflare struct {
 	opts cloudflareOpts
 	// spawn is the connector launcher (seam for tests).
@@ -136,6 +140,11 @@ func init() {
 	})
 }
 
+// Start reports https://<hostname> with TerminatesAtEdge true. It spawns `cloudflared tunnel
+// --no-autoupdate run --token …` as a child (binary from Extra "binary", else found on PATH) with
+// only PATH and HOME in its environment. With Extra "sidecar" = "true", or when cloudflared is not
+// found, it spawns nothing and succeeds with Running true and a Detail saying the owner runs the
+// connector (the latter with the compose snippet); a failure to start the child is an error.
 func (c *Cloudflare) Start(ctx context.Context) (Info, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,12 +173,14 @@ func (c *Cloudflare) Start(ctx context.Context) (Info, error) {
 	return info, nil
 }
 
+// Status reports https://<hostname> and the Detail left by Start.
 func (c *Cloudflare) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return Status{Name: "cloudflare", Running: c.running, PublicURL: "https://" + c.opts.Hostname, Detail: c.detail}
 }
 
+// Stop kills the spawned connector, if any, and waits for it; the kill error is returned.
 func (c *Cloudflare) Stop() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -216,7 +227,9 @@ func ngrokHTTPSOptions(o Options) (ngrokHTTPSOpts, error) {
 	return n, nil
 }
 
-// NgrokHTTPS is the free-plan edge adapter: ngrok terminates TLS.
+// NgrokHTTPS is the free-plan edge adapter: ngrok terminates TLS (TerminatesAtEdge true). Its
+// constructor refuses a missing auth token (Extra auth_token, else $NGROK_AUTHTOKEN) and a url
+// that is not https://; the default url is "https://" (an allocated hostname).
 type NgrokHTTPS struct {
 	opts   ngrokHTTPSOpts
 	listen func(ctx context.Context, o ngrokHTTPSOpts) (net.Listener, string, error)
@@ -239,6 +252,8 @@ func ngrokHTTPSListen(ctx context.Context, o ngrokHTTPSOpts) (net.Listener, stri
 	return ln, ln.URL().String(), nil
 }
 
+// Start opens the ngrok HTTPS endpoint and returns its URL with TerminatesAtEdge true and the
+// Listener, which carries decrypted HTTP: the node serves plain HTTP on it.
 func (a *NgrokHTTPS) Start(ctx context.Context) (Info, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -252,6 +267,7 @@ func (a *NgrokHTTPS) Start(ctx context.Context) (Info, error) {
 	return Info{PublicURL: endpoint, TerminatesAtEdge: true, Listener: ln}, nil
 }
 
+// Status reports the endpoint URL and that ngrok terminates TLS.
 func (a *NgrokHTTPS) Status() Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -259,6 +275,7 @@ func (a *NgrokHTTPS) Status() Status {
 		Detail: "ngrok terminates TLS (edge mode: seal required, client certs never arrive)"}
 }
 
+// Stop closes the ngrok listener and returns its close error.
 func (a *NgrokHTTPS) Stop() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

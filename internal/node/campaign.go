@@ -23,8 +23,11 @@ import (
 
 // MoveUnreached is one contact the current campaign has tried and not yet told.
 type MoveUnreached struct {
-	Contact   string `json:"contact"`
-	Attempts  int64  `json:"attempts"`
+	// Contact is the contact's root fingerprint.
+	Contact string `json:"contact"`
+	// Attempts is how many times the walk has tried this contact for this leaf.
+	Attempts int64 `json:"attempts"`
+	// LastError is the last attempt's failure.
 	LastError string `json:"last_error"`
 }
 

@@ -19,30 +19,46 @@ import (
 type Mode string
 
 const (
+	// ModePassthrough routes raw TLS by SNI to the node, which keeps its own certificate end to end; the ingress cannot read it.
 	ModePassthrough Mode = "passthrough"
-	ModeTerminate   Mode = "terminate"
+	// ModeTerminate has the ingress answer the public TLS session with its ACME certificate and open a fresh mutually pinned mTLS leg to the node.
+	ModeTerminate Mode = "terminate"
 )
 
 // Node is one paired node: its identity pin, its subdomain, its mode, and the
 // per-node data-plane secret minted at pairing.
 type Node struct {
-	Fingerprint string    `json:"fingerprint"`
-	SPKI        []byte    `json:"spki"`
-	Subdomain   string    `json:"subdomain"`
-	Mode        Mode      `json:"mode"`
-	Secret      string    `json:"secret"` // data-plane login credential (frp metadata)
-	PairedAt    time.Time `json:"paired_at"`
+	// Fingerprint is the identity fingerprint of the key in the client certificate presented at pairing.
+	Fingerprint string `json:"fingerprint"`
+	// SPKI is that key's PKIX encoding; the terminator's onward leg accepts only a certificate carrying these bytes.
+	SPKI []byte `json:"spki"`
+	// Subdomain is the one DNS label the node serves, unique across the book.
+	Subdomain string `json:"subdomain"`
+	// Mode is the mode the node was paired in.
+	Mode Mode `json:"mode"`
+	// Secret is the data-plane login credential (frp metadata) minted at pairing.
+	Secret string `json:"secret"`
+	// PairedAt is when the ingress recorded the pairing.
+	PairedAt time.Time `json:"paired_at"`
 }
 
 // Registry is the ingress's book of paired nodes and outstanding pairing
 // tokens. In-memory here; the interface is the persistence seam.
 type Registry interface {
+	// MintToken returns a new single-use pairing token ("pair_" and 32 hex characters) valid for ttl.
 	MintToken(ttl time.Duration) (string, error)
-	// ConsumeToken burns a token: exactly one pairing per token.
+	// ConsumeToken burns a token: exactly one pairing per token. It reports false for an
+	// unknown, already used or expired token; an expired one is burned too.
 	ConsumeToken(token string) bool
+	// Put records a pairing. It refuses a subdomain that is not one DNS label (ValidSubdomain), a
+	// mode other than passthrough or terminate, and a subdomain already paired to a different
+	// fingerprint; the same fingerprint on the same subdomain replaces the row.
 	Put(n Node) error
+	// BySubdomain is how the front door, terminator and data plane learn a name's mode and pinned key.
 	BySubdomain(sub string) (Node, bool)
+	// ByFingerprint returns the pairing whose node has the given identity fingerprint.
 	ByFingerprint(fpr string) (Node, bool)
+	// All returns a copy of every pairing, in no particular order.
 	All() []Node
 }
 
@@ -53,7 +69,8 @@ type memRegistry struct {
 	now    func() time.Time
 }
 
-// NewMemoryRegistry returns an in-memory Registry (now is a clock seam).
+// NewMemoryRegistry returns an in-memory Registry. now is the clock for token expiry; nil means
+// time.Now.
 func NewMemoryRegistry(now func() time.Time) Registry {
 	if now == nil {
 		now = time.Now
@@ -89,7 +106,8 @@ func (r *memRegistry) ConsumeToken(token string) bool {
 // for it), carrying the fresh mutually-pinned mTLS leg (SPEC §10.6).
 func InternalName(sub, domain string) string { return sub + ".internal." + domain }
 
-// ValidSubdomain accepts one DNS label: lowercase letters, digits, hyphens.
+// ValidSubdomain accepts one DNS label: lowercase letters, digits and hyphens, 1 to 63 bytes,
+// not beginning or ending with a hyphen.
 func ValidSubdomain(s string) bool {
 	if s == "" || len(s) > 63 || strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
 		return false
