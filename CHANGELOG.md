@@ -10,7 +10,14 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Deploy templates for one VM with TLS on a hostname (`docs/deploy.md`): a shared first boot
+  (`deploy/cloud-init.yaml`: Docker, the node and its sidecar built from a release tag, Caddy in
+  front), a CloudFormation template for AWS, an ARM template with a Deploy to Azure button, a Cloud
+  Shell walkthrough for Google Cloud and a Droplet script for DigitalOcean. `make deploy-check`, in
+  `make check`, holds the templates to each other and to the node (`scripts/deploy-check.mjs`).
+  None has been run on its provider yet; the document's status table says so, per provider.
 
 ## [0.1.1] — 2026-10-09
 
