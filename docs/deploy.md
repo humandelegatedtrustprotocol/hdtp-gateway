@@ -84,10 +84,11 @@ both files and `.env` by itself.
 
 ## AWS
 
-`deploy/aws/hdtp-gateway.cfn.json` creates, in one stack: a security group (80 and 443 to
-everyone, 22 to the CIDR you give), one Arm EC2 instance from Canonical's current Ubuntu 24.04
-arm64 AMI (resolved from their public SSM parameter), an Elastic IP, and an A record for your
-hostname in the Route 53 hosted zone you name. The first boot is the cloud-init above, embedded
+`deploy/aws/hdtp-gateway.cfn.json` creates, in one stack and in the region's default VPC (a
+region without one refuses the stack): a security group (80 and 443 to everyone, 22 to the CIDR
+you give), one Arm EC2 instance from Canonical's current Ubuntu 24.04 arm64 AMI (resolved from
+their public SSM parameter), an Elastic IP, and an A record for your hostname in the Route 53
+hosted zone you name. The first boot is the cloud-init above, embedded
 line by line. Parameters: `Hostname`, `HostedZoneId`, `SshCidr` (required), `InstanceType`
 (`t4g.medium`), `KeyName` (optional), `Release`, `Ami` (leave it). Outputs: the URL, the address,
 and the SSH command with the portal's port tunnelled.
