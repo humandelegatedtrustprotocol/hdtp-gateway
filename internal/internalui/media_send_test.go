@@ -106,6 +106,84 @@ func TestSendMediaUploadRefusesOversizeAndMissingFile(t *testing.T) {
 	}
 }
 
+// The account an upload acts on is the one the request names in its query, the one account
+// resolution checked against the owner's memberships (SPEC §3.3). The handler used to take it from
+// the multipart body first, which resolution never reads, so a signed-in owner posting
+// `account=<an account they do not administer>` as a form field reached SendMedia for that account
+// while the same id in the query was refused 404. The control is the owner's own account.
+func TestSendMediaTakesTheAccountFromTheQueryAlone(t *testing.T) {
+	ctx := context.Background()
+	var sentFor []string
+	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
+		MountMessagePages(mux, MessagesDeps{Store: st, SendMedia: func(_ context.Context, acct, _ string, _ messaging.Input, _, _ string, _ []byte) (messaging.Result, error) {
+			sentFor = append(sentFor, acct)
+			return messaging.Result{ThreadID: "t1", Status: "delivered"}, nil
+		}})
+	})
+	me, session := e.signIn(t, "Me")
+	them, _ := e.signIn(t, "Them")
+	mine, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "mine", DisplayName: "Mine", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "theirs", DisplayName: "Theirs", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.AddMembership(ctx, me, mine.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.AddMembership(ctx, them, theirs.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(query string, fields map[string]string) *httptest.ResponseRecorder {
+		t.Helper()
+		var body bytes.Buffer
+		w := multipart.NewWriter(&body)
+		for k, v := range fields {
+			_ = w.WriteField(k, v)
+		}
+		fw, _ := w.CreateFormFile("file", "a.txt")
+		_, _ = fw.Write([]byte("hello"))
+		_ = w.Close()
+		req := httptest.NewRequest(http.MethodPost, "/messages/send_media"+query, &body)
+		req.Host = "localhost:8080"
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		req.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: "tok"})
+		req.Header.Set("X-HDTP-Csrf", "tok")
+		req.AddCookie(session)
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return rec
+	}
+	fields := map[string]string{"contact": "sha256:bob", "msg_id": "m-1"}
+
+	// Another owner's account in the body, with and without the owner's own in the query.
+	fields["account"] = theirs.ID
+	if rec := post("", fields); rec.Code == http.StatusOK {
+		t.Errorf("another owner's account named in the body was acted on: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post("?account="+theirs.ID, fields); rec.Code != http.StatusNotFound {
+		t.Errorf("another owner's account named in the query: %d, want 404", rec.Code)
+	}
+	for _, acct := range sentFor {
+		if acct == theirs.ID {
+			t.Fatalf("SendMedia was reached for %s, which this owner does not administer", theirs.ID)
+		}
+	}
+
+	// The control: the owner's own account, named in the query, with the file.
+	sentFor = nil
+	delete(fields, "account")
+	if rec := post("?account="+mine.ID, fields); rec.Code != http.StatusOK {
+		t.Fatalf("the owner's own upload: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(sentFor) != 1 || sentFor[0] != mine.ID {
+		t.Errorf("SendMedia was reached for %v, want %s", sentFor, mine.ID)
+	}
+}
+
 // A contact's tools are listed as the peer answered them, and a call carries
 // the JSON arguments through untouched and returns the raw result.
 func TestContactToolsAreListedAndCallable(t *testing.T) {

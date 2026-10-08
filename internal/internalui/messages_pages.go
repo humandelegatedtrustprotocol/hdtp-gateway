@@ -358,6 +358,8 @@ func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 // A file from the composer. Multipart, capped at HDTP §12's 5 MiB before the
 // body is read in full; the MIME type is sniffed from the bytes rather than
 // trusted from the browser, and the filename is the browser's base name only.
+// The account is the query's: the one account resolution checked against the
+// owner's memberships, which reads no multipart body (account_resolve.go).
 // Answers JSON: an upload is a fetch, not a form the page navigates with.
 func (d MessagesDeps) postMessagesSendMedia(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, messaging.MaxMediaBytes+64<<10)
@@ -365,10 +367,10 @@ func (d MessagesDeps) postMessagesSendMedia(w http.ResponseWriter, r *http.Reque
 		apiJSONStatus(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "file over 5 MiB, or not a valid upload"})
 		return
 	}
-	account := formOrQuery(r, "account")
+	account := accountParam(r)
 	contact := formOrQuery(r, "contact")
 	msgID := r.PostForm.Get("msg_id")
-	if contact == "" || msgID == "" {
+	if account == "" || contact == "" || msgID == "" {
 		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "which conversation?"})
 		return
 	}
