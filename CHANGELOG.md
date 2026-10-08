@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.1] — 2026-10-09
+
 ### Fixed
 
 - The portal's session gate is an allow-list. A `GET` of a registered route outside `/api/` fell
