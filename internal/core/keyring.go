@@ -21,6 +21,8 @@ import (
 
 const masterKeyEnv = "HDTP_MASTER_KEY"
 
+// Keyring seals and opens secret values under the node's master key with AES-256-GCM. It is the
+// only write path for secrets at rest (SPEC §3.7). Build one with OpenKeyring.
 type Keyring struct {
 	aead cipher.AEAD
 }
