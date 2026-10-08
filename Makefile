@@ -428,15 +428,13 @@ harness-nightly: harness harness-image harness-image-caldav harness-shaper harne
 harness-preflight:
 	cd harness && go run ./cmd/harness preflight
 
-# The README's screenshots are REAL: captured from a running node by the portal
-# scenario, not drawn. Regenerate them when the portal changes, so the pictures
-# cannot quietly stop matching the product.
+# The screenshots in README.md and docs/quickstart.md are REAL: harness/cmd/screenshots walks the
+# quickstart on this image, in Chrome, and photographs each page at the step the guide shows it
+# (PNG, 1280 px wide). Regenerate them when the portal changes, so the pictures cannot quietly
+# stop matching the product. Docker and Chrome.
 screenshots: harness-image
-	@tmp=$$(mktemp -d) && cd harness && \
-	  { HDTP_HARNESS_ARTIFACTS=$$tmp go run ./cmd/harness run -id S11 >$$tmp/run.log || \
-	    { tail -40 $$tmp/run.log; exit 1; }; } && \
-	  for n in dashboard card audit; do cp $$tmp/$$n-light.png ../docs/images/$$n.png; done && \
-	  echo "docs/images updated from a live node"
+	cd harness && go run ./cmd/screenshots $(CURDIR)/docs/images
+	@echo "docs/images updated from a live node"
 
 # clean removes what a build PRODUCES. `dist/` was the omission that mattered:
 # `make dist` writes four platform binaries plus an SBOM there and nothing ever

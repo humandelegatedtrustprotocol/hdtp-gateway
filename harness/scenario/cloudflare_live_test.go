@@ -71,7 +71,7 @@ func TestTwoUsersOverRealCloudflareTunnels(t *testing.T) {
 			t.Fatalf("portal bridge for %s: %v (%s)", n.Node.Name, err, out)
 		}
 		n.Bridge = &fabric.Container{Name: name}
-		if err := waitPortal(ctx, n.OwnerPort); err != nil {
+		if err := WaitPortal(ctx, n.OwnerPort); err != nil {
 			t.Fatal(err)
 		}
 	}

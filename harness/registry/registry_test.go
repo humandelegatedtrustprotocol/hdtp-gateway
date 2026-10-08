@@ -67,7 +67,7 @@ func TestTheMakefileTiersRunTheRegistry(t *testing.T) {
 		"harness-live":    "go run ./cmd/harness run -tier fabric",
 		"harness-pr":      "go run ./cmd/harness run -tier pr",
 		"harness-nightly": "go run ./cmd/harness run -tier nightly",
-		"screenshots":     "go run ./cmd/harness run -id S11",
+		"screenshots":     "go run ./cmd/screenshots",
 	} {
 		recipe := regexp.MustCompile(`(?ms)^` + target + `:[^\n]*\n((?:\t[^\n]*\n)+)`).FindStringSubmatch(mk)
 		if recipe == nil {

@@ -385,6 +385,65 @@ func (s *Session) Capture(ctx context.Context, url string, theme Theme) (Visit, 
 	return v, nil
 }
 
+// Do runs actions in this browser, for the steps a test drives by hand: a form filled in and
+// submitted the way a person does it, on a page whose answer is shown once.
+func (s *Session) Do(ctx context.Context, actions ...chromedp.Action) error {
+	runCtx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
+	defer cancel()
+	return chromedp.Run(runCtx, actions...)
+}
+
+// Screenshot is the page this browser is on, whole, width px wide under theme, as a PNG — once
+// the view has finished loading, its fonts are in and its entrance animations have ended. The
+// portal scrolls inside <main> rather than the document, so the viewport is made as tall as the
+// page's content (between 800 and 2400 px) before the shot. Capture is for evidence and takes a
+// JPEG; this is for the pictures the documentation shows.
+func (s *Session) Screenshot(ctx context.Context, theme Theme, width int64) ([]byte, error) {
+	runCtx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
+	defer cancel()
+	settled := chromedp.ActionFunc(func(ctx context.Context) error {
+		if err := until(ctx, 20*time.Second, 150*time.Millisecond, "the view to finish loading", func(ctx context.Context) (bool, error) {
+			var loading bool
+			err := chromedp.Evaluate(`!!document.querySelector("[aria-busy=true], .loading")`, &loading).Do(ctx)
+			return !loading, err
+		}); err != nil {
+			return err
+		}
+		if err := chromedp.Evaluate(`document.fonts.ready.then(() => true)`, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
+			return p.WithAwaitPromise(true)
+		}).Do(ctx); err != nil {
+			return err
+		}
+		if err := until(ctx, 5*time.Second, 100*time.Millisecond, "the page's animations to end", func(ctx context.Context) (bool, error) {
+			var still bool
+			err := chromedp.Evaluate(`document.getAnimations().some((a) => a.playState === "running")`, &still).Do(ctx)
+			return !still, err
+		}); err != nil {
+			return err
+		}
+		return chromedp.Sleep(250 * time.Millisecond).Do(ctx)
+	})
+	var height int64
+	var shot []byte
+	err := chromedp.Run(runCtx,
+		chromedp.EmulateViewport(width, 800),
+		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{
+			{Name: "prefers-color-scheme", Value: string(theme)},
+		}),
+		settled,
+		chromedp.Evaluate(`Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll("main")].map((m) => m.scrollHeight))`, &height),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.EmulateViewport(width, min(max(height, 800), 2400)).Do(ctx)
+		}),
+		settled,
+		chromedp.FullScreenshot(&shot, 100),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("portal: screenshot (%s, %d px): %w", theme, width, err)
+	}
+	return shot, nil
+}
+
 // SaveScreenshot writes a capture to disk so a failed run leaves evidence.
 func (v Visit) SaveScreenshot(dir, name string) error {
 	if len(v.Screenshot) == 0 {
