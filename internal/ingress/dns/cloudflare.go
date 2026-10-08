@@ -13,8 +13,8 @@ import (
 )
 
 // Cloudflare wraps the libdns Cloudflare provider. Only Provider is used by the caller
-// (through Solver); Zone and TTL are recorded by NewCloudflare and read by no other
-// non-test code in this repository.
+// (through Solver); Zone and TTL are recorded by NewCloudflare and read by no non-test code in this
+// repository (a search for them found none).
 type Cloudflare struct {
 	// Provider is the libdns provider, holding the API token.
 	Provider *cloudflare.Provider

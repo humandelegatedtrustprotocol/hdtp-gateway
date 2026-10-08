@@ -90,7 +90,7 @@ func sealedTool() *mcp.Tool {
 }
 
 // SealedEntries returns the registry entries for `sealed_call` — one per tier (guest, pending,
-// contact), ungated by any permission, so every caller sees exactly one (SPEC §4.5). The handler
+// contact), ungated by any permission, so every caller sees exactly one (SPEC.md §4). The handler
 // is the numbered pipeline: the guest total before the open; the open; the budget a refusal costs;
 // the replay; the inner call's budget; Dispatch; and the sealed answer.
 func SealedEntries(d SealedDeps) []Entry {

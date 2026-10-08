@@ -116,6 +116,8 @@ type EnvelopeFacts struct {
 
 // IdempotencyStore records msg_id acknowledgments (SPEC §4.4 step 8).
 type IdempotencyStore interface {
+	// PutIdempotency reserves (accountID, contactFpr, msgID) until expiresAt, storing ack. It
+	// returns the acknowledgment already stored and whether the key existed.
 	PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (stored string, existed bool, err error)
 }
 

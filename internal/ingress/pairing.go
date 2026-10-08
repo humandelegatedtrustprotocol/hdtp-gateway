@@ -86,7 +86,7 @@ func (p *PairingServer) audit(action, resource, outcome string) {
 // unknown, used or expired, and 409 conflict when the registry refuses the row (the subdomain is
 // paired to another node). The token is consumed before the registry's Put, so a conflict spends
 // it. On success it records the pairing with a fresh 16-byte random secret, calls OnPaired, and
-// answers 200 with a PairResponse. Every other route is the mux's 404.
+// answers 200 with a PairResponse. The route is registered as "POST /pair", so another method on /pair is the mux's 405 and any other path its 404.
 func (p *PairingServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pair", func(w http.ResponseWriter, r *http.Request) {

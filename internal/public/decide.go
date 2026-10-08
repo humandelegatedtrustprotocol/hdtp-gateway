@@ -50,7 +50,8 @@ type RecipientState struct {
 	// HasRoot is whether the wallet has issued this identity a leaf: until it has, there is no
 	// chain to speak under and nothing sealed can be opened (HDTP §2).
 	HasRoot bool
-	// Endpoint is this identity's own address, which a chain's leaf must not name for a guest (HDTP §14.5).
+	// Endpoint is this identity's own address: a guest whose chain's leaf names it is refused
+	// envelope_invalid (HDTP §14.5; hdtp-identity's Decide).
 	Endpoint string
 	// AcceptNewHosts is the owner's policy for a pinned root calling from a new address
 	// (HDTP §5.3): "auto" re-pins, anything else asks the owner. Empty is read as "auto".

@@ -19,7 +19,8 @@ type ContactTool struct {
 	Name string `json:"name"`
 	// Description is the contact's description of it.
 	Description string `json:"description,omitempty"`
-	// InputSchema is the tool's JSON schema as the contact published it; empty when the list was rebuilt from grants.
+	// InputSchema is the tool's JSON schema as the contact published it; for a list rebuilt from
+	// the contact's grants it is the bare `{"type":"object"}`.
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 

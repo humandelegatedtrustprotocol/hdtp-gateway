@@ -110,8 +110,8 @@ func ProbeHandler(instanceID string) http.Handler {
 // 4096 bytes of the answer. With o.Identities set, Go's WebPKI verification is replaced by hdtp-identity's
 // ValidateChain: the server must present exactly two certificates, leaf then root, and the chain
 // must validate to one of the identities' roots at that identity's address (HDTP §14.2); with none,
-// the hostname is verified against the system roots. A TLS or certificate failure is wrong_cert,
-// any other transport failure unreachable; a non-200 answer or one without the nonce, or with another
+// the hostname is verified against the system roots. A certificate verification failure (an x509 error, or the chain check above refusing the
+// served chain) is wrong_cert, any other failure, a TLS handshake failure included, unreachable; a non-200 answer or one without the nonce, or with another
 // instance id, is wrong_instance. A SelfOriginated probe carries a hairpin caveat on every verdict.
 // TLS 1.2 is the minimum. The endpoint is dialled as given: this function does not refuse
 // inward addresses, and the HTTP client follows net/http's default redirect policy.

@@ -1,8 +1,9 @@
 // Package public is the node's HDTP-facing surface (SPEC.md §5): what contacts and guests call.
 //
-// A request passes, in order: the connection cap (ConnCap) and the LAN guard (LANGuard) around the
-// listener; the body cap (CapBody); the route shell and transport facts (Server: the client chain
-// the connection proved, the source address); a per-caller MCP server composed from a registry of
+// A request passes, in order: the connection cap (ConnCap), which wraps the raw listener beneath
+// TLS; then, as HTTP middleware, the body cap (CapBody), the LAN guard (LANGuard) and the route
+// shell with its transport facts (Server: the client chain the connection proved, the source
+// address); a per-caller MCP server composed from a registry of
 // tools (Pool, Registry, Entry) holding exactly what policy.Allow grants that caller's tier, with
 // policy re-checked at call time; and the handler (BuiltinEntries, or an integration's tool). A
 // `sealed_call` (SealedEntries) carries an HDTP envelope: Identifier opens and decides it with

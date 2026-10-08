@@ -1484,7 +1484,7 @@ func (n *Node) resolveTransport(next http.Handler) http.Handler {
 // for the account that issued the token, that account's chain, the base invite links are built
 // from, and the clock.
 type LandingDeps struct {
-	// Store is read for the invite token the page was asked for.
+	// Store is read for the invite (looked up by the hash of the token in the URL) and for the issuing account.
 	Store store.Store
 	// SignCard returns the card and its signature for the account that issued the token.
 	SignCard func(accountID string) (cardText string, sigB64 string, err error)
@@ -1492,7 +1492,7 @@ type LandingDeps struct {
 	Chain func(accountID string) ([][]byte, error)
 	// PublicURL is the base invite links are built from, read when the page is served.
 	PublicURL func() string
-	// Now is the clock for the token's expiry.
+	// Now is the clock the invite's expiry is judged by; nil means time.Now.
 	Now func() time.Time
 }
 

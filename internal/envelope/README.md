@@ -19,7 +19,7 @@ Nothing: there is no function here. `ErrInvalid` is the value the callers return
 ## Held by
 
 - `internal/integrationtest/layering_test.go`, `TestImportsPointDownTheLayers`: holds the package at rank 0.
-- `internal/public/guesttotal_test.go` and `decide_candidates_test.go` assert the `envelope_invalid` code at the wire (for example a chain whose signature is not its leaf's, and a client certificate that is not the envelope's leaf). The package has no tests of its own.
+- `internal/public/decide_test.go`, `TestFirstContactMustRedeemOrRequest`, asserts that an error built on `ErrInvalid` is reported by `public.Code` as `envelope_invalid`; `internal/public/guesttotal_test.go` asserts the `envelope_invalid` answer on the wire for a chain whose signature is not its leaf's and for a client certificate that is not the envelope's leaf. The package has no tests of its own.
 
 ## What it does not do
 

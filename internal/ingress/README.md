@@ -30,6 +30,8 @@ Pairing (`PairingServer.Handler`, `POST /pair`, JSON codes in the body):
 | 403 | `invite_invalid` | token unknown, already used or expired (audited `ingress_pair` / `invite_invalid`) |
 | 409 | `conflict` | `Registry.Put` refused, e.g. the subdomain is paired to another fingerprint |
 
+The route is registered as `POST /pair`: another method on `/pair` is the mux's 405, any other path its 404.
+
 The token is consumed before `Put`, so a conflict spends it. `Pair` returns `*PairError` for any non-200, and aborts the handshake before sending when the served certificate's fingerprint differs from the one it was given; with an empty expected fingerprint it trusts on first use and returns the fingerprint it saw. The chain is never validated.
 
 Front door (closes the connection without a reply; audit action `ingress_route`): `bad_hello` (not a TLS handshake record, a record over 16384 bytes, a malformed ClientHello, no SNI, or no hello within 10 seconds), `not_our_domain`, `unpaired`, `terminate_not_configured`, `terminate_unavailable` (the terminator did not take the connection within 5 seconds), `unreachable` (the data plane could not be dialled; the dial timeout is `DialTimeout`, default 10 seconds). An unpaired name is dropped, never answered, so it does not reveal whether it exists.

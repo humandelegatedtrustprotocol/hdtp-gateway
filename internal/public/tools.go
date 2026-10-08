@@ -41,14 +41,18 @@ const (
 	// MaxInlineData caps decoded inline media.
 	MaxInlineData = 5 * 1024 * 1024
 	// MaxFieldBytes caps a short field.
-	MaxFieldBytes = 1024 // filename, mime, subject, topic, reason, booking_id
+	MaxFieldBytes = 1024 // filename, mime, subject, topic, booking_id, msg_id, thread_id, token, url
 )
 
 // Calendar is the calendar capability as the public surface needs it — the
 // three HDTP tools, nothing else. `*providers.Calendar` satisfies it.
 type Calendar interface {
+	// CheckAvailability returns candidate slots for a meeting of length d between from and to. The
+	// tool caps them at calendar.MaxSlots before answering.
 	CheckAvailability(ctx context.Context, from, to time.Time, d time.Duration) ([]calendar.Slot, error)
+	// BookSlot books slot for the contact; msgID is the call's idempotency key.
 	BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error)
+	// CancelBooking cancels a booking by id.
 	CancelBooking(ctx context.Context, bookingID string) error
 }
 
@@ -91,6 +95,7 @@ func wireSlots(in []calendar.Slot, loc *time.Location) []Slot {
 
 // StatusSource answers `get_status`. `*providers.Status` satisfies it.
 type StatusSource interface {
+	// GetStatus returns the owner's availability; the tool clamps it to available, busy, dnd or offline.
 	GetStatus(ctx context.Context) (string, error)
 }
 
@@ -284,7 +289,7 @@ func callerFpr(ctx context.Context) string {
 /* ------------------------------- the set -------------------------------- */
 
 // BuiltinEntries returns the HDTP §6.2 core tools for one account, each tagged
-// with the tier and permission that gate it (SPEC §5.4): thirteen entries. The README of this
+// with the tier and permission that gate it (SPEC §5.4). The README of this
 // package lists each tool's gate and refusals. The set is held equal to core.ReservedToolNames
 // (with sealed_call) by TestTheReservedToolNamesAreTheBuiltInSet.
 func BuiltinEntries(d ToolDeps) []Entry {

@@ -26,7 +26,7 @@ import (
 )
 
 // ErrSealRequired is the local refusal to send a plaintext call to a peer whose card says
-// `seal: required` (SPEC §4.6, HDTP §13.4). It is returned wrapped (errors.Is) by CallTool and by
+// `seal: required` (SPEC.md §4, HDTP §13.4). It is returned wrapped (errors.Is) by CallTool and by
 // the get_card fallback of the sealed exchange, before any bytes leave the node.
 var ErrSealRequired = errors.New("seal_required")
 
