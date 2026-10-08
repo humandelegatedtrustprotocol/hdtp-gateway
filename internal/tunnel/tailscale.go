@@ -77,7 +77,9 @@ func funnelURL(domain string, port int) string {
 	return "https://" + domain + ":" + strconv.Itoa(port)
 }
 
-// Tailscale is the adapter; the tsnet.Server owns all networking.
+// Tailscale is the Funnel adapter (TerminatesAtEdge false); the tsnet.Server owns all networking.
+// Its constructor refuses a missing hostname, a missing auth key (Extra auth_key, else $TS_AUTHKEY)
+// and a port other than 443, 8443 or 10000 (default 443).
 type Tailscale struct {
 	opts tailscaleOpts
 
@@ -99,6 +101,9 @@ func init() {
 	})
 }
 
+// Start brings the tsnet node up, requires it to have a *.ts.net name, and listens with Funnel on the
+// configured port. It returns https://<that name>[:port] with TerminatesAtEdge false and the raw
+// Listener, on which the node runs its own TLS. Every failure closes the tsnet server again.
 func (t *Tailscale) Start(ctx context.Context) (Info, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -133,12 +138,14 @@ func (t *Tailscale) Start(ctx context.Context) (Info, error) {
 	return Info{PublicURL: t.publicURL, TerminatesAtEdge: false, Listener: ln}, nil
 }
 
+// Status reports the Funnel URL and the Detail left by Start.
 func (t *Tailscale) Status() Status {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return Status{Name: "tailscale", Running: t.running, PublicURL: t.publicURL, Detail: t.detail}
 }
 
+// Stop closes the Funnel listener and the tsnet server; the first close error is returned.
 func (t *Tailscale) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
