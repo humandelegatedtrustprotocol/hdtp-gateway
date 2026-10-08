@@ -118,3 +118,9 @@ func (s *OwnerSession) Browser(ctx context.Context) (*portal.Session, error) {
 	}
 	return br, nil
 }
+
+// NewOwnerSession is the session a browser earned by running the passkey ceremony
+// (portal.Session.Cookies), as plain HTTP, for a caller outside this package.
+func NewOwnerSession(base string, cookies []*http.Cookie) *OwnerSession {
+	return &OwnerSession{Base: base, cookies: cookies}
+}

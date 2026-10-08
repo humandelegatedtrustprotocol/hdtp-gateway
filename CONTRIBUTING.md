@@ -152,11 +152,12 @@ contract (`TestBundleCarriesTheViews`, `TestEmbeddedBundleCarriesTheCeremonies`,
 `TestEveryNavRouteServesTheShell`), so a stale dist fails the gate rather than
 shipping a portal that silently lacks a view.
 
-## The README's screenshots
+## The screenshots
 
-They are captured from a running node by the portal scenario, not drawn, so they
-cannot drift into showing a product that no longer exists. If you change the
-portal, refresh them:
+The pictures in README.md and docs/quickstart.md are captured from a running node by
+`harness/cmd/screenshots`, which walks the quickstart in Chrome and photographs each page at the
+step the guide shows it; they are not drawn, so they cannot drift into showing a product that no
+longer exists. If you change the portal, refresh them (Docker and Chrome):
 
 ```
 make screenshots

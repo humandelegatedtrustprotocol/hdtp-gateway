@@ -132,7 +132,7 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	}
 	out := &Owned{OwnerPort: ownerPort}
 	w.owned = append(w.owned, out)
-	ports := []string{ownerPort + ":" + fmt.Sprint(bridgePort)}
+	ports := []string{ownerPort + ":" + fmt.Sprint(BridgePort)}
 	publicURL := o.PublicURL
 	if o.PublishPublic {
 		if out.PublicPort, err = fabric.FreePort(); err != nil {
@@ -161,7 +161,7 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	if out.Bridge, err = w.Bridge(ctx, out.Node); err != nil {
 		return out, err
 	}
-	if err := waitPortal(ctx, ownerPort); err != nil {
+	if err := WaitPortal(ctx, ownerPort); err != nil {
 		return out, err
 	}
 	if out.Owner, out.Portal, err = BootstrapOwner(ctx, w.Fab, out.Node, ownerPort); err != nil {
@@ -175,9 +175,9 @@ func (w *World) Node(ctx context.Context, o NodeOpts) (*Owned, error) {
 	return out, nil
 }
 
-// bridgePort is where the sidecar listens in the node's namespace, forwarding to the owner
+// BridgePort is where the sidecar listens in the node's namespace, forwarding to the owner
 // surface on loopback.
-const bridgePort = 8081
+const BridgePort = 8081
 
 // Bridge starts the sidecar that publishes a node's owner surface. The surface is loopback-bound
 // (SPEC §8.3); a socat in the node's own network namespace reaches it without the node binding
@@ -187,14 +187,14 @@ func (w *World) Bridge(ctx context.Context, node *fabric.Container) (*fabric.Con
 	short := strings.TrimPrefix(node.Name, w.Fab.Prefix()+"-")
 	return w.Fab.Container(ctx, fabric.Spec{
 		Name: short + "-bridge", Image: images.Socat, NetworkMode: "container:" + node.Name,
-		Cmd: []string{fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", bridgePort),
+		Cmd: []string{fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", BridgePort),
 			fmt.Sprintf("TCP:127.0.0.1:%d", topology.InternalPort)},
 	})
 }
 
-// waitPortal polls the published owner surface until something answers HTTP through the
+// WaitPortal polls the published owner surface until something answers HTTP through the
 // bridge. It replaces a fixed two-second sleep after starting the bridge.
-func waitPortal(ctx context.Context, hostPort string) error {
+func WaitPortal(ctx context.Context, hostPort string) error {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -220,7 +220,7 @@ func waitPortal(ctx context.Context, hostPort string) error {
 // the browser runs on the host, so the portal has to be reachable from there, and it must be
 // `localhost` rather than an IP because an IP is not a valid WebAuthn RP ID.
 func BootstrapOwner(ctx context.Context, f *fabric.Fabric, node *fabric.Container, ownerPort string) (*owner.Client, *OwnerSession, error) {
-	tok, err := setupToken(ctx, f, node)
+	tok, err := SetupToken(ctx, f, node)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,8 +373,8 @@ func execS(ctx context.Context, f *fabric.Fabric, c *fabric.Container, args ...s
 	return string(out)
 }
 
-// setupToken reads the first-run setup token a node prints to its log.
-func setupToken(ctx context.Context, f *fabric.Fabric, c *fabric.Container) (string, error) {
+// SetupToken reads the first-run setup token a node prints to its log.
+func SetupToken(ctx context.Context, f *fabric.Fabric, c *fabric.Container) (string, error) {
 	out, err := f.Raw(ctx, "docker", "logs", c.Name)
 	if err != nil {
 		return "", err
