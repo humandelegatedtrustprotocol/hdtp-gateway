@@ -31,16 +31,29 @@ const (
 	DefaultPendingTTL = 10 * time.Minute
 )
 
+// AgentAnswered serves agent-answered exposures (SPEC §6.8): Handler parks each
+// call as a pending_requests row and holds it for WaitBudget; Answer, called
+// from the owner MCP's answer_request, fills the row and wakes the held call.
+// Zero WaitBudget and TTL select DefaultWaitBudget and DefaultPendingTTL.
 type AgentAnswered struct {
+	// Store holds the pending_requests rows, which are the source of truth for
+	// an answer.
 	Store store.IntegrationStore
-	Bus   *messaging.Bus
+	// Bus carries the pending/answered/relayed events; it must be the bus every
+	// process on the store hears (SPEC §7.8).
+	Bus *messaging.Bus
+	// Audit receives pending_create, pending_relay, pending_fallback and
+	// answer_request rows; nil discards.
 	Audit func(action, resource, outcome string)
 	// Connected reports whether an owner-agent session is live for the account;
 	// nil assumes connected (the wait budget then governs alone).
-	Connected  func(accountID string) bool
+	Connected func(accountID string) bool
+	// WaitBudget is how long Handler holds a call open; 0 = DefaultWaitBudget.
 	WaitBudget time.Duration
-	TTL        time.Duration
-	Now        func() time.Time
+	// TTL is how long a pending row accepts an answer; 0 = DefaultPendingTTL.
+	TTL time.Duration
+	// Now is the clock seam; nil = time.Now.
+	Now func() time.Time
 }
 
 // RelayWait is how long Answer waits for the held call to say it relayed the answer before it
@@ -77,6 +90,15 @@ func (a *AgentAnswered) audit(action, resource, outcome string) {
 
 // Handler serves one agent-answered exposure for one caller. fallback is the
 // entry's bound fallback-mode handler (nil = none → `unavailable`).
+//
+// Each call inserts a pending_requests row first; if that insert fails the call
+// answers `unavailable`. It then announces EventPending, audits pending_create,
+// and, if Connected reports no agent, runs the fallback at once with reason
+// "no_agent". Otherwise it waits for an answered row (relaying its Result as
+// text content and publishing EventRelayed), for the budget to lapse (fallback
+// reason "budget_expired"), or for the call's context to end (returns the
+// context error). The fallback runs only when the entry names a Fallback AND a
+// fallback handler was supplied; else the answer is the `unavailable` error result.
 func (a *AgentAnswered) Handler(accountID, contactFpr, trustFlag string, entry ExposureEntry, fallback mcp.ToolHandler) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		row, err := a.Store.InsertPendingRequest(ctx, store.PendingRequest{

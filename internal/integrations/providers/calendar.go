@@ -30,9 +30,14 @@ type IdemStore interface {
 // Calendar implements check_availability / book_slot / cancel_booking
 // (HDTP §6.2) over one recipe.
 type Calendar struct {
-	Call    Caller
-	Recipe  integrations.Recipe
-	Store   IdemStore
+	// Call reaches the upstream; ManagerCaller builds the production one.
+	Call Caller
+	// Recipe binds check_availability, book_slot and cancel_booking.
+	Recipe integrations.Recipe
+	// Store reserves each booking's msg_id; it must also offer
+	// UpdateIdempotencyAck or BookSlot fails after the upstream call.
+	Store IdemStore
+	// Account is the account the idempotency rows are filed under.
 	Account string
 	// Params are this INSTALL's recipe parameters, referenced from a recipe as
 	// `$cfg.<name>`. Some upstreams need a value only the install knows — a CalDAV
@@ -41,7 +46,8 @@ type Calendar struct {
 	// cannot be written at all. Google's servers never needed one because they
 	// default to the primary calendar, which is why this surfaced late.
 	Params map[string]string
-	Now    func() time.Time
+	// Now stamps the synthesized ICS; nil = time.Now.
+	Now func() time.Time
 }
 
 // fields merges the install's parameters into the provider's own under a `cfg.`
