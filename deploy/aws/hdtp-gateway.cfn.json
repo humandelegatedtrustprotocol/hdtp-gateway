@@ -1,0 +1,370 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "hdtp-gateway on one Arm EC2 instance: Ubuntu 24.04, Docker, the node and its limits sidecar built from a release tag, Caddy in front for TLS on a name in your Route 53 zone (docs/deploy.md). The first boot is deploy/cloud-init.yaml, embedded below line by line and held to that file by scripts/deploy-check.mjs.",
+  "Parameters": {
+    "Hostname": {
+      "Type": "String",
+      "Description": "The name other people's agents will reach this node at, inside the hosted zone below: hdtp.example.com. It becomes the node's public URL (https://<hostname>) and the name Caddy gets a certificate for.",
+      "AllowedPattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "ConstraintDescription": "a lower-case DNS name with at least one dot"
+    },
+    "HostedZoneId": {
+      "Type": "AWS::Route53::HostedZone::Id",
+      "Description": "The Route 53 hosted zone the hostname is in. The stack writes one A record there, pointing the hostname at the instance's Elastic IP."
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "t4g.medium",
+      "AllowedPattern": "^[a-z]+[0-9]+g[a-z]*\\.[a-z0-9]+$",
+      "ConstraintDescription": "an Arm64 (Graviton) instance type such as t4g.medium: the AMI below is arm64",
+      "Description": "An Arm64 instance type. The first boot compiles the node (Go) and its sidecar (Rust) on the instance; that build was not measured on any size, so the default has 4 GiB of memory rather than 2."
+    },
+    "KeyName": {
+      "Type": "String",
+      "Default": "",
+      "Description": "An EC2 key pair for SSH as the user ubuntu, or empty for none. The portal is reached through an SSH tunnel, so you will want one."
+    },
+    "SshCidr": {
+      "Type": "String",
+      "AllowedPattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$",
+      "ConstraintDescription": "an IPv4 CIDR such as 203.0.113.4/32",
+      "Description": "The address range allowed to SSH to the instance (port 22): your own address, as a CIDR. Ports 80 and 443 are open to everyone, as a public node needs."
+    },
+    "Release": {
+      "Type": "String",
+      "Default": "v0.1.1",
+      "AllowedPattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "Description": "The hdtp-gateway release tag to build: the sources are fetched at this tag from the public repository."
+    },
+    "Ami": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/canonical/ubuntu/server/noble/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id",
+      "Description": "The current Ubuntu 24.04 LTS arm64 AMI, resolved from Canonical's public SSM parameter in the region of the stack. Leave it."
+    }
+  },
+  "Conditions": {
+    "HasKeyName": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "KeyName"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "hdtp-gateway: 80 and 443 to everyone (Caddy, with ACME on both), 22 to SshCidr",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 22,
+            "ToPort": 22,
+            "CidrIp": {
+              "Ref": "SshCidr"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "udp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "hdtp-gateway"
+          }
+        ]
+      }
+    },
+    "Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": {
+          "Ref": "Ami"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "KeyName": {
+          "Fn::If": [
+            "HasKeyName",
+            {
+              "Ref": "KeyName"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "SecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeType": "gp3",
+              "VolumeSize": 30,
+              "DeleteOnTermination": true
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "hdtp-gateway"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "\n",
+              [
+                "#cloud-config",
+                "# One first boot for hdtp-gateway on a VM (docs/deploy.md). It installs Docker from Docker's own apt",
+                "# repository held to one major, makes a service user, puts the node's sources at one release tag",
+                "# under /opt/hdtp, vendors the limits sidecar's crates the way `make limitd-vendor` does (in a",
+                "# container, since the VM has no cargo), and runs the shipped compose.yaml with an override beside",
+                "# it: Caddy in front for TLS on the instance's hostname, the node told its public URL and which",
+                "# address may name a caller. The portal stays on the VM's loopback, as in compose.yaml: the login",
+                "# message says how to reach it.",
+                "#",
+                "# Two placeholders, Hostname and Release, each written between a dollar-brace and a brace, are",
+                "# substituted by what carries this file (deploy/aws, deploy/azure, deploy/render-cloud-init.sh).",
+                "# Nothing else here is written that way: scripts/deploy-check.mjs renders the file and refuses any",
+                "# placeholder left behind.",
+                "#",
+                "# The posture is deploy/envoy's minus two things Caddy cannot do: it forwards no caller chain (so",
+                "# a caller proves nothing on the transport and the sealed envelope is its proof, as behind any",
+                "# terminating edge), and it limits nothing per address before the node (layer 1 of",
+                "# docs/release/two-layer-limits-2026-09-28.md is Envoy's). The caller's address does reach the node:",
+                "# Caddy writes it into X-HDTP-Client-Address and the node reads that header from Caddy's address",
+                "# alone (HDTP_PROXY_ADDRESS, internal/public/listener.go).",
+                "",
+                "package_update: true",
+                "packages:",
+                "  - ca-certificates",
+                "  - curl",
+                "  - git",
+                "",
+                "write_files:",
+                "  # Docker's packages held to one major (apt_preferences(5): a version pin with a wildcard; 1001",
+                "  # takes that version even over a newer one). The repository itself is added in runcmd, as",
+                "  # https://docs.docker.com/engine/install/ubuntu/ writes it.",
+                "  - path: /etc/apt/preferences.d/docker",
+                "    permissions: \"0644\"",
+                "    content: |",
+                "      Package: docker-ce docker-ce-cli",
+                "      Pin: version 5:29.*",
+                "      Pin-Priority: 1001",
+                "",
+                "  # Read by `docker compose` in /opt/hdtp for the two files below (compose interpolation).",
+                "  - path: /opt/hdtp/.env",
+                "    permissions: \"0644\"",
+                "    content: |",
+                {
+                  "Fn::Sub": "      HDTP_HOSTNAME=${Hostname}"
+                },
+                {
+                  "Fn::Sub": "      HDTP_PUBLIC_URL=https://${Hostname}"
+                },
+                "",
+                "  # Merged over the node's own compose.yaml by `docker compose` (it reads compose.override.yaml",
+                "  # beside compose.yaml by itself): Caddy published on 80 and 443, and the node on one private",
+                "  # network with it, at fixed addresses, so that HDTP_PROXY_ADDRESS names Caddy and nothing else.",
+                "  - path: /opt/hdtp/compose.override.yaml",
+                "    permissions: \"0644\"",
+                "    content: |",
+                "      services:",
+                "        hdtp-gateway:",
+                "          environment:",
+                "            HDTP_PUBLIC_URL: $HDTP_PUBLIC_URL",
+                "            HDTP_PROXY_ADDRESS: 172.30.41.10",
+                "          networks:",
+                "            edge:",
+                "              ipv4_address: 172.30.41.20",
+                "",
+                "        caddy:",
+                "          # Pinned by digest, the tag kept for the reader: `caddy:2-alpine` as resolved on",
+                "          # 2026-10-09 (the multi-platform index; its images were built 2026-10-05).",
+                "          image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f",
+                "          restart: unless-stopped",
+                "          ports:",
+                "            - \"80:80\"",
+                "            - \"443:443\"",
+                "            - \"443:443/udp\"",
+                "          environment:",
+                "            HDTP_HOSTNAME: $HDTP_HOSTNAME",
+                "          volumes:",
+                "            - /opt/hdtp/caddy/Caddyfile:/etc/caddy/Caddyfile:ro",
+                "            - caddy-data:/data",
+                "            - caddy-config:/config",
+                "          depends_on:",
+                "            hdtp-gateway:",
+                "              condition: service_started",
+                "          networks:",
+                "            edge:",
+                "              ipv4_address: 172.30.41.10",
+                "",
+                "      networks:",
+                "        edge:",
+                "          ipam:",
+                "            config:",
+                "              - subnet: 172.30.41.0/24",
+                "",
+                "      volumes:",
+                "        caddy-data:",
+                "        caddy-config:",
+                "",
+                "  # Caddy: a certificate for the hostname from Let's Encrypt or ZeroSSL (its automatic HTTPS), the",
+                "  # caller's TLS ended here, each request carried to the node over TLS. The node presents its",
+                "  # identities' chains, not a WebPKI certificate, so the hop is made without validation, as",
+                "  # deploy/envoy's is. The caller's address goes to the node in the header it reads from this",
+                "  # proxy's address; a caller's own X-Forwarded-Client-Cert is dropped, since Caddy cannot",
+                "  # forward a chain, and the node must not read one the caller wrote.",
+                "  - path: /opt/hdtp/caddy/Caddyfile",
+                "    permissions: \"0644\"",
+                "    content: |",
+                "      {$HDTP_HOSTNAME} {",
+                "        reverse_proxy https://172.30.41.20:8443 {",
+                "          transport http {",
+                "            tls_insecure_skip_verify",
+                "            tls_server_name {$HDTP_HOSTNAME}",
+                "          }",
+                "          header_up X-HDTP-Client-Address {remote_host}",
+                "          header_up -X-Forwarded-Client-Cert",
+                "        }",
+                "      }",
+                "",
+                "  # Shown at every SSH login (Ubuntu's update-motd): where the setup link is and how to open it.",
+                "  - path: /etc/update-motd.d/99-hdtp-gateway",
+                "    permissions: \"0755\"",
+                "    content: |",
+                "      #!/bin/sh",
+                "      cat <<'EOF'",
+                "",
+                {
+                  "Fn::Sub": "      hdtp-gateway serves https://${Hostname} from /opt/hdtp, as the user hdtp (docs/deploy.md)."
+                },
+                "",
+                "      First run: the node's log holds the portal's setup link. Read it:",
+                "          sudo -iu hdtp",
+                "          cd /opt/hdtp && docker compose logs hdtp-gateway | grep -A2 \"setup\"",
+                "      The portal is on this VM's loopback only. From your own machine, open an SSH tunnel",
+                {
+                  "Fn::Sub": "          ssh -L 8080:127.0.0.1:8080 <your login>@${Hostname}"
+                },
+                "      and then open the setup link, http://localhost:8080/setup?token=..., in your browser.",
+                "      Until the first boot has finished building the node, the log is empty: `cloud-init status`",
+                "      says `done` when it has.",
+                "",
+                "      EOF",
+                "",
+                "runcmd:",
+                "  # Docker's apt repository, as its documentation writes it, then the engine and the compose plugin.",
+                "  - install -m 0755 -d /etc/apt/keyrings",
+                "  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc",
+                "  - chmod a+r /etc/apt/keyrings/docker.asc",
+                "  - printf 'Types: deb\\nURIs: https://download.docker.com/linux/ubuntu\\nSuites: %s\\nComponents: stable\\nArchitectures: %s\\nSigned-By: /etc/apt/keyrings/docker.asc\\n' \"$(. /etc/os-release && echo \"$VERSION_CODENAME\")\" \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/docker.sources",
+                "  - apt-get update",
+                "  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
+                "  # The service user: owns /opt/hdtp and may run docker (the docker group is root-equivalent on",
+                "  # the host, which is what running the node's containers is). No password, no SSH key of its own:",
+                "  # the operator logs in as the provider's user and becomes it with sudo.",
+                "  - useradd --system --home-dir /opt/hdtp --no-create-home --shell /bin/bash hdtp",
+                "  - usermod -aG docker hdtp",
+                "  - chown -R hdtp:hdtp /opt/hdtp",
+                "  # The node's sources at the release tag, beside the files written above (nothing in the tree",
+                "  # has those names, so the checkout leaves them in place).",
+                {
+                  "Fn::Sub": "  - runuser -l hdtp -c 'cd /opt/hdtp && git init -q && git remote add origin https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git && git fetch -q --depth 1 origin tag ${Release} && git checkout -q ${Release}'"
+                },
+                "  # `make limitd-vendor`, in the Rust image the Dockerfile's sidecar stage builds with: the crates",
+                "  # laid out under .build/limitd-vendor, which the compose build reads as the context `limitdvendor`.",
+                "  - docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src rust:1.92-alpine sh -ec 'apk add --no-cache git >/dev/null && rm -rf .build/limitd-vendor && mkdir -p .build/limitd-vendor && cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml .build/limitd-vendor/crates > .build/limitd-vendor/config.toml'",
+                "  - chown -R hdtp:hdtp /opt/hdtp/.build",
+                "  # The build and the start. Minutes: the node in Go and the sidecar in Rust are compiled here.",
+                "  - runuser -l hdtp -c 'cd /opt/hdtp && docker compose build && docker compose up -d'",
+                "",
+                "final_message: \"hdtp-gateway: first boot finished after $UPTIME seconds. Log in and read the message of the day.\""
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "ElasticIp": {
+      "Type": "AWS::EC2::EIP",
+      "Properties": {
+        "Domain": "vpc",
+        "InstanceId": {
+          "Ref": "Instance"
+        }
+      }
+    },
+    "Record": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "HostedZoneId"
+        },
+        "Name": {
+          "Fn::Sub": "${Hostname}."
+        },
+        "Type": "A",
+        "TTL": "300",
+        "ResourceRecords": [
+          {
+            "Ref": "ElasticIp"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "URL": {
+      "Description": "The node's public URL: what the certificate names, and what the Settings page shows locked",
+      "Value": {
+        "Fn::Sub": "https://${Hostname}"
+      }
+    },
+    "PublicIp": {
+      "Description": "The instance's Elastic IP, which the A record points the hostname at",
+      "Value": {
+        "Ref": "ElasticIp"
+      }
+    },
+    "Ssh": {
+      "Description": "SSH with the portal's loopback port tunnelled: then open the setup link from the node's log at http://localhost:8080",
+      "Value": {
+        "Fn::Sub": "ssh -L 8080:127.0.0.1:8080 ubuntu@${Hostname}"
+      }
+    }
+  }
+}
