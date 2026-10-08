@@ -130,7 +130,7 @@ func (s *Postgres) Close() error {
 func (s *Postgres) Scrub(context.Context) error { return nil }
 
 // CreateOwnerWithID inserts an owner under id, or under a fresh random id when id is empty, with the
-// current time as CreatedAt.
+// current time as CreatedAt. An id already used is refused by the primary key.
 func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()
@@ -141,7 +141,8 @@ func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string
 }
 
 // InsertCredential inserts a credential, giving it a random id and the current time when it has
-// none.
+// none. Kind must be one the table's CHECK admits (passkey, oauth, password), and an owner that does
+// not exist is refused by the foreign key.
 func (s *Postgres) InsertCredential(ctx context.Context, c Credential) error {
 	if c.ID == "" {
 		c.ID = newID()
@@ -168,7 +169,7 @@ func (s *Postgres) GetOwner(ctx context.Context, id string) (Owner, error) {
 	return Owner{ID: r.ID, DisplayName: r.DisplayName, CreatedAt: r.CreatedAt}, nil
 }
 
-// ListOwners returns every owner, oldest first.
+// ListOwners returns every owner ordered by creation time and then id.
 func (s *Postgres) ListOwners(ctx context.Context) ([]Owner, error) {
 	rs, err := s.q.ListOwners(ctx)
 	if err != nil {
@@ -270,7 +271,7 @@ func (s *Postgres) GetAccountBySlug(ctx context.Context, slug string) (Account, 
 	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
-// ListAccounts returns every account, oldest first.
+// ListAccounts returns every account ordered by creation time and then id.
 func (s *Postgres) ListAccounts(ctx context.Context) ([]Account, error) {
 	rs, err := s.q.ListAccounts(ctx)
 	if err != nil {
@@ -315,7 +316,8 @@ func (s *Postgres) RemoveMembership(ctx context.Context, ownerID, accountID stri
 	return nil
 }
 
-// ListCredentialsByKind returns the credentials of one kind, oldest first.
+// ListCredentialsByKind returns the credentials of one kind, across owners, ordered by creation time
+// and then id.
 func (s *Postgres) ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error) {
 	rs, err := s.q.ListCredentialsByKind(ctx, kind)
 	if err != nil {
@@ -340,7 +342,9 @@ func (s *Postgres) RemoveCredentialIfNotLast(ctx context.Context, id, kind strin
 	return n > 0, nil
 }
 
-// InsertSession inserts an owner session with its creation and expiry times.
+// InsertSession inserts an owner session as given. The id is the primary key, and an owner that does
+// not exist is refused by the foreign key. The expiry is not checked here: GetSession returns it,
+// and DeleteExpiredSessions removes sessions past it.
 func (s *Postgres) InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error {
 	return s.q.InsertSession(ctx, pgdb.InsertSessionParams{ID: id, OwnerID: ownerID, CreatedAt: createdAt, ExpiresAt: expiresAt})
 }
@@ -376,7 +380,8 @@ func (s *Postgres) GetTokenByHash(ctx context.Context, hash []byte) (Token, erro
 	return tokenFromRow(sqlitedb.Token(r)), nil
 }
 
-// ListTokens returns every owner-MCP token, revoked or not, oldest first.
+// ListTokens returns every owner-MCP token, revoked ones included (RevokedAt is set), ordered by
+// creation time and then id.
 func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
 	rs, err := s.q.ListTokens(ctx)
 	if err != nil {

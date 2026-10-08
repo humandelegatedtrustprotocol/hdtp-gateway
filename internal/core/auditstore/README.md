@@ -28,10 +28,9 @@ not archived. `AccountExists` is the one method that interprets an error: `store
 
 ## Invariants
 
-- **The conversion copies every field.** `audit.Row` and `store.AuditRow` have the same twelve fields, and
-  `rowsOf` copies each; `audit.Anchor` and `store.AuditAnchorRow` have the same four, copied by
-  `AuditAnchor` and `SetAuditAnchor`. A field added to one and not the other is a compile error only on the
-  side that constructs it, so the adapter has no guard of its own beyond its callers' tests.
+- **The conversion copies every field the two shapes share today.** `audit.Row` and `store.AuditRow` have
+  the same twelve fields, and `rowsOf` copies each; `audit.Anchor` and `store.AuditAnchorRow` have the same
+  four, copied by `AuditAnchor` and `SetAuditAnchor`.
 - **It is on the only path that deletes from the chain.** `TestOnlyTheArchiveDeletesFromTheChain` fails if
   anything outside `core/store`, this adapter and the archive code in `core/audit` calls
   `DeleteAuditEventsThrough`, `ArchiveRows` or `ArchiveAuditRows`, and fails if this list goes stale.
@@ -52,4 +51,6 @@ the store's deletes on the chain.
 
 - It does not write the chain. Sealing and appending are `audit.Writer` over `store.AuditAppender`.
 - It does not verify, archive or repair anything; it only lets `audit` do so over a store.
-- It does not guard against a mismatch between the two row shapes beyond the compiler: see Invariants.
+- It does not guard against a field being added to one row shape and not the other. The conversions are
+  keyed struct literals, so an added field compiles and is silently left uncopied (zero); only a removed or
+  renamed field fails to compile. Nothing in this package or its callers' tests compares the two shapes.

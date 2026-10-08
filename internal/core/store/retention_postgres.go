@@ -40,7 +40,7 @@ func (p *Postgres) ListMediaBodies(ctx context.Context, accountID string) ([]str
 	return p.q.ListMediaBodies(ctx, accountID)
 }
 
-// ListBlobs returns the account's blob records, oldest first.
+// ListBlobs returns the account's blob records ordered by creation time.
 func (p *Postgres) ListBlobs(ctx context.Context, accountID string) ([]Blob, error) {
 	rows, err := p.q.ListBlobs(ctx, accountID)
 	if err != nil {
@@ -62,7 +62,8 @@ func (p *Postgres) DeleteBlob(ctx context.Context, accountID, hash string) (int6
 	return p.q.DeleteBlob(ctx, pgdb.DeleteBlobParams{AccountID: accountID, Hash: hash})
 }
 
-// CountBlobRefs counts the blob rows for hash across every account.
+// CountBlobRefs counts the blob rows for hash across every account. The blob store is
+// content-addressed, so the file may be removed only when this reaches zero.
 func (p *Postgres) CountBlobRefs(ctx context.Context, hash string) (int64, error) {
 	return p.q.CountBlobRefs(ctx, hash)
 }

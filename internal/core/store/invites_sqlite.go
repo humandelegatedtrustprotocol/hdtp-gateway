@@ -45,7 +45,8 @@ func (s *SQLite) GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) (I
 	return inviteFromRow(r), nil
 }
 
-// ListInvites returns the account's invites, oldest first.
+// ListInvites returns the account's invites, revoked and spent ones included, ordered by creation
+// time and then id.
 func (s *SQLite) ListInvites(ctx context.Context, accountID string) ([]Invite, error) {
 	rs, err := s.q.ListInvites(ctx, accountID)
 	if err != nil {

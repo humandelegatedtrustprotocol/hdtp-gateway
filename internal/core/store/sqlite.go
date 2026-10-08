@@ -213,7 +213,7 @@ func newID() string {
 func now() int64 { return time.Now().Unix() }
 
 // CreateOwnerWithID inserts an owner under id, or under a fresh random id when id is empty, with the
-// current time as CreatedAt.
+// current time as CreatedAt. An id already used is refused by the primary key.
 func (s *SQLite) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()
@@ -224,7 +224,8 @@ func (s *SQLite) CreateOwnerWithID(ctx context.Context, id, displayName string) 
 }
 
 // InsertCredential inserts a credential, giving it a random id and the current time when it has
-// none.
+// none. Kind must be one the table's CHECK admits (passkey, oauth, password), and an owner that does
+// not exist is refused by the foreign key.
 func (s *SQLite) InsertCredential(ctx context.Context, c Credential) error {
 	if c.ID == "" {
 		c.ID = newID()
@@ -251,7 +252,7 @@ func (s *SQLite) GetOwner(ctx context.Context, id string) (Owner, error) {
 	return Owner{ID: r.ID, DisplayName: r.DisplayName, CreatedAt: r.CreatedAt}, nil
 }
 
-// ListOwners returns every owner, oldest first.
+// ListOwners returns every owner ordered by creation time and then id.
 func (s *SQLite) ListOwners(ctx context.Context) ([]Owner, error) {
 	rs, err := s.q.ListOwners(ctx)
 	if err != nil {
@@ -353,7 +354,7 @@ func (s *SQLite) GetAccountBySlug(ctx context.Context, slug string) (Account, er
 	return accountFromRow(r), nil
 }
 
-// ListAccounts returns every account, oldest first.
+// ListAccounts returns every account ordered by creation time and then id.
 func (s *SQLite) ListAccounts(ctx context.Context) ([]Account, error) {
 	rs, err := s.q.ListAccounts(ctx)
 	if err != nil {
@@ -398,7 +399,8 @@ func (s *SQLite) RemoveMembership(ctx context.Context, ownerID, accountID string
 	return nil
 }
 
-// ListCredentialsByKind returns the credentials of one kind, oldest first.
+// ListCredentialsByKind returns the credentials of one kind, across owners, ordered by creation time
+// and then id.
 func (s *SQLite) ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error) {
 	rs, err := s.q.ListCredentialsByKind(ctx, kind)
 	if err != nil {
@@ -423,7 +425,9 @@ func (s *SQLite) RemoveCredentialIfNotLast(ctx context.Context, id, kind string)
 	return n > 0, nil
 }
 
-// InsertSession inserts an owner session with its creation and expiry times.
+// InsertSession inserts an owner session as given. The id is the primary key, and an owner that does
+// not exist is refused by the foreign key. The expiry is not checked here: GetSession returns it,
+// and DeleteExpiredSessions removes sessions past it.
 func (s *SQLite) InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error {
 	return s.q.InsertSession(ctx, sqlitedb.InsertSessionParams{ID: id, OwnerID: ownerID, CreatedAt: createdAt, ExpiresAt: expiresAt})
 }
@@ -459,7 +463,8 @@ func (s *SQLite) GetTokenByHash(ctx context.Context, hash []byte) (Token, error)
 	return tokenFromRow(r), nil
 }
 
-// ListTokens returns every owner-MCP token, revoked or not, oldest first.
+// ListTokens returns every owner-MCP token, revoked ones included (RevokedAt is set), ordered by
+// creation time and then id.
 func (s *SQLite) ListTokens(ctx context.Context) ([]Token, error) {
 	rs, err := s.q.ListTokens(ctx)
 	if err != nil {

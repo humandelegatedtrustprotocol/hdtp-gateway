@@ -19,7 +19,8 @@ func (p *Postgres) ListSettings(ctx context.Context) ([]Setting, error) {
 	return out, nil
 }
 
-// PutSetting inserts or replaces one setting by key.
+// PutSetting inserts the setting or, if the key exists, replaces its value, secret flag and update
+// time. UpdatedAt is the caller's.
 func (p *Postgres) PutSetting(ctx context.Context, in Setting) error {
 	return p.q.PutSetting(ctx, pgdb.PutSettingParams{
 		Key: in.Key, Value: in.Value, Secret: in.Secret, UpdatedAt: in.UpdatedAt,

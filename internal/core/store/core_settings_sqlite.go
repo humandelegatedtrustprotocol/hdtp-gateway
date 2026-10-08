@@ -19,7 +19,8 @@ func (s *SQLite) ListSettings(ctx context.Context) ([]Setting, error) {
 	return out, nil
 }
 
-// PutSetting inserts or replaces one setting by key.
+// PutSetting inserts the setting or, if the key exists, replaces its value, secret flag and update
+// time. UpdatedAt is the caller's.
 func (s *SQLite) PutSetting(ctx context.Context, in Setting) error {
 	secret := int64(0)
 	if in.Secret {

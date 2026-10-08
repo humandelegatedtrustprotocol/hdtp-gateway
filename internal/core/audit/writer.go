@@ -17,11 +17,11 @@ type Sink interface {
 	AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (Event, error)) error
 }
 
-// Writer seals events onto the chain and hands them to Sink to be inserted. It is the only code
-// that builds a chain row (through Next): the node's audit sink (internal/services/auditsink) holds
-// one for every row `serve` writes, and `audit erase-archive` holds one for its own. Now defaults to
-// time.Now. A Writer is safe for concurrent use, within one process and across processes that
-// share a store.
+// Writer seals events onto the chain and hands them to Sink to be inserted. It is the only
+// production code that builds a chain row (through Next): the node's audit sink
+// (internal/services/auditsink) holds one for every row `serve` writes, and `audit erase-archive`
+// holds one for its own. Now defaults to time.Now. A Writer is safe for concurrent use, within one
+// process and across processes that share a store.
 type Writer struct {
 	Sink Sink
 	Now  func() time.Time

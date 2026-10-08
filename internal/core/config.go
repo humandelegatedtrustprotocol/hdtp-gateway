@@ -29,21 +29,17 @@ type Seal string
 // ClientCert is whether the node asks the caller for a TLS client certificate (SPEC §5.1).
 type ClientCert string
 
-// The two deployment modes. Edge forces SealRequired and ClientCertOff (Config.Derive).
+// The values of Mode, Seal and ClientCert (SPEC §2.5, §4.6, §5.1), in that order. Edge mode forces
+// SealRequired and ClientCertOff (Config.Derive), and EffectiveSeal is the one answer to which Seal
+// applies.
 const (
 	ModeDirect Mode = "direct"
 	ModeEdge   Mode = "edge"
-)
 
-// The sealing policies. EffectiveSeal is the one answer to which of them applies.
-const (
 	SealNone     Seal = "none"
 	SealOptional Seal = "optional"
 	SealRequired Seal = "required"
-)
 
-// The client-certificate policies.
-const (
 	ClientCertRequired  ClientCert = "required"
 	ClientCertPreferred ClientCert = "preferred"
 	ClientCertOff       ClientCert = "off"

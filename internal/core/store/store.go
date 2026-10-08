@@ -431,7 +431,8 @@ type LeaseStore interface {
 // PresenceStore keeps when the owner's agent last asked the owner MCP anything (SPEC §6.8), so
 // that every node process sharing the store answers "is the agent attached" the same.
 type PresenceStore interface {
-	// TouchOwnerPresence records that the owner's agent asked at the given time.
+	// TouchOwnerPresence records that the owner's agent asked at the given time, replacing the
+	// single presence row. The time is stored as given and may be earlier than the one it replaces.
 	TouchOwnerPresence(ctx context.Context, at int64) error
 	// OwnerPresenceSeenAt is 0 when the agent has never asked.
 	OwnerPresenceSeenAt(ctx context.Context) (int64, error)
@@ -507,11 +508,13 @@ type OwnerStore interface {
 	// it (§3.1).
 	CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error)
 	// InsertCredential inserts a credential, giving it a random id and the current time when it has
-	// none.
+	// none. Kind must be one the table's CHECK admits (passkey, oauth, password), and an owner that
+	// does not exist is refused by the foreign key.
 	InsertCredential(ctx context.Context, c Credential) error
 	// CountCredentialsByKind counts the credentials of one kind across every owner.
 	CountCredentialsByKind(ctx context.Context, kind string) (int64, error)
-	// ListCredentialsByKind returns the credentials of one kind, oldest first.
+	// ListCredentialsByKind returns the credentials of one kind, across owners, ordered by creation
+	// time and then id.
 	ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error)
 
 	// There is deliberately NO unguarded RemoveCredential. It existed, with zero
@@ -523,7 +526,9 @@ type OwnerStore interface {
 	// same kind survives, in one statement. It reports whether it removed one;
 	// false with a nil error means "that was the last".
 	RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error)
-	// InsertSession inserts an owner session with its creation and expiry times.
+	// InsertSession inserts an owner session as given. The id is the primary key, and an owner that
+	// does not exist is refused by the foreign key. The expiry is not checked here: GetSession
+	// returns it, and DeleteExpiredSessions removes sessions past it.
 	InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error
 	// GetSession returns the session's owner and expiry, or ErrNotFound. It does not compare the
 	// expiry with the clock; the caller does.
@@ -539,14 +544,15 @@ type OwnerStore interface {
 	InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error
 	// GetTokenByHash returns the owner-MCP token with this hash, revoked or not, or ErrNotFound.
 	GetTokenByHash(ctx context.Context, hash []byte) (Token, error)
-	// ListTokens returns every owner-MCP token, revoked or not, oldest first.
+	// ListTokens returns every owner-MCP token, revoked ones included (RevokedAt is set), ordered by
+	// creation time and then id.
 	ListTokens(ctx context.Context) ([]Token, error)
 	// RevokeToken stamps the token revoked at now; a token that is missing or already revoked is an
 	// error.
 	RevokeToken(ctx context.Context, id string, now int64) error
 	// GetOwner returns the owner, or ErrNotFound.
 	GetOwner(ctx context.Context, id string) (Owner, error)
-	// ListOwners returns every owner, oldest first.
+	// ListOwners returns every owner ordered by creation time and then id.
 	ListOwners(ctx context.Context) ([]Owner, error)
 	// DeleteOwner deletes the owner; one that is not there is ErrNotFound.
 	DeleteOwner(ctx context.Context, id string) error
@@ -573,7 +579,7 @@ type AccountStore interface {
 	SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error
 	// GetAccountBySlug returns the account with this slug, or ErrNotFound.
 	GetAccountBySlug(ctx context.Context, slug string) (Account, error)
-	// ListAccounts returns every account, oldest first.
+	// ListAccounts returns every account ordered by creation time and then id.
 	ListAccounts(ctx context.Context) ([]Account, error)
 	// GetAccountByID returns the account, or ErrNotFound.
 	GetAccountByID(ctx context.Context, id string) (Account, error)
@@ -611,7 +617,8 @@ type AccountStore interface {
 	// SetLeafMoved records whether installing the leaf moved the identity; a leaf that is not there is
 	// an error.
 	SetLeafMoved(ctx context.Context, accountID, kid string, moved bool) error
-	// ListLeaves returns every leaf row of the account.
+	// ListLeaves returns every leaf row of the account, whatever its state, ordered by creation time
+	// and then kid; an account with none yields an empty list.
 	ListLeaves(ctx context.Context, accountID string) ([]Leaf, error)
 
 	// ListKidsExcept is every leaf kid on this node that belongs to some OTHER
@@ -670,7 +677,8 @@ type InviteStore interface {
 	// GetInviteByHashGlobal resolves a landing-page token with no account in the
 	// URL (SPEC §9.2 — /i/<token> carries only the bearer token).
 	GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) (Invite, error)
-	// ListInvites returns the account's invites, oldest first.
+	// ListInvites returns the account's invites, revoked and spent ones included, ordered by
+	// creation time and then id.
 	ListInvites(ctx context.Context, accountID string) ([]Invite, error)
 
 	// ConsumeInviteUse atomically increments uses; false when expired/revoked/exhausted.
@@ -707,21 +715,27 @@ type ContactStore interface {
 	// verified: a refresh the owner asked for (node.RefreshContact) or the peer's own
 	// `update_contact`. The pinned root never changes here.
 	UpdateContactCard(ctx context.Context, accountID, fingerprint, card, displayName string) error
-	// UpsertTombstone inserts or replaces the removal tombstone of one root, stamped now when At is
-	// zero.
+	// UpsertTombstone inserts the account's tombstone for one root or, if it has one (the key is
+	// account and root), replaces its leaf and time. At is stamped now when zero.
 	UpsertTombstone(ctx context.Context, t Tombstone) error
-	// ListTombstones returns the account's removal tombstones.
+	// ListTombstones returns the account's removal tombstones, ordered by time and then root.
 	ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error)
 	// DeleteTombstone removes the tombstone of one root; one that is not there is not an error.
 	DeleteTombstone(ctx context.Context, accountID, root string) error
 	// InsertFormerEndpoint records where a pinned root used to answer, stamped now when At is zero.
+	// The key is (account, root, endpoint, at): a root may have several former endpoints, and the
+	// same endpoint recorded at the same instant twice is refused.
 	InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) error
-	// ListFormerEndpoints returns the account's former endpoints.
+	// ListFormerEndpoints returns the account's former endpoints ordered by time, then root, then
+	// endpoint; an account with none yields an empty list.
 	ListFormerEndpoints(ctx context.Context, accountID string) ([]FormerEndpoint, error)
-	// UpsertPendingAddress inserts or replaces the address waiting for the owner under one root,
-	// stamped now when At is zero.
+	// UpsertPendingAddress inserts the address waiting under one root or, if there is one (the key
+	// is account and root), replaces its endpoint, leaf, reason and time. A replacement without a
+	// root certificate keeps the one already stored, because the root of a pending address cannot
+	// change. At is stamped now when zero.
 	UpsertPendingAddress(ctx context.Context, p PendingAddress) error
-	// ListPendingAddresses returns the account's addresses waiting for the owner.
+	// ListPendingAddresses returns the account's addresses waiting for the owner, ordered by time
+	// and then root.
 	ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error)
 	// GetPendingAddress returns the pending address of one root, or ErrNotFound.
 	GetPendingAddress(ctx context.Context, accountID, root string) (PendingAddress, error)
@@ -818,7 +832,9 @@ type ContactStore interface {
 // MessageStore holds conversations: threads, messages, media blobs, the idempotency records that
 // make a call safe to repeat, and the local deletes retention makes (SPEC §7, §11.2).
 type MessageStore interface {
-	// InsertThread inserts a thread.
+	// InsertThread inserts a thread as given. The primary key is (account, id), so a thread id the
+	// account already uses is refused by the table; ImportThread is the form that leaves an existing
+	// thread as it is.
 	InsertThread(ctx context.Context, t Thread) error
 	// ImportThread, ImportMessage and ImportBlob write what an export carried (SPEC §3.10). Each
 	// leaves a row that is already here as it is, so an import into an identity this host already
@@ -833,7 +849,8 @@ type MessageStore interface {
 	ImportBlob(ctx context.Context, b Blob) (bool, error)
 	// GetThread returns the account's thread, or ErrNotFound.
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)
-	// TouchThread sets the thread's last activity time.
+	// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it,
+	// and a thread that is not there is not reported.
 	TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error
 	// InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already
 	// taken in that direction of that conversation is refused by the table.
@@ -861,7 +878,9 @@ type MessageStore interface {
 	ListPendingOutbound(ctx context.Context, limit int32) ([]Message, error)
 	// ListMessagesByThread returns a thread's messages in the order they were written (seq).
 	ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]Message, error)
-	// InsertBlob inserts the account's record of an inline media file.
+	// InsertBlob inserts the account's record of an inline media file as given. A hash the account
+	// already has is refused by the primary key (account, hash); ImportBlob is the form that leaves
+	// an existing record as it is.
 	InsertBlob(ctx context.Context, b Blob) error
 	// GetBlob returns the account's blob record for hash, or ErrNotFound.
 	GetBlob(ctx context.Context, accountID, hash string) (Blob, error)
@@ -877,7 +896,7 @@ type MessageStore interface {
 	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what
 	// retention reads to learn which media a retained message still references.
 	ListMediaBodies(ctx context.Context, accountID string) ([]string, error)
-	// ListBlobs returns the account's blob records, oldest first.
+	// ListBlobs returns the account's blob records ordered by creation time.
 	ListBlobs(ctx context.Context, accountID string) ([]Blob, error)
 	// DeleteBlob deletes the account's blob record for hash and returns how many rows went. It removes
 	// the record, not the file.

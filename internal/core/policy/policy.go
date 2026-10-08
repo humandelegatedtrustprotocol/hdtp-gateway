@@ -16,14 +16,12 @@ import (
 // caller's relationship to the account entitles it to. A tool belongs to exactly one tier.
 type Tier string
 
+// The three tiers. A guest is a caller with no relationship, a blocked one, or one who asked us and
+// awaits approval; pending is a peer the owner asked (pending_out), who may answer with
+// contact_accepted or contact_rejected; contact is an active contact (TierFor).
 const (
-	// TierGuest is a caller with no relationship, or a blocked one, or one who asked us and awaits
-	// approval (TierFor).
-	TierGuest Tier = "guest"
-	// TierPending is a peer the owner asked (pending_out), who may answer with contact_accepted or
-	// contact_rejected.
+	TierGuest   Tier = "guest"
 	TierPending Tier = "pending"
-	// TierContact is an active contact.
 	TierContact Tier = "contact"
 )
 
@@ -87,8 +85,8 @@ var manageAction = types.NewEntityUID("Action", "manage")
 // Allow reports whether the caller may see and call a tool whose demands are r. It permits exactly
 // when the caller's tier equals r.Tier and, if r.Permission is not empty, the caller holds that
 // permission. A Blocked caller is refused every rule whose tier is not guest, whatever its tier or
-// permissions. The decision is Cedar's over the static policy set, and anything that is not an
-// explicit allow, an evaluation error included, is false.
+// permissions. The decision is Cedar's over the static policy set; the diagnostics are discarded and the
+// result is true exactly when Cedar's decision is Allow.
 func Allow(c Caller, r Rule) bool {
 	principalUID := types.NewEntityUID("Contact", types.String(callerID(c)))
 	resourceUID := types.NewEntityUID("Tool", types.String(r.Tier)+"/"+types.String(r.Permission))

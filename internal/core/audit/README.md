@@ -109,7 +109,7 @@ requires the rows themselves to go, and `audit erase-archive` records it with `E
   whole-chain read `ListAuditEvents` only by those, `auditstore` and `internal/cli/auditcmd.go`
   (`TestOnlyTheArchiveDeletesFromTheChain`, `TestOnlyWhatVerifiesTheChainReadsAllOfIt`, in
   `internal/integrationtest/wholechain_test.go`).
-- **Only `Writer.Append` seals a row**: it is the one caller of `Next` in the module. The writer is built in
+- **Only `Writer.Append` seals a row**: it is the one caller of `Next` in production code (`audit_test.go` calls it too). The writer is built in
   two places, `auditsink.New` for the node and `audit erase-archive` for its own row.
 
 ## Held by

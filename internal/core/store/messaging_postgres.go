@@ -8,7 +8,9 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
-// InsertThread inserts a thread.
+// InsertThread inserts a thread as given. The primary key is (account, id), so a thread id the
+// account already uses is refused by the table; ImportThread is the form that leaves an existing
+// thread as it is.
 func (s *Postgres) InsertThread(ctx context.Context, t Thread) error {
 	return s.q.InsertThread(ctx, pgdb.InsertThreadParams{
 		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
@@ -25,7 +27,8 @@ func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (T
 	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt}, nil
 }
 
-// TouchThread sets the thread's last activity time.
+// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it, and
+// a thread that is not there is not reported.
 func (s *Postgres) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error {
 	return s.q.TouchThread(ctx, pgdb.TouchThreadParams{LastAt: lastAt, AccountID: accountID, ID: threadID})
 }
@@ -109,7 +112,9 @@ func (s *Postgres) ListMessagesByThread(ctx context.Context, accountID, threadID
 	return out, nil
 }
 
-// InsertBlob inserts the account's record of an inline media file.
+// InsertBlob inserts the account's record of an inline media file as given. A hash the account
+// already has is refused by the primary key (account, hash); ImportBlob is the form that leaves an
+// existing record as it is.
 func (s *Postgres) InsertBlob(ctx context.Context, b Blob) error {
 	return s.q.InsertBlob(ctx, pgdb.InsertBlobParams{
 		AccountID: b.AccountID, Hash: b.Hash, Size: b.Size, Mime: b.Mime,

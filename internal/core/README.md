@@ -109,8 +109,6 @@ and AAD. `AcquireLock` refuses while any process holds the lock; `AcquireServeLo
   `TestTheWalletURLIsAStrictOrigin`, `TestAWalletURLThatIsNotAnOriginRefusesTheConfig`,
   `TestTheProxyAddressIsAnIPAddress`, `TestAuditArchiveAfter`).
 - **A tunnel adapter derives the mode and forces the edge knobs** (`TestTunnelAdapterDerivesModeAndForcesEdgeKnobs`).
-- **A secret never lives in the config file**: it is sealed under the keyring and kept in the store. The
-  keyring seals only through `Encrypt`, which takes an AAD.
 - **The keyring** generates its file on first run with mode 0600, prefers the environment, binds a
   ciphertext to its AAD, fails cleanly under another key, and refuses a world-readable file or a bad
   environment key (`TestKeyringGeneratesFileOnFirstRun`, `TestKeyringEnvBeatsFile`,
@@ -140,8 +138,10 @@ names.
 
 ## What it does not do
 
-- It does not hold secrets, and does not read them from the config file: the master key comes from the
-  environment or a key file, and secrets live sealed in the store.
+- It does not hold the secrets the portal writes: those are sealed under the keyring (`Encrypt`, with an
+  AAD such as `SettingsAAD`) into the store, and the master key comes from the environment or a key file.
+  A credential the operator puts in the file or the environment, such as the password inside
+  `postgres_dsn`, is held in `Config` as written.
 - It has no OS-keyring source for the master key. The chain of sources is environment, then file.
 - It does not watch anything. A `Config` is re-resolved only when a caller runs `Derive` or
   `ApplyStoreSettings`. `RestartScoped` names the knobs that own a socket or a goroutine (`tunnel`,

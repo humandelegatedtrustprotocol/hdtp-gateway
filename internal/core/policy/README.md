@@ -35,8 +35,8 @@ admin set.
 
 ## What it refuses, and how
 
-`Allow` and `AllowOwnerManage` return `false`; there is no error value. Anything that is not an explicit
-Cedar allow is a refusal, an evaluation error included. Specifically:
+`Allow` and `AllowOwnerManage` return `false`; there is no error value. The Cedar diagnostics are
+discarded, and the result is true exactly when Cedar's decision is Allow. Specifically:
 
 - a caller whose tier is not the rule's tier is refused;
 - a gated rule is refused unless the caller holds the permission, and a caller with no permission map is

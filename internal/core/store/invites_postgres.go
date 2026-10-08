@@ -39,7 +39,8 @@ func (s *Postgres) GetInviteByHashGlobal(ctx context.Context, tokenHash []byte) 
 	return inviteFromRow(sqlitedb.Invite(r)), nil
 }
 
-// ListInvites returns the account's invites, oldest first.
+// ListInvites returns the account's invites, revoked and spent ones included, ordered by creation
+// time and then id.
 func (s *Postgres) ListInvites(ctx context.Context, accountID string) ([]Invite, error) {
 	rs, err := s.q.ListInvites(ctx, accountID)
 	if err != nil {

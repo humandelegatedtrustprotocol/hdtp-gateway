@@ -88,7 +88,8 @@ func (s *Postgres) UpdateLeaf(ctx context.Context, l Leaf) error {
 	return nil
 }
 
-// ListLeaves returns every leaf row of the account.
+// ListLeaves returns every leaf row of the account, whatever its state, ordered by creation time and
+// then kid; an account with none yields an empty list.
 func (s *Postgres) ListLeaves(ctx context.Context, accountID string) ([]Leaf, error) {
 	rows, err := s.q.ListLeaves(ctx, accountID)
 	if err != nil {
@@ -149,8 +150,8 @@ func (s *Postgres) DeleteLeavesByState(ctx context.Context, accountID, state str
 	return n, nil
 }
 
-// UpsertTombstone inserts or replaces the removal tombstone of one root, stamped now when At is
-// zero.
+// UpsertTombstone inserts the account's tombstone for one root or, if it has one (the key is account
+// and root), replaces its leaf and time. At is stamped now when zero.
 func (s *Postgres) UpsertTombstone(ctx context.Context, t Tombstone) error {
 	if t.At == 0 {
 		t.At = now()
@@ -158,7 +159,7 @@ func (s *Postgres) UpsertTombstone(ctx context.Context, t Tombstone) error {
 	return s.q.UpsertTombstone(ctx, pgdb.UpsertTombstoneParams{AccountID: t.AccountID, Root: t.Root, Leaf: t.Leaf, At: t.At})
 }
 
-// ListTombstones returns the account's removal tombstones.
+// ListTombstones returns the account's removal tombstones, ordered by time and then root.
 func (s *Postgres) ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error) {
 	rows, err := s.q.ListTombstones(ctx, accountID)
 	if err != nil {
@@ -179,7 +180,9 @@ func (s *Postgres) DeleteTombstone(ctx context.Context, accountID, root string) 
 	return nil
 }
 
-// InsertFormerEndpoint records where a pinned root used to answer, stamped now when At is zero.
+// InsertFormerEndpoint records where a pinned root used to answer, stamped now when At is zero. The
+// key is (account, root, endpoint, at): a root may have several former endpoints, and the same
+// endpoint recorded at the same instant twice is refused.
 func (s *Postgres) InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) error {
 	if f.At == 0 {
 		f.At = now()
@@ -187,7 +190,8 @@ func (s *Postgres) InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) e
 	return s.q.InsertFormerEndpoint(ctx, pgdb.InsertFormerEndpointParams{AccountID: f.AccountID, Root: f.Root, Endpoint: f.Endpoint, At: f.At})
 }
 
-// ListFormerEndpoints returns the account's former endpoints.
+// ListFormerEndpoints returns the account's former endpoints ordered by time, then root, then
+// endpoint; an account with none yields an empty list.
 func (s *Postgres) ListFormerEndpoints(ctx context.Context, accountID string) ([]FormerEndpoint, error) {
 	rows, err := s.q.ListFormerEndpoints(ctx, accountID)
 	if err != nil {
@@ -200,8 +204,10 @@ func (s *Postgres) ListFormerEndpoints(ctx context.Context, accountID string) ([
 	return out, nil
 }
 
-// UpsertPendingAddress inserts or replaces the address waiting for the owner under one root, stamped
-// now when At is zero.
+// UpsertPendingAddress inserts the address waiting under one root or, if there is one (the key is
+// account and root), replaces its endpoint, leaf, reason and time. A replacement without a root
+// certificate keeps the one already stored, because the root of a pending address cannot change. At
+// is stamped now when zero.
 func (s *Postgres) UpsertPendingAddress(ctx context.Context, p PendingAddress) error {
 	if p.At == 0 {
 		p.At = now()
@@ -212,7 +218,8 @@ func (s *Postgres) UpsertPendingAddress(ctx context.Context, p PendingAddress) e
 	})
 }
 
-// ListPendingAddresses returns the account's addresses waiting for the owner.
+// ListPendingAddresses returns the account's addresses waiting for the owner, ordered by time and
+// then root.
 func (s *Postgres) ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error) {
 	rows, err := s.q.ListPendingAddresses(ctx, accountID)
 	if err != nil {
