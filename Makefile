@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names notices notices-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -139,7 +139,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names frp-check dependents limitd-check test test-js
+check: fmt vet names notices-check frp-check dependents limitd-check test test-js
 
 # The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
 # (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
@@ -164,6 +164,17 @@ names:
 	@if git grep -n -I -E '(^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)' -- .; then \
 		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
 	fi
+
+# notices writes THIRD_PARTY_NOTICES: the licence texts of every Go module the shipped binary
+# links, every crate the limits sidecar builds and every npm package the portal bundles, as their
+# own sources hold them (scripts/notices.mjs says how each set is read). notices-check holds the
+# file to the three inputs its header names (go.sum, Cargo.lock, package-lock.json) by hash: it
+# reads four files and nothing else, so it is part of `check`. A dependency change that forgets
+# `make notices` fails there.
+notices:
+	node scripts/notices.mjs
+notices-check:
+	node scripts/notices.mjs --check
 
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is private and

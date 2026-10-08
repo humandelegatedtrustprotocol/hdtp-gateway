@@ -23,8 +23,11 @@ rebuild a tag and compare.
 
    ```
    gh release create v1.2.3 --title v1.2.3 --notes-file <notes> \
-     dist/hdtp-gateway_* dist/SHA256SUMS dist/sbom.cdx.json
+     dist/hdtp-gateway_* dist/SHA256SUMS dist/sbom.cdx.json THIRD_PARTY_NOTICES
    ```
+
+   `THIRD_PARTY_NOTICES` is the licence text of everything the binaries and the portal
+   redistribute; `make notices-check`, in the gate, holds it to the dependency set.
 
 ## Verifying a release you downloaded
 
