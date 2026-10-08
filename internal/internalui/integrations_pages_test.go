@@ -156,7 +156,7 @@ func pickerEnv(t *testing.T) (*http.ServeMux, store.Store, *recAudit, store.Inte
 func TestPickerRendersRiskSortedAndEmptyByDefault(t *testing.T) {
 	mux, _, _, in := pickerEnv(t)
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+in.ID+"/exposure", nil))
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+in.ID+"/exposure?account="+in.AccountID, nil))
 	body := rr.Body.String()
 	if rr.Code != 200 {
 		t.Fatalf("picker: %d", rr.Code)
@@ -219,7 +219,7 @@ func TestExposingDestructiveToolNeedsRecordedAck(t *testing.T) {
 	ctx := context.Background()
 
 	// no ack → refused, nothing exposed
-	rr := postForm(t, mux, "/integrations/"+in.ID+"/exposure", url.Values{
+	rr := postForm(t, mux, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, url.Values{
 		"expose_delete_event": {"1"}, "mode_delete_event": {"passthrough"},
 	})
 	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "write-capable") {
@@ -229,7 +229,7 @@ func TestExposingDestructiveToolNeedsRecordedAck(t *testing.T) {
 		t.Fatal("exposure published without ack")
 	}
 	// with ack → published + BOTH audit rows (ack records which tools)
-	rr = postForm(t, mux, "/integrations/"+in.ID+"/exposure", url.Values{
+	rr = postForm(t, mux, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, url.Values{
 		"expose_delete_event": {"1"}, "mode_delete_event": {"passthrough"}, "ack": {"1"},
 	})
 	if rr.Code != http.StatusSeeOther {
@@ -246,7 +246,7 @@ func TestExposingDestructiveToolNeedsRecordedAck(t *testing.T) {
 		t.Fatalf("publish not audited: %v", aud.rows)
 	}
 	// read-only tool needs no ack
-	rr = postForm(t, mux, "/integrations/"+in.ID+"/exposure", url.Values{
+	rr = postForm(t, mux, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, url.Values{
 		"expose_get_freebusy": {"1"}, "mode_get_freebusy": {"passthrough"},
 	})
 	if rr.Code != http.StatusSeeOther {
@@ -324,7 +324,7 @@ func TestPickerShowsStaleAndReconfirmRestores(t *testing.T) {
 		t.Fatalf("reconcile: minted=%v err=%v", minted, err)
 	}
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+in.ID+"/exposure", nil))
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+in.ID+"/exposure?account="+in.AccountID, nil))
 	body := rr.Body.String()
 	// The API must SAY it is stale; the recovery affordance ships in the bundle.
 	if !strings.Contains(body, `"has_stale":true`) || !strings.Contains(body, `"stale":true`) {
@@ -547,6 +547,136 @@ func TestPortalReconnectRearmsAChildThatGaveUp(t *testing.T) {
 	if count() < 2 {
 		t.Fatal("the portal's Reconnect launched nothing: a child that gave up stays given up after the owner asked")
 	}
+}
+
+// Every integration route takes the integration from the path and the account from the query, and
+// accountMiddleware checks only that the signed-in owner administers the account named. Remove
+// compared the row's account with the named one and refused 403; the other eight routes compared
+// nothing, so an owner of account A could connect, re-credential, refresh, read and set the
+// exposure of account B's integration by naming its id. Each now answers the 404 a missing row
+// gets, and writes nothing. The control, the same call as B, runs last: it changes B's row.
+func TestIntegrationRoutesRefuseAnotherAccountsIntegration(t *testing.T) {
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "fa.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	b, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "b", DisplayName: "B", Algo: "p256"})
+
+	// What a route reached past the account check: the credential and client writers, and the
+	// background work a connect starts.
+	var mu sync.Mutex
+	var reached []string
+	note := func(what string) { mu.Lock(); defer mu.Unlock(); reached = append(reached, what) }
+	count := func() int { mu.Lock(); defer mu.Unlock(); return len(reached) }
+	bg := joined(t)
+	aud := &recAudit{}
+	conn := &integrations.Connector{}
+	m := &integrations.Manager{Store: st, PingEvery: -1}
+	exps := &integrations.Exposures{Store: st, Audit: aud.fn}
+	mux := http.NewServeMux()
+	MountIntegrationPages(mux, IntegrationsDeps{
+		Store: st, Manager: m, Connector: conn, Exposures: exps,
+		Cataloger:      &integrations.Cataloger{Store: st, Manager: m},
+		Audit:          aud.fn,
+		ConnectTimeout: time.Second,
+		SetStatic:      func(_ context.Context, id, _, _ string) error { note("static " + id); return nil },
+		SetOAuthClient: func(_ context.Context, id, _, _ string) error { note("oauth-client " + id); return nil },
+		Background:     func(work func(ctx context.Context)) { note("background"); bg(work) },
+	})
+
+	routes := []struct {
+		name, method, path string // the path with {id} for the integration's id
+		form               url.Values
+	}{
+		{"oauth-client", "POST", "/integrations/{id}/oauth-client", url.Values{"client_id": {"c"}, "client_secret": {"s"}}},
+		{"credential", "POST", "/integrations/{id}/credential", url.Values{"header": {"Authorization"}, "value": {"v"}}},
+		{"connect", "POST", "/integrations/{id}/connect", url.Values{}},
+		{"authorize", "GET", "/integrations/{id}/authorize", nil},
+		{"refresh", "POST", "/integrations/{id}/refresh", url.Values{}},
+		{"exposure-read", "GET", "/api/integrations/{id}/exposure", nil},
+		{"exposure", "POST", "/integrations/{id}/exposure", url.Values{"expose_get_freebusy": {"1"}, "mode_get_freebusy": {"passthrough"}}},
+		{"reconfirm", "POST", "/integrations/{id}/reconfirm", url.Values{}},
+		{"remove", "POST", "/integrations/{id}/remove", url.Values{}},
+	}
+	for _, rt := range routes {
+		t.Run(rt.name, func(t *testing.T) {
+			// B's integration, with a catalog so the exposure routes have something to show, and
+			// for reconfirm an exposure to reconfirm. The endpoint refuses the connection at once.
+			in, err := st.InsertIntegration(ctx, store.Integration{
+				AccountID: b.ID, Slug: rt.name, Transport: "streamable-http", Endpoint: "http://127.0.0.1:1/mcp",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			seedCatalog(t, st, in.ID)
+			if rt.name == "reconfirm" {
+				if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{{Tool: "get_freebusy", Mode: integrations.ModePassthrough}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := st.GetIntegrationByID(ctx, in.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hadExposure := hasExposure(ctx, st, in.ID)
+			reachedBefore, rowsBefore := count(), len(aud.rows)
+			call := func(account string) *httptest.ResponseRecorder {
+				path := strings.ReplaceAll(rt.path, "{id}", in.ID) + "?account=" + account
+				if rt.method == "POST" {
+					return postForm(t, mux, path, rt.form)
+				}
+				rr := httptest.NewRecorder()
+				mux.ServeHTTP(rr, httptest.NewRequest(rt.method, path, nil))
+				return rr
+			}
+
+			// As A, naming B's integration: the answer a missing row gets, and nothing done.
+			rr := call(a.ID)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("%s %s as another account: %d %s, want 404", rt.method, rt.path, rr.Code, strings.TrimSpace(rr.Body.String()))
+			}
+			if after, err := st.GetIntegrationByID(ctx, in.ID); err != nil || after != before {
+				t.Fatalf("the row changed: before %+v, after %+v (%v)", before, after, err)
+			}
+			if hasExposure(ctx, st, in.ID) != hadExposure {
+				t.Fatal("an exposure was written for another account's integration")
+			}
+			if count() != reachedBefore {
+				t.Fatalf("a writer was reached for another account's integration: %v", reached[reachedBefore:])
+			}
+			if conn.Origin(in.ID) != "" {
+				t.Fatal("the connector was told an origin for another account's integration")
+			}
+			// Remove's refusal stays audited as it was; no other route writes a row for it.
+			switch rows := aud.rows[rowsBefore:]; rt.name {
+			case "remove":
+				if len(rows) != 1 || !aud.hasRow("integration_remove", "integration:"+in.ID, "refused") {
+					t.Fatalf("remove's refusal audit: %v", rows)
+				}
+			default:
+				if len(rows) != 0 {
+					t.Fatalf("a refused %s wrote audit rows: %v", rt.name, rows)
+				}
+			}
+
+			// The control: the same call as B gets through.
+			if rr := call(b.ID); rr.Code == http.StatusNotFound {
+				t.Fatalf("%s %s as the integration's own account: 404 %s", rt.method, rt.path, strings.TrimSpace(rr.Body.String()))
+			}
+		})
+	}
+}
+
+// hasExposure reports whether the integration has a published exposure.
+func hasExposure(ctx context.Context, st store.Store, integrationID string) bool {
+	_, err := st.LatestExposure(ctx, integrationID)
+	return err == nil
 }
 
 // joined is a test's joined background group, as serve's: the work a request starts gets the
