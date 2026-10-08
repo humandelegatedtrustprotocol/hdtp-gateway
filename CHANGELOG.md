@@ -4,12 +4,15 @@ Notable changes to hdtp-gateway. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project will use
 [semantic versioning](https://semver.org/spec/v2.0.0.html) from its first release.
 
-Nothing has been released yet, so there is no history below to reconstruct. What
-exists is one unreleased version. The per-change record — every task, every defect,
+The first release is 0.1.0. The per-change record before it — every task, every defect,
 how each was proved — is in [`PLAN.md`](PLAN.md), which is more detailed than a
-changelog can be and is not going to be summarized into a fictional release history.
+changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
+
+Nothing yet.
+
+## [0.1.0] — 2026-10-08
 
 The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
 

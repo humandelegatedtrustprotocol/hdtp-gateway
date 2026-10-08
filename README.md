@@ -14,8 +14,8 @@ with no platform in the middle deciding who may talk to whom.
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
 
-> **Status: feature-complete against [`SPEC.md`](SPEC.md), not yet released.** No release has
-> been tagged, so the [Quickstart](#quickstart) builds from source. Questions and bugs go to this
+> **Status: feature-complete against [`SPEC.md`](SPEC.md); the first release is v0.1.0** (binaries,
+> SHA256SUMS, the SBOM and THIRD_PARTY_NOTICES on the release page). The [Quickstart](#quickstart) builds from source. Questions and bugs go to this
 > repository's issues ([SUPPORT.md](SUPPORT.md)), vulnerabilities to [SECURITY.md](SECURITY.md),
 > and [CONTRIBUTING.md](CONTRIBUTING.md) is the place to start a change.
 
