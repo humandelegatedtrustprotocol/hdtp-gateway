@@ -9,6 +9,8 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
+// InsertIntegration inserts an integration, defaulting its id, status ("disabled"), auth kind
+// ("none") and times, and returns it. A slug the account already uses is refused by the table.
 func (s *Postgres) InsertIntegration(ctx context.Context, in Integration) (Integration, error) {
 	if err := s.q.InsertIntegration(ctx, pgdb.InsertIntegrationParams(integrationInsert(&in))); err != nil {
 		return Integration{}, fmt.Errorf("store: %w", err)
@@ -16,6 +18,8 @@ func (s *Postgres) InsertIntegration(ctx context.Context, in Integration) (Integ
 	return in, nil
 }
 
+// GetIntegration returns the account's integration by slug; an error wrapping ErrNotFound when there
+// is none.
 func (s *Postgres) GetIntegration(ctx context.Context, accountID, slug string) (Integration, error) {
 	r, err := s.q.GetIntegration(ctx, pgdb.GetIntegrationParams{AccountID: accountID, Slug: slug})
 	if err != nil {
@@ -24,6 +28,8 @@ func (s *Postgres) GetIntegration(ctx context.Context, accountID, slug string) (
 	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
+// GetIntegrationByID returns the integration by id; an error wrapping ErrNotFound when there is
+// none.
 func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integration, error) {
 	r, err := s.q.GetIntegrationByID(ctx, id)
 	if err != nil {
@@ -32,6 +38,7 @@ func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integrati
 	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
+// ListIntegrations returns the account's integrations ordered by slug.
 func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
 	rows, err := s.q.ListIntegrations(ctx, accountID)
 	if err != nil {
@@ -44,6 +51,8 @@ func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]In
 	return out, nil
 }
 
+// UpdateIntegrationStatus sets an integration's status and touches its update time; one that is not
+// there is an error wrapping ErrNotFound.
 func (s *Postgres) UpdateIntegrationStatus(ctx context.Context, id, status string) error {
 	n, err := s.q.UpdateIntegrationStatus(ctx, pgdb.UpdateIntegrationStatusParams{
 		Status: status, UpdatedAt: now(), ID: id,
@@ -57,6 +66,8 @@ func (s *Postgres) UpdateIntegrationStatus(ctx context.Context, id, status strin
 	return nil
 }
 
+// UpdateIntegrationConfig rewrites an integration's transport, endpoint, command and auth kind; one
+// that is not there is an error wrapping ErrNotFound.
 func (s *Postgres) UpdateIntegrationConfig(ctx context.Context, id, transport, endpoint, command, authKind string) error {
 	n, err := s.q.UpdateIntegrationConfig(ctx, pgdb.UpdateIntegrationConfigParams{
 		Transport: transport, Endpoint: endpoint, Command: command,
@@ -71,6 +82,8 @@ func (s *Postgres) UpdateIntegrationConfig(ctx context.Context, id, transport, e
 	return nil
 }
 
+// DeleteIntegration deletes the integration by id; one that is not there is an error wrapping
+// ErrNotFound.
 func (s *Postgres) DeleteIntegration(ctx context.Context, id string) error {
 	n, err := s.q.DeleteIntegration(ctx, id)
 	if err != nil {
@@ -82,6 +95,8 @@ func (s *Postgres) DeleteIntegration(ctx context.Context, id string) error {
 	return nil
 }
 
+// SetIntegrationSecret stores the keyring-sealed credential blob of an integration; an integration
+// that is not there is an error wrapping ErrNotFound.
 func (s *Postgres) SetIntegrationSecret(ctx context.Context, id string, sealed []byte) error {
 	n, err := s.q.SetIntegrationSecret(ctx, pgdb.SetIntegrationSecretParams{
 		Secret: sealed, UpdatedAt: now(), ID: id,
@@ -95,6 +110,8 @@ func (s *Postgres) SetIntegrationSecret(ctx context.Context, id string, sealed [
 	return nil
 }
 
+// GetIntegrationSecret returns the integration's keyring-sealed credential blob; an error wrapping
+// ErrNotFound when the integration is not there.
 func (s *Postgres) GetIntegrationSecret(ctx context.Context, id string) ([]byte, error) {
 	b, err := s.q.GetIntegrationSecret(ctx, id)
 	if err != nil {
@@ -103,6 +120,9 @@ func (s *Postgres) GetIntegrationSecret(ctx context.Context, id string) ([]byte,
 	return b, nil
 }
 
+// InsertCatalog stores an immutable catalog snapshot, giving it a random id and the current time
+// when it has none, and returns it. A version already taken for the integration is refused by the
+// table.
 func (s *Postgres) InsertCatalog(ctx context.Context, c Catalog) (Catalog, error) {
 	if c.ID == "" {
 		c.ID = newID()
@@ -120,6 +140,8 @@ func (s *Postgres) InsertCatalog(ctx context.Context, c Catalog) (Catalog, error
 	return c, nil
 }
 
+// LatestCatalog returns the highest catalog version of an integration; an error wrapping ErrNotFound
+// when it has none.
 func (s *Postgres) LatestCatalog(ctx context.Context, integrationID string) (Catalog, error) {
 	r, err := s.q.LatestCatalog(ctx, integrationID)
 	if err != nil {
@@ -128,6 +150,8 @@ func (s *Postgres) LatestCatalog(ctx context.Context, integrationID string) (Cat
 	return catalogFromRow(sqlitedb.Catalog(r)), nil
 }
 
+// GetCatalog returns one catalog version of an integration; an error wrapping ErrNotFound when there
+// is none.
 func (s *Postgres) GetCatalog(ctx context.Context, integrationID string, version int64) (Catalog, error) {
 	r, err := s.q.GetCatalog(ctx, pgdb.GetCatalogParams{IntegrationID: integrationID, Version: version})
 	if err != nil {
@@ -136,6 +160,8 @@ func (s *Postgres) GetCatalog(ctx context.Context, integrationID string, version
 	return catalogFromRow(sqlitedb.Catalog(r)), nil
 }
 
+// InsertExposure stores an immutable exposure set, giving it a random id and the current time when
+// it has none, and returns it. A version already taken for the integration is refused by the table.
 func (s *Postgres) InsertExposure(ctx context.Context, e Exposure) (Exposure, error) {
 	if e.ID == "" {
 		e.ID = newID()
@@ -153,6 +179,8 @@ func (s *Postgres) InsertExposure(ctx context.Context, e Exposure) (Exposure, er
 	return e, nil
 }
 
+// LatestExposure returns the highest exposure version of an integration; an error wrapping
+// ErrNotFound when it has none.
 func (s *Postgres) LatestExposure(ctx context.Context, integrationID string) (Exposure, error) {
 	r, err := s.q.LatestExposure(ctx, integrationID)
 	if err != nil {
@@ -161,6 +189,8 @@ func (s *Postgres) LatestExposure(ctx context.Context, integrationID string) (Ex
 	return exposureFromRow(sqlitedb.Exposure(r)), nil
 }
 
+// GetExposure returns one exposure version of an integration; an error wrapping ErrNotFound when
+// there is none.
 func (s *Postgres) GetExposure(ctx context.Context, integrationID string, version int64) (Exposure, error) {
 	r, err := s.q.GetExposure(ctx, pgdb.GetExposureParams{IntegrationID: integrationID, Version: version})
 	if err != nil {
@@ -169,6 +199,8 @@ func (s *Postgres) GetExposure(ctx context.Context, integrationID string, versio
 	return exposureFromRow(sqlitedb.Exposure(r)), nil
 }
 
+// PutIdempotency records msg_id's acknowledgment for a conversation once: the first writer wins. It
+// returns the stored ack and whether a record already existed; expiresAt 0 writes an undated record.
 func (s *Postgres) PutIdempotency(ctx context.Context, accountID, contactFpr, msgID, ack string, expiresAt int64) (string, bool, error) {
 	exp := sql.NullInt64{Int64: expiresAt, Valid: expiresAt != 0}
 	n, err := s.q.InsertIdempotency(ctx, pgdb.InsertIdempotencyParams{
@@ -187,6 +219,8 @@ func (s *Postgres) PutIdempotency(ctx context.Context, accountID, contactFpr, ms
 	return stored, n == 0, nil
 }
 
+// UpdateIdempotencyAck replaces the stored ack of an existing record; one that is not there is an
+// error wrapping ErrNotFound.
 func (s *Postgres) UpdateIdempotencyAck(ctx context.Context, accountID, contactFpr, msgID, ack string) error {
 	n, err := s.q.UpdateIdempotencyAck(ctx, pgdb.UpdateIdempotencyAckParams{
 		Ack: ack, AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
@@ -200,6 +234,8 @@ func (s *Postgres) UpdateIdempotencyAck(ctx context.Context, accountID, contactF
 	return nil
 }
 
+// InsertPendingRequest inserts a parked agent-answered request as open, defaulting its id, creation
+// time and trust flag ("messages_only"), and returns it.
 func (s *Postgres) InsertPendingRequest(ctx context.Context, p PendingRequest) (PendingRequest, error) {
 	if p.ID == "" {
 		p.ID = newID()
@@ -221,6 +257,8 @@ func (s *Postgres) InsertPendingRequest(ctx context.Context, p PendingRequest) (
 	return p, nil
 }
 
+// GetPendingRequest returns the pending request by id, or an error wrapping ErrNotFound. It returns
+// the row whatever its status or expiry.
 func (s *Postgres) GetPendingRequest(ctx context.Context, id string) (PendingRequest, error) {
 	r, err := s.q.GetPendingRequest(ctx, id)
 	if err != nil {
@@ -229,6 +267,7 @@ func (s *Postgres) GetPendingRequest(ctx context.Context, id string) (PendingReq
 	return pendingFromRow(sqlitedb.PendingRequest(r)), nil
 }
 
+// ListOpenPendingRequests returns the account's open requests that expire after now, oldest first.
 func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string, nowUnix int64) ([]PendingRequest, error) {
 	rows, err := s.q.ListOpenPendingRequests(ctx, pgdb.ListOpenPendingRequestsParams{
 		AccountID: accountID, ExpiresAt: nowUnix,
@@ -243,6 +282,9 @@ func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string
 	return out, nil
 }
 
+// AnswerPendingRequest closes an open, unexpired pending request with result, recording answeredAt;
+// false when the request is not open, has expired by now, or is not there. It changes nothing in
+// that case.
 func (s *Postgres) AnswerPendingRequest(ctx context.Context, id, result string, answeredAt, nowUnix int64) (bool, error) {
 	n, err := s.q.AnswerPendingRequest(ctx, pgdb.AnswerPendingRequestParams{
 		Result: result, AnsweredAt: sql.NullInt64{Int64: answeredAt, Valid: true},

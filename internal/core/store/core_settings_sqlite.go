@@ -6,6 +6,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
+// ListSettings returns every owner-set setting row, ordered by key.
 func (s *SQLite) ListSettings(ctx context.Context) ([]Setting, error) {
 	rows, err := s.q.ListSettings(ctx)
 	if err != nil {
@@ -18,6 +19,7 @@ func (s *SQLite) ListSettings(ctx context.Context) ([]Setting, error) {
 	return out, nil
 }
 
+// PutSetting inserts or replaces one setting by key.
 func (s *SQLite) PutSetting(ctx context.Context, in Setting) error {
 	secret := int64(0)
 	if in.Secret {
@@ -28,6 +30,7 @@ func (s *SQLite) PutSetting(ctx context.Context, in Setting) error {
 	})
 }
 
+// DeleteSetting removes the setting row for key; one that is not there is not an error.
 func (s *SQLite) DeleteSetting(ctx context.Context, key string) error {
 	return s.q.DeleteSetting(ctx, key)
 }

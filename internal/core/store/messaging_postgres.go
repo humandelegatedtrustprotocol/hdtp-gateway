@@ -8,6 +8,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
+// InsertThread inserts a thread.
 func (s *Postgres) InsertThread(ctx context.Context, t Thread) error {
 	return s.q.InsertThread(ctx, pgdb.InsertThreadParams{
 		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
@@ -15,6 +16,7 @@ func (s *Postgres) InsertThread(ctx context.Context, t Thread) error {
 	})
 }
 
+// GetThread returns the account's thread, or ErrNotFound.
 func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (Thread, error) {
 	r, err := s.q.GetThread(ctx, pgdb.GetThreadParams{AccountID: accountID, ID: threadID})
 	if err != nil {
@@ -23,14 +25,11 @@ func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (T
 	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt}, nil
 }
 
+// TouchThread sets the thread's last activity time.
 func (s *Postgres) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error {
 	return s.q.TouchThread(ctx, pgdb.TouchThreadParams{LastAt: lastAt, AccountID: accountID, ID: threadID})
 }
 
-// SetMessageStatus records what became of a message after it was written. An
-// outbound row starts `pending` and becomes `delivered` only when the peer
-// actually accepted it (§7.1) — recording "delivered" at write time was a lie
-// the portal told the owner.
 // ListPendingOutbound returns outbound messages still awaiting delivery, oldest
 // first — the retry sweeper's work list (SPEC §7.1).
 func (s *Postgres) ListPendingOutbound(ctx context.Context, limit int32) ([]Message, error) {
@@ -51,6 +50,8 @@ func (s *Postgres) ListPendingOutbound(ctx context.Context, limit int32) ([]Mess
 	return out, nil
 }
 
+// SetMessageStatus records what became of a message after it was written. Only outbound rows are
+// touched, and a message that is not there is ErrNotFound.
 func (s *Postgres) SetMessageStatus(ctx context.Context, accountID, contactFpr, msgID, status string) error {
 	n, err := s.q.SetMessageStatus(ctx, pgdb.SetMessageStatusParams{
 		Status: status, AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
@@ -79,10 +80,14 @@ func (s *Postgres) SetMessageAttempt(ctx context.Context, accountID, contactFpr,
 	return nil
 }
 
+// InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already
+// taken in that direction of that conversation is refused by the table.
 func (s *Postgres) InsertMessage(ctx context.Context, m Message) error {
 	return s.q.InsertMessage(ctx, pgdb.InsertMessageParams(messageInsert(m)))
 }
 
+// GetMessageByMsgID returns the message with this sender-chosen msg_id in one direction of one
+// conversation, or ErrNotFound.
 func (s *Postgres) GetMessageByMsgID(ctx context.Context, accountID, contactFpr, direction, msgID string) (Message, error) {
 	r, err := s.q.GetMessageByMsgID(ctx, pgdb.GetMessageByMsgIDParams{AccountID: accountID, ContactFpr: contactFpr, Direction: direction, MsgID: msgID})
 	if err != nil {
@@ -91,6 +96,7 @@ func (s *Postgres) GetMessageByMsgID(ctx context.Context, accountID, contactFpr,
 	return messageFromRow(sqlitedb.Message(r)), nil
 }
 
+// ListMessagesByThread returns a thread's messages in the order they were written (seq).
 func (s *Postgres) ListMessagesByThread(ctx context.Context, accountID, threadID string) ([]Message, error) {
 	rs, err := s.q.ListMessagesByThread(ctx, pgdb.ListMessagesByThreadParams{AccountID: accountID, ThreadID: threadID})
 	if err != nil {
@@ -103,6 +109,7 @@ func (s *Postgres) ListMessagesByThread(ctx context.Context, accountID, threadID
 	return out, nil
 }
 
+// InsertBlob inserts the account's record of an inline media file.
 func (s *Postgres) InsertBlob(ctx context.Context, b Blob) error {
 	return s.q.InsertBlob(ctx, pgdb.InsertBlobParams{
 		AccountID: b.AccountID, Hash: b.Hash, Size: b.Size, Mime: b.Mime,
@@ -110,6 +117,7 @@ func (s *Postgres) InsertBlob(ctx context.Context, b Blob) error {
 	})
 }
 
+// GetBlob returns the account's blob record for hash, or ErrNotFound.
 func (s *Postgres) GetBlob(ctx context.Context, accountID, hash string) (Blob, error) {
 	r, err := s.q.GetBlob(ctx, pgdb.GetBlobParams{AccountID: accountID, Hash: hash})
 	if err != nil {
@@ -118,12 +126,14 @@ func (s *Postgres) GetBlob(ctx context.Context, accountID, hash string) (Blob, e
 	return Blob{AccountID: r.AccountID, Hash: r.Hash, Size: r.Size, Mime: r.Mime, Filename: r.Filename, CreatedAt: r.CreatedAt}, nil
 }
 
+// SumBlobBytes returns the total size in bytes of the account's blob records, 0 when it has none.
 func (s *Postgres) SumBlobBytes(ctx context.Context, accountID string) (int64, error) {
 	// COALESCE(SUM(...), 0) types as a plain int64 here; the type switch this
 	// replaced dated from a generated signature of `interface{}`.
 	return s.q.SumBlobBytes(ctx, accountID)
 }
 
+// ListThreadsByAccount returns the account's threads, most recently active first.
 func (s *Postgres) ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error) {
 	rs, err := s.q.ListThreadsByAccount(ctx, accountID)
 	if err != nil {
@@ -136,31 +146,43 @@ func (s *Postgres) ListThreadsByAccount(ctx context.Context, accountID string) (
 	return out, nil
 }
 
+// UnreadCount counts the inbound messages of one thread above its read marker.
 func (s *Postgres) UnreadCount(ctx context.Context, accountID, threadID string) (int64, error) {
 	return s.q.UnreadCount(ctx, pgdb.UnreadCountParams{AccountID: accountID, ThreadID: threadID})
 }
 
+// MarkThreadReadThrough raises one thread's read marker to `through` when it is lower, and returns
+// how many threads moved (0 or 1). The marker is never lowered.
 func (s *Postgres) MarkThreadReadThrough(ctx context.Context, accountID, threadID string, through int64) (int64, error) {
 	return s.q.MarkThreadReadThrough(ctx, pgdb.MarkThreadReadThroughParams{LastReadSeq: through, AccountID: accountID, ID: threadID})
 }
 
+// MarkConversationReadThrough raises the read marker of every thread with one contact to `through`
+// where it is lower, and returns how many threads moved. The marker is never lowered.
 func (s *Postgres) MarkConversationReadThrough(ctx context.Context, accountID, contactFpr string, through int64) (int64, error) {
 	return s.q.MarkConversationReadThrough(ctx, pgdb.MarkConversationReadThroughParams{LastReadSeq: through, AccountID: accountID, ContactFpr: contactFpr})
 }
 
+// ConversationHasMessage reports whether seq is a message of this account's conversation with this
+// contact; a message of another account or another contact is not.
 func (s *Postgres) ConversationHasMessage(ctx context.Context, accountID, contactFpr string, seq int64) (bool, error) {
 	n, err := s.q.ConversationHasMessage(ctx, pgdb.ConversationHasMessageParams{AccountID: accountID, ContactFpr: contactFpr, Seq: seq})
 	return n > 0, err
 }
 
+// UnreadWithContactUpTo counts one conversation's unread inbound messages, stopping at upTo.
 func (s *Postgres) UnreadWithContactUpTo(ctx context.Context, accountID, contactFpr string, upTo int) (int64, error) {
 	return s.q.UnreadWithContactUpTo(ctx, pgdb.UnreadWithContactUpToParams{AccountID: accountID, ContactFpr: contactFpr, Limit: pgLimit(upTo)})
 }
 
+// ListContactsWithUnread returns the fingerprints of the account's contacts that have at least one
+// unread inbound message, never a count.
 func (s *Postgres) ListContactsWithUnread(ctx context.Context, accountID string) ([]string, error) {
 	return s.q.ListContactsWithUnread(ctx, accountID)
 }
 
+// ImportThread writes a thread an export carried and reports whether it wrote; one already here by
+// id is left as it is.
 func (s *Postgres) ImportThread(ctx context.Context, t Thread) (bool, error) {
 	n, err := s.q.ImportThread(ctx, pgdb.ImportThreadParams{
 		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
@@ -169,11 +191,15 @@ func (s *Postgres) ImportThread(ctx context.Context, t Thread) (bool, error) {
 	return n > 0, err
 }
 
+// ImportMessage writes a message an export carried, keeping its id and giving it no retry schedule,
+// and reports whether it wrote; one already here by id or by the sender's msg_id is left as it is.
 func (s *Postgres) ImportMessage(ctx context.Context, m Message) (bool, error) {
 	n, err := s.q.ImportMessage(ctx, pgdb.ImportMessageParams(messageImport(m)))
 	return n > 0, err
 }
 
+// ImportBlob writes a blob record an export carried and reports whether it wrote; one already here
+// by hash is left as it is.
 func (s *Postgres) ImportBlob(ctx context.Context, b Blob) (bool, error) {
 	n, err := s.q.ImportBlob(ctx, pgdb.ImportBlobParams{
 		AccountID: b.AccountID, Hash: b.Hash, Size: b.Size, Mime: b.Mime,

@@ -8,18 +8,26 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
 )
 
+// TakeLease takes the named lease for holder until `until`, or renews it for its holder; it reports
+// false and changes nothing while another holder's lease has not run out by now.
 func (s *SQLite) TakeLease(ctx context.Context, name, holder string, now, until int64) (bool, error) {
 	return took(holder)(s.q.TakeLease(ctx, sqlitedb.TakeLeaseParams{Name: name, Holder: holder, TakenAt: now, ExpiresAt: until}))
 }
 
+// TakeLease takes the named lease for holder until `until`, or renews it for its holder; it reports
+// false and changes nothing while another holder's lease has not run out by now.
 func (s *Postgres) TakeLease(ctx context.Context, name, holder string, now, until int64) (bool, error) {
 	return took(holder)(s.q.TakeLease(ctx, pgdb.TakeLeaseParams{Name: name, Holder: holder, TakenAt: now, ExpiresAt: until}))
 }
 
+// ReleaseLease lets holder's lease go at once by setting its expiry to zero; a lease held by someone
+// else is not touched.
 func (s *SQLite) ReleaseLease(ctx context.Context, name, holder string) error {
 	return s.q.ReleaseLease(ctx, sqlitedb.ReleaseLeaseParams{Name: name, Holder: holder})
 }
 
+// ReleaseLease lets holder's lease go at once by setting its expiry to zero; a lease held by someone
+// else is not touched.
 func (s *Postgres) ReleaseLease(ctx context.Context, name, holder string) error {
 	return s.q.ReleaseLease(ctx, pgdb.ReleaseLeaseParams{Name: name, Holder: holder})
 }

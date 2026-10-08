@@ -48,6 +48,8 @@ func (s *Postgres) Atomically(ctx context.Context, fn func(tx Store) error) erro
 	return nil
 }
 
+// OpenPostgres opens a connection pool on dsn through pgxpool. It does not create the schema;
+// Migrate does.
 func OpenPostgres(ctx context.Context, dsn string) (*Postgres, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -78,6 +80,8 @@ func (s *Postgres) provider() (*goose.Provider, *sql.DB, error) {
 	return p, db, nil
 }
 
+// Migrate applies every pending migration. Processes sharing the database take turns under goose's
+// session-level advisory lock, so one applies and the others find nothing pending.
 func (s *Postgres) Migrate(ctx context.Context) error {
 	p, db, err := s.provider()
 	if err != nil {
@@ -88,6 +92,8 @@ func (s *Postgres) Migrate(ctx context.Context) error {
 	return err
 }
 
+// SchemaCurrent reports an error unless the schema is exactly the version this binary migrates to;
+// the error says whether it is behind or ahead.
 func (s *Postgres) SchemaCurrent(ctx context.Context) error {
 	p, db, err := s.provider()
 	if err != nil {
@@ -97,6 +103,8 @@ func (s *Postgres) SchemaCurrent(ctx context.Context) error {
 	return schemaCurrent(ctx, p)
 }
 
+// MigrateDown rolls the schema back to version 0. It exists for the conformance suite's up, down and
+// up check and is not on the Store interface.
 func (s *Postgres) MigrateDown(ctx context.Context) error {
 	p, db, err := s.provider()
 	if err != nil {
@@ -107,6 +115,7 @@ func (s *Postgres) MigrateDown(ctx context.Context) error {
 	return err
 }
 
+// Close closes the connection pool and returns nil.
 func (s *Postgres) Close() error {
 	s.pool.Close()
 	return nil
@@ -120,6 +129,8 @@ func (s *Postgres) Close() error {
 // sealed under the node's keyring.
 func (s *Postgres) Scrub(context.Context) error { return nil }
 
+// CreateOwnerWithID inserts an owner under id, or under a fresh random id when id is empty, with the
+// current time as CreatedAt.
 func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()
@@ -129,6 +140,8 @@ func (s *Postgres) CreateOwnerWithID(ctx context.Context, id, displayName string
 	return o, err
 }
 
+// InsertCredential inserts a credential, giving it a random id and the current time when it has
+// none.
 func (s *Postgres) InsertCredential(ctx context.Context, c Credential) error {
 	if c.ID == "" {
 		c.ID = newID()
@@ -141,10 +154,12 @@ func (s *Postgres) InsertCredential(ctx context.Context, c Credential) error {
 	})
 }
 
+// CountCredentialsByKind counts the credentials of one kind across every owner.
 func (s *Postgres) CountCredentialsByKind(ctx context.Context, kind string) (int64, error) {
 	return s.q.CountCredentialsByKind(ctx, kind)
 }
 
+// GetOwner returns the owner, or ErrNotFound.
 func (s *Postgres) GetOwner(ctx context.Context, id string) (Owner, error) {
 	r, err := s.q.GetOwner(ctx, id)
 	if err != nil {
@@ -153,6 +168,7 @@ func (s *Postgres) GetOwner(ctx context.Context, id string) (Owner, error) {
 	return Owner{ID: r.ID, DisplayName: r.DisplayName, CreatedAt: r.CreatedAt}, nil
 }
 
+// ListOwners returns every owner, oldest first.
 func (s *Postgres) ListOwners(ctx context.Context) ([]Owner, error) {
 	rs, err := s.q.ListOwners(ctx)
 	if err != nil {
@@ -165,6 +181,7 @@ func (s *Postgres) ListOwners(ctx context.Context) ([]Owner, error) {
 	return out, nil
 }
 
+// DeleteOwner deletes the owner; one that is not there is ErrNotFound.
 func (s *Postgres) DeleteOwner(ctx context.Context, id string) error {
 	n, err := s.q.DeleteOwner(ctx, id)
 	if err != nil {
@@ -176,6 +193,9 @@ func (s *Postgres) DeleteOwner(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateAccount inserts an account under a fresh random id with the current time as CreatedAt and
+// returns the stored row. It runs in a transaction; a slug already taken is refused by the table's
+// constraint.
 func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
@@ -200,6 +220,8 @@ func (s *Postgres) CreateAccount(ctx context.Context, p CreateAccountParams) (Ac
 	return out, nil
 }
 
+// SetAccountKey binds the account's first key, once. An account that is missing or already keyed is
+// an error.
 func (s *Postgres) SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error {
 	n, err := s.q.SetAccountKey(ctx, pgdb.SetAccountKeyParams{
 		Fingerprint: sql.NullString{String: fingerprint, Valid: true}, KeySealed: sealedKey, ID: accountID,
@@ -213,6 +235,7 @@ func (s *Postgres) SetAccountKey(ctx context.Context, accountID, fingerprint str
 	return nil
 }
 
+// GetAccountByID returns the account, or ErrNotFound.
 func (s *Postgres) GetAccountByID(ctx context.Context, id string) (Account, error) {
 	r, err := s.q.GetAccount(ctx, id)
 	if err != nil {
@@ -221,6 +244,8 @@ func (s *Postgres) GetAccountByID(ctx context.Context, id string) (Account, erro
 	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
+// GetAccountSealedKey returns the account's sealed leaf key. An account with no key returns nil and
+// a nil error: no key is a state, and each caller decides what it means.
 func (s *Postgres) GetAccountSealedKey(ctx context.Context, id string) ([]byte, error) {
 	r, err := s.q.GetAccount(ctx, id)
 	if err != nil {
@@ -236,6 +261,7 @@ func (s *Postgres) GetAccountSealedKey(ctx context.Context, id string) ([]byte, 
 	return r.KeySealed, nil
 }
 
+// GetAccountBySlug returns the account with this slug, or ErrNotFound.
 func (s *Postgres) GetAccountBySlug(ctx context.Context, slug string) (Account, error) {
 	r, err := s.q.GetAccountBySlug(ctx, slug)
 	if err != nil {
@@ -244,6 +270,7 @@ func (s *Postgres) GetAccountBySlug(ctx context.Context, slug string) (Account, 
 	return accountFromRow(sqlitedb.Account(r)), nil
 }
 
+// ListAccounts returns every account, oldest first.
 func (s *Postgres) ListAccounts(ctx context.Context) ([]Account, error) {
 	rs, err := s.q.ListAccounts(ctx)
 	if err != nil {
@@ -256,10 +283,13 @@ func (s *Postgres) ListAccounts(ctx context.Context) ([]Account, error) {
 	return out, nil
 }
 
+// AddMembership records that ownerID administers accountID with the given role. An owner or account
+// that does not exist is refused by the foreign keys.
 func (s *Postgres) AddMembership(ctx context.Context, ownerID, accountID, role string) error {
 	return s.q.InsertMembership(ctx, pgdb.InsertMembershipParams{OwnerID: ownerID, AccountID: accountID, Role: role})
 }
 
+// ListMembershipsByOwner returns the owner's memberships, ordered by account id.
 func (s *Postgres) ListMembershipsByOwner(ctx context.Context, ownerID string) ([]Membership, error) {
 	rs, err := s.q.ListMembershipsByOwner(ctx, ownerID)
 	if err != nil {
@@ -272,6 +302,8 @@ func (s *Postgres) ListMembershipsByOwner(ctx context.Context, ownerID string) (
 	return out, nil
 }
 
+// RemoveMembership removes the owner's membership of the account; one that is not there is
+// ErrNotFound.
 func (s *Postgres) RemoveMembership(ctx context.Context, ownerID, accountID string) error {
 	n, err := s.q.DeleteMembership(ctx, pgdb.DeleteMembershipParams{OwnerID: ownerID, AccountID: accountID})
 	if err != nil {
@@ -283,6 +315,7 @@ func (s *Postgres) RemoveMembership(ctx context.Context, ownerID, accountID stri
 	return nil
 }
 
+// ListCredentialsByKind returns the credentials of one kind, oldest first.
 func (s *Postgres) ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error) {
 	rs, err := s.q.ListCredentialsByKind(ctx, kind)
 	if err != nil {
@@ -295,6 +328,8 @@ func (s *Postgres) ListCredentialsByKind(ctx context.Context, kind string) ([]Cr
 	return out, nil
 }
 
+// RemoveCredentialIfNotLast deletes the credential only while another of the same kind survives, in
+// one statement, and reports whether it deleted one.
 func (s *Postgres) RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error) {
 	// The kind is named twice because the statement compares it twice: once to pick
 	// the row, once to count the survivors of the same kind.
@@ -305,10 +340,13 @@ func (s *Postgres) RemoveCredentialIfNotLast(ctx context.Context, id, kind strin
 	return n > 0, nil
 }
 
+// InsertSession inserts an owner session with its creation and expiry times.
 func (s *Postgres) InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error {
 	return s.q.InsertSession(ctx, pgdb.InsertSessionParams{ID: id, OwnerID: ownerID, CreatedAt: createdAt, ExpiresAt: expiresAt})
 }
 
+// GetSession returns the session's owner and expiry, or ErrNotFound. It does not compare the expiry
+// with the clock; the caller does.
 func (s *Postgres) GetSession(ctx context.Context, id string) (string, int64, error) {
 	r, err := s.q.GetSession(ctx, id)
 	if err != nil {
@@ -317,15 +355,19 @@ func (s *Postgres) GetSession(ctx context.Context, id string) (string, int64, er
 	return r.OwnerID, r.ExpiresAt, nil
 }
 
+// RemoveSession deletes the session; one that is not there is not an error.
 func (s *Postgres) RemoveSession(ctx context.Context, id string) error {
 	_, err := s.q.DeleteSession(ctx, id)
 	return err
 }
 
+// InsertToken inserts an owner-MCP token by the hash of its secret; an empty accountID stores NULL,
+// an owner-wide token.
 func (s *Postgres) InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error {
 	return s.q.InsertToken(ctx, pgdb.InsertTokenParams(tokenInsert(id, ownerID, label, hash, accountID, createdAt)))
 }
 
+// GetTokenByHash returns the owner-MCP token with this hash, revoked or not, or ErrNotFound.
 func (s *Postgres) GetTokenByHash(ctx context.Context, hash []byte) (Token, error) {
 	r, err := s.q.GetTokenByHash(ctx, hash)
 	if err != nil {
@@ -334,6 +376,7 @@ func (s *Postgres) GetTokenByHash(ctx context.Context, hash []byte) (Token, erro
 	return tokenFromRow(sqlitedb.Token(r)), nil
 }
 
+// ListTokens returns every owner-MCP token, revoked or not, oldest first.
 func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
 	rs, err := s.q.ListTokens(ctx)
 	if err != nil {
@@ -346,6 +389,8 @@ func (s *Postgres) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, nil
 }
 
+// RevokeToken stamps the token revoked at now; a token that is missing or already revoked is an
+// error.
 func (s *Postgres) RevokeToken(ctx context.Context, id string, now int64) error {
 	n, err := s.q.RevokeToken(ctx, pgdb.RevokeTokenParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, ID: id})
 	if err != nil {
@@ -357,10 +402,17 @@ func (s *Postgres) RevokeToken(ctx context.Context, id string, now int64) error 
 	return nil
 }
 
+// InsertAuditEvent inserts one audit row exactly as given, with an empty accountID stored as NULL.
+// It does not read the head or check the hashes: AppendAuditEvent is the path that extends the
+// chain.
 func (s *Postgres) InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error {
 	return s.q.InsertAuditEvent(ctx, pgdb.InsertAuditEventParams(auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash)))
 }
 
+// AppendAuditEvent extends the audit chain by one row in a single transaction. The transaction takes
+// the chain's advisory lock (LockAuditChain) before it reads the head, so a second process waits for
+// the first's commit and reads the row it wrote; the row seal builds is inserted by InsertAuditEvent
+// on that head. An error from seal rolls the transaction back and nothing is written.
 func (s *Postgres) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
 	return s.Atomically(ctx, func(tx Store) error {
 		// Read committed would let two processes read one head; the lock makes the second wait
@@ -372,6 +424,8 @@ func (s *Postgres) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64
 	})
 }
 
+// LastAuditEvent returns the seq and hash of the newest audit row, or ErrNotFound for an empty
+// chain.
 func (s *Postgres) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	r, err := s.q.LastAuditEvent(ctx)
 	if err != nil {
@@ -380,6 +434,9 @@ func (s *Postgres) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	return r.Seq, r.Hash, nil
 }
 
+// ListAuditEvents returns the whole trail ascending by seq, or only one actor's rows when
+// actorFilter is not empty. It is the trail as it is verified; ListAuditEventsPage is the trail as
+// it is read.
 func (s *Postgres) ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error) {
 	var rs []pgdb.AuditEvent
 	var err error
@@ -398,6 +455,8 @@ func (s *Postgres) ListAuditEvents(ctx context.Context, actorFilter string) ([]A
 	return out, nil
 }
 
+// UpsertMoveFanout writes the progress of a move campaign for one contact, one row per account and
+// contact, stamped now when UpdatedAt is zero.
 func (s *Postgres) UpsertMoveFanout(ctx context.Context, f MoveFanout) error {
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()
@@ -408,6 +467,7 @@ func (s *Postgres) UpsertMoveFanout(ctx context.Context, f MoveFanout) error {
 	})
 }
 
+// ListMoveFanout returns the account's move-campaign progress rows, ordered by contact fingerprint.
 func (s *Postgres) ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error) {
 	rows, err := s.q.ListMoveFanout(ctx, accountID)
 	if err != nil {
@@ -421,6 +481,8 @@ func (s *Postgres) ListMoveFanout(ctx context.Context, accountID string) ([]Move
 	return out, nil
 }
 
+// UpdateAccountSeal sets the account's seal policy; an account that is not there is an error
+// wrapping ErrNotFound.
 func (s *Postgres) UpdateAccountSeal(ctx context.Context, accountID, seal string) error {
 	n, err := s.q.UpdateAccountSeal(ctx, pgdb.UpdateAccountSealParams{Seal: seal, ID: accountID})
 	if err != nil {
@@ -432,9 +494,9 @@ func (s *Postgres) UpdateAccountSeal(ctx context.Context, accountID, seal string
 	return nil
 }
 
-// ListAuditEventsPage returns the newest entries first, bounded. A limit of 0
-// or less is refused rather than silently meaning "everything": that default is
-// how the unbounded read got there in the first place.
+// ListAuditEventsPage returns the newest entries first, bounded by p.Limit. A limit of 0 or less
+// is read as 200, never as "everything": an unbounded default is how the unbounded read got there
+// in the first place. Actor and Account narrow the page when they are not empty.
 func (p *Postgres) ListAuditEventsPage(ctx context.Context, f AuditPage) ([]AuditRow, error) {
 	if f.Limit <= 0 {
 		f.Limit = 200

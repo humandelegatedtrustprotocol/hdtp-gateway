@@ -11,6 +11,8 @@ import (
 // HDTP 1.0 state: the account's root and leaf ledger, the
 // pins, the removal tombstone, former endpoints and pending addresses.
 
+// SetAccountRoot records the root fingerprint and certificate the first installed leaf names; an
+// account that is not there is an error.
 func (s *SQLite) SetAccountRoot(ctx context.Context, accountID, rootFingerprint string, rootCert []byte) error {
 	n, err := s.q.SetAccountRoot(ctx, sqlitedb.SetAccountRootParams{
 		RootFingerprint: sql.NullString{String: rootFingerprint, Valid: rootFingerprint != ""},
@@ -25,6 +27,9 @@ func (s *SQLite) SetAccountRoot(ctx context.Context, accountID, rootFingerprint 
 	return nil
 }
 
+// SetAccountLeafKey points the account at its current leaf key: the fingerprint, the sealed key and
+// the algorithm. Unlike SetAccountKey it moves an existing key; an account that is not there is an
+// error.
 func (s *SQLite) SetAccountLeafKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte, algo string) error {
 	n, err := s.q.SetAccountLeafKey(ctx, sqlitedb.SetAccountLeafKeyParams{
 		Fingerprint: sql.NullString{String: fingerprint, Valid: true}, KeySealed: sealedKey, Algo: algo, ID: accountID,
@@ -38,6 +43,8 @@ func (s *SQLite) SetAccountLeafKey(ctx context.Context, accountID, fingerprint s
 	return nil
 }
 
+// SetAccountHostPolicy sets the owner's accept_new_hosts setting (auto or ask) for the account; an
+// account that is not there is an error.
 func (s *SQLite) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewHosts string) error {
 	n, err := s.q.SetAccountHostPolicy(ctx, sqlitedb.SetAccountHostPolicyParams{
 		AcceptNewHosts: acceptNewHosts, ID: accountID,
@@ -51,6 +58,10 @@ func (s *SQLite) SetAccountHostPolicy(ctx context.Context, accountID, acceptNewH
 	return nil
 }
 
+// InsertLeaf inserts a leaf row, stamped now when CreatedAt is zero. It writes the leaf's
+// certificate, sealed key, validity window, state and endpoint, and not the wallet request columns,
+// which SetLeafRequest owns. An account may hold only one pending leaf (the unique index
+// leaves_one_pending); a second is refused.
 func (s *SQLite) InsertLeaf(ctx context.Context, l Leaf) error {
 	if l.CreatedAt == 0 {
 		l.CreatedAt = now()
@@ -61,6 +72,8 @@ func (s *SQLite) InsertLeaf(ctx context.Context, l Leaf) error {
 	})
 }
 
+// UpdateLeaf rewrites a leaf's certificate, validity window, state and endpoint; a leaf that is not
+// there is an error.
 func (s *SQLite) UpdateLeaf(ctx context.Context, l Leaf) error {
 	n, err := s.q.UpdateLeaf(ctx, sqlitedb.UpdateLeafParams{
 		Leaf: l.Leaf, NotBefore: l.NotBefore, NotAfter: l.NotAfter, State: l.State, Endpoint: l.Endpoint,
@@ -75,6 +88,7 @@ func (s *SQLite) UpdateLeaf(ctx context.Context, l Leaf) error {
 	return nil
 }
 
+// ListLeaves returns every leaf row of the account.
 func (s *SQLite) ListLeaves(ctx context.Context, accountID string) ([]Leaf, error) {
 	rows, err := s.q.ListLeaves(ctx, accountID)
 	if err != nil {
@@ -103,6 +117,9 @@ func (s *SQLite) ListKidsExcept(ctx context.Context, accountID string) ([]string
 	return out, nil
 }
 
+// RetireLeafKey destroys a superseded leaf's sealed key (it sets the column to NULL) and marks the
+// leaf former, keeping its kid so an envelope still sealed to it is answered certificate_renewed. It
+// does not report a leaf that is not there.
 func (s *SQLite) RetireLeafKey(ctx context.Context, accountID, kid string) error {
 	if _, err := s.q.RetireLeafKey(ctx, sqlitedb.RetireLeafKeyParams{AccountID: accountID, Kid: kid}); err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -110,6 +127,8 @@ func (s *SQLite) RetireLeafKey(ctx context.Context, accountID, kid string) error
 	return nil
 }
 
+// ClearAccountKey destroys the account's sealed copy of its current leaf key and keeps the
+// fingerprint. An account that is not there is an error.
 func (s *SQLite) ClearAccountKey(ctx context.Context, accountID string) error {
 	n, err := s.q.ClearAccountKey(ctx, accountID)
 	if err != nil {
@@ -121,6 +140,7 @@ func (s *SQLite) ClearAccountKey(ctx context.Context, accountID string) error {
 	return nil
 }
 
+// DeleteLeavesByState deletes the account's leaf rows in one state and returns how many went.
 func (s *SQLite) DeleteLeavesByState(ctx context.Context, accountID, state string) (int64, error) {
 	n, err := s.q.DeleteLeavesByState(ctx, sqlitedb.DeleteLeavesByStateParams{AccountID: accountID, State: state})
 	if err != nil {
@@ -129,6 +149,8 @@ func (s *SQLite) DeleteLeavesByState(ctx context.Context, accountID, state strin
 	return n, nil
 }
 
+// UpsertTombstone inserts or replaces the removal tombstone of one root, stamped now when At is
+// zero.
 func (s *SQLite) UpsertTombstone(ctx context.Context, t Tombstone) error {
 	if t.At == 0 {
 		t.At = now()
@@ -136,6 +158,7 @@ func (s *SQLite) UpsertTombstone(ctx context.Context, t Tombstone) error {
 	return s.q.UpsertTombstone(ctx, sqlitedb.UpsertTombstoneParams{AccountID: t.AccountID, Root: t.Root, Leaf: t.Leaf, At: t.At})
 }
 
+// ListTombstones returns the account's removal tombstones.
 func (s *SQLite) ListTombstones(ctx context.Context, accountID string) ([]Tombstone, error) {
 	rows, err := s.q.ListTombstones(ctx, accountID)
 	if err != nil {
@@ -148,6 +171,7 @@ func (s *SQLite) ListTombstones(ctx context.Context, accountID string) ([]Tombst
 	return out, nil
 }
 
+// DeleteTombstone removes the tombstone of one root; one that is not there is not an error.
 func (s *SQLite) DeleteTombstone(ctx context.Context, accountID, root string) error {
 	if _, err := s.q.DeleteTombstone(ctx, sqlitedb.DeleteTombstoneParams{AccountID: accountID, Root: root}); err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -155,6 +179,7 @@ func (s *SQLite) DeleteTombstone(ctx context.Context, accountID, root string) er
 	return nil
 }
 
+// InsertFormerEndpoint records where a pinned root used to answer, stamped now when At is zero.
 func (s *SQLite) InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) error {
 	if f.At == 0 {
 		f.At = now()
@@ -162,6 +187,7 @@ func (s *SQLite) InsertFormerEndpoint(ctx context.Context, f FormerEndpoint) err
 	return s.q.InsertFormerEndpoint(ctx, sqlitedb.InsertFormerEndpointParams{AccountID: f.AccountID, Root: f.Root, Endpoint: f.Endpoint, At: f.At})
 }
 
+// ListFormerEndpoints returns the account's former endpoints.
 func (s *SQLite) ListFormerEndpoints(ctx context.Context, accountID string) ([]FormerEndpoint, error) {
 	rows, err := s.q.ListFormerEndpoints(ctx, accountID)
 	if err != nil {
@@ -174,6 +200,8 @@ func (s *SQLite) ListFormerEndpoints(ctx context.Context, accountID string) ([]F
 	return out, nil
 }
 
+// UpsertPendingAddress inserts or replaces the address waiting for the owner under one root, stamped
+// now when At is zero.
 func (s *SQLite) UpsertPendingAddress(ctx context.Context, p PendingAddress) error {
 	if p.At == 0 {
 		p.At = now()
@@ -184,6 +212,7 @@ func (s *SQLite) UpsertPendingAddress(ctx context.Context, p PendingAddress) err
 	})
 }
 
+// ListPendingAddresses returns the account's addresses waiting for the owner.
 func (s *SQLite) ListPendingAddresses(ctx context.Context, accountID string) ([]PendingAddress, error) {
 	rows, err := s.q.ListPendingAddresses(ctx, accountID)
 	if err != nil {
@@ -196,6 +225,7 @@ func (s *SQLite) ListPendingAddresses(ctx context.Context, accountID string) ([]
 	return out, nil
 }
 
+// GetPendingAddress returns the pending address of one root, or ErrNotFound.
 func (s *SQLite) GetPendingAddress(ctx context.Context, accountID, root string) (PendingAddress, error) {
 	r, err := s.q.GetPendingAddress(ctx, sqlitedb.GetPendingAddressParams{AccountID: accountID, Root: root})
 	if err != nil {
@@ -204,6 +234,8 @@ func (s *SQLite) GetPendingAddress(ctx context.Context, accountID, root string) 
 	return PendingAddress{AccountID: r.AccountID, Root: r.Root, Endpoint: r.Endpoint, Leaf: r.Leaf, Why: r.Why, At: r.At, RootCert: r.RootCert}, nil
 }
 
+// DeletePendingAddress removes the pending address of one root; one that is not there is not an
+// error.
 func (s *SQLite) DeletePendingAddress(ctx context.Context, accountID, root string) error {
 	if _, err := s.q.DeletePendingAddress(ctx, sqlitedb.DeletePendingAddressParams{AccountID: accountID, Root: root}); err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -211,6 +243,9 @@ func (s *SQLite) DeletePendingAddress(ctx context.Context, accountID, root strin
 	return nil
 }
 
+// RepinContactAddress moves a contact's pin to a new endpoint, leaf and key, stamping PinnedAt, and
+// recomputes the leaf fingerprint with it. The root (the contact's fingerprint) never moves; a
+// contact that is not there is an error.
 func (s *SQLite) RepinContactAddress(ctx context.Context, accountID, root, endpoint string, leaf, spki []byte, nowTS int64) error {
 	n, err := s.q.RepinContactAddress(ctx, sqlitedb.RepinContactAddressParams{
 		Endpoint: endpoint, Leaf: leaf, LeafFingerprint: leafFingerprint(leaf, spki), Spki: spki, PinnedAt: sql.NullInt64{Int64: nowTS, Valid: nowTS != 0},
@@ -225,6 +260,8 @@ func (s *SQLite) RepinContactAddress(ctx context.Context, accountID, root, endpo
 	return nil
 }
 
+// SetContactChainSentKid records which of this host's leaves was last carried to the contact; a
+// contact that is not there is an error.
 func (s *SQLite) SetContactChainSentKid(ctx context.Context, accountID, fingerprint, kid string) error {
 	n, err := s.q.SetContactChainSentKid(ctx, sqlitedb.SetContactChainSentKidParams{ChainSentKid: kid, AccountID: accountID, Fingerprint: fingerprint})
 	if err != nil {
@@ -236,6 +273,8 @@ func (s *SQLite) SetContactChainSentKid(ctx context.Context, accountID, fingerpr
 	return nil
 }
 
+// ClearChainSentKids forgets, for every contact of the account, which of this host's leaves was last
+// carried to it, so the next leaf's chain is sent once to each (HDTP §13.2).
 func (s *SQLite) ClearChainSentKids(ctx context.Context, accountID string) error {
 	if _, err := s.q.ClearChainSentKids(ctx, accountID); err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -282,6 +321,8 @@ func (s *SQLite) ConsumeLeafRequest(ctx context.Context, accountID, kid string, 
 	return n == 1, nil
 }
 
+// SetLeafMoved records whether installing the leaf moved the identity; a leaf that is not there is
+// an error.
 func (s *SQLite) SetLeafMoved(ctx context.Context, accountID, kid string, moved bool) error {
 	var m int64
 	if moved {

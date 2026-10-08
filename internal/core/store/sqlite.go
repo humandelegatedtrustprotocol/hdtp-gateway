@@ -56,6 +56,10 @@ var _ Store = (*SQLite)(nil)
 // sqliteConns is the size of the connection pool, and the number kept open. See the type's comment.
 const sqliteConns = 4
 
+// OpenSQLite opens the SQLite file at path with the connection settings the type's comment explains:
+// write-ahead logging, foreign keys on, a five-second busy timeout, synchronous FULL, secure_delete
+// on, transactions that take the write lock at BEGIN, and a pool of four connections. It does not
+// create the schema; Migrate does. The file is created if it is not there.
 func OpenSQLite(path string) (*SQLite, error) {
 	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(FULL)&_pragma=secure_delete(1)", path)
 	db, err := sql.Open("sqlite", dsn)
@@ -138,6 +142,7 @@ func (s *SQLite) Atomically(ctx context.Context, fn func(tx Store) error) error 
 // forbids everywhere else: a package that can name the driver's types can write a statement.
 var ErrNotFound = sql.ErrNoRows
 
+// Migrate applies every pending migration of this engine's schema.
 func (s *SQLite) Migrate(ctx context.Context) error {
 	p, err := s.provider()
 	if err != nil {
@@ -147,6 +152,8 @@ func (s *SQLite) Migrate(ctx context.Context) error {
 	return err
 }
 
+// SchemaCurrent reports an error unless the schema is exactly the version this binary migrates to;
+// the error says whether it is behind or ahead.
 func (s *SQLite) SchemaCurrent(ctx context.Context) error {
 	p, err := s.provider()
 	if err != nil {
@@ -192,6 +199,7 @@ func (s *SQLite) provider() (*goose.Provider, error) {
 	return p, nil
 }
 
+// Close closes the connection pool. A transaction still open on it is the caller's to have ended.
 func (s *SQLite) Close() error { return s.db.Close() }
 
 func newID() string {
@@ -204,6 +212,8 @@ func newID() string {
 
 func now() int64 { return time.Now().Unix() }
 
+// CreateOwnerWithID inserts an owner under id, or under a fresh random id when id is empty, with the
+// current time as CreatedAt.
 func (s *SQLite) CreateOwnerWithID(ctx context.Context, id, displayName string) (Owner, error) {
 	if id == "" {
 		id = newID()
@@ -213,6 +223,8 @@ func (s *SQLite) CreateOwnerWithID(ctx context.Context, id, displayName string) 
 	return o, err
 }
 
+// InsertCredential inserts a credential, giving it a random id and the current time when it has
+// none.
 func (s *SQLite) InsertCredential(ctx context.Context, c Credential) error {
 	if c.ID == "" {
 		c.ID = newID()
@@ -225,10 +237,12 @@ func (s *SQLite) InsertCredential(ctx context.Context, c Credential) error {
 	})
 }
 
+// CountCredentialsByKind counts the credentials of one kind across every owner.
 func (s *SQLite) CountCredentialsByKind(ctx context.Context, kind string) (int64, error) {
 	return s.q.CountCredentialsByKind(ctx, kind)
 }
 
+// GetOwner returns the owner, or ErrNotFound.
 func (s *SQLite) GetOwner(ctx context.Context, id string) (Owner, error) {
 	r, err := s.q.GetOwner(ctx, id)
 	if err != nil {
@@ -237,6 +251,7 @@ func (s *SQLite) GetOwner(ctx context.Context, id string) (Owner, error) {
 	return Owner{ID: r.ID, DisplayName: r.DisplayName, CreatedAt: r.CreatedAt}, nil
 }
 
+// ListOwners returns every owner, oldest first.
 func (s *SQLite) ListOwners(ctx context.Context) ([]Owner, error) {
 	rs, err := s.q.ListOwners(ctx)
 	if err != nil {
@@ -249,6 +264,7 @@ func (s *SQLite) ListOwners(ctx context.Context) ([]Owner, error) {
 	return out, nil
 }
 
+// DeleteOwner deletes the owner; one that is not there is ErrNotFound.
 func (s *SQLite) DeleteOwner(ctx context.Context, id string) error {
 	n, err := s.q.DeleteOwner(ctx, id)
 	if err != nil {
@@ -260,6 +276,9 @@ func (s *SQLite) DeleteOwner(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateAccount inserts an account under a fresh random id with the current time as CreatedAt and
+// returns the stored row. It runs in a transaction; a slug already taken is refused by the table's
+// constraint.
 func (s *SQLite) CreateAccount(ctx context.Context, p CreateAccountParams) (Account, error) {
 	var out Account
 	err := s.Atomically(ctx, func(tx Store) error {
@@ -284,6 +303,8 @@ func (s *SQLite) CreateAccount(ctx context.Context, p CreateAccountParams) (Acco
 	return out, nil
 }
 
+// SetAccountKey binds the account's first key, once. An account that is missing or already keyed is
+// an error.
 func (s *SQLite) SetAccountKey(ctx context.Context, accountID, fingerprint string, sealedKey []byte) error {
 	n, err := s.q.SetAccountKey(ctx, sqlitedb.SetAccountKeyParams{
 		Fingerprint: sql.NullString{String: fingerprint, Valid: true}, KeySealed: sealedKey, ID: accountID,
@@ -297,6 +318,7 @@ func (s *SQLite) SetAccountKey(ctx context.Context, accountID, fingerprint strin
 	return nil
 }
 
+// GetAccountByID returns the account, or ErrNotFound.
 func (s *SQLite) GetAccountByID(ctx context.Context, id string) (Account, error) {
 	r, err := s.q.GetAccount(ctx, id)
 	if err != nil {
@@ -305,6 +327,8 @@ func (s *SQLite) GetAccountByID(ctx context.Context, id string) (Account, error)
 	return accountFromRow(r), nil
 }
 
+// GetAccountSealedKey returns the account's sealed leaf key. An account with no key returns nil and
+// a nil error: no key is a state, and each caller decides what it means.
 func (s *SQLite) GetAccountSealedKey(ctx context.Context, id string) ([]byte, error) {
 	r, err := s.q.GetAccount(ctx, id)
 	if err != nil {
@@ -320,6 +344,7 @@ func (s *SQLite) GetAccountSealedKey(ctx context.Context, id string) ([]byte, er
 	return r.KeySealed, nil
 }
 
+// GetAccountBySlug returns the account with this slug, or ErrNotFound.
 func (s *SQLite) GetAccountBySlug(ctx context.Context, slug string) (Account, error) {
 	r, err := s.q.GetAccountBySlug(ctx, slug)
 	if err != nil {
@@ -328,6 +353,7 @@ func (s *SQLite) GetAccountBySlug(ctx context.Context, slug string) (Account, er
 	return accountFromRow(r), nil
 }
 
+// ListAccounts returns every account, oldest first.
 func (s *SQLite) ListAccounts(ctx context.Context) ([]Account, error) {
 	rs, err := s.q.ListAccounts(ctx)
 	if err != nil {
@@ -340,10 +366,13 @@ func (s *SQLite) ListAccounts(ctx context.Context) ([]Account, error) {
 	return out, nil
 }
 
+// AddMembership records that ownerID administers accountID with the given role. An owner or account
+// that does not exist is refused by the foreign keys.
 func (s *SQLite) AddMembership(ctx context.Context, ownerID, accountID, role string) error {
 	return s.q.InsertMembership(ctx, sqlitedb.InsertMembershipParams{OwnerID: ownerID, AccountID: accountID, Role: role})
 }
 
+// ListMembershipsByOwner returns the owner's memberships, ordered by account id.
 func (s *SQLite) ListMembershipsByOwner(ctx context.Context, ownerID string) ([]Membership, error) {
 	rs, err := s.q.ListMembershipsByOwner(ctx, ownerID)
 	if err != nil {
@@ -356,6 +385,8 @@ func (s *SQLite) ListMembershipsByOwner(ctx context.Context, ownerID string) ([]
 	return out, nil
 }
 
+// RemoveMembership removes the owner's membership of the account; one that is not there is
+// ErrNotFound.
 func (s *SQLite) RemoveMembership(ctx context.Context, ownerID, accountID string) error {
 	n, err := s.q.DeleteMembership(ctx, sqlitedb.DeleteMembershipParams{OwnerID: ownerID, AccountID: accountID})
 	if err != nil {
@@ -367,6 +398,7 @@ func (s *SQLite) RemoveMembership(ctx context.Context, ownerID, accountID string
 	return nil
 }
 
+// ListCredentialsByKind returns the credentials of one kind, oldest first.
 func (s *SQLite) ListCredentialsByKind(ctx context.Context, kind string) ([]Credential, error) {
 	rs, err := s.q.ListCredentialsByKind(ctx, kind)
 	if err != nil {
@@ -379,6 +411,8 @@ func (s *SQLite) ListCredentialsByKind(ctx context.Context, kind string) ([]Cred
 	return out, nil
 }
 
+// RemoveCredentialIfNotLast deletes the credential only while another of the same kind survives, in
+// one statement, and reports whether it deleted one.
 func (s *SQLite) RemoveCredentialIfNotLast(ctx context.Context, id, kind string) (bool, error) {
 	// The kind is named twice because the statement compares it twice: once to pick
 	// the row, once to count the survivors of the same kind.
@@ -389,10 +423,13 @@ func (s *SQLite) RemoveCredentialIfNotLast(ctx context.Context, id, kind string)
 	return n > 0, nil
 }
 
+// InsertSession inserts an owner session with its creation and expiry times.
 func (s *SQLite) InsertSession(ctx context.Context, id, ownerID string, createdAt, expiresAt int64) error {
 	return s.q.InsertSession(ctx, sqlitedb.InsertSessionParams{ID: id, OwnerID: ownerID, CreatedAt: createdAt, ExpiresAt: expiresAt})
 }
 
+// GetSession returns the session's owner and expiry, or ErrNotFound. It does not compare the expiry
+// with the clock; the caller does.
 func (s *SQLite) GetSession(ctx context.Context, id string) (string, int64, error) {
 	r, err := s.q.GetSession(ctx, id)
 	if err != nil {
@@ -401,15 +438,19 @@ func (s *SQLite) GetSession(ctx context.Context, id string) (string, int64, erro
 	return r.OwnerID, r.ExpiresAt, nil
 }
 
+// RemoveSession deletes the session; one that is not there is not an error.
 func (s *SQLite) RemoveSession(ctx context.Context, id string) error {
 	_, err := s.q.DeleteSession(ctx, id)
 	return err
 }
 
+// InsertToken inserts an owner-MCP token by the hash of its secret; an empty accountID stores NULL,
+// an owner-wide token.
 func (s *SQLite) InsertToken(ctx context.Context, id, ownerID, label string, hash []byte, accountID string, createdAt int64) error {
 	return s.q.InsertToken(ctx, tokenInsert(id, ownerID, label, hash, accountID, createdAt))
 }
 
+// GetTokenByHash returns the owner-MCP token with this hash, revoked or not, or ErrNotFound.
 func (s *SQLite) GetTokenByHash(ctx context.Context, hash []byte) (Token, error) {
 	r, err := s.q.GetTokenByHash(ctx, hash)
 	if err != nil {
@@ -418,6 +459,7 @@ func (s *SQLite) GetTokenByHash(ctx context.Context, hash []byte) (Token, error)
 	return tokenFromRow(r), nil
 }
 
+// ListTokens returns every owner-MCP token, revoked or not, oldest first.
 func (s *SQLite) ListTokens(ctx context.Context) ([]Token, error) {
 	rs, err := s.q.ListTokens(ctx)
 	if err != nil {
@@ -430,6 +472,8 @@ func (s *SQLite) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, nil
 }
 
+// RevokeToken stamps the token revoked at now; a token that is missing or already revoked is an
+// error.
 func (s *SQLite) RevokeToken(ctx context.Context, id string, now int64) error {
 	n, err := s.q.RevokeToken(ctx, sqlitedb.RevokeTokenParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, ID: id})
 	if err != nil {
@@ -441,16 +485,25 @@ func (s *SQLite) RevokeToken(ctx context.Context, id string, now int64) error {
 	return nil
 }
 
+// InsertAuditEvent inserts one audit row exactly as given, with an empty accountID stored as NULL.
+// It does not read the head or check the hashes: AppendAuditEvent is the path that extends the
+// chain.
 func (s *SQLite) InsertAuditEvent(ctx context.Context, seq int64, ts int64, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash string) error {
 	return s.q.InsertAuditEvent(ctx, auditInsert(seq, ts, accountID, actorKind, actorID, action, resource, outcome, requestID, details, prevHash, hash))
 }
 
+// AppendAuditEvent extends the audit chain by one row in a single transaction. SQLite's transaction
+// takes the write lock at BEGIN, so the head it reads stays the head until it commits; the row seal
+// builds is inserted by InsertAuditEvent on that head. An error from seal rolls the transaction back
+// and nothing is written.
 func (s *SQLite) AppendAuditEvent(ctx context.Context, seal func(prevSeq int64, prevHash string) (AuditRow, error)) error {
 	// Atomically's transaction begins IMMEDIATE (_txlock): it holds the write lock from the read
 	// of the head to the commit, against every connection and every process.
 	return s.Atomically(ctx, func(tx Store) error { return appendAudit(ctx, tx, seal) })
 }
 
+// LastAuditEvent returns the seq and hash of the newest audit row, or ErrNotFound for an empty
+// chain.
 func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	r, err := s.q.LastAuditEvent(ctx)
 	if err != nil {
@@ -459,6 +512,9 @@ func (s *SQLite) LastAuditEvent(ctx context.Context) (int64, string, error) {
 	return r.Seq, r.Hash, nil
 }
 
+// ListAuditEvents returns the whole trail ascending by seq, or only one actor's rows when
+// actorFilter is not empty. It is the trail as it is verified; ListAuditEventsPage is the trail as
+// it is read.
 func (s *SQLite) ListAuditEvents(ctx context.Context, actorFilter string) ([]AuditRow, error) {
 	var rs []sqlitedb.AuditEvent
 	var err error
@@ -477,6 +533,8 @@ func (s *SQLite) ListAuditEvents(ctx context.Context, actorFilter string) ([]Aud
 	return out, nil
 }
 
+// UpsertMoveFanout writes the progress of a move campaign for one contact, one row per account and
+// contact, stamped now when UpdatedAt is zero.
 func (s *SQLite) UpsertMoveFanout(ctx context.Context, f MoveFanout) error {
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()
@@ -487,6 +545,7 @@ func (s *SQLite) UpsertMoveFanout(ctx context.Context, f MoveFanout) error {
 	})
 }
 
+// ListMoveFanout returns the account's move-campaign progress rows, ordered by contact fingerprint.
 func (s *SQLite) ListMoveFanout(ctx context.Context, accountID string) ([]MoveFanout, error) {
 	rows, err := s.q.ListMoveFanout(ctx, accountID)
 	if err != nil {
@@ -500,6 +559,8 @@ func (s *SQLite) ListMoveFanout(ctx context.Context, accountID string) ([]MoveFa
 	return out, nil
 }
 
+// UpdateAccountSeal sets the account's seal policy; an account that is not there is an error
+// wrapping ErrNotFound.
 func (s *SQLite) UpdateAccountSeal(ctx context.Context, accountID, seal string) error {
 	n, err := s.q.UpdateAccountSeal(ctx, sqlitedb.UpdateAccountSealParams{Seal: seal, ID: accountID})
 	if err != nil {
@@ -511,9 +572,9 @@ func (s *SQLite) UpdateAccountSeal(ctx context.Context, accountID, seal string) 
 	return nil
 }
 
-// ListAuditEventsPage returns the newest entries first, bounded. A limit of 0
-// or less is refused rather than silently meaning "everything": that default is
-// how the unbounded read got there in the first place.
+// ListAuditEventsPage returns the newest entries first, bounded by p.Limit. A limit of 0 or less
+// is read as 200, never as "everything": an unbounded default is how the unbounded read got there
+// in the first place. Actor and Account narrow the page when they are not empty.
 func (s *SQLite) ListAuditEventsPage(ctx context.Context, p AuditPage) ([]AuditRow, error) {
 	if p.Limit <= 0 {
 		p.Limit = 200
