@@ -35,8 +35,7 @@ Its dependencies that live in the node arrive as callbacks in `Deps` and `Extra`
 - Argument types `AccountArg`, `AnswerArgs`, `ReadThreadArgs`, `SendArgs`, `PermissionsArgs`,
   `TrustArgs`, `PetnameArgs`, `RefreshArgs`, `ContactArgs`, `AddressArgs`, `InviteIDArgs`,
   `InviteArgs`, `WaitArgs`, `DigestArgs`: the JSON-schema inputs of the tools.
-- Resource URIs `URIInbox`, `URIRequests`, `URIPending`, `URIThreadPrefix`; `WaitMaxSec`;
-  `ErrNoCard`.
+- Resource URIs `URIInbox`, `URIRequests`, `URIPending`, `URIThreadPrefix`; `WaitMaxSec`.
 
 ## Tools
 
@@ -70,7 +69,7 @@ Registered by `AddParityTools`, each only when its `Extra` field is non-nil:
 |---|---|---|
 | `export_card` | `Card` | The account's current card with the facts the owner reads it by. |
 | `identity_certificate` | `Certificate` | Certificate state: root, chain, served leaf and dates, renewal due, pending CSR. |
-| `list_passkeys`, `remove_passkey` | `Passkeys`, `RemovePasskey` | List passkeys; remove one by id. There is no register tool: a token cannot perform a WebAuthn ceremony (SPEC §8.6). |
+| `list_passkeys`, `remove_passkey` | `Passkeys`, `RemovePasskey` | List passkeys; remove one by id. Both answer `permission_denied` to a token narrowed to one account (`allowNode`: passkeys belong to the owner, not an account). `remove_passkey` answers `not_found` (`IsError`) for an id that is not a passkey and `bad_request` for the last one. There is no register tool: a token cannot perform a WebAuthn ceremony (SPEC §8.6). |
 | `call_contact` | `CallContact` | One call to a tool on an **active** contact's server, through the node's outbound path; the contact's own switchboard still applies. |
 | `list_integrations` | `Integrations` | Connected upstreams and what each exposes; no credential, endpoint secret or raw schema. |
 | `set_exposure` | `SetExposure` | Republishes which tools of an integration are exposed; an empty list withdraws it. |
@@ -81,7 +80,7 @@ Registered by `AddWatchTools`:
 
 | Tool | Contract |
 |---|---|
-| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on a moved thread, a contact's call, a waiting contact request, an open agent-answered request or an expired cursor; a contact held at a new address, or an integration needing re-authorization, is reported on every answer but does not by itself end a wait. |
+| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on a moved thread, a contact's call, a waiting contact request, an open agent-answered request, a contact held at a new address, an integration needing re-authorization (`needs_attention`) or an expired cursor. |
 | `digest` | Per contact in a window (default the last 24 hours): messages in and out, unread, whether their word was last, plus the three queue counts. |
 
 Resources: `hdtp://inbox` (unread count per administered account), `hdtp://requests` (contacts in
@@ -93,7 +92,7 @@ template `hdtp://thread/{id}` (one thread and its messages, found among the admi
 Three shapes of refusal exist; a caller must not treat them alike.
 
 1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
-   the identity may not act on the named account (for an account it does not administer, and for
+   the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). `refused(err)` answers `{"code","detail"}` for the
    lifecycle and permission tools: `unknown_contact` (`contacts.ErrUnknownContact`), `conflict`
    (`ErrWrongState`), `bad_request` (`ErrBadRequest`), `payment_required` (`ErrContactCap`),
@@ -113,10 +112,10 @@ Three shapes of refusal exist; a caller must not treat them alike.
    (`contacts.MaxDisplayName`), `set_trust_flag` with a value other than the two (`bad_request:
    trust must be messages_only|may_instruct`), and `read_thread` or `send_to_contact` failing.
 
-Account scope is not checked by `list_accounts` (it is the scope), `list_passkeys` and
-`remove_passkey` (passkeys belong to the node, not an account): these three answer any identity
-with a valid token, narrowed or not. `audit_query` checks scope per row instead: a row with no
-account is shown only to an identity without a narrowing.
+Account scope is not checked per account by `list_accounts` (it is the scope), `list_passkeys` and
+`remove_passkey`. The two passkey tools are node-level: they require an identity without a narrowing
+(`allowNode`) and answer `permission_denied` otherwise. `audit_query` checks scope per row: a row
+with no account is shown only to an identity without a narrowing.
 
 `set_permissions` refuses an unknown contact (`unknown_contact`) and any permission the account
 does not offer (`contacts.Offered`: the core permissions, those the account's surface serves, and
@@ -129,7 +128,11 @@ those the contact already holds) with `bad_request`, rather than dropping it and
   `error` (a returned error). Held by `TestEveryOwnerMCPCallIsAudited`.
 - A token narrowed to one account cannot see or act on another's. Held by
   `TestTokenAccountScopingEnforced`, `TestAuditQueryNeverLeavesTheIdentitysAccounts`,
-  `TestScopedTokenCannotReadNodeLevelAuditRows`.
+  `TestScopedTokenCannotReadNodeLevelAuditRows`; the passkey tools refuse a narrowed token:
+  `TestPasskeyToolsRefuseANarrowedToken`. `remove_passkey` answers the last passkey and an
+  unknown one: `TestRemovePasskeyAnswersTheLastOneAndAnUnknownOne`.
+- A wait answers for a parked address and for an integration needing attention:
+  `TestAWaitAnswersForAParkedAddressAndForAttention`.
 - `set_exposure` hands the account and the integration id to `Extra.SetExposure` and reports its
   refusal as `bad_request`; the check that the integration belongs to the account is the
   callback's (`internal/cli/ownerextra.go`). `TestSetExposureCannotReachAnotherAccountsIntegration`
@@ -161,7 +164,7 @@ those the contact already holds) with `bad_request`, rather than dropping it and
 `server_test.go` (tools, scoping, labels, the wait and the feed), `parity_test.go` (audit,
 integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle,
 `set_permissions`, invites), `address_test.go`, `claim_test.go`, `pending_test.go`,
-`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`.
+`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `passkeys_test.go`.
 
 ## What it does not do
 
@@ -175,6 +178,5 @@ integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle
 - It does not decide what to do about a message. `wait_for_updates` and `digest` report and label;
   the labels carry the owner's trust flag, and message bodies are untrusted peer content, which is
   why the feed omits them (read them with `read_thread`).
-- It does not return `ErrNoCard`: nothing in this repository returns or tests it.
 - It does not give a tool its own path to the wire. `call_contact` and `send_to_contact` use the
   node's outbound functions handed in through `Extra` and `Deps`.

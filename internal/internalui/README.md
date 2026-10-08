@@ -55,12 +55,17 @@ Page groups, each a `*Deps` struct and a `Mount*` function:
 "Session" means a signed-in owner (the session cookie resolves to an owner) and, for every method
 but GET, HEAD and OPTIONS, a CSRF token. A request that names an `account` (in the query, or in a
 urlencoded form body) for an account the owner does not administer is answered 404 and audited, on
-every session route below. A multipart body is not read by that check (see "What it does not do").
+every session route below. The check does not read a multipart body, so
+`POST /messages/send_media` takes `account` from the query alone (400 "which conversation?"
+without it).
 When the node has exactly one account and the owner administers it, a request that names none is
 given it; with several accounts nothing is filled in. No route below takes a bearer token: the
 token surface is the owner MCP.
 
-Open (no session needed):
+Open (no session needed). The session gate is an allow-list (`SessionMiddleware` in
+`auth_pages.go`): the ceremonies, `/api/session`, `/login`, `/setup`, the wallet's return page and
+script, `/oauth/callback`, the static shell, and any GET or HEAD that the SPA catch-all would
+serve (a view or a file at the root of the build). Every other route is refused without a session.
 
 | Method, path | What it does |
 |---|---|
@@ -68,13 +73,13 @@ Open (no session needed):
 | `GET /setup` | The SPA shell through the wizard gate (below). |
 | `POST /setup/begin`, `POST /setup/finish?ceremony=&tag=` | Register a passkey. Gated by `AuthDeps.SetupAllowed` (404 "setup is closed"). `finish` also signs the new owner in and burns the setup token. |
 | `POST /login/begin`, `POST /login/finish?ceremony=` | Passkey login. |
+| `GET /oauth/callback` | The OAuth provider's redirect back; open because the browser arrives from another site without the session cookie. The state the node minted names the pending flow (below). |
 | `GET /wallet/return`, `GET /wallet/return.js` | Where a web wallet navigates back to; holds no data. |
 | `GET /assets/*`, `/fonts/*`, `/brand/*` | The SPA's static shell; not audited when unauthenticated. |
 | `GET /`, any other unmatched GET | The SPA shell (`no-store`), or a file at the root of the embedded build; an unmatched `/api/...` is 404 `{"error":"not_found"}`. |
 
-Session (JSON reads, then mutations). Five GET routes in this table, `GET /media/{hash}`,
-`GET /card.vcf`, `GET /events`, `GET /integrations/{id}/authorize` and `GET /oauth/callback`, are
-also reachable with no session; see the last items of "What it does not do".
+Session (JSON reads, then mutations). `GET /oauth/callback` appears here too, in the integrations
+row, and is the one route of this table that is open.
 
 | Method, path | What it does |
 |---|---|
@@ -96,7 +101,7 @@ also reachable with no session; see the last items of "What it does not do".
 | `GET /api/conversations`, `POST /messages/read`, `POST /messages/send`, `POST /messages/send_media` | The conversation view; mark read through a message (400, 404, 500 as JSON); send text (errors come back in the redirect's `err`); send a file (multipart, 5 MiB; 413, 400, 503, 502). |
 | `GET /media/{hash}`, `POST /media/fetch` | Serve stored bytes as an attachment; deliberately fetch a contact-supplied URL (503 when `Fetch` is nil; a refusal is 200 with `{"error":...}`). `/media/{hash}`: 400 without `account` or hash, 404 without a blob row for the account, 410 when the bytes are gone. |
 | `GET /api/integrations`, `POST /integrations/create`, `/{id}/remove`, `/{id}/credential`, `/{id}/oauth-client` | List; add (400 from `checkIntegration`, 409 when the insert fails, e.g. a duplicate slug); remove (403 for another account's); store a sealed static credential or OAuth client (503 when unconfigured, 400 on failure). |
-| `POST /integrations/{id}/connect`, `GET /integrations/{id}/authorize`, `GET /oauth/callback` | Start the dial in the node's background group; hand the browser to the authorization server; receive its answer (400 when nothing is pending). |
+| `POST /integrations/{id}/connect`, `GET /integrations/{id}/authorize`, `GET /oauth/callback` | Start the dial in the node's background group; hand the browser to the authorization server; receive its answer. The callback answers 400 "no authorization is pending" when no connector is wired and 400 "no authorization is pending for this callback" when the `state` names no flow the node minted; in that case nothing is created, written or audited. Otherwise it audits `integration_oauth_callback` under the integration's account, read from its row. |
 | `POST /integrations/{id}/refresh`, `GET`/`POST /integrations/{id}/exposure`, `POST /integrations/{id}/reconfirm` | Refresh the catalogue; read and publish the exposure set (400 without the acknowledgment when write-capable tools are chosen; 409 without a catalogue snapshot); reconfirm stale entries. |
 | `GET /api/identity`, `POST /identity/create` | Identities and their certificate state; create one (503 when `Create` is nil; a missing field or a failed create is a 200 with `error` set). |
 | `GET /identity/{slug}/wallet`, `POST /identity/{slug}/wallet/start`, `POST /identity/{slug}/wallet/install`, `GET /wallet/submit.js` | Web-wallet signing request (below). Registered only when `IdentityDeps.Wallet` is set. |
@@ -111,12 +116,13 @@ address or with a valid setup token, and otherwise answers 403 "setup requires l
 one-time setup token". Rendering the page never burns a token; `SetupDone` does, after a passkey
 exists.
 
-Responses the session gate gives an unauthenticated request outside the open set: 401
-`{"error":"identity_required"}` under `/api/`, 401 "sign in first" for any other method than GET
-and HEAD, and, for GET and HEAD, it passes the request on (see "What it does not do").
+Responses the session gate gives an unauthenticated request outside the allow-list, each audited
+as `portal_request` / `identity_required`: 401 `{"error":"identity_required"}` under `/api/`; 303
+to `/login?next=<the request's URI>` for any other GET or HEAD (a browser's page); 401 "sign in
+first" for every other method. Held by `TestTheSessionGateIsAnAllowList`.
 
 Web wallet: `GET .../wallet` shows what would be asked and of which wallet, and changes nothing
-(signed out: 303 to `/login?next=`; not administered: 404; 409 with no public URL, with a portal
+(signed out, the session gate sends the browser to `/login?next=`; not administered: 404; 409 with no public URL, with a portal
 address a wallet will not answer, or for an identity with no root). `POST .../wallet/start` mints
 the request and answers a page whose form posts it to the wallet; 409 if one is already pending
 unless the form carries `replace=1`. `POST .../wallet/install` answers JSON; a refusal is
@@ -155,11 +161,14 @@ request's lifetime is 8 minutes (`walletRequestLifetime`).
 ## Invariants
 
 - Every state change passes the CSRF check, and every `/api/` route and every method other than
-  GET and HEAD needs a session. Held in the real composition by `internal/cli`'s
+  GET and HEAD needs a session; a GET outside the allow-list is sent to sign in
+  (`TestTheSessionGateIsAnAllowList`: no session reaches `/media/{hash}` or `/events`). Held in the real composition by `internal/cli`'s
   `TestEveryMutatingPortalRouteRefusesAForgedRequest`, and here by
   `TestCSRFCookieOnGETAndEnforcedOnPOST` and `TestLoopbackStillDemandsALoginAndHostIsNotTrusted`.
 - A signed-in owner cannot name an account they do not administer in the query or a urlencoded
-  form (not in a multipart body: see below): `TestPortalRefusesAnAccountTheOwnerDoesNotAdminister`,
+  form, and `POST /messages/send_media` reads its account from the query alone, so the check
+  covers it (`TestSendMediaTakesTheAccountFromTheQueryAlone`):
+  `TestPortalRefusesAnAccountTheOwnerDoesNotAdminister`,
   `TestAnExplicitAccountIsNeverOverridden`, `TestSeveralAccountsAreNeverGuessedBetween`; in the
   real composition `internal/cli`'s `TestAnotherOwnersAccountIsNotFoundAndTheRefusalAudited`.
 - An unauthenticated `/api/session` names no identity: `TestSessionEndpointDoesNotEnumerateIdentities`.
@@ -208,35 +217,18 @@ Test files in this directory, by concern: `server_test.go` (healthz, wizard gate
 `wallet_review_test.go`, `wallet_buttons_test.go`, `wallet_repeat_test.go`, `audit_pages_test.go`,
 `displayname_test.go`, `labels_fixture_test.go` (reads `testdata/contact_labels.json`),
 `style_test.go`, `chrome_test.go`, `route_ui_test.go`, `parity_test.go`, `contactcap_test.go`,
-`revoke_failure_test.go`, `thread_topic_divergence_test.go`. In `internal/cli`, `doors_test.go`
+`revoke_failure_test.go`, `thread_topic_divergence_test.go`, `session_gate_test.go`. In `internal/cli`, `doors_test.go`
 holds the portal as composed.
 
 ## What it does not do
 
 - It does not authenticate by itself: `SessionMiddleware` is installed only when `HandlerWithAuth`
   is given an `AuthDeps`, and a nil one (tests) leaves it off. `serve` always passes one.
-- The session gate does not refuse an unauthenticated GET or HEAD outside `/api/`: it passes it on
-  to the handler. That serves the SPA shell, and it is also how `/media/{hash}`, `/card.vcf`,
-  `/events`, `/integrations/{id}/authorize` and `/oauth/callback` are reached with no session
-  (`/oauth/callback` is not in the open set). Such a request runs with no owner, and the account
-  middleware neither resolves nor refuses an account for it. Measured with a scratch test (not
-  kept) on `HandlerWithAuth` with a non-nil `AuthDeps`: an unauthenticated
-  `GET /media/{hash}?account=<id>` answered 200 with the stored bytes for an account the caller
-  had no session for, and an unauthenticated `GET /events?account=<id>` answered 200 and opened
-  the event stream for that account. What stands in the way is that the caller must know the blob
-  hash (for media) and the account id.
-- The account check does not cover a multipart body. `accountMiddleware` reads `account` only from
-  the query and a urlencoded form, and `POST /messages/send_media` takes `account` from its
-  multipart body. Measured with the same scratch test: a signed-in owner who administers account A
-  posted a multipart `account=<B, which they do not administer>` and `SendMedia` was called for B
-  (200); the same request naming B in the query was 404.
 - It does not trust loopback as identity: a loopback portal still demands a login
   (`TestLoopbackStillDemandsALoginAndHostIsNotTrusted`).
 - It does not hold the portal's UI. The pages are the SPA's (`web/`); the server-rendered pages
   here are only the wallet pages, the OAuth "authorization received" page and the invite landing.
 - It does not hold the agent surface (`ownermcp`) or the passkey and token logic (`auth`).
-- `DashboardDeps.Setup` and `DashboardDeps.SignedIn` are set by the wiring and not read by the
-  dashboard handler.
 - Several handlers redirect to SPA paths (`/contacts`, `/requests`, `/messages`, `/invites`,
   `/integrations`, `/identity`) with notices in the query: the redirect target is the SPA's route,
   not a server-rendered page.
