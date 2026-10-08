@@ -38,7 +38,7 @@ type SealedDeps struct {
 	Pool *Pool
 	// Identifier opens and decides the envelope.
 	Identifier *Identifier
-	// AccountID is the account addressed.
+	// AccountID is the account addressed; it appears in every audit resource the wrapper writes.
 	AccountID string
 	// Idem is optional; nil disables envelope-level msg_id replay.
 	Idem IdempotencyStore

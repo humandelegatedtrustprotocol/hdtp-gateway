@@ -208,8 +208,8 @@ func (o Options) auditAs(kind, action, resource, outcome string) {
 	o.audit(action, resource, outcome)
 }
 
-// New assembles the node. It loads every account's key eagerly: a node that
-// cannot open one of its identities must fail at startup, not on the first call.
+// New assembles the node. It loads every account's key eagerly, so a key that will not open is
+// found at startup and not on the first call.
 //
 // It returns an error when Store, Landing or Limits is missing, when listing accounts fails, and
 // when no account's key opened under the master key while at least one account could not be built
@@ -983,7 +983,7 @@ func (n *Node) Contacts(accountID string) *contacts.Manager {
 
 // ServedPermissions is every contact-tier permission this account's public
 // surface currently gates a tool with: the core five, plus one per live
-// integration exposure (SPEC §6.4). The portal's switchboard is built from it,
+// integration exposure (SPEC §6.1, §6.5). The portal's switchboard is built from it,
 // so what the node can serve is exactly what the owner can grant.
 func (n *Node) ServedPermissions(accountID string) []string {
 	n.mu.RLock()
@@ -1565,7 +1565,7 @@ func (n *Node) Start(ctx context.Context, ln net.Listener) error {
 	return nil
 }
 
-// Addr is the listening address, or "" before Start.
+// Addr is the listener's address as a string, or "" before Start and after Stop.
 func (n *Node) Addr() string {
 	n.lnMu.Lock()
 	defer n.lnMu.Unlock()

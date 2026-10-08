@@ -110,7 +110,7 @@ type CardFn func(ctx context.Context) (card, sig string, err error)
 // error: its tools answer `unavailable` (HDTP §12's code for a capability the
 // implementation is currently withholding).
 type ToolDeps struct {
-	// AccountID is the account the tools act for.
+	// AccountID scopes every store call and audit row the tools make.
 	AccountID string
 	// Contacts is the contact manager; the guest, pending and contact-management tools need it.
 	Contacts *contacts.Manager
@@ -120,7 +120,7 @@ type ToolDeps struct {
 	Media *messaging.MediaService
 	// Calendar backs check_availability, book_slot and cancel_booking.
 	Calendar Calendar
-	// Status backs get_status.
+	// Status backs get_status; with none the tool answers `unavailable` (internal/node supplies one that defaults to available).
 	Status StatusSource
 	// Card returns the signed card for redeem_invite and get_card.
 	Card CardFn

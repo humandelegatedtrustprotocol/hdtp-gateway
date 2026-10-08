@@ -54,7 +54,7 @@ type Registry interface {
 	// mode other than passthrough or terminate, and a subdomain already paired to a different
 	// fingerprint; the same fingerprint on the same subdomain replaces the row.
 	Put(n Node) error
-	// BySubdomain returns the pairing for a subdomain.
+	// BySubdomain is how the front door, terminator and data plane learn a name's mode and pinned key.
 	BySubdomain(sub string) (Node, bool)
 	// ByFingerprint returns the pairing whose node has the given identity fingerprint.
 	ByFingerprint(fpr string) (Node, bool)

@@ -23,7 +23,7 @@ import (
 
 // Entry is one registry row: the tool, its gating rule, and its handler.
 type Entry struct {
-	// Tool is the MCP tool definition tools/list shows.
+	// Tool is the definition tools/list shows, and the name tools/call matches (the first entry of that name wins in sealed dispatch).
 	Tool *mcp.Tool
 	// Rule is the tier and permission policy.Allow requires of a caller.
 	Rule policy.Rule
@@ -89,7 +89,7 @@ func (r *Registry) Replace(group string, entries []Entry) {
 
 // GatedPermissions is every contact-tier permission the registry currently
 // gates a tool with. The switchboard is built from it, so a permission the node
-// can actually serve — an integration's `integration.<slug>` (SPEC §6.4) —
+// can actually serve — an integration's `integration.<slug>` (SPEC §6.1, §6.5) —
 // is offerable the moment its exposure goes live, and one it cannot serve is
 // never offered. A hard-coded list could only ever name the core five, which
 // left every exposed integration tool ungrantable and therefore invisible to
@@ -132,9 +132,9 @@ type CallerResolver func(ctx context.Context, accountID, fingerprint string) (po
 // anonymous guests share one key per account. Bounded LRU — rebuilding is cheap,
 // so eviction is harmless (SPEC §2.4).
 type Pool struct {
-	// Registry is the set of tools to compose servers from.
+	// Registry is read at compose time, so a Replace shows only after the affected callers are invalidated.
 	Registry *Registry
-	// Resolve maps a fingerprint to the caller policy judges.
+	// Resolve is consulted at compose time and again on every call; an error from it is `unavailable`, not a denial.
 	Resolve CallerResolver
 	// MaxSize bounds the cached servers; NewPool sets 256 when given a size that is not positive.
 	MaxSize int

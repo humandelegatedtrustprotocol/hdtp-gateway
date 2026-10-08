@@ -6,7 +6,7 @@ The composition root of the public surface: the one place where a config, a stor
 
 Assembly and lifecycle (node.go):
 - `Options`, `New`, `Node`: `New` builds every account (a key that will not open fails startup unless another account proves the master key; see below), the `public.Server`, and wraps the handler as body cap, then LAN guard, then routes.
-- `Start`, `Stop`, `Addr`, `Handler`, `TLSConfig`, `MaxBodyBytes`, `PublicHeaderTimeout`, `PublicRequestTimeout`, `PublicAnswerTimeout`, `PublicIdleTimeout`, `PublicMaxHeaderBytes`: the listener (connection cap beneath TLS), its bounds, and its TLS posture (SPEC.md §5.1: request a client certificate, never require; with an ingress fingerprint configured, `ingress.PinOnwardLeg` requires the paired ingress's certificate).
+- `Start`, `Stop`, `Addr`, `Handler`, `TLSConfig`, `MaxBodyBytes`, `PublicHeaderTimeout`, `PublicRequestTimeout`, `PublicAnswerTimeout`, `PublicIdleTimeout`, `PublicMaxHeaderBytes`: the listener (connection cap beneath TLS), its bounds, and its TLS posture (SPEC.md §5.1: request a client certificate, never require; with `client_cert: off` no certificate is requested at all (`NoClientCert`); with an ingress fingerprint configured, `ingress.PinOnwardLeg` instead requires a client certificate and accepts only the paired ingress's (`RequireAnyClientCert`)).
 - `AdoptAccount`, `ForgetAccount`, `RetireExpiredLeaves`, `WithoutCampaign`, `Follow`, `Slugs`, `AwaitingLeaf`, `Unavailable`, `ErrAwaitingLeaf`, `ErrCampaignWalking`: the live set of accounts; changes made by another process on the store reach this one through `Follow`.
 - Accessors the portal and owner MCP use: `Card`, `SignCard`, `CertificateInfo`, `Certificate`, `Messages`, `Contacts`, `Pool`, `Bus`, `ServedPermissions`, `PublicURL`/`SetPublicURL`/`UsePublicURL`, `LANAllowed`/`SetLANConnections`/`UseLANConnections`, `SetSeal`, `Invalidate`, `InvalidateAccount`, `SetIntegrationTools`, `ContactCap`, `LimitsAnswer`, `LandingDeps`.
 
@@ -52,7 +52,7 @@ Outbound (outbound.go, send.go, contactcall.go, request.go, refresh.go, announce
 ## What it does not do
 
 - It does not decide authorization, budgets or what an envelope proves; those are `policy`, the limits sidecar and `public.Identifier`.
-- It does not relay or queue for a third party: delivery is direct and only direct (HDTP §9); a peer that cannot be reached before the message's deadline is a reported failure.
+- It does not relay or queue for a third party: delivery is direct and only direct (no relay role, SPEC.md §10.1); a peer that cannot be reached before the message's deadline is a reported failure.
 - It does not go looking for changes to a contact's card or address: a refresh is one contact, on request; a new leaf arrives on use (HDTP §14.3).
 - Saving a new public URL is not a move and announces nothing: `SetPublicURL` changes the base the next certificate request will name and moves nobody (a leaf still names the address it was issued for).
 - It does not fetch a peer's media URL on its own; `FetchMedia` is the owner's explicit action (SPEC.md §7.5).

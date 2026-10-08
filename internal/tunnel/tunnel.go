@@ -25,7 +25,7 @@ type Info struct {
 	// public TLS session (edge mode), false when the caller's TLS reaches the node (direct mode).
 	TerminatesAtEdge bool
 	// Listener, when non-nil, is the raw stream the adapter delivers callers on
-	// (tailscale, frp, ngrok): the node runs its OWN TLS on it, so client
+	// (tailscale, ngrok, ngrok-https; frp and direct return none): the node runs its OWN TLS on it, so client
 	// certificates stay visible end to end (SPEC §10.2). Direct leaves it nil —
 	// the node's own bind is the public endpoint.
 	Listener net.Listener
@@ -41,7 +41,7 @@ type Status struct {
 	Running bool `json:"running"`
 	// PublicURL is the base URL the adapter advertises; empty until an allocating adapter has started.
 	PublicURL string `json:"public_url,omitempty"`
-	// Detail is a human-readable line for the portal and doctor.
+	// Detail is the line the portal and doctor show; some adapters put a command to run in it (cloudflare without a connector).
 	Detail string `json:"detail,omitempty"`
 }
 

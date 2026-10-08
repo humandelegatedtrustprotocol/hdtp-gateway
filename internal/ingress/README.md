@@ -38,14 +38,14 @@ Front door (closes the connection without a reply; audit action `ingress_route`)
 
 Data plane plugin: `Login` is rejected unless the metadata names a paired fingerprint and carries that node's secret; `NewProxy` is rejected unless it is one `https` proxy with exactly one custom domain equal (case-insensitively) to `<sub>.<domain>` (passthrough) or `<sub>.internal.<domain>` (terminate). The vhost (SNI-routed) port binds `127.0.0.1` unless `ProxyBindAddr` is set; the control port binds `BindAddr`.
 
-Terminator: `DialNode` fails if the node serves no certificate or a certificate whose PKIX public key is not byte-equal to `Node.SPKI`. A connection that fails the public handshake, has an SNI outside the domain, or names an unpaired or non-terminate subdomain is closed (`ingress_terminate` / `unknown`); a failed onward dial is closed as `unavailable`.
+Terminator: `DialNode` fails if the node serves no certificate or a certificate whose PKIX public key is not byte-equal to `Node.SPKI`. A connection that fails the public handshake or has an SNI outside the domain is closed silently, with no audit row; one naming an unpaired or non-terminate subdomain is closed and audited `ingress_terminate` / `unknown`; a failed onward dial is closed and audited `unavailable`.
 
-Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2 minutes, default dial timeouts 10 s, `Pair`'s default client timeout 15 s, TLS 1.2 minimum on the public config and both mTLS legs. The public TLS config offers ALPN `http/1.1` first and no `h2`.
+Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2 minutes, default dial timeouts 10 s, `Pair`'s default client timeout 15 s, TLS 1.2 minimum on the public config (`ACME.TLSConfig`) and on the two mTLS legs this package builds (`Pair`, `DialNode`); the pairing listener's minimum is set in `internal/cli/ingresscmd.go`, not here. The public TLS config offers ALPN `http/1.1` first and no `h2`.
 
 ## Invariants
 
 - The front door never terminates TLS; a passthrough connection reaches the data plane with the ClientHello bytes it sent.
-- A pairing token buys exactly one pairing attempt.
+- A pairing token is consumed by the first request that reaches `ConsumeToken`: an unknown or used token (403), a registry conflict (409) and a success all spend it; a request refused earlier (401 without a client certificate, 400 for a bad body, subdomain or mode) does not.
 - The file registry writes before it reports success, atomically (temporary file renamed), mode 0600; tokens are never written to disk.
 - The vhost defaults to loopback, so a caller cannot reach it and skip the registry lookup.
 - The onward leg accepts only the key pinned at pairing; `PinOnwardLeg` is the pin the node's listener ships with, and only checks the transport (it does not make the ingress a caller).
@@ -53,7 +53,7 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 
 ## Held by
 
-- `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`OnPaired` fires for terminate only); `TestDataPlaneStopRightAfterStart`.
+- `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`PairingServer` calls `OnPaired` after every pairing it records; the test's callback keeps only the terminate-mode ones, and holds that the terminate pairing is announced and the passthrough one is not asked for a certificate); `TestDataPlaneStopRightAfterStart`.
 - `fileregistry_test.go`: `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted).
 - `frontdoor_test.go`: `TestOnePortRoutesPassthroughAndTerminateBySNI`; `TestFrontDoorRefusesNonTLS` (calls `peekSNI` on plain HTTP); `TestFrontDoorDropsWhenTheTerminatorIsNotAccepting`; `TestDataPlaneVhostDefaultsToLoopback`.
 - `terminate_test.go`: `TestACMEIssuanceAndRenewalWithPebble`; `TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode` (a sealed call round-trips; `DialNode` refuses a node whose key is not the pinned one; the node refuses a non-ingress client); `TestTerminatePublicTLSAcceptsAClientThatOffersALPN`.

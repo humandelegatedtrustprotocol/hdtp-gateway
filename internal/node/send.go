@@ -437,7 +437,7 @@ func (n *Node) retryTick(ctx context.Context, leading func(context.Context) bool
 
 // FetchMedia fetches a media URL a peer sent, on the owner's request (SPEC §7.5: a peer's URL is
 // never fetched automatically), through the account's media service and its address checks. It
-// returns "media: unknown account" for an account this node does not serve, and otherwise the media service's error (a URL that resolves to a private address is refused there).
+// returns "media: unknown account" for an account this node does not serve or one with no media service, and otherwise the media service's error (a URL that resolves to a private address is refused there).
 func (n *Node) FetchMedia(ctx context.Context, accountID, rawURL string) (string, error) {
 	n.mu.RLock()
 	a := n.accounts[accountID]

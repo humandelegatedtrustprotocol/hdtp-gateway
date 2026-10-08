@@ -16,7 +16,7 @@ import (
 // (through Solver); Zone and TTL are recorded by NewCloudflare and read by no non-test code in this
 // repository (a search for them found none).
 type Cloudflare struct {
-	// Provider is the libdns provider, holding the API token.
+	// Provider is what Solver returns for certmagic; it holds the API token.
 	Provider *cloudflare.Provider
 	// Zone is the zone name with a trailing dot: NewCloudflare appends one if it is missing.
 	Zone string

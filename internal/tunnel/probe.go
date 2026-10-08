@@ -53,7 +53,7 @@ const (
 
 // Result is the probe report the portal and doctor surface.
 type Result struct {
-	// Verdict is the one-word diagnosis.
+	// Verdict is one of the four Verdict values; Detail says why unless it is reachable.
 	Verdict Verdict `json:"verdict"`
 	// Endpoint is the URL that was probed, as given.
 	Endpoint string `json:"endpoint"`

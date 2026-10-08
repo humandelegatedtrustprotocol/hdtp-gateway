@@ -178,7 +178,7 @@ func subdomainOf(sni, domain string) (string, bool) {
 type ChanListener struct {
 	// C is the unbuffered channel Deliver sends on and Accept receives from.
 	C chan net.Conn
-	// Addr_ is what Addr returns.
+	// Addr_ is the address Addr reports; it need not be a real listening address.
 	Addr_  net.Addr
 	closed chan struct{}
 	once   sync.Once
@@ -204,7 +204,7 @@ func (l *ChanListener) Deliver(c net.Conn, timeout time.Duration) bool {
 	}
 }
 
-// Accept returns the next delivered connection, or net.ErrClosed once the listener is closed.
+// Accept blocks for a connection handed to Deliver; it returns net.ErrClosed once Close has run.
 func (l *ChanListener) Accept() (net.Conn, error) {
 	select {
 	case c := <-l.C:
@@ -221,7 +221,7 @@ func (l *ChanListener) Close() error {
 	return nil
 }
 
-// Addr returns the address given to NewChanListener.
+// Addr returns the fixed address NewChanListener was given; the listener binds nothing.
 func (l *ChanListener) Addr() net.Addr { return l.Addr_ }
 
 /* ----------------------------- ClientHello ----------------------------- */

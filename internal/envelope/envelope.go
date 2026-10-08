@@ -23,7 +23,7 @@ var ErrInvalid = errors.New("envelope_invalid")
 type Header struct {
 	// CTY is the direction: application/hdtp-call+json for a request, application/hdtp-result+json for a result.
 	CTY string `json:"cty"`
-	// Exp is the envelope's expiry, in Unix seconds.
+	// Exp is the expiry in Unix seconds; the replay record is kept only until min(Exp, TS + skew + 1).
 	Exp int64 `json:"exp"`
 	// KID is the fingerprint of the recipient leaf key the envelope is sealed to.
 	KID string `json:"kid"`
@@ -33,6 +33,6 @@ type Header struct {
 	Suite string `json:"suite"`
 	// TS is the sender's clock, in Unix seconds, when it sealed.
 	TS int64 `json:"ts"`
-	// V is the envelope version.
+	// V is the header version; every envelope this node opens is v 1 (HDTP §13.1).
 	V int `json:"v"`
 }
