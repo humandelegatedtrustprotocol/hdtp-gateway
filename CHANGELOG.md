@@ -10,7 +10,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The limits sidecar's container has a healthcheck of its own: `hdtp-gateway healthcheck --limits`
+  asks the sidecar for its rules over the socket the node asks it on. It inherited the image's,
+  which asks the node's portal, so `docker compose ps` listed `limitd` unhealthy for as long as it
+  ran; `compose.yaml` and `deploy/envoy/compose.yaml` run the new one.
 
 ## [0.1.1] — 2026-10-09
 

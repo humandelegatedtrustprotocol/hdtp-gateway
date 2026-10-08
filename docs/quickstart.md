@@ -109,10 +109,6 @@ internal=127.0.0.1:8080 public=[::]:8443 mode=direct tunnel=direct`, that no `pu
 configured yet, and — in its first second, before the sidecar is up — `limits: NOT ANSWERING`. That
 last line is the sidecar starting a moment after the node; step 7's `doctor` shows it answering.
 
-`docker compose ps` lists `limitd` as **unhealthy**, and it stays so. That is the image's
-healthcheck, which asks for the node's portal, running in a container that serves no portal; the
-sidecar's own log says `hdtp-limitd serving: socket=/data/limits.sock` and the node reaches it.
-
 ## 3. Register your passkey
 
 Open the setup link in your browser. Opening it does not spend the token: the wizard is three
