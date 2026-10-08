@@ -19,9 +19,13 @@ import (
 
 const tokenPrefix = "hdtp_"
 
+// TokenService mints, validates, revokes and lists the bearer tokens of the owner MCP. A token is
+// "hdtp_" followed by 48 hex characters; only its SHA-256 is stored.
 type TokenService struct {
+	// Store holds the token rows (hashes and metadata).
 	Store store.OwnerStore
-	Now   func() time.Time
+	// Now is the clock for creation and revocation times; nil means time.Now.
+	Now func() time.Time
 }
 
 func (t *TokenService) now() time.Time {
@@ -57,6 +61,7 @@ func (t *TokenService) Create(ctx context.Context, ownerID, label, accountID str
 // Identity is what a validated token acts as (SPEC §3.4): the owner, optionally
 // narrowed to one account.
 type Identity struct {
+	// OwnerID is the owner the token was minted for.
 	OwnerID   string
 	AccountID string // "" = all the owner's accounts
 }
@@ -85,17 +90,26 @@ func (t *TokenService) Validate(ctx context.Context, presented string) (Identity
 	return Identity{OwnerID: row.OwnerID, AccountID: row.AccountID}, nil
 }
 
+// Revoke marks the token with this id revoked, effective on the next Validate. The SQLite store
+// refuses an id that is missing or already revoked (TestTokenLifecycle holds the second case).
 func (t *TokenService) Revoke(ctx context.Context, id string) error {
 	return t.Store.RevokeToken(ctx, id, t.now().Unix())
 }
 
+// TokenInfo is a token as List answers it: metadata only, no hash and no plaintext.
 type TokenInfo struct {
-	ID        string `json:"id"`
-	OwnerID   string `json:"owner_id"`
-	Label     string `json:"label"`
+	// ID is the token's id, what Revoke takes and the audit trail's token:<id> names.
+	ID      string `json:"id"`
+	OwnerID string `json:"owner_id"`
+	// Label is the name the owner gave it.
+	Label string `json:"label"`
+	// AccountID is the account the token is narrowed to; omitted for a token that spans every
+	// account its owner administers.
 	AccountID string `json:"account_id,omitempty"`
-	CreatedAt int64  `json:"created_at"`
-	Revoked   bool   `json:"revoked"`
+	// CreatedAt is unix seconds.
+	CreatedAt int64 `json:"created_at"`
+	// Revoked is true once Revoke has run; a revoked token stays listed.
+	Revoked bool `json:"revoked"`
 }
 
 // List returns metadata only — never hashes, never plaintexts.
