@@ -14,7 +14,7 @@ Nothing yet.
 
 ## [0.1.0] — 2026-10-08
 
-The first release will cover the surfaces described in [`SPEC.md`](SPEC.md):
+This release covers the surfaces described in [`SPEC.md`](SPEC.md):
 
 ### Added
 
