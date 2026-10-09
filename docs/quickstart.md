@@ -90,8 +90,8 @@ layers were already cached and the whole command took six seconds, ending:
 ```
 
 (`clean` was the directory's name; yours will be `hdtp-gateway`.) The clone step itself was not
-measured against GitHub: this repository was still private when the guide was written, so the
-measuring clone was made from a local copy of the same commit.
+measured against GitHub: the repository was not yet public when the guide was written (it has been
+since 2026-10-09), so the measuring clone was made from a local copy of the same commit.
 
 ## 2. Read the setup link out of the log
 
@@ -137,7 +137,7 @@ agents will dial, and **Save settings**. The page answers `Saved public_url.`
 
 Until it is set, step 6's `account csr` refuses: `no public URL is configured; pass -endpoint`.
 The address is the only thing this guide cannot give you; it is yours to make. The compose file
-offers two ways, and `docs/operations.md` § Reachability lists the rest (Tailscale, frp, ngrok,
+offers two ways, and [`docs/operations.md` § Reachability](operations.md#reachability) lists the rest (Tailscale, frp, ngrok,
 the own-domain ingress role). Neither of the two below was run for this guide: each needs a
 domain or an account that is yours. What is written here is read from `compose.yaml`,
 `deploy/envoy/` and `internal/tunnel/edge.go`.
@@ -324,7 +324,10 @@ Their node fetches your card at your address, checks that the certificate's key 
 fingerprint the card claims, verifies the card's signature, and only then redeems the invite —
 pinning your root. On your node they appear under **People → Requests**; **Approve** with a preset
 pins them in turn and tells their node. (An invite made with **auto-accept** skips the approval.)
-With the `friend` preset, their first message lands in your inbox:
+Both presets named here let a text message in: `basic` grants `message.text` alone, and `friend`
+adds `message.media`, `status.view`, `calendar.availability` and `calendar.book` (the defaults in
+`internal/contacts/presets.go`, until you edit them). In the pictures the request was approved as
+`friend`, and the contact's first message is in your inbox:
 
 ![People, Contacts tab: one contact, sam, with a Message button; the Inbox badge shows 1 unread](images/contacts.png)
 

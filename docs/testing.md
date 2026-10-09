@@ -1,9 +1,8 @@
 # Testing
 
 How the suites of this workspace are built and extended: first what every suite shares — its
-result file and where it runs — then one section per repository (batondeck's end-to-end suites
-are described beside them, in `batondeck/gateway/e2e/TESTING.md`; the BatonDeck repository is not
-public).
+result file and where it runs — then one section per repository (the hosted platform's
+end-to-end suites are described in its own repository, BatonDeck's, which is not public).
 
 ## Results: one schema for every runner
 
@@ -26,7 +25,7 @@ case (`pass` and `within` in the pair; `promised`, `ok` and `test` in the harnes
 
 | Repo | Writer | Where the file goes |
 |---|---|---|
-| batondeck | `gateway/e2e/lib/report.mjs` (the pair, the wallet-page suite) | `gateway/e2e/results/`, or `--results <file>` |
+| batondeck | its end-to-end runner (the pair, the wallet-page suite); the repository is not public | its own results directory, or `--results <file>` |
 | hdtp-gateway | `harness/registry` (each scenario, and `harness run`'s `summary.json`) | `HDTP_HARNESS_RESULTS` |
 | hdtp-identity | `js/results.mjs` (check, intrude, parity, musts, the node:test suites) | `HDTP_RESULTS` (`gate.sh`: `target/gate-results`) |
 
@@ -89,8 +88,8 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `kernel` | `make harness-kernel`, then `export HDTP_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
 | `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export HDTP_CF_DOMAIN=<domain>` | nightly, when the variable is set |
 | `hdtp-cli` | hdtp-identity's `hdtp` CLI, named by `HDTP_CLI`; `make harness-hdtp-cli` builds it from an hdtp-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `HDTP_CLI`) |
-| `local-cloud` | batondeck's local cloud and its live-local runner, named by `HDTP_LOCAL_CLOUD` (`gateway/`, with `public/` built: `npm --prefix ../portal run build && node scripts/build-ceremony.mjs`), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when batondeck is checked out beside this repository and the WorkOS pair is exported |
-| `cloud-battery` | batondeck's Go conformance battery, named by `HDTP_CLOUD_BATTERY` (`gateway/conformance`) | nightly, when batondeck is checked out beside this repository (the Makefile then sets it) |
+| `local-cloud` | the hosted platform's local cloud (BatonDeck's, not public) and its live-local runner, named by `HDTP_LOCAL_CLOUD` (a checkout of it with its public assets built), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when that checkout is beside this repository and the WorkOS pair is exported |
+| `cloud-battery` | the hosted platform's Go conformance battery (BatonDeck's, not public), named by `HDTP_CLOUD_BATTERY` | nightly, when that repository is checked out beside this one (the Makefile then sets it) |
 
 ### Results
 
