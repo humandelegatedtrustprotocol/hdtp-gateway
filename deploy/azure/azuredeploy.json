@@ -1,0 +1,263 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "hdtp-gateway on one Arm VM: Ubuntu 24.04, Docker, the node and its limits sidecar built from a release tag, Caddy in front for TLS on the VM's DNS label, <label>.<region>.cloudapp.azure.com (docs/deploy.md). The first boot is deploy/cloud-init.yaml, carried in the variable cloudInit and held to that file by scripts/deploy-check.mjs."
+  },
+  "parameters": {
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "metadata": {
+        "description": "The label of the public IP's DNS name, unique in the region: <label>.<region>.cloudapp.azure.com. With hostname empty, that name is the node's public URL and the one Caddy gets a certificate for."
+      }
+    },
+    "hostname": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "A name of your own to reach the node at instead of the DNS label's, such as hdtp.example.com; point its A record at the publicIp output. Empty: the DNS label's name. cloudapp.azure.com is not on the Public Suffix List, so Let's Encrypt counts every name under it against azure.com's weekly certificate limit; a name of your own is counted against your own domain."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "metadata": {
+        "description": "The VM's login, with sudo: the operator reaches the portal through an SSH tunnel as this user."
+      }
+    },
+    "sshPublicKey": {
+      "type": "string",
+      "metadata": {
+        "description": "The SSH public key (one line, ssh-ed25519 or ssh-rsa) installed for adminUsername. Password login is off."
+      }
+    },
+    "sshSourceAddressPrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "The address range allowed to SSH to the VM (port 22): your own address, as a CIDR such as 203.0.113.4/32. Ports 80 and 443 are open to everyone, as a public node needs."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D2ps_v5",
+      "metadata": {
+        "description": "An Arm64 (Ampere Altra) size: the image below is server-arm64. The first boot compiles the node (Go) and its sidecar (Rust) on the VM; that build was not measured on any size."
+      }
+    },
+    "release": {
+      "type": "string",
+      "defaultValue": "v0.1.1",
+      "metadata": {
+        "description": "The hdtp-gateway release tag to build: the sources are fetched at this tag from the public repository."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "The region, the resource group's by default. The DNS name carries it."
+      }
+    }
+  },
+  "variables": {
+    "vmName": "hdtp-gateway",
+    "nicName": "hdtp-gateway-nic",
+    "publicIpName": "hdtp-gateway-ip",
+    "nsgName": "hdtp-gateway-nsg",
+    "vnetName": "hdtp-gateway-vnet",
+    "subnetName": "default",
+    "cloudInit": "#cloud-config\n# One first boot for hdtp-gateway on a VM (docs/deploy.md). It installs Docker from Docker's own apt\n# repository held to one major, makes a service user, puts the node's sources at one release tag\n# under /opt/hdtp, vendors the limits sidecar's crates the way `make limitd-vendor` does (in a\n# container, since the VM has no cargo), and runs the shipped compose.yaml with an override beside\n# it: Caddy in front for TLS on the instance's hostname, the node told its public URL and which\n# address may name a caller. The portal stays on the VM's loopback, as in compose.yaml: the login\n# message says how to reach it.\n#\n# Two placeholders, Hostname and Release, each written between a dollar-brace and a brace, are\n# substituted by what carries this file (deploy/aws, deploy/azure, deploy/render-cloud-init.sh).\n# Nothing else here is written that way: scripts/deploy-check.mjs renders the file and refuses any\n# placeholder left behind.\n#\n# The posture is deploy/envoy's minus two things Caddy cannot do: it forwards no caller chain (so\n# a caller proves nothing on the transport and the sealed envelope is its proof, as behind any\n# terminating edge), and it limits nothing per address before the node (layer 1 of\n# docs/release/two-layer-limits-2026-09-28.md is Envoy's). The caller's address does reach the node:\n# Caddy writes it into X-HDTP-Client-Address and the node reads that header from Caddy's address\n# alone (HDTP_PROXY_ADDRESS, internal/public/listener.go).\n\npackage_update: true\npackages:\n  - ca-certificates\n  - curl\n  - git\n\nwrite_files:\n  # Docker's packages held to one major (apt_preferences(5): a version pin with a wildcard; 1001\n  # takes that version even over a newer one). The repository itself is added in runcmd, as\n  # https://docs.docker.com/engine/install/ubuntu/ writes it.\n  - path: /etc/apt/preferences.d/docker\n    permissions: \"0644\"\n    content: |\n      Package: docker-ce docker-ce-cli\n      Pin: version 5:29.*\n      Pin-Priority: 1001\n\n  # Read by `docker compose` in /opt/hdtp for the two files below (compose interpolation).\n  - path: /opt/hdtp/.env\n    permissions: \"0644\"\n    content: |\n      HDTP_HOSTNAME=${Hostname}\n      HDTP_PUBLIC_URL=https://${Hostname}\n\n  # Merged over the node's own compose.yaml by `docker compose` (it reads compose.override.yaml\n  # beside compose.yaml by itself): Caddy published on 80 and 443, and the node on one private\n  # network with it, at fixed addresses, so that HDTP_PROXY_ADDRESS names Caddy and nothing else.\n  - path: /opt/hdtp/compose.override.yaml\n    permissions: \"0644\"\n    content: |\n      services:\n        hdtp-gateway:\n          environment:\n            HDTP_PUBLIC_URL: $HDTP_PUBLIC_URL\n            HDTP_PROXY_ADDRESS: 172.30.41.10\n          networks:\n            edge:\n              ipv4_address: 172.30.41.20\n\n        caddy:\n          # Pinned by digest, the tag kept for the reader: `caddy:2-alpine` as resolved on\n          # 2026-10-09 (the multi-platform index; its images were built 2026-10-05).\n          image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f\n          restart: unless-stopped\n          ports:\n            - \"80:80\"\n            - \"443:443\"\n            - \"443:443/udp\"\n          environment:\n            HDTP_HOSTNAME: $HDTP_HOSTNAME\n          volumes:\n            - /opt/hdtp/caddy/Caddyfile:/etc/caddy/Caddyfile:ro\n            - caddy-data:/data\n            - caddy-config:/config\n          depends_on:\n            hdtp-gateway:\n              condition: service_started\n          networks:\n            edge:\n              ipv4_address: 172.30.41.10\n\n      networks:\n        edge:\n          ipam:\n            config:\n              - subnet: 172.30.41.0/24\n\n      volumes:\n        caddy-data:\n        caddy-config:\n\n  # Caddy: a certificate for the hostname from Let's Encrypt or ZeroSSL (its automatic HTTPS), the\n  # caller's TLS ended here, each request carried to the node over TLS. The node presents its\n  # identities' chains, not a WebPKI certificate, so the hop is made without validation, as\n  # deploy/envoy's is. The caller's address goes to the node in the header it reads from this\n  # proxy's address; a caller's own X-Forwarded-Client-Cert is dropped, since Caddy cannot\n  # forward a chain, and the node must not read one the caller wrote.\n  - path: /opt/hdtp/caddy/Caddyfile\n    permissions: \"0644\"\n    content: |\n      {$HDTP_HOSTNAME} {\n        reverse_proxy https://172.30.41.20:8443 {\n          transport http {\n            tls_insecure_skip_verify\n            tls_server_name {$HDTP_HOSTNAME}\n          }\n          header_up X-HDTP-Client-Address {remote_host}\n          header_up -X-Forwarded-Client-Cert\n        }\n      }\n\n  # Shown at every SSH login (Ubuntu's update-motd): where the setup link is and how to open it.\n  - path: /etc/update-motd.d/99-hdtp-gateway\n    permissions: \"0755\"\n    content: |\n      #!/bin/sh\n      cat <<'EOF'\n\n      hdtp-gateway serves https://${Hostname} from /opt/hdtp, as the user hdtp (docs/deploy.md).\n\n      First run: the node's log holds the portal's setup link. Read it:\n          sudo -iu hdtp\n          cd /opt/hdtp && docker compose logs hdtp-gateway | grep -A2 \"setup\"\n      The portal is on this VM's loopback only. From your own machine, open an SSH tunnel\n          ssh -L 8080:127.0.0.1:8080 <your login>@${Hostname}\n      and then open the setup link, http://localhost:8080/setup?token=..., in your browser.\n      Until the first boot has finished building the node, the log is empty: `cloud-init status`\n      says `done` when it has.\n\n      EOF\n\nruncmd:\n  # Docker's apt repository, as its documentation writes it, then the engine and the compose plugin.\n  - install -m 0755 -d /etc/apt/keyrings\n  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc\n  - chmod a+r /etc/apt/keyrings/docker.asc\n  # A literal block, not a plain line: YAML reads a plain \"Types: deb\" as a mapping.\n  - |\n    printf 'Types: deb\\nURIs: https://download.docker.com/linux/ubuntu\\nSuites: %s\\nComponents: stable\\nArchitectures: %s\\nSigned-By: /etc/apt/keyrings/docker.asc\\n' \"$(. /etc/os-release && echo \"$VERSION_CODENAME\")\" \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/docker.sources\n  - apt-get update\n  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin\n  # The service user: owns /opt/hdtp and may run docker (the docker group is root-equivalent on\n  # the host, which is what running the node's containers is). No password, no SSH key of its own:\n  # the operator logs in as the provider's user and becomes it with sudo.\n  - useradd --system --home-dir /opt/hdtp --no-create-home --shell /bin/bash hdtp\n  - usermod -aG docker hdtp\n  - chown -R hdtp:hdtp /opt/hdtp\n  # The node's sources at the release tag, beside the files written above (nothing in the tree\n  # has those names, so the checkout leaves them in place).\n  - runuser -l hdtp -c 'cd /opt/hdtp && git init -q && git remote add origin https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git && git fetch -q --depth 1 origin tag ${Release} && git checkout -q ${Release}'\n  # `make limitd-vendor`, in the Rust image the Dockerfile's sidecar stage builds with: the crates\n  # laid out under .build/limitd-vendor, which the compose build reads as the context `limitdvendor`.\n  - docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src rust:1.92-alpine sh -ec 'apk add --no-cache git >/dev/null && rm -rf .build/limitd-vendor && mkdir -p .build/limitd-vendor && cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml .build/limitd-vendor/crates > .build/limitd-vendor/config.toml'\n  - chown -R hdtp:hdtp /opt/hdtp/.build\n  # The build and the start. Minutes: the node in Go and the sidecar in Rust are compiled here.\n  - runuser -l hdtp -c 'cd /opt/hdtp && docker compose build && docker compose up -d'\n\nfinal_message: \"hdtp-gateway: first boot finished after $UPTIME seconds. Log in and read the message of the day.\"\n"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2025-09-01",
+      "name": "[variables('publicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv4",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('dnsLabel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2025-09-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "ssh",
+            "properties": {
+              "priority": 100,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourceAddressPrefix": "[parameters('sshSourceAddressPrefix')]",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "22"
+            }
+          },
+          {
+            "name": "http",
+            "properties": {
+              "priority": 110,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "80"
+            }
+          },
+          {
+            "name": "https",
+            "properties": {
+              "priority": 120,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "*",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "443"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2025-09-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2025-09-01",
+      "name": "[variables('nicName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
+              },
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2026-04-01",
+      "name": "[variables('vmName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "ubuntu-24_04-lts",
+            "sku": "server-arm64",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "diskSizeGB": 30,
+            "managedDisk": {
+              "storageAccountType": "StandardSSD_LRS"
+            }
+          }
+        },
+        "osProfile": {
+          "computerName": "[variables('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[base64(replace(replace(variables('cloudInit'), '${Hostname}', if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname'))), '${Release}', parameters('release')))]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "[concat('/home/', parameters('adminUsername'), '/.ssh/authorized_keys')]",
+                  "keyData": "[parameters('sshPublicKey')]"
+                }
+              ]
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "hostname": {
+      "type": "string",
+      "value": "[if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname'))]"
+    },
+    "url": {
+      "type": "string",
+      "value": "[concat('https://', if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname')))]"
+    },
+    "publicIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).ipAddress]"
+    },
+    "ssh": {
+      "type": "string",
+      "value": "[concat('ssh -L 8080:127.0.0.1:8080 ', parameters('adminUsername'), '@', reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn)]"
+    }
+  }
+}

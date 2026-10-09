@@ -336,6 +336,11 @@ hdtp-gateway doctor
 It derives your deployment mode, probes your endpoint, and reports what an
 outside caller would actually see.
 
+### Deploy to a cloud
+
+One VM with TLS on your hostname, from a template: AWS, Azure, Google Cloud and DigitalOcean, and
+why not the others, are in [docs/deploy.md](docs/deploy.md).
+
 ---
 
 ## Every call is audited
