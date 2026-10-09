@@ -70,13 +70,13 @@ func TestPrivateRangeFetchRefusedAndAudited(t *testing.T) {
 		audits = append(audits, action+" "+resource+" "+outcome)
 	}
 	// direct 10.0.0.0/8 target
-	if _, err := media.Fetch(context.Background(), acct, "http://10.1.2.3/x"); err == nil {
+	if _, err := media.fetchURL(context.Background(), acct, "http://10.1.2.3/x"); err == nil {
 		t.Fatal("RFC1918 fetch allowed")
 	}
 	// loopback (an httptest server IS loopback — the guard must refuse it)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
-	if _, err := media.Fetch(context.Background(), acct, srv.URL+"/x"); err == nil {
+	if _, err := media.fetchURL(context.Background(), acct, srv.URL+"/x"); err == nil {
 		t.Fatal("loopback fetch allowed")
 	}
 	mu.Lock()
@@ -95,7 +95,7 @@ func TestFetchHappyPathWithInjectedRanges(t *testing.T) {
 	defer srv.Close()
 	// tests inject a permissive checker to exercise resolve->pin->cap->store
 	media.isPrivate = func(net.IP) bool { return false }
-	hash, err := media.Fetch(context.Background(), acct, srv.URL+"/img.png")
+	hash, err := media.fetchURL(context.Background(), acct, srv.URL+"/img.png")
 	if err != nil {
 		t.Fatal(err)
 	}

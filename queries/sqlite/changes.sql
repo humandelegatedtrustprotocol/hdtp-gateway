@@ -21,3 +21,7 @@ DELETE FROM changes WHERE at < ?;
 -- name: DeleteChangesByAccount :execrows
 -- An identity leaving (HDTP sec. 9): its changes go with it.
 DELETE FROM changes WHERE account_id = ?;
+
+-- name: DeleteChangesByThread :execrows
+-- A deleted conversation's wake-ups go with it.
+DELETE FROM changes WHERE account_id = ? AND thread_id = ?;

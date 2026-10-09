@@ -858,12 +858,18 @@ type MessageStore interface {
 	ImportBlob(ctx context.Context, b Blob) (bool, error)
 	// GetThread returns the account's thread, or ErrNotFound.
 	GetThread(ctx context.Context, accountID, threadID string) (Thread, error)
-	// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it,
-	// and a thread that is not there is not reported.
-	TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error
+	// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it.
+	// It returns how many threads it touched, 0 when the thread is not there (deleted meanwhile).
+	TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) (int64, error)
 	// InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already
 	// taken in that direction of that conversation is refused by the table.
 	InsertMessage(ctx context.Context, m Message) error
+
+	// GetMessage returns the account's message by its id (not the sender's msg_id), or ErrNotFound.
+	GetMessage(ctx context.Context, accountID, id string) (Message, error)
+	// SetMediaBody rewrites a media message's description (a fetched URL now naming its file) and
+	// returns how many rows changed: 0 when the account has no media message with that id.
+	SetMediaBody(ctx context.Context, accountID, id, body string) (int64, error)
 
 	// GetMessageByMsgID looks a message up by the CALLER's idempotency key.
 	// direction is part of the key: msg_id is chosen by whoever sent the
@@ -903,6 +909,16 @@ type MessageStore interface {
 	// Empty is judged in the same account: a message of another account under the same thread id does
 	// not keep the thread alive.
 	DeleteEmptyThreads(ctx context.Context, accountID string) (int64, error)
+
+	// Deleting one conversation (SPEC §7.9), local like retention. ListThreadMediaBodies returns the
+	// bodies of one thread's media messages, oldest first: the files the deletion may leave
+	// unreferenced. DeleteThreadMessages, DeleteThread and DeleteChangesByThread delete the thread's
+	// messages, its row (read marker and kept names with it) and the change-log rows naming it, and
+	// each returns how many rows went.
+	ListThreadMediaBodies(ctx context.Context, accountID, threadID string) ([]string, error)
+	DeleteThreadMessages(ctx context.Context, accountID, threadID string) (int64, error)
+	DeleteThread(ctx context.Context, accountID, threadID string) (int64, error)
+	DeleteChangesByThread(ctx context.Context, accountID, threadID string) (int64, error)
 
 	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what
 	// retention reads to learn which media a retained message still references.

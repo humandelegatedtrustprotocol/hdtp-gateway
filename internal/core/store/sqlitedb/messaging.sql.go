@@ -89,6 +89,40 @@ func (q *Queries) DeleteMessagesBefore(ctx context.Context, arg DeleteMessagesBe
 	return result.RowsAffected()
 }
 
+const deleteThread = `-- name: DeleteThread :execrows
+DELETE FROM threads WHERE account_id = ? AND id = ?
+`
+
+type DeleteThreadParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) DeleteThread(ctx context.Context, arg DeleteThreadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteThread, arg.AccountID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteThreadMessages = `-- name: DeleteThreadMessages :execrows
+DELETE FROM messages WHERE account_id = ? AND thread_id = ?
+`
+
+type DeleteThreadMessagesParams struct {
+	AccountID string
+	ThreadID  string
+}
+
+func (q *Queries) DeleteThreadMessages(ctx context.Context, arg DeleteThreadMessagesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteThreadMessages, arg.AccountID, arg.ThreadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getBlob = `-- name: GetBlob :one
 SELECT account_id, hash, size, mime, filename, created_at FROM blobs WHERE account_id = ? AND hash = ?
 `
@@ -108,6 +142,39 @@ func (q *Queries) GetBlob(ctx context.Context, arg GetBlobParams) (Blob, error) 
 		&i.Mime,
 		&i.Filename,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMessage = `-- name: GetMessage :one
+SELECT seq, id, account_id, contact_fpr, msg_id, thread_id, direction, sender, body, reply_to, status, created_at, kind, expires_at, attempts, next_attempt_at FROM messages WHERE account_id = ? AND id = ?
+`
+
+type GetMessageParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Message, error) {
+	row := q.db.QueryRowContext(ctx, getMessage, arg.AccountID, arg.ID)
+	var i Message
+	err := row.Scan(
+		&i.Seq,
+		&i.ID,
+		&i.AccountID,
+		&i.ContactFpr,
+		&i.MsgID,
+		&i.ThreadID,
+		&i.Direction,
+		&i.Sender,
+		&i.Body,
+		&i.ReplyTo,
+		&i.Status,
+		&i.CreatedAt,
+		&i.Kind,
+		&i.ExpiresAt,
+		&i.Attempts,
+		&i.NextAttemptAt,
 	)
 	return i, err
 }
@@ -585,6 +652,39 @@ func (q *Queries) ListPendingOutbound(ctx context.Context, limit int64) ([]ListP
 	return items, nil
 }
 
+const listThreadMediaBodies = `-- name: ListThreadMediaBodies :many
+SELECT body FROM messages WHERE account_id = ? AND thread_id = ? AND kind = 'media' ORDER BY seq
+`
+
+type ListThreadMediaBodiesParams struct {
+	AccountID string
+	ThreadID  string
+}
+
+// The media one thread's messages describe: the files deleting the thread may leave unreferenced.
+func (q *Queries) ListThreadMediaBodies(ctx context.Context, arg ListThreadMediaBodiesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listThreadMediaBodies, arg.AccountID, arg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		items = append(items, body)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listThreadsByAccount = `-- name: ListThreadsByAccount :many
 SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname FROM threads WHERE account_id = ? ORDER BY last_at DESC, id
 `
@@ -678,6 +778,25 @@ func (q *Queries) MarkThreadReadThrough(ctx context.Context, arg MarkThreadReadT
 	return result.RowsAffected()
 }
 
+const setMediaBody = `-- name: SetMediaBody :execrows
+UPDATE messages SET body = ? WHERE account_id = ? AND id = ? AND kind = 'media'
+`
+
+type SetMediaBodyParams struct {
+	Body      string
+	AccountID string
+	ID        string
+}
+
+// A media message's description, rewritten: a URL the owner fetched now names the file it fetched.
+func (q *Queries) SetMediaBody(ctx context.Context, arg SetMediaBodyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setMediaBody, arg.Body, arg.AccountID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setMessageAttempt = `-- name: SetMessageAttempt :execrows
 UPDATE messages SET attempts = ?, next_attempt_at = ?
 WHERE account_id = ? AND contact_fpr = ? AND msg_id = ? AND direction = 'out'
@@ -747,7 +866,7 @@ func (q *Queries) SumBlobBytes(ctx context.Context, accountID string) (interface
 	return coalesce, err
 }
 
-const touchThread = `-- name: TouchThread :exec
+const touchThread = `-- name: TouchThread :execrows
 UPDATE threads SET last_at = ? WHERE account_id = ? AND id = ?
 `
 
@@ -757,9 +876,12 @@ type TouchThreadParams struct {
 	ID        string
 }
 
-func (q *Queries) TouchThread(ctx context.Context, arg TouchThreadParams) error {
-	_, err := q.db.ExecContext(ctx, touchThread, arg.LastAt, arg.AccountID, arg.ID)
-	return err
+func (q *Queries) TouchThread(ctx context.Context, arg TouchThreadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, touchThread, arg.LastAt, arg.AccountID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const unreadCount = `-- name: UnreadCount :one

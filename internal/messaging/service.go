@@ -103,12 +103,21 @@ const maxTextBytes = 16 * 1024 // HDTP §12
 // in `send_message`, so it reaches a hosted peer; a peer's reaches this node under MaxFieldBytes.
 const maxOwnerTopicBytes = 256
 
-// Service records messages and threads in a store.MessageStore. It writes rows only; it has no path
-// to the wire, delivery of an outbound message is internal/node's. Bus, when set, receives an
-// EventMessage for each message newly recorded.
+// ConversationStore is what the service acts on: the message store, and one transaction for the
+// writes that must land together (a message and its thread row; a deletion's rows).
+type ConversationStore interface {
+	store.MessageStore
+	Atomically(ctx context.Context, fn func(tx store.Store) error) error
+}
+
+// Service records and deletes messages and threads in a ConversationStore. It writes rows only; it
+// has no path to the wire, delivery of an outbound message is internal/node's. Bus, when set,
+// receives an EventMessage for each message newly recorded. Blobs, when set, is where DeleteThread
+// removes the files the deleted conversation alone referred to; nil leaves the files (tests).
 type Service struct {
-	Store store.MessageStore
+	Store ConversationStore
 	Bus   *Bus // optional: events fan out when set (SPEC §7.6)
+	Blobs BlobRemover
 	Now   func() time.Time
 }
 
@@ -198,24 +207,18 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	// Shared-id semantics (HDTP §7): adopt the peer's thread id, creating the
 	// thread locally on first sight — but never across contacts.
 	th, err := s.Store.GetThread(ctx, accountID, threadID)
-	switch {
-	case err == nil:
+	held := err == nil
+	if held {
 		if th.ContactFpr != contactFpr {
 			return Result{}, fmt.Errorf("%w: thread belongs to another contact", ErrBadRequest)
 		}
 		if owner && in.Topic != "" {
 			return Result{}, fmt.Errorf("%w: a topic is given when a thread is started, and that thread exists", ErrBadRequest)
 		}
-		if err := s.Store.TouchThread(ctx, accountID, threadID, nowTS); err != nil {
-			return Result{}, err
-		}
-	default:
-		if err := s.Store.InsertThread(ctx, store.Thread{
-			ID: threadID, AccountID: accountID, ContactFpr: contactFpr,
-			Topic: in.Topic, CreatedAt: nowTS, LastAt: nowTS,
-		}); err != nil {
-			return Result{}, err
-		}
+	}
+	thread := store.Thread{
+		ID: threadID, AccountID: accountID, ContactFpr: contactFpr,
+		Topic: in.Topic, CreatedAt: nowTS, LastAt: nowTS,
 	}
 
 	// An INBOUND message has arrived — "delivered" is simply true of it. An
@@ -227,11 +230,28 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	if dir == DirOut {
 		status = "pending"
 	}
-	err = s.Store.InsertMessage(ctx, store.Message{
-		AccountID: accountID, ContactFpr: contactFpr, MsgID: in.MsgID,
-		ThreadID: threadID, Direction: string(dir), Sender: string(in.Sender),
-		Kind: kind, Body: in.Text, ReplyTo: in.ReplyTo, Status: status, CreatedAt: nowTS,
-		ExpiresAt: in.ExpiresAt,
+	// The thread row and the message land together. A conversation deleted between the read above
+	// and these writes leaves no thread to touch, and the message then starts it afresh: a message
+	// is never written under a thread row that is gone, where no inbox and no export would find it.
+	err = s.Store.Atomically(ctx, func(tx store.Store) error {
+		if held {
+			touched, err := tx.TouchThread(ctx, accountID, threadID, nowTS)
+			if err != nil {
+				return err
+			}
+			held = touched > 0
+		}
+		if !held {
+			if err := tx.InsertThread(ctx, thread); err != nil {
+				return err
+			}
+		}
+		return tx.InsertMessage(ctx, store.Message{
+			AccountID: accountID, ContactFpr: contactFpr, MsgID: in.MsgID,
+			ThreadID: threadID, Direction: string(dir), Sender: string(in.Sender),
+			Kind: kind, Body: in.Text, ReplyTo: in.ReplyTo, Status: status, CreatedAt: nowTS,
+			ExpiresAt: in.ExpiresAt,
+		})
 	})
 	if err != nil {
 		// Raced duplicate: someone recorded the same msg_id between our check and

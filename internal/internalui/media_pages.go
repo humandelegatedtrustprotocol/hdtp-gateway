@@ -17,6 +17,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -30,9 +31,10 @@ type MediaDeps struct {
 	Store store.Store
 	// Blobs is the content-addressed byte store a blob row points into.
 	Blobs messaging.BlobDir
-	// Fetch performs an owner-initiated fetch of a contact-supplied URL.
-	// nil disables the route rather than half-serving it.
-	Fetch func(ctx context.Context, accountID, rawURL string) (string, error)
+	// Fetch performs an owner-initiated fetch of the link one media message carries and records
+	// the file on that message (messaging.MediaService.FetchMessage). nil disables the route rather
+	// than half-serving it.
+	Fetch func(ctx context.Context, accountID, messageID string) (string, error)
 	// Audit records reads and fetches; nil records nothing.
 	Audit func(action, resource, outcome string)
 }
@@ -94,20 +96,28 @@ func (d MediaDeps) postMediaFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account := r.PostForm.Get("account")
-	raw := r.PostForm.Get("url")
-	if account == "" || raw == "" {
-		http.Error(w, "account and url are required", http.StatusBadRequest)
+	message := r.PostForm.Get("message")
+	if account == "" || message == "" {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "account and message are required"})
 		return
 	}
-	// SPEC §7.5: this is the owner asking, explicitly. The SSRF range check,
-	// the size cap and the quota accounting all live in MediaService.
-	hash, err := d.Fetch(r.Context(), account, raw)
+	// SPEC §7.5: this is the owner asking, explicitly, for the link of one message. The SSRF range
+	// check, the size cap and the quota accounting all live in MediaService, and so does recording
+	// the file on the message.
+	hash, err := d.Fetch(r.Context(), account, message)
 	if err != nil {
-		d.audit("media_fetch", "account:"+account, "refused")
-		writeJSON(w, map[string]string{"error": err.Error()})
+		status := http.StatusUnprocessableEntity
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, messaging.ErrBadRequest):
+			status = http.StatusBadRequest
+		}
+		d.audit("media_fetch", "account:"+account+" message:"+message, "refused")
+		apiJSONStatus(w, status, map[string]string{"error": err.Error()})
 		return
 	}
-	d.audit("media_fetch", "account:"+account+" blob:"+hash, "ok")
+	d.audit("media_fetch", "account:"+account+" message:"+message+" blob:"+hash, "ok")
 	writeJSON(w, map[string]string{"hash": hash})
 }
 

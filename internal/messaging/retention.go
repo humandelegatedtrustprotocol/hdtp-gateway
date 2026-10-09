@@ -94,8 +94,22 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 		return SweepResult{}, err
 	}
 
-	// Whatever is still referenced by a retained message stays, whatever its age.
-	live, readable, err := s.referencedHashes(ctx, accountID)
+	// Age is a condition, not a detail. A blob row exists BEFORE the message that references it —
+	// `ReceiveInline` writes the two separately — so "unreferenced" alone would destroy media that
+	// arrived seconds ago, in the gap between those writes. Only content that is both unreferenced
+	// AND older than the window is collectable: the aged rows are the candidates, and Files spares
+	// whatever a retained message still names, whatever its age.
+	blobs, err := s.Store.ListBlobs(ctx, accountID)
+	if err != nil {
+		return SweepResult{}, err
+	}
+	var aged []string
+	for _, b := range blobs {
+		if b.CreatedAt < cutoff {
+			aged = append(aged, b.Hash)
+		}
+	}
+	removed, readable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, aged)
 	if err != nil {
 		return SweepResult{}, err
 	}
@@ -107,38 +121,6 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 		s.audit("retention_sweep", "account:"+accountID, "blobs_skipped_unreadable_media")
 		return SweepResult{Messages: msgs, Threads: threads}, nil
 	}
-	blobs, err := s.Store.ListBlobs(ctx, accountID)
-	if err != nil {
-		return SweepResult{}, err
-	}
-	var removed int64
-	for _, b := range blobs {
-		if live[b.Hash] {
-			continue
-		}
-		// Age is a condition, not a detail. A blob row exists BEFORE the message
-		// that references it — `ReceiveInline` writes the two separately — so
-		// "unreferenced" alone would destroy media that arrived seconds ago, in
-		// the gap between those writes. Only content that is both unreferenced
-		// AND older than the window is collectable.
-		if b.CreatedAt >= cutoff {
-			continue
-		}
-		if _, err := s.Store.DeleteBlob(ctx, accountID, b.Hash); err != nil {
-			return SweepResult{}, err
-		}
-		removed++
-		// The file is shared across accounts; it goes only when the last row does.
-		refs, err := s.Store.CountBlobRefs(ctx, b.Hash)
-		if err != nil {
-			return SweepResult{}, err
-		}
-		if refs == 0 && s.Blobs != nil {
-			if err := s.Blobs.Remove(b.Hash); err != nil {
-				return SweepResult{}, fmt.Errorf("retention: removing blob %s: %w", b.Hash, err)
-			}
-		}
-	}
 	if msgs > 0 || removed > 0 {
 		s.audit("retention_sweep",
 			fmt.Sprintf("account:%s messages:%d threads:%d blobs:%d", accountID, msgs, threads, removed), "ok")
@@ -146,15 +128,59 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 	return SweepResult{Messages: msgs, Threads: threads, Blobs: removed}, nil
 }
 
+// Files collects media files: the one place a blob record and its file are deleted, for the
+// retention sweep and for a deleted conversation (Service.DeleteThread) alike.
+type Files struct {
+	Store RetentionStore
+	// Blobs removes the bytes; nil deletes the records and leaves the files (tests).
+	Blobs BlobRemover
+}
+
+// Collect deletes the account's blob record of each candidate hash that no media message of the
+// account still names, and the file behind it once no account's record names it (the store is
+// content-addressed and shared). It returns how many records went. readable is false, and nothing
+// is deleted, when a media message's body does not parse: the set of names still in use is then
+// unknown, and deleting on an unknown set destroys what cannot come back.
+func (f Files) Collect(ctx context.Context, accountID string, candidates []string) (removed int64, readable bool, err error) {
+	live, readable, err := referencedHashes(ctx, f.Store, accountID)
+	if err != nil || !readable {
+		return 0, readable, err
+	}
+	for _, hash := range candidates {
+		if live[hash] {
+			continue
+		}
+		n, err := f.Store.DeleteBlob(ctx, accountID, hash)
+		if err != nil {
+			return removed, true, err
+		}
+		if n == 0 {
+			continue // this account held no record of it: nothing of its to remove
+		}
+		removed++
+		// The file is shared across accounts; it goes only when the last row does.
+		refs, err := f.Store.CountBlobRefs(ctx, hash)
+		if err != nil {
+			return removed, true, err
+		}
+		if refs == 0 && f.Blobs != nil {
+			if err := f.Blobs.Remove(hash); err != nil {
+				return removed, true, fmt.Errorf("retention: removing blob %s: %w", hash, err)
+			}
+		}
+	}
+	return removed, true, nil
+}
+
 // referencedHashes collects the blob hashes retained messages still point at.
 // It reports readable=false if any media body could not be parsed: the caller
 // must then leave blobs alone rather than guess.
-func (s *Sweeper) referencedHashes(ctx context.Context, accountID string) (map[string]bool, bool, error) {
+func referencedHashes(ctx context.Context, st RetentionStore, accountID string) (map[string]bool, bool, error) {
 	out := map[string]bool{}
 	readable := true
 	// The media messages and only those. This asked for every thread and then every message of
 	// every thread, which on a large account was the whole of a sweep's cost.
-	bodies, err := s.Store.ListMediaBodies(ctx, accountID)
+	bodies, err := st.ListMediaBodies(ctx, accountID)
 	if err != nil {
 		return nil, false, err
 	}

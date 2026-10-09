@@ -50,6 +50,7 @@ Registered always (`NewServerWithExtra`):
 | `list_accounts` | The account ids this identity administers. |
 | `get_inbox` | Threads of an account with `unread`, `last_at`, `contact_status` (the contact row's status, or `removed` when no row names the thread's fingerprint) and `removed_contact` (the names a removed contact's thread kept; null while the contact is held). |
 | `read_thread` | A thread's messages oldest first, each labelled with the contact's trust flag; marks the thread read through the newest message returned. |
+| `delete_thread` | Deletes one thread of an account here only, through `messaging.Service.DeleteThread` (the portal's `POST /threads/{id}/delete`): `{status: "deleted", thread_id, messages, files}`; `bad_request` for an empty id, `not_found` for a thread the account does not hold. Writes one `thread_delete` row under `account:<id> contact:<fpr> thread:<id>` with the counts. Acts at once, as every owner MCP tool does. |
 | `send_to_contact` | Sends a message as sender `agent` (origin fixed to the owner MCP, never a parameter), through `Deps.Send` or, with none, records only. `thread_id` empty starts a thread; `topic` is for a new thread. |
 | `list_contacts` | Contacts as `contactView` (named fields only); a waiting request carries `address_claim` when its address belongs, or lately belonged, to another contact. |
 | `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact` | The contact lifecycle through `contacts.Owner`, the portal's own. Each answers the `contacts.Decision` (status afterwards; whether the peer was told) and writes the portal's audit action (`contact_approve`, `contact_reject`, `contact_block`, `contact_unblock`, `contact_remove`) under `account:<id> contact:<fpr>`. `approve_contact` takes an optional `preset`. |
@@ -98,7 +99,8 @@ Three shapes of refusal exist; a caller must not treat them alike.
    (`ErrWrongState`), `bad_request` (`ErrBadRequest`), `payment_required` (`ErrContactCap`),
    `internal` otherwise. Also: `create_invite` answers `unavailable` when the node has no public
    address ("set public_url") and mints nothing; `revoke_invite` answers `not_found` only for a
-   missing or spent invite (a store failure is `internal`); `wait_for_updates` answers
+   missing or spent invite (a store failure is `internal`); `delete_thread` answers `{"code"}`
+   `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
    `bad_request` for a `timeout_sec` outside 1 to 25. `answer_request` answers a relay failure as
    an `IsError` result whose text is the error, with no code; another account's request id is
    answered as one that names nothing (`integrations: unknown pending request`).

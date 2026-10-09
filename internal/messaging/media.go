@@ -102,14 +102,14 @@ func (b BlobDir) Remove(hash string) error {
 type MediaMeta struct {
 	Filename string `json:"filename"`
 	Mime     string `json:"mime"`
-	Hash     string `json:"hash,omitempty"` // set once content is held locally
-	URL      string `json:"url,omitempty"`  // present until an explicit fetch
+	Hash     string `json:"hash,omitempty"` // set once content is held locally: sent inline, or a URL fetched
+	URL      string `json:"url,omitempty"`  // the link a contact sent; kept when the owner fetches it
 	Size     int64  `json:"size,omitempty"`
 }
 
 // MediaService stores and fetches media for an account under its byte quota. Inline media is
 // content-addressed into Blobs and recorded as a kind=media message through a Service; url media
-// is recorded without fetching, and Fetch is the explicit act that retrieves it.
+// is recorded without fetching, and FetchMessage is the explicit act that retrieves it.
 type MediaService struct {
 	Store store.MessageStore
 	Blobs BlobDir
@@ -248,9 +248,53 @@ func (m *MediaService) ReceiveURL(ctx context.Context, msgSvc *Service, accountI
 	return msgSvc.record(ctx, accountID, contactFpr, DirIn, in, "media")
 }
 
-// Fetch is the EXPLICIT owner action for url media: resolve, vet every address,
-// pin the dial, cap the read, count the quota, store content-addressed.
-func (m *MediaService) Fetch(ctx context.Context, accountID, rawURL string) (string, error) {
+// FetchMessage is the EXPLICIT owner action for one url media message (SPEC §7.5): it fetches the
+// link the message carries and records the file on that message, so the message names its file as
+// an inline one does — the conversation view opens it, retention and a deleted conversation collect
+// it (Files), the quota counts it, and an export carries it. A message whose file is already held
+// answers its hash and fetches nothing. A message the account does not hold is store.ErrNotFound;
+// one that is not url media is ErrBadRequest. A message deleted while its file was being fetched
+// leaves no file behind: the record is collected again and the answer is store.ErrNotFound.
+func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID string) (string, error) {
+	msg, err := m.Store.GetMessage(ctx, accountID, messageID)
+	if err != nil {
+		return "", err
+	}
+	var meta MediaMeta
+	if msg.Kind != "media" || json.Unmarshal([]byte(msg.Body), &meta) != nil || (meta.URL == "" && meta.Hash == "") {
+		return "", fmt.Errorf("%w: not a media message with a link", ErrBadRequest)
+	}
+	if meta.Hash != "" {
+		return meta.Hash, nil
+	}
+	hash, err := m.fetchURL(ctx, accountID, meta.URL)
+	if err != nil {
+		return "", err
+	}
+	if b, err := m.Store.GetBlob(ctx, accountID, hash); err == nil {
+		meta.Size = b.Size
+	}
+	meta.Hash = hash
+	body, err := json.Marshal(meta)
+	if err != nil {
+		return "", err
+	}
+	n, err := m.Store.SetMediaBody(ctx, accountID, messageID, string(body))
+	if err != nil {
+		return "", err
+	}
+	if n == 0 {
+		if _, _, err := (Files{Store: m.Store, Blobs: m.Blobs}).Collect(ctx, accountID, []string{hash}); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("%w: the message went while its file was fetched", store.ErrNotFound)
+	}
+	return hash, nil
+}
+
+// fetchURL retrieves a link for the owner: resolve, vet every address, pin the dial, cap the read,
+// count the quota, store content-addressed. FetchMessage is its one caller.
+func (m *MediaService) fetchURL(ctx context.Context, accountID, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("bad_request: %w", err)

@@ -115,6 +115,24 @@ func (q *Queries) DeleteChangesByAccount(ctx context.Context, accountID string) 
 	return result.RowsAffected()
 }
 
+const deleteChangesByThread = `-- name: DeleteChangesByThread :execrows
+DELETE FROM changes WHERE account_id = ? AND thread_id = ?
+`
+
+type DeleteChangesByThreadParams struct {
+	AccountID string
+	ThreadID  string
+}
+
+// A deleted conversation's wake-ups go with it.
+func (q *Queries) DeleteChangesByThread(ctx context.Context, arg DeleteChangesByThreadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteChangesByThread, arg.AccountID, arg.ThreadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertChange = `-- name: InsertChange :one
 INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at)
 VALUES (?, ?, ?, ?, ?, ?)
