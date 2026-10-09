@@ -33,6 +33,15 @@ changelog can be and is not summarized into a fictional release history.
   was set in the portal it printed `warn probe skipped: public_url not configured` and never
   dialled it.
 
+### Changed
+
+- `web/tools/portal-qa.mjs` is removed: nothing ran it, and the harness and `make screenshots`
+  cover what it drove.
+- `make gosec` excludes `.claude`, the checkout's worktrees, which gosec's own filesystem walk
+  entered and the Go tool's `./...` never did.
+- `make analyze` runs its tools under the Go `go.mod` names (`GOTOOLCHAIN=<toolchain>+auto`), so a
+  machine with an older Go, or `GOTOOLCHAIN=local` set, downloads it instead of failing.
+
 ## [0.1.1] — 2026-10-09
 
 ### Fixed
