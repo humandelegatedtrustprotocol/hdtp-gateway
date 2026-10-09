@@ -103,8 +103,8 @@ func TestAStrangersConversationStaysWhenItsRowGoes(t *testing.T) {
 			}
 			joined := strings.Join(res.LeftOut, "\n")
 			for _, want := range []string{
-				"thread t-stranger: 1 message(s) with " + s.strangerID + ", who was never a contact",
-				"thread t-pest: 0 message(s) with " + blocked.Fpr + ", who was never a contact",
+				"thread t-stranger: a conversation of 1 message(s) with " + s.strangerID + ", who was never a contact",
+				"thread t-pest: a conversation of 0 message(s) with " + blocked.Fpr + ", who was never a contact",
 			} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("left out:\n%s\nwant %q", joined, want)

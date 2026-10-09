@@ -168,8 +168,8 @@ func TestAnExportSaysTrulyWhyItLeftAConversationOut(t *testing.T) {
 	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-gone", AccountID: s.accountID, ContactFpr: "sha256:gone", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
 	_, res := exportOf(t, e, "alina")
 	joined := strings.Join(res.LeftOut, "\n")
-	if !strings.Contains(joined, "thread t-stranger: 1 message(s) with "+s.strangerID+", whose request is not yet decided") ||
-		!strings.Contains(joined, "thread t-gone: 0 message(s) with sha256:gone, who was never a contact") {
+	if !strings.Contains(joined, "thread t-stranger: a conversation of 1 message(s) with "+s.strangerID+", whose request is not yet decided") ||
+		!strings.Contains(joined, "thread t-gone: a conversation of 0 message(s) with sha256:gone, who was never a contact") {
 		t.Fatalf("left out:\n%s", joined)
 	}
 }

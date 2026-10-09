@@ -81,7 +81,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			if requested[t.ContactFpr] {
 				why = "whose request is not yet decided"
 			}
-			res.LeftOut = append(res.LeftOut, fmt.Sprintf("thread %s: %d message(s) with %s, %s", t.ID, len(msgs), t.ContactFpr, why))
+			res.LeftOut = append(res.LeftOut, fmt.Sprintf("thread %s: a conversation of %d message(s) with %s, %s", t.ID, len(msgs), t.ContactFpr, why))
 			continue
 		}
 		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt),
