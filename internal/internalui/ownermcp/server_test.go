@@ -526,8 +526,7 @@ func TestRefreshContactNamesOneContactOfTheCallersAccount(t *testing.T) {
 	}
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner, AccountID: e.acctA}, nil)
 
-	// The sweep's name is on the name guard's retired list, so it is spelled here in two halves.
-	sweep := "sync_" + "contacts"
+	sweep := "sync_contacts"
 	tools, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

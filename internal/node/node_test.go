@@ -221,9 +221,8 @@ func TestRoutingAndNotFound(t *testing.T) {
 	if code := status(t, c, base+"/mcp"); code != http.StatusNotFound {
 		t.Fatalf("/mcp on a two-account node: %d", code)
 	}
-	// The relay role's route is gone: it must 404 like any other unknown path. Its path is on the name
-	// guard's retired list, so it is spelled here in two halves.
-	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay" + "/mcp"} {
+	// The relay role's route is gone: it must 404 like any other unknown path.
+	for _, path := range []string{"/a/nope/mcp", "/nothing", "/i/", "/relay/mcp"} {
 		if code := status(t, c, base+path); code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, code)
 		}
