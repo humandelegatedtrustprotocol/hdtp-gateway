@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.2] — 2026-10-09
+
 ### Added
 
 - Deploy templates for one VM with TLS on a hostname (`docs/deploy.md`): a shared first boot
@@ -58,6 +62,12 @@ changelog can be and is not summarized into a fictional release history.
   names nothing (`unknown pending request`). It read the request by id and compared accounts after,
   so a token narrowed to one account told which request ids existed on another. The store reads and
   answers a pending request by account and id (`GetAccountPendingRequest`, `AnswerPendingRequest`).
+- An answer from a contact whose card requires sealing that cannot be verified under any leaf held
+  for it fails at once, with an error that says the pin stands until an answer from the contact
+  carries the chain. The node tried its remedy first, a plaintext `get_card`, which refuses itself
+  against such a contact before sending, and the error named that refusal (`and get_card:
+  seal_required`). Against a contact that takes plaintext the remedy stands: one plaintext
+  `get_card`, its chain followed to the pinned root, then one retry.
 
 ### Changed
 
