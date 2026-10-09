@@ -54,7 +54,7 @@ What the node gets from this, read from the code and not from the provider:
   envelope is its proof — as behind any terminating edge (SPEC §10.1). And Caddy limits nothing
   per address before the node: layer 1 of the node's rate limits is Envoy's configuration
   (`deploy/envoy/envoy.yaml`); behind Caddy only the limits sidecar's per-caller budgets apply
-  (`docs/operations.md`, "Call budgets"). An operator who wants layer 1 runs `deploy/envoy` with a
+  ([`docs/operations.md`, "Call budgets"](operations.md#call-budgets)). An operator who wants layer 1 runs `deploy/envoy` with a
   certificate instead.
 - **The portal stays on the VM's loopback**, as in `compose.yaml`: Caddy proxies the node's public
   listener only. You reach the portal through an SSH tunnel and sign in at `http://localhost:8080`,
@@ -66,7 +66,7 @@ What the node gets from this, read from the code and not from the provider:
   client takes the pinned chain or WebPKI validity for the hostname (`internal/outbound/client.go`).
   Every other `doctor` line applies.
 - **The data is the VM's disk.** SQLite in the `hdtp-data` volume, Caddy's certificates in
-  `caddy-data`. Nothing leaves the VM; nothing backs it up but you (`docs/operations.md`).
+  `caddy-data`. Nothing leaves the VM; nothing backs it up but you ([`docs/operations.md`](operations.md)).
 
 What was measured, on this machine rather than on a provider (Docker 29.8.2, Compose v5.5.1,
 2026-10-09): the shipped `compose.yaml` with the override and the Caddyfile this file writes, the

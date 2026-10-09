@@ -4,9 +4,7 @@ The only demo where the product meets a **third-party edge it does not control**
 Two nodes, each behind its own Cloudflare tunnel on a subdomain of a real zone,
 pairing and messaging across the public internet.
 
-Executed against `hdtp.dev` — `Last manual run: 2026-09-18`; the first run, on `hdtp.io`, was 2026-08-26. It found
-E17 on its first attempt, and F9 through F11 on the run of 2026-09-18 (see
-`batondeck/docs/release/findings-2026-09-18-rig.md`, in the BatonDeck repository, which is not public).
+Executed against `hdtp.dev` — `Last manual run: 2026-09-18`; the first run, on `hdtp.io`, was 2026-08-26.
 
 It is worth the setup because edge mode cannot be faked convincingly. Cloudflare
 terminates TLS, so the node never sees a caller's certificate and identity comes
@@ -60,8 +58,9 @@ hdtp vectors intrude --against https://alice.example.com/a/alice/mcp --card alic
 ```
 
 It needs `--card` because the node serves **no card at a URL of its own**: SPEC §9 puts a
-host's card on its invite landing page, and the public surface is three routes —
-`/a/{slug}/mcp`, `/i/{token}`, `/mcp`. Save the card from the landing page (or from a peer
+host's card on its invite landing page, and the public surface is four routes, none of which
+serves a card — `/a/{slug}/mcp`, `/i/{token}`, `/mcp` and the reachability probe
+`/.well-known/hdtp-probe` (`internal/public/listener.go`). Save the card from the landing page (or from a peer
 that has already paired). A good run says `11 scenarios: 11 blocked, 0 reproduce`; anything
 it cannot classify prints as `unknown:` and counts as a REPRODUCTION, on purpose.
 
