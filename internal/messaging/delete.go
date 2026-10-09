@@ -22,7 +22,7 @@ type Deleted struct {
 // AuditResource is the resource of the one `thread_delete` row a deletion writes: the account, the
 // contact, the thread and what went, never the topic or a body.
 func (d Deleted) AuditResource(accountID string) string {
-	return fmt.Sprintf("account:%s contact:%s thread:%s messages:%d files:%d",
+	return fmt.Sprintf("account:%s contact:%s thread_id:%s messages:%d files:%d",
 		accountID, d.Contact, d.ThreadID, d.Messages, d.Files)
 }
 

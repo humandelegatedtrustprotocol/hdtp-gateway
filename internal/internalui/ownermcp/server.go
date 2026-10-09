@@ -604,7 +604,7 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 		return r, nil, err
 	}
 	gone, err := ot.d.Msg.DeleteThread(ctx, a.AccountID, a.ThreadID)
-	resource := "account:" + a.AccountID + " thread:" + a.ThreadID
+	resource := "account:" + a.AccountID + " thread_id:" + a.ThreadID
 	if gone.Status == "deleted" {
 		resource = gone.AuditResource(a.AccountID)
 	}

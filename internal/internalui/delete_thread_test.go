@@ -100,7 +100,7 @@ func TestDeletingAConversationFromThePortal(t *testing.T) {
 	if held(mine.ID, myThread) {
 		t.Fatal("the conversation is still there")
 	}
-	want := "account:" + mine.ID + " contact:sha256:friend thread:" + myThread + " messages:1 files:0 ok"
+	want := "account:" + mine.ID + " contact:sha256:friend thread_id:" + myThread + " messages:1 files:0 ok"
 	if len(rows) != 1 || rows[0] != want {
 		t.Fatalf("audit = %v; want exactly [%s]", rows, want)
 	}

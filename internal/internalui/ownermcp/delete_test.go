@@ -79,7 +79,7 @@ func TestDeleteThreadDeletesOneConversationAndRefusesTheRest(t *testing.T) {
 	if held(e.acctA, mine) {
 		t.Fatal("the conversation is still there")
 	}
-	want := "account:" + e.acctA + " contact:sha256:alina thread:" + mine + " messages:1 files:0 ok"
+	want := "account:" + e.acctA + " contact:sha256:alina thread_id:" + mine + " messages:1 files:0 ok"
 	if len(rows) != 1 || rows[0] != want {
 		t.Fatalf("audit = %v; want exactly [%s]", rows, want)
 	}
