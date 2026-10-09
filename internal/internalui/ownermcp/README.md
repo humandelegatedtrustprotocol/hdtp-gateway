@@ -48,7 +48,7 @@ Registered always (`NewServerWithExtra`):
 | Tool | Contract |
 |---|---|
 | `list_accounts` | The account ids this identity administers. |
-| `get_inbox` | Threads of an account with `unread`, `last_at` and `removed_contact` (the names a removed contact's thread kept; null while the contact is held). |
+| `get_inbox` | Threads of an account with `unread`, `last_at`, `contact_status` (the contact row's status, or `removed` when no row names the thread's fingerprint) and `removed_contact` (the names a removed contact's thread kept; null while the contact is held). |
 | `read_thread` | A thread's messages oldest first, each labelled with the contact's trust flag; marks the thread read through the newest message returned. |
 | `send_to_contact` | Sends a message as sender `agent` (origin fixed to the owner MCP, never a parameter), through `Deps.Send` or, with none, records only. `thread_id` empty starts a thread; `topic` is for a new thread. |
 | `list_contacts` | Contacts as `contactView` (named fields only); a waiting request carries `address_claim` when its address belongs, or lately belonged, to another contact. |

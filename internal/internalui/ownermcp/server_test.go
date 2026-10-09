@@ -580,6 +580,7 @@ func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
 	inbox := func() []struct {
 		ContactFpr     string `json:"contact_fpr"`
 		Unread         int64  `json:"unread"`
+		ContactStatus  string `json:"contact_status"`
 		RemovedContact *kept  `json:"removed_contact"`
 	} {
 		t.Helper()
@@ -587,12 +588,13 @@ func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
 		if isErr {
 			t.Fatalf("get_inbox: %s", text)
 		}
-		if !strings.Contains(text, `"removed_contact":`) {
+		if !strings.Contains(text, `"removed_contact":`) || !strings.Contains(text, `"contact_status":`) {
 			t.Fatalf("no removed_contact member: %s", text)
 		}
 		var rows []struct {
 			ContactFpr     string `json:"contact_fpr"`
 			Unread         int64  `json:"unread"`
+			ContactStatus  string `json:"contact_status"`
 			RemovedContact *kept  `json:"removed_contact"`
 		}
 		if err := json.Unmarshal([]byte(text), &rows); err != nil || len(rows) != 1 {
@@ -600,8 +602,8 @@ func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
 		}
 		return rows
 	}
-	if r := inbox()[0]; r.RemovedContact != nil {
-		t.Fatalf("a held contact's thread: %+v", r.RemovedContact)
+	if r := inbox()[0]; r.RemovedContact != nil || r.ContactStatus != "active" {
+		t.Fatalf("a held contact's thread: %q %+v", r.ContactStatus, r.RemovedContact)
 	}
 	if err := e.st.SetContactPetname(ctx, e.acctA, "sha256:alina", "Alina from the bakery"); err != nil {
 		t.Fatal(err)
@@ -610,13 +612,14 @@ func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := inbox()[0]
-	if r.RemovedContact == nil || *r.RemovedContact != (kept{DisplayName: "Alina", Petname: "Alina from the bakery"}) || r.Unread != 1 {
-		t.Fatalf("after the removal: %+v unread=%d", r.RemovedContact, r.Unread)
+	if r.RemovedContact == nil || *r.RemovedContact != (kept{DisplayName: "Alina", Petname: "Alina from the bakery"}) || r.Unread != 1 || r.ContactStatus != StatusRemoved {
+		t.Fatalf("after the removal: %q %+v unread=%d", r.ContactStatus, r.RemovedContact, r.Unread)
 	}
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:alina", Status: "active", SPKI: []byte{1}}); err != nil {
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:alina", Status: "pending_in", SPKI: []byte{1}}); err != nil {
 		t.Fatal(err)
 	}
-	if r := inbox()[0]; r.RemovedContact != nil {
-		t.Fatalf("re-added, still marked removed: %+v", r.RemovedContact)
+	// Asking again: a request names the fingerprint, so the thread is the request's, not removed.
+	if r := inbox()[0]; r.RemovedContact != nil || r.ContactStatus != "pending_in" {
+		t.Fatalf("asking again, still marked removed: %q %+v", r.ContactStatus, r.RemovedContact)
 	}
 }
