@@ -60,6 +60,13 @@ services:
         condition: service_completed_successfully
     volumes:
       - hdtp-data:/data
+    # The sidecar's own healthcheck, as in ../../compose.yaml: the image's asks the portal this
+    # container does not serve.
+    healthcheck:
+      test: ["CMD", "/hdtp-gateway", "healthcheck", "--limits"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
 
   envoy:
     # Envoy 1.35.13, pinned by digest: the harness's S23 runs this same reference (images.Envoy).

@@ -26,7 +26,8 @@ Callers: `internal/node` builds charges (`chargeOf`, `outbound.go`) and calls `D
   contacts, for `get_card`; it spends nothing.
 - `Client.Rules` returns the sidecar's `Rules`, read once and kept; `Client.Probe` reads them again
   and refreshes the kept copy. It spends nothing and proves the sidecar
-  answers: `/healthz` and `serve`'s banner ask it through `node.LimitsAnswer`, `doctor` calls it directly.
+  answers: `/healthz` and `serve`'s banner ask it through `node.LimitsAnswer`, `doctor` and
+  `healthcheck --limits` (the sidecar container's own healthcheck) call it directly.
 - `Decision`: `Allowed`, `RetryAfter`, `RefusedBy`, `Countable`.
 - `DefaultTimeout`, `Client.Timeout`, `Client.Path`.
 

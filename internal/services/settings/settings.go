@@ -190,6 +190,21 @@ func (s *Service) Values(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// Overlay layers the owner-set knobs the store holds under the environment and the file and
+// re-derives (core.Config.ApplyStoreSettings, SPEC §12.2). Those knobs are top-level keys and
+// never secret rows (TestNoOwnerSettableKnobIsASecretRow), so it reads without the keyring:
+// serve calls it at startup, and doctor, which opens no keyring, reads the same values the
+// same way.
+func (s *Service) Overlay(ctx context.Context) error {
+	values, err := s.plainValues(ctx)
+	if err != nil {
+		return err
+	}
+	var applied error
+	s.writeCfg(func(c *core.Config) { applied = c.ApplyStoreSettings(values) })
+	return applied
+}
+
 // plainValues returns the stored NON-secret settings. It is the render path:
 // it never decrypts, so a secret cannot reach a template through it.
 func (s *Service) plainValues(ctx context.Context) (map[string]string, error) {

@@ -14,8 +14,8 @@ backed up, and what to do when something is lost. Design rationale lives in
 | `hdtp.lock` | held while `serve` runs; offline commands refuse to run while it is held |
 | `admin.sock` | the admin socket the CLI talks to while the node is running |
 
-Configuration: env `HDTP_*` > `config.json` > defaults (`hdtp-gateway doctor` prints the
-resolved result). The deployment **mode is derived** from the tunnel adapter, never
+Configuration: env `HDTP_*` > `config.json` > what the portal's Settings saved > defaults
+(`hdtp-gateway doctor` prints the resolved result). The deployment **mode is derived** from the tunnel adapter, never
 declared (SPEC §10.1).
 
 ## Reachability

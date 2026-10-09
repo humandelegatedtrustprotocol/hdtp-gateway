@@ -56,6 +56,14 @@ services:
         condition: service_completed_successfully
     volumes:
       - hdtp-data:/data
+    # The image's HEALTHCHECK asks the node's portal, which this container does not serve. This one
+    # asks the sidecar itself for its rules, over the socket the node asks it on (HDTP_LIMITS_SOCKET,
+    # else /data/limits.sock), with the binary the image has: distroless has no shell.
+    healthcheck:
+      test: ["CMD", "/hdtp-gateway", "healthcheck", "--limits"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
 
   # The portal forwarder.
   #

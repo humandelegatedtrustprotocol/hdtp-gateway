@@ -54,6 +54,12 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		s, err := openStore(cfg)
 		report("store-open", err)
 		if err == nil {
+			// What the portal saved, under the environment and the file, as serve reads it: the
+			// public URL probed below is the node's, not the file's alone. No keyring: Overlay
+			// opens no secret row.
+			if err := settings.New(s, nil, cfg, nil).Overlay(context.Background()); err != nil {
+				report("settings", err)
+			}
 			if accts, err := s.ListAccounts(context.Background()); err == nil && len(accts) > 0 {
 				served = settings.ServedIdentities(cfg.PublicURL, accts)
 				// HDTP 1.0 (HDTP §2): a host asks for renewal thirty days ahead;
