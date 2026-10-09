@@ -345,8 +345,9 @@ func review(w io.Writer, p *portable.Plan) {
 	for _, c := range p.Conflicts {
 		fmt.Fprintf(w, "  the file says %s's %s is %v; this host's %v stands\n", c.Root, c.Field, c.Row, c.Held)
 	}
-	// HDTP §9.2 step 1: each removed row, by its names and its root. It is never a contact here.
-	for _, r := range p.Contents.Removed {
+	// HDTP §9.2 step 1: each former contact, by its root and the names its removed threads carry. It
+	// is never a contact here.
+	for _, r := range p.Removed {
 		fmt.Fprintf(w, "  removed %s %q (%q): a former contact's conversation, never written as a contact\n", r.Root, r.DisplayName, r.Name)
 	}
 	fmt.Fprintf(w, "and %d thread(s), %d message(s), %d file(s)\n", len(p.Contents.Threads), len(p.Contents.Messages), len(p.Contents.Media))

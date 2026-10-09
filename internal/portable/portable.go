@@ -62,7 +62,7 @@ func aRequest(c store.Contact) bool { return c.Status == "pending_in" }
 type Result struct {
 	Contacts, Threads, Messages, Media int
 	// Removed counts the former contacts whose conversations an export carried, or an import took
-	// in: removed rows, which are never contacts (HDTP §9.2).
+	// in: the roots of removed threads, which are never contacts (HDTP §9.2).
 	Removed int
 	// PinsFilled counts, on an import, the contacts held here with no leaf whose pin the file
 	// filled; Contacts counts the contacts it added.

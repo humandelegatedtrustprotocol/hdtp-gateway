@@ -27,7 +27,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		return res, refuse("%s has never been issued a certificate, so it has no root for an export to name as its owner", slug)
 	}
 	in := hdtpidentity.ExportInput{Owner: a.RootFingerprint, OwnerName: a.DisplayName, Tool: tool, ExportedAt: now,
-		Contacts: []hdtpidentity.ContactRow{}, Removed: []hdtpidentity.RemovedRow{}, Threads: []hdtpidentity.ThreadRow{},
+		Contacts: []hdtpidentity.ContactRow{}, Threads: []hdtpidentity.ThreadRow{},
 		Messages: []hdtpidentity.MessageRow{}, Media: []hdtpidentity.ExportMedia{}}
 
 	held, err := st.ListContacts(ctx, a.ID)
@@ -50,20 +50,20 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		return res, fmt.Errorf("export: %w", err)
 	}
 	// A former contact (HDTP §9.2): a root with no contact row carried here — none, or a request not
-	// yet decided — of which a thread kept that it was once a contact. Each travels as a removed row
-	// named by its newest thread's kept names, the names the conversation list shows it by
-	// (internalui formerContacts): threads come newest first.
-	former := map[string]bool{}
+	// yet decided — of which a thread kept that it was once a contact. Each of its threads travels as
+	// a removed thread carrying the names its newest thread kept, the names the conversation list
+	// shows it by (internalui formerContacts; threads come newest first), so they agree on every one.
+	former := map[string][2]string{}
 	for _, t := range threads {
 		if !carried[t.ContactFpr] && t.KeptWasContact {
-			former[t.ContactFpr] = true
+			former[t.ContactFpr] = [2]string{}
 		}
 	}
 	named := map[string]bool{}
 	for _, t := range threads {
-		if former[t.ContactFpr] && !named[t.ContactFpr] {
+		if _, isFormer := former[t.ContactFpr]; isFormer && !named[t.ContactFpr] {
 			named[t.ContactFpr] = true
-			in.Removed = append(in.Removed, hdtpidentity.RemovedRow{Root: t.ContactFpr, Name: t.KeptPetname, DisplayName: t.KeptDisplayName})
+			former[t.ContactFpr] = [2]string{t.KeptPetname, t.KeptDisplayName}
 		}
 	}
 	sort.SliceStable(threads, func(i, j int) bool { return threads[i].CreatedAt < threads[j].CreatedAt })
@@ -73,7 +73,8 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		if err != nil {
 			return res, fmt.Errorf("export: %w", err)
 		}
-		if !carried[t.ContactFpr] && !former[t.ContactFpr] {
+		names, isFormer := former[t.ContactFpr]
+		if !carried[t.ContactFpr] && !isFormer {
 			// A root that was never a contact: a stranger's request not yet decided, or one whose row
 			// went (expired or refused). Its conversation stays here, and is named (HDTP §9.2).
 			why := "who was never a contact"
@@ -83,7 +84,8 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			res.LeftOut = append(res.LeftOut, fmt.Sprintf("thread %s: %d message(s) with %s, %s", t.ID, len(msgs), t.ContactFpr, why))
 			continue
 		}
-		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt)})
+		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt),
+			ContactName: names[0], ContactDisplayName: names[1]})
 		for _, m := range msgs {
 			row, hash, err := messageRow(m)
 			if err != nil {
@@ -138,7 +140,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			files[a.File] = true
 		}
 	}
-	res.Contacts, res.Removed, res.Threads, res.Media = len(in.Contacts), len(in.Removed), len(in.Threads), len(files)
+	res.Contacts, res.Removed, res.Threads, res.Media = len(in.Contacts), len(former), len(in.Threads), len(files)
 	return res, nil
 }
 

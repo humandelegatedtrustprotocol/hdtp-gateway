@@ -11,6 +11,22 @@ import (
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
+// removedThreads is a file's removed threads (HDTP §9.2: a thread whose contact is no row of
+// contacts.csv), by root, with the names each carries.
+func removedThreads(c *hdtpidentity.ExportContents) map[string][2]string {
+	held := map[string]bool{}
+	for _, r := range c.Contacts {
+		held[r.Root] = true
+	}
+	out := map[string][2]string{}
+	for _, t := range c.Threads {
+		if !held[t.Contact] {
+			out[t.Contact] = [2]string{t.ContactName, t.ContactDisplayName}
+		}
+	}
+	return out
+}
+
 // formerContact adds Chen as an active contact with a petname and a conversation, then removes
 // the row as the owner's removal does: the trigger keeps the names and that Chen was a contact.
 func formerContact(t *testing.T, e env, accountID string) string {
@@ -29,9 +45,9 @@ func formerContact(t *testing.T, e env, accountID string) string {
 	return chen.Fpr
 }
 
-// HDTP §9.2 (SEP-0004): a former contact's conversation travels, named by a removed row carrying the
-// names it kept; it is not a contact, and nothing of it is left out.
-func TestAFormerContactsConversationTravelsAsARemovedRow(t *testing.T) {
+// HDTP §9.2 (SEP-0004): a former contact's conversation travels as a removed thread carrying the
+// names it kept; its root is not a contact, and nothing of it is left out.
+func TestAFormerContactsConversationTravelsAsARemovedThread(t *testing.T) {
 	for _, eng := range engines(t) {
 		t.Run(eng.name, func(t *testing.T) {
 			e := newEnv(t, eng.open)
@@ -40,8 +56,8 @@ func TestAFormerContactsConversationTravelsAsARemovedRow(t *testing.T) {
 			file, res := exportOf(t, e, "alina")
 			got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
 			must(t, err)
-			if len(got.Removed) != 1 || got.Removed[0] != (hdtpidentity.RemovedRow{Root: chen, Name: "Chen, old team", DisplayName: "Chen Wu"}) {
-				t.Fatalf("removed rows: %+v", got.Removed)
+			if rt := removedThreads(got); len(rt) != 1 || rt[chen] != [2]string{"Chen, old team", "Chen Wu"} {
+				t.Fatalf("removed threads: %+v", rt)
 			}
 			for _, c := range got.Contacts {
 				if c.Root == chen {
@@ -82,8 +98,8 @@ func TestAStrangersConversationStaysWhenItsRowGoes(t *testing.T) {
 			file, res := exportOf(t, e, "alina")
 			got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
 			must(t, err)
-			if len(got.Removed) != 0 || len(got.Threads) != 1 {
-				t.Fatalf("a stranger travels: removed %+v, threads %+v", got.Removed, got.Threads)
+			if rt := removedThreads(got); len(rt) != 0 || len(got.Threads) != 1 {
+				t.Fatalf("a stranger travels: removed %+v, threads %+v", rt, got.Threads)
 			}
 			joined := strings.Join(res.LeftOut, "\n")
 			for _, want := range []string{
@@ -99,7 +115,7 @@ func TestAStrangersConversationStaysWhenItsRowGoes(t *testing.T) {
 }
 
 // A former contact who asks again is a request this host holds, which stays with it; the
-// conversation from when they were a contact travels as a removed row (HDTP §9.2, the status cell).
+// conversation from when they were a contact travels as a removed thread (HDTP §9.2, the status cell).
 func TestAFormerContactAskingAgainTravelsAndTheRequestStays(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, sqliteStore)
@@ -110,8 +126,8 @@ func TestAFormerContactAskingAgainTravelsAndTheRequestStays(t *testing.T) {
 	file, res := exportOf(t, e, "alina")
 	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
 	must(t, err)
-	if len(got.Removed) != 1 || got.Removed[0].Root != chen || got.Removed[0].Name != "Chen, old team" {
-		t.Fatalf("removed rows: %+v", got.Removed)
+	if rt := removedThreads(got); len(rt) != 1 || rt[chen][0] != "Chen, old team" {
+		t.Fatalf("removed threads: %+v", rt)
 	}
 	joined := strings.Join(res.LeftOut, "\n")
 	if !strings.Contains(joined, "a request from "+chen+" that was never accepted") || strings.Contains(joined, "thread t-chen") {
@@ -131,11 +147,11 @@ func TestARemovedConversationArrivesAndNeverBecomesAContact(t *testing.T) {
 			file, _ := exportOf(t, src, "alina")
 			p, res, err := importFile(t, dst, file, "alina", time.Now())
 			must(t, err)
-			if res.Removed != 1 || res.Contacts != 1 || len(p.Contents.Removed) != 1 {
+			if res.Removed != 1 || res.Contacts != 1 || len(p.Removed) != 1 || p.Removed[0] != (RemovedContact{Root: chen, Name: "Chen, old team", DisplayName: "Chen Wu"}) {
 				t.Fatalf("import: %+v", res)
 			}
 			if _, err := dst.st.GetContact(ctx, p.AccountID, chen); err == nil {
-				t.Fatal("a removed row was written as a contact")
+				t.Fatal("a removed thread's root was written as a contact")
 			}
 			th, err := dst.st.GetThread(ctx, p.AccountID, "t-chen")
 			must(t, err)
@@ -152,8 +168,8 @@ func TestARemovedConversationArrivesAndNeverBecomesAContact(t *testing.T) {
 			again, _ := exportOf(t, dst, "alina")
 			got, err := hdtpidentity.ReadExportZip(zipReader(t, again), s.me.Fpr, time.Now(), ImportCeiling)
 			must(t, err)
-			if len(got.Removed) != 1 || got.Removed[0] != (hdtpidentity.RemovedRow{Root: chen, Name: "Chen, old team", DisplayName: "Chen Wu"}) {
-				t.Fatalf("exported again: %+v", got.Removed)
+			if rt := removedThreads(got); len(rt) != 1 || rt[chen] != [2]string{"Chen, old team", "Chen Wu"} {
+				t.Fatalf("exported again: %+v", rt)
 			}
 		})
 	}

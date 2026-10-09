@@ -273,7 +273,7 @@ type ImportThreadParams struct {
 
 // A thread arriving in an export (SPEC sec. 3.10). One already here, by id, is left as it is:
 // importing into an identity this host already holds adds what it lacks and changes nothing else.
-// A former contact's thread arrives with the names its removed row carries, and as a contact's.
+// A removed thread arrives with the names it carries, and as a former contact's.
 func (q *Queries) ImportThread(ctx context.Context, arg ImportThreadParams) (int64, error) {
 	result, err := q.db.Exec(ctx, importThread,
 		arg.ID,

@@ -14,13 +14,13 @@ changelog can be and is not summarized into a fictional release history.
 
 - An export carries a former contact's conversation, and an import takes it in (HDTP §9.2,
   SEP-0004): each root that was ever a contact and is not (no row, or a request not yet decided)
-  travels as a `removed.csv` row, its root and the names its newest thread kept, with its threads,
-  messages and files. It is never written as a contact and never called; into an identity that
+  travels: each of its threads as a removed thread in `threads.csv`, carrying the names its newest
+  thread kept, with its messages and files. Its root is never written as a contact and never
+  called; into an identity that
   holds the root, the thread is that contact's. Migration 0003 keeps on each thread whether its root
   was ever a contact, as its row is deleted (`ever_active` or active; once kept it stays). What an
   export still leaves out — a request's conversation, a root never a contact — is named by thread
-  id and reason. The export warns about BatonDeck's ceilings on `removed.csv` (20,000 rows, 4 MiB).
-  Requires hdtp-identity 0.8.0.
+  id and reason. Requires hdtp-identity 0.8.0.
 
 ### Changed
 

@@ -371,10 +371,10 @@ func TestOnlyAMediaNameIsAFile(t *testing.T) {
 }
 
 // The cloud derives its central directory bounds from its files (limits.ts DIRECTORY_LIMITS): the
-// files and the six members that are not a file, each record at most 46 bytes, the longest name
+// files and the five members that are not a file, each record at most 46 bytes, the longest name
 // (media/ and a sha256 in hex) and 32 bytes of extra fields. The node's copies are held to it.
 func TestTheCloudsDirectoryBounds(t *testing.T) {
-	if cloudZipEntries != cloudMediaFiles+6 {
+	if cloudZipEntries != cloudMediaFiles+5 {
 		t.Fatalf("entries %d, files %d", cloudZipEntries, cloudMediaFiles)
 	}
 	if cloudDirectoryBytes != cloudZipEntries*(46+len("media/")+64+32) {
