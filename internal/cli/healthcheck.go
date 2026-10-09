@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -12,13 +13,19 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
 )
 
 // healthcheck probes the internal listener's /healthz; the container HEALTHCHECK
-// runs this (distroless has no shell or curl). Exit 0 iff healthy.
+// runs this (distroless has no shell or curl). With --limits it asks the limits sidecar at the
+// configured socket for its rules instead, and nothing else: the sidecar's own container
+// (compose.yaml's `limitd`) serves no portal, and the image's HEALTHCHECK would ask for one.
+// Exit 0 iff healthy.
 func healthcheck(args []string, stderr io.Writer) int {
 	var cfgPath string
+	var limitsOnly bool
 	fs := commonFlags("healthcheck", &cfgPath, stderr)
+	fs.BoolVar(&limitsOnly, "limits", false, "probe the limits sidecar at the configured socket instead of the portal")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -26,6 +33,15 @@ func healthcheck(args []string, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "healthcheck:", err)
 		return 1
+	}
+	if limitsOnly {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := limits.New(cfg.LimitsSocketPath()).Probe(ctx); err != nil {
+			fmt.Fprintf(stderr, "healthcheck: %s: %v\n", cfg.LimitsSocketPath(), err)
+			return 1
+		}
+		return 0
 	}
 	client, url, err := healthClient(cfg)
 	if err != nil {

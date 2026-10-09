@@ -2,6 +2,8 @@ module github.com/humandelegatedtrustprotocol/hdtp-gateway
 
 go 1.26.6
 
+toolchain go1.26.9
+
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/Shopify/toxiproxy/v2 v2.12.0

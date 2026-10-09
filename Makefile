@@ -1,7 +1,7 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names notices notices-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: names notices notices-check deploy-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -22,6 +22,20 @@ all: web check analyze build dist sbom
 # pinned HERE and the hook calls these targets — one list, not two to drift apart.
 analyze: vulncheck staticcheck gosec deadcode
 
+# The Go the analyzers run under: the one go.mod names (its `toolchain` line when it has one, else
+# its `go` line, which is a full version: the go command refuses a bare language version here, by
+# name), with the go command free to switch higher. Each recipe is `go run <tool>@<version>` under
+# whatever Go is on PATH, and with GOTOOLCHAIN=local in the environment a machine whose Go is older
+# than go.mod's fails at the tool's `go list` ("go.mod requires go >= …; GOTOOLCHAIN=local") and
+# scans nothing. Exported for these targets alone, the name wins over the environment: the go
+# command downloads that toolchain once and the recipe runs under it. A Go older than 1.21 has no
+# switching and is not helped.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
+ifeq ($(GO_TOOLCHAIN),)
+GO_TOOLCHAIN := go$(shell sed -n 's/^go //p' go.mod)
+endif
+analyze vulncheck staticcheck gosec deadcode: export GOTOOLCHAIN = $(GO_TOOLCHAIN)+auto
+
 # The second line: the replace leaves the node's scan no version of frp to match advisories
 # against, so upstream frp v0.71.0 is scanned on its own (scripts/frp-patch.sh).
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -38,9 +52,14 @@ staticcheck:
 # handful of by-design hits carry #nosec with a reason. third_party/frp is a dependency, held byte
 # for byte to upstream plus one patch (frp-check), so it is not ours to restyle: it is excluded
 # here as the module cache it replaces always was, and govulncheck still covers it.
+# `.claude` holds this checkout's worktrees. gosec walks the filesystem itself (its PackagePaths, a
+# filepath.Walk from `.`) instead of asking the go command, so unlike `./...` under go vet,
+# govulncheck, staticcheck and deadcode, which resolve it through go/packages and skip a
+# dot-directory, it took every worktree's tree in: 492 package directories against 41 on
+# 2026-10-09, each loaded and scanned, in a checkout with sixteen worktrees.
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
-		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude=G101,G104,G304 ./...
+		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude-dir=.claude -exclude=G101,G104,G304 ./...
 
 # Whole-program reachability from the shipped binary (review N-15). The report goes to a file, not
 # a pipe: make runs /bin/sh, where a pipeline's status is its last command's, so a deadcode that
@@ -139,7 +158,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names notices-check frp-check dependents limitd-check test test-js
+check: fmt vet names notices-check deploy-check frp-check dependents limitd-check test test-js
 
 # The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
 # (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
@@ -175,6 +194,15 @@ notices:
 	node scripts/notices.mjs
 notices-check:
 	node scripts/notices.mjs --check
+
+# The deploy templates (deploy/, docs/deploy.md) only run on a provider's machine, so between runs
+# they go stale silently: this holds them to each other and to the node on every `make check`
+# (scripts/deploy-check.mjs says what to what). The self-test runs first: a guard that refuses
+# nothing passes every tree. `--sync` rewrites the copies of deploy/cloud-init.yaml the AWS and
+# Azure templates carry after that file changes.
+deploy-check:
+	node scripts/deploy-check.mjs --selftest
+	node scripts/deploy-check.mjs
 
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7): HDTP §12's budgets, decided by hdtp-identity's
 # hdtp-limits crate, required by version (its Cargo.toml). Rust, so cargo. The crate is fetched over

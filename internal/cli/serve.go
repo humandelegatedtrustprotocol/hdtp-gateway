@@ -250,7 +250,7 @@ func (s *serveRun) startTunnel() (tunnel.Adapter, error) {
 		return nil, err
 	}
 	s.stored = stored
-	if err := s.cfg.ApplyStoreSettings(stored); err != nil {
+	if err := s.settings.Overlay(s.ctx); err != nil {
 		return nil, err
 	}
 	adapterName, adapter, info, err := startTunnel(s.ctx, s.cfg, stored)
