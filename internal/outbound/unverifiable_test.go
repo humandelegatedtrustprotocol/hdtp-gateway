@@ -34,8 +34,12 @@ type renewedPeer struct {
 	// responder answers get_card with the chain whatever its record says (§13.2); a test sets
 	// cardForm to "leaf" to stand in for one that answers it by the record.
 	form, cardForm string
-	addr           string
-	state          hdtpidentity.NodeState
+	// retireAfter names the tool whose sealed answer retires the pinned key as it goes: the key moves
+	// from the held keys to the former ones, and an envelope sealed to it from then on is answered
+	// certificate_renewed with the current chain, in plaintext (§14.4).
+	retireAfter string
+	addr        string
+	state       hdtpidentity.NodeState
 }
 
 // startRenewedPeer issues a second leaf under the test identity's root, newer than the one the
@@ -87,6 +91,11 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			var env hdtpidentity.Envelope
 			_ = json.Unmarshal(raw, &env)
 			d, err := hdtpidentity.Decide(time.Now(), env, p.state)
+			if err == nil && d.Result["code"] == "certificate_renewed" {
+				p.calls["certificate_renewed"]++
+				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": d.Result["data"]})
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
+			}
 			if err != nil || d.Result["code"] != "ok" {
 				t.Errorf("sealed_call did not open: %v %v", err, d.Result)
 				return nil, nil, err
@@ -112,6 +121,10 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			if err != nil {
 				t.Errorf("sealed_call: seal: %v", err)
 				return nil, nil, err
+			}
+			if tool == p.retireAfter {
+				p.state.Keys = p.state.Keys[1:]
+				p.state.Former = append(p.state.Former, id.kp.Fingerprint)
 			}
 			body, _ := json.Marshal(out)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
@@ -276,5 +289,47 @@ func TestAnAnswerCarryingTheRenewedChainRepinsWithoutGetCard(t *testing.T) {
 	}
 	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
 		t.Fatalf("the pin must follow the chain the answer carried, once: %d re-pin(s)", len(repinned))
+	}
+}
+
+func TestASealedGetCardAnsweredCertificateRenewedFailsTheCallAndTheNextCallFollowsIt(t *testing.T) {
+	alina := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp")
+	bharat := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
+	p := startRenewedPeer(t, alina, bharat)
+	// The pinned key retires between the attempt and the get_card: the attempt opens under it and
+	// is answered under the unknown leaf; the sealed get_card, sealed to the same key, is refused
+	// certificate_renewed in plaintext before it opens.
+	p.retireAfter = "send_message"
+	var repinned [][]byte
+	c := callerTo(t, bharat, p, &repinned)
+
+	_, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "hi"}, "m-retired")
+	if err == nil {
+		t.Fatal("a sealed get_card answered certificate_renewed must fail the call")
+	}
+	for _, want := range []string{"unverifiable answer: unknown leaf", "a sealed get_card", "certificate_renewed"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error must say %q: %v", want, err)
+		}
+	}
+	if len(repinned) != 0 {
+		t.Fatalf("the pin moved on a call that failed: %d re-pin(s)", len(repinned))
+	}
+	if p.calls["sealed get_card"] != 0 || p.calls["certificate_renewed"] != 1 || p.calls["sealed send_message"] != 1 {
+		t.Fatalf("calls %v, want the attempt and one get_card refused certificate_renewed before it opened", p.calls)
+	}
+
+	// The pin stands, so the next call seals to the retired key again: its first attempt is answered
+	// certificate_renewed, whose chain it follows to the current leaf, and delivers.
+	res, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "again"}, "m-after-retired")
+	if err != nil {
+		t.Fatalf("the next call must follow certificate_renewed: %v", err)
+	}
+	delivered(t, res)
+	if p.calls["certificate_renewed"] != 2 || p.calls["sealed send_message"] != 2 || p.calls["sealed get_card"] != 0 {
+		t.Fatalf("calls %v, want the second call's attempt answered certificate_renewed and one re-sealed send_message", p.calls)
+	}
+	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
+		t.Fatalf("the pin must follow the renewed chain once: %d re-pin(s)", len(repinned))
 	}
 }
