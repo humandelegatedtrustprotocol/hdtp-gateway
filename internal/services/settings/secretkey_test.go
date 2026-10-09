@@ -4,7 +4,24 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
+
+// Overlay reads the owner-settable knobs without the keyring, which is right only while none of
+// them is stored as a secret row: the knobs are the settings page's, and the predicate that seals
+// a row is isSecretKey.
+func TestNoOwnerSettableKnobIsASecretRow(t *testing.T) {
+	knobs := (&core.Config{}).EffectiveSettings()
+	if len(knobs) == 0 {
+		t.Fatal("no owner-settable knobs; this checks nothing")
+	}
+	for _, k := range knobs {
+		if isSecretKey(k.Key) {
+			t.Errorf("%q would be sealed at rest, and Overlay, which opens no secret row, would not apply it", k.Key)
+		}
+	}
+}
 
 // Credentials for a supervised stdio child are stored as
 // `integration.<slug>.env.<NAME>` settings rows, and environment variable names

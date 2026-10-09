@@ -74,3 +74,21 @@ func TestASidecarThatIsDownIsNamedByTheHealthCheckDoctorAndTheBanner(t *testing.
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// The sidecar's own container serves no portal (compose.yaml's `limitd`), so its healthcheck asks
+// the sidecar over the socket the node asks it on, and nothing else: with no portal listening it
+// passes while the sidecar answers and fails, naming the socket, once it does not.
+func TestTheHealthcheckOfTheSidecarAsksItsSocketAndNoPortal(t *testing.T) {
+	side := limitstest.StartDefault(t)
+	t.Setenv("HDTP_LIMITS_SOCKET", side.Path)
+	t.Setenv("HDTP_INTERNAL_BIND", freePort(t))
+	var stderr bytes.Buffer
+	if code := healthcheck([]string{"--limits"}, &stderr); code != 0 {
+		t.Fatalf("the sidecar answers and its healthcheck exited %d: %s", code, stderr.String())
+	}
+	side.Stop()
+	stderr.Reset()
+	if code := healthcheck([]string{"--limits"}, &stderr); code == 0 || !strings.Contains(stderr.String(), side.Path) {
+		t.Fatalf("the sidecar is down and its healthcheck exited %d saying %q; it fails and names the socket", code, stderr.String())
+	}
+}

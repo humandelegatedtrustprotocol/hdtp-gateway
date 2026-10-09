@@ -10,6 +10,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.26.9 (13 standard-library advisories fixed since 1.26.6; v0.1.1's binaries were
+  built with 1.26.6). `go.mod` names it in a `toolchain` line, the Dockerfiles pin
+  `golang:1.26.9-alpine` by digest, and the image test holds the two to each other.
+
 ### Fixed
 
 - The portal's integration routes refuse an integration of another account with `404`, the answer
@@ -18,12 +24,6 @@ changelog can be and is not summarized into a fictional release history.
   `reconfirm`) compared nothing, so an owner who administers one account could connect,
   re-credential, refresh, read and set the exposure of another account's integration by naming
   its id.
-- The owner MCP's `set_exposure` answers an integration of another account as it answers an id
-  that names no row: the same `bad_request` detail, and no `permission_denied` audit row of its
-  own. It read the integration's catalog before comparing accounts, so the catalog read's error
-  told a foreign id from a missing one — an existence oracle the portal's `404` does not have.
-  Both doors now ask the store for the integration by account and id (`GetAccountIntegration`),
-  which answers `ErrNotFound` for either.
 
 ## [0.1.1] — 2026-10-09
 
