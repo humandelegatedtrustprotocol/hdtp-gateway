@@ -279,7 +279,8 @@ function checkARM(t, p, cloudInit, fail) {
   if (t.$schema !== 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#') fail(ARM, '$schema is not the 2019-04-01 deploymentTemplate schema')
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(String(t.contentVersion))) fail(ARM, 'contentVersion is not a.b.c.d')
   const params = t.parameters || {}
-  for (const name of ['dnsLabel', 'adminUsername', 'sshPublicKey', 'sshSourceAddressPrefix', 'vmSize', 'release', 'location']) if (!params[name]?.type) fail(ARM, `no parameter ${name}`)
+  for (const name of ['dnsLabel', 'hostname', 'adminUsername', 'sshPublicKey', 'sshSourceAddressPrefix', 'vmSize', 'release', 'location']) if (!params[name]?.type) fail(ARM, `no parameter ${name}`)
+  if (params.hostname?.defaultValue !== '') fail(ARM, "hostname must default to empty: the DNS label's name is the default")
   if (params.sshSourceAddressPrefix?.defaultValue !== undefined) fail(ARM, 'sshSourceAddressPrefix must have no default: an open port 22 is a choice the person makes')
   if (!/^Standard_[DE]\d+p/.test(String(params.vmSize?.defaultValue || ''))) fail(ARM, `vmSize defaults to ${params.vmSize?.defaultValue}, not an Arm (Ampere, "p") size; the image is server-arm64`)
   if (t.variables?.cloudInit !== cloudInit) fail(ARM, `variables.cloudInit differs from ${CLOUD_INIT}: run node scripts/deploy-check.mjs --sync`)
@@ -294,9 +295,13 @@ function checkARM(t, p, cloudInit, fail) {
     const custom = String(vm.properties?.osProfile?.customData || '')
     if (!custom.startsWith('[base64(') || !custom.includes("variables('cloudInit')")) fail(ARM, 'customData must be base64 of variables(\'cloudInit\') with the placeholders replaced')
     for (const ph of PLACEHOLDERS) if (!custom.includes(`'\${${ph}}'`)) fail(ARM, `customData does not replace \${${ph}}`)
-    if (!custom.includes(".dnsSettings.fqdn") || !custom.includes("parameters('release')")) fail(ARM, "customData must take the hostname from the public IP's fqdn and the release from parameters('release')")
+    if (!custom.includes("parameters('release')")) fail(ARM, "customData must take the release from parameters('release')")
     if (vm.properties?.osProfile?.linuxConfiguration?.disablePasswordAuthentication !== true) fail(ARM, 'password login must be off')
-    if (!custom.includes("'${Hostname}', reference(resourceId('Microsoft.Network/publicIPAddresses'")) fail(ARM, "the hostname must be the public IP's own DNS name, <label>.<region>.cloudapp.azure.com")
+    // The one choice of name, written once and used thrice: the first boot, and the two outputs.
+    const choice = "if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname'))"
+    if (!custom.includes(`'\${Hostname}', ${choice}`)) fail(ARM, "the hostname must be parameters('hostname'), or the public IP's own DNS name when it is empty")
+    for (const out of ['hostname', 'url']) if (!String(t.outputs?.[out]?.value || '').includes(choice)) fail(ARM, `the ${out} output must make the same choice of name customData makes`)
+    if (!String(t.outputs?.publicIp?.value || '').includes('.ipAddress')) fail(ARM, "no publicIp output: a name of one's own needs the address to point at")
   }
   const [ip] = byType('Microsoft.Network/publicIPAddresses')
   if (!ip) fail(ARM, 'no Microsoft.Network/publicIPAddresses')
@@ -312,7 +317,6 @@ function checkARM(t, p, cloudInit, fail) {
     for (const port of [80, 443]) if (rule(port)?.properties?.sourceAddressPrefix !== '*') fail(ARM, `the security group must open ${port} to everyone`)
     if (rule(22)?.properties?.sourceAddressPrefix !== "[parameters('sshSourceAddressPrefix')]") fail(ARM, 'the security group must open 22 to sshSourceAddressPrefix and nothing wider')
   }
-  if (!t.outputs?.url?.value?.includes('.dnsSettings.fqdn')) fail(ARM, "the url output must be built from the public IP's fqdn")
   // The parameters file: the shape, names the template has, and no secret.
   if (p.$schema !== 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#') fail(ARM_PARAMS, '$schema is not the 2019-04-01 deploymentParameters schema')
   for (const [name, v] of Object.entries(p.parameters || {})) {
@@ -465,6 +469,7 @@ function selftest() {
     edit(ARM, '"sku": "server-arm64"', '"sku": "server"', ARM, 'an x64 image for an Arm size'),
     edit(ARM, "'${Release}', parameters('release')", "'${Tag}', parameters('release')", ARM, 'a placeholder customData does not replace'),
     edit(ARM, '"defaultValue": "Standard_D2ps_v5"', '"defaultValue": "Standard_D2s_v5"', ARM, 'an x64 size for the arm64 image'),
+    edit(ARM, "\"value\": \"[concat('https://', if(empty(parameters('hostname'))", "\"value\": \"[concat('https://', if(empty(parameters('dnsLabel'))", ARM, 'an output choosing the name differently from the first boot'),
     edit(ARM_PARAMS, '"value": "ssh-ed25519 AAAA... your public key, one line"', '"value": "-----BEGIN OPENSSH PRIVATE KEY-----"', ARM_PARAMS, 'key material in the sample parameters'),
     edit(GCP, '--metadata-from-file=user-data="$userdata"', '--metadata-from-file=startup-script="$userdata"', GCP, 'the cloud-init handed to GCE under the wrong key'),
     edit(DO, 'HDTP_IMAGE:-ubuntu-24-04-x64', 'HDTP_IMAGE:-ubuntu-20-04-x64', DO, 'another Ubuntu than the one the first boot was written for'),

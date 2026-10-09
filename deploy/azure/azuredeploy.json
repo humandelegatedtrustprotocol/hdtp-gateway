@@ -10,7 +10,14 @@
       "minLength": 3,
       "maxLength": 63,
       "metadata": {
-        "description": "The label of the public IP's DNS name, unique in the region: the node is reached at https://<label>.<region>.cloudapp.azure.com, which becomes its public URL and the name Caddy gets a certificate for."
+        "description": "The label of the public IP's DNS name, unique in the region: <label>.<region>.cloudapp.azure.com. With hostname empty, that name is the node's public URL and the one Caddy gets a certificate for."
+      }
+    },
+    "hostname": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "A name of your own to reach the node at instead of the DNS label's, such as hdtp.example.com; point its A record at the publicIp output. Empty: the DNS label's name. cloudapp.azure.com is not on the Public Suffix List, so Let's Encrypt counts every name under it against azure.com's weekly certificate limit; a name of your own is counted against your own domain."
       }
     },
     "adminUsername": {
@@ -212,7 +219,7 @@
         "osProfile": {
           "computerName": "[variables('vmName')]",
           "adminUsername": "[parameters('adminUsername')]",
-          "customData": "[base64(replace(replace(variables('cloudInit'), '${Hostname}', reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn), '${Release}', parameters('release')))]",
+          "customData": "[base64(replace(replace(variables('cloudInit'), '${Hostname}', if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname'))), '${Release}', parameters('release')))]",
           "linuxConfiguration": {
             "disablePasswordAuthentication": true,
             "ssh": {
@@ -238,11 +245,15 @@
   "outputs": {
     "hostname": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn]"
+      "value": "[if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname'))]"
     },
     "url": {
       "type": "string",
-      "value": "[concat('https://', reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn)]"
+      "value": "[concat('https://', if(empty(parameters('hostname')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).dnsSettings.fqdn, parameters('hostname')))]"
+    },
+    "publicIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))).ipAddress]"
     },
     "ssh": {
       "type": "string",

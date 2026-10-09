@@ -120,10 +120,15 @@ the portal's template page with the URL-encoded raw URL of `deploy/azure/azurede
 network security group (80 and 443 to everyone, 22 to the prefix you give), a virtual network, a
 network interface, and one Arm VM (`Canonical:ubuntu-24_04-lts:server-arm64:latest`,
 `Standard_D2ps_v5` by default) with the cloud-init as its custom data and your SSH public key as
-its only login. The hostname is the public IP's own name, `<label>.<region>.cloudapp.azure.com`:
-nothing to point anywhere. Parameters: `dnsLabel`, `sshPublicKey`, `sshSourceAddressPrefix`
-(required), `adminUsername` (`azureuser`), `vmSize`, `release`, `location`.
-`deploy/azure/azuredeploy.parameters.json` is a sample for the CLI:
+its only login. The hostname is the public IP's own name, `<label>.<region>.cloudapp.azure.com`,
+nothing to point anywhere — or a name of your own in the `hostname` parameter, pointed at the
+`publicIp` output. Prefer your own: `cloudapp.azure.com` is not on the [Public Suffix
+List](https://publicsuffix.org/list/) (checked 2026-10-09; `cloudapp.net` is), so Let's Encrypt
+counts every name under it against `azure.com`'s limit of 50 certificates per 7 days ([its rate
+limits](https://letsencrypt.org/docs/rate-limits/)); Caddy's automatic HTTPS also tries ZeroSSL, and
+whether either issues for such a name was not measured. Parameters: `dnsLabel`, `sshPublicKey`,
+`sshSourceAddressPrefix` (required), `hostname` (empty), `adminUsername` (`azureuser`), `vmSize`,
+`release`, `location`. `deploy/azure/azuredeploy.parameters.json` is a sample for the CLI:
 
 ```
 az group create --name hdtp-gateway --location westeurope
