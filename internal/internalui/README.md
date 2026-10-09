@@ -56,7 +56,9 @@ Page groups, each a `*Deps` struct and a `Mount*` function:
 "Session" means a signed-in owner (the session cookie resolves to an owner) and, for every method
 but GET, HEAD and OPTIONS, a CSRF token. A request that names an `account` (in the query, or in a
 urlencoded form body) for an account the owner does not administer is answered 404 and audited, on
-every session route below. The check does not read a multipart body, so
+every session route below. A `POST` whose form fails to parse (a bad escape in the body or the
+query, a `;` in a pair) is answered 400 "bad form" and audited `bad_form` before any route sees it,
+so no handler reads a form the check did not. The check does not read a multipart body, so
 `POST /messages/send_media` takes `account` from the query alone (400 "which conversation?" when
 no account is named and none is filled in, as when the node has several accounts).
 When the node has exactly one account and the owner administers it, a request that names none is

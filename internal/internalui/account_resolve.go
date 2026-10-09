@@ -36,12 +36,25 @@ import (
 // is a better answer than a confidently wrong one.
 //
 // Every account a request names is checked, wherever it names it: the query, and a urlencoded
-// form's body, every value of each. The body used to be read only when the query named none, and
+// form's body, every value of each. A POST whose form fails to parse is refused 400 first, so no
+// handler reads a form the check did not. The body used to be read only when the query named none, and
 // only for its first value, and a body account the owner did not administer was passed through
 // unrefused — to handlers that act on the body's account (`/media/fetch`, `/owners/tokens/create`,
 // `/settings/storage`, `/settings/pair`, `/contacts/add`). A refusal is audited (build rule 7).
 func accountMiddleware(st store.Store, next http.Handler, audit func(action, resource, outcome string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A form that fails to parse is refused before anything reads it. ParseForm keeps the pairs
+		// that parsed and reports the first that did not, and a handler's own ParseForm then returns
+		// nil, so an `account` the check below never saw would reach the handler.
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				if audit != nil {
+					audit("portal_request", "path:"+r.URL.Path, "bad_form")
+				}
+				http.Error(w, "bad form", http.StatusBadRequest)
+				return
+			}
+		}
 		if st == nil {
 			next.ServeHTTP(w, r)
 			return
@@ -58,9 +71,7 @@ func accountMiddleware(st store.Store, next http.Handler, audit func(action, res
 		}
 		named := r.URL.Query()["account"]
 		if r.Method == http.MethodPost {
-			if err := r.ParseForm(); err == nil {
-				named = append(named, r.PostForm["account"]...)
-			}
+			named = append(named, r.PostForm["account"]...)
 		}
 		for _, id := range named {
 			if id != "" && !ownerAdmins(r, st, id) {
@@ -83,9 +94,7 @@ func accountMiddleware(st store.Store, next http.Handler, audit func(action, res
 		// own form normally.
 		id := ""
 		if r.Method == http.MethodPost {
-			if err := r.ParseForm(); err == nil {
-				id = r.PostForm.Get("account")
-			}
+			id = r.PostForm.Get("account")
 		}
 		if id == "" {
 			id = soleAccountID(r.Context(), st)
