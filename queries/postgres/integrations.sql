@@ -79,9 +79,12 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 -- name: GetPendingRequest :one
 SELECT * FROM pending_requests WHERE id = $1;
 
+-- name: GetAccountPendingRequest :one
+SELECT * FROM pending_requests WHERE account_id = $1 AND id = $2;
+
 -- name: ListOpenPendingRequests :many
 SELECT * FROM pending_requests WHERE account_id = $1 AND status = 'open' AND expires_at > $2 ORDER BY created_at, id;
 
 -- name: AnswerPendingRequest :execrows
 UPDATE pending_requests SET status = 'answered', result = $1, answered_at = $2
-WHERE id = $3 AND status = 'open' AND expires_at > $4;
+WHERE account_id = $3 AND id = $4 AND status = 'open' AND expires_at > $5;

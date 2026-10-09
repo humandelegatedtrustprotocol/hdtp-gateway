@@ -47,6 +47,17 @@ changelog can be and is not summarized into a fictional release history.
   told a foreign id from a missing one — an existence oracle the portal's `404` does not have.
   Both doors now ask the store for the integration by account and id (`GetAccountIntegration`),
   which answers `ErrNotFound` for either.
+- The portal refuses a `POST` whose form fails to parse with `400` "bad form" (audited `bad_form`)
+  before any route, and the CSRF check refuses one too. `ParseForm` keeps the pairs that parsed,
+  and the account check read the body only when it parsed cleanly, so `account=<another's>&x=%zz`
+  (or a bad escape in the query) reached the handler unchecked and acted on that account.
+- The portal's `GET /events` carries only the events of accounts the signed-in owner administers.
+  With several accounts and none named it subscribed to every account's, so an owner read the
+  live stream of accounts administered by another owner.
+- The owner MCP's `answer_request` answers another account's request id as it answers an id that
+  names nothing (`unknown pending request`). It read the request by id and compared accounts after,
+  so a token narrowed to one account told which request ids existed on another. The store reads and
+  answers a pending request by account and id (`GetAccountPendingRequest`, `AnswerPendingRequest`).
 
 ## [0.1.1] — 2026-10-09
 

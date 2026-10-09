@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
@@ -68,5 +69,36 @@ func TestPendingResourceAndAnswerRequest(t *testing.T) {
 		"account_id": e.acctA, "request_id": id, "result": "x",
 	}); !isErr {
 		t.Fatal("foreign-scoped token answered")
+	}
+}
+
+// A token narrowed to account B answers another account's request id exactly as it answers an id
+// that names nothing, and leaves the request open: the request was read by id alone and its
+// account compared after, so "belongs to another account" against "unknown pending request" told
+// the token which ids exist on the node.
+func TestAnswerRequestAnswersAForeignRequestAsAMissingOne(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.deps.Pending = &integrations.AgentAnswered{Store: e.st, Bus: e.deps.Bus, WaitBudget: time.Second}
+	row, err := e.st.InsertPendingRequest(ctx, store.PendingRequest{AccountID: e.acctA, ContactFpr: "sha256:bella",
+		Capability: "ask_me", Args: "{}", Status: "open", CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner, AccountID: e.acctB}, nil)
+	foreign, foreignErr := callJSON(t, cs, "answer_request", map[string]any{
+		"account_id": e.acctB, "request_id": row.ID, "result": "x",
+	})
+	missing, missingErr := callJSON(t, cs, "answer_request", map[string]any{
+		"account_id": e.acctB, "request_id": "no-such-request", "result": "x",
+	})
+	if !foreignErr || !missingErr {
+		t.Fatalf("not refused: another account's request %q, a missing id %q", foreign, missing)
+	}
+	if foreign != missing {
+		t.Fatalf("told apart: another account's request %q, a missing id %q", foreign, missing)
+	}
+	if got, err := e.st.GetPendingRequest(ctx, row.ID); err != nil || got.Status != "open" {
+		t.Fatalf("the other account's request is now %+v (%v)", got, err)
 	}
 }

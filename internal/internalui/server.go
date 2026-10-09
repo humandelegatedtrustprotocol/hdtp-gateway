@@ -317,7 +317,13 @@ func csrfMiddleware(next http.Handler, audit func(action, resource, outcome stri
 			if h == "" {
 				// HTML forms cannot set headers: accept the double-submit value
 				// as a form field instead (same cookie comparison).
-				_ = r.ParseForm()
+				if err := r.ParseForm(); err != nil {
+					if audit != nil {
+						audit("portal_request", "path:"+r.URL.Path, "bad_form")
+					}
+					http.Error(w, "bad form", http.StatusBadRequest)
+					return
+				}
 				h = r.PostForm.Get("csrf")
 			}
 			if h == "" || subtle.ConstantTimeCompare([]byte(h), []byte(c.Value)) != 1 {

@@ -36,7 +36,11 @@ func inboxEnv(t *testing.T) (*http.ServeMux, *messaging.Service, *messaging.Bus,
 
 func TestSSEDeliversNewMessageEvent(t *testing.T) {
 	mux, msg, _, acct := inboxEnv(t)
-	srv := httptest.NewServer(mux)
+	// The stream carries the accounts its owner administers; behind the session gate there always is one.
+	owner := ownerOf(t, msg.Store.(*store.SQLite))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, signedIn(r, owner))
+	}))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/events?account=" + acct)

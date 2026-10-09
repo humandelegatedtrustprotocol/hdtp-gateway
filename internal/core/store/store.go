@@ -1007,11 +1007,17 @@ type IntegrationStore interface {
 	// GetPendingRequest returns the pending request by id, or an error wrapping ErrNotFound. It
 	// returns the row whatever its status or expiry.
 	GetPendingRequest(ctx context.Context, id string) (PendingRequest, error)
+	// GetAccountPendingRequest returns the account's pending request by id, whatever its status or
+	// expiry; an error wrapping ErrNotFound when there is none, and the same error when the id names
+	// another account's. The two are not told apart, so a door built on this cannot tell a caller
+	// whether an id exists.
+	GetAccountPendingRequest(ctx context.Context, accountID, id string) (PendingRequest, error)
 	// ListOpenPendingRequests returns the account's open requests that expire after now, oldest first.
 	ListOpenPendingRequests(ctx context.Context, accountID string, now int64) ([]PendingRequest, error)
 
-	// AnswerPendingRequest closes an OPEN, unexpired row; reports whether it did.
-	AnswerPendingRequest(ctx context.Context, id, result string, answeredAt, now int64) (bool, error)
+	// AnswerPendingRequest closes the account's OPEN, unexpired row; reports whether it did. Another
+	// account's row is not closed.
+	AnswerPendingRequest(ctx context.Context, accountID, id, result string, answeredAt, now int64) (bool, error)
 
 	// SetIntegrationSecret stores the keyring-sealed credential blob (SPEC §6.3).
 	SetIntegrationSecret(ctx context.Context, id string, sealed []byte) error
