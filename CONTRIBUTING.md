@@ -19,13 +19,12 @@ is what a change must carry and how to run the gates it is held to.
 ## Getting set up
 
 You need Go (the version in [`go.mod`](go.mod)), Rust with cargo (the limits sidecar,
-`cmd/hdtp-limitd`, is built and tested by `make check`), Node (the name guard, the page scripts
-and `make web`), and Docker (the pre-push gate starts a Postgres container, and the scenario harness
-needs it).
+`cmd/hdtp-limitd`, is built and tested by `make check`), Node (the page scripts and `make web`),
+and Docker (the pre-push gate starts a Postgres container, and the scenario harness needs it).
 
 ```
 make build      # static binary
-make check      # fmt, vet, the name guard, the deploy templates, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
+make check      # fmt, vet, the deploy templates, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
 make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)

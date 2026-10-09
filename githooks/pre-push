@@ -5,7 +5,7 @@
 # only"), so every check that used to run on a runner runs on this machine, before anything
 # leaves it:
 #
-#   make check        fmt, vet, the name guard, the dependents (the harness, and the cloud's battery when it is on
+#   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
 #                     disk), race tests — with HDTP_TEST_POSTGRES_DSN pointing at a Postgres this
 #                     hook starts, so the Postgres engine's tests run rather than skip — and the
 #                     portal's page scripts under node --test (make test-js)
