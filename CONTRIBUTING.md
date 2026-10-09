@@ -25,7 +25,7 @@ needs it).
 
 ```
 make build      # static binary
-make check      # fmt, vet, the name guard, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
+make check      # fmt, vet, the name guard, the deploy templates, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
 make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)
