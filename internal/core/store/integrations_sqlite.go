@@ -37,6 +37,16 @@ func (s *SQLite) GetIntegrationByID(ctx context.Context, id string) (Integration
 	return integrationFromRow(r), nil
 }
 
+// GetAccountIntegration returns the account's integration by id; an error wrapping ErrNotFound
+// when there is none, and the same error when the id names another account's.
+func (s *SQLite) GetAccountIntegration(ctx context.Context, accountID, id string) (Integration, error) {
+	r, err := s.q.GetAccountIntegration(ctx, sqlitedb.GetAccountIntegrationParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Integration{}, fmt.Errorf("store: %w", err)
+	}
+	return integrationFromRow(r), nil
+}
+
 // ListIntegrations returns the account's integrations ordered by slug.
 func (s *SQLite) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
 	rows, err := s.q.ListIntegrations(ctx, accountID)
@@ -266,6 +276,17 @@ func (s *SQLite) GetPendingRequest(ctx context.Context, id string) (PendingReque
 	return pendingFromRow(r), nil
 }
 
+// GetAccountPendingRequest returns the account's pending request by id, whatever its status or
+// expiry; an error wrapping ErrNotFound when there is none, and the same error when the id names
+// another account's.
+func (s *SQLite) GetAccountPendingRequest(ctx context.Context, accountID, id string) (PendingRequest, error) {
+	r, err := s.q.GetAccountPendingRequest(ctx, sqlitedb.GetAccountPendingRequestParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return PendingRequest{}, fmt.Errorf("store: %w", err)
+	}
+	return pendingFromRow(r), nil
+}
+
 // ListOpenPendingRequests returns the account's open requests that expire after now, oldest first.
 func (s *SQLite) ListOpenPendingRequests(ctx context.Context, accountID string, nowUnix int64) ([]PendingRequest, error) {
 	rows, err := s.q.ListOpenPendingRequests(ctx, sqlitedb.ListOpenPendingRequestsParams{
@@ -281,13 +302,13 @@ func (s *SQLite) ListOpenPendingRequests(ctx context.Context, accountID string, 
 	return out, nil
 }
 
-// AnswerPendingRequest closes an open, unexpired pending request with result, recording answeredAt;
-// false when the request is not open, has expired by now, or is not there. It changes nothing in
-// that case.
-func (s *SQLite) AnswerPendingRequest(ctx context.Context, id, result string, answeredAt, nowUnix int64) (bool, error) {
+// AnswerPendingRequest closes the account's open, unexpired pending request with result, recording
+// answeredAt; false when the request is not open, has expired by now, is another account's, or is
+// not there. It changes nothing in that case.
+func (s *SQLite) AnswerPendingRequest(ctx context.Context, accountID, id, result string, answeredAt, nowUnix int64) (bool, error) {
 	n, err := s.q.AnswerPendingRequest(ctx, sqlitedb.AnswerPendingRequestParams{
 		Result: result, AnsweredAt: sql.NullInt64{Int64: answeredAt, Valid: true},
-		ID: id, ExpiresAt: nowUnix,
+		AccountID: accountID, ID: id, ExpiresAt: nowUnix,
 	})
 	if err != nil {
 		return false, fmt.Errorf("store: %w", err)

@@ -202,8 +202,8 @@ of it, and are listed so a reader can tell the two apart.
 | config precedence is environment > file > store > defaults (§12.2), for `doctor` as for `serve` | `TestConfigFileOutranksOwnerSetSettings`, `TestSettingsPersistAcrossRestartAndReDerive`, `TestDoctorReadsThePublicURLThePortalSaved` |
 | the audit chain distinguishes owner actions from caller actions | `TestOwnerActionsAreAuditedAsOwner`, `TestAuditPageFiltersByActor` |
 | `audit_query` never leaves the identity's accounts | `TestAuditQueryNeverLeavesTheIdentitysAccounts`, `TestScopedTokenCannotReadNodeLevelAuditRows` |
-| owner-MCP tools cannot reach another account's integration | `TestSetExposureCannotReachAnotherAccountsIntegration` |
-| the portal's integration routes cannot reach another account's integration | `TestIntegrationRoutesRefuseAnotherAccountsIntegration` |
+| owner-MCP tools cannot reach another account's integration, and answer it as one that does not exist | `TestSetExposureCannotReachAnotherAccountsIntegration`, `TestSetExposureAnswersAForeignIntegrationAsAMissingOne` |
+| the portal's integration routes cannot reach another account's integration, and answer it as one that does not exist | `TestIntegrationRoutesRefuseAnotherAccountsIntegration` |
 
 ## HDTP 1.0: the person is the certificate authority
 

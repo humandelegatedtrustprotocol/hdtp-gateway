@@ -55,8 +55,7 @@ staticcheck:
 # `.claude` holds this checkout's worktrees. gosec walks the filesystem itself (its PackagePaths, a
 # filepath.Walk from `.`) instead of asking the go command, so unlike `./...` under go vet,
 # govulncheck, staticcheck and deadcode, which resolve it through go/packages and skip a
-# dot-directory, it took every worktree's tree in: 492 package directories against 41 on
-# 2026-10-09, each loaded and scanned, in a checkout with sixteen worktrees.
+# dot-directory, it entered every worktree under `.claude` and loaded and scanned each one's tree.
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.22.9 \
 		-quiet -exclude-dir=harness -exclude-dir=third_party -exclude-dir=.claude -exclude=G101,G104,G304 ./...

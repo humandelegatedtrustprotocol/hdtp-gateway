@@ -38,6 +38,16 @@ func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integrati
 	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
+// GetAccountIntegration returns the account's integration by id; an error wrapping ErrNotFound
+// when there is none, and the same error when the id names another account's.
+func (s *Postgres) GetAccountIntegration(ctx context.Context, accountID, id string) (Integration, error) {
+	r, err := s.q.GetAccountIntegration(ctx, pgdb.GetAccountIntegrationParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Integration{}, fmt.Errorf("store: %w", err)
+	}
+	return integrationFromRow(sqlitedb.Integration(r)), nil
+}
+
 // ListIntegrations returns the account's integrations ordered by slug.
 func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
 	rows, err := s.q.ListIntegrations(ctx, accountID)
@@ -267,6 +277,17 @@ func (s *Postgres) GetPendingRequest(ctx context.Context, id string) (PendingReq
 	return pendingFromRow(sqlitedb.PendingRequest(r)), nil
 }
 
+// GetAccountPendingRequest returns the account's pending request by id, whatever its status or
+// expiry; an error wrapping ErrNotFound when there is none, and the same error when the id names
+// another account's.
+func (s *Postgres) GetAccountPendingRequest(ctx context.Context, accountID, id string) (PendingRequest, error) {
+	r, err := s.q.GetAccountPendingRequest(ctx, pgdb.GetAccountPendingRequestParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return PendingRequest{}, fmt.Errorf("store: %w", err)
+	}
+	return pendingFromRow(sqlitedb.PendingRequest(r)), nil
+}
+
 // ListOpenPendingRequests returns the account's open requests that expire after now, oldest first.
 func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string, nowUnix int64) ([]PendingRequest, error) {
 	rows, err := s.q.ListOpenPendingRequests(ctx, pgdb.ListOpenPendingRequestsParams{
@@ -282,13 +303,13 @@ func (s *Postgres) ListOpenPendingRequests(ctx context.Context, accountID string
 	return out, nil
 }
 
-// AnswerPendingRequest closes an open, unexpired pending request with result, recording answeredAt;
-// false when the request is not open, has expired by now, or is not there. It changes nothing in
-// that case.
-func (s *Postgres) AnswerPendingRequest(ctx context.Context, id, result string, answeredAt, nowUnix int64) (bool, error) {
+// AnswerPendingRequest closes the account's open, unexpired pending request with result, recording
+// answeredAt; false when the request is not open, has expired by now, is another account's, or is
+// not there. It changes nothing in that case.
+func (s *Postgres) AnswerPendingRequest(ctx context.Context, accountID, id, result string, answeredAt, nowUnix int64) (bool, error) {
 	n, err := s.q.AnswerPendingRequest(ctx, pgdb.AnswerPendingRequestParams{
 		Result: result, AnsweredAt: sql.NullInt64{Int64: answeredAt, Valid: true},
-		ID: id, ExpiresAt: nowUnix,
+		AccountID: accountID, ID: id, ExpiresAt: nowUnix,
 	})
 	if err != nil {
 		return false, fmt.Errorf("store: %w", err)

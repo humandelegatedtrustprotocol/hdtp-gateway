@@ -12,12 +12,13 @@ import (
 
 const answerPendingRequest = `-- name: AnswerPendingRequest :execrows
 UPDATE pending_requests SET status = 'answered', result = ?, answered_at = ?
-WHERE id = ? AND status = 'open' AND expires_at > ?
+WHERE account_id = ? AND id = ? AND status = 'open' AND expires_at > ?
 `
 
 type AnswerPendingRequestParams struct {
 	Result     string
 	AnsweredAt sql.NullInt64
+	AccountID  string
 	ID         string
 	ExpiresAt  int64
 }
@@ -26,6 +27,7 @@ func (q *Queries) AnswerPendingRequest(ctx context.Context, arg AnswerPendingReq
 	result, err := q.db.ExecContext(ctx, answerPendingRequest,
 		arg.Result,
 		arg.AnsweredAt,
+		arg.AccountID,
 		arg.ID,
 		arg.ExpiresAt,
 	)
@@ -85,6 +87,62 @@ func (q *Queries) DeleteUndatedIdempotencyBefore(ctx context.Context, createdAt 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const getAccountIntegration = `-- name: GetAccountIntegration :one
+SELECT id, account_id, slug, transport, endpoint, command, auth_kind, status, created_at, updated_at, secret FROM integrations WHERE account_id = ? AND id = ?
+`
+
+type GetAccountIntegrationParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) GetAccountIntegration(ctx context.Context, arg GetAccountIntegrationParams) (Integration, error) {
+	row := q.db.QueryRowContext(ctx, getAccountIntegration, arg.AccountID, arg.ID)
+	var i Integration
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Slug,
+		&i.Transport,
+		&i.Endpoint,
+		&i.Command,
+		&i.AuthKind,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Secret,
+	)
+	return i, err
+}
+
+const getAccountPendingRequest = `-- name: GetAccountPendingRequest :one
+SELECT id, account_id, contact_fpr, capability, args, trust_flag, status, result, created_at, expires_at, answered_at FROM pending_requests WHERE account_id = ? AND id = ?
+`
+
+type GetAccountPendingRequestParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) GetAccountPendingRequest(ctx context.Context, arg GetAccountPendingRequestParams) (PendingRequest, error) {
+	row := q.db.QueryRowContext(ctx, getAccountPendingRequest, arg.AccountID, arg.ID)
+	var i PendingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.ContactFpr,
+		&i.Capability,
+		&i.Args,
+		&i.TrustFlag,
+		&i.Status,
+		&i.Result,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.AnsweredAt,
+	)
+	return i, err
 }
 
 const getCatalog = `-- name: GetCatalog :one

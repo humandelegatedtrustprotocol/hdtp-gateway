@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.2] — 2026-10-09
+
 ### Added
 
 - Deploy templates for one VM with TLS on a hostname (`docs/deploy.md`): a shared first boot
@@ -41,6 +45,39 @@ changelog can be and is not summarized into a fictional release history.
   else what the portal's Settings saved. It read the first two alone, so on a node whose address
   was set in the portal it printed `warn probe skipped: public_url not configured` and never
   dialled it.
+- The owner MCP's `set_exposure` answers an integration of another account as it answers an id
+  that names no row: the same `bad_request` detail, and no `permission_denied` audit row of its
+  own. It read the integration's catalog before comparing accounts, so the catalog read's error
+  told a foreign id from a missing one — an existence oracle the portal's `404` does not have.
+  Both doors now ask the store for the integration by account and id (`GetAccountIntegration`),
+  which answers `ErrNotFound` for either.
+- The portal refuses a `POST` whose form fails to parse with `400` "bad form" (audited `bad_form`)
+  before any route, and the CSRF check refuses one too. `ParseForm` keeps the pairs that parsed,
+  and the account check read the body only when it parsed cleanly, so `account=<another's>&x=%zz`
+  (or a bad escape in the query) reached the handler unchecked and acted on that account.
+- The portal's `GET /events` carries only the events of accounts the signed-in owner administers.
+  With several accounts and none named it subscribed to every account's, so an owner read the
+  live stream of accounts administered by another owner.
+- The owner MCP's `answer_request` answers another account's request id as it answers an id that
+  names nothing (`unknown pending request`). It read the request by id and compared accounts after,
+  so a token narrowed to one account told which request ids existed on another. The store reads and
+  answers a pending request by account and id (`GetAccountPendingRequest`, `AnswerPendingRequest`).
+- An answer from a contact whose card requires sealing that cannot be verified under any leaf held
+  for it fails at once, with an error that says the pin stands until an answer from the contact
+  carries the chain. The node tried its remedy first, a plaintext `get_card`, which refuses itself
+  against such a contact before sending, and the error named that refusal (`and get_card:
+  seal_required`). Against a contact that takes plaintext the remedy stands: one plaintext
+  `get_card`, its chain followed to the pinned root, then one retry.
+
+### Changed
+
+- `web/tools/portal-qa.mjs` is removed: nothing ran it, and the harness and `make screenshots`
+  cover what it drove.
+- `make gosec` excludes `.claude`, the checkout's worktrees, which gosec's own filesystem walk
+  entered and the Go tool's `./...` never did.
+- `make analyze` runs its tools under the Go `go.mod` names (`GOTOOLCHAIN=<toolchain>+auto`), so a
+  machine with an older Go, or `GOTOOLCHAIN=local` set, downloads it instead of failing. A Go older
+  than 1.21 has no toolchain switching and is not helped.
 
 ## [0.1.1] — 2026-10-09
 

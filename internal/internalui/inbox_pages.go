@@ -157,6 +157,14 @@ func (d InboxDeps) getEvents(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
+			// With no account named the subscription is every account's, so each event is held to
+			// the accounts the owner administers, read again per event so a membership removed
+			// mid-stream stops it. An event is dropped, never answered with an error: an
+			// EventSource reconnects on one.
+			admins, err := administered(r.Context(), d.Store, OwnerFrom(r.Context()))
+			if err != nil || !admins[e.AccountID] {
+				continue
+			}
 			payload, _ := json.Marshal(e)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, payload)
 			fl.Flush()

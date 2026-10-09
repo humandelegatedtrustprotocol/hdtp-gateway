@@ -100,7 +100,8 @@ Three shapes of refusal exist; a caller must not treat them alike.
    address ("set public_url") and mints nothing; `revoke_invite` answers `not_found` only for a
    missing or spent invite (a store failure is `internal`); `wait_for_updates` answers
    `bad_request` for a `timeout_sec` outside 1 to 25. `answer_request` answers a relay failure as
-   an `IsError` result whose text is the error, with no code.
+   an `IsError` result whose text is the error, with no code; another account's request id is
+   answered as one that names nothing (`integrations: unknown pending request`).
 2. A result that carries a code but is not marked an error (`IsError` false): `call_contact`
    (`bad_request` for an empty contact or tool; `unknown_contact` when the contact is not active;
    `unavailable` when the call failed), `remove_passkey` (`bad_request` for an empty id and for the
@@ -135,8 +136,11 @@ those the contact already holds) with `bad_request`, rather than dropping it and
   `TestAWaitAnswersForAParkedAddressAndForAttention`.
 - `set_exposure` hands the account and the integration id to `Extra.SetExposure` and reports its
   refusal as `bad_request`; the check that the integration belongs to the account is the
-  callback's (`internal/cli/ownerextra.go`). `TestSetExposureCannotReachAnotherAccountsIntegration`
-  holds the tool's side of this against a stub callback that refuses.
+  callback's (`internal/cli/ownerextra.go`), which answers another account's integration as one
+  that does not exist: the store's account-bound read (`GetAccountIntegration`) tells the two apart
+  for no door. `TestSetExposureCannotReachAnotherAccountsIntegration` holds the tool's side of this
+  against a stub callback that refuses; `TestSetExposureAnswersAForeignIntegrationAsAMissingOne`
+  (`internal/cli`) holds the callback's.
 - The sender label is fixed by the surface: `send_to_contact` stores `agent`. Held by
   `TestSendToContactStoresAgentLabel`.
 - An approval reaches the caller's live composed server (`Invalidate`). Held by
