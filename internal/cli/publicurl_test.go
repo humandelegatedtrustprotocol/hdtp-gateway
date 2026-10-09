@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,5 +128,30 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 	}
 	if line := addressDriftLine(newURL, "alice", identity.EndpointFor(newURL, "alice")); line != "" {
 		t.Fatalf("an account at the advertised address was reported as drifted: %q", line)
+	}
+}
+
+// The public URL the owner saved in Settings is the node's: serve layers the store under the
+// environment and the file (SPEC §12.2). doctor read the environment and the file alone, so on a
+// node whose address was set in the portal it skipped the probe for want of one.
+func TestDoctorReadsThePublicURLThePortalSaved(t *testing.T) {
+	dir := t.TempDir()
+	url := "https://" + freePort(t) // nothing listens there: the probe runs, and ends at once
+	st := migrated(t, dir)
+	if err := st.PutSetting(context.Background(), store.Setting{Key: "public_url", Value: url, UpdatedAt: time.Now().Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"data_dir":`+strconv.Quote(dir)+`,"store_engine":"sqlite"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	doctor([]string{"--config", cfgPath}, &out, &errOut)
+	if strings.Contains(out.String(), "probe        skipped: public_url not configured") {
+		t.Fatalf("the portal saved %s and doctor says no public_url is configured:\n%s", url, out.String())
+	}
+	if !strings.Contains(out.String(), "probe        "+url) {
+		t.Fatalf("doctor did not probe the address the portal saved (%s):\n%s", url, out.String())
 	}
 }
