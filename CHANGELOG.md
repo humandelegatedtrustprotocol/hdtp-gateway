@@ -10,6 +10,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- Deploy templates for one VM with TLS on a hostname (`docs/deploy.md`): a shared first boot
+  (`deploy/cloud-init.yaml`: Docker, the node and its sidecar built from a release tag, Caddy in
+  front), a CloudFormation template for AWS, an ARM template with a Deploy to Azure button, a Cloud
+  Shell walkthrough for Google Cloud and a Droplet script for DigitalOcean. `make deploy-check`, in
+  `make check`, holds the templates to each other and to the node (`scripts/deploy-check.mjs`).
+  None has been run on its provider yet; the document's status table says so, per provider.
+
 ### Security
 
 - Built with Go 1.26.9 (13 standard-library advisories fixed since 1.26.6; v0.1.1's binaries were
@@ -32,6 +41,12 @@ changelog can be and is not summarized into a fictional release history.
   else what the portal's Settings saved. It read the first two alone, so on a node whose address
   was set in the portal it printed `warn probe skipped: public_url not configured` and never
   dialled it.
+- The owner MCP's `set_exposure` answers an integration of another account as it answers an id
+  that names no row: the same `bad_request` detail, and no `permission_denied` audit row of its
+  own. It read the integration's catalog before comparing accounts, so the catalog read's error
+  told a foreign id from a missing one — an existence oracle the portal's `404` does not have.
+  Both doors now ask the store for the integration by account and id (`GetAccountIntegration`),
+  which answers `ErrNotFound` for either.
 
 ## [0.1.1] — 2026-10-09
 

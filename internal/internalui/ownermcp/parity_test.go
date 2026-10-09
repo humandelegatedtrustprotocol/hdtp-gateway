@@ -2,6 +2,7 @@ package ownermcp
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -204,12 +205,13 @@ func TestSetExposureCannotReachAnotherAccountsIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// The implementation is the real one's contract: refuse when the integration
-	// does not belong to the account the caller was authorized for.
+	// does not belong to the account the caller was authorized for, with the error
+	// an integration that does not exist gets (internal/cli/ownerextra.go).
 	var acted []string
 	extra := Extra{
 		SetExposure: func(_ context.Context, accountID, integrationID string, tools []string) error {
 			if integrationID == "belongs-to-B" && accountID != e.acctB {
-				return errWrongAccount
+				return fmt.Errorf("store: %w", store.ErrNotFound)
 			}
 			acted = append(acted, accountID+"/"+integrationID)
 			return nil
@@ -238,12 +240,6 @@ func TestSetExposureCannotReachAnotherAccountsIntegration(t *testing.T) {
 		t.Fatalf("a scoped token could not manage its own integration: %v", acted)
 	}
 }
-
-var errWrongAccount = &wrongAccountErr{}
-
-type wrongAccountErr struct{}
-
-func (*wrongAccountErr) Error() string { return "that integration belongs to another account" }
 
 // AC (P11-09): a token scoped to one account cannot read node-level audit rows.
 //

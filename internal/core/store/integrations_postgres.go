@@ -38,6 +38,16 @@ func (s *Postgres) GetIntegrationByID(ctx context.Context, id string) (Integrati
 	return integrationFromRow(sqlitedb.Integration(r)), nil
 }
 
+// GetAccountIntegration returns the account's integration by id; an error wrapping ErrNotFound
+// when there is none, and the same error when the id names another account's.
+func (s *Postgres) GetAccountIntegration(ctx context.Context, accountID, id string) (Integration, error) {
+	r, err := s.q.GetAccountIntegration(ctx, pgdb.GetAccountIntegrationParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Integration{}, fmt.Errorf("store: %w", err)
+	}
+	return integrationFromRow(sqlitedb.Integration(r)), nil
+}
+
 // ListIntegrations returns the account's integrations ordered by slug.
 func (s *Postgres) ListIntegrations(ctx context.Context, accountID string) ([]Integration, error) {
 	rows, err := s.q.ListIntegrations(ctx, accountID)

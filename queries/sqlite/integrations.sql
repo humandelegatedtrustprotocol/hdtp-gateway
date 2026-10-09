@@ -8,6 +8,9 @@ SELECT * FROM integrations WHERE account_id = ? AND slug = ?;
 -- name: GetIntegrationByID :one
 SELECT * FROM integrations WHERE id = ?;
 
+-- name: GetAccountIntegration :one
+SELECT * FROM integrations WHERE account_id = ? AND id = ?;
+
 -- name: ListIntegrations :many
 SELECT * FROM integrations WHERE account_id = ? ORDER BY slug;
 
