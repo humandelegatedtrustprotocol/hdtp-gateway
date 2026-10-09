@@ -362,4 +362,89 @@ func contacts(t *testing.T, newStore Factory) {
 			t.Errorf("accepting a peer granted them %v on our node", got.Permissions)
 		}
 	})
+
+	// A contact row that leaves, by any of the four doors a row leaves through, leaves its names on
+	// its threads (migrations 0002's trigger): the conversation is a record of an exchange and keeps
+	// saying who it was with. Only that contact's threads, of that account, are written.
+	t.Run("ADeletedContactLeavesItsNamesOnItsThreads", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "kn", DisplayName: "KN", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "kn2", DisplayName: "KN2", Algo: "p256"})
+		add := func(acct, fpr, status, name, pet string, at int64) {
+			t.Helper()
+			if _, err := s.InsertContact(ctx, store.Contact{AccountID: acct, Fingerprint: fpr, Status: status, DisplayName: name, CreatedAt: at}); err != nil {
+				t.Fatal(err)
+			}
+			if pet != "" {
+				if err := s.SetContactPetname(ctx, acct, fpr, pet); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.InsertThread(ctx, store.Thread{ID: "th-" + fpr, AccountID: acct, ContactFpr: fpr, CreatedAt: 1, LastAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		add(a.ID, "sha256:removed", "active", "Alex", "my alex", 100)
+		add(a.ID, "sha256:forgotten", "blocked", "Blake", "", 100)
+		add(a.ID, "sha256:expired", "pending_out", "Casey", "", 100)
+		add(a.ID, "sha256:held", "active", "Dana", "", 100)
+		add(b.ID, "sha256:removed", "active", "Alex at b", "", 100)
+		if err := s.InsertThread(ctx, store.Thread{ID: "th-second", AccountID: a.ID, ContactFpr: "sha256:removed", CreatedAt: 2, LastAt: 2}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := s.DeleteContact(ctx, a.ID, "sha256:removed"); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := s.DeleteContactInStatus(ctx, a.ID, "sha256:forgotten", "blocked"); err != nil || !ok {
+			t.Fatalf("forget: %v %v", ok, err)
+		}
+		if _, err := s.DeleteExpiredPendingContacts(ctx, a.ID, 500); err != nil {
+			t.Fatal(err)
+		}
+
+		kept := func(acct string) map[string][2]string {
+			t.Helper()
+			ts, err := s.ListThreadsByAccount(ctx, acct)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := map[string][2]string{}
+			for _, th := range ts {
+				out[th.ID] = [2]string{th.KeptDisplayName, th.KeptPetname}
+			}
+			return out
+		}
+		got := kept(a.ID)
+		want := map[string][2]string{
+			"th-sha256:removed":   {"Alex", "my alex"},
+			"th-second":           {"Alex", "my alex"},
+			"th-sha256:forgotten": {"Blake", ""},
+			"th-sha256:expired":   {"Casey", ""},
+			"th-sha256:held":      {"", ""},
+		}
+		for id, w := range want {
+			if got[id] != w {
+				t.Errorf("thread %s kept %q, want %q", id, got[id], w)
+			}
+		}
+		if th, err := s.GetThread(ctx, a.ID, "th-sha256:removed"); err != nil || th.KeptDisplayName != "Alex" || th.KeptPetname != "my alex" {
+			t.Errorf("GetThread: %+v %v", th, err)
+		}
+		if other := kept(b.ID)["th-sha256:removed"]; other != [2]string{"", ""} {
+			t.Errorf("another account's thread with the same fingerprint was written: %q", other)
+		}
+
+		// Added again under a new name and removed again: the second removal's names replace the first's.
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:removed", Status: "active", DisplayName: "Alexandra"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteContact(ctx, a.ID, "sha256:removed"); err != nil {
+			t.Fatal(err)
+		}
+		if got := kept(a.ID)["th-sha256:removed"]; got != [2]string{"Alexandra", ""} {
+			t.Errorf("after the second removal the thread kept %q", got)
+		}
+	})
 }

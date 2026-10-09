@@ -157,7 +157,12 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
-	threads, _ := d.Store.ListThreadsByAccount(r.Context(), account)
+	threads, err := d.Store.ListThreadsByAccount(r.Context(), account)
+	if err != nil {
+		// A conversation list that could not be read is not one with nobody removed.
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
 	lastByContact := map[string]store.Thread{}
 	for _, t := range threads {
 		if cur, ok := lastByContact[t.ContactFpr]; !ok || t.LastAt > cur.LastAt {
@@ -167,8 +172,10 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 
 	// Computed over EVERY contact, not just the ones shown: a pending
 	// impostor sharing an active contact's name is exactly the case where
-	// the owner needs the fingerprint on the row they can see.
-	labels := labelContacts(list)
+	// the owner needs the fingerprint on the row they can see. A removed
+	// contact's conversation stays, named by what its threads kept.
+	former := formerContacts(list, threads)
+	labels := labelContacts(append(slices.Clone(list), former...))
 
 	var all []store.Contact
 	for _, c := range list {
@@ -179,6 +186,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		}
 		all = append(all, c)
 	}
+	all = append(all, former...)
 	sort.SliceStable(all, func(i, j int) bool {
 		a, b := lastByContact[all[i].Fingerprint], lastByContact[all[j].Fingerprint]
 		return a.LastAt > b.LastAt // most recently active first
@@ -189,7 +197,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	var page []store.Contact
 	more, onPage := false, map[string]bool{}
 	for _, c := range all {
-		if needle != "" && !strings.Contains(strings.ToLower(labels[c.Fingerprint]), needle) {
+		if needle != "" && !strings.Contains(strings.ToLower(conversationLabel(labels, c)), needle) {
 			continue
 		}
 		if len(page) == ConversationsPage {
@@ -221,7 +229,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		total.Capped = total.Capped || unread.Capped
 		presence, seen := presenceOf(r.Context(), d.Store, account, threads, c)
 		people = append(people, convContact{
-			Fpr: c.Fingerprint, Name: labels[c.Fingerprint], Status: c.Status,
+			Fpr: c.Fingerprint, Name: conversationLabel(labels, c), Status: c.Status,
 			Preview:  previewOf(r.Context(), d.Store, account, threads, c.Fingerprint),
 			Selected: c.Fingerprint == selected,
 			Unread:   unread,
@@ -237,12 +245,12 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 			http.Error(w, "store error", http.StatusInternalServerError)
 			return
 		}
-		active := map[string]bool{}
+		listed := map[string]bool{}
 		for _, c := range all {
-			active[c.Fingerprint] = true
+			listed[c.Fingerprint] = true
 		}
 		for _, fpr := range withUnread {
-			if active[fpr] && !onPage[fpr] {
+			if listed[fpr] && !onPage[fpr] {
 				total.Capped = true
 				break
 			}
@@ -308,9 +316,9 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 // as BatonDeck's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
 // reading a conversation writes none here: the trail records what was said and done, not every
 // glance. It is a high-water mark, never lowered, so a repeat, or a stale mark arriving after a
-// newer one, changes nothing. A contact this identity does not hold as an active correspondent
-// (unknown, pending, blocked, or another identity's) is 404, and so is a `through` that is not a
-// message of this conversation.
+// newer one, changes nothing. A contact row that is not active (pending, blocked) is 404, and so is
+// a `through` that is not a message of this conversation (an unknown contact's, another identity's).
+// A removed contact's conversation, which has no row, is marked like an active one's.
 func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
@@ -330,7 +338,9 @@ func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
 		return
 	}
-	if !slices.ContainsFunc(list, func(c store.Contact) bool { return c.Fingerprint == contact && c.Status == "active" }) {
+	// A removed contact's conversation is read like any other: with no row, ConversationHasMessage
+	// below is what says there is a conversation at all.
+	if slices.ContainsFunc(list, func(c store.Contact) bool { return c.Fingerprint == contact && c.Status != "active" }) {
 		apiJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not_found"})
 		return
 	}

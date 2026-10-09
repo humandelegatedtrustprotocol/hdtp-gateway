@@ -122,16 +122,19 @@ export function Messages() {
       load();
     }).catch(() => { /* the count stays until the next look */ });
   }, [sel, selUnread, through, visible, load]);
+  // A conversation whose contact was removed (the node's "removed" row, named by what its threads kept):
+  // a record to read, with nobody to write to, no tools to ask for and no contact to show.
+  const selRemoved = (d?.contacts ?? []).find((p) => p.fingerprint === sel)?.status === "removed";
   // What this contact lets us call on their server — asked once per conversation.
   useEffect(() => {
     setPending(null); setTools([]); setAllTools([]); setToolsState("loading"); setMenuOpen(false); setToolsOpen(false); setActive(null); setArgs({}); setResult("");
-    if (!sel) return;
+    if (!sel || selRemoved) return;
     let alive = true;
     getJSON<{ tools: ContactTool[] }>(`/api/contacts/${encodeURIComponent(sel)}/tools`)
       .then((r) => { if (alive) { setAllTools(r.tools ?? []); setTools((r.tools ?? []).filter((t) => !PLUMBING_TOOLS.has(t.name))); setToolsState("ready"); } })
       .catch(() => { if (alive) { setAllTools([]); setTools([]); setToolsState("failed"); } });
     return () => { alive = false; };
-  }, [sel, toolsTry]);
+  }, [sel, toolsTry, selRemoved]);
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [d?.messages?.length, sel]);
@@ -260,11 +263,11 @@ export function Messages() {
                   </div>
                 </div>
                 <div className="end">
-                  <Badge tone="ok" title={`Their key is pinned: a message that does not verify against it is refused.\n${current.fingerprint}`}><Icon name="shield" size={12} /> pinned</Badge>
-                  <Toolbar className="details">
+                  {!selRemoved && <Badge tone="ok" title={`Their key is pinned: a message that does not verify against it is refused.\n${current.fingerprint}`}><Icon name="shield" size={12} /> pinned</Badge>}
+                  {!selRemoved && <Toolbar className="details">
                     <Button variant="quiet" icon="panel" aria-pressed={panelOpen && !focus} title={panelOpen && !focus ? "Hide contact panel" : "Show contact panel"} aria-label="Contact panel"
                       onClick={() => { if (window.innerWidth <= 900) setPane(pane === "panel" ? "thread" : "panel"); else { if (focus) toggleFocus(); if (!panelOpen || focus) { if (!panelOpen) togglePanel(); } else togglePanel(); } }} />
-                  </Toolbar>
+                  </Toolbar>}
                   <Toolbar className="expand">
                     <Button variant="quiet" icon={focus ? "collapse" : "expand"} aria-pressed={focus} title={focus ? "Exit full width" : "Full width"} aria-label={focus ? "Exit full width" : "Full width"} onClick={toggleFocus} />
                   </Toolbar>
@@ -303,7 +306,8 @@ export function Messages() {
                 </div>
               </div>
               {sendErr && <Notice kind="err">{sendErr}</Notice>}
-              {toolsOpen && (
+              {selRemoved && <div className="foot-note">No longer a contact. The conversation stays as a record of what was said; nothing more can be sent to them from here.</div>}
+              {!selRemoved && toolsOpen && (
                 <div className="tooldock" aria-label="Contact tools">
                   <div className="tooldock-h">
                     <strong title={active?.name}>{active ? <>{toolLabel(active.name)} <code>{active.name}</code></> : "Tools this contact lets you call"}</strong>
@@ -333,7 +337,7 @@ export function Messages() {
                   )}
                 </div>
               )}
-              <div className="composer">
+              {!selRemoved && <><div className="composer">
                 <input ref={fileRef} type="file" hidden accept={accept || undefined} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
                 <div className="plus-wrap">
                   <button className={"btn quiet icon plus" + (menuOpen ? " on" : "")} title="Add" aria-label="Add" aria-expanded={menuOpen} aria-haspopup="menu" aria-busy={uploading} disabled={uploading} onClick={() => setMenuOpen((v) => !v)}>
@@ -379,14 +383,14 @@ export function Messages() {
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
                 <Button onClick={send} disabled={!text.trim()}>Send</Button>
               </div>
-              <div className="foot-note"><span className="tag human">human</span> Sent as you. Enter sends, Shift+Enter for a new line.</div>
+              <div className="foot-note"><span className="tag human">human</span> Sent as you. Enter sends, Shift+Enter for a new line.</div></>}
             </>
           ) : (
             <EmptyState title="Pick a conversation">Choose a contact on the left to read and write.</EmptyState>
           )}
         </section>
 
-        {current && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }} />}
+        {current && !selRemoved && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }} />}
       </div>
     </main>
   );

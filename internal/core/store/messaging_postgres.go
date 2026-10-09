@@ -24,7 +24,7 @@ func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (T
 	if err != nil {
 		return Thread{}, err
 	}
-	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt}, nil
+	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname}, nil
 }
 
 // TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it, and
@@ -146,7 +146,7 @@ func (s *Postgres) ListThreadsByAccount(ctx context.Context, accountID string) (
 	}
 	out := make([]Thread, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt})
+		out = append(out, Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname})
 	}
 	return out, nil
 }

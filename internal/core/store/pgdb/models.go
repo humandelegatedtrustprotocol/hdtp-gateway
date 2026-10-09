@@ -276,13 +276,15 @@ type Setting struct {
 }
 
 type Thread struct {
-	ID          string
-	AccountID   string
-	ContactFpr  string
-	Topic       string
-	CreatedAt   int64
-	LastAt      int64
-	LastReadSeq int64
+	ID              string
+	AccountID       string
+	ContactFpr      string
+	Topic           string
+	CreatedAt       int64
+	LastAt          int64
+	LastReadSeq     int64
+	KeptDisplayName string
+	KeptPetname     string
 }
 
 type Token struct {
