@@ -19,6 +19,21 @@ changelog can be and is not summarized into a fictional release history.
   `make check`, holds the templates to each other and to the node (`scripts/deploy-check.mjs`).
   None has been run on its provider yet; the document's status table says so, per provider.
 
+### Security
+
+- Built with Go 1.26.9 (13 standard-library advisories fixed since 1.26.6; v0.1.1's binaries were
+  built with 1.26.6). `go.mod` names it in a `toolchain` line, the Dockerfiles pin
+  `golang:1.26.9-alpine` by digest, and the image test holds the two to each other.
+
+### Fixed
+
+- The portal's integration routes refuse an integration of another account with `404`, the answer
+  an id that names no row gets. `POST /integrations/{id}/remove` refused it `403`; the other eight
+  (`oauth-client`, `credential`, `connect`, `authorize`, `refresh`, `exposure` read and write,
+  `reconfirm`) compared nothing, so an owner who administers one account could connect,
+  re-credential, refresh, read and set the exposure of another account's integration by naming
+  its id.
+
 ## [0.1.1] — 2026-10-09
 
 ### Fixed
