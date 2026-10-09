@@ -52,6 +52,11 @@ if (process.argv[1]?.endsWith('local-run.mjs')) { console.log('gateway/main-ran'
 	if err := probe(ctx, LocalCloud); err == nil || !strings.Contains(err.Error(), "treeLinks") {
 		t.Errorf("a runner that cannot say what it links provided the need: %v", err)
 	}
+	runner(`import 'a-package-not-installed'
+export const treeLinks = () => []`)
+	if err := probe(ctx, LocalCloud); err == nil || !strings.Contains(err.Error(), "a-package-not-installed") {
+		t.Errorf("a runner whose packages are not installed was refused without saying so: %v", err)
+	}
 	t.Setenv(LocalCloudEnv, "")
 	if err := probe(ctx, LocalCloud); err == nil {
 		t.Error("an unset variable provided the local cloud")

@@ -88,7 +88,7 @@ needs; `-n` prints the plan and stops; `-results DIR` keeps the results somewher
 | `kernel` | `make harness-kernel`, then `export HDTP_HARNESS_KERNEL=<path it prints>`; an accelerated `qemu-system-aarch64` | nightly, when the variable is set |
 | `cf` | the rig `docs/demos/cloudflare-two-users.md` builds, then `export HDTP_CF_DOMAIN=<domain>` | nightly, when the variable is set |
 | `hdtp-cli` | hdtp-identity's `hdtp` CLI, named by `HDTP_CLI`; `make harness-hdtp-cli` builds it from an hdtp-identity checkout beside this one | nightly, when the sibling is on disk (the Makefile then sets `HDTP_CLI`) |
-| `local-cloud` | the hosted platform's local cloud (BatonDeck's, not public) and its live-local runner, named by `HDTP_LOCAL_CLOUD` (a checkout of it with its public assets built), and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when that checkout is beside this repository and the WorkOS pair is exported |
+| `local-cloud` | the hosted platform's local cloud (BatonDeck's, not public) and its live-local runner, named by `HDTP_LOCAL_CLOUD` (its `gateway/` directory). The probe asks that checkout's runner what it links into a run (`treeLinks` in `e2e/local-run.mjs`: the installed packages, and the portal's `public/` and the wallet page's `ceremony-dist/`, both from `npm run portal:build`) and needs each on disk; and `WORKOS_TEST_CLIENT_ID` / `WORKOS_TEST_API_KEY` in the environment | nightly, when that checkout is beside this repository and the WorkOS pair is exported |
 | `cloud-battery` | the hosted platform's Go conformance battery (BatonDeck's, not public), named by `HDTP_CLOUD_BATTERY` | nightly, when that repository is checked out beside this one (the Makefile then sets it) |
 
 ### Results

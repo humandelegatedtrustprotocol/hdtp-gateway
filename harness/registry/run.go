@@ -300,7 +300,7 @@ func probe(ctx context.Context, n Need) error {
 // over in the environment and argv[1] stays empty: importing it then starts nothing.
 const localCloudScript = `const { pathToFileURL } = await import('node:url')
 const m = await import(pathToFileURL(process.env.HDTP_LOCAL_RUN).href)
-if (typeof m.treeLinks !== 'function') { console.error('no treeLinks export'); process.exit(3) }
+if (typeof m.treeLinks !== 'function') { console.error('Error: no treeLinks export: a checkout from before it needs updating'); process.exit(3) }
 for (const p of m.treeLinks()) console.log(p)`
 
 // localCloudBuilt holds the checkout behind dir (batondeck's gateway/) to what its runner links
@@ -309,9 +309,13 @@ for (const p of m.treeLinks()) console.log(p)`
 func localCloudBuilt(ctx context.Context, dir string) error {
 	ask := exec.CommandContext(ctx, "node", "--input-type=module", "-e", localCloudScript)
 	ask.Env = append(os.Environ(), "HDTP_LOCAL_RUN="+filepath.Join(dir, "e2e/local-run.mjs"))
+	var stderr strings.Builder
+	ask.Stderr = &stderr
 	out, err := ask.Output()
 	if err != nil {
-		return fmt.Errorf("%s/e2e/local-run.mjs could not be asked what its run needs (a checkout from before treeLinks needs updating): %v %s", dir, err, firstLine(string(out)))
+		// What node said is the reason: a checkout from before treeLinks ("no treeLinks export"), a
+		// package not installed, a syntax error; and with no node at all, err says so.
+		return fmt.Errorf("%s/e2e/local-run.mjs could not be asked what its run needs: %v: %s", dir, err, errorLine(stderr.String()))
 	}
 	repo := filepath.Dir(filepath.Clean(dir))
 	for _, p := range strings.Fields(string(out)) {
@@ -320,6 +324,17 @@ func localCloudBuilt(ctx context.Context, dir string) error {
 		}
 	}
 	return nil
+}
+
+// errorLine is node's reason among what it wrote to stderr: the first line naming an error (node
+// leads an uncaught one with where it was thrown, a line that says nothing), else the first line.
+func errorLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, "Error") {
+			return strings.TrimSpace(l)
+		}
+	}
+	return firstLine(s)
 }
 
 // fabricReady asks preflight, the one place that knows how to tell whether Docker or an
