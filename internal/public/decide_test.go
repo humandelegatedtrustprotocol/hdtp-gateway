@@ -394,6 +394,9 @@ func TestNewestLeafWinsAndNewAddresses(t *testing.T) {
 	if err != nil || f.Tier != policy.TierGuest || !f.Demote || f.Why != "superseded leaf" {
 		t.Fatalf("superseded leaf: %v %+v", err, f)
 	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); string(c.Leaf) != string(newer.leaf) {
+		t.Fatal("a superseded leaf must not roll the pin back")
+	}
 	// Equal notBefore, different bytes: refused.
 	twin := &peer{root: p.root, host: p.host}
 	twin.leaf = twin.leafFor(t, endpointA, fixedNow.Add(-30*time.Minute))
@@ -451,6 +454,51 @@ func TestNewestLeafWinsAndNewAddresses(t *testing.T) {
 	}
 	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); c.Endpoint != endpointA || string(c.Leaf) != string(back.leaf) {
 		t.Fatalf("approval did not re-pin: %+v", c)
+	}
+}
+
+// A renewal carries a fresh key (§2), so once the newer leaf is pinned the older leaf's key
+// fingerprint names nothing this account holds for the contact: the small form is answered
+// `chain_required`, as a stranger's is, and the only chain its holder can send is the superseded
+// one, a guest's (§13.2, §14.3). This is the stolen-leaf-key case after the renewal has reached
+// the contact — hdtp-spec's intrusion scenarios "stolen leaf key: after Alina renews, the small
+// form naming the old leaf is asked for a chain, and the only chain it has is a guest's" and
+// "stale sender: Mallory replays the superseded chain …", on the node — and neither form moves
+// the pin.
+func TestASupersededLeafNamedByFingerprintIsAskedForItsChain(t *testing.T) {
+	e := newRecvEnv(t)
+	ctx := context.Background()
+	p := newPeer(t, fixedNow)
+	e.pin(t, p, "active")
+	// The control: before the renewal the small form names the pinned leaf and is the contact's.
+	if f, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", nil), TransportFacts{}); err != nil || f.Tier != policy.TierContact {
+		t.Fatalf("the small form before the renewal: %v %+v", err, f)
+	}
+	freshKey, err := hdtpidentity.GenerateKey("ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed := &peer{root: p.root, host: freshKey}
+	renewed.leaf = renewed.leafFor(t, endpointA, fixedNow.Add(-30*time.Minute))
+	if f, err := e.open(t, e.sealFrom(t, renewed, "chain", "send_message", nil), TransportFacts{}); err != nil || f.Tier != policy.TierContact {
+		t.Fatalf("the renewal: %v %+v", err, f)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); string(c.Leaf) != string(renewed.leaf) {
+		t.Fatal("the pin did not follow the renewed leaf")
+	}
+	if _, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
+		t.Fatalf("the small form naming the superseded leaf: %v; want chain_required", err)
+	}
+	f, err := e.open(t, e.sealFrom(t, p, "chain", "request_contact", map[string]any{"card": cardOf(p)}), TransportFacts{})
+	if err != nil || f.Tier != policy.TierGuest || !f.Demote || f.Why != "superseded leaf" {
+		t.Fatalf("the superseded chain: %v %+v", err, f)
+	}
+	if c, _ := e.st.GetContact(ctx, e.acct.ID, p.fpr()); string(c.Leaf) != string(renewed.leaf) {
+		t.Fatal("neither form of the superseded leaf may roll the pin back")
+	}
+	// The renewed leaf, named by fingerprint, is the contact's: the key that changed is the one held.
+	if f, err := e.open(t, e.sealFrom(t, renewed, "leaf", "send_message", nil), TransportFacts{}); err != nil || f.Tier != policy.TierContact {
+		t.Fatalf("the small form naming the renewed leaf: %v %+v", err, f)
 	}
 }
 
