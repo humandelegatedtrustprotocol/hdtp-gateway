@@ -326,6 +326,12 @@ func (d SealedDeps) sealedCode(ctx context.Context, facts *EnvelopeFacts, code s
 // seen our current leaf and our leaf's fingerprint after, and the result rides
 // beside it. A guest always gets the chain: nothing records what it has seen.
 //
+// The answer to an inner get_card carries the chain whatever the record says (§13.2: "A caller that
+// cannot verify a result asks with get_card, which always answers with the chain"). get_card is what
+// a caller asks BECAUSE it could not verify an answer, and that caller is one the record is wrong
+// about — the chain is recorded as sent and the caller never pinned it — so an answer by the record
+// would fail the same way, and nothing would get the caller out until the leaf retired.
+//
 // It seals under the state the open was decided against (EnvelopeFacts.state), which every facts
 // decideEnvelope returns carries. It read the state again here — the account row, the chain, every
 // held key decrypted and parsed — on every sealed answer, for the one key it uses.
@@ -351,7 +357,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 	if !facts.Guest && !facts.Demote && facts.From != "" {
 		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil {
 			pinned = true
-			if c.ChainSentKid == ourKid {
+			if c.ChainSentKid == ourKid && toolNameOf(facts.Payload) != "get_card" {
 				form = "leaf"
 			}
 		}

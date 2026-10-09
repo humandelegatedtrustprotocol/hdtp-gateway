@@ -10,7 +10,20 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The sealed answer to `get_card` carries the node's chain whatever the node has recorded the
+  contact as having seen (HDTP §13.2: `get_card` "always answers with the chain"). It followed the
+  record, so a contact that could not verify an answer and asked `get_card`, as §13.2 says to, got
+  the fingerprint of the leaf it could not verify, and stayed stuck until that leaf retired. The
+  answer is recorded as the chain sent, like any chain-form answer.
+- An answer from a peer whose card says `X-HDTP-SEAL: required` that verifies under no leaf held for
+  it is followed by one `get_card`, sealed to the pinned leaf, and when the chain it answers with is
+  newer than the pin, by a re-pin and one retry under the same `msg_id`. The call failed at once,
+  with the pin standing until an answer carried the chain or the pinned key retired. A `get_card`
+  that does not verify, or is refused (`certificate_renewed` when the pinned key retired in
+  between, which the next call follows), ends the call with an error naming both failures; no
+  second `get_card` is asked. A peer that takes plaintext is still asked in plaintext.
 
 ## [0.1.2] — 2026-10-09
 

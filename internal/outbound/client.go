@@ -74,7 +74,7 @@ func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
 
 // takesPlaintext reports whether this peer's card lets an unsealed call reach it (HDTP §13.4):
 // every policy but `required`. CallTool refuses a plaintext call to a peer it is false for, and
-// the sealed exchange asks no plaintext get_card of one.
+// the sealed exchange asks its get_card of one sealed rather than in plaintext.
 func (p Peer) takesPlaintext() bool { return p.Seal != "required" }
 
 // Client makes calls from one account's identity to contacts. Build one per account and set the
@@ -218,8 +218,8 @@ func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[
 }
 
 // callTool is CallTool without the budget: the wire half of an exchange that has already spent it
-// (the sealed exchange's `sealed_call`, and the plaintext `get_card` it asks of a peer that takes
-// plaintext when an answer cannot be verified).
+// (the sealed exchange's `sealed_call`, and the `get_card` it asks when an answer cannot be verified
+// — in plaintext of a peer that takes plaintext, inside a `sealed_call` of one that requires sealing).
 func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[string]any) (*mcp.CallToolResult, error) {
 	hc, err := c.HTTPClient(peer)
 	if err != nil {
