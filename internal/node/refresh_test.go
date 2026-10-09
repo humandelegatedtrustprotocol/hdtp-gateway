@@ -62,7 +62,7 @@ func TestVerifyRefreshedCard(t *testing.T) {
 		t.Fatal("a foreign signature verified")
 	}
 
-	// No chain, no refresh. HDTP §6.1: `get_card` answers "always the chain". This used to fall
+	// No chain, no refresh. HDTP §6.2: `get_card` answers "always the chain". This used to fall
 	// back to the pinned leaf's key when the answer carried none, which made the chain something
 	// the ANSWERER could leave out — and with it the two checks that make a refresh safe to act
 	// on, the root and the address. Whoever answers at the pinned endpoint chooses what is in the

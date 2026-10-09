@@ -385,10 +385,10 @@ func TestP1ExitTwoNodesPairAndMessage(t *testing.T) {
 			if err != nil || bobOnA.Status != "active" || len(bobOnA.SPKI) == 0 {
 				t.Fatalf("A did not pin B: %+v %v", bobOnA, err)
 			}
-			// B pins A from the redemption answer, the way HDTP §6.1 lays it out: the signed card,
+			// B pins A from the redemption answer, the way HDTP §6.2 lays it out: the signed card,
 			// and the CHAIN that proves it. The chain validates to the root the card names at the
 			// address it names, its leaf is the certificate on the card, and the key B pins is
-			// that leaf's. This read a `spki` member instead, which §6.1 does not define.
+			// that leaf's. This read a `spki` member instead, which HDTP §6.2 does not define.
 			answered, err := contacts.ValidateInbound(redeemed.Card)
 			if err != nil {
 				t.Fatalf("the redemption answer's card does not validate: %v", err)

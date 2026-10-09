@@ -57,7 +57,7 @@ const PERMS: Readonly<Record<string, string>> = {
 };
 
 /**
- * An HDTP permission (SPEC §5) as an owner reads it: `message.media` → "Media & files",
+ * An HDTP permission (HDTP §8) as an owner reads it: `message.media` → "Media & files",
  * `integration.github` → "GitHub tools". A permission that names one tool (`integration.github.search`,
  * `deepwiki_ask_wiki_question`) is that tool's label. A dotted name this does not know stays as written:
  * it is somebody's own permission, and guessing its words would say something it may not mean.
