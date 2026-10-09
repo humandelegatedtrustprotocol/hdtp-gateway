@@ -22,21 +22,27 @@ import (
 )
 
 // renewedPeer is an identity that has renewed its leaf after the caller pinned it: the server
-// presents and signs under the new leaf; `pin` is the leaf the caller still holds.
+// presents and signs under the new leaf, and still opens what is sealed to the old one, which it
+// keeps until its notAfter (§14.4); `pin` is the leaf the caller still holds.
 type renewedPeer struct {
 	root     string
 	endpoint string
 	pin      []byte
 	leaf     []byte
 	calls    map[string]int
-	form     string
-	addr     string
+	// form is the form every answer but get_card's is sealed in; cardForm is get_card's. A
+	// responder answers get_card with the chain whatever its record says (§13.2); a test sets
+	// cardForm to "leaf" to stand in for one that answers it by the record.
+	form, cardForm string
+	addr           string
+	state          hdtpidentity.NodeState
 }
 
 // startRenewedPeer issues a second leaf under the test identity's root, newer than the one the
 // caller pinned, and serves `sealed_call` and `get_card` under it over TLS. Every sealed_call is
-// answered with one result sealed to the caller's key, in the form `p.form` names; get_card
-// answers the current chain in plaintext.
+// opened — under the old key or the new — and answered with one result sealed to the caller's key,
+// in `p.form` or, for an inner get_card, `p.cardForm`; the plaintext get_card answers the current
+// chain. The handlers count every call by tool, the sealed ones as `sealed <tool>`.
 func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *renewedPeer {
 	t.Helper()
 	kp, err := identity.Generate(identity.AlgoEd25519)
@@ -58,39 +64,62 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &renewedPeer{root: id.rootFpr, endpoint: id.endpoint, pin: id.leaf, leaf: leaf, calls: map[string]int{}, form: "leaf"}
+	p := &renewedPeer{root: id.rootFpr, endpoint: id.endpoint, pin: id.leaf, leaf: leaf, calls: map[string]int{}, form: "leaf", cardForm: "chain"}
 	chain := [][]byte{leaf, id.rootCert}
+	chainB64 := []string{hdtpidentity.B64url(leaf), hdtpidentity.B64url(id.rootCert)}
+	p.state = hdtpidentity.NodeState{
+		Endpoint: id.endpoint, AcceptNewHosts: "auto", Chain: chainB64,
+		Keys: []hdtpidentity.HeldKey{
+			{Kid: id.kp.Fingerprint, Leaf: hdtpidentity.B64url(id.leaf), PKCS8: hdtpidentity.B64url(pkcs8Of(t, id.kp)), Current: false},
+			{Kid: kp.Fingerprint, Leaf: hdtpidentity.B64url(leaf), PKCS8: hdtpidentity.B64url(pkcs8Of(t, kp)), Current: true},
+		},
+		Pins: []hdtpidentity.Pin{{Root: caller.rootFpr, Endpoint: caller.endpoint, Leaf: hdtpidentity.B64url(caller.leaf), State: "active"}},
+	}
+	card := func() string {
+		body, _ := json.Marshal(map[string]any{"card": "", "card_sig": "", "chain": chainB64})
+		return string(body)
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "alina", Version: "1"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "sealed_call", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			p.calls["sealed_call"]++
-			protected, _ := args["protected"].(string)
-			hdr, err := hdtpidentity.DecodeB64url(protected)
-			if err != nil {
-				t.Errorf("sealed_call: protected: %v", err)
+			raw, _ := json.Marshal(args)
+			var env hdtpidentity.Envelope
+			_ = json.Unmarshal(raw, &env)
+			d, err := hdtpidentity.Decide(time.Now(), env, p.state)
+			if err != nil || d.Result["code"] != "ok" {
+				t.Errorf("sealed_call did not open: %v %v", err, d.Result)
+				return nil, nil, err
 			}
+			params, _ := d.Result["params"].(map[string]any)
+			tool, _ := params["name"].(string)
+			p.calls["sealed "+tool]++
+			form, inner := p.form, `{"status":"delivered"}`
+			if tool == "get_card" {
+				form, inner = p.cardForm, card()
+			}
+			protected, _ := hdtpidentity.DecodeB64url(env.Protected)
 			var h struct {
 				MsgID string `json:"msg_id"`
 			}
-			_ = json.Unmarshal(hdr, &h)
-			inner, _ := json.Marshal(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"delivered"}`}}})
+			_ = json.Unmarshal(protected, &h)
+			result, _ := json.Marshal(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: inner}}})
 			now := time.Now()
-			env, err := hdtpidentity.SealResult(hdtpidentity.SealOpts{
-				RecipientKey: callerPub, Sender: lib, Form: p.form, SenderChain: chain, Result: inner,
+			out, err := hdtpidentity.SealResult(hdtpidentity.SealOpts{
+				RecipientKey: callerPub, Sender: lib, Form: form, SenderChain: chain, Result: result,
 				MsgID: h.MsgID, TS: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(),
 			})
 			if err != nil {
 				t.Errorf("sealed_call: seal: %v", err)
 				return nil, nil, err
 			}
-			body, _ := json.Marshal(env)
+			body, _ := json.Marshal(out)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
 		})
 	mcp.AddTool(srv, &mcp.Tool{Name: "get_card", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
 			p.calls["get_card"]++
-			body, _ := json.Marshal(map[string]any{"card": "", "card_sig": "", "chain": []string{hdtpidentity.B64url(leaf), hdtpidentity.B64url(id.rootCert)}})
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: card()}}}, nil, nil
 		})
 	// The listener is loopback and the dialled Host is not, which the SDK refuses unless told
 	// otherwise — as the node tells it (node.go, its own handler).
@@ -101,6 +130,16 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 	t.Cleanup(ts.Close)
 	p.addr = ts.Listener.Addr().String()
 	return p
+}
+
+// pkcs8Of is the keypair's private key as the library's NodeState holds one.
+func pkcs8Of(t *testing.T, kp *identity.Keypair) []byte {
+	t.Helper()
+	der, err := identity.MarshalPKCS8(kp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
 }
 
 // peer is the caller's view: pinned by the root, holding the OLD leaf, under the given policy.
@@ -119,7 +158,15 @@ func callerTo(t *testing.T, me *testIdentity, p *renewedPeer, repinned *[][]byte
 	return c
 }
 
-func TestAnUnverifiableAnswerFromARequiredPeerIsNotFollowedByAPlaintextGetCard(t *testing.T) {
+// delivered fails the test unless res is the retried call's result.
+func delivered(t *testing.T, res *mcp.CallToolResult) {
+	t.Helper()
+	if tc, ok := res.Content[0].(*mcp.TextContent); !ok || tc.Text != `{"status":"delivered"}` {
+		t.Fatalf("the retried call's result was not returned: %+v", res.Content[0])
+	}
+}
+
+func TestAnUnverifiableAnswerFromARequiredPeerIsFollowedByOneSealedGetCard(t *testing.T) {
 	alina := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp")
 	bharat := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
 	p := startRenewedPeer(t, alina, bharat)
@@ -128,23 +175,54 @@ func TestAnUnverifiableAnswerFromARequiredPeerIsNotFollowedByAPlaintextGetCard(t
 
 	// Alina answers under her new leaf by its fingerprint alone (she has recorded her chain as
 	// sent to Bharat); Bharat's pin is her old leaf, so the answer names a leaf he does not hold.
-	_, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "hi"}, "m-required")
-	if err == nil || !strings.Contains(err.Error(), "unverifiable answer: unknown leaf") {
-		t.Fatalf("want the unverifiable answer reported, got %v", err)
+	// A plaintext get_card is refused by a peer that requires sealing before it is read, so the
+	// one asked is sealed — to the pinned leaf, whose key Alina keeps until it expires (§14.4) —
+	// and get_card's answer carries the chain whatever her record says (§13.2). The chain
+	// validates to the pinned root at the dialed address and is newer than the pin: the pin moves,
+	// and the call is retried once.
+	res, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "hi"}, "m-required")
+	if err != nil {
+		t.Fatalf("the call must recover through a sealed get_card: %v", err)
 	}
-	// A plaintext get_card to a peer that requires sealing is refused before it leaves, every
-	// time: a remedy that cannot work is not tried, and the error does not blame its refusal.
-	if strings.Contains(err.Error(), "get_card") || strings.Contains(err.Error(), "seal_required") {
-		t.Fatalf("the error blames a get_card nothing could have made succeed: %v", err)
+	delivered(t, res)
+	if p.calls["get_card"] != 0 {
+		t.Fatalf("%d plaintext get_card call(s) reached a peer that requires sealing", p.calls["get_card"])
 	}
-	if !strings.Contains(err.Error(), "the pin stands") {
-		t.Fatalf("the error must say what the caller is left with: %v", err)
+	if p.calls["sealed get_card"] != 1 {
+		t.Fatalf("%d sealed get_card call(s), want exactly one", p.calls["sealed get_card"])
+	}
+	if p.calls["sealed send_message"] != 2 || p.calls["sealed_call"] != 3 {
+		t.Fatalf("calls %v, want the attempt, one sealed get_card and one retry", p.calls)
+	}
+	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
+		t.Fatalf("the pin must move to the leaf get_card's chain carried, once: %d re-pin(s)", len(repinned))
+	}
+}
+
+func TestAnUnverifiableAnswerFromARequiredPeerWhoseGetCardAnswersByTheRecordFailsNamingBoth(t *testing.T) {
+	alina := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp")
+	bharat := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
+	p := startRenewedPeer(t, alina, bharat)
+	// A responder that answers get_card in the form its record says, under the unknown leaf: the
+	// sealed get_card fails as the call did, nothing is retried, and the error says what was tried.
+	p.cardForm = "leaf"
+	var repinned [][]byte
+	c := callerTo(t, bharat, p, &repinned)
+
+	_, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "hi"}, "m-required-stuck")
+	if err == nil {
+		t.Fatal("an answer nothing verified, and a get_card answered the same way, must fail the call")
+	}
+	for _, want := range []string{"unverifiable answer: unknown leaf", "a sealed get_card", "unknown leaf"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error must say %q — what failed and what was tried: %v", want, err)
+		}
 	}
 	if p.calls["get_card"] != 0 {
 		t.Fatalf("%d plaintext get_card call(s) reached a peer that requires sealing", p.calls["get_card"])
 	}
-	if p.calls["sealed_call"] != 1 {
-		t.Fatalf("%d sealed_call(s), want the one attempt and no retry", p.calls["sealed_call"])
+	if p.calls["sealed get_card"] != 1 || p.calls["sealed send_message"] != 1 {
+		t.Fatalf("calls %v, want the attempt and one sealed get_card, no retry", p.calls)
 	}
 	if len(repinned) != 0 {
 		t.Fatalf("the pin moved on an answer nothing verified: %d re-pin(s)", len(repinned))
@@ -158,21 +236,19 @@ func TestAnUnverifiableAnswerFromAnOptionalPeerIsFollowedByOnePlaintextGetCard(t
 	var repinned [][]byte
 	c := callerTo(t, bharat, p, &repinned)
 
-	// The one case the plaintext get_card alone serves: the peer takes plaintext, and its sealed
-	// answer carried no chain. The chain get_card answers validates to the pinned root at the
-	// dialed address and is newer than the pin, so the pin moves and the call is retried once.
+	// A peer that takes plaintext is asked in plaintext, which reaches it without a key to seal to.
+	// The chain get_card answers validates to the pinned root at the dialed address and is newer
+	// than the pin, so the pin moves and the call is retried once.
 	res, err := c.SealedCall(context.Background(), p.peer("optional"), "send_message", map[string]any{"text": "hi"}, "m-optional")
 	if err != nil {
 		t.Fatalf("the call must recover through get_card: %v", err)
 	}
-	if tc, ok := res.Content[0].(*mcp.TextContent); !ok || tc.Text != `{"status":"delivered"}` {
-		t.Fatalf("the retried call's result was not returned: %+v", res.Content[0])
+	delivered(t, res)
+	if p.calls["get_card"] != 1 || p.calls["sealed get_card"] != 0 {
+		t.Fatalf("calls %v, want exactly one plaintext get_card and no sealed one", p.calls)
 	}
-	if p.calls["get_card"] != 1 {
-		t.Fatalf("%d get_card call(s), want exactly one", p.calls["get_card"])
-	}
-	if p.calls["sealed_call"] != 2 {
-		t.Fatalf("%d sealed_call(s), want the attempt and one retry", p.calls["sealed_call"])
+	if p.calls["sealed send_message"] != 2 {
+		t.Fatalf("%d sealed send_message(s), want the attempt and one retry", p.calls["sealed send_message"])
 	}
 	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
 		t.Fatalf("the pin must move to the leaf get_card's chain carried, once: %d re-pin(s)", len(repinned))
@@ -194,11 +270,9 @@ func TestAnAnswerCarryingTheRenewedChainRepinsWithoutGetCard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an answer carrying the chain must verify: %v", err)
 	}
-	if tc, ok := res.Content[0].(*mcp.TextContent); !ok || tc.Text != `{"status":"delivered"}` {
-		t.Fatalf("the result was not returned: %+v", res.Content[0])
-	}
-	if p.calls["get_card"] != 0 || p.calls["sealed_call"] != 1 {
-		t.Fatalf("calls %v, want one sealed_call and no get_card", p.calls)
+	delivered(t, res)
+	if p.calls["get_card"] != 0 || p.calls["sealed get_card"] != 0 || p.calls["sealed_call"] != 1 {
+		t.Fatalf("calls %v, want one sealed_call and no get_card of either kind", p.calls)
 	}
 	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
 		t.Fatalf("the pin must follow the chain the answer carried, once: %d re-pin(s)", len(repinned))

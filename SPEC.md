@@ -381,7 +381,10 @@ What belongs here is what is the node's own:
   has seen its current leaf and the leaf's fingerprint after (HDTP §13.2) — except the
   answer to `get_card`, which carries the chain whatever the node has recorded
   (`internal/public/sealed.go`, `sealResult`): `get_card` is what a caller asks because it
-  could not verify an answer, and §13.2 has it always answer with the chain.
+  could not verify an answer, and §13.2 has it always answer with the chain. The node's own
+  client asks it so when an answer it received verifies under no leaf it holds
+  (`internal/outbound/seal.go`): in plaintext of a peer whose card takes plaintext, sealed
+  to the pinned leaf of one that requires sealing; it re-pins from the chain and retries once.
 
 ## 5. Public surface
 

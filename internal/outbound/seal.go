@@ -8,12 +8,14 @@ package outbound
 // answers make the caller act once and only once: chain_required (resend with
 // the chain), certificate_renewed (follow the chain to the pinned root at the
 // dialed address, re-pin, re-seal), and an answer that cannot be verified
-// (ask get_card in plaintext, which always carries the chain, re-pin, retry —
-// of a peer that takes plaintext; a peer that requires sealing is not asked,
-// and the call fails with the pin standing).
+// (ask get_card, which always answers with the chain — in plaintext of a peer
+// that takes plaintext, sealed to the pinned leaf of one that requires
+// sealing — re-pin from that chain, retry).
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,7 +116,7 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 	if peer.ChainSeen {
 		form = "leaf"
 	}
-	plain, refusal, err := c.attempt(ctx, peer, method, params, msgID, form)
+	plain, refusal, err := c.attempt(ctx, &peer, method, params, msgID, form)
 	var unverifiable *errUnverifiable
 	switch {
 	case err == nil && refusal == nil:
@@ -126,7 +128,7 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 			// The peer no longer holds our leaf — a renewal it has not seen, or
 			// a pin it lost. Once, with the chain (§13.2).
 			if form == "leaf" {
-				return c.attempt(ctx, peer, method, params, msgID, "chain")
+				return c.attempt(ctx, &peer, method, params, msgID, "chain")
 			}
 		case "certificate_renewed":
 			// The key we sealed to has been renewed. The chain proves nothing by
@@ -154,35 +156,65 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 			if err != nil {
 				return nil, refusal, err
 			}
-			return c.attempt(ctx, next, method, params, msgID, form)
+			return c.attempt(ctx, &next, method, params, msgID, form)
 		}
 		return nil, refusal, nil
 	case errors.As(err, &unverifiable):
-		// The answer is signed by a key we do not hold a leaf for. get_card
-		// always answers with the chain (§13.2, §6.2); a chain that validates to
-		// the pinned root at the dialed address and is not older than the pin is
-		// the peer's current leaf. Once, in plaintext, of a peer that takes
-		// plaintext. A peer that requires sealing is not asked: a plaintext
-		// get_card to it is refused unread, and a sealed one is answered in the
-		// form that just failed — the form is the peer's record of what we have
-		// seen (§13.2), not the tool's. Its chain reaches us the sealed way, in
-		// its first answer after a renewal or as certificate_renewed once the
-		// key we sealed to is retired (§14.3, §14.4); until then the pin stands.
-		if !peer.takesPlaintext() {
-			return nil, nil, fmt.Errorf("%w; the peer requires sealed calls, so its card was not asked for in plaintext; the pin stands until an answer from it carries the chain", err)
+		// The answer is signed by a key we do not hold a leaf for. get_card always answers with
+		// the chain (§13.2, §6.2), whatever the peer has recorded us as having seen; a chain that
+		// validates to the pinned root at the dialed address and is not older than the pin is the
+		// peer's current leaf. Once. In plaintext of a peer that takes plaintext; sealed to the
+		// pinned leaf of one that requires sealing, which refuses a plaintext get_card unread and
+		// keeps a superseded key until its notAfter (§14.4), so the ask opens there and the chain
+		// comes back the sealed way. When the get_card fails too, the error says what was tried.
+		asked := "a plaintext get_card"
+		var gerr error
+		if peer.takesPlaintext() {
+			var leaf []byte
+			if leaf, gerr = c.chainFromGetCard(ctx, peer); gerr == nil {
+				peer, _, gerr = c.repin(peer, leaf)
+			}
+		} else {
+			asked = "a sealed get_card"
+			gerr = c.repinFromSealedGetCard(ctx, &peer, form)
 		}
-		leaf, gerr := c.chainFromGetCard(ctx, peer)
 		if gerr != nil {
-			return nil, nil, fmt.Errorf("%w; and get_card: %v", err, gerr)
+			return nil, nil, fmt.Errorf("%w; and %s: %v", err, asked, gerr)
 		}
-		next, _, rerr := c.repin(peer, leaf)
-		if rerr != nil {
-			return nil, nil, rerr
-		}
-		return c.attempt(ctx, next, method, params, msgID, form)
+		return c.attempt(ctx, &peer, method, params, msgID, form)
 	default:
 		return nil, nil, err
 	}
+}
+
+// repinFromSealedGetCard asks a peer that requires sealing for its card inside an envelope sealed to
+// the pinned leaf, in the form the call used, and moves the pin to the leaf of the chain its answer
+// carries — which it does as the answer opens (attempt), as for any answer carrying a newer leaf
+// (§14.3). The answer carries the chain because get_card's always does (§13.2), so it opens where the
+// one before it did not. A pinned key the peer has already retired is answered certificate_renewed,
+// in plaintext; it is reported here and followed by the next call's first attempt (sealedExchange).
+func (c *Client) repinFromSealedGetCard(ctx context.Context, peer *Peer, form string) error {
+	before := peer.Leaf
+	_, refusal, err := c.attempt(ctx, peer, "tools/call", map[string]any{"name": "get_card", "arguments": map[string]any{}}, newMsgID(), form)
+	if err != nil {
+		return err
+	}
+	if refusal != nil {
+		code, _ := refusalCode(refusal)
+		return fmt.Errorf("refused %s", code)
+	}
+	if string(peer.Leaf) == string(before) {
+		return errors.New("its answer verified under the leaf already pinned, so the answer before it failed for a reason other than a renewal")
+	}
+	return nil
+}
+
+// newMsgID is the msg_id of the one envelope this package sends on its own account — the sealed
+// get_card of an unverifiable answer — which no caller named.
+func newMsgID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return "card-" + hex.EncodeToString(b)
 }
 
 // errUnverifiable is an answer that opened but could not be verified against
@@ -204,8 +236,9 @@ func (e *errUnattributable) Error() string {
 	return "outbound: " + e.code + " arrived in plaintext; §13.2 requires it sealed, so it is not the peer's answer"
 }
 
-// attempt seals one request in the given form, sends it, and opens the answer.
-func (c *Client) attempt(ctx context.Context, peer Peer, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
+// attempt seals one request in the given form, sends it, and opens the answer. A newer leaf riding
+// in the answer re-pins (§14.3) and moves `peer` to it, so the caller's next attempt seals to it.
+func (c *Client) attempt(ctx context.Context, peer *Peer, method string, params map[string]any, msgID, form string) ([]byte, *mcp.CallToolResult, error) {
 	// Sealed to the key of the leaf we hold for this peer, read from that leaf. It used to arrive
 	// as a second argument beside `peer`, and the first thing done with it was to check it was
 	// this same key — two copies of one fact, and a plaintext downgrade wherever a caller had
@@ -241,14 +274,14 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 		return nil, nil, fmt.Errorf("outbound: seal: %w", err)
 	}
 	wire := map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
-	res, err := c.callTool(ctx, peer, "sealed_call", wire)
+	res, err := c.callTool(ctx, *peer, "sealed_call", wire)
 	if err != nil {
 		return nil, nil, err
 	}
 	if form == "chain" && c.OnChainSent != nil {
 		// The peer has now seen our current leaf, whatever it answered: an
 		// envelope that carried the chain is never answered chain_required.
-		c.OnChainSent(peer)
+		c.OnChainSent(*peer)
 	}
 	if res.IsError {
 		// §13.2: only a refusal that precedes the open may arrive in plaintext.
@@ -269,7 +302,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
 	}
 	opened, err := hdtpidentity.OpenResult(out, hdtpidentity.OpenOpts{
-		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []hdtpidentity.Pin{pinOf(peer)},
+		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []hdtpidentity.Pin{pinOf(*peer)},
 		ExpectedRoot: peer.Root, ExpectedEndpoint: peer.Endpoint,
 	})
 	if err != nil {
@@ -278,9 +311,11 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 	if len(opened.LeafUpdate) > 0 {
 		// A renewal learned from the answer: the newer leaf replaces the pin
 		// as it passes (§14.3).
-		if _, _, err := c.repin(peer, opened.LeafUpdate); err != nil {
+		next, _, err := c.repin(*peer, opened.LeafUpdate)
+		if err != nil {
 			return nil, nil, err
 		}
+		*peer = next
 	}
 	if opened.Error != nil {
 		var e struct {
@@ -300,7 +335,7 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 // our client certificate — and returns the leaf of a chain that validates to
 // the pinned root at the dialed address and is not older than the pin. The
 // caller has read the peer's policy (sealedExchange): a peer that requires
-// sealing is never asked.
+// sealing is asked sealed instead (repinFromSealedGetCard).
 func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error) {
 	res, err := c.callTool(ctx, peer, "get_card", map[string]any{})
 	if err != nil {
