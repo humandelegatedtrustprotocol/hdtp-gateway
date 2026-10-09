@@ -112,3 +112,41 @@ func flatten(pairs [][2]string) []string {
 	}
 	return out
 }
+
+// statusRemoved is what a conversation whose contact row is gone says it is: removed by the owner,
+// by them (their remove notice), or a request that expired. A contact status never takes it; the
+// conversation list does.
+const statusRemoved = "removed"
+
+// formerContacts are the people this account holds a conversation with and no contact row for,
+// as rows labelContacts can name beside the live ones: each carries the names its newest thread kept
+// when the row was deleted (store.Thread.KeptDisplayName, KeptPetname; threads come newest first)
+// and the status statusRemoved. A kept name that matches a live contact's is decorated by the same
+// rule two live ones are.
+func formerContacts(list []store.Contact, threads []store.Thread) []store.Contact {
+	held := make(map[string]bool, len(list))
+	for _, c := range list {
+		held[c.Fingerprint] = true
+	}
+	var out []store.Contact
+	for _, t := range threads {
+		if held[t.ContactFpr] {
+			continue
+		}
+		held[t.ContactFpr] = true
+		out = append(out, store.Contact{
+			AccountID: t.AccountID, Fingerprint: t.ContactFpr, Status: statusRemoved,
+			DisplayName: t.KeptDisplayName, Petname: t.KeptPetname,
+		})
+	}
+	return out
+}
+
+// conversationLabel is what a conversation is called in the list: its contact's label, and for a
+// contact that is gone, that label and " · removed".
+func conversationLabel(labels map[string]string, c store.Contact) string {
+	if c.Status == statusRemoved {
+		return labels[c.Fingerprint] + " · " + statusRemoved
+	}
+	return labels[c.Fingerprint]
+}

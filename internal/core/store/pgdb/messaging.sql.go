@@ -153,7 +153,7 @@ func (q *Queries) GetMessageByMsgID(ctx context.Context, arg GetMessageByMsgIDPa
 }
 
 const getThread = `-- name: GetThread :one
-SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq FROM threads WHERE account_id = $1 AND id = $2
+SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname FROM threads WHERE account_id = $1 AND id = $2
 `
 
 type GetThreadParams struct {
@@ -172,6 +172,8 @@ func (q *Queries) GetThread(ctx context.Context, arg GetThreadParams) (Thread, e
 		&i.CreatedAt,
 		&i.LastAt,
 		&i.LastReadSeq,
+		&i.KeptDisplayName,
+		&i.KeptPetname,
 	)
 	return i, err
 }
@@ -569,7 +571,7 @@ func (q *Queries) ListPendingOutbound(ctx context.Context, limit int32) ([]ListP
 }
 
 const listThreadsByAccount = `-- name: ListThreadsByAccount :many
-SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq FROM threads WHERE account_id = $1 ORDER BY last_at DESC, id
+SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname FROM threads WHERE account_id = $1 ORDER BY last_at DESC, id
 `
 
 func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error) {
@@ -589,6 +591,8 @@ func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([
 			&i.CreatedAt,
 			&i.LastAt,
 			&i.LastReadSeq,
+			&i.KeptDisplayName,
+			&i.KeptPetname,
 		); err != nil {
 			return nil, err
 		}

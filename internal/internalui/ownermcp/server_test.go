@@ -559,3 +559,65 @@ func TestRefreshContactNamesOneContactOfTheCallersAccount(t *testing.T) {
 		t.Fatalf("the node was asked for %v, want exactly %v", calls, want)
 	}
 }
+
+// get_inbox keeps a removed contact's thread and says so: removed_contact carries the names the
+// thread kept when the row was deleted, null while a row names the fingerprint; a contact added
+// again is held, and the field is null again.
+func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:alina", Status: "active", DisplayName: "Alina", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", Text: "hi", Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	type kept struct {
+		DisplayName string `json:"display_name"`
+		Petname     string `json:"petname"`
+	}
+	inbox := func() []struct {
+		ContactFpr     string `json:"contact_fpr"`
+		Unread         int64  `json:"unread"`
+		RemovedContact *kept  `json:"removed_contact"`
+	} {
+		t.Helper()
+		text, isErr := callJSON(t, cs, "get_inbox", map[string]any{"account_id": e.acctA})
+		if isErr {
+			t.Fatalf("get_inbox: %s", text)
+		}
+		if !strings.Contains(text, `"removed_contact":`) {
+			t.Fatalf("no removed_contact member: %s", text)
+		}
+		var rows []struct {
+			ContactFpr     string `json:"contact_fpr"`
+			Unread         int64  `json:"unread"`
+			RemovedContact *kept  `json:"removed_contact"`
+		}
+		if err := json.Unmarshal([]byte(text), &rows); err != nil || len(rows) != 1 {
+			t.Fatalf("get_inbox rows: %v %s", err, text)
+		}
+		return rows
+	}
+	if r := inbox()[0]; r.RemovedContact != nil {
+		t.Fatalf("a held contact's thread: %+v", r.RemovedContact)
+	}
+	if err := e.st.SetContactPetname(ctx, e.acctA, "sha256:alina", "Alina from the bakery"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.DeleteContact(ctx, e.acctA, "sha256:alina"); err != nil {
+		t.Fatal(err)
+	}
+	r := inbox()[0]
+	if r.RemovedContact == nil || *r.RemovedContact != (kept{DisplayName: "Alina", Petname: "Alina from the bakery"}) || r.Unread != 1 {
+		t.Fatalf("after the removal: %+v unread=%d", r.RemovedContact, r.Unread)
+	}
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:alina", Status: "active", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if r := inbox()[0]; r.RemovedContact != nil {
+		t.Fatalf("re-added, still marked removed: %+v", r.RemovedContact)
+	}
+}

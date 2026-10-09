@@ -10,6 +10,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Changed
+
+- A removed contact's conversation stays in the inbox, under the name it had (the owner's petname,
+  else theirs) and ` · removed`, readable and with no composer; it used to vanish from the list
+  with the contact. A conversation whose contact is now a request or blocked stays listed too,
+  read-only, under that row's name. Migration 0002 keeps the names on the contact's threads as its
+  row is deleted, by any path, and never replaces a kept name with an empty one; `get_inbox`
+  answers them as `removed_contact` (SPEC §9.1).
+
 ### Fixed
 
 - The sealed answer to `get_card` carries the node's chain whatever the node has recorded the

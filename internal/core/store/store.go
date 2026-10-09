@@ -237,6 +237,11 @@ type Thread struct {
 	Topic      string
 	CreatedAt  int64
 	LastAt     int64
+	// KeptDisplayName and KeptPetname are the contact row's display_name and petname as the row
+	// was deleted (a trigger writes them: migrations 0002). They name a thread whose contact is
+	// gone; while a row names ContactFpr, the row's names are the ones that count.
+	KeptDisplayName string
+	KeptPetname     string
 }
 
 // Blob is the record of an inline media file an account holds, named by the hash of its content. The
