@@ -203,6 +203,7 @@ of it, and are listed so a reader can tell the two apart.
 | the audit chain distinguishes owner actions from caller actions | `TestOwnerActionsAreAuditedAsOwner`, `TestAuditPageFiltersByActor` |
 | `audit_query` never leaves the identity's accounts | `TestAuditQueryNeverLeavesTheIdentitysAccounts`, `TestScopedTokenCannotReadNodeLevelAuditRows` |
 | owner-MCP tools cannot reach another account's integration | `TestSetExposureCannotReachAnotherAccountsIntegration` |
+| the portal's integration routes cannot reach another account's integration | `TestIntegrationRoutesRefuseAnotherAccountsIntegration` |
 
 ## HDTP 1.0: the person is the certificate authority
 

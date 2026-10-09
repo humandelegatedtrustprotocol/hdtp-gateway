@@ -10,8 +10,15 @@ package integrationtest
 // That breaks `docker compose up`, which SPEC §12.4 and the README quickstart both
 // present as the first thing a new owner does. `make check` cannot notice, because it
 // never builds an image. This test is the comparison nobody was making.
+//
+// The `toolchain` line is the other half. The golang image sets GOTOOLCHAIN=local, under which
+// a toolchain line is ignored rather than refused: an image older than the toolchain go.mod
+// names does not fail to build, it builds with the older Go and ships that Go's standard
+// library. So the image is held to the newer of the two lines, patch included — a floating
+// `golang:1.26` tag does not satisfy `toolchain go1.26.9`.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,11 +28,38 @@ import (
 )
 
 var (
-	goDirective  = regexp.MustCompile(`(?m)^go\s+(\d+)\.(\d+)(?:\.(\d+))?`)
-	golangImage  = regexp.MustCompile(`(?m)^FROM\s+golang:(\d+)\.(\d+)`)
-	dockerfiles  = []string{"Dockerfile", "Dockerfile.full"}
-	errNoVersion = "could not find a version to compare"
+	goDirective        = regexp.MustCompile(`(?m)^go\s+(\d+)\.(\d+)(?:\.(\d+))?`)
+	toolchainDirective = regexp.MustCompile(`(?m)^toolchain\s+go(\d+)\.(\d+)(?:\.(\d+))?`)
+	golangImage        = regexp.MustCompile(`(?m)^FROM\s+golang:(\d+)\.(\d+)(?:\.(\d+))?`)
+	dockerfiles        = []string{"Dockerfile", "Dockerfile.full"}
+	errNoVersion       = "could not find a version to compare"
 )
+
+// goVersion is major.minor.patch; a line that names no patch is .0.
+type goVersion [3]int
+
+func (v goVersion) below(w goVersion) bool {
+	for i := range v {
+		if v[i] != w[i] {
+			return v[i] < w[i]
+		}
+	}
+	return false
+}
+
+func (v goVersion) String() string { return fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2]) }
+
+// parseGoVersion reads the three capture groups of goDirective, toolchainDirective or golangImage.
+func parseGoVersion(t *testing.T, m []string) goVersion {
+	t.Helper()
+	var v goVersion
+	for i, s := range m[1:4] {
+		if s != "" {
+			v[i] = atoi(t, s)
+		}
+	}
+	return v
+}
 
 func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 	root := repoRoot(t)
@@ -38,7 +72,12 @@ func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 	if m == nil {
 		t.Fatalf("go.mod: %s", errNoVersion)
 	}
-	wantMajor, wantMinor := atoi(t, m[1]), atoi(t, m[2])
+	want, line := parseGoVersion(t, m), "go"
+	if tm := toolchainDirective.FindStringSubmatch(string(b)); tm != nil {
+		if tv := parseGoVersion(t, tm); want.below(tv) {
+			want, line = tv, "toolchain"
+		}
+	}
 
 	for _, f := range dockerfiles {
 		df, err := os.ReadFile(filepath.Join(root, f))
@@ -50,13 +89,13 @@ func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 			t.Errorf("%s: %s in its FROM golang: line", f, errNoVersion)
 			continue
 		}
-		gotMajor, gotMinor := atoi(t, im[1]), atoi(t, im[2])
-		if gotMajor < wantMajor || (gotMajor == wantMajor && gotMinor < wantMinor) {
-			t.Errorf("%s builds with golang:%d.%d but go.mod requires go >= %d.%d — "+
-				"the image cannot build at all, so `docker compose up` (SPEC §12.4, and the "+
-				"README quickstart) is broken. make check does not catch this: "+
-				"it builds with go.mod's toolchain and never builds an image.",
-				f, gotMajor, gotMinor, wantMajor, wantMinor)
+		if got := parseGoVersion(t, im); got.below(want) {
+			t.Errorf("%s: %q is below go.mod's %s line (go%s). The golang image sets GOTOOLCHAIN=local: "+
+				"an image below the `go` line cannot build, and one below the `toolchain` line builds "+
+				"with its own older Go, since local ignores that line. Either way `docker compose up` "+
+				"(SPEC §12.4, and the README quickstart) does not ship what go.mod names, and make check "+
+				"cannot notice: it builds with go.mod's toolchain and never builds an image.",
+				f, strings.TrimSpace(im[0]), line, want)
 		}
 	}
 }
