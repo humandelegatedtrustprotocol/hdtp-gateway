@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
 )
 
 // A removed contact's conversation stays in the inbox (owner, 2026-10-09: "conversation should live
@@ -170,5 +171,12 @@ func TestARemovedContactAskingAgainKeepsTheHistoryListed(t *testing.T) {
 	}
 	if g := u.rows(t, nil)["sha256:sam"]; g.Label != "Sam from climbing · removed" || g.Status != "removed" {
 		t.Errorf("after the request expired: %+v", g)
+	}
+}
+
+// The conversation list and get_inbox say a removed contact in one word: two copies, held here.
+func TestTheListAndGetInboxSayRemovedInOneWord(t *testing.T) {
+	if statusRemoved != ownermcp.StatusRemoved {
+		t.Fatalf("the list says %q, get_inbox %q", statusRemoved, ownermcp.StatusRemoved)
 	}
 }

@@ -18,6 +18,8 @@ changelog can be and is not summarized into a fictional release history.
   read-only, under that row's name. Migration 0002 keeps the names on the contact's threads as its
   row is deleted, by any path, and never replaces a kept name with an empty one; `get_inbox`
   answers them as `removed_contact` (SPEC §9.1).
+- `get_inbox` answers each thread's `contact_status`: its contact row's status, or `removed` when
+  no row names the thread's fingerprint, in the words BatonDeck's thread rows use (SPEC §9.1).
 
 ### Fixed
 

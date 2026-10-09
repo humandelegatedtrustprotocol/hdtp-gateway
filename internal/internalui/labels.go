@@ -115,7 +115,9 @@ func flatten(pairs [][2]string) []string {
 
 // statusRemoved is what a conversation whose contact row is gone says it is: removed by the owner,
 // by them (their remove notice), or a request that expired. A contact status never takes it; the
-// conversation list does.
+// conversation list does, and get_inbox's contact_status says it in the same word
+// (ownermcp.StatusRemoved, held equal to this by conversations_removed_test.go: the layers keep
+// this package from importing that one).
 const statusRemoved = "removed"
 
 // formerContacts are the people this account holds a conversation with and no contact row for,

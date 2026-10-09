@@ -348,7 +348,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers"},
 		ot.listAccountsTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. A thread whose contact was removed stays, and its removed_contact holds the display_name and petname kept from the contact (a later request with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. contact_status is the contact row's status, or removed when no row names the thread's fingerprint. A thread whose contact was removed stays, and its removed_contact holds the display_name and petname kept from the contact (a later request with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
 		ot.getInboxTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
@@ -489,6 +489,11 @@ func (ot ownerTools) listAccountsTool(ctx context.Context, req *mcp.CallToolRequ
 	return r, nil, err
 }
 
+// StatusRemoved is what a thread says of its contact when no contact row names it any more
+// (SPEC §9.1): removed by either side, forgotten on an unblock, or a request that expired. It is
+// never a contact row's status; the portal's conversation list says it in the same word.
+const StatusRemoved = "removed"
+
 // getInboxTool is the `get_inbox` tool.
 func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
 	if !ot.allow(ctx, a.AccountID) {
@@ -503,9 +508,9 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, nil, err
 	}
-	held := make(map[string]bool, len(contacts))
+	status := make(map[string]string, len(contacts))
 	for _, c := range contacts {
-		held[c.Fingerprint] = true
+		status[c.Fingerprint] = c.Status
 	}
 	type kept struct {
 		DisplayName string `json:"display_name"`
@@ -516,16 +521,23 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 		ContactFpr string `json:"contact_fpr"`
 		Unread     int64  `json:"unread"`
 		LastAt     int64  `json:"last_at"`
+		// ContactStatus is the contact row's status (active, pending_in, pending_out, blocked),
+		// or StatusRemoved when no row names ContactFpr: what BatonDeck's thread rows answer as
+		// contact_status, in the same words.
+		ContactStatus string `json:"contact_status"`
 		// RemovedContact is null while a contact row names ContactFpr, whatever its status; once
 		// the row is gone, the names the thread kept (an empty one never replaced a kept one).
-		// BatonDeck's thread row has no such member until it takes migration 0002.
+		// BatonDeck's thread rows answer the same member.
 		RemovedContact *kept `json:"removed_contact"`
 	}
 	out := make([]row, 0, len(threads))
 	for _, th := range threads {
 		n, _ := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
 		r := row{ThreadID: th.ID, ContactFpr: th.ContactFpr, Unread: n, LastAt: th.LastAt}
-		if !held[th.ContactFpr] {
+		if st, held := status[th.ContactFpr]; held {
+			r.ContactStatus = st
+		} else {
+			r.ContactStatus = StatusRemoved
 			r.RemovedContact = &kept{DisplayName: th.KeptDisplayName, Petname: th.KeptPetname}
 		}
 		out = append(out, r)
