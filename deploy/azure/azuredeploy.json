@@ -48,7 +48,7 @@
     },
     "release": {
       "type": "string",
-      "defaultValue": "v0.1.1",
+      "defaultValue": "v0.1.2",
       "metadata": {
         "description": "The hdtp-gateway release tag to build: the sources are fetched at this tag from the public repository."
       }

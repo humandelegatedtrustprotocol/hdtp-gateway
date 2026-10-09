@@ -9,7 +9,7 @@
 #
 # Environment, with its defaults:
 #   HDTP_HOSTNAME   required: the name you will point at the VM, the node's public URL
-#   HDTP_RELEASE    v0.1.1              the release tag to build
+#   HDTP_RELEASE    v0.1.2              the release tag to build
 #   HDTP_ZONE       us-central1-a       a zone that offers T2A (Arm) machine types
 #   HDTP_MACHINE    t2a-standard-2      an Arm machine type (2 vCPUs, 8 GB)
 #   HDTP_NAME       hdtp-gateway        the instance's name
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 hostname="${HDTP_HOSTNAME:-}"
-release="${HDTP_RELEASE:-v0.1.1}"
+release="${HDTP_RELEASE:-v0.1.2}"
 zone="${HDTP_ZONE:-us-central1-a}"
 machine="${HDTP_MACHINE:-t2a-standard-2}"
 name="${HDTP_NAME:-hdtp-gateway}"
