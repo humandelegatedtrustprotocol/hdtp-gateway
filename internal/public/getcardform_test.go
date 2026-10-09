@@ -1,6 +1,7 @@
 package public
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -38,5 +39,31 @@ func TestGetCardIsAnsweredWithTheChainOnceTheContactHasSeenIt(t *testing.T) {
 	res = s.call(t, s.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "three"}, withID("m-three")), TransportFacts{})
 	if form := s.unsealed(t, res, p, "m-three").Form; form != "leaf" {
 		t.Fatalf("the answer after get_card carried %q, want the leaf: get_card's chain is not a renewal", form)
+	}
+}
+
+// A contact whose first sealed call is get_card is answered with the chain, and that answer is
+// recorded as the chain sent like any other chain-form answer: the answer to its next call names the
+// leaf. An answer that carried the chain without being recorded would leave the contact receiving
+// the chain on every call until something else carried it.
+func TestAFreshContactsGetCardIsRecordedAsTheChainSent(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt.Add(-time.Hour))
+	s.pin(t, p, "active")
+	ctx := context.Background()
+	if c, err := s.st.GetContact(ctx, s.acct.ID, p.fpr()); err != nil || c.ChainSentKid != "" {
+		t.Fatalf("a fresh contact has a chain recorded as sent: %q (%v)", c.ChainSentKid, err)
+	}
+
+	res := s.call(t, s.sealFrom(t, p, "chain", "get_card", nil), TransportFacts{})
+	if form := s.unsealed(t, res, p, msgIDFor("get_card", "chain")).Form; form != "chain" {
+		t.Fatalf("get_card's answer to a fresh contact carried %q, want the chain", form)
+	}
+	if c, _ := s.st.GetContact(ctx, s.acct.ID, p.fpr()); c.ChainSentKid != s.currentKey(t).Fingerprint {
+		t.Fatalf("get_card's chain-form answer was not recorded as the chain sent: %q", c.ChainSentKid)
+	}
+	res = s.call(t, s.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "after the card"}), TransportFacts{})
+	if form := s.unsealed(t, res, p, msgIDFor("send_message", "leaf")).Form; form != "leaf" {
+		t.Fatalf("the answer after get_card carried %q, want the leaf: the chain went with get_card's answer", form)
 	}
 }
