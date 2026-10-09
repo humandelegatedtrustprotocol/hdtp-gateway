@@ -258,10 +258,11 @@ func probe(ctx context.Context, n Need) error {
 		if dir == "" {
 			return fmt.Errorf("%s is not set", LocalCloudEnv)
 		}
-		for _, f := range []string{"e2e/local-run.mjs", "public"} {
-			if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
-				return fmt.Errorf("%s has no %s: %v", dir, f, err)
-			}
+		if _, err := os.Stat(filepath.Join(dir, "e2e/local-run.mjs")); err != nil {
+			return fmt.Errorf("%s has no e2e/local-run.mjs: %v", dir, err)
+		}
+		if err := localCloudBuilt(ctx, dir); err != nil {
+			return err
 		}
 		for _, v := range []string{"WORKOS_TEST_CLIENT_ID", "WORKOS_TEST_API_KEY"} {
 			if os.Getenv(v) == "" {
@@ -289,6 +290,51 @@ func probe(ctx context.Context, n Need) error {
 		return nil
 	}
 	return fmt.Errorf("no probe for %q", n)
+}
+
+// localCloudScript asks the cloud's own runner what it links into its run's worktree from the
+// checkout (`treeLinks` in e2e/local-run.mjs: the installed packages and every build the local
+// cloud refuses to start without) and prints one per line. The list is the cloud's, read from it,
+// so a build the cloud comes to need is a need here the same day. The runner starts a run when
+// process.argv[1] is itself, which `node -e <script> <path>` would make it, so the path is handed
+// over in the environment and argv[1] stays empty: importing it then starts nothing.
+const localCloudScript = `const { pathToFileURL } = await import('node:url')
+const m = await import(pathToFileURL(process.env.HDTP_LOCAL_RUN).href)
+if (typeof m.treeLinks !== 'function') { console.error('Error: no treeLinks export: a checkout from before it needs updating'); process.exit(3) }
+for (const p of m.treeLinks()) console.log(p)`
+
+// localCloudBuilt holds the checkout behind dir (batondeck's gateway/) to what its runner links
+// into the run's worktree: each must be there, or the local cloud stops before it starts and S20
+// was promised a scenario that could not begin.
+func localCloudBuilt(ctx context.Context, dir string) error {
+	ask := exec.CommandContext(ctx, "node", "--input-type=module", "-e", localCloudScript)
+	ask.Env = append(os.Environ(), "HDTP_LOCAL_RUN="+filepath.Join(dir, "e2e/local-run.mjs"))
+	var stderr strings.Builder
+	ask.Stderr = &stderr
+	out, err := ask.Output()
+	if err != nil {
+		// What node said is the reason: a checkout from before treeLinks ("no treeLinks export"), a
+		// package not installed, a syntax error; and with no node at all, err says so.
+		return fmt.Errorf("%s/e2e/local-run.mjs could not be asked what its run needs: %v: %s", dir, err, errorLine(stderr.String()))
+	}
+	repo := filepath.Dir(filepath.Clean(dir))
+	for _, p := range strings.Fields(string(out)) {
+		if _, err := os.Stat(filepath.Join(repo, p)); err != nil {
+			return fmt.Errorf("%s has no %s, which the local cloud needs: build it (cd %s && npm run portal:build)", repo, p, dir)
+		}
+	}
+	return nil
+}
+
+// errorLine is node's reason among what it wrote to stderr: the first line naming an error (node
+// leads an uncaught one with where it was thrown, a line that says nothing), else the first line.
+func errorLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, "Error") {
+			return strings.TrimSpace(l)
+		}
+	}
+	return firstLine(s)
 }
 
 // fabricReady asks preflight, the one place that knows how to tell whether Docker or an

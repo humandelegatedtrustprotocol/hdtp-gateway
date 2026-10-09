@@ -77,7 +77,8 @@ const (
 	CloudBattery Need = "cloud-battery"
 	// LocalCloud is batondeck's local cloud and its live-local runner (gateway/e2e/local-run.mjs),
 	// named by HDTP_LOCAL_CLOUD (the gateway directory), with the WorkOS test pair its session
-	// injection verifies (WORKOS_TEST_CLIENT_ID, WORKOS_TEST_API_KEY) and its built public/.
+	// injection verifies (WORKOS_TEST_CLIENT_ID, WORKOS_TEST_API_KEY) and whatever its runner links into a
+	// run (its treeLinks: the installed packages, public/ and ceremony-dist/).
 	LocalCloud Need = "local-cloud"
 )
 
@@ -210,7 +211,7 @@ func HowToProvide(n Need) string {
 	case HDTPCLI:
 		return "make harness-hdtp-cli (an hdtp-identity checkout beside this one), or export " + HDTPCLIEnv + " naming a built hdtp"
 	case LocalCloud:
-		return "export " + LocalCloudEnv + " naming a batondeck gateway/ with e2e/local-run.mjs and a built public/, and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
+		return "export " + LocalCloudEnv + " naming a batondeck gateway/ whose checkout has everything its e2e/local-run.mjs links into a run (installed packages, and public/ and ceremony-dist/ from npm run portal:build), and WORKOS_TEST_CLIENT_ID and WORKOS_TEST_API_KEY"
 	case CloudBattery:
 		return "check batondeck out beside this repository (the Makefile then exports " + CloudBatteryEnv + "), or export it naming gateway/conformance"
 	}
