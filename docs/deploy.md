@@ -33,7 +33,7 @@ carry it inside their templates, Google Cloud and DigitalOcean render it with
    major 29 — the version the quickstart measured — by an apt preference;
 2. makes a service user, `hdtp`, in the `docker` group, owning `/opt/hdtp`;
 3. fetches this repository at one release tag into `/opt/hdtp` (the tag is a parameter; the
-   templates default to `v0.1.1`);
+   templates default to `v0.1.2`);
 4. vendors the limits sidecar's crates as `make limitd-vendor` does, in the Rust image the
    `Dockerfile` builds the sidecar with, since the VM has no cargo;
 5. runs the shipped `compose.yaml` with an override beside it: the node told its public URL

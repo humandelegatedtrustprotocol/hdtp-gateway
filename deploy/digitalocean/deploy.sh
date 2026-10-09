@@ -12,7 +12,7 @@
 # Environment, with its defaults:
 #   HDTP_HOSTNAME   required: the name you will point at the Droplet, the node's public URL
 #   HDTP_SSH_KEY    required: an SSH key id or fingerprint from `doctl compute ssh-key list`
-#   HDTP_RELEASE    v0.1.1              the release tag to build
+#   HDTP_RELEASE    v0.1.2              the release tag to build
 #   HDTP_REGION     nyc3                the region slug
 #   HDTP_SIZE       s-2vcpu-4gb         the size slug (4 GB: the first boot compiles the node)
 #   HDTP_IMAGE      ubuntu-24-04-x64    the image slug
@@ -23,7 +23,7 @@ set -euo pipefail
 
 hostname="${HDTP_HOSTNAME:-}"
 sshkey="${HDTP_SSH_KEY:-}"
-release="${HDTP_RELEASE:-v0.1.1}"
+release="${HDTP_RELEASE:-v0.1.2}"
 region="${HDTP_REGION:-nyc3}"
 size="${HDTP_SIZE:-s-2vcpu-4gb}"
 image="${HDTP_IMAGE:-ubuntu-24-04-x64}"

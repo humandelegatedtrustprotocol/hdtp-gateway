@@ -24,7 +24,8 @@
 //   - deploy/gcp/deploy.sh and deploy/digitalocean/deploy.sh: the render script, the image family,
 //     the user-data flag, the firewall ports; deploy/render-cloud-init.sh: every placeholder, and
 //     the refusal of any other;
-//   - every release tag the templates default to is one this repository has;
+//   - every release tag the templates default to is one this repository has, and the same one
+//     the Azure sample parameters, the two scripts' usage and docs/deploy.md name;
 //   - docs/deploy.md: one status row per provider, each saying "not yet run" or dated; every
 //     `make` target it cites exists; every repository path and every button URL names a file that
 //     exists; README.md points at it.
@@ -184,11 +185,17 @@ export function check(tree) {
     if (typeof ci.final_message !== 'string') fail(CLOUD_INIT, 'no final_message: the console would not say the first boot finished')
   }
 
-  // The release every template defaults to: one tag, and one this repository has.
+  // The release every template defaults to: one tag, and one this repository has. The AWS
+  // template's default is the source; every other place that names it is held to it.
   const releases = {}
   guard(CFN, () => { releases[CFN] = JSON.parse(tree.read(CFN)).Parameters?.Release?.Default })
   guard(ARM, () => { releases[ARM] = JSON.parse(tree.read(ARM)).parameters?.release?.defaultValue })
-  for (const s of [GCP, DO]) guard(s, () => { releases[s] = tree.read(s).match(/HDTP_RELEASE:-(v[0-9.]+)/)?.[1] })
+  guard(ARM_PARAMS, () => { releases[ARM_PARAMS] = JSON.parse(tree.read(ARM_PARAMS)).parameters?.release?.value })
+  for (const s of [GCP, DO]) guard(s, () => {
+    releases[s] = tree.read(s).match(/HDTP_RELEASE:-(v[0-9.]+)/)?.[1]
+    releases[`${s} (usage)`] = tree.read(s).match(/^#\s+HDTP_RELEASE\s+(v[0-9.]+)\s/m)?.[1]
+  })
+  guard(DOC, () => { releases[DOC] = tree.read(DOC).match(/templates default to `(v[0-9.]+)`/)?.[1] })
   const tags = tree.tags()
   for (const [file, tag] of Object.entries(releases)) {
     if (!tag) fail(file, 'no default release tag')
@@ -466,6 +473,7 @@ function selftest() {
       process.exit(1)
     }
   }
+  const release = JSON.parse(real.read(CFN)).Parameters.Release.Default
   const edit = (file, from, to, kind, what) => ({ file, kind, what, apply: (s) => { if (!s.includes(from)) throw new Error(`plant "${what}": ${file} has no ${JSON.stringify(from)}`); return s.replace(from, to) } })
   const plants = [
     edit(CLOUD_INIT, '#cloud-config\n', '#!/bin/sh\n', CLOUD_INIT, 'not a cloud-config'),
@@ -483,7 +491,10 @@ function selftest() {
     edit(CLOUD_INIT, '            - "443:443"\n            - "443:443/udp"\n', '            - "443:443/udp"\n', CLOUD_INIT, 'Caddy not published on 443'),
     edit(CLOUD_INIT, '      HDTP_HOSTNAME=${Hostname}\n', '\tHDTP_HOSTNAME=${Hostname}\n', CLOUD_INIT, 'a tab, outside the YAML subset'),
     edit(CLOUD_INIT, '  - chmod a+r /etc/apt/keyrings/docker.asc\n', "  - printf 'Types: deb' > /tmp/x\n", CLOUD_INIT, 'a runcmd line YAML reads as a mapping, not a command'),
-    edit(CFN, '"Default": "v0.1.1"', '"Default": "v9.9.9"', CFN, 'a release tag the repository has not got'),
+    edit(CFN, `"Default": "${release}"`, '"Default": "v9.9.9"', CFN, 'a release tag the repository has not got'),
+    edit(ARM_PARAMS, `"value": "${release}"`, '"value": "v0.0.1"', 'release', 'the sample parameters naming another release than the templates'),
+    edit(GCP, `HDTP_RELEASE    ${release} `, 'HDTP_RELEASE    v0.0.1 ', 'release', 'the usage naming another release than the default'),
+    edit(DOC, `templates default to \`${release}\``, 'templates default to `v0.0.1`', 'release', 'the document naming another release than the templates'),
     edit(CFN, '"FromPort": 443,\n            "ToPort": 443,\n            "CidrIp": "0.0.0.0/0"\n          },\n          {\n            "IpProtocol": "udp"', '"FromPort": 443,\n            "ToPort": 443,\n            "CidrIp": "10.0.0.0/8"\n          },\n          {\n            "IpProtocol": "udp"', CFN, '443 not open to everyone'),
     edit(CFN, '"AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"', '"String"', CFN, 'an AMI typed by hand'),
     edit(CFN, '"Default": "t4g.medium"', '"Default": "t3.medium"', CFN, 'an x86 instance type for an arm64 AMI'),
