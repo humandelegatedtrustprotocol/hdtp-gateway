@@ -455,6 +455,7 @@ function selftest() {
     edit(CLOUD_INIT, 'docker compose logs hdtp-gateway | grep', 'docker ps | grep', CLOUD_INIT, 'a login message that does not say where the setup link is'),
     edit(CLOUD_INIT, '            - "443:443"\n            - "443:443/udp"\n', '            - "443:443/udp"\n', CLOUD_INIT, 'Caddy not published on 443'),
     edit(CLOUD_INIT, '      HDTP_HOSTNAME=${Hostname}\n', '\tHDTP_HOSTNAME=${Hostname}\n', CLOUD_INIT, 'a tab, outside the YAML subset'),
+    edit(CLOUD_INIT, '  - chmod a+r /etc/apt/keyrings/docker.asc\n', "  - printf 'Types: deb' > /tmp/x\n", CLOUD_INIT, 'a runcmd line YAML reads as a mapping, not a command'),
     edit(CFN, '"Default": "v0.1.1"', '"Default": "v9.9.9"', CFN, 'a release tag the repository has not got'),
     edit(CFN, '"FromPort": 443,\n            "ToPort": 443,\n            "CidrIp": "0.0.0.0/0"\n          },\n          {\n            "IpProtocol": "udp"', '"FromPort": 443,\n            "ToPort": 443,\n            "CidrIp": "10.0.0.0/8"\n          },\n          {\n            "IpProtocol": "udp"', CFN, '443 not open to everyone'),
     edit(CFN, '"AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"', '"String"', CFN, 'an AMI typed by hand'),
@@ -627,6 +628,11 @@ export function parseYAML(text, where = 'yaml') {
     if (r === 'true') return true
     if (r === 'false') return false
     if (/^-?(0|[1-9][0-9]*)$/.test(r)) return Number(r)
+    // A plain scalar YAML would read otherwise is refused rather than read leniently: a colon-space
+    // makes it a mapping, a trailing colon a key, and an indicator at its start something else.
+    if (r.includes(': ') || r.endsWith(':') || /^[@`|>&*!%{}[\],?'"-]/.test(r)) {
+      throw new Error(`${where}:${at}: a plain scalar YAML reads as something else; quote it or use a literal block: ${r}`)
+    }
     return r
   }
 
