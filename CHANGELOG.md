@@ -10,6 +10,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.26.9 (13 standard-library advisories fixed since 1.26.6; v0.1.1's binaries were
+  built with 1.26.6). `go.mod` names it in a `toolchain` line, the Dockerfiles pin
+  `golang:1.26.9-alpine` by digest, and the image test holds the two to each other.
+
 ### Fixed
 
 - The portal's integration routes refuse an integration of another account with `404`, the answer
