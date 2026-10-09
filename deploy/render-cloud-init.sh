@@ -17,10 +17,10 @@ release="$2"
 case "$hostname" in
   *[!a-z0-9.-]*|"") echo "render-cloud-init: the hostname is a lower-case DNS name: $hostname" >&2; exit 2 ;;
 esac
-case "$release" in
-  v[0-9]*.[0-9]*.[0-9]*) ;;
-  *) echo "render-cloud-init: the release is a tag such as v0.1.1: $release" >&2; exit 2 ;;
-esac
+if ! [[ "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "render-cloud-init: the release is a tag such as v0.1.1: $release" >&2
+  exit 2
+fi
 
 here="$(cd "$(dirname "$0")" && pwd)"
 out=""

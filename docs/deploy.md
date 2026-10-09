@@ -38,7 +38,7 @@ carry it inside their templates, Google Cloud and DigitalOcean render it with
    `Dockerfile` builds the sidecar with, since the VM has no cargo;
 5. runs the shipped `compose.yaml` with an override beside it: the node told its public URL
    (`HDTP_PUBLIC_URL=https://<hostname>`, so the Settings page shows it locked and `account csr`
-   knows the address), and **Caddy** published on 80 and 443 with a certificate for the hostname
+   knows the address), and **Caddy** published on 80, 443 and 443/udp with a certificate for the hostname
    from its automatic HTTPS (Let's Encrypt or ZeroSSL), each request carried to the node's
    listener over TLS. The compose build compiles the node (Go) and the sidecar (Rust) on the VM:
    minutes, and not measured on any instance size, which is why the defaults have 4 GiB of memory or
@@ -65,6 +65,8 @@ What the node gets from this, read from the code and not from the provider:
   `wrong_cert`, as it does behind `deploy/envoy`. A peer accepts that certificate: the outbound
   client takes the pinned chain or WebPKI validity for the hostname (`internal/outbound/client.go`).
   Every other `doctor` line applies.
+- **The data is the VM's disk.** SQLite in the `hdtp-data` volume, Caddy's certificates in
+  `caddy-data`. Nothing leaves the VM; nothing backs it up but you (`docs/operations.md`).
 
 What was measured, on this machine rather than on a provider (Docker 29.8.2, Compose v5.5.1,
 2026-10-09): the shipped `compose.yaml` with the override and the Caddyfile this file writes, the
@@ -73,10 +75,8 @@ hostname resolved to loopback and Caddy's internal CA standing in for ACME. The 
 `hdtp` CLI and the chain installed; through Caddy, with the hostname as the server name, the
 reachability probe answered `200` with its nonce and the instance's URL, and `tools/list` on
 `/a/<slug>/mcp` answered the guest tier's tools; `doctor` then reported the leaf, the sidecar
-answering and the probe `wrong_cert`, as the paragraph above says. Not measured: a provider's VM,
+answering and the probe `wrong_cert`, as the bullet above says. Not measured: a provider's VM,
 the first boot's package and build steps, and a certificate from a public CA.
-- **The data is the VM's disk.** SQLite in the `hdtp-data` volume, Caddy's certificates in
-  `caddy-data`. Nothing leaves the VM; nothing backs it up but you (`docs/operations.md`).
 
 The node's sources and `compose.yaml` on the VM are the release tag's; the override and the
 Caddyfile are this file's, at the commit you deployed from. `docker compose` in `/opt/hdtp` reads
@@ -90,8 +90,10 @@ you give), one Arm EC2 instance from Canonical's current Ubuntu 24.04 arm64 AMI 
 their public SSM parameter), an Elastic IP, and an A record for your hostname in the Route 53
 hosted zone you name. The first boot is the cloud-init above, embedded
 line by line. Parameters: `Hostname`, `HostedZoneId`, `SshCidr` (required), `InstanceType`
-(`t4g.medium`), `KeyName` (optional), `Release`, `Ami` (leave it). Outputs: the URL, the address,
-and the SSH command with the portal's port tunnelled.
+(`t4g.medium`), `KeyName` (the template allows it empty, but it is required in practice: the setup
+link is only in the node's log, and without a key pair nothing can log in to read it; an SSM
+session would need an instance role, which this template does not create), `Release`, `Ami` (leave
+it). Outputs: the URL, the address, and the SSH command with the portal's port tunnelled.
 
 There is no Launch Stack button. CloudFormation's quick-create links take the template from an
 Amazon S3 URL and no other (per [AWS's
@@ -182,11 +184,10 @@ DigitalOcean button: that button creates an App Platform app, which cannot host 
 No template is offered for these, for reasons in the node rather than in the providers:
 
 - **The limits sidecar shares a unix socket with the node** (`compose.yaml`; SPEC §5.7), and until
-  it answers the node refuses every sealed call. A Fly Machine, a Render service and an App
-  Platform component each run one container from one Dockerfile, with no second process beside it
-  and no shared filesystem between components; the shipped image is distroless and runs the node
-  alone. Hosting the node there needs an image that runs both processes, which this repository does
-  not build.
+  it answers the node refuses every sealed call. The shipped image is distroless and runs the node
+  alone, and this repository builds no image that runs the node and the sidecar together; each of
+  these providers builds one image from the Dockerfile you name, so hosting the node there needs
+  such an image first.
 - **The node's public listener speaks only TLS** (`internal/public/listener.go`), and Render's
   load balancer "terminates SSL for inbound HTTPS requests, then forwards those requests to your
   web service over HTTP" ([Render's documentation](https://render.com/docs/web-services)); App

@@ -57,5 +57,6 @@ hdtp-gateway is building on $name ($zone), at $ip.
 3. Log in with the portal's loopback port tunnelled, and follow the message of the day:
        gcloud compute ssh $name --zone=$zone -- -L 8080:127.0.0.1:8080
 
-SSH is the one door that is not open to everyone: it is gcloud's, through IAP or the project's keys.
+Port 22 is as your network's firewall rules have it (the default network's default-allow-ssh opens
+it to everyone); login is by key only, through gcloud.
 EOF

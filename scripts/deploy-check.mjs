@@ -203,6 +203,24 @@ export function check(tree) {
     const s = tree.read(RENDER)
     for (const p of PLACEHOLDERS) if (!s.includes(`'\${${p}}'`)) fail(RENDER, `does not substitute \${${p}}`)
     if (!s.includes(`*'\${'*`)) fail(RENDER, 'does not refuse a placeholder left in its output')
+    // The release goes into a single-quoted shell line of the cloud-init: anything but a tag breaks it.
+    if (!s.includes('=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ')) fail(RENDER, 'does not hold the release to a tag, ^v[0-9]+\\.[0-9]+\\.[0-9]+$')
+  })
+  // The portal's published port, as compose.yaml publishes it: what the login message and the
+  // document tell the operator to tunnel and open.
+  guard(COMPOSE, () => {
+    const published = String(parseYAML(tree.read(COMPOSE), COMPOSE).services?.['hdtp-gateway']?.ports?.[0] || '')
+    const m = published.match(/^127\.0\.0\.1:(\d+):\d+$/)
+    if (!m) throw new Error(`compose.yaml publishes the portal as ${JSON.stringify(published)}, not on host loopback`)
+    const port = m[1]
+    const motd = ci?.write_files?.find((f) => f.path === '/etc/update-motd.d/99-hdtp-gateway')?.content || ''
+    for (const [file, s] of [[CLOUD_INIT, motd], [DOC, tree.read(DOC)]]) {
+      for (const want of [`http://localhost:${port}`, `ssh -L ${port}:127.0.0.1:${port}`]) if (!s.includes(want)) fail(file, `does not say ${want}: compose.yaml publishes the portal at ${published}`)
+      for (const other of s.matchAll(/localhost:(\d+)|-L (\d+):127\.0\.0\.1:(\d+)/g)) {
+        const found = other[1] || other[2]
+        if (found !== port || (other[3] && other[3] !== port)) fail(file, `names port ${found}; compose.yaml publishes the portal at ${published}`)
+      }
+    }
   })
   guard(DOC, () => checkDocs(tree, fail, makefile))
   return problems
@@ -347,12 +365,17 @@ function checkDocs(tree, fail, makefile) {
   const targets = new Set([...makefile.matchAll(/^([a-z][a-z0-9-]*):/gm)].map((m) => m[1]))
   for (const m of doc.matchAll(/`make ([a-z][a-z0-9-]*)/g)) if (!targets.has(m[1])) fail(DOC, `cites make ${m[1]}, which the Makefile has not got`)
   if (!doc.includes('`make deploy-check`')) fail(DOC, 'does not say what validated the templates (make deploy-check)')
-  // The status table: one row per provider, each not yet run or dated.
+  // The status table: one row per provider. Its last cell is the date of a real run; while that
+  // cell is empty the status says "not yet run" or "no template", in those words.
   const rows = doc.split('\n').filter((l) => l.startsWith('| '))
   for (const provider of PROVIDERS) {
     const row = rows.find((l) => l.startsWith(`| ${provider} |`))
-    if (!row) fail(DOC, `the status table has no row for ${provider}`)
-    else if (!/not yet run|no template/.test(row) && !/\b20\d\d-\d\d-\d\d\b/.test(row)) fail(DOC, `${provider}'s row neither says "not yet run" or "no template" nor carries a date`)
+    if (!row) { fail(DOC, `the status table has no row for ${provider}`); continue }
+    const cells = row.split('|').map((c) => c.trim())
+    const [status, lastRun] = [cells[4] || '', cells[5] || '']
+    if (lastRun === '') {
+      if (!/not yet run|no template/.test(status)) fail(DOC, `${provider} has no last run, and its status does not say "not yet run" or "no template"`)
+    } else if (!/^20\d\d-\d\d-\d\d$/.test(lastRun)) fail(DOC, `${provider}'s last run is not a date: ${lastRun}`)
   }
   // Every repository path named in a code span or a link exists.
   const paths = new Set()
@@ -477,6 +500,10 @@ function selftest() {
     edit(DOC, '`make deploy-check`', '`make deploy-validate`', DOC, 'a make target the Makefile has not got'),
     edit(DOC, 'deploy/aws/hdtp-gateway.cfn.json', 'deploy/aws/hdtp-gateway.cfn.yaml', DOC, 'a file that does not exist'),
     edit(DOC, '| Azure |', '| Azure Stack |', DOC, 'a provider without a status row'),
+    edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-09; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-09', DOC, 'a status that no longer says not yet run while no run is dated'),
+    edit(DOC, 'sign in at `http://localhost:8080`', 'sign in at `http://localhost:8081`', DOC, "the document naming a portal port compose.yaml does not publish"),
+    edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),
+    edit(RENDER, '=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ', '== v[0-9]*.[0-9]*.[0-9]* ', RENDER, 'the release checked by a glob, which lets a quote through into the cloud-init'),
     edit('README.md', '](docs/deploy.md)', '](docs/deploying.md)', 'README.md', 'the README pointing nowhere'),
   ]
   // The two embedded copies drifting from the file, one line each: a change of one character.
