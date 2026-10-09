@@ -58,9 +58,10 @@ hdtp vectors intrude --against https://alice.example.com/a/alice/mcp --card alic
 ```
 
 It needs `--card` because the node serves **no card at a URL of its own**: SPEC §9 puts a
-host's card on its invite landing page, and the public surface is four routes, none of which
-serves a card — `/a/{slug}/mcp`, `/i/{token}`, `/mcp` and the reachability probe
-`/.well-known/hdtp-probe` (`internal/public/listener.go`). Save the card from the landing page (or from a peer
+host's card on its invite landing page, and the public surface is four routes, none of them a card
+URL of its own — `/a/{slug}/mcp`, `/i/{token}`, `/mcp` and the reachability probe
+`/.well-known/hdtp-probe` (`internal/public/listener.go`); `/i/{token}` serves the signed card
+only inside a live invite (`internal/internalui/invite_landing.go`). Save the card from the landing page (or from a peer
 that has already paired). A good run says `11 scenarios: 11 blocked, 0 reproduce`; anything
 it cannot classify prints as `unknown:` and counts as a REPRODUCTION, on purpose.
 
