@@ -9,15 +9,19 @@ import { readFileSync } from "node:fs";
 
 const view = readFileSync(new URL("../src/views/messages.tsx", import.meta.url), "utf8");
 
-test("the view knows a removed conversation by the node's status", () => {
-  assert.match(view, /const selRemoved = \(d\?\.contacts \?\? \[\]\)\.find\(\(p\) => p\.fingerprint === sel\)\?\.status === "removed";/);
+test("the view knows a removed or read-only conversation by the node's status", () => {
+  assert.match(view, /const selStatus = \(d\?\.contacts \?\? \[\]\)\.find\(\(p\) => p\.fingerprint === sel\)\?\.status \?\? "";/);
+  assert.match(view, /const selRemoved = selStatus === "removed";/);
+  // Written to only while active: a request's or a blocked row's held conversation is read-only too.
+  assert.match(view, /const selReadOnly = selStatus !== "" && selStatus !== "active";/);
 });
 
-test("nothing that writes to, calls or shows the contact is offered for a removed conversation", () => {
-  assert.match(view, /if \(!sel \|\| selRemoved\) return;\n/, "the tools of a removed contact's node are not asked for");
-  assert.match(view, /\{!selRemoved && <><div className="composer">/, "no composer");
-  assert.match(view, /\{!selRemoved && toolsOpen && \(/, "no tool dock");
-  assert.match(view, /\{!selRemoved && <Badge tone="ok" title=\{`Their key is pinned/, "no pinned badge: nothing is pinned");
+test("nothing that writes to or calls the contact is offered unless the contact is active", () => {
+  assert.match(view, /if \(!sel \|\| selReadOnly\) return;\n/, "the tools of a read-only conversation's node are not asked for");
+  assert.match(view, /\{!selReadOnly && <><div className="composer">/, "no composer");
+  assert.match(view, /\{!selReadOnly && toolsOpen && \(/, "no tool dock");
+  assert.match(view, /\{!selReadOnly && <Badge tone="ok" title=\{`Their key is pinned/, "no pinned badge");
+  assert.match(view, /\{selReadOnly && !selRemoved && <div className="foot-note">Not an active contact/, "a request's or blocked row's conversation says why");
   assert.match(view, /\{current && !selRemoved && <ContactPanel /, "no contact panel");
   assert.match(view, /\{selRemoved && <div className="foot-note">No longer a contact\./, "and it says why");
   // One composer, one panel: a second, ungated copy would undo the gate.

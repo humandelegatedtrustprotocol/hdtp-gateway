@@ -436,15 +436,66 @@ func contacts(t *testing.T, newStore Factory) {
 			t.Errorf("another account's thread with the same fingerprint was written: %q", other)
 		}
 
-		// Added again under a new name and removed again: the second removal's names replace the first's.
+		// Added again under a new name and removed again: the second removal's name replaces the
+		// first's, and the petname the owner gave stays, since the new row has none to replace it.
 		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:removed", Status: "active", DisplayName: "Alexandra"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DeleteContact(ctx, a.ID, "sha256:removed"); err != nil {
 			t.Fatal(err)
 		}
-		if got := kept(a.ID)["th-sha256:removed"]; got != [2]string{"Alexandra", ""} {
+		if got := kept(a.ID)["th-sha256:removed"]; got != [2]string{"Alexandra", "my alex"} {
 			t.Errorf("after the second removal the thread kept %q", got)
+		}
+	})
+
+	// A removed contact who asks again arrives as a request, with no petname and maybe no name; when
+	// that request expires (or, rejected and blocked, is removed), its empty names must not erase
+	// what the owner called them.
+	t.Run("ARequestThatLeavesKeepsTheNamesTheOwnerGave", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ka", DisplayName: "KA", Algo: "p256"})
+		for _, fpr := range []string{"sha256:expires", "sha256:rejected"} {
+			if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: "active", DisplayName: "Sam"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetContactPetname(ctx, a.ID, fpr, "Sam from climbing"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.InsertThread(ctx, store.Thread{ID: "th-" + fpr, AccountID: a.ID, ContactFpr: fpr, CreatedAt: 1, LastAt: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.DeleteContact(ctx, a.ID, fpr); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Asking again: an unnamed request, and a named one the owner rejects (blocked) then removes.
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:expires", Status: "pending_in", CreatedAt: 100}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:rejected", Status: "blocked", DisplayName: "Samuel"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DeleteExpiredPendingContacts(ctx, a.ID, 500); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteContact(ctx, a.ID, "sha256:rejected"); err != nil {
+			t.Fatal(err)
+		}
+		ts, err := s.ListThreadsByAccount(ctx, a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string][2]string{}
+		for _, th := range ts {
+			got[th.ID] = [2]string{th.KeptDisplayName, th.KeptPetname}
+		}
+		if g := got["th-sha256:expires"]; g != [2]string{"Sam", "Sam from climbing"} {
+			t.Errorf("after the unnamed request expired the thread kept %q", g)
+		}
+		if g := got["th-sha256:rejected"]; g != [2]string{"Samuel", "Sam from climbing"} {
+			t.Errorf("after the rejected request was removed the thread kept %q", g)
 		}
 	})
 }

@@ -82,12 +82,13 @@ func TestARemovedContactsConversationListsUnderItsKeptNameMarkedRemoved(t *testi
 			t.Errorf("%s: got %+v (listed %v), want %+v", fpr, g, ok, w)
 		}
 	}
-	if _, ok := got["sha256:blocked"]; ok {
-		t.Error("a blocked contact is listed as a conversation")
+	// A blocked row with a conversation keeps it listed, under the row's name and status.
+	if g := got["sha256:blocked"]; g.Label != "blocked" || g.Status != "blocked" {
+		t.Errorf("the blocked contact's conversation: %+v", g)
 	}
 
 	// The search reads the label the row shows.
-	if hit := u.rows(t, url.Values{"q": {"removed"}}); len(hit) != 3 || hit["sha256:dana"] != (removedRow{}) {
+	if hit := u.rows(t, url.Values{"q": {"removed"}}); len(hit) != 3 || hit["sha256:dana"] != (removedRow{}) || hit["sha256:blocked"] != (removedRow{}) {
 		t.Errorf("searching 'removed' found %v", hit)
 	}
 
@@ -102,9 +103,9 @@ func TestARemovedContactsConversationListsUnderItsKeptNameMarkedRemoved(t *testi
 	if n := u.rows(t, nil)["sha256:alex"].Unread; n.Count != 0 {
 		t.Errorf("after the read, %+v unread", n)
 	}
-	// The refusals stand: a row that is not active, and a fingerprint with no conversation.
+	// The refusals stand: a message of another conversation, and a fingerprint with no conversation.
 	if rr := u.read(t, u.acct, "sha256:blocked", a.Through); rr.Code != 404 {
-		t.Errorf("a blocked row's read: %d", rr.Code)
+		t.Errorf("a blocked row's read through alex's message: %d", rr.Code)
 	}
 	if rr := u.read(t, u.acct, "sha256:nobody", a.Through); rr.Code != 404 {
 		t.Errorf("an unknown fingerprint's read: %d", rr.Code)
@@ -137,5 +138,37 @@ func TestAKeptNameThatMatchesALiveOneCarriesItsFingerprint(t *testing.T) {
 	}
 	if g := got["sha256:dana-two"].Label; g != "dana · dana-two" {
 		t.Errorf("live: %q", g)
+	}
+}
+
+// The owner's rule is that the record lives: a removed contact who asks again (a pending_in row now
+// names the fingerprint) keeps the history listed, named by the request's row and with its status,
+// read-only in the view; when that request expires the conversation is "removed" again, under the
+// petname the owner gave before.
+func TestARemovedContactAskingAgainKeepsTheHistoryListed(t *testing.T) {
+	u := newUnreadEnv(t)
+	ctx := context.Background()
+	u.contact(t, u.acct, "sha256:sam", "active", 300)
+	u.msgs(t, u.acct, "sha256:sam", "in", 1)
+	if err := u.st.SetContactPetname(ctx, u.acct, "sha256:sam", "Sam from climbing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.st.DeleteContact(ctx, u.acct, "sha256:sam"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.st.InsertContact(ctx, store.Contact{AccountID: u.acct, Fingerprint: "sha256:sam", Status: "pending_in", DisplayName: "Samuel", CreatedAt: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if g := u.rows(t, nil)["sha256:sam"]; g.Label != "Samuel" || g.Status != "pending_in" || g.Unread.Count != 1 {
+		t.Errorf("while the request waits: %+v", g)
+	}
+	if a := u.list(t, url.Values{"contact": {"sha256:sam"}}); a.Through == 0 {
+		t.Error("the history is not shown while the request waits")
+	}
+	if _, err := u.st.DeleteExpiredPendingContacts(ctx, u.acct, 500); err != nil {
+		t.Fatal(err)
+	}
+	if g := u.rows(t, nil)["sha256:sam"]; g.Label != "Sam from climbing · removed" || g.Status != "removed" {
+		t.Errorf("after the request expired: %+v", g)
 	}
 }

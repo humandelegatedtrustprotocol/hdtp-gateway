@@ -348,7 +348,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers"},
 		ot.listAccountsTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. A thread whose contact was removed stays, and its removed_contact holds the display_name and petname it had then; null while the contact is held"},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. A thread whose contact was removed stays, and its removed_contact holds the display_name and petname kept from the contact (a later request with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
 		ot.getInboxTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
@@ -516,8 +516,9 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 		ContactFpr string `json:"contact_fpr"`
 		Unread     int64  `json:"unread"`
 		LastAt     int64  `json:"last_at"`
-		// RemovedContact is null while a contact row names ContactFpr; once the row is gone, the
-		// names the thread kept when it was deleted (BatonDeck's thread row says the same).
+		// RemovedContact is null while a contact row names ContactFpr, whatever its status; once
+		// the row is gone, the names the thread kept (an empty one never replaced a kept one).
+		// BatonDeck's thread row has no such member until it takes migration 0002.
 		RemovedContact *kept `json:"removed_contact"`
 	}
 	out := make([]row, 0, len(threads))

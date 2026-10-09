@@ -121,7 +121,12 @@ func TestEachConversationCountsItsUnreadAndThePageSumsThem(t *testing.T) {
 	u.msgs(t, u.acct, "sha256:bharat", "in", 1)
 	u.contact(t, u.acct, "sha256:chen", "active", 100) // nothing from them
 	u.contact(t, u.acct, "sha256:pending", "pending_in", 400)
-	u.msgs(t, u.acct, "sha256:pending", "in", 5) // not a correspondent yet: not on the page, not in the sum
+	// A conversation held from before, now a request: listed, and counted.
+	u.msgs(t, u.acct, "sha256:pending", "in", 5)
+	// A request with no conversation: not listed.
+	if _, err := u.st.InsertContact(context.Background(), store.Contact{AccountID: u.acct, Fingerprint: "sha256:asking", Status: "pending_in"}); err != nil {
+		t.Fatal(err)
+	}
 
 	a := u.list(t, nil)
 	if got := a.row(t, "sha256:alina"); got != (tally{Count: 3}) {
@@ -133,8 +138,16 @@ func TestEachConversationCountsItsUnreadAndThePageSumsThem(t *testing.T) {
 	if got := a.row(t, "sha256:chen"); got != (tally{}) {
 		t.Errorf("chen: %+v, want 0", got)
 	}
-	if a.Unread != (tally{Count: 4}) || a.More {
-		t.Errorf("total %+v more %v; want 4, exact, no more", a.Unread, a.More)
+	if got := a.row(t, "sha256:pending"); got != (tally{Count: 5}) {
+		t.Errorf("pending: %+v, want 5", got)
+	}
+	for _, c := range a.Contacts {
+		if c.Fpr == "sha256:asking" {
+			t.Error("a request with no conversation is listed")
+		}
+	}
+	if a.Unread != (tally{Count: 9}) || a.More {
+		t.Errorf("total %+v more %v; want 9, exact, no more", a.Unread, a.More)
 	}
 }
 
@@ -288,7 +301,7 @@ func TestMarkingReadRefusesWhatIsNotThisIdentitysConversation(t *testing.T) {
 		{"an unknown contact", u.acct, "sha256:nobody", mine, 404},
 		{"another identity's contact", u.acct, "sha256:theirs", theirs[0].Seq, 404},
 		{"a message of another identity's", u.acct, "sha256:alina", theirs[0].Seq, 404},
-		{"a blocked contact, through its own message", u.acct, "sha256:blocked", blocked[0].Seq, 404},
+		{"a blocked contact, through a message of another conversation", u.acct, "sha256:blocked", mine, 404},
 		{"no contact", u.acct, "", mine, 400},
 		{"no message", u.acct, "sha256:alina", 0, 400},
 		// The control, last: a receiver that refused everything would pass every case above.
@@ -304,6 +317,10 @@ func TestMarkingReadRefusesWhatIsNotThisIdentitysConversation(t *testing.T) {
 	}
 	if n, _ := u.st.UnreadWithContactUpTo(context.Background(), u.acct, "sha256:blocked", 10); n != 1 {
 		t.Errorf("the blocked contact's thread has %d unread after the refusals, want 1", n)
+	}
+	// A blocked contact's conversation is still listed, so it is still read: through its own message.
+	if rr := u.read(t, u.acct, "sha256:blocked", blocked[0].Seq); rr.Code != 200 {
+		t.Errorf("a blocked contact's conversation, through its own message: %d %s", rr.Code, rr.Body)
 	}
 }
 

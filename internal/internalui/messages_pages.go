@@ -180,8 +180,11 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	var all []store.Contact
 	for _, c := range list {
 		// Only somebody you have actually accepted can be written to; a
-		// pending request is not yet a correspondent.
-		if c.Status != "active" {
+		// pending request is not yet a correspondent. But a conversation
+		// already held stays listed whatever the row is now (a removed
+		// contact asking again, a contact blocked), named by the row, and
+		// the view offers it to read, not to write.
+		if _, held := lastByContact[c.Fingerprint]; c.Status != "active" && !held {
 			continue
 		}
 		all = append(all, c)
@@ -316,9 +319,10 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 // as BatonDeck's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
 // reading a conversation writes none here: the trail records what was said and done, not every
 // glance. It is a high-water mark, never lowered, so a repeat, or a stale mark arriving after a
-// newer one, changes nothing. A contact row that is not active (pending, blocked) is 404, and so is
-// a `through` that is not a message of this conversation (an unknown contact's, another identity's).
-// A removed contact's conversation, which has no row, is marked like an active one's.
+// newer one, changes nothing. A `through` that is not a message of this conversation is 404 (an
+// unknown contact's, another identity's, a row with no conversation). A conversation whose row is
+// pending or blocked, or that has no row (its contact was removed), is still listed and is marked
+// like an active one's.
 func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
@@ -331,19 +335,8 @@ func (d MessagesDeps) postMessagesRead(w http.ResponseWriter, r *http.Request) {
 		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
 		return
 	}
-	// The list, not GetContact: its "no such row" is each engine's own error, and a store that
-	// failed must not answer as a contact that does not exist.
-	list, err := d.Store.ListContacts(r.Context(), account)
-	if err != nil {
-		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
-		return
-	}
-	// A removed contact's conversation is read like any other: with no row, ConversationHasMessage
-	// below is what says there is a conversation at all.
-	if slices.ContainsFunc(list, func(c store.Contact) bool { return c.Fingerprint == contact && c.Status != "active" }) {
-		apiJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not_found"})
-		return
-	}
+	// Every listed conversation is read like any other, whatever its row is now (active, pending,
+	// blocked) or with no row at all: ConversationHasMessage is what says there is one.
 	ok, err := d.Store.ConversationHasMessage(r.Context(), account, contact, through)
 	if err != nil {
 		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
