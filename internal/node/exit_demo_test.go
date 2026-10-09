@@ -9,8 +9,12 @@ package node
 // for DNS so leaves can name real hosts.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -77,6 +81,51 @@ type demoNode struct {
 	// hook, when set, sees each audit line as it is written, inside the handler that writes it.
 	hookMu sync.Mutex
 	hook   func(line string)
+	// kids records, in order, the `kid` of every sealed call this node was handed: which of its
+	// keys each caller sealed to, read off the wire before anything is opened.
+	kids []string
+}
+
+// lastKid is the key id the most recent sealed call to this node was sealed to.
+func (d *demoNode) lastKid() string {
+	d.hookMu.Lock()
+	defer d.hookMu.Unlock()
+	if len(d.kids) == 0 {
+		d.t.Fatalf("%s: no sealed call has arrived", d.slug)
+	}
+	return d.kids[len(d.kids)-1]
+}
+
+// recordKids wraps the node's handler so that the protected header of every `sealed_call`
+// that arrives is read for its `kid`, exactly as a carrier on the path could read it (§13.5).
+func (d *demoNode) recordKids(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			body, err := io.ReadAll(r.Body)
+			if err == nil {
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				var req struct {
+					Params struct {
+						Name      string                `json:"name"`
+						Arguments hdtpidentity.Envelope `json:"arguments"`
+					} `json:"params"`
+				}
+				if json.Unmarshal(body, &req) == nil && req.Params.Name == "sealed_call" && req.Params.Arguments.Protected != "" {
+					if aad, err := hdtpidentity.DecodeB64url(req.Params.Arguments.Protected); err == nil {
+						var header struct {
+							Kid string `json:"kid"`
+						}
+						if json.Unmarshal(aad, &header) == nil && header.Kid != "" {
+							d.hookMu.Lock()
+							d.kids = append(d.kids, header.Kid)
+							d.hookMu.Unlock()
+						}
+					}
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (d *demoNode) onAudit(f func(line string)) { d.hookMu.Lock(); d.hook = f; d.hookMu.Unlock() }
@@ -207,7 +256,7 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 		t.Fatal(err)
 	}
 	d.n = n
-	srv := httptest.NewUnstartedServer(n.Handler())
+	srv := httptest.NewUnstartedServer(d.recordKids(n.Handler()))
 	srv.TLS = n.srv.TLSConfig()
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
@@ -312,8 +361,27 @@ func TestExitDemo(t *testing.T) {
 	// Bharat still seals to the old key, which Alina holds until it expires;
 	// her answer carries the chain and his pin follows it (§2, §14.3).
 	bharat.send(alina, alina.rootFpr(), "b3", "to the old key")
+	if got := alina.lastKid(); got != oldKP.Fingerprint {
+		t.Fatalf("the stale envelope must be sealed to the superseded key %s, was %s", oldKP.Fingerprint, got)
+	}
+	if !alina.received("to the old key") {
+		t.Fatal("alina did not receive b3: the superseded key must open until its notAfter (§2)")
+	}
 	if c := bharat.contact(alina.rootFpr()); string(c.Leaf) != string(alina.leaf()) || string(c.Leaf) == string(oldLeaf) {
 		t.Fatal("bharat's pin must follow the leaf the answer carried")
+	}
+	if c := alina.contact(bharat.rootFpr()); c.ChainSentKid != alina.kp().Fingerprint {
+		t.Fatalf("alina's answer to the stale envelope must have carried her chain (§13.2): chain_sent_kid %q", c.ChainSentKid)
+	}
+	// What Bharat seals next names the new leaf: the superseded key, held by Alina's host and by
+	// whoever took it from there, is out of this conversation from here on (the stale-sender
+	// scenarios of hdtp-spec's vectors/intrude.mjs, on the host side).
+	bharat.send(alina, alina.rootFpr(), "b3b", "to the new key")
+	if got := alina.lastKid(); got != alina.kp().Fingerprint || got == oldKP.Fingerprint {
+		t.Fatalf("after the renewal reached him, bharat must seal to the new key %s, sealed to %s", alina.kp().Fingerprint, got)
+	}
+	if !alina.received("to the new key") {
+		t.Fatal("alina did not receive b3b")
 	}
 	alina.send(bharat, bharat.rootFpr(), "a3", "from the new key")
 	if !bharat.received("from the new key") {
