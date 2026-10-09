@@ -377,6 +377,11 @@ What belongs here is what is the node's own:
   requires the answer sealed — including an error. The node seals `pending_approval`,
   the §5.3 refusal and a budget refusal, and answers in plaintext only where nothing
   opened: `chain_required`, `certificate_renewed`, and envelopes that failed to open.
+- **What `get_card` answers.** A sealed answer carries the node's chain until the contact
+  has seen its current leaf and the leaf's fingerprint after (HDTP §13.2) — except the
+  answer to `get_card`, which carries the chain whatever the node has recorded
+  (`internal/public/sealed.go`, `sealResult`): `get_card` is what a caller asks because it
+  could not verify an answer, and §13.2 has it always answer with the chain.
 
 ## 5. Public surface
 

@@ -101,6 +101,15 @@ func (s *sealedEnv) opened(t testing.TB, res *mcp.CallToolResult, p *peer, tool 
 // openedWith is opened for the answer to the request that carried msgID.
 func (s *sealedEnv) openedWith(t testing.TB, res *mcp.CallToolResult, p *peer, msgID string) (result, errObj json.RawMessage) {
 	t.Helper()
+	out := s.unsealed(t, res, p, msgID)
+	return out.Result, out.Error
+}
+
+// unsealed opens the sealed answer to the request that carried msgID at the peer, against its pin of
+// this node, and returns everything the open reports: the result or error, and the form the node
+// answered in.
+func (s *sealedEnv) unsealed(t testing.TB, res *mcp.CallToolResult, p *peer, msgID string) *hdtpidentity.Opened {
+	t.Helper()
 	if res.IsError {
 		t.Fatalf("a refusal that could be sealed came back in plaintext: %s", text(t, res))
 	}
@@ -123,7 +132,7 @@ func (s *sealedEnv) openedWith(t testing.TB, res *mcp.CallToolResult, p *peer, m
 	if err != nil {
 		t.Fatalf("the answer did not open: %v", err)
 	}
-	return out.Result, out.Error
+	return out
 }
 
 func TestSealedCallIsPresentAtEveryTier(t *testing.T) {
