@@ -93,7 +93,7 @@ func newToolEnv(t *testing.T) *toolEnv {
 	}
 	e := &toolEnv{t: t, st: st, acct: acct, kp: kp, cal: &fakeCalendar{}, status: &fakeStatus{s: "available"}}
 	// The card AND the chain that proves it, from one wallet: `redeem_invite` and `get_card` both
-	// answer with the chain (HDTP §6.1). This fixture used to wire a `spki` and no chain at all,
+	// answer with the chain (HDTP §6.2). This fixture used to wire a `spki` and no chain at all,
 	// and every test of those two results passed against an answer no caller could have verified.
 	card, _, host := testid.Card(t, "Me", "https://me.example/a/me/mcp", "")
 	// This host's limits sidecar, as the node wires it: the pending-request cap, and get_card's
@@ -400,7 +400,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 	if out.Status != "accepted" || out.Card == "" {
 		t.Fatalf("redeem result: %+v", out)
 	}
-	// HDTP §6.1: `redeem_invite` answers with the issuer's signed card AND its chain, so the
+	// HDTP §6.2: `redeem_invite` answers with the issuer's signed card AND its chain, so the
 	// redeemer pins a root it can verify. This asserted a `spki` member instead — 1.2's key beside
 	// the card — and the result carried no chain at all, which no test noticed because the
 	// fixture never wired one.
@@ -420,7 +420,7 @@ func TestRedeemInvitePinsProvenKeyAndInvalidates(t *testing.T) {
 		t.Fatal("the chain's leaf is not the certificate on the card it came with")
 	}
 	if strings.Contains(body(t, res), `"spki"`) {
-		t.Fatal("the result still carries `spki`, a member HDTP §6.1 does not define")
+		t.Fatal("the result still carries `spki`, a member HDTP §6.2 does not define")
 	}
 	// the contact is pinned with the FULL proven key, not just its hash
 	c, err := e.st.GetContact(ctx, e.acct.ID, peerHost.RootFpr)

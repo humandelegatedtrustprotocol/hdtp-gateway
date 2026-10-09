@@ -192,13 +192,13 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 	if parsed.Key != pin.Fingerprint {
 		return nil, fmt.Errorf("the card names %s, not the pinned root", parsed.Key)
 	}
-	// The chain is not optional. HDTP §6.1 has `get_card` answer "always the chain", and this
+	// The chain is not optional. HDTP §6.2 has `get_card` answer "always the chain", and this
 	// used to treat one as a bonus: with none, the card was checked under the pinned leaf's key
 	// and accepted. Whoever answers at the pinned endpoint decides what is in the answer, so a
 	// path taken when something is MISSING is a path they choose — and the one they chose skipped
 	// the root check and the address check, which are the two that make a refresh safe to act on.
 	if len(chain) != 2 {
-		return nil, fmt.Errorf("the answer carries %d certificate(s); get_card answers with the chain, leaf then root (§6.1)", len(chain))
+		return nil, fmt.Errorf("the answer carries %d certificate(s); get_card answers with the chain, leaf then root (HDTP §6.2)", len(chain))
 	}
 	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{
 		Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
@@ -215,9 +215,9 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 		// A renewal, and it takes effect the instant it is seen (§14.3).
 		renewed = &renewedLeaf{Leaf: vr.Leaf.DER, SPKI: vr.LeafKey.SPKI}
 	case vr.Leaf.NotBefore.Before(held.NotBefore):
-		return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (§14.3)")
+		return nil, fmt.Errorf("the leaf it answered with is superseded by the pinned one (HDTP §14.3)")
 	case !bytes.Equal(vr.Leaf.DER, pin.Leaf):
-		return nil, fmt.Errorf("two different leaves claim the same notBefore (§14.3)")
+		return nil, fmt.Errorf("two different leaves claim the same notBefore (HDTP §14.3)")
 	}
 	// The card must carry the leaf the chain proved, as `update_contact` requires
 	// (contacts.Manager.UpdateContact). Signed by the right key is not enough: the same host key

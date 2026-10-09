@@ -140,7 +140,7 @@ type ToolDeps struct {
 	// must pass (HDTP §3: never the receiver's own). nil means unknown.
 	Endpoint func() string
 	// Chain is this account's [leaf, root]. `redeem_invite` and `get_card` both answer with
-	// it (HDTP §6.1, §13.2), so a caller that cannot verify a result has one place to ask.
+	// it (HDTP §6.2, §13.2), so a caller that cannot verify a result has one place to ask.
 	Chain func(ctx context.Context) ([][]byte, error)
 }
 
@@ -357,7 +357,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		if cerr != nil {
 			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
 		}
-		// HDTP §6.1: the result carries the issuer's CHAIN, so the redeemer pins a root it can
+		// HDTP §6.2: the result carries the issuer's CHAIN, so the redeemer pins a root it can
 		// verify. It used to carry `spki` instead — 1.2's key-beside-the-card — and no chain.
 		chain, cerr := d.chainB64(ctx)
 		if cerr != nil {
@@ -521,7 +521,7 @@ func (d ToolDeps) card(ctx context.Context) (string, string, error) {
 }
 
 // chainB64 is this account's [leaf, root], base64url — what `redeem_invite` and `get_card` both
-// answer with (HDTP §6.1, §13.2). It is never optional: a result that cannot carry the chain is
+// answer with (HDTP §6.2, §13.2). It is never optional: a result that cannot carry the chain is
 // one the caller cannot verify, and the honest answer then is `unavailable`.
 func (d ToolDeps) chainB64(ctx context.Context) ([]string, error) {
 	if d.Chain == nil {
@@ -543,7 +543,7 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 		if err != nil {
 			return d.refuse(ctx, "get_card", "unavailable"), nil
 		}
-		// "always the chain" (HDTP §6.1): this is where a caller that cannot verify a result
+		// "always the chain" (HDTP §6.2): this is where a caller that cannot verify a result
 		// comes to ask, so an answer without one would be no answer.
 		chain, err := d.chainB64(ctx)
 		if err != nil {
