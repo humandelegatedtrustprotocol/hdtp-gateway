@@ -38,8 +38,12 @@ type renewedPeer struct {
 	// from the held keys to the former ones, and an envelope sealed to it from then on is answered
 	// certificate_renewed with the current chain, in plaintext (§14.4).
 	retireAfter string
-	addr        string
-	state       hdtpidentity.NodeState
+	// cardSigner and cardChain, when set, are what an inner get_card is answered under instead of
+	// the renewed leaf: a forgery the caller must not re-pin to.
+	cardSigner *hdtpidentity.PrivateKey
+	cardChain  [][]byte
+	addr       string
+	state      hdtpidentity.NodeState
 }
 
 // startRenewedPeer issues a second leaf under the test identity's root, newer than the one the
@@ -104,8 +108,12 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			tool, _ := params["name"].(string)
 			p.calls["sealed "+tool]++
 			form, inner := p.form, `{"status":"delivered"}`
+			signer, senderChain := lib, chain
 			if tool == "get_card" {
 				form, inner = p.cardForm, card()
+				if p.cardChain != nil {
+					signer, senderChain = p.cardSigner, p.cardChain
+				}
 			}
 			protected, _ := hdtpidentity.DecodeB64url(env.Protected)
 			var h struct {
@@ -115,7 +123,7 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			result, _ := json.Marshal(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: inner}}})
 			now := time.Now()
 			out, err := hdtpidentity.SealResult(hdtpidentity.SealOpts{
-				RecipientKey: callerPub, Sender: lib, Form: form, SenderChain: chain, Result: result,
+				RecipientKey: callerPub, Sender: signer, Form: form, SenderChain: senderChain, Result: result,
 				MsgID: h.MsgID, TS: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(),
 			})
 			if err != nil {
@@ -331,5 +339,78 @@ func TestASealedGetCardAnsweredCertificateRenewedFailsTheCallAndTheNextCallFollo
 	}
 	if len(repinned) != 1 || string(repinned[0]) != string(p.leaf) {
 		t.Fatalf("the pin must follow the renewed chain once: %d re-pin(s)", len(repinned))
+	}
+}
+
+// forgedLeaf is a leaf for endpoint under rootKey, valid from notBefore, with a key of its own.
+func forgedLeaf(t *testing.T, rootKey *hdtpidentity.PrivateKey, rootCN, endpoint string, notBefore time.Time) ([]byte, *hdtpidentity.PrivateKey) {
+	t.Helper()
+	kp, err := identity.Generate(identity.AlgoEd25519)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := identity.ToLib(kp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
+		CN: rootCN, RootCN: rootCN, RootKey: rootKey, HostPub: lib.Public(), Endpoint: endpoint,
+		NotBefore: notBefore, NotAfter: time.Now().Add(300 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leaf, lib
+}
+
+// A sealed get_card answered in chain form under a chain that is not the pinned identity's current
+// leaf at the dialled address moves no pin and fails the call (HDTP §14.2, §14.3): the chain rides
+// inside an envelope the peer sealed, and the envelope proves only that whoever answered holds that
+// chain's key.
+func TestASealedGetCardAnsweredUnderAChainThatIsNotThePeersCurrentLeafMovesNoPin(t *testing.T) {
+	cases := []struct {
+		name, why string
+		forge     func(t *testing.T, alina *testIdentity) ([]byte, *hdtpidentity.PrivateKey, []byte)
+	}{
+		{"another root at the same endpoint", "root is not the one expected", func(t *testing.T, alina *testIdentity) ([]byte, *hdtpidentity.PrivateKey, []byte) {
+			other := newTestIdentity(t, "Alina", alina.endpoint)
+			leaf, key := forgedLeaf(t, other.root, "Alina", alina.endpoint, time.Now().Add(-10*time.Minute))
+			return leaf, key, other.rootCert
+		}},
+		{"an older leaf of the pinned root", "superseded leaf", func(t *testing.T, alina *testIdentity) ([]byte, *hdtpidentity.PrivateKey, []byte) {
+			leaf, key := forgedLeaf(t, alina.root, "Alina", alina.endpoint, time.Now().Add(-2*time.Hour))
+			return leaf, key, alina.rootCert
+		}},
+		{"a newer leaf of the pinned root for another endpoint", "endpoint differs", func(t *testing.T, alina *testIdentity) ([]byte, *hdtpidentity.PrivateKey, []byte) {
+			leaf, key := forgedLeaf(t, alina.root, "Alina", "https://evil.example/them", time.Now().Add(-10*time.Minute))
+			return leaf, key, alina.rootCert
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			alina := newTestIdentity(t, "Alina", "https://agent.alina.example/mcp")
+			bharat := newTestIdentity(t, "Bharat", "https://agent.bharat.example/mcp")
+			p := startRenewedPeer(t, alina, bharat)
+			leaf, key, root := tc.forge(t, alina)
+			p.cardSigner, p.cardChain = key, [][]byte{leaf, root}
+			var repinned [][]byte
+			c := callerTo(t, bharat, p, &repinned)
+
+			_, err := c.SealedCall(context.Background(), p.peer("required"), "send_message", map[string]any{"text": "hi"}, "m-forged")
+			if len(repinned) != 0 {
+				t.Fatalf("the pin moved to a forged chain: %d re-pin(s)", len(repinned))
+			}
+			if err == nil {
+				t.Fatal("a get_card answered under a forged chain must fail the call")
+			}
+			for _, want := range []string{"a sealed get_card", tc.why} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("the error must say %q: %v", want, err)
+				}
+			}
+			if p.calls["sealed get_card"] != 1 || p.calls["sealed send_message"] != 1 {
+				t.Fatalf("calls %v, want the attempt and one sealed get_card, no retry", p.calls)
+			}
+		})
 	}
 }
