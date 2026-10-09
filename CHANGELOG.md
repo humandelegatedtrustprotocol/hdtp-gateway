@@ -51,6 +51,9 @@ changelog can be and is not summarized into a fictional release history.
   before any route, and the CSRF check refuses one too. `ParseForm` keeps the pairs that parsed,
   and the account check read the body only when it parsed cleanly, so `account=<another's>&x=%zz`
   (or a bad escape in the query) reached the handler unchecked and acted on that account.
+- The portal's `GET /events` carries only the events of accounts the signed-in owner administers.
+  With several accounts and none named it subscribed to every account's, so an owner read the
+  live stream of accounts administered by another owner.
 
 ## [0.1.1] — 2026-10-09
 
