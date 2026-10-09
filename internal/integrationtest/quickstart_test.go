@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -70,6 +71,27 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 	if regexp.MustCompile(`(?m)^\s*-\s*"?8080:`).Match(compose) {
 		t.Error("compose publishes the portal on ALL interfaces; it is plain HTTP, which SPEC §8.3 " +
 			"allows on loopback only, so this would expose it to the LAN. Bind it to 127.0.0.1 only")
+	}
+
+	// (d) The limits sidecar's container inherits the image's HEALTHCHECK, which asks the node's
+	// portal; this container serves none, so without a healthcheck of its own `docker compose ps`
+	// listed it unhealthy for as long as it ran.
+	limitdHealthcheckAsksTheSidecar(t, "compose.yaml", at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "limitd"))
+}
+
+// limitdHealthcheckAsksTheSidecar holds a compose file's `limitd` service to the healthcheck that
+// asks the sidecar itself (`hdtp-gateway healthcheck --limits`, internal/cli/healthcheck.go), run
+// with the binary the image has: distroless has no shell.
+func limitdHealthcheckAsksTheSidecar(t *testing.T, file string, limitd any) {
+	t.Helper()
+	if limitd == nil {
+		t.Fatalf("%s has no limitd service", file)
+	}
+	test, _ := at(limitd, "healthcheck", "test").([]any)
+	want := []any{"CMD", "/hdtp-gateway", "healthcheck", "--limits"}
+	if !reflect.DeepEqual(test, want) {
+		t.Errorf("%s: the limitd service's healthcheck is %v; the image's asks the portal, which this "+
+			"container does not serve, so it must be %v", file, test, want)
 	}
 }
 

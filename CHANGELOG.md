@@ -10,6 +10,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.26.9 (13 standard-library advisories fixed since 1.26.6; v0.1.1's binaries were
+  built with 1.26.6). `go.mod` names it in a `toolchain` line, the Dockerfiles pin
+  `golang:1.26.9-alpine` by digest, and the image test holds the two to each other.
+
 ### Fixed
 
 - The portal's integration routes refuse an integration of another account with `404`, the answer
@@ -18,6 +24,14 @@ changelog can be and is not summarized into a fictional release history.
   `reconfirm`) compared nothing, so an owner who administers one account could connect,
   re-credential, refresh, read and set the exposure of another account's integration by naming
   its id.
+- The limits sidecar's container has a healthcheck of its own: `hdtp-gateway healthcheck --limits`
+  asks the sidecar for its rules over the socket the node asks it on. It inherited the image's,
+  which asks the node's portal, so `docker compose ps` listed `limitd` unhealthy for as long as it
+  ran; `compose.yaml` and `deploy/envoy/compose.yaml` run the new one.
+- `doctor` reads `public_url` the way the node does: the environment, else the configuration file,
+  else what the portal's Settings saved. It read the first two alone, so on a node whose address
+  was set in the portal it printed `warn probe skipped: public_url not configured` and never
+  dialled it.
 
 ## [0.1.1] — 2026-10-09
 

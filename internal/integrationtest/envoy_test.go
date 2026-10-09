@@ -174,6 +174,7 @@ func TestTheEnvoyComposeTrustsEnvoyAloneAndRunsTheSidecar(t *testing.T) {
 	if at(limitd, "entrypoint", 0) != "/hdtp-limitd" || at(limitd, "volumes", 0) != at(node, "volumes", 0) {
 		t.Error("the limits sidecar must run /hdtp-limitd on the node's /data volume")
 	}
+	limitdHealthcheckAsksTheSidecar(t, "deploy/envoy/compose.yaml", limitd)
 }
 
 func TestEnvoyHoldsARequestToTheListenersOwnBounds(t *testing.T) {

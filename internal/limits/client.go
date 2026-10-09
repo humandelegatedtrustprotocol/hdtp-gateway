@@ -255,7 +255,9 @@ func (c *Client) Rules(ctx context.Context) (Rules, error) {
 	return c.Probe(ctx)
 }
 
-// Probe asks the sidecar for its rules. It spends nothing and proves the sidecar answers: /healthz, doctor and serve's banner make it (node.LimitsAnswer).
+// Probe asks the sidecar for its rules. It spends nothing and proves the sidecar answers: /healthz,
+// doctor, serve's banner (node.LimitsAnswer) and the sidecar container's own healthcheck
+// (`healthcheck --limits`) make it.
 func (c *Client) Probe(ctx context.Context) (Rules, error) {
 	a, err := c.exchange(ctx, map[string]any{"op": "rules"})
 	if err != nil {
