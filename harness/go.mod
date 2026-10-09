@@ -9,6 +9,8 @@ module github.com/humandelegatedtrustprotocol/hdtp-gateway/harness
 
 go 1.26.6
 
+toolchain go1.26.9
+
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
