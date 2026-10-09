@@ -40,7 +40,8 @@ changelog can be and is not summarized into a fictional release history.
 - `make gosec` excludes `.claude`, the checkout's worktrees, which gosec's own filesystem walk
   entered and the Go tool's `./...` never did.
 - `make analyze` runs its tools under the Go `go.mod` names (`GOTOOLCHAIN=<toolchain>+auto`), so a
-  machine with an older Go, or `GOTOOLCHAIN=local` set, downloads it instead of failing.
+  machine with an older Go, or `GOTOOLCHAIN=local` set, downloads it instead of failing. A Go older
+  than 1.21 has no toolchain switching and is not helped.
 
 ## [0.1.1] — 2026-10-09
 
