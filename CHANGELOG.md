@@ -41,6 +41,12 @@ changelog can be and is not summarized into a fictional release history.
   else what the portal's Settings saved. It read the first two alone, so on a node whose address
   was set in the portal it printed `warn probe skipped: public_url not configured` and never
   dialled it.
+- The owner MCP's `set_exposure` answers an integration of another account as it answers an id
+  that names no row: the same `bad_request` detail, and no `permission_denied` audit row of its
+  own. It read the integration's catalog before comparing accounts, so the catalog read's error
+  told a foreign id from a missing one — an existence oracle the portal's `404` does not have.
+  Both doors now ask the store for the integration by account and id (`GetAccountIntegration`),
+  which answers `ErrNotFound` for either.
 
 ## [0.1.1] — 2026-10-09
 

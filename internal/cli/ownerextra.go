@@ -51,6 +51,16 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 		},
 
 		SetExposure: func(ctx context.Context, accountID, integrationID string, tools []string) error {
+			// The caller was authorized for `accountID`; the integration must be that
+			// account's, and the store's account-bound read answers another account's
+			// as one that does not exist — asked first, before any read whose error
+			// could tell the two apart. Without the binding a token scoped to one
+			// account could name its own account and another account's integration,
+			// and republish — or withdraw — that account's entire served surface.
+			in, err := st.GetAccountIntegration(ctx, accountID, integrationID)
+			if err != nil {
+				return err
+			}
 			// The owner's agent names UPSTREAM tools; the exposed names and the
 			// confirmed hashes come from the bound snapshot, so an agent cannot
 			// smuggle in a name or a hash of its own.
@@ -65,19 +75,6 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			byName := map[string]integrations.ToolDef{}
 			for _, d := range defs {
 				byName[d.Name] = d
-			}
-			in, err := st.GetIntegrationByID(ctx, integrationID)
-			if err != nil {
-				return err
-			}
-			// The caller was authorized for `accountID`; this integration must
-			// actually be that account's. Without this a token scoped to one
-			// account could name its own account and another account's
-			// integration, and republish — or withdraw — that account's entire
-			// served surface.
-			if in.AccountID != accountID {
-				auditFn("set_exposure", "integration:"+integrationID, "permission_denied")
-				return fmt.Errorf("that integration belongs to another account")
 			}
 			entries := make([]integrations.ExposureEntry, 0, len(tools))
 			for _, t := range tools {

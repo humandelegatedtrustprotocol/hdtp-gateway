@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -33,6 +34,24 @@ func integrations(t *testing.T, newStore Factory) {
 		}
 		if byID, err := s.GetIntegrationByID(ctx, in.ID); err != nil || byID.Slug != "gcal" {
 			t.Fatalf("get by id: %+v %v", byID, err)
+		}
+		// The account-bound read: the row for its account; for another account, or an id that is
+		// nobody's, one error wrapping ErrNotFound that reads the same, so a door built on it
+		// cannot tell a caller which of the two it named.
+		if own, err := s.GetAccountIntegration(ctx, a.ID, in.ID); err != nil || own.Slug != "gcal" {
+			t.Fatalf("get by account and id: %+v %v", own, err)
+		}
+		other, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, foreignErr := s.GetAccountIntegration(ctx, other.ID, in.ID)
+		_, missingErr := s.GetAccountIntegration(ctx, a.ID, "missing")
+		if !errors.Is(foreignErr, store.ErrNotFound) || !errors.Is(missingErr, store.ErrNotFound) {
+			t.Fatalf("another account's integration: %v; a missing id: %v; want both to wrap ErrNotFound", foreignErr, missingErr)
+		}
+		if foreignErr.Error() != missingErr.Error() {
+			t.Fatalf("another account's integration and a missing id are told apart: %q vs %q", foreignErr, missingErr)
 		}
 		if err := s.UpdateIntegrationStatus(ctx, in.ID, "ok"); err != nil {
 			t.Fatal(err)

@@ -135,8 +135,11 @@ those the contact already holds) with `bad_request`, rather than dropping it and
   `TestAWaitAnswersForAParkedAddressAndForAttention`.
 - `set_exposure` hands the account and the integration id to `Extra.SetExposure` and reports its
   refusal as `bad_request`; the check that the integration belongs to the account is the
-  callback's (`internal/cli/ownerextra.go`). `TestSetExposureCannotReachAnotherAccountsIntegration`
-  holds the tool's side of this against a stub callback that refuses.
+  callback's (`internal/cli/ownerextra.go`), which answers another account's integration as one
+  that does not exist: the store's account-bound read (`GetAccountIntegration`) tells the two apart
+  for no door. `TestSetExposureCannotReachAnotherAccountsIntegration` holds the tool's side of this
+  against a stub callback that refuses; `TestSetExposureAnswersAForeignIntegrationAsAMissingOne`
+  (`internal/cli`) holds the callback's.
 - The sender label is fixed by the surface: `send_to_contact` stores `agent`. Held by
   `TestSendToContactStoresAgentLabel`.
 - An approval reaches the caller's live composed server (`Invalidate`). Held by

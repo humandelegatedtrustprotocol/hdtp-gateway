@@ -87,6 +87,34 @@ func (q *Queries) DeleteUndatedIdempotencyBefore(ctx context.Context, createdAt 
 	return result.RowsAffected()
 }
 
+const getAccountIntegration = `-- name: GetAccountIntegration :one
+SELECT id, account_id, slug, transport, endpoint, command, auth_kind, status, created_at, updated_at, secret FROM integrations WHERE account_id = ? AND id = ?
+`
+
+type GetAccountIntegrationParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) GetAccountIntegration(ctx context.Context, arg GetAccountIntegrationParams) (Integration, error) {
+	row := q.db.QueryRowContext(ctx, getAccountIntegration, arg.AccountID, arg.ID)
+	var i Integration
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Slug,
+		&i.Transport,
+		&i.Endpoint,
+		&i.Command,
+		&i.AuthKind,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Secret,
+	)
+	return i, err
+}
+
 const getCatalog = `-- name: GetCatalog :one
 SELECT id, integration_id, version, tools, created_at FROM catalogs WHERE integration_id = ? AND version = ?
 `
