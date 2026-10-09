@@ -33,6 +33,8 @@ const (
 	cloudZipBytes         = 95 * 1024 * 1024
 	cloudContacts         = 5_000
 	cloudContactsCSVBytes = 4 * 1024 * 1024
+	cloudRemoved          = 20_000
+	cloudRemovedCSVBytes  = 4 * 1024 * 1024
 	cloudThreads          = 20_000
 	cloudThreadsCSVBytes  = 4 * 1024 * 1024
 	cloudMessageLines     = 150_000
@@ -40,13 +42,13 @@ const (
 	cloudMediaBytes       = 95 * 1024 * 1024
 	cloudMediaFiles       = 5_000
 	// The cloud's central directory bounds, derived there from cloudMediaFiles: the files and the
-	// five members that are not a file, each record at most 148 bytes (TestTheCloudsDirectoryBounds
-	// holds the derivation). An export this node writes has at most those five other members and
+	// six members that are not a file, each record at most 148 bytes (TestTheCloudsDirectoryBounds
+	// holds the derivation). An export this node writes has at most those six other members and
 	// records of at most 125 bytes (46, a name of at most 70, a 9-byte timestamp), so it is over
 	// either bound only when it is over cloudMediaFiles, which is warned about: neither is warned
 	// about again.
-	cloudZipEntries     = 5_005
-	cloudDirectoryBytes = 740_740
+	cloudZipEntries     = 5_006
+	cloudDirectoryBytes = 740_888
 )
 
 // mediaFile is the name of an export's media file: media/ and the sha256 of its bytes in hex, as
@@ -70,6 +72,9 @@ func CloudCeilings(zr *zip.Reader, zipBytes uint64) []string {
 		case f.Name == "contacts.csv":
 			over("bytes of contacts.csv", f.UncompressedSize64, cloudContactsCSVBytes)
 			over("contacts", csvRows(f), cloudContacts)
+		case f.Name == "removed.csv":
+			over("bytes of removed.csv", f.UncompressedSize64, cloudRemovedCSVBytes)
+			over("removed contacts", csvRows(f), cloudRemoved)
 		case f.Name == "threads.csv":
 			over("bytes of threads.csv", f.UncompressedSize64, cloudThreadsCSVBytes)
 			over("threads", csvRows(f), cloudThreads)

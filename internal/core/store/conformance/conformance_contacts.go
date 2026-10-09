@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -446,6 +447,60 @@ func contacts(t *testing.T, newStore Factory) {
 		}
 		if got := kept(a.ID)["th-sha256:removed"]; got != [2]string{"Alexandra", "my alex"} {
 			t.Errorf("after the second removal the thread kept %q", got)
+		}
+	})
+
+	// A row that leaves says on its threads whether its root was ever a contact (migrations 0003):
+	// an export carries a former contact's conversation and leaves a stranger's (HDTP §9.2). The cases
+	// are testdata/kept_was_contact.json, which BatonDeck runs by the same names against its own
+	// trigger (its cloud/1004), so the two hosts cannot drift.
+	t.Run("KeptWasContactCases", func(t *testing.T) {
+		var list struct {
+			Cases []struct {
+				Name           string   `json:"name"`
+				Steps          []string `json:"steps"`
+				KeptWasContact bool     `json:"kept_was_contact"`
+			} `json:"cases"`
+		}
+		if err := json.Unmarshal(keptWasContactCases, &list); err != nil || len(list.Cases) == 0 {
+			t.Fatalf("testdata/kept_was_contact.json: %v", err)
+		}
+		for _, c := range list.Cases {
+			t.Run(c.Name, func(t *testing.T) {
+				s := migrated(t, newStore)
+				ctx := context.Background()
+				a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "kw", DisplayName: "KW", Algo: "p256"})
+				const fpr = "sha256:kw"
+				if err := s.InsertThread(ctx, store.Thread{ID: "th", AccountID: a.ID, ContactFpr: fpr, CreatedAt: 1, LastAt: 1}); err != nil {
+					t.Fatal(err)
+				}
+				for _, step := range c.Steps {
+					held, err := s.GetContact(ctx, a.ID, fpr)
+					switch {
+					case step == "removed":
+						err = s.DeleteContact(ctx, a.ID, fpr)
+					case step == "expired":
+						_, err = s.DeleteExpiredPendingContacts(ctx, a.ID, 1<<40)
+					case err == nil:
+						var ok bool
+						if ok, err = s.MoveContactStatus(ctx, a.ID, fpr, held.Status, step); err == nil && !ok {
+							err = errors.New("the row did not move")
+						}
+					default:
+						_, err = s.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: fpr, Status: step, CreatedAt: 100})
+					}
+					if err != nil {
+						t.Fatalf("step %s: %v", step, err)
+					}
+				}
+				th, err := s.GetThread(ctx, a.ID, "th")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if th.KeptWasContact != c.KeptWasContact {
+					t.Fatalf("kept_was_contact %v, want %v", th.KeptWasContact, c.KeptWasContact)
+				}
+			})
 		}
 	})
 

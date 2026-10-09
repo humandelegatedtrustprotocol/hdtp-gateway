@@ -24,7 +24,7 @@ func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (T
 	if err != nil {
 		return Thread{}, err
 	}
-	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname}, nil
+	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname, KeptWasContact: r.KeptWasContact == 1}, nil
 }
 
 // TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it, and
@@ -146,7 +146,7 @@ func (s *Postgres) ListThreadsByAccount(ctx context.Context, accountID string) (
 	}
 	out := make([]Thread, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname})
+		out = append(out, Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname, KeptWasContact: r.KeptWasContact == 1})
 	}
 	return out, nil
 }
@@ -192,6 +192,7 @@ func (s *Postgres) ImportThread(ctx context.Context, t Thread) (bool, error) {
 	n, err := s.q.ImportThread(ctx, pgdb.ImportThreadParams{
 		ID: t.ID, AccountID: t.AccountID, ContactFpr: t.ContactFpr,
 		Topic: t.Topic, CreatedAt: t.CreatedAt, LastAt: t.LastAt,
+		KeptDisplayName: t.KeptDisplayName, KeptPetname: t.KeptPetname, KeptWasContact: b2i(t.KeptWasContact),
 	})
 	return n > 0, err
 }

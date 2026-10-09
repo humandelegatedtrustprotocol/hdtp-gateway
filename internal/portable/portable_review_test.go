@@ -158,18 +158,18 @@ func TestAnImportCountsWhatItWrote(t *testing.T) {
 	}
 }
 
-// L11. An export that leaves a conversation out says why, truly: a request never accepted, or a
-// contact that was removed (a conversation outlives its contact's row).
+// L11. An export that leaves a conversation out says which and why, truly: a request not yet
+// decided, or a root that was never a contact. A thread naming a root with no row and no record of
+// being a contact is the second (HDTP §9.2); a former contact's travels (removed_test.go).
 func TestAnExportSaysTrulyWhyItLeftAConversationOut(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, sqliteStore)
 	s := seed(t, e)
-	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-removed", AccountID: s.accountID, ContactFpr: "sha256:removed", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-gone", AccountID: s.accountID, ContactFpr: "sha256:gone", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
 	_, res := exportOf(t, e, "alina")
 	joined := strings.Join(res.LeftOut, "\n")
-	if !strings.Contains(joined, "with "+s.strangerID+", whose request was never accepted") ||
-		!strings.Contains(joined, "with sha256:removed, a contact removed from this identity") ||
-		strings.Contains(joined, "sha256:removed, whose request was never accepted") {
+	if !strings.Contains(joined, "thread t-stranger: 1 message(s) with "+s.strangerID+", whose request is not yet decided") ||
+		!strings.Contains(joined, "thread t-gone: 0 message(s) with sha256:gone, who was never a contact") {
 		t.Fatalf("left out:\n%s", joined)
 	}
 }
@@ -371,10 +371,10 @@ func TestOnlyAMediaNameIsAFile(t *testing.T) {
 }
 
 // The cloud derives its central directory bounds from its files (limits.ts DIRECTORY_LIMITS): the
-// files and the five members that are not a file, each record at most 46 bytes, the longest name
+// files and the six members that are not a file, each record at most 46 bytes, the longest name
 // (media/ and a sha256 in hex) and 32 bytes of extra fields. The node's copies are held to it.
 func TestTheCloudsDirectoryBounds(t *testing.T) {
-	if cloudZipEntries != cloudMediaFiles+5 {
+	if cloudZipEntries != cloudMediaFiles+6 {
 		t.Fatalf("entries %d, files %d", cloudZipEntries, cloudMediaFiles)
 	}
 	if cloudDirectoryBytes != cloudZipEntries*(46+len("media/")+64+32) {

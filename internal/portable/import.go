@@ -286,8 +286,19 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		if after > int64(contactCap) && after > before {
 			return fmt.Errorf("%w: %w", ErrRefused, core.ContactCapRefusal(after, contactCap))
 		}
+		// A former contact's thread keeps its removed row's names and that it was a contact's
+		// (HDTP §9.2 step 3): labelled so while no contact row of that root is held here, and that
+		// row's when one is. A removed row is never written as a contact, and never called.
+		removed := map[string]hdtpidentity.RemovedRow{}
+		for _, r := range p.Contents.Removed {
+			removed[r.Root] = r
+		}
 		for _, t := range p.Contents.Threads {
-			wrote, err := tx.ImportThread(ctx, store.Thread{ID: t.ID, AccountID: accountID, ContactFpr: t.Contact, Topic: t.Topic, CreatedAt: unixOf(t.CreatedAt), LastAt: unixOf(t.LastAt)})
+			th := store.Thread{ID: t.ID, AccountID: accountID, ContactFpr: t.Contact, Topic: t.Topic, CreatedAt: unixOf(t.CreatedAt), LastAt: unixOf(t.LastAt)}
+			if r, isRemoved := removed[t.Contact]; isRemoved {
+				th.KeptDisplayName, th.KeptPetname, th.KeptWasContact = r.DisplayName, r.Name, true
+			}
+			wrote, err := tx.ImportThread(ctx, th)
 			if err != nil {
 				return fmt.Errorf("import: thread %s: %w", t.ID, err)
 			}
@@ -324,6 +335,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			res.count(&res.Messages, wrote)
 		}
 		p.AccountID = accountID
+		res.Removed = len(p.Contents.Removed)
 		return nil
 	})
 	if err != nil {

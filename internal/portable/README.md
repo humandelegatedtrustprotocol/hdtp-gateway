@@ -18,7 +18,7 @@ Import (`import.go`)
 Checks on a written file (`check.go`)
 
 - `CheckWritten` reads a just-written file back as an importer would.
-- `CloudCeilings` names each BatonDeck import ceiling an export is over (`cloudZipBytes`, `cloudContacts`, `cloudThreads`, `cloudMessageLines`, `cloudMediaFiles` and the rest, written as literals at `check.go:32-50`). These are warnings, never refusals.
+- `CloudCeilings` names each BatonDeck import ceiling an export is over (`cloudZipBytes`, `cloudContacts`, `cloudThreads`, `cloudMessageLines`, `cloudMediaFiles` and the rest, written as literals at `check.go:33-51`). These are warnings, never refusals.
 
 Shared (`portable.go`)
 
@@ -30,7 +30,8 @@ Shared (`portable.go`)
 
 - Contacts (`contactRow`, `export.go:130`): root fingerprint, endpoint, petname, display name, status, was-active (`EverActive` or status `active`), both permission lists, leaf and root certificate (base64url, null when absent), added time. Not exported: the preset, the trust flag, the card, the SPKI.
 - Contacts in status `pending_in` (a stranger's request, `aRequest` in `portable.go`) are left out and named in `Result.LeftOut`.
-- Threads: id, contact, topic, created and last time; ordered by `CreatedAt`. A thread whose contact is not carried is left out with a truthful reason (a request never accepted, or a contact removed from this identity).
+- Threads: id, contact, topic, created and last time; ordered by `CreatedAt`. A thread whose root is not carried travels when its root was ever a contact (`store.Thread.KeptWasContact`), with one `removed.csv` row per such root named by its newest thread's kept names; otherwise it is left out and named in `Result.LeftOut` by its id and the reason (a request not yet decided, or a root that was never a contact).
+- Import: a removed row is never written as a contact; its threads are written with its names and `KeptWasContact`, and belong to a contact held here with that root, of any status (`Result.Removed` counts the rows).
 - Messages (`messageRow`, `export.go:145`): id, thread, contact, msg id, direction, sender, time, body, status, reply_to. A media message's description JSON (`messaging.MediaMeta`) is lifted into one attachment and the body is emptied; a media message with no hash (a link never fetched) travels the link as the body.
 - Status mapping (`exportStatus`): `pending` and `queued_for_human` become `queued`; `failed` stays; everything else is `delivered`.
 - Media: each distinct hash once, with its size read from the blob; sorted by hash.

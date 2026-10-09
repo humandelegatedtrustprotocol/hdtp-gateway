@@ -242,6 +242,9 @@ type Thread struct {
 	// gone; while a row names ContactFpr, the row's names are the ones that count.
 	KeptDisplayName string
 	KeptPetname     string
+	// KeptWasContact says the thread's root was ever a contact when its row was deleted (migrations
+	// 0003): a former contact's conversation, which an export carries (HDTP §9.2).
+	KeptWasContact bool
 }
 
 // Blob is the record of an inline media file an account holds, named by the hash of its content. The
