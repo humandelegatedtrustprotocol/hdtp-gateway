@@ -59,6 +59,16 @@ changelog can be and is not summarized into a fictional release history.
   so a token narrowed to one account told which request ids existed on another. The store reads and
   answers a pending request by account and id (`GetAccountPendingRequest`, `AnswerPendingRequest`).
 
+### Changed
+
+- `web/tools/portal-qa.mjs` is removed: nothing ran it, and the harness and `make screenshots`
+  cover what it drove.
+- `make gosec` excludes `.claude`, the checkout's worktrees, which gosec's own filesystem walk
+  entered and the Go tool's `./...` never did.
+- `make analyze` runs its tools under the Go `go.mod` names (`GOTOOLCHAIN=<toolchain>+auto`), so a
+  machine with an older Go, or `GOTOOLCHAIN=local` set, downloads it instead of failing. A Go older
+  than 1.21 has no toolchain switching and is not helped.
+
 ## [0.1.1] — 2026-10-09
 
 ### Fixed
