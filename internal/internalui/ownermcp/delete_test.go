@@ -86,12 +86,12 @@ func TestDeleteThreadDeletesOneConversationAndRefusesTheRest(t *testing.T) {
 	// The same answer shape as the portal's, member for member.
 	var shape map[string]any
 	_ = json.Unmarshal([]byte(text), &shape)
-	for _, k := range []string{"status", "thread_id", "messages", "files"} {
+	for _, k := range []string{"status", "thread_id", "contact", "messages", "files"} {
 		if _, ok := shape[k]; !ok {
 			t.Fatalf("answer lacks %q: %s", k, text)
 		}
 	}
-	if len(shape) != 4 {
-		t.Fatalf("answer carries more than its four members: %s", text)
+	if len(shape) != 5 || shape["contact"] != "sha256:alina" {
+		t.Fatalf("answer is not its five members, naming the contact: %s", text)
 	}
 }

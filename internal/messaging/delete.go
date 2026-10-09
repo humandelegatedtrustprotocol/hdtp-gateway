@@ -13,10 +13,10 @@ import (
 type Deleted struct {
 	Status   string `json:"status"`
 	ThreadID string `json:"thread_id"`
+	// Contact is the fingerprint of the contact the thread was with.
+	Contact  string `json:"contact"`
 	Messages int64  `json:"messages"`
 	Files    int64  `json:"files"`
-	// Contact is the thread's contact, for the audit row; not part of the answer.
-	Contact string `json:"-"`
 }
 
 // AuditResource is the resource of the one `thread_delete` row a deletion writes: the account, the

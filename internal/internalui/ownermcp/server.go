@@ -360,7 +360,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
 		ot.readThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_thread", Description: "Delete one conversation here, and only here: the thread, every message in it (one still being retried is not sent), its read marker and the files no other message names. The contact, its permissions and its other threads stay; nothing is sent and the contact keeps their copy. Answers status deleted with how many messages and files went; not_found for a thread this account does not hold. Their next message on that thread id starts it afresh"},
+	mcp.AddTool(s, &mcp.Tool{Name: "delete_thread", Description: "Delete one conversation here, and only here: the thread, every message in it (one still being retried is not sent), its read marker and the files no other message names. The contact, its permissions and its other threads stay; nothing is sent and the contact keeps their copy. Answers status deleted, the contact, and how many messages and files went; not_found for a thread this account does not hold. Their next message on that thread id starts it afresh"},
 		ot.deleteThreadTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)"},

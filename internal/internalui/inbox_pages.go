@@ -142,7 +142,7 @@ func (d InboxDeps) postThreadsIDSend(w http.ResponseWriter, r *http.Request) {
 // postThreadsIDDelete serves `POST /threads/{id}/delete`: one conversation of the account in the
 // form body, deleted here and only here (messaging.Service.DeleteThread, SPEC §7.9); the owner MCP's
 // delete_thread is the same operation. It answers JSON, the operation's own answer: 200
-// {status:"deleted", thread_id, messages, files}; 400 {"error":"bad_request"} for an empty id; 404
+// {status:"deleted", thread_id, contact, messages, files}; 400 {"error":"bad_request"} for an empty id; 404
 // {"error":"not_found"} for a thread the account does not hold (an account the owner does not
 // administer is 404 before this, accountMiddleware); 500 {"error":"internal"}. Each writes one
 // thread_delete row.
