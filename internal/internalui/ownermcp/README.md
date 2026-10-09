@@ -100,7 +100,8 @@ Three shapes of refusal exist; a caller must not treat them alike.
    address ("set public_url") and mints nothing; `revoke_invite` answers `not_found` only for a
    missing or spent invite (a store failure is `internal`); `wait_for_updates` answers
    `bad_request` for a `timeout_sec` outside 1 to 25. `answer_request` answers a relay failure as
-   an `IsError` result whose text is the error, with no code.
+   an `IsError` result whose text is the error, with no code; another account's request id is
+   answered as one that names nothing (`integrations: unknown pending request`).
 2. A result that carries a code but is not marked an error (`IsError` false): `call_contact`
    (`bad_request` for an empty contact or tool; `unknown_contact` when the contact is not active;
    `unavailable` when the call failed), `remove_passkey` (`bad_request` for an empty id and for the

@@ -12,12 +12,13 @@ import (
 
 const answerPendingRequest = `-- name: AnswerPendingRequest :execrows
 UPDATE pending_requests SET status = 'answered', result = $1, answered_at = $2
-WHERE id = $3 AND status = 'open' AND expires_at > $4
+WHERE account_id = $3 AND id = $4 AND status = 'open' AND expires_at > $5
 `
 
 type AnswerPendingRequestParams struct {
 	Result     string
 	AnsweredAt sql.NullInt64
+	AccountID  string
 	ID         string
 	ExpiresAt  int64
 }
@@ -26,6 +27,7 @@ func (q *Queries) AnswerPendingRequest(ctx context.Context, arg AnswerPendingReq
 	result, err := q.db.Exec(ctx, answerPendingRequest,
 		arg.Result,
 		arg.AnsweredAt,
+		arg.AccountID,
 		arg.ID,
 		arg.ExpiresAt,
 	)
@@ -111,6 +113,34 @@ func (q *Queries) GetAccountIntegration(ctx context.Context, arg GetAccountInteg
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Secret,
+	)
+	return i, err
+}
+
+const getAccountPendingRequest = `-- name: GetAccountPendingRequest :one
+SELECT id, account_id, contact_fpr, capability, args, trust_flag, status, result, created_at, expires_at, answered_at FROM pending_requests WHERE account_id = $1 AND id = $2
+`
+
+type GetAccountPendingRequestParams struct {
+	AccountID string
+	ID        string
+}
+
+func (q *Queries) GetAccountPendingRequest(ctx context.Context, arg GetAccountPendingRequestParams) (PendingRequest, error) {
+	row := q.db.QueryRow(ctx, getAccountPendingRequest, arg.AccountID, arg.ID)
+	var i PendingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.ContactFpr,
+		&i.Capability,
+		&i.Args,
+		&i.TrustFlag,
+		&i.Status,
+		&i.Result,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.AnsweredAt,
 	)
 	return i, err
 }

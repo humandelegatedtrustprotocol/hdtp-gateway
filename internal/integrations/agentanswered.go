@@ -154,20 +154,18 @@ func (a *AgentAnswered) fallbackResult(ctx context.Context, accountID string, re
 // atomic against expiry; relays to the waiting caller when one is still there, in
 // this process or another on the store, and reports relayed only when the held call
 // says it relayed it (within RelayWait). A late answer is recorded and audited but no
-// longer relayed.
+// longer relayed. The request is read by account and id: another account's id answers what an id
+// that names nothing answers, so the answer does not say which ids exist.
 func (a *AgentAnswered) Answer(ctx context.Context, accountID, requestID, result string) (relayed bool, err error) {
-	row, err := a.Store.GetPendingRequest(ctx, requestID)
+	row, err := a.Store.GetAccountPendingRequest(ctx, accountID, requestID)
 	if err != nil {
 		return false, fmt.Errorf("integrations: unknown pending request")
-	}
-	if row.AccountID != accountID {
-		return false, fmt.Errorf("integrations: pending request belongs to another account")
 	}
 	// Listening before the answer is written: the held call's word may come back at once.
 	evs, stop := a.Bus.Subscribe(row.AccountID)
 	defer stop()
 	nowUnix := a.now().Unix()
-	ok, err := a.Store.AnswerPendingRequest(ctx, requestID, result, nowUnix, nowUnix)
+	ok, err := a.Store.AnswerPendingRequest(ctx, row.AccountID, requestID, result, nowUnix, nowUnix)
 	if err != nil {
 		return false, err
 	}

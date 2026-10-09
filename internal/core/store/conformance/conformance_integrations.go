@@ -77,4 +77,47 @@ func integrations(t *testing.T, newStore Factory) {
 			t.Fatal("deleted integration still readable")
 		}
 	})
+	t.Run("PendingRequestsAreReadAndAnsweredByAccount", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := s.InsertPendingRequest(ctx, store.PendingRequest{AccountID: a.ID, ContactFpr: "sha256:c",
+			Capability: "ask", Args: "{}", Status: "open", CreatedAt: 1, ExpiresAt: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The account-bound read: the row for its account; for another account, or an id that is
+		// nobody's, one error wrapping ErrNotFound that reads the same.
+		if own, err := s.GetAccountPendingRequest(ctx, a.ID, p.ID); err != nil || own.ID != p.ID || own.Capability != "ask" {
+			t.Fatalf("get by account and id: %+v %v", own, err)
+		}
+		_, foreignErr := s.GetAccountPendingRequest(ctx, other.ID, p.ID)
+		_, missingErr := s.GetAccountPendingRequest(ctx, a.ID, "missing")
+		if !errors.Is(foreignErr, store.ErrNotFound) || !errors.Is(missingErr, store.ErrNotFound) {
+			t.Fatalf("another account's request: %v; a missing id: %v; want both to wrap ErrNotFound", foreignErr, missingErr)
+		}
+		if foreignErr.Error() != missingErr.Error() {
+			t.Fatalf("another account's request and a missing id are told apart: %q vs %q", foreignErr, missingErr)
+		}
+		// The answer is bound the same way: another account's answer closes nothing.
+		if ok, err := s.AnswerPendingRequest(ctx, other.ID, p.ID, "x", 2, 2); err != nil || ok {
+			t.Fatalf("another account answered the request: %v %v", ok, err)
+		}
+		if got, _ := s.GetPendingRequest(ctx, p.ID); got.Status != "open" {
+			t.Fatalf("another account's answer moved the request to %q", got.Status)
+		}
+		if ok, err := s.AnswerPendingRequest(ctx, a.ID, p.ID, "yes", 2, 2); err != nil || !ok {
+			t.Fatalf("the account's own answer: %v %v", ok, err)
+		}
+		if got, _ := s.GetPendingRequest(ctx, p.ID); got.Status != "answered" || got.Result != "yes" {
+			t.Fatalf("after the answer: %+v", got)
+		}
+	})
 }

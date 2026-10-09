@@ -36,7 +36,7 @@ interface, and nothing else: it does not know which engine it is judging.
 | credentials (`conformance_credentials.go`) | `CredentialsInsertAndCount`; `RemoveCredentialIfNotLastKeepsTheLastOne` |
 | messages (`conformance_messages.go`) | `MsgIDIsScopedToDirection`; `MessageExpiryHoldsAFarFutureDeadline`; `ReadMarkerCountsAndMarksAConversation` |
 | memberships (`conformance_memberships.go`) | `MembershipRoundTripAndFK` |
-| integrations (`conformance_integrations.go`) | `IntegrationsCRUD` |
+| integrations (`conformance_integrations.go`) | `IntegrationsCRUD`; `PendingRequestsAreReadAndAnsweredByAccount` (another account's request reads as a missing one and its answer closes nothing) |
 | audit pages (`conformance_audit.go`) | `AuditPageScopesToAnAccountAndKeepsTheNodesOwnRows` |
 
 ### How a new engine plugs in

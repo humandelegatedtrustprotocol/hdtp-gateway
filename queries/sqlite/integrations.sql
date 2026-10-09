@@ -79,9 +79,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 -- name: GetPendingRequest :one
 SELECT * FROM pending_requests WHERE id = ?;
 
+-- name: GetAccountPendingRequest :one
+SELECT * FROM pending_requests WHERE account_id = ? AND id = ?;
+
 -- name: ListOpenPendingRequests :many
 SELECT * FROM pending_requests WHERE account_id = ? AND status = 'open' AND expires_at > ? ORDER BY created_at, id;
 
 -- name: AnswerPendingRequest :execrows
 UPDATE pending_requests SET status = 'answered', result = ?, answered_at = ?
-WHERE id = ? AND status = 'open' AND expires_at > ?;
+WHERE account_id = ? AND id = ? AND status = 'open' AND expires_at > ?;

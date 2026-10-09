@@ -18,7 +18,7 @@ Exposures (`exposure.go`)
 Dispatch of a contact's call
 - `Passthrough.Handler` (`passthrough.go:78`): compiles the snapshotted input schema, validates the arguments against it, checks `Manager.Available` and `Session`, forwards under the snapshot's tool name with `Timeout` (`DefaultCallTimeout` 30 s), and relays the result unless it exceeds `MaxResultBytes` (`DefaultMaxResultBytes` 1 MiB).
 - Mapped mode is not served here: `Recipe`, `Binding`, `BuildArgs`, `Lookup`, `LookupString`, `DecodeRecipe` (`mapping.go`) define the field-mapping DSL (field references `$name` and constants only), and `providers` executes it.
-- `AgentAnswered.Handler` (`agentanswered.go:102`) parks the call as a pending request and holds it for `DefaultWaitBudget` (30 s); `Answer` (`:158`) records the owner agent's result. A late answer is accepted for `DefaultPendingTTL` (10 min) but not relayed. `RelayWait` is 3 s.
+- `AgentAnswered.Handler` (`agentanswered.go:102`) parks the call as a pending request and holds it for `DefaultWaitBudget` (30 s); `Answer` (`:159`) records the owner agent's result. A late answer is accepted for `DefaultPendingTTL` (10 min) but not relayed. `RelayWait` is 3 s.
 
 Upstream OAuth (`oauth.go`)
 - `NewOAuthHandler` builds the SDK's authorization-code handler. Client identity order: Client ID Metadata Document, then a preregistered client, then RFC 7591 dynamic registration; with none configured it refuses.
@@ -36,7 +36,7 @@ The store holds a status string per integration: `connecting` (set at the start 
 ## What it refuses, and how
 
 - Passthrough (`Handler` result, codes in a JSON body `{"code":...}` with `IsError`): `bad_request` for arguments that are not JSON or fail the snapshotted schema (upstream untouched); `unavailable` when the integration is not `Available`, has no session, or the forward fails or times out; `too_large` when the result exceeds the cap (result truncated to the cap and still marked an error). Upstream tool errors are relayed as tool errors.
-- Agent-answered: `unavailable` when the pending row cannot be inserted, or on budget expiry/no connected agent when the entry has no `Fallback` or none was supplied. `Answer` returns errors "unknown pending request", "pending request belongs to another account", "request is expired or already answered".
+- Agent-answered: `unavailable` when the pending row cannot be inserted, or on budget expiry/no connected agent when the entry has no `Fallback` or none was supplied. `Answer` reads the request by account and id (`GetAccountPendingRequest`) and returns errors "unknown pending request" (for a missing id and for another account's, alike) and "request is expired or already answered".
 - `Exposures.Publish` errors: no catalog snapshot; tool not in the catalog; unknown mode; fallback on a non-agent entry or fallback other than passthrough/mapped; mapped entry without a recipe or exposed name; exposed name equal to a built-in tool name (`core.ReservedToolNames`, non-mapped entries); exposed name not unique across the account's other integrations. Nothing is minted on error.
 - `Reconfirm` leaves entries whose tool vanished stale. `Reconcile` returns store errors rather than skipping the guard.
 - `SplitCommand`: shell metacharacters, unterminated quote, empty command. `RunChildShim`: unknown flags, missing values, no command; strict failure if `RLIMIT_DATA` cannot be set on Linux.

@@ -54,6 +54,10 @@ changelog can be and is not summarized into a fictional release history.
 - The portal's `GET /events` carries only the events of accounts the signed-in owner administers.
   With several accounts and none named it subscribed to every account's, so an owner read the
   live stream of accounts administered by another owner.
+- The owner MCP's `answer_request` answers another account's request id as it answers an id that
+  names nothing (`unknown pending request`). It read the request by id and compared accounts after,
+  so a token narrowed to one account told which request ids existed on another. The store reads and
+  answers a pending request by account and id (`GetAccountPendingRequest`, `AnswerPendingRequest`).
 
 ## [0.1.1] — 2026-10-09
 
