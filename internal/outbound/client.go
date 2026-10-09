@@ -26,8 +26,8 @@ import (
 )
 
 // ErrSealRequired is the local refusal to send a plaintext call to a peer whose card says
-// `seal: required` (SPEC.md §4, HDTP §13.4). It is returned wrapped (errors.Is) by CallTool and by
-// the get_card fallback of the sealed exchange, before any bytes leave the node.
+// `seal: required` (SPEC.md §4, HDTP §13.4). It is returned wrapped (errors.Is) by CallTool,
+// before any bytes leave the node.
 var ErrSealRequired = errors.New("seal_required")
 
 // RateLimited is a call this host refused to send because the calling identity's outbound budget
@@ -71,6 +71,11 @@ func (p Peer) name() string {
 // and a leaf under it. Every peer built from a pin or a card has both; the zero Peer has
 // neither. It used to be asked of a `Protocol` field that every construction set alike.
 func (p Peer) Known() bool { return p.Root != "" && len(p.Leaf) > 0 }
+
+// takesPlaintext reports whether this peer's card lets an unsealed call reach it (HDTP §13.4):
+// every policy but `required`. CallTool refuses a plaintext call to a peer it is false for, and
+// the sealed exchange asks no plaintext get_card of one.
+func (p Peer) takesPlaintext() bool { return p.Seal != "required" }
 
 // Client makes calls from one account's identity to contacts. Build one per account and set the
 // hooks the host needs; the zero value of each hook means "do nothing".
@@ -203,7 +208,7 @@ type CallOptions struct {
 // call a tool without Connect. A peer that answers only the handshake revisions is served the
 // handshake the SDK falls back to.
 func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[string]any, opts CallOptions) (*mcp.CallToolResult, error) {
-	if peer.Seal == "required" && opts.Plaintext {
+	if opts.Plaintext && !peer.takesPlaintext() {
 		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)
 	}
 	if err := c.spend(peer, tool); err != nil {
@@ -213,7 +218,8 @@ func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[
 }
 
 // callTool is CallTool without the budget: the wire half of an exchange that has already spent it
-// (the sealed exchange's `sealed_call`, and the `get_card` it asks when a renewal is answered).
+// (the sealed exchange's `sealed_call`, and the plaintext `get_card` it asks of a peer that takes
+// plaintext when an answer cannot be verified).
 func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[string]any) (*mcp.CallToolResult, error) {
 	hc, err := c.HTTPClient(peer)
 	if err != nil {

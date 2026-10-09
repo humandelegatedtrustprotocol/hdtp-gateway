@@ -8,7 +8,9 @@ package outbound
 // answers make the caller act once and only once: chain_required (resend with
 // the chain), certificate_renewed (follow the chain to the pinned root at the
 // dialed address, re-pin, re-seal), and an answer that cannot be verified
-// (ask get_card, which always carries the chain, re-pin, retry).
+// (ask get_card in plaintext, which always carries the chain, re-pin, retry —
+// of a peer that takes plaintext; a peer that requires sealing is not asked,
+// and the call fails with the pin standing).
 
 import (
 	"context"
@@ -157,9 +159,18 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 		return nil, refusal, nil
 	case errors.As(err, &unverifiable):
 		// The answer is signed by a key we do not hold a leaf for. get_card
-		// always answers with the chain (§13.2); a chain that validates to the
-		// pinned root at the dialed address and is not older than the pin is
-		// the peer's current leaf. Once.
+		// always answers with the chain (§13.2, §6.2); a chain that validates to
+		// the pinned root at the dialed address and is not older than the pin is
+		// the peer's current leaf. Once, in plaintext, of a peer that takes
+		// plaintext. A peer that requires sealing is not asked: a plaintext
+		// get_card to it is refused unread, and a sealed one is answered in the
+		// form that just failed — the form is the peer's record of what we have
+		// seen (§13.2), not the tool's. Its chain reaches us the sealed way, in
+		// its first answer after a renewal or as certificate_renewed once the
+		// key we sealed to is retired (§14.3, §14.4); until then the pin stands.
+		if !peer.takesPlaintext() {
+			return nil, nil, fmt.Errorf("%w; the peer requires sealed calls, so its card was not asked for in plaintext; the pin stands until an answer from it carries the chain", err)
+		}
 		leaf, gerr := c.chainFromGetCard(ctx, peer)
 		if gerr != nil {
 			return nil, nil, fmt.Errorf("%w; and get_card: %v", err, gerr)
@@ -287,12 +298,10 @@ func (c *Client) attempt(ctx context.Context, peer Peer, method string, params m
 
 // chainFromGetCard asks the peer for its card in plaintext — over the chain as
 // our client certificate — and returns the leaf of a chain that validates to
-// the pinned root at the dialed address and is not older than the pin.
+// the pinned root at the dialed address and is not older than the pin. The
+// caller has read the peer's policy (sealedExchange): a peer that requires
+// sealing is never asked.
 func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error) {
-	// Plaintext, and so refused to a peer that requires sealing, as every plaintext call is.
-	if peer.Seal == "required" {
-		return nil, fmt.Errorf("%w: peer requires sealed calls", ErrSealRequired)
-	}
 	res, err := c.callTool(ctx, peer, "get_card", map[string]any{})
 	if err != nil {
 		return nil, err
