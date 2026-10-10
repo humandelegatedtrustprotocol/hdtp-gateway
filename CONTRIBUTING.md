@@ -60,7 +60,9 @@ its own copy):
   is styled before it exists. A partly staged Go or Rust file is refused, not styled.
 - **commit-msg** refuses a message that carries a path under `/Users` or `/home`: a message is
   published with its commit, and `TestNoTrackedFileLeaksALocalPath` holds the tracked files to the
-  same rule but cannot see a message. Say "the worktree" or "the sibling checkout" instead.
+  same rule but cannot see a message. The whole message file is read, comment lines and a scissors
+  tail included, since git keeps both for `-m` and `-F`; a `git commit -v` whose diff removes such a
+  path is refused, so commit that without `-v`. Say "the worktree" or "the sibling checkout" instead.
 - **pre-push** runs, in order: `make web` and a check that it left `web/dist`
   unchanged (only when the push touches `web/`); `make check` with
   `HDTP_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
