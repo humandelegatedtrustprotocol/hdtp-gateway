@@ -4,9 +4,10 @@ package integrationtest
 // measured against the code on the day it was written. A row that nothing holds goes stale the day
 // after. The rows that can be derived from the tree are held to it here: the fuzz targets and their
 // time, the analysers and their pinned versions, the form of every gosec waiver, the versions of the
-// libraries the table names, the scenario tiers, the authorization call sites, what the pre-push
-// hook runs, the absence of Dependabot and CI, and that every test the table cites exists. A change to any of those changes
-// the record in the same commit, or fails the build.
+// libraries the table names, the scenario tiers, the authorization call sites, the release-build
+// checks `make dist` runs, what the pre-push hook runs, the absence of Dependabot and CI, and that
+// every test the table cites exists. A change to any of those changes the record in the same
+// commit, or fails the build.
 
 import (
 	"fmt"
@@ -221,6 +222,33 @@ func TestTheHardeningStatusTableMatchesTheTree(t *testing.T) {
 			if !strings.Contains(text, want) {
 				t.Errorf("the tree calls policy.Allow at %d sites; %s does not say %q", sites, doc, want)
 			}
+		}
+	})
+
+	t.Run("release builds are checked", func(t *testing.T) {
+		row := rows.get(t, "Release integrity")
+		script := "scripts/release-check.sh"
+		if !regexp.MustCompile(`(?m)^RELEASE_CHECK := .*` + regexp.QuoteMeta(script) + `$`).MatchString(makefile) {
+			t.Fatalf("the Makefile's RELEASE_CHECK is not %s; the Release integrity row names it", script)
+		}
+		for _, c := range []struct{ target, mode, claim string }{
+			{"dist", "tree", "`make dist` enforces it"},
+			{"dist", "binaries", "`" + script + " binaries`"},
+			{"sbom", "tree", "`make sbom` runs the tree check too"},
+		} {
+			if !strings.Contains(makeRecipe(t, makefile, c.target), "$(RELEASE_CHECK) "+c.mode+" $(VERSION)") {
+				t.Errorf("make %s does not run %s %s; the Release integrity row says it does", c.target, script, c.mode)
+			}
+			if !strings.Contains(row, c.claim) {
+				t.Errorf("the Release integrity row no longer says %q", c.claim)
+			}
+		}
+		check := regexp.MustCompile(`(?m)^check: (.*)$`).FindStringSubmatch(makefile)
+		if check == nil || !strings.Contains(" "+check[1]+" ", " release-check ") {
+			t.Errorf("make check does not run release-check; the Release integrity row says it does")
+		}
+		if !strings.Contains(makeRecipe(t, makefile, "release-check"), "scripts/release-check-test.sh") || !strings.Contains(row, "`scripts/release-check-test.sh`") {
+			t.Errorf("make release-check and the Release integrity row do not both name scripts/release-check-test.sh")
 		}
 	})
 
