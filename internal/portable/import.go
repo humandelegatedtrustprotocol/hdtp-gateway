@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
@@ -299,6 +300,22 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 				}
 			}
 			res.count(&res.Threads, wrote)
+		}
+		// The files the messages name, locked for the rest of this transaction (store.LockFile, the
+		// lock a collection takes to delete a file): a conversation deleted meanwhile that named the
+		// same bytes waits, and then finds them named. In sorted order, the only transaction that
+		// takes more than one, so two of them cannot wait on each other.
+		var files []string
+		for _, m := range p.Contents.Messages {
+			for _, a := range m.Attachments {
+				files = append(files, a.File)
+			}
+		}
+		slices.Sort(files)
+		for _, hash := range slices.Compact(files) {
+			if err := tx.LockFile(ctx, hash); err != nil {
+				return fmt.Errorf("import: file %s: %w", hash, err)
+			}
 		}
 		for _, m := range p.Contents.Messages {
 			sm, blob := storeMessage(accountID, m)

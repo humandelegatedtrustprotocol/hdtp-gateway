@@ -271,3 +271,8 @@ func (s *SQLite) LockFile(context.Context, string) error { return nil }
 // mediaNamingPattern is the LIKE pattern for a media body that names a file: the host writes the
 // hash as `"hash":"<hex>"`, and a hash is lowercase hex, which LIKE reads literally.
 func mediaNamingPattern(hash string) string { return `%"hash":"` + hash + `"%` }
+
+// OrphanSweepSince is when the orphan sweep began to judge files (migration 0003), unix seconds.
+func (s *SQLite) OrphanSweepSince(ctx context.Context) (int64, error) {
+	return s.q.OrphanSweepSince(ctx)
+}

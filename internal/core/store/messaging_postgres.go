@@ -254,3 +254,8 @@ func (s *Postgres) MediaNames(ctx context.Context, accountID, hash string) (bool
 func (s *Postgres) LockFile(ctx context.Context, hash string) error {
 	return s.q.LockFileHash(ctx, hash)
 }
+
+// OrphanSweepSince is when the orphan sweep began to judge files (migration 0003), unix seconds.
+func (s *Postgres) OrphanSweepSince(ctx context.Context) (int64, error) {
+	return s.q.OrphanSweepSince(ctx)
+}

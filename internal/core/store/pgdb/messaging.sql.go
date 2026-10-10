@@ -774,6 +774,18 @@ func (q *Queries) MarkThreadReadThrough(ctx context.Context, arg MarkThreadReadT
 	return result.RowsAffected(), nil
 }
 
+const orphanSweepSince = `-- name: OrphanSweepSince :one
+SELECT since FROM orphan_sweep LIMIT 1
+`
+
+// When the orphan sweep began to judge files: records written before it are kept (migration 0003).
+func (q *Queries) OrphanSweepSince(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, orphanSweepSince)
+	var since int64
+	err := row.Scan(&since)
+	return since, err
+}
+
 const setMediaBody = `-- name: SetMediaBody :execrows
 UPDATE messages SET body = $1 WHERE account_id = $2 AND id = $3 AND kind = 'media'
 `

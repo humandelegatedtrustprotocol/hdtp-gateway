@@ -119,6 +119,9 @@ type Service struct {
 	Bus   *Bus // optional: events fan out when set (SPEC §7.6)
 	Blobs BlobRemover
 	Now   func() time.Time
+	// OnError hears what the service did not finish and could not answer as a failure: the files of a
+	// deleted conversation it could not collect. nil drops it (tests).
+	OnError func(error)
 }
 
 func (s *Service) now() time.Time {

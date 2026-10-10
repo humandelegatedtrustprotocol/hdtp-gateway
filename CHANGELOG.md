@@ -10,8 +10,24 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- The owner can delete one conversation, here only: the portal's Delete on a conversation (which
+  asks first) and the owner MCP's `delete_thread` run one operation. The thread, its messages
+  (one still being retried is not sent) and the files no other message names go; the contact and
+  its other threads stay, and nothing is sent to them (SPEC §7.9).
+
 ### Changed
 
+- **Upgrading:** a link the owner fetches is now fetched for one message and its file recorded on
+  that message, so the conversation opens it, an export carries it and a deletion collects it. The
+  hourly pass now also takes files no message names, whatever the retention window (once older than
+  an hour). A node upgraded from 0.1.2 or earlier holds files it fetched before, which no message
+  names and whose records cannot say which message would: those are KEPT, and counted in the
+  quota, because they are the owner's and the link behind one may be dead. Migration 0003 records
+  when the node began to judge files, and the sweep judges only records written since. Nothing names
+  such a file, so deleting its conversation does not find it either: it stays until the identity
+  leaves the node (`account leave`).
 - A removed contact's conversation stays in the inbox, under the name it had (the owner's petname,
   else theirs) and ` · removed`, readable and with no composer; it used to vanish from the list
   with the contact. A conversation whose contact is now a request or blocked stays listed too,

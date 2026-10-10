@@ -3,7 +3,9 @@ package retention
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -204,13 +206,29 @@ func TestThePassTakesUnnamedFilesUnderUnlimitedRetention(t *testing.T) {
 	}
 	cfg := &core.Config{DataDir: dir}
 	blobs := messaging.BlobDir{Root: cfg.Blobs()}
-	hash, err := blobs.Put([]byte("nothing names this file"))
+	// The node was upgraded three hours ago (migration 0003's row; raw SQL, as nothing else writes it).
+	since := time.Now().Add(-3 * messaging.FileGrace).Unix()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "hdtp.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.InsertBlob(bg, store.Blob{AccountID: a.ID, Hash: hash, Size: 23, CreatedAt: time.Now().Add(-2 * messaging.FileGrace).Unix()}); err != nil {
+	if _, err := db.Exec("UPDATE orphan_sweep SET since = ?", since); err != nil {
 		t.Fatal(err)
 	}
+	db.Close()
+	file := func(data string, createdAt int64) string {
+		hash, err := blobs.Put([]byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.InsertBlob(bg, store.Blob{AccountID: a.ID, Hash: hash, Size: int64(len(data)), CreatedAt: createdAt}); err != nil {
+			t.Fatal(err)
+		}
+		return hash
+	}
+	hash := file("nothing names this file", time.Now().Add(-2*messaging.FileGrace).Unix())
+	// A link the node fetched before the upgrade: unnamed, the owner's, kept.
+	before := file("fetched before the upgrade", since-3600)
 	var mu sync.Mutex
 	var swept []string
 	ctx, cancel := context.WithCancel(bg)
@@ -239,6 +257,9 @@ func TestThePassTakesUnnamedFilesUnderUnlimitedRetention(t *testing.T) {
 	<-done
 	if _, err := blobs.Get(hash); err == nil {
 		t.Fatal("a file nothing names outlived the pass under unlimited retention")
+	}
+	if _, err := blobs.Get(before); err != nil {
+		t.Fatal("the pass took a file from before the upgrade")
 	}
 	mu.Lock()
 	defer mu.Unlock()

@@ -81,7 +81,11 @@ func (s *Service) DeleteThread(ctx context.Context, accountID, threadID string) 
 		// could not take (a store failure, an unreadable media body elsewhere) is left; the hourly
 		// orphan sweep (Sweeper.CollectOrphans) takes it once nothing names it, whatever the retention
 		// window. Files counts what went now.
-		out.Files, _, _ = Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
+		files, _, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
+		out.Files = files
+		if err != nil && s.OnError != nil {
+			s.OnError(fmt.Errorf("thread %s deleted, its files not all collected: %w", threadID, err))
+		}
 	}
 	return out, nil
 }

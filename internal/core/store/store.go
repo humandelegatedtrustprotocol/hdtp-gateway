@@ -899,6 +899,9 @@ type MessageStore interface {
 	InsertBlob(ctx context.Context, b Blob) error
 	// GetBlob returns the account's blob record for hash, or ErrNotFound.
 	GetBlob(ctx context.Context, accountID, hash string) (Blob, error)
+	// OrphanSweepSince is when the orphan sweep began to judge files (unix seconds): the moment
+	// migration 0003 ran. A record written before it is kept by the sweep (messaging.Sweeper).
+	OrphanSweepSince(ctx context.Context) (int64, error)
 	// MediaNames reports whether any media message of the account names the file.
 	MediaNames(ctx context.Context, accountID, hash string) (bool, error)
 	// LockFile, inside Atomically, makes every other transaction that locks the same file wait until

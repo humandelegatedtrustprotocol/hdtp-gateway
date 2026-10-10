@@ -219,6 +219,9 @@ func (m *MediaService) ReceiveURL(ctx context.Context, msgSvc *Service, accountI
 	return msgSvc.record(ctx, accountID, contactFpr, DirIn, in, "media")
 }
 
+// errGone rolls back a fetch whose message went while its link was fetched.
+var errGone = errors.New("messaging: the message went")
+
 // FetchMessage is the EXPLICIT owner action for one url media message (SPEC §7.5): it fetches the
 // link the message carries and records the file on that message, so the message names its file as
 // an inline one does — the conversation view opens it, retention and a deleted conversation collect
@@ -247,10 +250,8 @@ func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID st
 	var hash string
 	gone := false
 	err = m.Store.Atomically(ctx, func(tx store.Store) error {
-		var inserted bool
 		var err error
-		hash, inserted, err = keepIn(ctx, tx, m.Blobs, accountID, data, mime, "", m.now().Unix())
-		if err != nil {
+		if hash, _, err = fileRecord(ctx, tx, accountID, data, mime, "", m.now().Unix()); err != nil {
 			return err
 		}
 		meta.Hash, meta.Size = hash, int64(len(data))
@@ -259,22 +260,21 @@ func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID st
 			return err
 		}
 		n, err := tx.SetMediaBody(ctx, accountID, messageID, string(body))
-		if err != nil || n > 0 {
+		if err != nil {
 			return err
 		}
-		// The message went while its link was fetched: what this fetch wrote goes again.
-		gone = true
-		if !inserted {
-			return nil
+		if n == 0 {
+			// The message went while its link was fetched: the record rolls back with this
+			// transaction, and no byte is written.
+			gone = true
+			return errGone
 		}
-		if _, err := tx.DeleteBlob(ctx, accountID, hash); err != nil {
-			return err
-		}
-		if refs, err := tx.CountBlobRefs(ctx, hash); err != nil || refs > 0 {
-			return err
-		}
-		return m.Blobs.Remove(hash)
+		_, err = m.Blobs.Put(data)
+		return err
 	})
+	if gone {
+		return "", fmt.Errorf("%w: the message went while its file was fetched", store.ErrNotFound)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -344,51 +344,53 @@ func (m *MediaService) fetchURL(ctx context.Context, accountID, rawURL string) (
 	return data, resp.Header.Get("Content-Type"), nil
 }
 
-// keepIn stores a file for the account inside tx, a transaction its caller holds and in which the
-// message naming the file is written too: it takes the file's lock (store.LockFile, the lock
-// Files.Collect takes to delete one), writes the account's record when there is none, and writes
-// the bytes. A collection therefore sees either the message that names the file or no file being
-// stored; one that deleted the record and the bytes just before is followed by both being written
-// anew. It returns the file's hash (the hex SHA-256 its bytes are stored under) and whether it wrote
-// the record.
-func keepIn(ctx context.Context, tx store.Store, blobs BlobDir, accountID string, data []byte, mime, filename string, now int64) (string, bool, error) {
+// fileRecord is the first half of storing a file inside tx, a transaction its caller holds and in
+// which the message naming the file is written too: it takes the file's lock (store.LockFile, the
+// lock Files.Collect takes to delete one) and writes the account's record when there is none. The
+// caller writes the message next and the bytes LAST (BlobDir.Put), still in the transaction and
+// under the lock, so a refusal anywhere before leaves neither a record nor bytes. A collection
+// therefore sees either the message that names the file or no file being stored; one that deleted
+// the record and the bytes just before is followed by both being written anew. It returns the
+// file's hash (the hex SHA-256 its bytes are stored under) and whether it wrote the record.
+func fileRecord(ctx context.Context, tx store.Store, accountID string, data []byte, mime, filename string, now int64) (string, bool, error) {
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])
 	if err := tx.LockFile(ctx, hash); err != nil {
 		return "", false, err
 	}
-	inserted := false
-	if _, err := tx.GetBlob(ctx, accountID, hash); err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return "", false, err
-		}
-		if err := tx.InsertBlob(ctx, store.Blob{
-			AccountID: accountID, Hash: hash, Size: int64(len(data)), Mime: mime,
-			Filename: filename, CreatedAt: now,
-		}); err != nil {
-			return "", false, err
-		}
-		inserted = true
-	}
-	if _, err := blobs.Put(data); err != nil {
+	if _, err := tx.GetBlob(ctx, accountID, hash); err == nil {
+		return hash, false, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
 		return "", false, err
 	}
-	return hash, inserted, nil
+	if err := tx.InsertBlob(ctx, store.Blob{
+		AccountID: accountID, Hash: hash, Size: int64(len(data)), Mime: mime,
+		Filename: filename, CreatedAt: now,
+	}); err != nil {
+		return "", false, err
+	}
+	return hash, true, nil
 }
 
-// keepAndRecord stores a media message's file and records the message in one transaction (keepIn),
-// and publishes the message once it is committed.
+// keepAndRecord stores a media message's file and records the message in one transaction
+// (fileRecord, the message, then the bytes), and publishes the message once it is committed.
 func (m *MediaService) keepAndRecord(ctx context.Context, msgSvc *Service, accountID, contactFpr string, dir Direction, in Input, data []byte, mime, filename string) (Result, error) {
+	if in.MsgID == "" {
+		return Result{}, fmt.Errorf("%w: msg_id required", ErrBadRequest)
+	}
 	var res Result
 	var fresh bool
 	err := m.Store.Atomically(ctx, func(tx store.Store) error {
-		hash, _, err := keepIn(ctx, tx, m.Blobs, accountID, data, mime, filename, m.now().Unix())
+		hash, _, err := fileRecord(ctx, tx, accountID, data, mime, filename, m.now().Unix())
 		if err != nil {
 			return err
 		}
 		meta, _ := json.Marshal(MediaMeta{Filename: filename, Mime: mime, Hash: hash, Size: int64(len(data))})
 		in.Text = string(meta)
-		res, fresh, err = msgSvc.write(ctx, tx, accountID, contactFpr, dir, in, "media")
+		if res, fresh, err = msgSvc.write(ctx, tx, accountID, contactFpr, dir, in, "media"); err != nil {
+			return err // refused: the record rolls back, and no byte was written
+		}
+		_, err = m.Blobs.Put(data)
 		return err
 	})
 	if err != nil {

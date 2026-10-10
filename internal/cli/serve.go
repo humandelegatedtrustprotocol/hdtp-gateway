@@ -584,7 +584,8 @@ func (s *serveRun) internalSurface() http.Handler {
 	}
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
 		setStatic, setOAuthClient, s.ownerFn,
-		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn)
+		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn,
+		func(err error) { fmt.Fprintf(s.stderr, "messaging: %v\n", err) })
 }
 
 // spawn runs work a portal request starts in serve's joined background group, with its context:

@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net"
 	"net/http"
@@ -220,8 +221,8 @@ func TestAFetchedFileBelongsToItsMessage(t *testing.T) {
 		t.Fatalf("a second fetch = %q, %v; want the held file, fetched once", again, err)
 	}
 	// What retention reads to learn which files are in use names it now.
-	if live, readable, err := referencedHashes(ctx, e.st, e.acct); err != nil || !readable || !live[hash] {
-		t.Fatalf("retention does not see the fetched file as in use: %v %v %v", live, readable, err)
+	if live, unreadable, err := referencedHashes(ctx, e.st, e.acct); err != nil || len(unreadable) > 0 || !live[hash] {
+		t.Fatalf("retention does not see the fetched file as in use: %v %v %v", live, unreadable, err)
 	}
 	out, err := e.svc.DeleteThread(ctx, e.acct, r.ThreadID)
 	if err != nil || out.Files != 1 {
@@ -345,36 +346,86 @@ func TestBytesSentAgainAfterTheirConversationWentAreStoredAnew(t *testing.T) {
 	}
 }
 
+// sweepFrom moves when the orphan sweep began to judge files (migration 0003's row). Raw SQL: the
+// store has no statement that writes it, and nothing but a test should.
+func (e *sweepEnv) sweepFrom(t *testing.T, since int64) {
+	t.Helper()
+	db, err := sql.Open("sqlite", e.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("UPDATE orphan_sweep SET since = ?", since); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e *sweepEnv) unnamedFile(t *testing.T, data []byte, createdAt int64) string {
+	t.Helper()
+	hash, err := e.blobs.Put(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertBlob(context.Background(), store.Blob{AccountID: e.acct, Hash: hash, Size: int64(len(data)), CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
 // Unlimited retention keeps messages, not files nothing names: the orphan sweep takes a file no
 // message names once its record is older than FileGrace, and leaves a younger one and a named one.
+// A record written before migration 0003 is kept, unnamed: an earlier node stored a fetched link's
+// file without recording it on the message, and it is the owner's.
 func TestTheOrphanSweepTakesUnnamedFilesWhateverTheWindow(t *testing.T) {
 	e := deleteEnv(t)
 	ctx := context.Background()
+	since := e.clock.Add(-3 * FileGrace).Unix()
+	e.sweepFrom(t, since)
 	_, named := e.inline(t, "sha256:peer", "", "m1", []byte("named"))
-	old := []byte("nothing names this")
-	oldHash := hashOf(old)
-	if _, err := e.blobs.Put(old); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.st.InsertBlob(ctx, store.Blob{AccountID: e.acct, Hash: oldHash, Size: int64(len(old)), CreatedAt: e.clock.Add(-2 * FileGrace).Unix()}); err != nil {
-		t.Fatal(err)
-	}
-	young := []byte("nothing names this either, yet")
-	youngHash := hashOf(young)
-	if _, err := e.blobs.Put(young); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.st.InsertBlob(ctx, store.Blob{AccountID: e.acct, Hash: youngHash, Size: int64(len(young)), CreatedAt: e.clock.Unix()}); err != nil {
-		t.Fatal(err)
-	}
+	old := e.unnamedFile(t, []byte("nothing names this"), e.clock.Add(-2*FileGrace).Unix())
+	young := e.unnamedFile(t, []byte("nothing names this either, yet"), e.clock.Unix())
+	fetchedBefore := e.unnamedFile(t, []byte("a link fetched by the node before the upgrade"), since-24*3600)
 	n, err := e.sweeper().CollectOrphans(ctx, e.acct)
 	if err != nil || n != 1 {
-		t.Fatalf("CollectOrphans = %d, %v; want the one old unnamed file", n, err)
+		t.Fatalf("CollectOrphans = %d, %v; want the one old unnamed file written since the upgrade", n, err)
 	}
-	if e.fileExists(oldHash) {
+	if e.fileExists(old) {
 		t.Fatal("the old unnamed file is still held")
 	}
-	if !e.fileExists(youngHash) || !e.fileExists(named) {
+	if !e.fileExists(young) || !e.fileExists(named) {
 		t.Fatal("the sweep took a young file or a named one")
+	}
+	if !e.fileExists(fetchedBefore) {
+		t.Fatal("the sweep took a file from before the upgrade, which nothing could name")
+	}
+	if used, _ := e.st.SumBlobBytes(ctx, e.acct); used == 0 {
+		t.Fatal("the kept files are not counted")
+	}
+}
+
+// A send refused after its file was looked at leaves nothing: no record, no bytes, and the quota
+// counts nothing. The bytes are written last, once the message is (keepAndRecord).
+func TestARefusedSendLeavesNoBytes(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		data := []byte(strings.Repeat("x", 1000) + string(rune('a'+i)))
+		// No msg_id: refused before anything is stored.
+		if _, err := e.media.ReceiveInline(ctx, e.svc, e.acct, "sha256:peer", Input{Origin: OriginPeer, Sender: SenderHuman}, "f", "text/plain", data); !errors.Is(err, ErrBadRequest) {
+			t.Fatalf("no msg_id: %v", err)
+		}
+		// Refused by the message write itself, after the file's record was written in the transaction.
+		if _, err := e.media.ReceiveInline(ctx, e.svc, e.acct, "sha256:peer", Input{Origin: OriginStored, MsgID: "m", Sender: SenderHuman}, "f", "text/plain", data); !errors.Is(err, ErrBadRequest) {
+			t.Fatalf("a stored message recorded again: %v", err)
+		}
+	}
+	if n := countFiles(t, e.blobs.Root); n != 0 {
+		t.Fatalf("%d files were left by refused sends", n)
+	}
+	if used, _ := e.st.SumBlobBytes(ctx, e.acct); used != 0 {
+		t.Fatalf("the quota counts %d bytes of refused sends", used)
+	}
+	if blobs, _ := e.st.ListBlobs(ctx, e.acct); len(blobs) != 0 {
+		t.Fatalf("refused sends left records: %+v", blobs)
 	}
 }

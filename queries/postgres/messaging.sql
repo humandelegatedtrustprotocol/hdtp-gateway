@@ -160,3 +160,7 @@ SELECT COUNT(*) FROM messages WHERE account_id = $1 AND kind = 'media' AND body 
 -- Holds one file, by its hash, until this transaction ends, across every process on the store: the
 -- writes that store it and the collection that deletes it take turns.
 SELECT pg_advisory_xact_lock(hashtext('blob:' || $1::text));
+
+-- name: OrphanSweepSince :one
+-- When the orphan sweep began to judge files: records written before it are kept (migration 0003).
+SELECT since FROM orphan_sweep LIMIT 1;
