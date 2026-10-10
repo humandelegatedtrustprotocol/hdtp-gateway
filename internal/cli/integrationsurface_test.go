@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -39,8 +41,9 @@ func fourHints(t *testing.T, annotations json.RawMessage) [4]bool {
 // What a contact is told about an exposed integration tool, from what the snapshot stored: the
 // hints the upstream stated, MCP's default for each it did not (or stated as something that is
 // not a boolean), open world true whatever it said, and the worst case for an agent-answered
-// exposure. The same table holds the cloud's `servedAnnotations` (batondeck
-// gateway/test/integrations.test.ts).
+// exposure. These cases are also BatonDeck's fixture (gateway/test/fixtures/go-served-annotations.json),
+// which TestTheCloudsServedAnnotationCasesHoldHere runs through this function and the cloud's own
+// suite through its `servedAnnotations`; this table stays so that the node, read alone, is tested.
 func TestServedAnnotationsFillTheDefaultsAndStateOpenWorld(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -70,6 +73,51 @@ func TestServedAnnotationsFillTheDefaultsAndStateOpenWorld(t *testing.T) {
 			}
 			if got := fourHints(t, raw); got != tc.want {
 				t.Fatalf("stored %q in %s mode: served %v, want %v", tc.stored, tc.mode, got, tc.want)
+			}
+		})
+	}
+}
+
+// BatonDeck's servedAnnotations runs the cases of gateway/test/fixtures/go-served-annotations.json;
+// every one of them must be what this node serves too, so the two implementations cannot drift
+// apart case by case. Like TestTheCloudsCopyOfTheProtocolHintsIsCurrent, it reads the sibling
+// checkout and skips without one.
+func TestTheCloudsServedAnnotationCasesHoldHere(t *testing.T) {
+	fixture := filepath.Join(repoRootFromTest(t), "..", "batondeck", "gateway", "test", "fixtures", "go-served-annotations.json")
+	raw, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Skipf("SKIPPED, and so the cloud's cases are unchecked here: no fixture beside this repo (%v)", err)
+	}
+	var doc struct {
+		Cases []struct {
+			Name   string          `json:"name"`
+			Stored json.RawMessage `json:"stored"`
+			Mode   string          `json:"mode"`
+			Served json.RawMessage `json:"served"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("%s: %v", fixture, err)
+	}
+	modes := map[string]bool{}
+	for _, c := range doc.Cases {
+		modes[c.Mode] = true
+	}
+	if len(doc.Cases) == 0 || !modes[integrations.ModePassthrough] || !modes[integrations.ModeAgent] {
+		t.Fatalf("the fixture holds %d cases over modes %v: the reader is broken, not the node", len(doc.Cases), modes)
+	}
+	for _, c := range doc.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			if c.Mode != integrations.ModePassthrough && c.Mode != integrations.ModeAgent {
+				t.Fatalf("mode %q is neither passthrough nor agent", c.Mode)
+			}
+			// An absent `stored` is nothing stored (no bytes); `null` and every other value are the bytes.
+			served, err := json.Marshal(servedAnnotations(c.Stored, c.Mode))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := fourHints(t, served), fourHints(t, c.Served); got != want {
+				t.Fatalf("stored %s in %s mode: this node serves %v, the fixture says %v", c.Stored, c.Mode, got, want)
 			}
 		})
 	}
