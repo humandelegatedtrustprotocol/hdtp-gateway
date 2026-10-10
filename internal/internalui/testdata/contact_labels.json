@@ -98,6 +98,13 @@
     {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "", "petname": ""},
     {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "   ", "petname": ""}
    ],
-   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "{short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "{short}"}}
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "{short}", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "{short}"}},
+  {"case": "a name a contact chose loses its control and format characters before it is shown or compared (HDTP \u00a73): a bidi override is no disguise",
+   "contacts": [
+    {"fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "display_name": "\u202eecila\u0007", "petname": ""},
+    {"fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "display_name": "Alice", "petname": ""},
+    {"fingerprint": "sha256:ccccccccccccccccccccccccccccccccccccccccccc", "display_name": "\u2066Ali\u200bce\u2069", "petname": ""}
+   ],
+   "labels": {"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "ecila", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "Alice \u00b7 {short}", "sha256:ccccccccccccccccccccccccccccccccccccccccccc": "Alice \u00b7 {short}"}}
  ]
 }
