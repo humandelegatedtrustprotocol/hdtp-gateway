@@ -933,7 +933,7 @@ func TestSetSealNoneRemovesSealedCallFromTheSurface(t *testing.T) {
 		if err != nil {
 			t.Fatalf("tools/list: %v", err)
 		}
-		return strings.Contains(string(out), public.SealedToolName)
+		return strings.Contains(string(out), core.ToolSealedCall)
 	}
 
 	if !listed() {

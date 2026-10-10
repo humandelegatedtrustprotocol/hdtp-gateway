@@ -92,7 +92,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	if derr != nil {
 		// Why it did not land, not just that it did not: a retry that succeeds
 		// leaves a trail that otherwise explains nothing.
-		n.auditFor(accountID, "send_message", "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
+		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
 		return res, derr
 	}
 	status := StatusDelivered
@@ -102,7 +102,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		accountID, contactFpr, in.MsgID, res.ThreadID, status); err != nil {
 		return res, err
 	}
-	n.auditFor(accountID, "send_message", "contact:"+contactFpr, status)
+	n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr, status)
 	res.Status = status
 	return res, nil
 }
@@ -138,13 +138,13 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	dctx, cancelDelivery := context.WithTimeout(context.WithoutCancel(ctx), deliveryBudget)
 	defer cancelDelivery()
 	if derr := n.deliverMedia(dctx, accountID, c, in.MsgID, res.ThreadID, string(in.Label()), filename, mime, data); derr != nil {
-		n.auditFor(accountID, "send_media", "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
+		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
 		return res, derr
 	}
 	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, StatusDelivered); err != nil {
 		return res, err
 	}
-	n.auditFor(accountID, "send_media", "contact:"+contactFpr, StatusDelivered)
+	n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr, StatusDelivered)
 	res.Status = StatusDelivered
 	return res, nil
 }
@@ -167,7 +167,7 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 		"msg_id": msgID, "thread_id": threadID, "filename": filename, "mime": mime,
 		"data": base64.StdEncoding.EncodeToString(data), "sender": sender,
 	}
-	res, err := client.Call(ctx, peer, "send_media", args, msgID)
+	res, err := client.Call(ctx, peer, core.ToolSendMedia, args, msgID)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 	if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, StatusDelivered); err != nil {
 		return false
 	}
-	n.auditFor(m.AccountID, "send_media", "contact:"+m.ContactFpr+" msg:"+m.MsgID, "delivered_on_retry")
+	n.auditFor(m.AccountID, core.ToolSendMedia, "contact:"+m.ContactFpr+" msg:"+m.MsgID, "delivered_on_retry")
 	return true
 }
 
@@ -240,7 +240,7 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	}
 	// The peer's card decides whether this is sealed; Client.Call owns that rule so
 	// every outbound path obeys the same one.
-	res, derr := client.Call(ctx, peer, "send_message", args, in.MsgID)
+	res, derr := client.Call(ctx, peer, core.ToolSendMessage, args, in.MsgID)
 	if derr != nil {
 		return derr
 	}
@@ -336,7 +336,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			// Nothing carried it. Say so on the row: an owner is owed the truth
 			// that this one never arrived.
 			if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, StatusFailed); err == nil {
-				n.auditFor(m.AccountID, "send_message", "contact:"+m.ContactFpr+" msg:"+m.MsgID, "expired")
+				n.auditFor(m.AccountID, core.ToolSendMessage, "contact:"+m.ContactFpr+" msg:"+m.MsgID, "expired")
 				expired++
 			}
 			continue
@@ -373,7 +373,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 		}
 		status, detail := StatusDelivered, "delivered_on_retry"
 		if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, status); err == nil {
-			n.auditFor(m.AccountID, "send_message", "contact:"+m.ContactFpr+" msg:"+m.MsgID, detail)
+			n.auditFor(m.AccountID, core.ToolSendMessage, "contact:"+m.ContactFpr+" msg:"+m.MsgID, detail)
 			delivered++
 		}
 	}

@@ -9,6 +9,8 @@ package integrations
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // toolAnnotations mirrors the MCP annotation fields the picker reads.
@@ -64,10 +66,10 @@ func RecipeSuggestion(toolName string) string {
 	case strings.Contains(n, "freebusy") || strings.Contains(n, "free_busy") ||
 		strings.Contains(n, "availability") || strings.Contains(n, "find_slots") ||
 		strings.Contains(n, "suggest_time"):
-		return "check_availability"
+		return core.ToolCheckAvailability
 	case strings.Contains(n, "create_event") || strings.Contains(n, "create-event") ||
 		strings.Contains(n, "book"):
-		return "book_slot"
+		return core.ToolBookSlot
 	}
 	return ""
 }

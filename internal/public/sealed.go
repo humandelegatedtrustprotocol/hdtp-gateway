@@ -20,14 +20,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
-
-// SealedToolName is the wrapper's tool name on every tier.
-const SealedToolName = "sealed_call"
 
 // ResultLifetime bounds a result envelope's exp (well inside HDTP's 30-day cap).
 const ResultLifetime = 5 * time.Minute
@@ -84,10 +82,10 @@ func actorOf(f *EnvelopeFacts) string {
 // worst case of what it can carry (hints.go).
 func sealedTool() *mcp.Tool {
 	return &mcp.Tool{
-		Name:        SealedToolName,
+		Name:        core.ToolSealedCall,
 		Description: "Carry a sealed HDTP envelope; the inner call is dispatched as the envelope's proven identity and the result is sealed back",
 		InputSchema: json.RawMessage(`{"type":"object","required":["protected","enc","ct","sig"],"properties":{"protected":{"type":"string"},"enc":{"type":"string"},"ct":{"type":"string"},"sig":{"type":"string"}},"additionalProperties":false}`),
-		Annotations: hintsOf(SealedToolName),
+		Annotations: hintsOf(core.ToolSealedCall),
 	}
 }
 
@@ -132,7 +130,7 @@ func spendGuestBudget(ctx context.Context, d SealedDeps, as Charge) *mcp.CallToo
 	if r == nil {
 		return nil
 	}
-	d.audit("guest", "sealed_call", "account:"+d.AccountID, r.Code())
+	d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, r.Code())
 	return r.Result()
 }
 
@@ -142,14 +140,14 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		// proven contact has used in the last hour, and with the account's total spent, the call is
 		// refused here, in the clear, with nothing read and nothing opened.
 		if r := d.Pool.preOpen(ctx); r != nil {
-			d.audit("guest", "sealed_call", "account:"+d.AccountID, r.Code())
+			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, r.Code())
 			return r.Result(), nil
 		}
 		var env hdtpidentity.Envelope
 		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
 			// Not an envelope at all. Refused like any other that does not open, and audited like
 			// one: this answered and wrote nothing.
-			d.audit("guest", "sealed_call", "account:"+d.AccountID, "envelope_invalid")
+			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, "envelope_invalid")
 			return errEnvelope("envelope_invalid"), nil
 		}
 		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
@@ -172,7 +170,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			case errors.As(err, &renewed):
 				// HDTP §14.4: plaintext, carrying the current chain — proof of
 				// nothing by itself; the caller validates it to its own pin.
-				d.audit("guest", "sealed_call", "account:"+d.AccountID, "certificate_renewed")
+				d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, "certificate_renewed")
 				chain := make([]string, 0, len(renewed.Chain))
 				for _, c := range renewed.Chain {
 					chain = append(chain, hdtpidentity.B64url(c))
@@ -180,7 +178,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": map[string]any{"chain": chain}})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
 			}
-			d.audit("guest", "sealed_call", "account:"+d.AccountID, Code(err))
+			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, Code(err))
 			return errEnvelope(Code(err)), nil
 		}
 		if facts.Refusal != "" {
@@ -190,7 +188,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
 				return d.sealLimited(ctx, facts, limited)
 			}
-			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID, facts.Refusal)
+			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID, facts.Refusal)
 			return d.sealedCode(ctx, facts, facts.Refusal), nil
 		}
 		if facts.Tier == TierPendingAddress {
@@ -201,8 +199,8 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
 				return d.sealLimited(ctx, facts, limited)
 			}
-			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
-			if toolNameOf(facts.Payload) == "update_contact" {
+			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
+			if toolNameOf(facts.Payload) == core.ToolUpdateContact {
 				// The same tool result the plaintext gate answers (servers.go), sealed. This sealed
 				// the bare object `{"status":"pending"}` instead — not a tool result at all — so a
 				// caller that sealed its announcement decoded an answer with no content and could
@@ -230,7 +228,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		// a tool error inside `result`, where a guarded refusal has always been and where the
 		// client keeps `retry_after` (an `error` member is reduced to its code), as the cloud seals it.
 		if r := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); r != nil {
-			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, r.Code())
+			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, r.Code())
 			return d.sealLimited(ctx, facts, r.Result())
 		}
 		// Handlers see the envelope's facts exactly as they see transport facts,
@@ -241,7 +239,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// says errors follow the sealing rule once it is: a plaintext error
 			// here would leak the failure shape to whatever carried the call.
 			// Plaintext errors are only for envelopes that could not be opened.
-			d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
+			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
 			if inner, merr := json.Marshal(codeResult("unavailable")); merr == nil {
 				return d.sealBack(ctx, facts, inner)
 			}
@@ -254,7 +252,7 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 				_ = u.UpdateIdempotencyAck(ctx, d.AccountID, facts.From, EnvelopeKey(facts.Header.MsgID), string(inner))
 			}
 		}
-		d.audit(actorOf(facts), "sealed_call", "account:"+d.AccountID+" contact:"+facts.From, "ok")
+		d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "ok")
 		return d.sealBack(ctx, facts, inner)
 	}
 }
@@ -359,7 +357,7 @@ func (d SealedDeps) sealResult(ctx context.Context, facts *EnvelopeFacts, inner 
 	if !facts.Guest && !facts.Demote && facts.From != "" {
 		if c, err := d.Identifier.Store.GetContact(ctx, d.AccountID, facts.From); err == nil {
 			pinned = true
-			if c.ChainSentKid == ourKid && toolNameOf(facts.Payload) != "get_card" {
+			if c.ChainSentKid == ourKid && toolNameOf(facts.Payload) != core.ToolGetCard {
 				form = "leaf"
 			}
 		}

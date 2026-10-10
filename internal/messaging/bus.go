@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
@@ -63,8 +64,8 @@ const (
 // threads carry those — and neither is `sealed_call`: its row fires on any opened envelope,
 // refusals included, and the inner tool is what is published.
 var FeedCalls = map[string]bool{
-	"book_slot": true, "cancel_booking": true, "check_availability": true,
-	"send_media": true, "get_status": true,
+	core.ToolBookSlot: true, core.ToolCancelBooking: true, core.ToolCheckAvailability: true,
+	core.ToolSendMedia: true, core.ToolGetStatus: true,
 }
 
 // Event is one wake-up hint carried by the Bus and the change log. It names what changed, never

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
@@ -47,7 +48,7 @@ func (n *Node) RequestContact(ctx context.Context, accountID string, peer outbou
 	if note != "" {
 		args["note"] = note
 	}
-	res, err := client.Call(ctx, peer, "request_contact", args, callID)
+	res, err := client.Call(ctx, peer, core.ToolRequestContact, args, callID)
 	if err != nil {
 		return fmt.Errorf("request_contact: %w", err)
 	}

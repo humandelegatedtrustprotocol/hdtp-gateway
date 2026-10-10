@@ -293,7 +293,7 @@ func ownerMCPHandler(nd *node.Node, st store.Store, blobs messaging.BlobDir, onE
 			// Removal tells an active contact through the node's one outbound path, the same
 			// call the portal's Remove makes.
 			Removed: func(ctx context.Context, accountID, contactFpr string) error {
-				_, err := nd.CallContact(ctx, accountID, contactFpr, "remove_contact", map[string]any{})
+				_, err := nd.CallContact(ctx, accountID, contactFpr, core.ToolRemoveContact, map[string]any{})
 				return err
 			},
 			// The switchboard the portal offers, so set_permissions can grant an integration.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
@@ -23,7 +24,7 @@ type Status struct {
 // Local's answer, or "available" when Local is nil.
 func (s *Status) GetStatus(ctx context.Context) (string, error) {
 	if s.Recipe != nil {
-		if b, ok := s.Recipe.Capabilities["get_status"]; ok {
+		if b, ok := s.Recipe.Capabilities[core.ToolGetStatus]; ok {
 			args, err := integrations.BuildArgs(b, map[string]any{})
 			if err != nil {
 				return "", err

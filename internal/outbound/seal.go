@@ -23,6 +23,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -195,7 +196,7 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 // in plaintext; it is reported here and followed by the next call's first attempt (sealedExchange).
 func (c *Client) repinFromSealedGetCard(ctx context.Context, peer *Peer, form string) error {
 	before := peer.Leaf
-	_, refusal, err := c.attempt(ctx, peer, "tools/call", map[string]any{"name": "get_card", "arguments": map[string]any{}}, newMsgID(), form)
+	_, refusal, err := c.attempt(ctx, peer, "tools/call", map[string]any{"name": core.ToolGetCard, "arguments": map[string]any{}}, newMsgID(), form)
 	if err != nil {
 		return err
 	}
@@ -274,7 +275,7 @@ func (c *Client) attempt(ctx context.Context, peer *Peer, method string, params 
 		return nil, nil, fmt.Errorf("outbound: seal: %w", err)
 	}
 	wire := map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
-	res, err := c.callTool(ctx, *peer, "sealed_call", wire)
+	res, err := c.callTool(ctx, *peer, core.ToolSealedCall, wire)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -337,7 +338,7 @@ func (c *Client) attempt(ctx context.Context, peer *Peer, method string, params 
 // caller has read the peer's policy (sealedExchange): a peer that requires
 // sealing is asked sealed instead (repinFromSealedGetCard).
 func (c *Client) chainFromGetCard(ctx context.Context, peer Peer) ([]byte, error) {
-	res, err := c.callTool(ctx, peer, "get_card", map[string]any{})
+	res, err := c.callTool(ctx, peer, core.ToolGetCard, map[string]any{})
 	if err != nil {
 		return nil, err
 	}

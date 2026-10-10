@@ -11,7 +11,11 @@ package public
 // The hints are metadata for the caller's host and nothing else here: no permission or
 // authorization decision reads them (SPEC.md §6.9).
 
-import "github.com/modelcontextprotocol/go-sdk/mcp"
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+)
 
 // Hints is the four hints of one tool, in MCP's order: read-only, destructive, idempotent, open
 // world. Both pointer fields are set, so the four keys are always on the wire.
@@ -38,20 +42,20 @@ func Hints(ro, de, id, ow bool) *mcp.ToolAnnotations {
 //   - sealed_call: carries any of the above, so it states the worst case of the set; a replay is
 //     acknowledged from the record only when an idempotency store is configured.
 var protocolHints = map[string]*mcp.ToolAnnotations{
-	"redeem_invite":      Hints(false, false, false, false),
-	"request_contact":    Hints(false, false, false, false),
-	"contact_accepted":   Hints(false, true, true, false),
-	"contact_rejected":   Hints(false, true, true, false),
-	"get_card":           Hints(true, false, true, false),
-	"update_contact":     Hints(false, true, true, false),
-	"remove_contact":     Hints(false, true, true, false),
-	"send_message":       Hints(false, false, true, false),
-	"send_media":         Hints(false, false, true, false),
-	"get_status":         Hints(true, false, true, true),
-	"check_availability": Hints(true, false, true, true),
-	"book_slot":          Hints(false, false, true, true),
-	"cancel_booking":     Hints(false, true, true, true),
-	SealedToolName:       Hints(false, true, false, true),
+	core.ToolRedeemInvite:      Hints(false, false, false, false),
+	core.ToolRequestContact:    Hints(false, false, false, false),
+	core.ToolContactAccepted:   Hints(false, true, true, false),
+	core.ToolContactRejected:   Hints(false, true, true, false),
+	core.ToolGetCard:           Hints(true, false, true, false),
+	core.ToolUpdateContact:     Hints(false, true, true, false),
+	core.ToolRemoveContact:     Hints(false, true, true, false),
+	core.ToolSendMessage:       Hints(false, false, true, false),
+	core.ToolSendMedia:         Hints(false, false, true, false),
+	core.ToolGetStatus:         Hints(true, false, true, true),
+	core.ToolCheckAvailability: Hints(true, false, true, true),
+	core.ToolBookSlot:          Hints(false, false, true, true),
+	core.ToolCancelBooking:     Hints(false, true, true, true),
+	core.ToolSealedCall:        Hints(false, true, false, true),
 }
 
 // hintsOf is the hints of one HDTP tool, a copy per tool definition. A name with no row is a

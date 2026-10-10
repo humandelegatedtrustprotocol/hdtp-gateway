@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
@@ -80,7 +81,7 @@ func (d ContactsDeps) owner() contacts.Owner {
 	o := contacts.Owner{Manager: &contacts.Manager{Store: d.Store, ContactCap: d.ContactCap}, Invalidate: d.Invalidate}
 	if d.Call != nil {
 		o.TellRemoved = func(ctx context.Context, accountID, fpr string) error {
-			_, err := d.Call(ctx, accountID, fpr, "remove_contact", map[string]any{})
+			_, err := d.Call(ctx, accountID, fpr, core.ToolRemoveContact, map[string]any{})
 			return err
 		}
 	}

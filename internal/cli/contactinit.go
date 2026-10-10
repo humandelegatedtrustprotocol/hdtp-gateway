@@ -24,6 +24,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
@@ -313,7 +314,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		return out, err
 	}
 	peer := peerOfCard(peerCard)
-	res, err := client.Call(ctx, peer, "redeem_invite",
+	res, err := client.Call(ctx, peer, core.ToolRedeemInvite,
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
@@ -482,7 +483,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 		// probing (HDTP §6.2).
 		args["permissions"] = granted
 	}
-	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_accepted", args)
+	return ci.notifyAsker(ctx, accountID, peerFpr, core.ToolContactAccepted, args)
 }
 
 // NotifyRejected tells a peer that their contact request was declined: `contact_rejected`, the
@@ -491,7 +492,7 @@ func (ci *contactInitiator) NotifyApproved(ctx context.Context, accountID, peerF
 // row to blocked, its record that the approach was declined (HDTP §5.1). Best-effort, like the
 // approval: the rejection is local and stands whatever they answer.
 func (ci *contactInitiator) NotifyRejected(ctx context.Context, accountID, peerFpr string) error {
-	return ci.notifyAsker(ctx, accountID, peerFpr, "contact_rejected", map[string]any{})
+	return ci.notifyAsker(ctx, accountID, peerFpr, core.ToolContactRejected, map[string]any{})
 }
 
 // notifyAsker makes one pending-tier call to a peer whose request this account decided, and

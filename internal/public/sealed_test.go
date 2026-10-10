@@ -68,7 +68,7 @@ func (s *sealedEnv) call(t testing.TB, env *hdtpidentity.Envelope, tf TransportF
 	}
 	ctx := context.WithValue(context.Background(), factsKey{}, tf)
 	res, err := sealedHandler(s.deps)(ctx, &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{Name: SealedToolName, Arguments: args},
+		Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: args},
 	})
 	if err != nil {
 		t.Fatalf("sealed_call returned a transport error rather than a result: %v", err)
@@ -163,7 +163,7 @@ func TestSealedCallIsPresentAtEveryTier(t *testing.T) {
 		}
 		seen := 0
 		for _, tl := range list.Tools {
-			if tl.Name == SealedToolName {
+			if tl.Name == core.ToolSealedCall {
 				seen++
 			}
 		}
@@ -284,7 +284,7 @@ func TestAnUnreadableEnvelopeIsRefusedLikeAnyOther(t *testing.T) {
 		t.Helper()
 		ctx := context.WithValue(context.Background(), factsKey{}, TransportFacts{})
 		res, err := sealedHandler(s.deps)(ctx, &mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Name: SealedToolName, Arguments: json.RawMessage(args)},
+			Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: json.RawMessage(args)},
 		})
 		if err != nil {
 			t.Fatalf("sealed_call returned a transport error rather than a result: %v", err)

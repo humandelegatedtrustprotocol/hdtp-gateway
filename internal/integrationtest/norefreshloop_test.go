@@ -28,7 +28,8 @@ import (
 //   - no call of it stands inside a loop or a goroutine, and no function that calls it starts a
 //     timer — one call, for the one contact in the request, while the request is being answered;
 //   - the `get_card` tool — the thing a sync DOES — is called from the places listed and no other,
-//     so a new fetcher of cards has to be written down here with its reason.
+//     so a new fetcher of cards has to be written down here with its reason. Its name is read as the
+//     string literal or as the constant core.ToolGetCard, whichever spells it.
 func TestNothingRefreshesContactsByItself(t *testing.T) {
 	root := repoRoot(t)
 	callers := map[string]string{
@@ -44,7 +45,7 @@ func TestNothingRefreshesContactsByItself(t *testing.T) {
 		"internal/public/tools.go":     "SERVING get_card to a contact, which is the other end of the wire",
 		"internal/public/hints.go":     "the get_card NAME in the table of each HDTP tool's hints; it calls nothing",
 		"internal/public/sealed.go":    "reading the inner tool's NAME, to answer get_card with the chain whatever the record says (§13.2); it calls nothing",
-		"internal/core/toolnames.go":   "reserving the get_card NAME against an integration's tools; it calls nothing",
+		"internal/core/toolnames.go":   "declaring the get_card NAME (core.ToolGetCard) and reserving it against an integration's tools; it calls nothing",
 	}
 	isRefresh := func(name string) bool { return name == "RefreshContact" || name == "refreshContact" }
 
@@ -72,6 +73,9 @@ func TestNothingRefreshesContactsByItself(t *testing.T) {
 				case *ast.Ident:
 					if isRefresh(v.Name) {
 						sawCaller[rel] = true
+					}
+					if v.Name == "ToolGetCard" {
+						sawFetcher[rel] = true
 					}
 				case *ast.BasicLit:
 					if v.Kind == token.STRING {

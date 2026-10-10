@@ -74,8 +74,10 @@ JWTs and vendor-prefixed tokens. It matches shapes, not entropy, so HDTP's own h
 (fingerprints, msg_ids) survive.
 
 **Shared names.** `ProcessName` names this process among all that share a store (host, pid, random bytes),
-the holder name of leases. `ReservedToolNames` is every name an integration's tool may not be exposed
-under: the built-in tools and `sealed_call`.
+the holder name of leases. `ToolRedeemInvite` … `ToolCancelBooking` and `ToolSealedCall` are the wire
+names of the HDTP tools and the envelope carrier, the one spelling the registrations, the hint table,
+the audit actions and the outbound calls use. `ReservedToolNames`, built from them, is every name an
+integration's tool may not be exposed under: the built-in tools and `sealed_call`.
 
 ## What it refuses, and how
 
@@ -128,7 +130,7 @@ and AAD. `AcquireLock` refuses while any process holds the lock; `AcquireServeLo
 - **Two nodes a person would run together get different tags**, stable across calls
   (`TestNodeTagSeparatesNodesAPersonWouldRunTogether`, `TestNodeTagIsStableAcrossCalls`).
 - **The contact cap is an owner-settable knob with a default** (`TestContactCapIsAnOwnerSettableKnob`).
-- **`ReservedToolNames` is the served built-in set**, no more and no fewer:
+- **`ReservedToolNames` is the served built-in set**, no more and no fewer, and each constant's value is the wire name the test spells out by hand:
   `internal/public`'s `TestTheReservedToolNamesAreTheBuiltInSet`.
 
 ## Held by

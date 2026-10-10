@@ -31,6 +31,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
@@ -64,7 +65,7 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 	if err != nil {
 		return ContactRefresh{}, err
 	}
-	res, err := client.Call(ctx, peer, "get_card", map[string]any{}, newCallID())
+	res, err := client.Call(ctx, peer, core.ToolGetCard, map[string]any{}, newCallID())
 	if err != nil || res == nil || res.IsError {
 		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, "unreachable")
 		return ContactRefresh{Outcome: RefreshUnreachable}, nil

@@ -18,7 +18,7 @@ Tools and servers (tools.go, servers.go, resolver.go):
 
 Identity and sealed calls (identify.go, decide.go, sealed.go):
 - `Identifier` (`OpenSealed`, `PlaintextGateCtx`, `PoolGate`, `ResolveTransport`, `Replay`), `EnvelopeFacts`, `Payload`, `RecipientState`, `TransportCaller`, `EnvelopeKey`, `Code`: the seal and client-cert policy, the open (via hdtp-identity's `Decide`, with the effects applied here), the transport-side pin checks, the replay record and the error-to-wire-code map.
-- `SealedEntries`, `SealedDeps`, `SealedToolName`, `ResultLifetime`: the `sealed_call` wrapper, registered once per tier.
+- `SealedEntries`, `SealedDeps`, `ResultLifetime`: the `sealed_call` wrapper (its name is `core.ToolSealedCall`), registered once per tier.
 - Errors: `ErrSealRequired`, `ErrIdentityRequired`, `ErrSealNotAccepted`, `ErrPendingApproval`, `ErrPendingStatus`, `ErrChainRequired`, `ErrUnavailable`, `*CertificateRenewed`, and `TierPendingAddress`.
 
 ## What it refuses, and how

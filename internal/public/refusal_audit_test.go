@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // Every refusal is on the audit trail (build rule 7). A built-in tool handed arguments that are not
@@ -55,7 +57,7 @@ func TestEveryMalformedCallIsRefusedAndAudited(t *testing.T) {
 	rows = rows[:0]
 	s.deps.AuditAs = func(kind, action, resource, outcome string) { rows = append(rows, kind+" "+action+" "+outcome) }
 	res, err := sealedHandler(s.deps)(context.Background(), &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{Name: SealedToolName, Arguments: json.RawMessage(`[1,2,3]`)},
+		Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: json.RawMessage(`[1,2,3]`)},
 	})
 	if err != nil || !res.IsError {
 		t.Fatalf("sealed_call took a body that is not an envelope: %+v %v", res, err)

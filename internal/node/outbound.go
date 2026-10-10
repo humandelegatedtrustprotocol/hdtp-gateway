@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
@@ -58,7 +59,7 @@ func (n *Node) PeerOf(accountID string, c store.Contact) (outbound.Peer, error) 
 // stranger budget whatever the row says — an approval's `contact_accepted` goes to a row the
 // approval has just made active — so a flood of approvals or requests is held to one number.
 var strangerTools = map[string]bool{
-	"request_contact": true, "redeem_invite": true, "contact_accepted": true, "contact_rejected": true,
+	core.ToolRequestContact: true, core.ToolRedeemInvite: true, core.ToolContactAccepted: true, core.ToolContactRejected: true,
 }
 
 // outboundToContact says whether a call out is charged as to a contact (the per-contact bucket and

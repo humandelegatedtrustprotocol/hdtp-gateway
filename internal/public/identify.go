@@ -237,10 +237,10 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 				// told nothing it could believe. The transport earns no identity for this request;
 				// the both-proofs key match (HDTP §2) still runs on the facts, and the envelope
 				// decides.
-				if tool == "sealed_call" {
+				if tool == core.ToolSealedCall {
 					return "", nil
 				}
-				if tool == "update_contact" {
+				if tool == core.ToolUpdateContact {
 					return "", ErrPendingStatus
 				}
 				id.audit("identity_gate", "account:"+id.AccountID+" contact:"+tf.ClientCertFingerprint+" tool:"+tool, tc.Refusal)
@@ -271,7 +271,7 @@ func (id *Identifier) PoolGate() func(ctx context.Context, tool string) error {
 		if EnvelopeFactsFrom(ctx) != nil {
 			return nil // sealed: already validated
 		}
-		_, err := id.PlaintextGateCtx(ctx, FactsFrom(ctx), tool, tool != SealedToolName)
+		_, err := id.PlaintextGateCtx(ctx, FactsFrom(ctx), tool, tool != core.ToolSealedCall)
 		return err
 	}
 }
