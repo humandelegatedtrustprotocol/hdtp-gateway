@@ -518,6 +518,7 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 			s := seed(t, src)
 			file, _ := exportOf(t, src, "alina")
 			dst := newEnv(t, eng.open)
+			importedAt := time.Now().Unix()
 			p, res, err := importFile(t, dst, file, "alina", time.Now())
 			if err != nil {
 				t.Fatal(err)
@@ -559,6 +560,13 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 			}
 			if b, err := dst.st.GetBlob(ctx, a.ID, s.mediaHash); err != nil || b.Mime != "image/png" {
 				t.Fatalf("the file's record: %+v %v", b, err)
+			} else if b.CreatedAt < importedAt {
+				// Stamped with the import's time, not the message's: the orphan sweep judges records by
+				// when they were written here (migration 0003).
+				t.Fatalf("the imported file's record is dated %d, before the import at %d", b.CreatedAt, importedAt)
+			}
+			if m := byID["m2"]; m.CreatedAt != 1790000022 {
+				t.Fatalf("the file message lost its own time: %d", m.CreatedAt)
 			}
 			if m := byID["m3"]; m.Kind != "text" || m.Body != "https://files.example/slides.pdf" {
 				t.Fatalf("the link message arrived as %+v", m)
@@ -768,4 +776,86 @@ func TestAFetchedLinkTravelsAsItsFile(t *testing.T) {
 		return
 	}
 	t.Fatal("the fetched link's message is not in the export")
+}
+
+// countPause pauses a transaction after it counts a file's references, until told to go on or a
+// second has passed: the moment between a collection's count and its removal.
+type countPause struct {
+	store.Store
+	paused chan struct{}
+	resume chan struct{}
+}
+
+func (c *countPause) Atomically(ctx context.Context, fn func(tx store.Store) error) error {
+	return c.Store.Atomically(ctx, func(tx store.Store) error { return fn(&countPauseTx{Store: tx, c: c}) })
+}
+
+type countPauseTx struct {
+	store.Store
+	c *countPause
+}
+
+func (t *countPauseTx) CountBlobRefs(ctx context.Context, hash string) (int64, error) {
+	n, err := t.Store.CountBlobRefs(ctx, hash)
+	close(t.c.paused)
+	select {
+	case <-t.c.resume:
+	case <-time.After(time.Second):
+	}
+	return n, err
+}
+
+// An import's file locks: another identity's collection of the same bytes has counted their other
+// records and not yet removed them when the import writes its records, messages and bytes. Without
+// the locks the import finds the bytes there, commits, and the collection then removes them; with
+// them it waits, and writes the bytes anew after.
+func TestAnImportWaitsForACollectionOfTheSameBytes(t *testing.T) {
+	ctx := context.Background()
+	for _, eng := range engines(t) {
+		t.Run(eng.name, func(t *testing.T) {
+			src := newEnv(t, eng.open)
+			s := seed(t, src)
+			file, _ := exportOf(t, src, "alina")
+			dst := newEnv(t, eng.open)
+			other, err := dst.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+			must(t, err)
+			if _, err := dst.blobs.Put([]byte("a photograph of a whiteboard")); err != nil {
+				t.Fatal(err)
+			}
+			// Another identity's record of the same bytes, old and named by nothing: collected.
+			must(t, dst.st.InsertBlob(ctx, store.Blob{AccountID: other.ID, Hash: s.mediaHash, Size: 28, CreatedAt: 1}))
+			pause := &countPause{Store: dst.st, paused: make(chan struct{}), resume: make(chan struct{})}
+			collected := make(chan error, 1)
+			go func() {
+				_, _, err := messaging.Files{Store: pause, Blobs: dst.blobs}.Collect(ctx, other.ID, []string{s.mediaHash}, 2)
+				collected <- err
+			}()
+			<-pause.paused
+			imported := make(chan error, 1)
+			go func() {
+				_, _, err := importFile(t, dst, file, "alina", time.Now())
+				imported <- err
+			}()
+			var importErr error
+			finished := false
+			select {
+			case importErr = <-imported:
+				finished = true
+				close(pause.resume)
+			case <-time.After(500 * time.Millisecond):
+			}
+			if err := <-collected; err != nil {
+				t.Fatal(err)
+			}
+			if !finished {
+				importErr = <-imported
+			}
+			if importErr != nil {
+				t.Fatal(importErr)
+			}
+			if data, err := dst.blobs.Get(s.mediaHash); err != nil || string(data) != "a photograph of a whiteboard" {
+				t.Fatalf("the imported message names a file whose bytes are gone: %v", err)
+			}
+		})
+	}
 }

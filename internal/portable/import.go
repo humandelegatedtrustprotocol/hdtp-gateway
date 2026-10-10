@@ -224,7 +224,8 @@ func merge(held, rows []hdtpidentity.ContactRow, p *Plan) error {
 	return nil
 }
 
-// Apply writes a plan: the rows under one transaction, then the files. Every contact written is
+// Apply writes a plan: the rows and then the files' bytes, in one transaction that holds the lock of
+// every file the messages name. Every contact written is
 // owed this host's handshake from `now` (HDTP §9.2), which the campaign of the identity's next leaf
 // — the first one requested after the import — sends.
 //
@@ -238,6 +239,23 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 	err := st.Atomically(ctx, func(tx store.Store) error {
 		res = Result{}
 		clear(newFiles)
+		// The files the messages name, locked first and for the whole transaction (store.LockFile,
+		// the lock a collection takes to delete a file and every store takes to write one): a
+		// collection of the same bytes waits, and then finds them named. In sorted order, the only
+		// transaction that takes more than one, and before any row, so it cannot wait on a store that
+		// waits on it.
+		var files []string
+		for _, m := range p.Contents.Messages {
+			for _, a := range m.Attachments {
+				files = append(files, a.File)
+			}
+		}
+		slices.Sort(files)
+		for _, hash := range slices.Compact(files) {
+			if err := tx.LockFile(ctx, hash); err != nil {
+				return fmt.Errorf("import: file %s: %w", hash, err)
+			}
+		}
 		accountID := p.AccountID
 		if p.New {
 			a, err := tx.CreateAccount(ctx, store.CreateAccountParams{Slug: p.Slug, DisplayName: p.OwnerName, Algo: string(identity.AlgoP256)})
@@ -301,24 +319,8 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			}
 			res.count(&res.Threads, wrote)
 		}
-		// The files the messages name, locked for the rest of this transaction (store.LockFile, the
-		// lock a collection takes to delete a file): a conversation deleted meanwhile that named the
-		// same bytes waits, and then finds them named. In sorted order, the only transaction that
-		// takes more than one, so two of them cannot wait on each other.
-		var files []string
 		for _, m := range p.Contents.Messages {
-			for _, a := range m.Attachments {
-				files = append(files, a.File)
-			}
-		}
-		slices.Sort(files)
-		for _, hash := range slices.Compact(files) {
-			if err := tx.LockFile(ctx, hash); err != nil {
-				return fmt.Errorf("import: file %s: %w", hash, err)
-			}
-		}
-		for _, m := range p.Contents.Messages {
-			sm, blob := storeMessage(accountID, m)
+			sm, blob := storeMessage(accountID, m, now.Unix())
 			if blob != nil {
 				wrote, err := tx.ImportBlob(ctx, *blob)
 				if err != nil {
@@ -340,6 +342,23 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			}
 			res.count(&res.Messages, wrote)
 		}
+		// The bytes last, still under the files' locks: record, message, then bytes, as every store
+		// writes them (messaging.MediaService). ReadExportZip checked each file's bytes; they are read
+		// again from the zip, and a file whose bytes are not its name now is not written.
+		for _, m := range p.Contents.Media {
+			data, err := mediaBytes(p.zr, m.Hash)
+			if err != nil {
+				return err
+			}
+			got, err := blobs.Put(data)
+			if err != nil {
+				return fmt.Errorf("import: file %s could not be written: %w", m.Hash, err)
+			}
+			if got != m.Hash {
+				return fmt.Errorf("import: file %s changed since it was checked", m.Hash)
+			}
+			res.count(&res.Media, newFiles[m.Hash])
+		}
 		p.AccountID = accountID
 		return nil
 	})
@@ -348,22 +367,6 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			p.AccountID = ""
 		}
 		return Result{}, err
-	}
-	// The rows are in; the files follow. ReadExportZip checked each one's bytes; they are read
-	// again from the zip, and a file whose bytes are not its name now is not written.
-	for _, m := range p.Contents.Media {
-		data, err := mediaBytes(p.zr, m.Hash)
-		if err != nil {
-			return res, err
-		}
-		got, err := blobs.Put(data)
-		if err != nil {
-			return res, fmt.Errorf("import: the rows are in and file %s could not be written: %w", m.Hash, err)
-		}
-		if got != m.Hash {
-			return res, fmt.Errorf("import: the rows are in and file %s changed since it was checked", m.Hash)
-		}
-		res.count(&res.Media, newFiles[m.Hash])
 	}
 	return res, nil
 }
@@ -433,7 +436,10 @@ func storeContact(accountID string, r hdtpidentity.ContactRow) (store.Contact, e
 // has not been asked to, so it arrives failed, with no retry schedule. An inbound message reached
 // the host that exported it, whatever the file says of it (a message that was waiting for its
 // human travels `queued`), and arrives delivered.
-func storeMessage(accountID string, m hdtpidentity.MessageRow) (store.Message, *store.Blob) {
+// storeMessage is one message row as the store writes it, and the record of the file it carries.
+// The message keeps its own time; the file's record is stamped `now`, the import's, because it is
+// written now (the orphan sweep judges records by when they were written, migration 0003).
+func storeMessage(accountID string, m hdtpidentity.MessageRow, now int64) (store.Message, *store.Blob) {
 	status := "delivered"
 	switch {
 	case m.Direction == "in":
@@ -453,7 +459,7 @@ func storeMessage(accountID string, m hdtpidentity.MessageRow) (store.Message, *
 	a := m.Attachments[0] // the format carries at most one, as send_media does
 	meta, _ := json.Marshal(messaging.MediaMeta{Filename: a.Filename, Mime: a.MIME, Hash: a.File, Size: a.Size})
 	out.Kind, out.Body = "media", string(meta)
-	return out, &store.Blob{AccountID: accountID, Hash: a.File, Size: a.Size, Mime: a.MIME, Filename: a.Filename, CreatedAt: out.CreatedAt}
+	return out, &store.Blob{AccountID: accountID, Hash: a.File, Size: a.Size, Mime: a.MIME, Filename: a.Filename, CreatedAt: now}
 }
 
 func unixOf(s string) int64 {

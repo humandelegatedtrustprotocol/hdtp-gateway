@@ -237,8 +237,8 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 	now := time.Now()
 	res, err := plan.Apply(ctx, st, messaging.BlobDir{Root: cfg.Blobs()}, now, cfg.ContactCap())
 	if err != nil {
-		// A failure after the rows committed (a file that could not be written) names the account
-		// the import made; one before names what was there, if anything.
+		// A failure writes nothing (rows and files are one transaction): it names the identity that was
+		// there, if any.
 		if plan.AccountID != "" {
 			accountID = plan.AccountID
 		}

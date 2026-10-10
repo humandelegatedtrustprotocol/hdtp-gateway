@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // The two callers of store.LockFile that a collection races, held to the lock on both engines.
@@ -216,6 +217,40 @@ func fileLockInterleavings(t *testing.T, newStore func(t *testing.T) store.Store
 		}
 		if collectErr != nil {
 			t.Fatal(collectErr)
+		}
+		named(t, s, blobs, b, hash)
+	})
+
+	// Leave's lock: an identity leaving has counted the file's other records and not yet removed
+	// its bytes when another identity stores the same bytes. Without it, the store finds the bytes
+	// there, commits, and the leave then removes them.
+	t.Run("AStoreWaitsForALeave", func(t *testing.T) {
+		s, blobs, a, b, data, hash := setup(t)
+		pause := &countPause{Store: s, paused: make(chan struct{}), resume: make(chan struct{})}
+		left := make(chan error, 1)
+		go func() {
+			_, err := (&identity.Manager{Store: pause}).Leave(context.Background(), a, nil, blobs.Remove)
+			left <- err
+		}()
+		<-pause.paused
+		stored := make(chan error, 1)
+		go func() { stored <- receive(s, blobs, b, data) }()
+		var storeErr error
+		finished := false
+		select {
+		case storeErr = <-stored:
+			finished = true
+			close(pause.resume)
+		case <-time.After(500 * time.Millisecond):
+		}
+		if err := <-left; err != nil {
+			t.Fatal(err)
+		}
+		if !finished {
+			storeErr = <-stored
+		}
+		if storeErr != nil {
+			t.Fatal(storeErr)
 		}
 		named(t, s, blobs, b, hash)
 	})

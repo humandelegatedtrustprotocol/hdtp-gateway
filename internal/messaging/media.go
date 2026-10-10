@@ -375,9 +375,6 @@ func fileRecord(ctx context.Context, tx store.Store, accountID string, data []by
 // keepAndRecord stores a media message's file and records the message in one transaction
 // (fileRecord, the message, then the bytes), and publishes the message once it is committed.
 func (m *MediaService) keepAndRecord(ctx context.Context, msgSvc *Service, accountID, contactFpr string, dir Direction, in Input, data []byte, mime, filename string) (Result, error) {
-	if in.MsgID == "" {
-		return Result{}, fmt.Errorf("%w: msg_id required", ErrBadRequest)
-	}
 	var res Result
 	var fresh bool
 	err := m.Store.Atomically(ctx, func(tx store.Store) error {
