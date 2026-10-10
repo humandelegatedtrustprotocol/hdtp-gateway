@@ -1,5 +1,5 @@
 {
-  "about": "Whether a thread keeps that its root was ever a contact, as the root's contact row comes and goes (HDTP 9.2, SEP-0004). One list, run by name on the node (store conformance, KeptWasContactCases) and on BatonDeck (test/kept-was-contact.test.ts, which reads this file from the node checkout). Steps: active, blocked, pending_in and pending_out insert a row in that status when the root has none, and active or blocked move a held row; removed deletes the row; expired deletes every request past its time.",
+  "about": "Whether a thread keeps that its root was ever a contact, as the root's contact row comes and goes (HDTP 9.2, SEP-0004). One list, run by name on the node (store conformance, KeptWasContactCases); BatonDeck's cloud/1004 is to run the same list, read from the node checkout, once it lands. Steps: active, blocked, pending_in and pending_out insert a row in that status when the root has none, and active or blocked move a held row; removed deletes the row; expired deletes every request past its time.",
   "cases": [
     { "name": "a contact removed", "steps": ["active", "removed"], "kept_was_contact": true },
     { "name": "a contact blocked after being one, then removed", "steps": ["active", "blocked", "removed"], "kept_was_contact": true },

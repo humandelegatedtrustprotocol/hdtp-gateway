@@ -188,3 +188,23 @@ func TestAnImportShowsItsReviewAndEndsWithARequestItMinted(t *testing.T) {
 		t.Fatalf("the request is audited once as account_csr: %d", minted)
 	}
 }
+
+// HDTP §9.2 step 1: the review shows each former contact by its root and the names its removed
+// threads carry, as never written as a contact, and the counts line says how many the import wrote.
+func TestTheReviewListsEachRemovedRoot(t *testing.T) {
+	p := &portable.Plan{Slug: "alice", Owner: "sha256:owner", Contents: &hdtpidentity.ExportContents{},
+		Removed: []portable.RemovedContact{{Root: "sha256:chen", Name: "Chen, old team", DisplayName: "Chen Wu"}, {Root: "sha256:nameless"}}}
+	var b strings.Builder
+	review(&b, p)
+	for _, want := range []string{
+		`  removed sha256:chen "Chen Wu" ("Chen, old team"): a former contact's conversation, never written as a contact`,
+		`  removed sha256:nameless "" (""): a former contact's conversation, never written as a contact`,
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("review:\n%s\nwant %q", b.String(), want)
+		}
+	}
+	if got := countsLine(portable.Result{Contacts: 1, Removed: 2, Threads: 3}); got != "1 contact(s), 2 removed contact(s), 3 thread(s), 0 message(s), 0 file(s)" {
+		t.Fatalf("counts: %q", got)
+	}
+}

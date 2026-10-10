@@ -180,3 +180,57 @@ func TestTheListAndGetInboxSayRemovedInOneWord(t *testing.T) {
 		t.Fatalf("the list says %q, get_inbox %q", statusRemoved, ownermcp.StatusRemoved)
 	}
 }
+
+// HDTP §3, as SEP-0004 widens it: a display name a contact chose, and the one a removed thread
+// kept or an export carried, is stripped of control and bidirectional-format characters before the
+// list renders it, by the rule a card's FN passes (identity.StripDisplayName). An imported row holds
+// what the file said; the list never shows it raw.
+func TestAContactsOwnNameIsStrippedBeforeTheListRendersIt(t *testing.T) {
+	u := newUnreadEnv(t)
+	ctx := context.Background()
+	for fpr, name := range map[string]string{"sha256:live": "\u202eecila\u0007", "sha256:gone": "\u202ebob\u200b\u0001"} {
+		if _, err := u.st.InsertContact(ctx, store.Contact{AccountID: u.acct, Fingerprint: fpr, Status: "active", DisplayName: name}); err != nil {
+			t.Fatal(err)
+		}
+		if err := u.st.InsertThread(ctx, store.Thread{ID: u.acct + fpr, AccountID: u.acct, ContactFpr: fpr, CreatedAt: 400, LastAt: 400}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := u.st.DeleteContact(ctx, u.acct, "sha256:gone"); err != nil {
+		t.Fatal(err)
+	}
+	got := u.rows(t, nil)
+	if g := got["sha256:live"].Label; g != "ecila" {
+		t.Errorf("live: %q", g)
+	}
+	if g := got["sha256:gone"].Label; g != "bob · removed" {
+		t.Errorf("removed: %q", g)
+	}
+}
+
+// A former contact's label takes, per name, the newest its threads kept that is not empty
+// (store.KeptNamesByRoot), as the export does: a thread opened under a row that held no name does not
+// hide the petname an older thread kept.
+func TestAFormerContactIsLabelledByTheNewestNameItsThreadsKept(t *testing.T) {
+	u := newUnreadEnv(t)
+	ctx := context.Background()
+	u.contact(t, u.acct, "sha256:erin", "active", 500)
+	if err := u.st.SetContactPetname(ctx, u.acct, "sha256:erin", "Erin from the club"); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.st.DeleteContact(ctx, u.acct, "sha256:erin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.st.InsertContact(ctx, store.Contact{AccountID: u.acct, Fingerprint: "sha256:erin", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.st.InsertThread(ctx, store.Thread{ID: "erin-2", AccountID: u.acct, ContactFpr: "sha256:erin", CreatedAt: 600, LastAt: 600}); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.st.DeleteContact(ctx, u.acct, "sha256:erin"); err != nil {
+		t.Fatal(err)
+	}
+	if g := u.rows(t, nil)["sha256:erin"].Label; g != "Erin from the club · removed" {
+		t.Errorf("label: %q", g)
+	}
+}

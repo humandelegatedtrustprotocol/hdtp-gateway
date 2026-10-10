@@ -2,12 +2,23 @@ package portable
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
+
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -103,8 +114,8 @@ func TestAStrangersConversationStaysWhenItsRowGoes(t *testing.T) {
 			}
 			joined := strings.Join(res.LeftOut, "\n")
 			for _, want := range []string{
-				"thread t-stranger: a conversation of 1 message(s) with " + s.strangerID + ", who was never a contact",
-				"thread t-pest: a conversation of 0 message(s) with " + blocked.Fpr + ", who was never a contact",
+				"thread t-stranger: a conversation of 1 message(s) with " + s.strangerID + ", who this host has no record of as a contact",
+				"thread t-pest: a conversation of 0 message(s) with " + blocked.Fpr + ", who this host has no record of as a contact",
 			} {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("left out:\n%s\nwant %q", joined, want)
@@ -188,8 +199,17 @@ func TestARemovedConversationJoinsAContactHeldHere(t *testing.T) {
 	must(t, dst.st.SetAccountRoot(ctx, a.ID, s.me.Fpr, s.me.RootDER))
 	_, err = dst.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: chen, Status: "pending_in", DisplayName: "Chen again", CreatedAt: 1790000070, PinnedAt: 1790000070})
 	must(t, err)
-	_, _, err = importFile(t, dst, file, "alina", time.Now())
+	_, res, err := importFile(t, dst, file, "alina", time.Now())
 	must(t, err)
+	if res.Removed != 0 {
+		t.Fatalf("a root held here counted as a removed contact written: %+v", res)
+	}
+	// The same file again writes nothing as removed either: its thread is here already.
+	_, again, err := importFile(t, dst, file, "alina", time.Now())
+	must(t, err)
+	if again.Removed != 0 {
+		t.Fatalf("a removed thread here already counted again: %+v", again)
+	}
 	c, err := dst.st.GetContact(ctx, a.ID, chen)
 	must(t, err)
 	if c.Status != "pending_in" || c.DisplayName != "Chen again" {
@@ -199,5 +219,172 @@ func TestARemovedConversationJoinsAContactHeldHere(t *testing.T) {
 	must(t, err)
 	if th.ContactFpr != chen {
 		t.Fatalf("the thread: %+v", th)
+	}
+}
+
+// beforeKeptWasContact opens a store whose schema stops at migration 0002, before threads kept
+// whether their root was a contact, so a test can write what a node held then and migrate it.
+func beforeKeptWasContact(t *testing.T, name string) (store.Store, func() error) {
+	t.Helper()
+	ctx := context.Background()
+	if name == "sqlite" {
+		path := filepath.Join(t.TempDir(), "hdtp.db")
+		st, err := store.OpenSQLite(path)
+		must(t, err)
+		t.Cleanup(func() { st.Close() })
+		db, err := sql.Open("sqlite", "file:"+path)
+		must(t, err)
+		t.Cleanup(func() { db.Close() })
+		sub, err := fs.Sub(migrations.SQLite, "sqlite")
+		must(t, err)
+		p, err := goose.NewProvider(goose.DialectSQLite3, db, sub)
+		must(t, err)
+		_, err = p.UpTo(ctx, 2)
+		must(t, err)
+		return st, func() error { return st.Migrate(ctx) }
+	}
+	dsn := os.Getenv("HDTP_TEST_POSTGRES_DSN")
+	pgSeq++
+	db := fmt.Sprintf("hdtp_portable_%d_%d", os.Getpid(), pgSeq)
+	admin, err := pgx.Connect(ctx, dsn)
+	must(t, err)
+	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+db)
+	_, err = admin.Exec(ctx, "CREATE DATABASE "+db)
+	must(t, err)
+	admin.Close(ctx)
+	i := strings.LastIndex(dsn, "/")
+	rest, query := dsn[i+1:], ""
+	if j := strings.Index(rest, "?"); j >= 0 {
+		query = rest[j:]
+	}
+	target := dsn[:i+1] + db + query
+	st, err := store.OpenPostgres(ctx, target)
+	must(t, err)
+	t.Cleanup(func() { st.Close() })
+	conn, err := sql.Open("pgx", target)
+	must(t, err)
+	t.Cleanup(func() { conn.Close() })
+	sub, err := fs.Sub(migrations.Postgres, "postgres")
+	must(t, err)
+	p, err := goose.NewProvider(goose.DialectPostgres, conn, sub)
+	must(t, err)
+	_, err = p.UpTo(ctx, 2)
+	must(t, err)
+	return st, func() error { return st.Migrate(ctx) }
+}
+
+// Migration 0003 on a node that removed contacts before it: a thread that holds a message was a
+// contact's, since only a contact writes one (inbound at the contact tier, outbound to an active
+// contact alone; a request's note is never stored), so a former contact's conversation travels as a
+// removed thread with the names it kept. A thread with no message left proves nothing and stays,
+// named as one with a root this host has no record of as a contact — the gap the migration cannot
+// close. A stranger whose request expired left no thread at all: its note was never written.
+func TestMigration0003KeepsAFormerContactsConversationRemovedBeforeIt(t *testing.T) {
+	names := []string{"sqlite"}
+	if os.Getenv("HDTP_TEST_POSTGRES_DSN") != "" {
+		names = append(names, "postgres")
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			st, migrate := beforeKeptWasContact(t, name)
+			e := env{st: st, blobs: messaging.BlobDir{Root: filepath.Join(t.TempDir(), "blobs")}}
+			me := testid.NewWallet(t, "Alina Rao")
+			a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alina", DisplayName: "Alina Rao", Algo: "p256"})
+			must(t, err)
+			must(t, st.SetAccountRoot(ctx, a.ID, me.Fpr, me.RootDER))
+			chen := formerContact(t, e, a.ID)
+			dana := testid.NewWallet(t, "Dana")
+			_, err = st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: dana.Fpr, Status: "active", DisplayName: "Dana", CreatedAt: 1790000080, PinnedAt: 1790000080})
+			must(t, err)
+			must(t, st.InsertThread(ctx, store.Thread{ID: "t-dana", AccountID: a.ID, ContactFpr: dana.Fpr, CreatedAt: 1790000081, LastAt: 1790000081}))
+			must(t, st.DeleteContact(ctx, a.ID, dana.Fpr))
+
+			must(t, migrate())
+			for id, want := range map[string]bool{"t-chen": true, "t-dana": false} {
+				th, err := st.GetThread(ctx, a.ID, id)
+				must(t, err)
+				if th.KeptWasContact != want {
+					t.Fatalf("%s: kept_was_contact %v after the migration, want %v", id, th.KeptWasContact, want)
+				}
+			}
+			file, res := exportOf(t, e, "alina")
+			got, err := hdtpidentity.ReadExportZip(zipReader(t, file), me.Fpr, time.Now(), ImportCeiling)
+			must(t, err)
+			if rt := removedThreads(got); len(rt) != 1 || rt[chen] != [2]string{"Chen, old team", "Chen Wu"} {
+				t.Fatalf("removed threads: %+v", rt)
+			}
+			want := "thread t-dana: a conversation of 0 message(s) with " + dana.Fpr + ", who this host has no record of as a contact"
+			if joined := strings.Join(res.LeftOut, "\n"); !strings.Contains(joined, want) {
+				t.Fatalf("left out:\n%s\nwant %q", joined, want)
+			}
+		})
+	}
+}
+
+// A root's names are, per name, the newest its threads kept that is not empty (store.KeptNamesByRoot):
+// a former contact accepted again under a row with no name, and removed again, leaves a newer thread
+// that kept no name, and the petname the owner gave them, and the name they gave themselves, still
+// travel and still label the conversation.
+func TestARemovedThreadCarriesTheNewestNameEachOfItsThreadsKept(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	chen := formerContact(t, e, s.accountID)
+	_, err := e.st.InsertContact(ctx, store.Contact{AccountID: s.accountID, Fingerprint: chen, Status: "active", CreatedAt: 1790000090, PinnedAt: 1790000090})
+	must(t, err)
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-chen-2", AccountID: s.accountID, ContactFpr: chen, CreatedAt: 1790000091, LastAt: 1790000091}))
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: "mc2", AccountID: s.accountID, ContactFpr: chen, MsgID: "c-2", ThreadID: "t-chen-2",
+		Direction: "in", Sender: "human", Kind: "text", Body: "back again", Status: "delivered", CreatedAt: 1790000091}))
+	must(t, e.st.DeleteContact(ctx, s.accountID, chen))
+	newer, err := e.st.GetThread(ctx, s.accountID, "t-chen-2")
+	must(t, err)
+	if newer.KeptPetname != "" || newer.KeptDisplayName != "" {
+		t.Fatalf("the newer thread kept names, so this case proves nothing: %+v", newer)
+	}
+	file, _ := exportOf(t, e, "alina")
+	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	must(t, err)
+	for _, th := range got.Threads {
+		if th.Contact == chen && (th.ContactName != "Chen, old team" || th.ContactDisplayName != "Chen Wu") {
+			t.Fatalf("thread %s carries %q, %q", th.ID, th.ContactName, th.ContactDisplayName)
+		}
+	}
+}
+
+// A name a contact chose arrives as the file says and is stripped where the import takes it in, by
+// the rule a card's FN passes (identity.StripDisplayName, HDTP §3): a removed thread's
+// contact_display_name and a contact's display_name with a bidirectional override land without it.
+func TestAnImportedContactsOwnNameIsStrippedWhereItEnters(t *testing.T) {
+	ctx := context.Background()
+	src, dst := newEnv(t, sqliteStore), newEnv(t, sqliteStore)
+	s := seed(t, src)
+	held, err := src.st.GetContact(ctx, s.accountID, s.peer.Fpr)
+	must(t, err)
+	must(t, src.st.UpdateContactCard(ctx, s.accountID, s.peer.Fpr, held.Card, "\u202eBharat\u200b Mehta"))
+	dana := testid.NewWallet(t, "Dana")
+	_, err = src.st.InsertContact(ctx, store.Contact{AccountID: s.accountID, Fingerprint: dana.Fpr, Status: "active", DisplayName: "\u202eDana\u2066", CreatedAt: 1790000100, PinnedAt: 1790000100})
+	must(t, err)
+	must(t, src.st.InsertThread(ctx, store.Thread{ID: "t-dana", AccountID: s.accountID, ContactFpr: dana.Fpr, CreatedAt: 1790000101, LastAt: 1790000101}))
+	must(t, src.st.InsertMessage(ctx, store.Message{ID: "md1", AccountID: s.accountID, ContactFpr: dana.Fpr, MsgID: "d-1", ThreadID: "t-dana",
+		Direction: "in", Sender: "human", Kind: "text", Body: "hello", Status: "delivered", CreatedAt: 1790000101}))
+	must(t, src.st.DeleteContact(ctx, s.accountID, dana.Fpr))
+	file, _ := exportOf(t, src, "alina")
+	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	must(t, err)
+	if rt := removedThreads(got); rt[dana.Fpr][1] != "\u202eDana\u2066" {
+		t.Fatalf("the file does not carry the name as written, so this case proves nothing: %+v", rt)
+	}
+	p, _, err := importFile(t, dst, file, "alina", time.Now())
+	must(t, err)
+	c, err := dst.st.GetContact(ctx, p.AccountID, s.peer.Fpr)
+	must(t, err)
+	if c.DisplayName != "Bharat Mehta" {
+		t.Fatalf("contact display_name as imported: %q", c.DisplayName)
+	}
+	th, err := dst.st.GetThread(ctx, p.AccountID, "t-dana")
+	must(t, err)
+	if th.KeptDisplayName != "Dana" {
+		t.Fatalf("kept display name as imported: %q", th.KeptDisplayName)
 	}
 }

@@ -18,7 +18,7 @@ Import (`import.go`)
 Checks on a written file (`check.go`)
 
 - `CheckWritten` reads a just-written file back as an importer would.
-- `CloudCeilings` names each BatonDeck import ceiling an export is over (`cloudZipBytes`, `cloudContacts`, `cloudThreads`, `cloudMessageLines`, `cloudMediaFiles` and the rest, written as literals at `check.go:33-51`). These are warnings, never refusals.
+- `CloudCeilings` names each BatonDeck import ceiling an export is over (`cloudZipBytes`, `cloudContacts`, `cloudThreads`, `cloudMessageLines`, `cloudMediaFiles` and the rest, written as literals at `check.go:33-49`). These are warnings, never refusals.
 
 Shared (`portable.go`)
 
@@ -26,13 +26,13 @@ Shared (`portable.go`)
 
 ### The archive as the code writes it
 
-`export.go:20-125`. The members are `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and `media/<sha256 hex>` per file, plus a `media/` directory entry (`TestAnExportCarriesContactsChatsAndFilesAndNothingElse` asserts the exact member list, including that directory entry). The manifest owner is the account's `RootFingerprint`; `OwnerName` is its display name; `Tool` and the export time come from the caller.
+`export.go:20-141`. The members are `manifest.json`, `contacts.csv`, `threads.csv`, `messages.jsonl` and `media/<sha256 hex>` per file, plus a `media/` directory entry (`TestAnExportCarriesContactsChatsAndFilesAndNothingElse` asserts the exact member list, including that directory entry). The manifest owner is the account's `RootFingerprint`; `OwnerName` is its display name; `Tool` and the export time come from the caller.
 
-- Contacts (`contactRow`, `export.go:130`): root fingerprint, endpoint, petname, display name, status, was-active (`EverActive` or status `active`), both permission lists, leaf and root certificate (base64url, null when absent), added time. Not exported: the preset, the trust flag, the card, the SPKI.
+- Contacts (`contactRow`, `export.go:146`): root fingerprint, endpoint, petname, display name, status, was-active (`EverActive` or status `active`), both permission lists, leaf and root certificate (base64url, null when absent), added time. Not exported: the preset, the trust flag, the card, the SPKI.
 - Contacts in status `pending_in` (a stranger's request, `aRequest` in `portable.go`) are left out and named in `Result.LeftOut`.
-- Threads: id, contact, topic, created and last time; ordered by `CreatedAt`. A thread whose root is not carried travels when its root was ever a contact (`store.Thread.KeptWasContact`), as a removed thread carrying the names its root's newest thread kept, the same on every thread of that root; otherwise it is left out and named in `Result.LeftOut` by its id and the reason (a request not yet decided, or a root that was never a contact).
-- Import: a removed thread's root (a thread whose contact is no row of the file's contacts.csv: `Plan.Removed`) is never written as a contact; its threads are written with their names and `KeptWasContact`, and belong to a contact held here with that root, of any status (`Result.Removed` counts the roots).
-- Messages (`messageRow`, `export.go:145`): id, thread, contact, msg id, direction, sender, time, body, status, reply_to. A media message's description JSON (`messaging.MediaMeta`) is lifted into one attachment and the body is emptied; a media message with no hash (a link never fetched) travels the link as the body.
+- Threads: id, contact, topic, created and last time; ordered by `CreatedAt`. A thread whose root is not carried travels when its root was ever a contact (`store.Thread.KeptWasContact`), as a removed thread carrying, per name, the newest its root's threads kept that is not empty (`store.KeptNamesByRoot`), the same on every thread of that root; otherwise it is left out and named in `Result.LeftOut` by its id and the reason (a request not yet decided, or a root this host has no record of as a contact).
+- Import: a removed thread's root (a thread whose contact is no row of the file's contacts.csv: `Plan.Removed`) is never written as a contact; its threads are written with their names (a display name stripped by `identity.StripDisplayName`) and `KeptWasContact`, and belong to a contact held here with that root, of any status (`Result.Removed` counts the roots a removed thread was written for, not one held here as a contact).
+- Messages (`messageRow`, `export.go:161`): id, thread, contact, msg id, direction, sender, time, body, status, reply_to. A media message's description JSON (`messaging.MediaMeta`) is lifted into one attachment and the body is emptied; a media message with no hash (a link never fetched) travels the link as the body.
 - Status mapping (`exportStatus`): `pending` and `queued_for_human` become `queued`; `failed` stays; everything else is `delivered`.
 - Media: each distinct hash once, with its size read from the blob; sorted by hash.
 - The writer itself (hdtp-identity) omits messages whose body or file reads as a private key, and nulls a `reply_to` the file does not carry; each is returned and recorded in `Result.LeftOut` and `LeftOutMessages`.

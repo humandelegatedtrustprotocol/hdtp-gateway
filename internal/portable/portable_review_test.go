@@ -169,7 +169,7 @@ func TestAnExportSaysTrulyWhyItLeftAConversationOut(t *testing.T) {
 	_, res := exportOf(t, e, "alina")
 	joined := strings.Join(res.LeftOut, "\n")
 	if !strings.Contains(joined, "thread t-stranger: a conversation of 1 message(s) with "+s.strangerID+", whose request is not yet decided") ||
-		!strings.Contains(joined, "thread t-gone: a conversation of 0 message(s) with sha256:gone, who was never a contact") {
+		!strings.Contains(joined, "thread t-gone: a conversation of 0 message(s) with sha256:gone, who this host has no record of as a contact") {
 		t.Fatalf("left out:\n%s", joined)
 	}
 }

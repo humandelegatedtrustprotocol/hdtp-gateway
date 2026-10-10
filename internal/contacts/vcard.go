@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	govcard "github.com/emersion/go-vcard"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -98,18 +98,7 @@ const MaxDisplayName = 64
 // It never makes a name unique; two peers may still legitimately be called Alice.
 // Distinguishing them is the caller's job, against the fingerprint.
 func displayName(s string) string {
-	cleaned := strings.Map(func(r rune) rune {
-		switch {
-		case r == '\u200c' || r == '\u200d':
-			return r
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
-			return -1
-		case unicode.IsSpace(r):
-			return ' ' // collapsed below; a run of 200 spaces is also a layout attack
-		}
-		return r
-	}, s)
-	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	cleaned := identity.StripDisplayName(s)
 	if r := []rune(cleaned); len(r) > MaxDisplayName {
 		cleaned = string(r[:MaxDisplayName-1]) + "\u2026"
 	}

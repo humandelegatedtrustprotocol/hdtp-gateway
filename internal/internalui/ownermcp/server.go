@@ -32,6 +32,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
@@ -538,13 +539,17 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 			r.ContactStatus = st
 		} else {
 			r.ContactStatus = StatusRemoved
-			r.RemovedContact = &kept{DisplayName: th.KeptDisplayName, Petname: th.KeptPetname}
+			r.RemovedContact = &kept{DisplayName: stripName(th.KeptDisplayName), Petname: th.KeptPetname}
 		}
 		out = append(out, r)
 	}
 	r, err := jsonResult(out)
 	return r, nil, err
 }
+
+// stripName is the one rule a name a contact chose passes before it renders (HDTP §3): every
+// answer of this server that carries a contact's display name or a removed thread's kept one.
+var stripName = identity.StripDisplayName
 
 // readThreadTool is the `read_thread` tool.
 func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolRequest, a ReadThreadArgs) (*mcp.CallToolResult, any, error) {
@@ -630,7 +635,7 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 				name := claim
 				for _, h := range list {
 					if h.Fingerprint == claim {
-						name = cmp.Or(h.Petname, h.DisplayName, claim)
+						name = cmp.Or(h.Petname, stripName(h.DisplayName), claim)
 					}
 				}
 				v.AddressClaim = &addressClaim{Root: claim, Name: name}
@@ -671,7 +676,7 @@ type addressClaim struct {
 }
 
 func contactOf(c store.Contact) contactView {
-	v := contactView{Fingerprint: c.Fingerprint, DisplayName: c.DisplayName, Status: c.Status, Preset: c.Preset,
+	v := contactView{Fingerprint: c.Fingerprint, DisplayName: stripName(c.DisplayName), Status: c.Status, Preset: c.Preset,
 		Permissions: nonNil(c.Permissions), TheirPermissions: nonNil(c.TheirPermissions), TrustFlag: c.TrustFlag,
 		Petname: c.Petname, CreatedAt: c.CreatedAt, Endpoint: c.Endpoint}
 	if len(c.Leaf) > 0 {

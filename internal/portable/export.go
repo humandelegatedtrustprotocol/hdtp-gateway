@@ -50,20 +50,14 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		return res, fmt.Errorf("export: %w", err)
 	}
 	// A former contact (HDTP §9.2): a root with no contact row carried here — none, or a request not
-	// yet decided — of which a thread kept that it was once a contact. Each of its threads travels as
-	// a removed thread carrying the names its newest thread kept, the names the conversation list
-	// shows it by (internalui formerContacts; threads come newest first), so they agree on every one.
-	former := map[string][2]string{}
+	// yet decided — any of whose threads kept that it was once a contact. Each of its threads travels
+	// as a removed thread carrying the names its threads kept (store.KeptNamesByRoot), the names the
+	// conversation list shows it by (internalui formerContacts), so they agree on every one.
+	kept := store.KeptNamesByRoot(threads)
+	former := map[string]store.KeptNames{}
 	for _, t := range threads {
 		if !carried[t.ContactFpr] && t.KeptWasContact {
-			former[t.ContactFpr] = [2]string{}
-		}
-	}
-	named := map[string]bool{}
-	for _, t := range threads {
-		if _, isFormer := former[t.ContactFpr]; isFormer && !named[t.ContactFpr] {
-			named[t.ContactFpr] = true
-			former[t.ContactFpr] = [2]string{t.KeptPetname, t.KeptDisplayName}
+			former[t.ContactFpr] = kept[t.ContactFpr]
 		}
 	}
 	sort.SliceStable(threads, func(i, j int) bool { return threads[i].CreatedAt < threads[j].CreatedAt })
@@ -75,9 +69,11 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		}
 		names, isFormer := former[t.ContactFpr]
 		if !carried[t.ContactFpr] && !isFormer {
-			// A root that was never a contact: a stranger's request not yet decided, or one whose row
-			// went (expired or refused). Its conversation stays here, and is named (HDTP §9.2).
-			why := "who was never a contact"
+			// A root this host has no record of as a contact: a stranger's request not yet decided, one
+			// whose row went (expired or refused), or a thread written before migration 0003 that no
+			// message is left in to prove its root was one. Its conversation stays here, and is named
+			// (HDTP §9.2).
+			why := "who this host has no record of as a contact"
 			if requested[t.ContactFpr] {
 				why = "whose request is not yet decided"
 			}
@@ -85,7 +81,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			continue
 		}
 		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt),
-			ContactName: names[0], ContactDisplayName: names[1]})
+			ContactName: names.Petname, ContactDisplayName: names.DisplayName})
 		for _, m := range msgs {
 			row, hash, err := messageRow(m)
 			if err != nil {

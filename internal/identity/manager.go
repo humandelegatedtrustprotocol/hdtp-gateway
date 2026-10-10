@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
@@ -65,6 +66,26 @@ func ValidDisplayName(name string) error {
 		}
 	}
 	return nil
+}
+
+// StripDisplayName is the rule a name a contact chose for themselves passes before anything renders
+// it, wherever it came from — a card's FN (contacts caps it to a card's length besides), or a
+// display_name or contact_display_name an export carried (HDTP §3, SEP-0004): no control character,
+// no bidirectional or other format character but the joiners U+200C and U+200D, and whitespace runs
+// collapsed to one space.
+func StripDisplayName(s string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r == '\u200c' || r == '\u200d':
+			return r
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+			return -1
+		case unicode.IsSpace(r):
+			return ' ' // collapsed below; a run of 200 spaces is also a layout attack
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(cleaned), " ")
 }
 
 // CreateAccount makes the account row, generates its keypair (AlgoP256 when algo is empty), seals
