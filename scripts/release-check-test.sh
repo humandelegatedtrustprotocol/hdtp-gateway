@@ -12,7 +12,7 @@ check=$root/scripts/release-check.sh
 
 # A hook in a linked worktree exports GIT_DIR and friends; the fixtures are repositories of their own.
 while IFS= read -r v; do unset "$v"; done < <(env | sed -n 's/^\(GIT_[A-Za-z_]*\)=.*/\1/p')
-export GOWORK=off GOFLAGS= GOTOOLCHAIN=local GOPROXY=off GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+export GOWORK=off GOFLAGS='' GOTOOLCHAIN=local GOPROXY=off GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/release-check.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -78,7 +78,12 @@ expect_refused "HEAD tagged with another version" "$d" "no tag v9.9.9"
 # The tree changing while dist builds: a `go` that leaves a stray file before building. The tree
 # check has passed by then, so only dist's check of the binaries can refuse.
 mkdir -p "$tmp/gostub"
-printf '#!/bin/sh\n[ "$1" = build ] && touch stray\nexec "%s" "$@"\n' "$(command -v go)" > "$tmp/gostub/go"
+realgo=$(command -v go)
+cat > "$tmp/gostub/go" <<STUB
+#!/bin/sh
+[ "\$1" = build ] && touch stray
+exec "$realgo" "\$@"
+STUB
 chmod +x "$tmp/gostub/go"
 d=$(fixture duringbuild)
 if PATH=$tmp/gostub:$PATH dist "$d"; then
