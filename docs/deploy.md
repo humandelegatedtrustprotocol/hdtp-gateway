@@ -184,10 +184,10 @@ DigitalOcean button: that button creates an App Platform app, which cannot host 
 No template is offered for these, for reasons in the node rather than in the providers:
 
 - **The limits sidecar shares a unix socket with the node** (`compose.yaml`; SPEC §5.7), and until
-  it answers the node refuses every sealed call. The shipped image is distroless and runs the node
-  alone, and this repository builds no image that runs the node and the sidecar together; each of
-  these providers builds one image from the Dockerfile you name, so hosting the node there needs
-  such an image first.
+  it answers the node refuses every sealed call. The image the `Dockerfile` builds is distroless
+  and runs the node alone, and this repository builds no image that runs the node and the sidecar
+  together; each of these providers builds one image from the Dockerfile you name, so hosting the
+  node there needs such an image first.
 - **The node's public listener speaks only TLS** (`internal/public/listener.go`), and Render's
   load balancer "terminates SSL for inbound HTTPS requests, then forwards those requests to your
   web service over HTTP" ([Render's documentation](https://render.com/docs/web-services)); App
