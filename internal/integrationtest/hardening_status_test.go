@@ -4,8 +4,8 @@ package integrationtest
 // measured against the code on the day it was written. A row that nothing holds goes stale the day
 // after. The rows that can be derived from the tree are held to it here: the fuzz targets and their
 // time, the analysers and their pinned versions, the form of every gosec waiver, the versions of the
-// libraries the table names, the scenario tiers, what the pre-push hook runs, the absence of
-// Dependabot and CI, and that every test the table cites exists. A change to any of those changes
+// libraries the table names, the scenario tiers, the authorization call sites, what the pre-push
+// hook runs, the absence of Dependabot and CI, and that every test the table cites exists. A change to any of those changes
 // the record in the same commit, or fails the build.
 
 import (
@@ -184,6 +184,42 @@ func TestTheHardeningStatusTableMatchesTheTree(t *testing.T) {
 		for _, m := range steps {
 			if want := "`make " + m[1] + "`"; !strings.Contains(row, want) {
 				t.Errorf("the pre-push hook runs %s; the Automated tests row does not say %q", want, want)
+			}
+		}
+	})
+
+	t.Run("authorization call sites", func(t *testing.T) {
+		// The count drifted once already (the threat model said four when there were three).
+		words := []string{"no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
+		call := regexp.MustCompile(`\bpolicy\.Allow\(`)
+		sites := 0
+		for _, dir := range []string{"cmd", "internal"} {
+			err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+					return err
+				}
+				b, err := os.ReadFile(p)
+				if err != nil {
+					return err
+				}
+				for _, line := range strings.Split(string(b), "\n") {
+					if code, _, _ := strings.Cut(line, "//"); call.MatchString(code) {
+						sites++
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if sites == 0 || sites >= len(words) {
+			t.Fatalf("found %d call sites of policy.Allow; this check cannot say that in a word", sites)
+		}
+		want := words[sites] + " call sites on the public surface"
+		for doc, text := range map[string]string{"SECURITY.md's Authorization row": rows.get(t, "Authorization"), "docs/threat-model.md": strings.Join(strings.Fields(readDoc(t, root, "docs/threat-model.md")), " ")} {
+			if !strings.Contains(text, want) {
+				t.Errorf("the tree calls policy.Allow at %d sites; %s does not say %q", sites, doc, want)
 			}
 		}
 	})
