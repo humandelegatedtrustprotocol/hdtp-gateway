@@ -1,22 +1,26 @@
 BINARY := hdtp-gateway
 VERSION ?= 0.1.0-dev
 
-.PHONY: names notices notices-check deploy-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+# Absolute, so `make -f <this file>` from another directory (scripts/release-check-test.sh runs
+# dist in a fixture repository) still finds it.
+RELEASE_CHECK := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts/release-check.sh
+
+.PHONY: release-check names notices notices-check deploy-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
 # `web` comes FIRST because the bundle-contract tests read the embedded
 # web/dist: running check before it greenlights whatever bundle happened to be
-# committed, not the one your sources produce. `sbom` comes LAST because `dist`
-# starts by deleting the directory sbom writes into.
+# committed, not the one your sources produce.
 #
 # What it does NOT do, so a green run is not mistaken for more than it is: the
 # scenario harness (separate module, needs Docker — `make harness`, or
-# `harness-pr` / `harness-nightly` for the live tiers) and the container images
-# (`harness-image`).
-all: web check analyze build dist sbom
+# `harness-pr` / `harness-nightly` for the live tiers), the container images
+# (`harness-image`), and the release artifacts (`dist`, `sbom`), which are built
+# only from a clean checkout of a tag (RELEASING.md).
+all: web check analyze build
 	@echo
-	@echo "all: portal rebuilt, gate green, analysis clean, artifacts in dist/"
+	@echo "all: portal rebuilt, gate green, analysis clean, binary built"
 
 # analyze is what the pre-push hook runs (githooks/pre-push). The versions are
 # pinned HERE and the hook calls these targets — one list, not two to drift apart.
@@ -119,15 +123,27 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 # dist builds every platform and writes SHA256SUMS. A release is cut locally from
 # this exact target (RELEASING.md), so what ships is what anyone can rebuild from the tag.
+# It refuses unless the tree is clean (untracked files included) and HEAD is tag v$(VERSION),
+# and refuses the binaries unless each records vcs.modified=false and that tag's commit
+# (scripts/release-check.sh): a build from a modified tree stamps vcs.modified=true, which no
+# rebuild from the tag reproduces.
 dist:
+	@$(RELEASE_CHECK) tree $(VERSION)
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=dist/$(BINARY)_$(VERSION)_$${os}_$${arch}; \
 		echo "building $$out"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -buildvcs=true \
 			-ldflags "-s -w -X main.version=$(VERSION)" -o $$out ./cmd/hdtp-gateway || exit 1; \
 	done
+	@$(RELEASE_CHECK) binaries $(VERSION) dist/$(BINARY)_$(VERSION)_*
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+
+# release-check runs dist against fixture repositories: refused on a dirty or untagged tree,
+# passing on a clean tagged one, and the binary check refusing a modified or unstamped build;
+# and sbom refused on a dirty tree, before it fetches anything.
+release-check:
+	scripts/release-check-test.sh
 
 # hooks points git at the versioned hooks in githooks/. The path is relative, so
 # it resolves against each worktree's top level and every worktree runs its own
@@ -146,7 +162,9 @@ web:
 
 # sbom emits CycloneDX for the shipped binary's dependency graph. Pinned, not
 # @latest: a supply-chain document produced by an unpinned tool is worth less.
+# It is a release asset, so it holds to dist's tree check: clean, and HEAD is tag v$(VERSION).
 sbom:
+	@$(RELEASE_CHECK) tree $(VERSION)
 	@mkdir -p dist
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
 		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .
@@ -157,7 +175,7 @@ sbom:
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
 # its CDP and orchestration dependencies stay out of the shipped artifact's
 # dependency and vulnerability surface. Run `make harness` for that module.
-check: fmt vet names notices-check deploy-check frp-check dependents limitd-check test test-js
+check: fmt vet names notices-check deploy-check frp-check release-check dependents limitd-check test test-js
 
 # The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
 # (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
