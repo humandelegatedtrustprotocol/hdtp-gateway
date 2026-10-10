@@ -7,9 +7,9 @@ tests that hold each claim. The protocol it implements is HDTP 1.0: the
 person's self-signed root is the identity, the host holds a leaf that root
 issued it, and a chain is what proves anything.
 
-Read it with the hardening-status table, which says what has **not** been done yet. The table is
-"Current hardening status" in the SECURITY.md of the workspace repository that holds this node
-(tech-sumit/hdtp-workspace, private), not in this repository.
+Read it with the hardening-status table, which says what has **not** been done yet: "Current
+hardening status" in this repository's [`SECURITY.md`](../SECURITY.md), each row measured against
+the code and dated.
 Nothing here has had independent cryptographic review.
 [`crypto-review-brief.md`](crypto-review-brief.md) states the construction and the questions a
 reviewer is asked, and [`SECURITY.md`](../SECURITY.md) says where a finding is reported.
@@ -174,6 +174,7 @@ These are decisions, not backlog (SPEC §13.2):
    shared vectors in HDTP Appendix B and the intrusion battery over both ports.
    Nothing in this repository re-implements §14.2, and nothing reaches for a
    general X.509 path validator.
-4. `internal/core/policy/` — Cedar authorization, four call sites (three filter
-   `tools/list`, one gates the call and re-resolves the tier).
+4. `internal/core/policy/` — Cedar authorization, three call sites on the public
+   surface (two filter `tools/list`, one gates the call and re-resolves the tier) and
+   `AllowOwnerManage` on the owner MCP.
 5. `internal/core/audit/` — the hash chain and its archive/prune path.
