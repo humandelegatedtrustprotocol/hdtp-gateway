@@ -5,10 +5,10 @@
 -- says so. Once kept it stays: the same root asking again and expiring, or rejected, does not
 -- unmake a contact it once was. A thread written before this migration is kept as a contact's if it
 -- holds a message: only a contact writes one, inbound at the contact tier (send_message, send_media
--- need an active row) and outbound to an active contact alone, and a request's note is kept on the
--- request, never as a message. A thread with no message left (retention took them) proves nothing,
--- keeps 0 and stays with this host, named as one with a root this host has no record of as a
--- contact.
+-- need an active row) and outbound to an active contact alone, and a request's note is never
+-- stored. A thread with no message (one an import wrote empty, or one a crash left between its
+-- thread and its message) proves nothing, keeps 0 and stays with this host, named as one with a
+-- root this host has no record of as a contact.
 ALTER TABLE threads ADD COLUMN kept_was_contact integer DEFAULT 0 NOT NULL;
 UPDATE threads SET kept_was_contact = 1
     WHERE EXISTS (SELECT 1 FROM messages m WHERE m.account_id = threads.account_id AND m.thread_id = threads.id);

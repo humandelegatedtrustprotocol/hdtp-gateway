@@ -623,3 +623,72 @@ func TestGetInboxSaysWhichThreadsLostTheirContact(t *testing.T) {
 		t.Fatalf("asking again, still marked removed: %q %+v", r.ContactStatus, r.RemovedContact)
 	}
 }
+
+// HDTP §3, as SEP-0004 widens it: every answer of this server that carries a name a contact chose
+// gives it stripped of control and bidirectional-format characters (stripName), whatever the store
+// holds; and get_inbox names a removed contact per name by the newest its threads kept that is not
+// empty (store.KeptNamesByRoot), as the conversation list and the export do.
+func TestTheOwnerMCPAnswersAContactsOwnNameStrippedAndARemovedOnePerRoot(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:live", Status: "active", DisplayName: "\u202eevil\u0007", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:gone", Status: "active", DisplayName: "\u202eGone\u200b\u0001", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.SetContactPetname(ctx, e.acctA, "sha256:gone", "Gone from the club"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertThread(ctx, store.Thread{ID: "t-old", AccountID: e.acctA, ContactFpr: "sha256:gone", CreatedAt: 10, LastAt: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.DeleteContact(ctx, e.acctA, "sha256:gone"); err != nil {
+		t.Fatal(err)
+	}
+	// Accepted again under a row with no name, a newer thread, and removed again: that thread keeps none.
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:gone", Status: "active", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertThread(ctx, store.Thread{ID: "t-new", AccountID: e.acctA, ContactFpr: "sha256:gone", CreatedAt: 20, LastAt: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.DeleteContact(ctx, e.acctA, "sha256:gone"); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	text, isErr := callJSON(t, cs, "get_inbox", map[string]any{"account_id": e.acctA})
+	if isErr {
+		t.Fatalf("get_inbox: %s", text)
+	}
+	var rows []struct {
+		ThreadID       string `json:"thread_id"`
+		RemovedContact *struct {
+			DisplayName string `json:"display_name"`
+			Petname     string `json:"petname"`
+		} `json:"removed_contact"`
+	}
+	if err := json.Unmarshal([]byte(text), &rows); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, r := range rows {
+		if r.ThreadID != "t-old" && r.ThreadID != "t-new" {
+			continue
+		}
+		seen++
+		if r.RemovedContact == nil || r.RemovedContact.DisplayName != "Gone" || r.RemovedContact.Petname != "Gone from the club" {
+			t.Errorf("%s: removed_contact %+v", r.ThreadID, r.RemovedContact)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("get_inbox answered %d of the removed contact's two threads: %s", seen, text)
+	}
+	text, isErr = callJSON(t, cs, "list_contacts", map[string]any{"account_id": e.acctA})
+	if isErr {
+		t.Fatalf("list_contacts: %s", text)
+	}
+	if strings.ContainsRune(text, '\u202e') || strings.Contains(text, `\u202e`) || strings.Contains(text, `\u0007`) || !strings.Contains(text, `"display_name":"evil"`) {
+		t.Fatalf("list_contacts: %s", text)
+	}
+}

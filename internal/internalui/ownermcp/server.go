@@ -355,7 +355,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers"},
 		ot.listAccountsTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. contact_status is the contact row's status, or removed when no row names the thread's fingerprint. A thread whose contact was removed stays, and its removed_contact holds the display_name and petname kept from the contact (a later request with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. contact_status is the contact row's status, or removed when no row names the thread's fingerprint. A thread whose contact was removed stays, and its removed_contact holds, per name, the newest display_name and petname that any of that fingerprint's threads kept from the contact (a later request or thread with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
 		ot.getInboxTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
@@ -536,10 +536,12 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 		// contact_status, in the same words.
 		ContactStatus string `json:"contact_status"`
 		// RemovedContact is null while a contact row names ContactFpr, whatever its status; once
-		// the row is gone, the names the thread kept (an empty one never replaced a kept one).
-		// BatonDeck's thread rows answer the same member.
+		// the row is gone, per name the newest its threads kept that is not empty
+		// (store.KeptNamesByRoot, as the conversation list and the export name it), its display
+		// name stripped as it renders. BatonDeck's thread rows answer the same member.
 		RemovedContact *kept `json:"removed_contact"`
 	}
+	names := store.KeptNamesByRoot(threads)
 	out := make([]row, 0, len(threads))
 	for _, th := range threads {
 		n, _ := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
@@ -548,7 +550,8 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 			r.ContactStatus = st
 		} else {
 			r.ContactStatus = StatusRemoved
-			r.RemovedContact = &kept{DisplayName: stripName(th.KeptDisplayName), Petname: th.KeptPetname}
+			k := names[th.ContactFpr]
+			r.RemovedContact = &kept{DisplayName: stripName(k.DisplayName), Petname: k.Petname}
 		}
 		out = append(out, r)
 	}
