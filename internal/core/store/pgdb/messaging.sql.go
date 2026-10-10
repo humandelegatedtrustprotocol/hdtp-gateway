@@ -40,6 +40,24 @@ func (q *Queries) CountBlobRefs(ctx context.Context, hash string) (int64, error)
 	return count, err
 }
 
+const countMediaNaming = `-- name: CountMediaNaming :one
+SELECT COUNT(*) FROM messages WHERE account_id = $1 AND kind = 'media' AND body LIKE $2
+`
+
+type CountMediaNamingParams struct {
+	AccountID string
+	Body      string
+}
+
+// How many of the account's media messages name a file: their body carries "hash":"<hash>", which
+// only the host writes (a peer's filename is JSON-escaped inside it). Asked under the file's lock.
+func (q *Queries) CountMediaNaming(ctx context.Context, arg CountMediaNamingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countMediaNaming, arg.AccountID, arg.Body)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteBlob = `-- name: DeleteBlob :execrows
 DELETE FROM blobs WHERE account_id = $1 AND hash = $2
 `
@@ -699,6 +717,17 @@ func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockFileHash = `-- name: LockFileHash :exec
+SELECT pg_advisory_xact_lock(hashtext('blob:' || $1::text))
+`
+
+// Holds one file, by its hash, until this transaction ends, across every process on the store: the
+// writes that store it and the collection that deletes it take turns.
+func (q *Queries) LockFileHash(ctx context.Context, dollar_1 string) error {
+	_, err := q.db.Exec(ctx, lockFileHash, dollar_1)
+	return err
 }
 
 const markConversationReadThrough = `-- name: MarkConversationReadThrough :execrows

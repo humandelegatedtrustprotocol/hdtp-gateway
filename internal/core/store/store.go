@@ -899,6 +899,12 @@ type MessageStore interface {
 	InsertBlob(ctx context.Context, b Blob) error
 	// GetBlob returns the account's blob record for hash, or ErrNotFound.
 	GetBlob(ctx context.Context, accountID, hash string) (Blob, error)
+	// MediaNames reports whether any media message of the account names the file.
+	MediaNames(ctx context.Context, accountID, hash string) (bool, error)
+	// LockFile, inside Atomically, makes every other transaction that locks the same file wait until
+	// this one ends, across processes: storing a file and collecting it take turns. SQLite's
+	// transactions are already one at a time.
+	LockFile(ctx context.Context, hash string) error
 	// SumBlobBytes returns the total size in bytes of the account's blob records, 0 when it has none.
 	SumBlobBytes(ctx context.Context, accountID string) (int64, error)
 

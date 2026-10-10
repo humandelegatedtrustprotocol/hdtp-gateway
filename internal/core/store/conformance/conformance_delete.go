@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
@@ -104,6 +105,55 @@ func conversationDeletion(t *testing.T, newStore Factory) {
 		}
 		if n, err := s.TouchThread(ctx, a.ID, "t2", 200); err != nil || n != 1 {
 			t.Fatalf("TouchThread = %d, %v; want 1", n, err)
+		}
+	})
+
+	// Storing a file and collecting it take turns across processes: a second transaction that locks
+	// the same file gets past its first write only once the first has ended (on SQLite every write
+	// transaction waits for the one before; on Postgres the advisory lock is what makes it wait, the
+	// two writes touching different rows).
+	t.Run("AFileIsLockedUntilTheTransactionEnds", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "lock-a", DisplayName: "A", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "lock-b", DisplayName: "B", Algo: "p256"})
+		const hash = "abababababababababababababababababababababababababababababababab"
+		held := make(chan struct{})
+		var firstEnded time.Time
+		firstDone := make(chan error, 1)
+		go func() {
+			firstDone <- s.Atomically(ctx, func(tx store.Store) error {
+				if err := tx.LockFile(ctx, hash); err != nil {
+					return err
+				}
+				if err := tx.InsertBlob(ctx, store.Blob{AccountID: a.ID, Hash: hash, Size: 1, CreatedAt: 1}); err != nil {
+					return err
+				}
+				close(held)
+				time.Sleep(300 * time.Millisecond)
+				firstEnded = time.Now()
+				return nil
+			})
+		}()
+		<-held
+		var secondWrote time.Time
+		if err := s.Atomically(ctx, func(tx store.Store) error {
+			if err := tx.LockFile(ctx, hash); err != nil {
+				return err
+			}
+			if err := tx.InsertBlob(ctx, store.Blob{AccountID: b.ID, Hash: hash, Size: 1, CreatedAt: 1}); err != nil {
+				return err
+			}
+			secondWrote = time.Now()
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-firstDone; err != nil {
+			t.Fatal(err)
+		}
+		if secondWrote.Before(firstEnded) {
+			t.Fatalf("a second transaction wrote under the file's lock %v before the first ended", firstEnded.Sub(secondWrote))
 		}
 	})
 

@@ -258,3 +258,16 @@ func (s *SQLite) DeleteThreadMessages(ctx context.Context, accountID, threadID s
 func (s *SQLite) DeleteThread(ctx context.Context, accountID, threadID string) (int64, error) {
 	return s.q.DeleteThread(ctx, sqlitedb.DeleteThreadParams{AccountID: accountID, ID: threadID})
 }
+
+// MediaNames reports whether any media message of the account names the file.
+func (s *SQLite) MediaNames(ctx context.Context, accountID, hash string) (bool, error) {
+	n, err := s.q.CountMediaNaming(ctx, sqlitedb.CountMediaNamingParams{AccountID: accountID, Body: mediaNamingPattern(hash)})
+	return n > 0, err
+}
+
+// LockFile is nothing on SQLite: its transactions are one at a time already.
+func (s *SQLite) LockFile(context.Context, string) error { return nil }
+
+// mediaNamingPattern is the LIKE pattern for a media body that names a file: the host writes the
+// hash as `"hash":"<hex>"`, and a hash is lowercase hex, which LIKE reads literally.
+func mediaNamingPattern(hash string) string { return `%"hash":"` + hash + `"%` }

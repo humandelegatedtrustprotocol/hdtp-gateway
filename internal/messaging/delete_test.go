@@ -276,3 +276,105 @@ func countFiles(t *testing.T, root string) int {
 	})
 	return n
 }
+
+// staleReadStore answers the collection's first read of the media bodies as it was, and records a
+// message naming the same bytes in another thread before answering: the file is stored again after
+// the read and before the file is judged.
+type staleReadStore struct {
+	store.Store
+	arrive func()
+	done   bool
+}
+
+func (s *staleReadStore) ListMediaBodies(ctx context.Context, accountID string) ([]string, error) {
+	bodies, err := s.Store.ListMediaBodies(ctx, accountID)
+	if !s.done {
+		s.done = true
+		s.arrive()
+	}
+	return bodies, err
+}
+
+// A file a deletion collects while the same bytes arrive in another thread stays: the file is
+// judged under its lock, and asked again there whether a message names it.
+func TestAFileStoredAgainWhileItsConversationIsDeletedStays(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	data := []byte("the same bytes, twice")
+	thread, hash := e.inline(t, "sha256:peer", "", "m1", data)
+	var again Result
+	stale := &staleReadStore{Store: e.st, arrive: func() {
+		r, err := e.media.ReceiveInline(ctx, e.svc, e.acct, "sha256:other", Input{Origin: OriginPeer, MsgID: "m2", Sender: SenderHuman}, "f.bin", "application/octet-stream", data)
+		if err != nil {
+			t.Error(err)
+		}
+		again = r
+	}}
+	svc := &Service{Store: stale, Blobs: e.blobs, Now: e.svc.Now}
+	out, err := svc.DeleteThread(ctx, e.acct, thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stale.done {
+		t.Fatal("the second arrival never ran: the test measured nothing")
+	}
+	if out.Files != 0 {
+		t.Fatalf("the deletion collected %d files; the bytes arrived again meanwhile", out.Files)
+	}
+	if _, err := e.st.GetBlob(ctx, e.acct, hash); err != nil || !e.fileExists(hash) {
+		t.Fatalf("a file a new message names went (record %v, file %v)", err, e.fileExists(hash))
+	}
+	if msgs, _ := e.st.ListMessagesByThread(ctx, e.acct, again.ThreadID); len(msgs) != 1 || !strings.Contains(msgs[0].Body, hash) {
+		t.Fatalf("the second message does not name the file: %+v", msgs)
+	}
+}
+
+// Bytes a deletion has just taken are written anew by the next message that sends them: the record
+// and the file come back together.
+func TestBytesSentAgainAfterTheirConversationWentAreStoredAnew(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	data := []byte("gone, then back")
+	thread, hash := e.inline(t, "sha256:peer", "", "m1", data)
+	if out, err := e.svc.DeleteThread(ctx, e.acct, thread); err != nil || out.Files != 1 || e.fileExists(hash) {
+		t.Fatalf("DeleteThread = %+v, %v; file held %v", out, err, e.fileExists(hash))
+	}
+	e.inline(t, "sha256:peer", "", "m2", data)
+	if _, err := e.st.GetBlob(ctx, e.acct, hash); err != nil || !e.fileExists(hash) {
+		t.Fatalf("the bytes sent again were not stored anew (record %v, file %v)", err, e.fileExists(hash))
+	}
+}
+
+// Unlimited retention keeps messages, not files nothing names: the orphan sweep takes a file no
+// message names once its record is older than FileGrace, and leaves a younger one and a named one.
+func TestTheOrphanSweepTakesUnnamedFilesWhateverTheWindow(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	_, named := e.inline(t, "sha256:peer", "", "m1", []byte("named"))
+	old := []byte("nothing names this")
+	oldHash := hashOf(old)
+	if _, err := e.blobs.Put(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertBlob(ctx, store.Blob{AccountID: e.acct, Hash: oldHash, Size: int64(len(old)), CreatedAt: e.clock.Add(-2 * FileGrace).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	young := []byte("nothing names this either, yet")
+	youngHash := hashOf(young)
+	if _, err := e.blobs.Put(young); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.InsertBlob(ctx, store.Blob{AccountID: e.acct, Hash: youngHash, Size: int64(len(young)), CreatedAt: e.clock.Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := e.sweeper().CollectOrphans(ctx, e.acct)
+	if err != nil || n != 1 {
+		t.Fatalf("CollectOrphans = %d, %v; want the one old unnamed file", n, err)
+	}
+	if e.fileExists(oldHash) {
+		t.Fatal("the old unnamed file is still held")
+	}
+	if !e.fileExists(youngHash) || !e.fileExists(named) {
+		t.Fatal("the sweep took a young file or a named one")
+	}
+}

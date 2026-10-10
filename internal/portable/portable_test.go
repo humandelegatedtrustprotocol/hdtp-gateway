@@ -741,3 +741,31 @@ func TestAnImportIsHeldToTheContactCap(t *testing.T) {
 		t.Fatalf("re-importing what an identity over its cap holds was refused: %v", err)
 	}
 }
+
+// A link the owner fetched names its file (messaging.MediaService.FetchMessage): the export carries
+// the file as the message's attachment. The format gives a message with an attachment an empty body
+// (HDTP §9.2's MessageRow) and has no field for a link beside a file, so the link itself does not
+// travel; the file it pointed at does.
+func TestAFetchedLinkTravelsAsItsFile(t *testing.T) {
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	ctx := context.Background()
+	fetched, _ := json.Marshal(messaging.MediaMeta{Filename: "board.png", Mime: "image/png", URL: "https://files.example/board.png", Hash: s.mediaHash, Size: 28})
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: "m5", AccountID: s.accountID, ContactFpr: s.peer.Fpr, MsgID: "msg-5", ThreadID: "t1",
+		Direction: "in", Sender: "agent", Kind: "media", Body: string(fetched), Status: "delivered", CreatedAt: 1790000025}))
+	file, _ := exportOf(t, e, "alina")
+	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	if err != nil {
+		t.Fatalf("the core refuses the export: %v", err)
+	}
+	for _, m := range got.Messages {
+		if m.ID != "m5" {
+			continue
+		}
+		if m.Body != "" || len(m.Attachments) != 1 || m.Attachments[0].File != s.mediaHash || m.Attachments[0].Filename != "board.png" {
+			t.Fatalf("the fetched link's message: %+v", m)
+		}
+		return
+	}
+	t.Fatal("the fetched link's message is not in the export")
+}

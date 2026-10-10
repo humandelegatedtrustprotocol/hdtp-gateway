@@ -154,7 +154,7 @@ func (d InboxDeps) postThreadsIDDelete(w http.ResponseWriter, r *http.Request) {
 	account := formOrQuery(r, "account")
 	id := r.PathValue("id")
 	gone, err := d.Msg.DeleteThread(r.Context(), account, id)
-	status, code, outcome := deleteOutcome(gone, err)
+	status, code, outcome := deleteOutcome(err)
 	if d.Audit != nil {
 		d.Audit("thread_delete", "account:"+account+" "+gone.AuditDetail(id), outcome)
 	}
@@ -166,14 +166,12 @@ func (d InboxDeps) postThreadsIDDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteOutcome reads a DeleteThread result as the portal answers it: the HTTP status, the refusal
-// code ("" for an answer) and the audit outcome. A conversation that was deleted is answered as
-// deleted even when its files could not be collected; the row says partial.
-func deleteOutcome(gone messaging.Deleted, err error) (int, string, string) {
+// code ("" for an answer) and the audit outcome. A deletion whose files could not all be taken is
+// still a deletion (the orphan sweep takes them later): `ok`, as BatonDeck records it.
+func deleteOutcome(err error) (int, string, string) {
 	switch {
 	case err == nil:
 		return http.StatusOK, "", "ok"
-	case gone.Status == "deleted":
-		return http.StatusOK, "", "partial"
 	case errors.Is(err, messaging.ErrBadRequest):
 		return http.StatusBadRequest, "bad_request", "bad_request"
 	case errors.Is(err, store.ErrNotFound):

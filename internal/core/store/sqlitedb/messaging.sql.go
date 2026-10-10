@@ -40,6 +40,24 @@ func (q *Queries) CountBlobRefs(ctx context.Context, hash string) (int64, error)
 	return count, err
 }
 
+const countMediaNaming = `-- name: CountMediaNaming :one
+SELECT COUNT(*) FROM messages WHERE account_id = ? AND kind = 'media' AND body LIKE ?
+`
+
+type CountMediaNamingParams struct {
+	AccountID string
+	Body      string
+}
+
+// How many of the account's media messages name a file: their body carries "hash":"<hash>", which
+// only the host writes (a peer's filename is JSON-escaped inside it). Asked under the file's lock.
+func (q *Queries) CountMediaNaming(ctx context.Context, arg CountMediaNamingParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMediaNaming, arg.AccountID, arg.Body)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteBlob = `-- name: DeleteBlob :execrows
 DELETE FROM blobs WHERE account_id = ? AND hash = ?
 `

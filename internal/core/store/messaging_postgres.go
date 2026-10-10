@@ -243,3 +243,14 @@ func (s *Postgres) DeleteThreadMessages(ctx context.Context, accountID, threadID
 func (s *Postgres) DeleteThread(ctx context.Context, accountID, threadID string) (int64, error) {
 	return s.q.DeleteThread(ctx, pgdb.DeleteThreadParams{AccountID: accountID, ID: threadID})
 }
+
+// MediaNames reports whether any media message of the account names the file.
+func (s *Postgres) MediaNames(ctx context.Context, accountID, hash string) (bool, error) {
+	n, err := s.q.CountMediaNaming(ctx, pgdb.CountMediaNamingParams{AccountID: accountID, Body: mediaNamingPattern(hash)})
+	return n > 0, err
+}
+
+// LockFile holds one file, by its hash, until the transaction ends, across every process on the store.
+func (s *Postgres) LockFile(ctx context.Context, hash string) error {
+	return s.q.LockFileHash(ctx, hash)
+}

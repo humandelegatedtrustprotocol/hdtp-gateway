@@ -150,3 +150,13 @@ DELETE FROM messages WHERE account_id = $1 AND thread_id = $2;
 
 -- name: DeleteThread :execrows
 DELETE FROM threads WHERE account_id = $1 AND id = $2;
+
+-- name: CountMediaNaming :one
+-- How many of the account's media messages name a file: their body carries "hash":"<hash>", which
+-- only the host writes (a peer's filename is JSON-escaped inside it). Asked under the file's lock.
+SELECT COUNT(*) FROM messages WHERE account_id = $1 AND kind = 'media' AND body LIKE $2;
+
+-- name: LockFileHash :exec
+-- Holds one file, by its hash, until this transaction ends, across every process on the store: the
+-- writes that store it and the collection that deletes it take turns.
+SELECT pg_advisory_xact_lock(hashtext('blob:' || $1::text));

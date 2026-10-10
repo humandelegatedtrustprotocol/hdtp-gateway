@@ -150,3 +150,8 @@ DELETE FROM messages WHERE account_id = ? AND thread_id = ?;
 
 -- name: DeleteThread :execrows
 DELETE FROM threads WHERE account_id = ? AND id = ?;
+
+-- name: CountMediaNaming :one
+-- How many of the account's media messages name a file: their body carries "hash":"<hash>", which
+-- only the host writes (a peer's filename is JSON-escaped inside it). Asked under the file's lock.
+SELECT COUNT(*) FROM messages WHERE account_id = ? AND kind = 'media' AND body LIKE ?;

@@ -607,8 +607,6 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 	code, outcome := "", "ok"
 	switch {
 	case err == nil:
-	case gone.Status == "deleted":
-		outcome = "partial"
 	case errors.Is(err, messaging.ErrBadRequest):
 		code, outcome = "bad_request", "bad_request"
 	case errors.Is(err, store.ErrNotFound):

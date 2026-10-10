@@ -164,8 +164,26 @@ func (s *Service) Record(ctx context.Context, accountID, contactFpr string, dir 
 }
 
 func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir Direction, in Input, kind string) (Result, error) {
+	res, fresh, err := s.write(ctx, s.Store, accountID, contactFpr, dir, in, kind)
+	if err == nil && fresh {
+		s.publish(accountID, contactFpr, res.ThreadID)
+	}
+	return res, err
+}
+
+// publish tells the bus a message was recorded in a thread.
+func (s *Service) publish(accountID, contactFpr, threadID string) {
+	if s.Bus != nil {
+		s.Bus.Publish(Event{Kind: EventMessage, AccountID: accountID, ThreadID: threadID, ContactFpr: contactFpr})
+	}
+}
+
+// write is record's work against st, which is the service's store or a transaction a caller holds
+// (MediaService stores a file and records its message in one). fresh says a message was written,
+// which is when the caller publishes it.
+func (s *Service) write(ctx context.Context, st ConversationStore, accountID, contactFpr string, dir Direction, in Input, kind string) (res Result, fresh bool, err error) {
 	if in.MsgID == "" {
-		return Result{}, fmt.Errorf("%w: msg_id required", ErrBadRequest)
+		return Result{}, false, fmt.Errorf("%w: msg_id required", ErrBadRequest)
 	}
 	switch in.Origin {
 	case OriginPortal, OriginMCP:
@@ -173,26 +191,26 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 		in.Sender = in.Label()
 	case OriginPeer:
 		if in.Sender != SenderAgent && in.Sender != SenderHuman {
-			return Result{}, fmt.Errorf("%w: sender must be agent|human", ErrBadRequest)
+			return Result{}, false, fmt.Errorf("%w: sender must be agent|human", ErrBadRequest)
 		}
 	case OriginStored:
 		// A stored message has been recorded once already; recording it again
 		// would duplicate the row the retry is trying to deliver.
-		return Result{}, fmt.Errorf("%w: a stored message cannot be recorded again", ErrBadRequest)
+		return Result{}, false, fmt.Errorf("%w: a stored message cannot be recorded again", ErrBadRequest)
 	default:
-		return Result{}, fmt.Errorf("%w: origin required (portal|mcp|peer)", ErrBadRequest)
+		return Result{}, false, fmt.Errorf("%w: origin required (portal|mcp|peer)", ErrBadRequest)
 	}
 	if len(in.Text) > maxTextBytes {
-		return Result{}, fmt.Errorf("%w: text over 16 KiB", ErrTooLarge)
+		return Result{}, false, fmt.Errorf("%w: text over 16 KiB", ErrTooLarge)
 	}
 	owner := in.Origin == OriginPortal || in.Origin == OriginMCP
 	if owner && len(in.Topic) > maxOwnerTopicBytes {
-		return Result{}, fmt.Errorf("%w: topic over 256 bytes", ErrTooLarge)
+		return Result{}, false, fmt.Errorf("%w: topic over 256 bytes", ErrTooLarge)
 	}
 
 	// Idempotency first: the same msg_id is acknowledged, never re-executed.
-	if prev, err := s.Store.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); err == nil {
-		return Result{ThreadID: prev.ThreadID, Status: prev.Status}, nil
+	if prev, err := st.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); err == nil {
+		return Result{ThreadID: prev.ThreadID, Status: prev.Status}, false, nil
 	}
 
 	nowTS := s.now().Unix()
@@ -200,20 +218,20 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	if threadID == "" {
 		b := make([]byte, 16)
 		if _, err := rand.Read(b); err != nil {
-			return Result{}, err
+			return Result{}, false, err
 		}
 		threadID = hex.EncodeToString(b)
 	}
 	// Shared-id semantics (HDTP §7): adopt the peer's thread id, creating the
 	// thread locally on first sight — but never across contacts.
-	th, err := s.Store.GetThread(ctx, accountID, threadID)
+	th, err := st.GetThread(ctx, accountID, threadID)
 	held := err == nil
 	if held {
 		if th.ContactFpr != contactFpr {
-			return Result{}, fmt.Errorf("%w: thread belongs to another contact", ErrBadRequest)
+			return Result{}, false, fmt.Errorf("%w: thread belongs to another contact", ErrBadRequest)
 		}
 		if owner && in.Topic != "" {
-			return Result{}, fmt.Errorf("%w: a topic is given when a thread is started, and that thread exists", ErrBadRequest)
+			return Result{}, false, fmt.Errorf("%w: a topic is given when a thread is started, and that thread exists", ErrBadRequest)
 		}
 	}
 	thread := store.Thread{
@@ -233,7 +251,7 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	// The thread row and the message land together. A conversation deleted between the read above
 	// and these writes leaves no thread to touch, and the message then starts it afresh: a message
 	// is never written under a thread row that is gone, where no inbox and no export would find it.
-	err = s.Store.Atomically(ctx, func(tx store.Store) error {
+	err = st.Atomically(ctx, func(tx store.Store) error {
 		if held {
 			touched, err := tx.TouchThread(ctx, accountID, threadID, nowTS)
 			if err != nil {
@@ -256,15 +274,12 @@ func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir 
 	if err != nil {
 		// Raced duplicate: someone recorded the same msg_id between our check and
 		// insert — return the original, honoring idempotency under concurrency.
-		if prev, lookupErr := s.Store.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); lookupErr == nil {
-			return Result{ThreadID: prev.ThreadID, Status: prev.Status}, nil
+		if prev, lookupErr := st.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); lookupErr == nil {
+			return Result{ThreadID: prev.ThreadID, Status: prev.Status}, false, nil
 		}
-		return Result{}, err
+		return Result{}, false, err
 	}
-	if s.Bus != nil {
-		s.Bus.Publish(Event{Kind: EventMessage, AccountID: accountID, ThreadID: threadID, ContactFpr: contactFpr})
-	}
-	return Result{ThreadID: threadID, Status: status}, nil
+	return Result{ThreadID: threadID, Status: status}, true, nil
 }
 
 // Thread returns a thread's messages in order.

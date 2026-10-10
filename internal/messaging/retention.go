@@ -17,14 +17,16 @@ package messaging
 //   - A blob still referenced by a retained message is never touched, even if
 //     the blob row itself is older than the window. The message is what keeps it
 //     alive, not its own age.
-//   - An unreferenced blob is collected only once it is ALSO past the window. A
-//     blob row is written before the message that references it, so "nothing
-//     points at it" is a normal, momentary state for brand-new media rather than
-//     evidence that it is garbage.
+//   - A blob is judged and deleted under its own lock (store.LockFile), in a
+//     transaction that asks again whether a message names it. The writes that
+//     store a file take the same lock and record the message naming it in the
+//     same transaction (MediaService), so a file stored while it is collected
+//     is either named when it is judged or written anew after it went.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,7 +41,14 @@ type RetentionStore interface {
 	ListBlobs(ctx context.Context, accountID string) ([]store.Blob, error)
 	DeleteBlob(ctx context.Context, accountID, hash string) (int64, error)
 	CountBlobRefs(ctx context.Context, hash string) (int64, error)
+	Atomically(ctx context.Context, fn func(tx store.Store) error) error
 }
+
+// FileGrace is how old a file's record must be before the orphan sweep (CollectOrphans) takes it
+// when nothing names it. Every write that stores a file records the message naming it in the same
+// transaction, so an unnamed record is garbage at any age; the hour is a margin, not a rule the
+// writes need.
+const FileGrace = time.Hour
 
 // BlobRemover deletes the bytes behind a hash. BlobDir implements it.
 type BlobRemover interface {
@@ -94,22 +103,17 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 		return SweepResult{}, err
 	}
 
-	// Age is a condition, not a detail. A blob row exists BEFORE the message that references it —
-	// `ReceiveInline` writes the two separately — so "unreferenced" alone would destroy media that
-	// arrived seconds ago, in the gap between those writes. Only content that is both unreferenced
-	// AND older than the window is collectable: the aged rows are the candidates, and Files spares
-	// whatever a retained message still names, whatever its age.
+	// The window's files: those older than it that no retained message names. Files judges both
+	// under the file's lock, and spares whatever a retained message still names, whatever its age.
 	blobs, err := s.Store.ListBlobs(ctx, accountID)
 	if err != nil {
 		return SweepResult{}, err
 	}
-	var aged []string
+	hashes := make([]string, 0, len(blobs))
 	for _, b := range blobs {
-		if b.CreatedAt < cutoff {
-			aged = append(aged, b.Hash)
-		}
+		hashes = append(hashes, b.Hash)
 	}
-	removed, readable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, aged)
+	removed, readable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, cutoff)
 	if err != nil {
 		return SweepResult{}, err
 	}
@@ -128,20 +132,52 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 	return SweepResult{Messages: msgs, Threads: threads, Blobs: removed}, nil
 }
 
+// CollectOrphans deletes the account's files that no message names and whose record is older than
+// FileGrace, whatever the retention window, unlimited included: what a deleted conversation could
+// not take (a store failure, an unreadable media body), and a file left unnamed by an earlier
+// version of the node (a link it fetched without recording the file on the message). It returns how
+// many records went, and audits them as a retention_sweep.
+func (s *Sweeper) CollectOrphans(ctx context.Context, accountID string) (int64, error) {
+	blobs, err := s.Store.ListBlobs(ctx, accountID)
+	if err != nil {
+		return 0, err
+	}
+	hashes := make([]string, 0, len(blobs))
+	for _, b := range blobs {
+		hashes = append(hashes, b.Hash)
+	}
+	removed, readable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, s.now().Add(-FileGrace).Unix())
+	if err != nil {
+		return removed, err
+	}
+	if !readable {
+		s.audit("retention_sweep", "account:"+accountID, "blobs_skipped_unreadable_media")
+		return 0, nil
+	}
+	if removed > 0 {
+		s.audit("retention_sweep", fmt.Sprintf("account:%s blobs:%d", accountID, removed), "ok")
+	}
+	return removed, nil
+}
+
 // Files collects media files: the one place a blob record and its file are deleted, for the
-// retention sweep and for a deleted conversation (Service.DeleteThread) alike.
+// retention sweep, the orphan sweep and a deleted conversation (Service.DeleteThread) alike.
 type Files struct {
 	Store RetentionStore
 	// Blobs removes the bytes; nil deletes the records and leaves the files (tests).
 	Blobs BlobRemover
 }
 
-// Collect deletes the account's blob record of each candidate hash that no media message of the
-// account still names, and the file behind it once no account's record names it (the store is
-// content-addressed and shared). It returns how many records went. readable is false, and nothing
-// is deleted, when a media message's body does not parse: the set of names still in use is then
-// unknown, and deleting on an unknown set destroys what cannot come back.
-func (f Files) Collect(ctx context.Context, accountID string, candidates []string) (removed int64, readable bool, err error) {
+// Collect deletes the account's record of each candidate file that is older than cutoff (unix
+// seconds) and that no media message of the account names, and the file itself once no account's
+// record names it (the store is content-addressed and shared). Each file is judged and deleted in a
+// transaction that holds the file's lock (store.LockFile), the lock MediaService takes to store a
+// file, so a file stored again while it is collected is either seen (its record is young, or a
+// message names it) or stored after the deletion, writing its record and bytes anew. It returns how
+// many records went. readable is false, and nothing is deleted, when a media message's body does
+// not parse: the set of names still in use is then unknown, and deleting on an unknown set destroys
+// what cannot come back.
+func (f Files) Collect(ctx context.Context, accountID string, candidates []string, cutoff int64) (removed int64, readable bool, err error) {
 	live, readable, err := referencedHashes(ctx, f.Store, accountID)
 	if err != nil || !readable {
 		return 0, readable, err
@@ -150,23 +186,47 @@ func (f Files) Collect(ctx context.Context, accountID string, candidates []strin
 		if live[hash] {
 			continue
 		}
-		n, err := f.Store.DeleteBlob(ctx, accountID, hash)
-		if err != nil {
-			return removed, true, err
-		}
-		if n == 0 {
-			continue // this account held no record of it: nothing of its to remove
-		}
-		removed++
-		// The file is shared across accounts; it goes only when the last row does.
-		refs, err := f.Store.CountBlobRefs(ctx, hash)
-		if err != nil {
-			return removed, true, err
-		}
-		if refs == 0 && f.Blobs != nil {
-			if err := f.Blobs.Remove(hash); err != nil {
-				return removed, true, fmt.Errorf("retention: removing blob %s: %w", hash, err)
+		var gone bool
+		err := f.Store.Atomically(ctx, func(tx store.Store) error {
+			gone = false
+			if err := tx.LockFile(ctx, hash); err != nil {
+				return err
 			}
+			b, err := tx.GetBlob(ctx, accountID, hash)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return nil // this account holds no record of it: nothing of its to remove
+				}
+				return err
+			}
+			if b.CreatedAt >= cutoff {
+				return nil // stored again, or new: a message naming it may be on its way
+			}
+			// Asked again under the lock: a message recorded since the read above names it.
+			if named, err := tx.MediaNames(ctx, accountID, hash); err != nil || named {
+				return err
+			}
+			if _, err := tx.DeleteBlob(ctx, accountID, hash); err != nil {
+				return err
+			}
+			gone = true
+			// The file is shared across accounts; it goes only when the last row does.
+			refs, err := tx.CountBlobRefs(ctx, hash)
+			if err != nil {
+				return err
+			}
+			if refs == 0 && f.Blobs != nil {
+				if err := f.Blobs.Remove(hash); err != nil {
+					return fmt.Errorf("retention: removing blob %s: %w", hash, err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return removed, true, err
+		}
+		if gone {
+			removed++
 		}
 	}
 	return removed, true, nil

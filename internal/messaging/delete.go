@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
@@ -32,7 +33,7 @@ func (d Deleted) AuditDetail(threadID string) string {
 // DeleteThread deletes one conversation of the account, locally (SPEC §7.9): the thread row (its
 // read marker and the names it kept from a removed contact go with it), every message of the
 // thread whatever its status (an outbound message still being retried is not tried again), the
-// change-log rows naming it, and then the media files no remaining message names (Files). The
+// change-log rows naming it, and then the media files no remaining message names (Files.Collect). The
 // contact, its permissions, its other threads and the idempotency records (HDTP §13.3) stay, and
 // nothing is sent: the peer's copy is the peer's. A message that arrives later on the same
 // thread id starts the thread afresh.
@@ -76,13 +77,11 @@ func (s *Service) DeleteThread(ctx context.Context, accountID, threadID string) 
 		}
 	}
 	if len(hashes) > 0 {
-		// The conversation is gone whatever happens to its files: a collection that cannot run (an
-		// unreadable media body elsewhere) leaves them for the retention sweep to judge.
-		files, _, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes)
-		out.Files = files
-		if err != nil {
-			return out, fmt.Errorf("conversation deleted, its files not collected: %w", err)
-		}
+		// The conversation is gone whatever happens to its files, of any age. One this collection
+		// could not take (a store failure, an unreadable media body elsewhere) is left; the hourly
+		// orphan sweep (Sweeper.CollectOrphans) takes it once nothing names it, whatever the retention
+		// window. Files counts what went now.
+		out.Files, _, _ = Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
 	}
 	return out, nil
 }
