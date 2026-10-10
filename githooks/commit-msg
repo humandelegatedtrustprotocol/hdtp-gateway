@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Commit-msg: a commit message carries no path from the machine that wrote it.
+#
+# A message is published with its commit. A path under /Users or /home is the writer's own machine,
+# and in a public repository that is a stranger reading someone's home directory layout: what
+# TestNoTrackedFileLeaksALocalPath refuses in the tracked files, which no test can see in a message.
+# Say "the worktree" or "the sibling checkout" instead.
+#
+# The whole message file is read. A message given with -m or -F keeps its comment lines and anything
+# under a scissors line (git's cleanup is then "whitespace"), so neither is skipped. The cost: a
+# `git commit -v` whose diff removes such a path from the tree is refused; commit that without -v.
+# TestCommitMsgHookRefusesWhatTheTreeRefuses runs this hook on planted messages and holds its pattern
+# to the tree test's homeDir.
+#
+# This project does not bypass its hooks (CONTRIBUTING.md): a gate that is wrong is fixed, not skipped.
+set -euo pipefail
+
+LOCAL_PATH="/Users""/|(^|[^A-Za-z0-9_/-])/home""/[A-Za-z0-9._-]+"
+if hits="$(grep -n -E "$LOCAL_PATH" "$1")"; then
+  echo "commit-msg: the message carries a path from this machine, which would be published with the commit:" >&2
+  printf '              %s\n' "$hits" >&2
+  echo "            Say \"the worktree\" or \"the sibling checkout\" instead." >&2
+  exit 1
+fi
