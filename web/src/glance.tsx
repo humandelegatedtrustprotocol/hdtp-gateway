@@ -110,8 +110,10 @@ function CertificateLine({ c }: { c: CertificateView | { failed: string } }) {
  * `?`, in its top-right corner (the owner, 2026-10-01: "move ? to top right on card"). No key is drawn on
  * it: a key is on the card page it opens, where it is needed (`KeyFacts`).
  */
-export function IdentityCard({ name, handle, address, status, certificate, counts, footer, help, to, onClick }: {
+export function IdentityCard({ name, identity, handle, address, status, certificate, counts, footer, help, to, onClick }: {
   name: string;
+  /** Who the card is, for its avatar's colour (ui.tsx Avatar): an id that names the identity for good. */
+  identity?: string;
   handle?: ReactNode;
   address?: ReactNode;
   status?: ReactNode;
@@ -130,7 +132,7 @@ export function IdentityCard({ name, handle, address, status, certificate, count
     <article className={"gl-id" + (to ? " gl-go" : "") + (help ? " gl-has-help" : "")} aria-label={name}>
       {help && <div className="gl-help">{help}</div>}
       <div className="top">
-        <Avatar name={name} />
+        <Avatar name={name} identity={identity} />
         <div className="who">
           <div className="nm"><b title={name}>{to ? <Link to={to} onClick={onClick} className="gl-open">{name}</Link> : name}</b>{status}</div>
           {handle && <small>{handle}</small>}

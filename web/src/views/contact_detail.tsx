@@ -127,7 +127,7 @@ export function ContactDetail({ fpr }: { fpr: string }) {
 
   return (
     <main>
-      <PageHeader parent={PARENT} leading={<Avatar name={named} size="lg" />} title={named || <span className="unnamed">Unnamed contact</span>}
+      <PageHeader parent={PARENT} leading={<Avatar name={named} identity={fpr} size="lg" />} title={named || <span className="unnamed">Unnamed contact</span>}
         // A pill for what is not the ordinary: an active contact who may only message says nothing more.
         meta={<>{contactPill(d.status) && <Badge status={d.status}>{contactStatusWord(d.status)}</Badge>}<Badge>{d.preset || "custom"}</Badge>{trust !== "messages_only" && <Badge title={trust}>{trustWord(trust)}</Badge>}</>}
         sub={<><IdText id={d.fingerprint} />{d.petname && d.display_name && <> · they call themselves “{d.display_name}”</>}</>} />

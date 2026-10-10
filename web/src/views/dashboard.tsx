@@ -106,7 +106,7 @@ export function Dashboard() {
               const endpoint = a.certificate?.endpoint ?? "";
               return (
                 <IdentityCard key={a.id}
-                  name={a.display_name || a.slug}
+                  name={a.display_name || a.slug} identity={a.id}
                   // A long slug gives way (an ellipsis, the whole of it in the tooltip). No key: the card page it opens
                   // draws the identity's keys, where they are needed (KeyFacts).
                   handle={<span className="gl-slug" title={a.slug}>{a.slug}</span>}

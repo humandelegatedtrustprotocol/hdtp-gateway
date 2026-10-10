@@ -26,6 +26,11 @@
   --accent:#F38020; --accent-2:#FFA552; --accent-soft:#FDF0E4; --accent-ink:#AB5309; --accent-ui:#D9690C;
   --accent-rgb:243 128 32; --glow-rgb:255 165 82;
   --amber:#7A5A00; --amber-soft:#FBF3D9; --red:#B3261E; --red-soft:#FBECEA;
+  /* an avatar's fills, under white initials, the same by day and by night: ten hues and no grey, so no
+     identity's colour reads as the neutral fill of one with no key (ui.tsx Avatar; tools/kit.mjs check
+     measures each against white and holds the count to ui.tsx's AVATAR_FILLS) */
+  --av-1:#AB5309; --av-2:#8A6A1A; --av-3:#4F7A2A; --av-4:#1E7A5E; --av-5:#1F6A8A;
+  --av-6:#4F5BB5; --av-7:#7D4BAE; --av-8:#A13C8A; --av-9:#B03A48; --av-10:#8A4F3A;
   /* text on a coloured fill (a count, a danger button); an accent link on the ink fill (an own message) */
   --on-fill:#FFFFFF; --accent-on-ink:var(--accent-2);
   /* the emergency button (the owner, 2026-09-30): black, white words, a yellow warning sign, in both themes;

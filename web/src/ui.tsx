@@ -2,25 +2,24 @@
 // primitives every view is composed from (see the block at the end).
 import type { ReactNode } from "react";
 import { PRODUCT } from "./product";
-import { initialsOf } from "./words";
+import { avatarSlot, initialsOf } from "./words";
 export { initialsOf };
 
-// A stable colour per name, from a fixed palette that reads on white and dark: the kit's avatar fills
-// first, each dark enough for white initials at 4.5 : 1 (tools/kit.mjs check holds every one).
-const PALETTE = ["#AB5309", "#665CA0", "#8F6428", "#5F6A66", "#646973", "#4E6E8E", "#8A4F6A"];
-function hue(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-}
+// An identity's colour, from brand.css's --av-1 to --av-10 (the same by day and by night, each dark
+// enough for white initials at 4.5 : 1; tools/kit.mjs check measures every one and holds this count to
+// the tokens there are). `identity` is who the avatar is: a root fingerprint, or failing one an address
+// or an id that names it for good, picked by words.ts avatarSlot. The name only gives the initials, so
+// a rename keeps the colour and two contacts called Bob almost always wear two. No key, the neutral fill.
+const AVATAR_FILLS = 10;
 
-export function Avatar({ name, size, me }: { name: string; size?: "sm" | "lg"; me?: boolean }) {
+export function Avatar({ name, identity, size, me }: { name: string; identity?: string; size?: "sm" | "lg"; me?: boolean }) {
   const cls = "av" + (size ? " " + size : "") + (me ? " me" : "");
   // Nobody's name: a neutral figure, never initials made of whatever stood in for one ('SH' from a
   // fingerprint's `sha256:`, 'JN' from a short fingerprint, '(' from a bracket).
   const initials = initialsOf(name);
   if (!me && !initials) return <span className={cls + " anon"} aria-hidden="true"><Icon name="person" size={size === "lg" ? 22 : size === "sm" ? 14 : 16} /></span>;
-  return <span className={cls} style={me ? undefined : { background: hue(name) }} aria-hidden="true">{initials || "?"}</span>;
+  const slot = me ? -1 : avatarSlot(identity ?? "", AVATAR_FILLS);
+  return <span className={cls} style={slot < 0 ? undefined : { background: `var(--av-${slot + 1})` }} aria-hidden="true">{initials || "?"}</span>;
 }
 
 /**

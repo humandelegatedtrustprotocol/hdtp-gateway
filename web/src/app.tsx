@@ -126,7 +126,7 @@ function Root() {
               {session.accounts.length > 1 && <MenuHead>Acting as</MenuHead>}
               {session.accounts.length > 1 && session.accounts.map((a) => (
                 <MenuItem key={a.id} selected={a.id === me.id} onClick={() => setAccount(a.id)}
-                  lead={<Avatar name={a.display_name} size="sm" me={a.id === me.id} />}>
+                  lead={<Avatar name={a.display_name} identity={a.id} size="sm" me={a.id === me.id} />}>
                   <b>{a.display_name}</b><small>{a.slug}</small>
                 </MenuItem>
               ))}
