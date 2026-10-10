@@ -249,7 +249,7 @@ export function Messages() {
           <div className="conv-list">
             {people.map((p) => (
               <button key={p.fingerprint} className={"conv" + (p.fingerprint === sel ? " sel" : "")} onClick={() => pick(p.fingerprint)}>
-                <Avatar name={p.label} />
+                <Avatar name={p.label} identity={p.fingerprint} />
                 <span className="who">
                   <b><span>{p.label}</span>{p.presence && <span className={"dot " + p.presence} title={presenceWords(p)} aria-label={presenceWords(p)} />}</b>
                   <span className="preview">{p.preview || (p.status === "active" ? "No messages yet" : p.status)}</span>
@@ -273,7 +273,7 @@ export function Messages() {
             <>
               <div className="thread-h">
                 <Toolbar className="back"><Button variant="quiet" icon="back" aria-label="Back to conversations" onClick={() => setPane("list")} /></Toolbar>
-                <Avatar name={current.label} />
+                <Avatar name={current.label} identity={current.fingerprint} />
                 <div className="who">
                   <div className="name" title={current.label}>{current.label}</div>
                   <div className="meta">
@@ -309,7 +309,7 @@ export function Messages() {
                     ...(pending && !(d.messages ?? []).some((m) => m.mine && m.body === pending.body) ? [pending] : []),
                   ].map((m, i) => (
                     <div key={i} className={"msg" + (m.mine ? " mine" : "")}>
-                      {m.mine ? <Avatar me name={accountName()} size="sm" /> : <Avatar name={current.label} size="sm" />}
+                      {m.mine ? <Avatar me name={accountName()} size="sm" /> : <Avatar name={current.label} identity={current.fingerprint} size="sm" />}
                       <div className="body">
                         <div className="meta">
                           {/* One contact per thread, and the avatar and the side say whose each message is: a
@@ -491,7 +491,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
     <aside className="panel" aria-label="Contact details">
       <Toolbar className="back"><Button variant="quiet" icon="back" onClick={onBack}>Back</Button></Toolbar>
       <div className="who">
-        <Avatar name={label} size="lg" />
+        <Avatar name={label} identity={fpr} size="lg" />
         <div>
           <b>{label}</b>
           <small>{c?.status ?? ""}{c?.trust && <> · {trustWord(c.trust)}</>}</small>

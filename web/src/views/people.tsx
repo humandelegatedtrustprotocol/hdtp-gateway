@@ -140,7 +140,7 @@ function ContactsTab({ d, onNote, reload }: {
       <List aria-label="Contacts" empty={<EmptyState title="Nobody yet" action={<Button to="/invites">Create an invite</Button>}>invite someone, or accept an invite below</EmptyState>}>
         {rows.map((x) => (
           <ListRow key={x.fingerprint}
-            leading={<Avatar name={x.label} />}
+            leading={<Avatar name={x.label} identity={x.fingerprint} />}
             title={x.label}
             to={`/contacts/${encodeURIComponent(x.fingerprint)}`}
             meta={contactPill(x.status) ? <Badge status={x.status}>{contactStatusWord(x.status)}</Badge> : undefined}

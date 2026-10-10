@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  actionWord, ago, clockOf, contactPill, contactStatusWord, dateOf, dayOf, fieldLabel, fileSize, initialsOf, inviteState, kindLabel, mediaKind, num,
+  actionWord, ago, clockOf, contactPill, contactStatusWord, dateOf, dayOf, fieldLabel, fileSize, initialsOf, avatarSlot, inviteState, kindLabel, mediaKind, num,
   permLabel, statusWord, tallyCount, tallyLabel, tallyText, titleWithTally, toneOf, toolAction, toolLabel, trustWord, undeliveredReason, usesText,
   when, whenTitle, withDays,
 } from "../src/words.ts";
@@ -148,6 +148,38 @@ export const INITIALS = [
 
 test("an avatar's initials are letters and digits of the name, never punctuation or an id", () => {
   for (const [name, want] of INITIALS) assert.equal(initialsOf(name), want, name);
+});
+
+// Two people named bob: the one removed and the one added since. Their roots are fingerprints of two
+// keys (SHA-256 of "old bob" and "new bob", as HDTP §2 spells one); their names are the same.
+const OLD_BOB = "sha256:FLuPe1CufTrRXVcZXWF90_SOg9q4ZLPUgcgwCNtCVr8";
+const NEW_BOB = "sha256:ghGuwv0kg4zBw-6LDmEGGSE60BIevaZlcf8kMJNa6VU";
+
+test("an avatar's colour is its identity's: the root fingerprint picks it, the name does not", () => {
+  // The first 30 bits of the digest: F L u P e are 5 11 46 15 30 in base64url, 86959070 in all.
+  assert.equal(avatarSlot(OLD_BOB, 10), 86959070 % 10);
+  assert.equal(avatarSlot(OLD_BOB, 10), avatarSlot(OLD_BOB, 10));
+  assert.notEqual(avatarSlot(OLD_BOB, 10), avatarSlot(NEW_BOB, 10), "old bob and new bob wear different colours");
+  // Only those 30 bits count: the rest of the fingerprint is not read.
+  assert.equal(avatarSlot(OLD_BOB, 10), avatarSlot(OLD_BOB.slice(0, 12), 10));
+  // Every fill is reachable, and none is far off its share, over a thousand roots.
+  const seen = new Array(10).fill(0);
+  for (let i = 0; i < 1000; i++) {
+    const digest = Buffer.from(Array.from({ length: 32 }, (_, j) => (i * 97 + j * 31 + ((i * j) % 251)) & 255)).toString("base64url");
+    seen[avatarSlot("sha256:" + digest, 10)]++;
+  }
+  for (const n of seen) assert.ok(n > 50 && n < 150, `a fill drawn ${n} times in 1000`);
+});
+
+test("an avatar with no fingerprint takes its colour from its address, and with nothing, none", () => {
+  const at = avatarSlot("https://node.example/hdtp", 10);
+  assert.ok(at >= 0 && at < 10);
+  assert.equal(avatarSlot("https://node.example/hdtp", 10), at);
+  assert.notEqual(avatarSlot("https://other.example/hdtp", 10), -1);
+  // Not a fingerprint by its spelling (no digest after the prefix): hashed as text, still a colour.
+  assert.ok(avatarSlot("sha256:", 10) >= 0);
+  assert.equal(avatarSlot("", 10), -1);
+  assert.equal(avatarSlot(OLD_BOB, 0), -1);
 });
 
 test("a tool's button says what pressing it does", () => {

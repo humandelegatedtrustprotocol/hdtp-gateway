@@ -205,11 +205,29 @@ export function brandProblems(app = APP) {
     if (!existsSync(join(app, f))) continue
     for (const m of readFileSync(join(app, f), 'utf8').matchAll(/(?:^|[;{\s])color:\s*var\(--accent\)/g)) out.push(`${f}: --accent used as a text colour: ${m[0].trim()}`)
   }
-  // An avatar's initials are text: white on each of its fills.
+  // An avatar's initials are text: white on each of its fills, in each theme. The fills are brand.css's
+  // --av-1 to --av-N, as many as ui.tsx's Avatar picks among (AVATAR_FILLS), and ui.tsx names no colour.
   const ui = existsSync(join(app, 'src/ui.tsx')) ? readFileSync(join(app, 'src/ui.tsx'), 'utf8') : ''
-  const palette = ui.match(/const PALETTE = \[([^\]]*)\]/)
-  if (!palette) out.push('src/ui.tsx has no PALETTE for avatars')
-  else for (const h of palette[1].match(/#[0-9A-Fa-f]{6}/g) || []) if (ratio('#FFFFFF', h) < 4.5) out.push(`avatar fill ${h}: white initials are ${ratio('#FFFFFF', h).toFixed(2)} : 1`)
+  out.push(...avatarProblems(ui, light, dark))
+  return out
+}
+
+/** How ui.tsx's Avatar and brand.css's --av-N fills disagree, or a fill white initials cannot be read on. */
+export function avatarProblems(ui, light, dark) {
+  const out = []
+  const n = Number(/const AVATAR_FILLS = (\d+)/.exec(ui)?.[1])
+  if (!(n > 0)) return ['src/ui.tsx states no AVATAR_FILLS this check can read']
+  if (!/var\(--av-\$\{/.test(ui)) out.push('src/ui.tsx does not fill an avatar from the --av-N tokens')
+  const have = Object.keys(light).filter((k) => /^av-\d+$/.test(k)).map((k) => Number(k.slice(3))).sort((a, b) => a - b)
+  if (JSON.stringify(have) !== JSON.stringify(Array.from({ length: n }, (_, i) => i + 1))) out.push(`src/ui.tsx picks among ${n} avatar fills; src/brand.css has --av-${have.join(', --av-') || '(none)'}`)
+  for (const m of ui.matchAll(/#[0-9A-Fa-f]{6}\b/g)) out.push(`src/ui.tsx carries ${m[0]}: an avatar's fill is a token of src/brand.css, not a literal`)
+  for (const [theme, tk] of [['light', light], ['dark', dark]]) {
+    for (const i of have) {
+      const h = tk[`av-${i}`]
+      if (!HEX.test(h || '')) out.push(`${theme}: --av-${i} is not a #rrggbb colour (${h})`)
+      else if (ratio('#FFFFFF', h) < 4.5) out.push(`${theme}: avatar fill --av-${i} ${h}: white initials are ${ratio('#FFFFFF', h).toFixed(2)} : 1, needs 4.5`)
+    }
+  }
   return out
 }
 

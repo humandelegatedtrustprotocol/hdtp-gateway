@@ -122,6 +122,24 @@ export function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+const B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * Which of `fills` avatar colours an identity wears, 0 to fills - 1, or -1 for none (the neutral fill).
+ * The key is who it is, never what they are called: a root fingerprint (`sha256:` + base64url of a
+ * SHA-256, HDTP §2) picks by its first 30 bits, which are already a hash, so the same person keeps
+ * their colour through a rename and a namesake almost always wears another. Anything else that names
+ * one identity for good (an address, an id) is hashed as text; an empty key has no colour.
+ */
+export function avatarSlot(key: string, fills: number): number {
+  if (!key || fills < 1) return -1;
+  const fpr = /^sha256:([A-Za-z0-9_-]{5})/.exec(key);
+  let h = 0;
+  if (fpr) for (const ch of fpr[1]) h = h * 64 + B64URL.indexOf(ch);
+  else for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % fills;
+}
+
 const TRUST: Readonly<Record<string, string>> = { messages_only: "Messages only", may_instruct: "May instruct your agent" };
 
 /** A contact's trust flag as words: `messages_only` → "Messages only", `may_instruct` → "May instruct your agent". */
