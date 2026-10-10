@@ -75,6 +75,20 @@ expect_refused "HEAD past the tag" "$d" "not v9.9.9"
 d=$(fixture othertag); (cd "$d" && g tag -d v9.9.9 >/dev/null && g tag -a v9.9.8 -m v9.9.8)
 expect_refused "HEAD tagged with another version" "$d" "no tag v9.9.9"
 
+# The tree changing while dist builds: a `go` that leaves a stray file before building. The tree
+# check has passed by then, so only dist's check of the binaries can refuse.
+mkdir -p "$tmp/gostub"
+printf '#!/bin/sh\n[ "$1" = build ] && touch stray\nexec "%s" "$@"\n' "$(command -v go)" > "$tmp/gostub/go"
+chmod +x "$tmp/gostub/go"
+d=$(fixture duringbuild)
+if PATH=$tmp/gostub:$PATH dist "$d"; then
+  bad "tree modified during the build: dist passed"
+elif ! grep -q "vcs.modified=false" "$tmp/out"; then
+  bad "tree modified during the build: refused, but not by the binary check:"; cat "$tmp/out" >&2
+else
+  pass "tree modified during the build: refused"
+fi
+
 # The binary check on builds dist would not make, each in a tree that is otherwise a clean tag.
 d=$(fixture binaries)
 build() { (cd "$d" && CGO_ENABLED=0 go build -trimpath "$@" -o "$tmp/bin" ./cmd/hdtp-gateway); }
