@@ -55,6 +55,7 @@ func TestServedAnnotationsFillTheDefaultsAndStateOpenWorld(t *testing.T) {
 		{"additive, idempotent", `{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":true}`, integrations.ModePassthrough, [4]bool{false, false, true, true}},
 		{"closed world is still open from here", `{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}`, integrations.ModePassthrough, [4]bool{true, false, true, true}},
 		{"a hint that is not a boolean is the default", `{"readOnlyHint":"yes","destructiveHint":0,"idempotentHint":null}`, integrations.ModePassthrough, [4]bool{false, true, false, true}},
+		{"a null destructive hint is the default, not false", `{"destructiveHint":null}`, integrations.ModePassthrough, [4]bool{false, true, false, true}},
 		{"a title is not re-served", `{"title":"Find","readOnlyHint":true}`, integrations.ModePassthrough, [4]bool{true, true, false, true}},
 		{"not an object", `[true]`, integrations.ModePassthrough, [4]bool{false, true, false, true}},
 		{"agent-answered, read-only upstream", `{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}`, integrations.ModeAgent, [4]bool{false, true, false, true}},

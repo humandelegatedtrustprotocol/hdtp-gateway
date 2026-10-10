@@ -155,9 +155,9 @@ func servedAnnotations(stored json.RawMessage, mode string) *mcp.ToolAnnotations
 	var ann map[string]json.RawMessage
 	if json.Unmarshal(stored, &ann) == nil {
 		stated := func(key string, into *bool) {
-			var b bool
-			if raw, ok := ann[key]; ok && json.Unmarshal(raw, &b) == nil {
-				*into = b
+			var b *bool
+			if raw, ok := ann[key]; ok && json.Unmarshal(raw, &b) == nil && b != nil {
+				*into = *b
 			}
 		}
 		stated("readOnlyHint", &ro)
