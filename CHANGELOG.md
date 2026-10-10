@@ -12,6 +12,14 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Added
 
+- Every tool the node serves states the four MCP hints (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`) as JSON booleans, each even where it equals the protocol's
+  default: the fourteen HDTP tools, `sealed_call` included, on the plaintext `tools/list` and on the
+  one answered inside a sealed envelope alike; the thirty-four owner MCP tools; and every exposed
+  integration tool. Open world is true only where a call can leave this host (a calendar or status
+  recipe, an integration, the sealed wrapper). BatonDeck serves the same values for the same HDTP
+  tool names, and its copy (`gateway/test/fixtures/go-protocol-tools.json`) is held to this node's
+  wire by `TestTheCloudsCopyOfTheProtocolHintsIsCurrent`.
 - An export carries a former contact's conversation, and an import takes it in (HDTP §9.2,
   SEP-0004): each root that was ever a contact and is not (no row, or a request not yet decided)
   travels: each of its threads as a removed thread in `threads.csv`, carrying per name the newest
@@ -32,6 +40,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- An exposed integration tool is served with the upstream's hints, normalised (SPEC §6.9): a hint
+  the upstream did not state as a boolean is MCP's default (read-only false, destructive true,
+  idempotent false, open world true), `openWorldHint` is true whatever the upstream said, since every
+  call leaves this host for the upstream, and an agent-answered exposure states the worst case
+  whatever the upstream's tool said of itself. It was served with no annotations at all, although the
+  snapshot had stored them, so a caller's host assumed every default.
 - **Upgrading:** a link the owner fetches is now fetched for one message and its file recorded on
   that message, so the conversation opens it, an export carries it and a deletion collects it. The
   hourly pass now also takes files no message names, whatever the retention window (once older than

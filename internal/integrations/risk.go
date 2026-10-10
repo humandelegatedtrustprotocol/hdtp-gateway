@@ -1,9 +1,10 @@
 package integrations
 
 // Safety rails (SPEC §6.9): annotations and name heuristics sort and badge the
-// exposure picker — and NOTHING else. They are untrusted UI hints; no permission
-// or authorization decision may consult them. Default-true hints are pointers:
-// nil means "assume destructive / open-world".
+// exposure picker; the four hints are also re-served, normalised, on an exposed
+// tool (internal/cli/integrationsurface.go, servedAnnotations). They are
+// untrusted; no permission or authorization decision may consult them.
+// Default-true hints are pointers: nil means "assume destructive / open-world".
 
 import (
 	"encoding/json"

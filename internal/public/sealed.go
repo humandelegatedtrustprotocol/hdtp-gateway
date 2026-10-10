@@ -80,12 +80,14 @@ func actorOf(f *EnvelopeFacts) string {
 	return "guest"
 }
 
-// sealedTool is the tool definition; arguments are the four envelope members.
+// sealedTool is the tool definition; arguments are the four envelope members. Its hints are the
+// worst case of what it can carry (hints.go).
 func sealedTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name:        SealedToolName,
 		Description: "Carry a sealed HDTP envelope; the inner call is dispatched as the envelope's proven identity and the result is sealed back",
 		InputSchema: json.RawMessage(`{"type":"object","required":["protected","enc","ct","sig"],"properties":{"protected":{"type":"string"},"enc":{"type":"string"},"ct":{"type":"string"},"sig":{"type":"string"}},"additionalProperties":false}`),
+		Annotations: hintsOf(SealedToolName),
 	}
 }
 

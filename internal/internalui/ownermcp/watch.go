@@ -25,6 +25,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 )
 
 // WaitArgs is a resumable cursor and a bound on how long to hold the call.
@@ -138,12 +139,14 @@ func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accoun
 			"a request needs answering, a contact waits at a new address, an integration needs re-authorizing — then " +
 			"return what moved since your cursor. Call it in a loop with the cursor it returns as since. Omitting since " +
 			"starts from now with no backlog.",
+		Annotations: public.Hints(true, false, true, false),
 	}, ot.waitForUpdatesTool)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "digest",
 		Description: "What happened in a window and what is still open: messages in and out per contact, who is " +
 			"waiting on a reply, contacts asking to connect, requests awaiting an answer. For an end-of-day summary.",
+		Annotations: public.Hints(true, false, true, false),
 	}, ot.digestTool)
 }
 

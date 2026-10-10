@@ -57,7 +57,7 @@ Unexported, by file:
 | `checkcmd.go`, `doctor.go`, `healthcheck.go`, `migrate.go` | the commands of those names |
 | `ingresscmd.go` | `ingress serve` and `ingress token` |
 | `capabilities.go` | `capabilityBinder`: which provider serves an account's core capabilities now (mapped mode, SPEC §6.6), resolved per call and cached until an exposure changes |
-| `integrations.go`, `integrationsurface.go` | bringing configured integrations back up at start; rebuilding what one integration serves |
+| `integrations.go`, `integrationsurface.go` | bringing configured integrations back up at start; rebuilding what one integration serves, each tool with the upstream's four hints normalised (`servedAnnotations`: MCP's default for a hint the upstream did not state as a boolean, `openWorldHint` true always, the worst case for an agent-answered exposure) |
 | `contactinit.go` | the owner-initiated half of contact establishment (add by card, redeem an invite, request a contact, tell an asker how the owner answered) |
 | `ownerextra.go` | what the owner-MCP tools need from outside their package |
 | `leases.go` | `leaseKeeper`: this process's share of the leases on the outbound retries and the retention pass |

@@ -271,8 +271,10 @@ func capped(s string, max int) bool { return len(s) <= max }
 
 func objSchema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 
+// tool is one built-in tool's definition: its name, its description, an open object schema and
+// its four hints (hints.go).
 func tool(name, desc string) *mcp.Tool {
-	return &mcp.Tool{Name: name, Description: desc, InputSchema: objSchema()}
+	return &mcp.Tool{Name: name, Description: desc, InputSchema: objSchema(), Annotations: hintsOf(name)}
 }
 
 // callerFpr is the resolved caller's fingerprint — never an argument.
