@@ -15,8 +15,9 @@ rebuild a tag and compare.
 4. Build every platform and the SBOM from a fresh clone of that tag:
 
    ```
-   git clone --branch v1.2.3 https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git
-   cd hdtp-gateway
+   dir=$(mktemp -d)/hdtp-gateway
+   git clone --branch v1.2.3 https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git "$dir"
+   cd "$dir"
    make dist VERSION=1.2.3
    make sbom
    ```
@@ -79,7 +80,8 @@ saw as modified, so a rebuild from a clean checkout of the tag does not match th
 - For linux/amd64 only: a fresh clone of each tag, built with the `dist` flags and one empty
   untracked file present, gives exactly the published checksum. The same clone with no
   untracked file gives a different one. The untracked file is the only difference between the
-  two builds, and it is not compiled: it changes nothing but the `vcs.modified` stamp. The other
+  two builds and is not compiled; their build info differs in two lines, `vcs.modified=true` and
+  the main module's version, `v0.1.2+dirty` against `v0.1.2` (compared for v0.1.2). The other
   three platforms were not rebuilt.
 
 The published releases are left as they are. The next release, built under the checks above,
