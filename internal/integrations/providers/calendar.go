@@ -16,6 +16,7 @@ import (
 	ics "github.com/arran4/golang-ical"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 )
 
@@ -67,7 +68,7 @@ func (c *Calendar) fields(own map[string]any) map[string]any {
 // integrations"), so a raw free/busy calendar offers any free time its owner
 // has not blocked.
 func (c *Calendar) CheckAvailability(ctx context.Context, windowStart, windowEnd time.Time, duration time.Duration) ([]calendar.Slot, error) {
-	b, ok := c.Recipe.Capabilities["check_availability"]
+	b, ok := c.Recipe.Capabilities[core.ToolCheckAvailability]
 	if !ok {
 		return nil, fmt.Errorf("providers: recipe %s has no check_availability", c.Recipe.Name)
 	}
@@ -194,7 +195,7 @@ func (c *Calendar) slotsFromBusy(b integrations.Binding, res any, winStart, winE
 // BookSlot creates the event upstream, idempotently by msg_id: a replay returns
 // the recorded acknowledgment without re-executing (SPEC §6.7).
 func (c *Calendar) BookSlot(ctx context.Context, contactFpr, msgID string, slot calendar.Slot, subject string) (calendar.BookingAck, error) {
-	b, ok := c.Recipe.Capabilities["book_slot"]
+	b, ok := c.Recipe.Capabilities[core.ToolBookSlot]
 	if !ok {
 		return calendar.BookingAck{}, fmt.Errorf("providers: recipe %s has no book_slot", c.Recipe.Name)
 	}
@@ -295,7 +296,7 @@ func (c *Calendar) synthesizeICS(eventID string, slot calendar.Slot, subject str
 
 // CancelBooking maps the booking_id back and deletes the upstream event.
 func (c *Calendar) CancelBooking(ctx context.Context, bookingID string) error {
-	b, ok := c.Recipe.Capabilities["cancel_booking"]
+	b, ok := c.Recipe.Capabilities[core.ToolCancelBooking]
 	if !ok {
 		return fmt.Errorf("providers: recipe %s has no cancel_booking", c.Recipe.Name)
 	}

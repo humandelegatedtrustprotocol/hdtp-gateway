@@ -21,6 +21,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
@@ -61,7 +62,7 @@ func (n *Node) AnnounceMove(ctx context.Context, accountID, newKid string) (done
 		if err != nil {
 			return "", err
 		}
-		res, err := client.Call(ctx, peer, "update_contact", map[string]any{"card": card}, "move-"+newKid+"-"+c.Fingerprint)
+		res, err := client.Call(ctx, peer, core.ToolUpdateContact, map[string]any{"card": card}, "move-"+newKid+"-"+c.Fingerprint)
 		if err != nil {
 			return "", err
 		}

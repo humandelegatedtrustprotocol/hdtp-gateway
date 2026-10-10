@@ -1,13 +1,16 @@
 package integrations
 
 // Safety rails (SPEC §6.9): annotations and name heuristics sort and badge the
-// exposure picker — and NOTHING else. They are untrusted UI hints; no permission
-// or authorization decision may consult them. Default-true hints are pointers:
-// nil means "assume destructive / open-world".
+// exposure picker; the four hints are also re-served, normalised, on an exposed
+// tool (internal/cli/integrationsurface.go, servedAnnotations). They are
+// untrusted; no permission or authorization decision may consult them.
+// Default-true hints are pointers: nil means "assume destructive / open-world".
 
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 )
 
 // toolAnnotations mirrors the MCP annotation fields the picker reads.
@@ -63,10 +66,10 @@ func RecipeSuggestion(toolName string) string {
 	case strings.Contains(n, "freebusy") || strings.Contains(n, "free_busy") ||
 		strings.Contains(n, "availability") || strings.Contains(n, "find_slots") ||
 		strings.Contains(n, "suggest_time"):
-		return "check_availability"
+		return core.ToolCheckAvailability
 	case strings.Contains(n, "create_event") || strings.Contains(n, "create-event") ||
 		strings.Contains(n, "book"):
-		return "book_slot"
+		return core.ToolBookSlot
 	}
 	return ""
 }

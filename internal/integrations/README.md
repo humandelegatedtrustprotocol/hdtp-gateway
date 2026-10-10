@@ -60,7 +60,7 @@ The store holds a status string per integration: `connecting` (set at the start 
 ## What it does not do
 
 - It does not serve mapped mode itself and holds no calendar logic; that is `providers`.
-- It does not decide who may call an exposed tool. `risk.go` says its annotations and name heuristics sort the picker and nothing else.
+- It does not decide who may call an exposed tool. `risk.go`'s annotations and name heuristics sort the picker; the hints an exposed tool is served with are `internal/cli`'s `servedAnnotations` over the same stored annotations, and neither gates a call.
 - It does not persist the withheld state; a restart clears it.
 - It does not hold a caller's token upstream or forward caller identity.
 - It does not run stdio children without a supervisor, and on platforms without setrlimit it cannot cap them.

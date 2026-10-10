@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations/providers"
@@ -198,7 +199,7 @@ func (b *capabilityBinder) resolve(accountID string) (public.Calendar, public.St
 			}
 			call := providers.ManagerCaller(b.chain.Manager, in.ID)
 			switch en.Tool {
-			case "get_status":
+			case core.ToolGetStatus:
 				if st == nil {
 					st = &providers.Status{Call: call, Recipe: &r}
 				}

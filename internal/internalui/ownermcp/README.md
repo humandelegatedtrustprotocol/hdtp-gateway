@@ -43,6 +43,20 @@ Every tool that names an account first checks `policy.AllowOwnerManage` against 
 scope (the accounts where the owner holds `admin`, narrowed to `Identity.AccountID` when the token
 has one). Exceptions are listed under "What it refuses".
 
+Every tool states the four MCP hints as JSON booleans (`public.Hints`: read-only, destructive,
+idempotent, open world), derived as BatonDeck's owner MCP derives them from its action table
+(`gateway/src/mcp/owner/actions.ts`: `effect`, `idempotent`, `reaches`), and for `delete_thread`,
+`list_passkeys` and `remove_passkey` as the plan of 2026-10-10 set them; open world is true only
+where the tool reaches a peer. Reads, idempotent, closed: `list_accounts`, `get_inbox`,
+`read_thread` (it moves the owner's own read marker, and its description says so), `list_contacts`,
+`list_pending_addresses`, `list_invites`, `list_pending`, `export_card`, `identity_certificate`,
+`list_passkeys`, `list_integrations`, `audit_query`, `wait_for_updates`, `digest`. Adds, reaching a
+peer: `send_to_contact`. Adds, closed: `create_invite`. Alters and reaches a peer: `approve_contact`,
+`reject_contact`, `remove_contact`, `refresh_contact`, `answer_request`, `call_contact`, `add_contact`.
+Alters, idempotent, closed: `delete_thread`, `block_contact`, `set_permissions`, `rename_contact`,
+`set_trust_flag`, `remove_passkey`, `set_exposure`. Alters, closed: `unblock_contact`,
+`approve_address`, `reject_address`, `revoke_invite`. Held by `TestEveryOwnerToolStatesItsFourHintsOnTheWire`.
+
 Registered always (`NewServerWithExtra`):
 
 | Tool | Contract |
@@ -170,7 +184,8 @@ those the contact already holds) with `bad_request`, rather than dropping it and
 `server_test.go` (tools, scoping, labels, the wait and the feed), `parity_test.go` (audit,
 integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle,
 `set_permissions`, invites), `address_test.go`, `claim_test.go`, `pending_test.go`,
-`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `passkeys_test.go`.
+`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `passkeys_test.go`,
+`hints_test.go` (the four hints of every tool on the wire, and as a client decodes them).
 
 ## What it does not do
 

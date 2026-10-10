@@ -18,6 +18,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 )
 
@@ -358,7 +359,7 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 				if tc, ok := TransportCallerFrom(ctx); ok && tc.Refusal != "" {
 					tool := calledTool(req)
 					p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+tool, tc.Refusal)
-					if tool == "update_contact" {
+					if tool == core.ToolUpdateContact {
 						return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":"pending"}`}}}, nil
 					}
 					return codeResult(tc.Refusal), nil
@@ -478,7 +479,7 @@ func (p *Pool) guarded(accountID, fpr string, e Entry) mcp.ToolHandler {
 		// inner call is where that happens: the sealed handler spends once, after
 		// the replay and before Dispatch looks for the tool (so tools/list and a
 		// tool that is not there spend as well), and Dispatch runs `checked`.
-		if e.Tool.Name != SealedToolName {
+		if e.Tool.Name != core.ToolSealedCall {
 			if r := p.spend(ctx); r != nil {
 				return r.Result(), nil
 			}

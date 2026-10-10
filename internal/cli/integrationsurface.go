@@ -128,12 +128,43 @@ func (s *integrationSurface) buildEntries(ctx context.Context, in store.Integrat
 				Name:        en.ExposedName,
 				Description: def.Description,
 				InputSchema: schemaOf(def.InputSchema),
+				Annotations: servedAnnotations(def.Annotations, en.Mode),
 			},
 			Rule:    policy.Rule{Tier: policy.TierContact, Permission: perm},
 			Handler: h,
 		})
 	}
 	return out, nil
+}
+
+// servedAnnotations is what a contact is told about an exposed tool: the four hints the snapshot
+// captured from the upstream (SPEC §6.9), each filled with MCP's default where the upstream stated
+// none or something that is not a boolean (read-only false, destructive true, idempotent false,
+// open-world true), and openWorldHint true whatever it said — every call of the tool leaves this
+// host for the upstream. An agent-answered exposure (§6.8) is answered by the owner's agent, not by
+// the upstream, so it states the worst case (false, true, false, true) whatever the upstream's tool
+// said of itself. Nothing else the upstream annotated is re-served: the tool is served under the
+// owner's exposed name, and an upstream title would label it with the upstream's. BatonDeck's
+// `servedAnnotations` (gateway/src/integrations/dispatch.ts) is the same rule over the same stored
+// annotations, held to the same table of cases in its tests.
+func servedAnnotations(stored json.RawMessage, mode string) *mcp.ToolAnnotations {
+	if mode == integrations.ModeAgent {
+		return public.Hints(false, true, false, true)
+	}
+	ro, de, id := false, true, false
+	var ann map[string]json.RawMessage
+	if json.Unmarshal(stored, &ann) == nil {
+		stated := func(key string, into *bool) {
+			var b *bool
+			if raw, ok := ann[key]; ok && json.Unmarshal(raw, &b) == nil && b != nil {
+				*into = *b
+			}
+		}
+		stated("readOnlyHint", &ro)
+		stated("destructiveHint", &de)
+		stated("idempotentHint", &id)
+	}
+	return public.Hints(ro, de, id, true)
 }
 
 // schemaOf decodes a snapshot's input schema, falling back to a permissive

@@ -195,7 +195,7 @@ func (d ToolDeps) proofOf(ctx context.Context) contacts.Proof {
 func (d ToolDeps) audit(action, resource, outcome string) {
 	if d.AuditAs != nil {
 		kind := "contact"
-		if action == "redeem_invite" || action == "request_contact" {
+		if action == core.ToolRedeemInvite || action == core.ToolRequestContact {
 			kind = "guest"
 		}
 		d.AuditAs(kind, action, resource, outcome)
@@ -271,8 +271,10 @@ func capped(s string, max int) bool { return len(s) <= max }
 
 func objSchema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 
+// tool is one built-in tool's definition: its name, its description, an open object schema and
+// its four hints (hints.go).
 func tool(name, desc string) *mcp.Tool {
-	return &mcp.Tool{Name: name, Description: desc, InputSchema: objSchema()}
+	return &mcp.Tool{Name: name, Description: desc, InputSchema: objSchema(), Annotations: hintsOf(name)}
 }
 
 // callerFpr is the resolved caller's fingerprint — never an argument.
@@ -303,23 +305,23 @@ func BuiltinEntries(d ToolDeps) []Entry {
 		return Entry{Tool: tool(name, desc), Rule: policy.Rule{Tier: policy.TierContact, Permission: perm}, Handler: h}
 	}
 	return []Entry{
-		guest("redeem_invite", "Redeem an invite token and exchange cards", d.redeemInvite()),
-		guest("request_contact", "Ask to become a contact; the owner approves", d.requestContact()),
+		guest(core.ToolRedeemInvite, "Redeem an invite token and exchange cards", d.redeemInvite()),
+		guest(core.ToolRequestContact, "Ask to become a contact; the owner approves", d.requestContact()),
 
-		pending("contact_accepted", "Tell me my contact request was accepted", d.contactAccepted()),
-		pending("contact_rejected", "Tell me my contact request was declined", d.contactRejected()),
+		pending(core.ToolContactAccepted, "Tell me my contact request was accepted", d.contactAccepted()),
+		pending(core.ToolContactRejected, "Tell me my contact request was declined", d.contactRejected()),
 
 		// always available at contact tier, regardless of the switchboard
-		contact("get_card", "", "Fetch my current signed contact card", d.getCard()),
-		contact("update_contact", "", "Replace the card you hold for me: I have a new certificate, or a new address", d.updateContact()),
-		contact("remove_contact", "", "Remove yourself from my contacts", d.removeContact()),
+		contact(core.ToolGetCard, "", "Fetch my current signed contact card", d.getCard()),
+		contact(core.ToolUpdateContact, "", "Replace the card you hold for me: I have a new certificate, or a new address", d.updateContact()),
+		contact(core.ToolRemoveContact, "", "Remove yourself from my contacts", d.removeContact()),
 
-		contact("send_message", "message.text", "Send a text message", d.sendMessage()),
-		contact("send_media", "message.media", "Send a file or image", d.sendMedia()),
-		contact("get_status", "status.view", "Read my availability status", d.getStatus()),
-		contact("check_availability", "calendar.availability", "Ask for candidate meeting slots", d.checkAvailability()),
-		contact("book_slot", "calendar.book", "Book one of the offered slots", d.bookSlot()),
-		contact("cancel_booking", "calendar.book", "Cancel a booking you made", d.cancelBooking()),
+		contact(core.ToolSendMessage, "message.text", "Send a text message", d.sendMessage()),
+		contact(core.ToolSendMedia, "message.media", "Send a file or image", d.sendMedia()),
+		contact(core.ToolGetStatus, "status.view", "Read my availability status", d.getStatus()),
+		contact(core.ToolCheckAvailability, "calendar.availability", "Ask for candidate meeting slots", d.checkAvailability()),
+		contact(core.ToolBookSlot, "calendar.book", "Book one of the offered slots", d.bookSlot()),
+		contact(core.ToolCancelBooking, "calendar.book", "Cancel a booking you made", d.cancelBooking()),
 	}
 }
 
@@ -332,10 +334,10 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			Card  string `json:"card"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "redeem_invite", "bad_request"), nil
+			return d.refuse(ctx, core.ToolRedeemInvite, "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) || !capped(a.Token, MaxFieldBytes) {
-			d.audit("redeem_invite", "caller:"+callerFpr(ctx), "too_large")
+			d.audit(core.ToolRedeemInvite, "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
 		// The key the caller PROVED this call: the leaf of the chain the
@@ -345,7 +347,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		fpr := proof.Fingerprint
 		res, err := d.Contacts.RedeemAs(ctx, d.AccountID, a.Token, a.Card, proof)
 		if err != nil {
-			d.audit("redeem_invite", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolRedeemInvite, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
 		// The caller's tier just changed: its cached guest server must go. A silent answer
@@ -355,13 +357,13 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 		}
 		card, sig, cerr := d.card(ctx)
 		if cerr != nil {
-			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
+			return d.refuse(ctx, core.ToolRedeemInvite, "unavailable"), nil
 		}
 		// HDTP §6.2: the result carries the issuer's CHAIN, so the redeemer pins a root it can
 		// verify. It used to carry `spki` instead — 1.2's key-beside-the-card — and no chain.
 		chain, cerr := d.chainB64(ctx)
 		if cerr != nil {
-			return d.refuse(ctx, "redeem_invite", "unavailable"), nil
+			return d.refuse(ctx, core.ToolRedeemInvite, "unavailable"), nil
 		}
 		outcome := res.Status
 		if res.Silent {
@@ -373,7 +375,7 @@ func (d ToolDeps) redeemInvite() mcp.ToolHandler {
 			// HDTP §5.2: the owner sees whose address this is; the audit row is where it is kept.
 			resource += " address_of:" + proof.AddressClaim
 		}
-		d.audit("redeem_invite", resource, outcome)
+		d.audit(core.ToolRedeemInvite, resource, outcome)
 		return toolOK(map[string]any{
 			"status": res.Status, "permissions": res.Permissions,
 			"card": card, "card_sig": sig, "chain": chain,
@@ -388,10 +390,10 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 			Note string `json:"note"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "request_contact", "bad_request"), nil
+			return d.refuse(ctx, core.ToolRequestContact, "bad_request"), nil
 		}
 		if !capped(a.Note, MaxNoteBytes) || !capped(a.Card, MaxTextBytes) {
-			d.audit("request_contact", "caller:"+callerFpr(ctx), "too_large")
+			d.audit(core.ToolRequestContact, "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
 		proof := d.proofOf(ctx)
@@ -401,7 +403,7 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 			if status != "pending_in" && errors.Is(err, contacts.ErrRequestsFull) {
 				// A full list of requests, or a cap the sidecar could not be asked about: `unavailable`
 				// to everybody who would have been written, a blocked caller included (SPEC §9.1).
-				d.audit("request_contact", "caller:"+fpr+" "+why(err), "unavailable")
+				d.audit(core.ToolRequestContact, "caller:"+fpr+" "+why(err), "unavailable")
 				return toolErr("unavailable"), nil
 			}
 			switch status {
@@ -409,7 +411,7 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 			case "pending_in":
 				// A repeat while the owner is still deciding is its own code and
 				// creates no duplicate request (SPEC §9.1, HDTP §12).
-				d.audit("request_contact", "caller:"+fpr, "pending_approval")
+				d.audit(core.ToolRequestContact, "caller:"+fpr, "pending_approval")
 				return toolErr("pending_approval"), nil
 			default:
 				// Any other row this account holds: blocked, or an active or pending_out contact the
@@ -419,14 +421,14 @@ func (d ToolDeps) requestContact() mcp.ToolHandler {
 				// RedeemAs applies to a held row, and the cloud's request_contact
 				// (batondeck src/identity/tools.ts). An active row here was answered `bad_request`
 				// "already known", which told a demoted caller it is known.
-				d.audit("request_contact", "caller:"+fpr, silentOutcome(status))
+				d.audit(core.ToolRequestContact, "caller:"+fpr, silentOutcome(status))
 				return toolOK(map[string]string{"status": "pending"})
 			}
 			code := domainCode(err)
-			d.audit("request_contact", "caller:"+fpr+" "+why(err), code)
+			d.audit(core.ToolRequestContact, "caller:"+fpr+" "+why(err), code)
 			return toolErr(code), nil
 		}
-		d.audit("request_contact", "caller:"+fpr, "pending")
+		d.audit(core.ToolRequestContact, "caller:"+fpr, "pending")
 		return toolOK(map[string]string{"status": "pending"})
 	}
 }
@@ -468,23 +470,23 @@ func (d ToolDeps) contactAccepted() mcp.ToolHandler {
 			Permissions []string `json:"permissions"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "contact_accepted", "bad_request"), nil
+			return d.refuse(ctx, core.ToolContactAccepted, "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) || len(a.Permissions) > 64 {
-			return d.refuse(ctx, "contact_accepted", "too_large"), nil
+			return d.refuse(ctx, core.ToolContactAccepted, "too_large"), nil
 		}
 		for _, p := range a.Permissions {
 			if !capped(p, MaxFieldBytes) {
-				return d.refuse(ctx, "contact_accepted", "too_large"), nil
+				return d.refuse(ctx, core.ToolContactAccepted, "too_large"), nil
 			}
 		}
 		fpr := callerFpr(ctx)
 		if err := d.Contacts.ContactAccepted(ctx, d.AccountID, fpr, a.Card, a.Permissions); err != nil {
-			d.audit("contact_accepted", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolContactAccepted, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
 		d.invalidate(ctx, fpr)
-		d.audit("contact_accepted", "caller:"+fpr, "ok")
+		d.audit(core.ToolContactAccepted, "caller:"+fpr, "ok")
 		return toolOK(map[string]string{"status": "ok"})
 	}
 }
@@ -495,18 +497,18 @@ func (d ToolDeps) contactRejected() mcp.ToolHandler {
 			Reason string `json:"reason"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "contact_rejected", "bad_request"), nil
+			return d.refuse(ctx, core.ToolContactRejected, "bad_request"), nil
 		}
 		if !capped(a.Reason, MaxNoteBytes) {
-			return d.refuse(ctx, "contact_rejected", "too_large"), nil
+			return d.refuse(ctx, core.ToolContactRejected, "too_large"), nil
 		}
 		fpr := callerFpr(ctx)
 		if err := d.Contacts.ContactRejected(ctx, d.AccountID, fpr); err != nil {
-			d.audit("contact_rejected", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolContactRejected, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
 		d.invalidate(ctx, fpr)
-		d.audit("contact_rejected", "caller:"+fpr, "ok")
+		d.audit(core.ToolContactRejected, "caller:"+fpr, "ok")
 		return toolOK(map[string]string{"status": "ok"})
 	}
 }
@@ -541,22 +543,22 @@ func (d ToolDeps) getCard() mcp.ToolHandler {
 	return func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		card, sig, err := d.card(ctx)
 		if err != nil {
-			return d.refuse(ctx, "get_card", "unavailable"), nil
+			return d.refuse(ctx, core.ToolGetCard, "unavailable"), nil
 		}
 		// "always the chain" (HDTP §6.2): this is where a caller that cannot verify a result
 		// comes to ask, so an answer without one would be no answer.
 		chain, err := d.chainB64(ctx)
 		if err != nil {
-			return d.refuse(ctx, "get_card", "unavailable"), nil
+			return d.refuse(ctx, core.ToolGetCard, "unavailable"), nil
 		}
 		if d.Limits == nil {
-			return d.refuse(ctx, "get_card", "unavailable"), nil
+			return d.refuse(ctx, core.ToolGetCard, "unavailable"), nil
 		}
 		limits, err := d.Limits(ctx)
 		if err != nil {
-			return d.refuse(ctx, "get_card", "unavailable"), nil
+			return d.refuse(ctx, core.ToolGetCard, "unavailable"), nil
 		}
-		d.audit("get_card", "caller:"+callerFpr(ctx), "ok")
+		d.audit(core.ToolGetCard, "caller:"+callerFpr(ctx), "ok")
 		out := map[string]any{
 			"card": card, "card_sig": sig, "chain": chain,
 			"limits": limits,
@@ -571,20 +573,20 @@ func (d ToolDeps) updateContact() mcp.ToolHandler {
 			Card string `json:"card"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "update_contact", "bad_request"), nil
+			return d.refuse(ctx, core.ToolUpdateContact, "bad_request"), nil
 		}
 		if !capped(a.Card, MaxTextBytes) {
-			return d.refuse(ctx, "update_contact", "too_large"), nil
+			return d.refuse(ctx, core.ToolUpdateContact, "too_large"), nil
 		}
 		fpr := callerFpr(ctx)
 		// The chain that carried this call already decided the pin (HDTP §5.3,
 		// §14.3); what this refreshes is the card beside it.
 		if err := d.Contacts.UpdateContact(ctx, d.AccountID, fpr, a.Card); err != nil {
-			d.audit("update_contact", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolUpdateContact, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
 		d.invalidate(ctx, fpr)
-		d.audit("update_contact", "caller:"+fpr, "ok")
+		d.audit(core.ToolUpdateContact, "caller:"+fpr, "ok")
 		return toolOK(map[string]string{"status": "ok"})
 	}
 }
@@ -593,11 +595,11 @@ func (d ToolDeps) removeContact() mcp.ToolHandler {
 	return func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		fpr := callerFpr(ctx)
 		if err := d.Contacts.RemoveContact(ctx, d.AccountID, fpr); err != nil {
-			d.audit("remove_contact", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolRemoveContact, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
 		d.invalidate(ctx, fpr)
-		d.audit("remove_contact", "caller:"+fpr, "ok")
+		d.audit(core.ToolRemoveContact, "caller:"+fpr, "ok")
 		return toolOK(map[string]string{"status": "ok"})
 	}
 }
@@ -623,7 +625,7 @@ func senderLabel(claimed string) (messaging.Sender, bool) {
 func (d ToolDeps) sendMessage() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Messages == nil {
-			d.audit("send_message", "caller:"+callerFpr(ctx)+" why:no messaging service is configured", "unavailable")
+			d.audit(core.ToolSendMessage, "caller:"+callerFpr(ctx)+" why:no messaging service is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
@@ -635,19 +637,19 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 			Sender   string `json:"sender"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "send_message", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMessage, "bad_request"), nil
 		}
 		if !capped(a.Text, MaxTextBytes) {
-			d.audit("send_message", "caller:"+callerFpr(ctx), "too_large")
+			d.audit(core.ToolSendMessage, "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
 		if !capped(a.Topic, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) ||
 			!capped(a.ThreadID, MaxFieldBytes) || !capped(a.ReplyTo, MaxFieldBytes) {
-			return d.refuse(ctx, "send_message", "too_large"), nil
+			return d.refuse(ctx, core.ToolSendMessage, "too_large"), nil
 		}
 		sender, ok := senderLabel(a.Sender)
 		if !ok {
-			return d.refuse(ctx, "send_message", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMessage, "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		res, err := d.Messages.Record(ctx, d.AccountID, fpr, messaging.DirIn, messaging.Input{
@@ -655,10 +657,10 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 			Text: a.Text, ReplyTo: a.ReplyTo, Origin: messaging.OriginPeer, Sender: sender,
 		})
 		if err != nil {
-			d.audit("send_message", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolSendMessage, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
-		d.audit("send_message", "caller:"+fpr, res.Status)
+		d.audit(core.ToolSendMessage, "caller:"+fpr, res.Status)
 		return toolOK(map[string]string{"thread_id": res.ThreadID, "status": res.Status})
 	}
 }
@@ -666,7 +668,7 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 func (d ToolDeps) sendMedia() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Media == nil || d.Messages == nil {
-			d.audit("send_media", "caller:"+callerFpr(ctx)+" why:no media service is configured", "unavailable")
+			d.audit(core.ToolSendMedia, "caller:"+callerFpr(ctx)+" why:no media service is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
@@ -679,24 +681,24 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 			Sender   string `json:"sender"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "send_media", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 		}
 		if !capped(a.Filename, MaxFieldBytes) || !capped(a.MIME, MaxFieldBytes) ||
 			!capped(a.URL, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
-			return d.refuse(ctx, "send_media", "too_large"), nil
+			return d.refuse(ctx, core.ToolSendMedia, "too_large"), nil
 		}
 		// Cap the ENCODED form first: refuse before allocating the decode.
 		if len(a.Data) > base64.StdEncoding.EncodedLen(MaxInlineData) {
-			d.audit("send_media", "caller:"+callerFpr(ctx), "too_large")
+			d.audit(core.ToolSendMedia, "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
 		sender, ok := senderLabel(a.Sender)
 		if !ok {
-			return d.refuse(ctx, "send_media", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 		}
 		// HDTP §6.2: msg_id is required. Refused here, before a byte is decoded or stored.
 		if a.MsgID == "" {
-			return d.refuse(ctx, "send_media", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		in := messaging.Input{MsgID: a.MsgID, ThreadID: a.ThreadID, Origin: messaging.OriginPeer, Sender: sender}
@@ -708,10 +710,10 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 		case a.Data != "":
 			raw, derr := base64.StdEncoding.DecodeString(a.Data)
 			if derr != nil {
-				return d.refuse(ctx, "send_media", "bad_request"), nil
+				return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 			}
 			if len(raw) > MaxInlineData {
-				d.audit("send_media", "caller:"+fpr, "too_large")
+				d.audit(core.ToolSendMedia, "caller:"+fpr, "too_large")
 				return toolErr("too_large"), nil
 			}
 			res, err = d.Media.ReceiveInline(ctx, d.Messages, d.AccountID, fpr, in, a.Filename, a.MIME, raw)
@@ -720,13 +722,13 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 			// owner decides.
 			res, err = d.Media.ReceiveURL(ctx, d.Messages, d.AccountID, fpr, in, a.Filename, a.MIME, a.URL)
 		default:
-			return d.refuse(ctx, "send_media", "bad_request"), nil
+			return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 		}
 		if err != nil {
-			d.audit("send_media", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolSendMedia, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
-		d.audit("send_media", "caller:"+fpr, res.Status)
+		d.audit(core.ToolSendMedia, "caller:"+fpr, res.Status)
 		return toolOK(map[string]string{"thread_id": res.ThreadID, "status": res.Status})
 	}
 }
@@ -734,15 +736,15 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 func (d ToolDeps) getStatus() mcp.ToolHandler {
 	return func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Status == nil {
-			d.audit("get_status", "caller:"+callerFpr(ctx)+" why:no status is configured", "unavailable")
+			d.audit(core.ToolGetStatus, "caller:"+callerFpr(ctx)+" why:no status is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		s, err := d.Status.GetStatus(ctx)
 		if err != nil {
-			d.audit("get_status", "caller:"+callerFpr(ctx)+" "+why(err), "unavailable")
+			d.audit(core.ToolGetStatus, "caller:"+callerFpr(ctx)+" "+why(err), "unavailable")
 			return toolErr("unavailable"), nil
 		}
-		d.audit("get_status", "caller:"+callerFpr(ctx), "ok")
+		d.audit(core.ToolGetStatus, "caller:"+callerFpr(ctx), "ok")
 		return toolOK(map[string]string{"status": clampStatus(s)})
 	}
 }
@@ -765,7 +767,7 @@ func clampStatus(s string) string {
 func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Calendar == nil {
-			d.audit("check_availability", "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
+			d.audit(core.ToolCheckAvailability, "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
@@ -777,17 +779,17 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 			DurationMin int `json:"duration_min"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "check_availability", "bad_request"), nil
+			return d.refuse(ctx, core.ToolCheckAvailability, "bad_request"), nil
 		}
 		from, err1 := time.Parse(time.RFC3339, a.Window.From)
 		to, err2 := time.Parse(time.RFC3339, a.Window.To)
 		if err1 != nil || err2 != nil || !to.After(from) || a.DurationMin <= 0 {
-			return d.refuse(ctx, "check_availability", "bad_request"), nil
+			return d.refuse(ctx, core.ToolCheckAvailability, "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		slots, err := d.Calendar.CheckAvailability(ctx, from, to, time.Duration(a.DurationMin)*time.Minute)
 		if err != nil {
-			d.audit("check_availability", "caller:"+fpr+" "+why(err), "unavailable")
+			d.audit(core.ToolCheckAvailability, "caller:"+fpr+" "+why(err), "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		// HDTP §12: never more than five, and never raw free/busy. The provider
@@ -796,7 +798,7 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 			slots = slots[:calendar.MaxSlots]
 		}
 		out := wireSlots(slots, zoneOf(a.Window.TZ))
-		d.audit("check_availability", fmt.Sprintf("caller:%s slots:%d", fpr, len(out)), "ok")
+		d.audit(core.ToolCheckAvailability, fmt.Sprintf("caller:%s slots:%d", fpr, len(out)), "ok")
 		return toolOK(map[string]any{"slots": out})
 	}
 }
@@ -804,7 +806,7 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 func (d ToolDeps) bookSlot() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Calendar == nil {
-			d.audit("book_slot", "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
+			d.audit(core.ToolBookSlot, "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
@@ -814,26 +816,26 @@ func (d ToolDeps) bookSlot() mcp.ToolHandler {
 			ThreadID string `json:"thread_id"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "book_slot", "bad_request"), nil
+			return d.refuse(ctx, core.ToolBookSlot, "bad_request"), nil
 		}
 		if !capped(a.Subject, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
-			return d.refuse(ctx, "book_slot", "too_large"), nil
+			return d.refuse(ctx, core.ToolBookSlot, "too_large"), nil
 		}
 		if a.MsgID == "" {
-			return d.refuse(ctx, "book_slot", "bad_request"), nil
+			return d.refuse(ctx, core.ToolBookSlot, "bad_request"), nil
 		}
 		start, err1 := time.Parse(time.RFC3339, a.Slot.Start)
 		end, err2 := time.Parse(time.RFC3339, a.Slot.End)
 		if err1 != nil || err2 != nil || !end.After(start) {
-			return d.refuse(ctx, "book_slot", "bad_request"), nil
+			return d.refuse(ctx, core.ToolBookSlot, "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		ack, err := d.Calendar.BookSlot(ctx, fpr, a.MsgID, calendar.Slot{Start: start, End: end}, a.Subject)
 		if err != nil {
-			d.audit("book_slot", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolBookSlot, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
-		d.audit("book_slot", "caller:"+fpr+" booking:"+ack.BookingID, "ok")
+		d.audit(core.ToolBookSlot, "caller:"+fpr+" booking:"+ack.BookingID, "ok")
 		return toolOK(ack)
 	}
 }
@@ -841,7 +843,7 @@ func (d ToolDeps) bookSlot() mcp.ToolHandler {
 func (d ToolDeps) cancelBooking() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if d.Calendar == nil {
-			d.audit("cancel_booking", "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
+			d.audit(core.ToolCancelBooking, "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
@@ -849,20 +851,20 @@ func (d ToolDeps) cancelBooking() mcp.ToolHandler {
 			Reason    string `json:"reason"`
 		}
 		if !decode(req, &a) {
-			return d.refuse(ctx, "cancel_booking", "bad_request"), nil
+			return d.refuse(ctx, core.ToolCancelBooking, "bad_request"), nil
 		}
 		if !capped(a.BookingID, MaxFieldBytes) || !capped(a.Reason, MaxNoteBytes) {
-			return d.refuse(ctx, "cancel_booking", "too_large"), nil
+			return d.refuse(ctx, core.ToolCancelBooking, "too_large"), nil
 		}
 		if a.BookingID == "" {
-			return d.refuse(ctx, "cancel_booking", "bad_request"), nil
+			return d.refuse(ctx, core.ToolCancelBooking, "bad_request"), nil
 		}
 		fpr := callerFpr(ctx)
 		if err := d.Calendar.CancelBooking(ctx, a.BookingID); err != nil {
-			d.audit("cancel_booking", "caller:"+fpr+" "+why(err), domainCode(err))
+			d.audit(core.ToolCancelBooking, "caller:"+fpr+" "+why(err), domainCode(err))
 			return toolErr(domainCode(err)), nil
 		}
-		d.audit("cancel_booking", "caller:"+fpr, "ok")
+		d.audit(core.ToolCancelBooking, "caller:"+fpr, "ok")
 		return toolOK(map[string]string{"status": "ok"})
 	}
 }

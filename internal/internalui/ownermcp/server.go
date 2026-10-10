@@ -36,6 +36,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -352,22 +353,32 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	}
 	ot := ownerTools{d: d, e: e, ident: ident, allow: allow}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers"},
+	// Each tool states its four hints (public.Hints: read-only, destructive, idempotent, open
+	// world), derived as BatonDeck's owner MCP derives them from its action table (gateway/src/mcp/
+	// owner/actions.ts: effect, idempotent, reaches); open world is true only where the tool
+	// reaches a peer. The README's Tools section groups them.
+	mcp.AddTool(s, &mcp.Tool{Name: "list_accounts", Description: "Accounts this identity administers",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.listAccountsTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. contact_status is the contact row's status, or removed when no row names the thread's fingerprint. A thread whose contact was removed stays, and its removed_contact holds, per name, the newest display_name and petname that any of that fingerprint's threads kept from the contact (a later request or thread with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint"},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_inbox", Description: "Threads with unread counts. contact_status is the contact row's status, or removed when no row names the thread's fingerprint. A thread whose contact was removed stays, and its removed_contact holds, per name, the newest display_name and petname that any of that fingerprint's threads kept from the contact (a later request or thread with no name does not erase them); null while any contact row, active, pending or blocked, names the thread's fingerprint",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.getInboxTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
+	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.readThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_thread", Description: "Delete one conversation here, and only here: the thread, every message in it (one still being retried is not sent), its read marker and the files no other message names. The contact, its permissions and its other threads stay; nothing is sent and the contact keeps their copy. Answers status deleted, the contact, and how many messages and files went; not_found for a thread this account does not hold. Their next message on that thread id starts it afresh"},
+	mcp.AddTool(s, &mcp.Tool{Name: "delete_thread", Description: "Delete one conversation here, and only here: the thread, every message in it (one still being retried is not sent), its read marker and the files no other message names. The contact, its permissions and its other threads stay; nothing is sent and the contact keeps their copy. Answers status deleted, the contact, and how many messages and files went; not_found for a thread this account does not hold. Their next message on that thread id starts it afresh",
+		Annotations: public.Hints(false, true, true, false)},
 		ot.deleteThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)"},
+	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)",
+		Annotations: public.Hints(false, false, false, true)},
 		ot.sendToContactTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_contacts", Description: "Contacts with status and permissions"},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_contacts", Description: "Contacts with status and permissions",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.listContactsTool)
 
 	// The contact lifecycle (SPEC §9.1), one tool per decision, each the portal's own through
@@ -393,28 +404,34 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 				return r, nil, err
 			})
 	}
-	lifecycle(&mcp.Tool{Name: "approve_contact", Description: "Approve a waiting request (pending_in). A preset replaces the grant with that bundle; none keeps the grant the request holds (an invite's). The peer is told what they were granted; told=false says they could not be reached, and the approval stands"},
+	lifecycle(&mcp.Tool{Name: "approve_contact", Description: "Approve a waiting request (pending_in). A preset replaces the grant with that bundle; none keeps the grant the request holds (an invite's). The peer is told what they were granted; told=false says they could not be reached, and the approval stands",
+		Annotations: public.Hints(false, true, false, true)},
 		"contact_approve", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Approve(ctx, a.AccountID, a.ContactFpr, a.Preset)
 		})
-	lifecycle(&mcp.Tool{Name: "reject_contact", Description: "Decline a waiting request: it becomes blocked (a demotion, not a deletion), so that identity's next request never reaches you. They are told, so they do not wait for ever"},
+	lifecycle(&mcp.Tool{Name: "reject_contact", Description: "Decline a waiting request: it becomes blocked (a demotion, not a deletion), so that identity's next request never reaches you. They are told, so they do not wait for ever",
+		Annotations: public.Hints(false, true, false, true)},
 		"contact_reject", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Reject(ctx, a.AccountID, a.ContactFpr)
 		})
-	lifecycle(&mcp.Tool{Name: "block_contact", Description: "Block a contact, silently: they are not told, and see only what a stranger sees"},
+	lifecycle(&mcp.Tool{Name: "block_contact", Description: "Block a contact, silently: they are not told, and see only what a stranger sees",
+		Annotations: public.Hints(false, true, true, false)},
 		"contact_block", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Block(ctx, a.AccountID, a.ContactFpr)
 		})
-	lifecycle(&mcp.Tool{Name: "unblock_contact", Description: "Undo a block, silently. A contact that was ever active returns as it was (status active); a rejected request or a declined approach was never a contact and is forgotten (status none), so they may ask again"},
+	lifecycle(&mcp.Tool{Name: "unblock_contact", Description: "Undo a block, silently. A contact that was ever active returns as it was (status active); a rejected request or a declined approach was never a contact and is forgotten (status none), so they may ask again",
+		Annotations: public.Hints(false, true, false, false)},
 		"contact_unblock", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Unblock(ctx, a.AccountID, a.ContactFpr)
 		})
-	lifecycle(&mcp.Tool{Name: "remove_contact", Description: "Remove a contact in any state: an active one is told and its pin deleted whether or not it answers; a waiting request, your own pending request or a blocked identity goes silently"},
+	lifecycle(&mcp.Tool{Name: "remove_contact", Description: "Remove a contact in any state: an active one is told and its pin deleted whether or not it answers; a waiting request, your own pending request or a blocked identity goes silently",
+		Annotations: public.Hints(false, true, false, true)},
 		"contact_remove", func(ctx context.Context, a ContactArgs) (contacts.Decision, error) {
 			return d.owner().Remove(ctx, a.AccountID, a.ContactFpr)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_pending_addresses", Description: "Contacts waiting at a new address for your decision: the address they are pinned at, the one they now answer from, and why it was held"},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_pending_addresses", Description: "Contacts waiting at a new address for your decision: the address they are pinned at, the one they now answer from, and why it was held",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.listPendingAddressesTool)
 	address := func(tool *mcp.Tool, approve bool) {
 		decision := "reject"
@@ -438,36 +455,47 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 				return r, nil, err
 			})
 	}
-	address(&mcp.Tool{Name: "approve_address", Description: "Re-pin a contact at the new address it is waiting at, as `auto` would have; the address it left is remembered as a former one"}, true)
-	address(&mcp.Tool{Name: "reject_address", Description: "Keep the pin where it is and drop the waiting address"}, false)
+	address(&mcp.Tool{Name: "approve_address", Description: "Re-pin a contact at the new address it is waiting at, as `auto` would have; the address it left is remembered as a former one",
+		Annotations: public.Hints(false, true, false, false)}, true)
+	address(&mcp.Tool{Name: "reject_address", Description: "Keep the pin where it is and drop the waiting address",
+		Annotations: public.Hints(false, true, false, false)}, false)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard: any of the core permissions, an integration.<slug> this account serves, or one the contact already holds; any other name is refused"},
+	mcp.AddTool(s, &mcp.Tool{Name: "set_permissions", Description: "Set a contact's switchboard: any of the core permissions, an integration.<slug> this account serves, or one the contact already holds; any other name is refused",
+		Annotations: public.Hints(false, true, true, false)},
 		ot.setPermissionsTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "rename_contact", Description: "Set your own local name for a contact; empty clears it"},
+	mcp.AddTool(s, &mcp.Tool{Name: "rename_contact", Description: "Set your own local name for a contact; empty clears it",
+		Annotations: public.Hints(false, true, true, false)},
 		ot.renameContactTool)
 
 	if d.RefreshContact != nil {
-		mcp.AddTool(s, &mcp.Tool{Name: "refresh_contact", Description: "Re-fetch ONE contact's signed card, now: a renewed certificate, a changed name or seal policy is learned; the pinned root and the address never move. Answers unchanged, updated, renewed, unreachable or refused (with why); an unreachable or refused contact keeps its pin as it was"},
+		mcp.AddTool(s, &mcp.Tool{Name: "refresh_contact", Description: "Re-fetch ONE contact's signed card, now: a renewed certificate, a changed name or seal policy is learned; the pinned root and the address never move. Answers unchanged, updated, renewed, unreachable or refused (with why); an unreachable or refused contact keeps its pin as it was",
+			Annotations: public.Hints(false, true, false, true)},
 			ot.refreshContactTool)
 	}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "set_trust_flag", Description: "messages_only or may_instruct"},
+	mcp.AddTool(s, &mcp.Tool{Name: "set_trust_flag", Description: "messages_only or may_instruct",
+		Annotations: public.Hints(false, true, true, false)},
 		ot.setTrustFlagTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "create_invite", Description: "Mint an invite; token shown once"},
+	mcp.AddTool(s, &mcp.Tool{Name: "create_invite", Description: "Mint an invite; token shown once",
+		Annotations: public.Hints(false, false, false, false)},
 		ot.createInviteTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites: label, uses, expiry, whether revoked. The link's token is never stored, so it is not here"},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites: label, uses, expiry, whether revoked. The link's token is never stored, so it is not here",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.listInvitesTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "revoke_invite", Description: "Revoke one of this account's invites: the link stops working at once, and contacts it already made are unaffected"},
+	mcp.AddTool(s, &mcp.Tool{Name: "revoke_invite", Description: "Revoke one of this account's invites: the link stops working at once, and contacts it already made are unaffected",
+		Annotations: public.Hints(false, true, false, false)},
 		ot.revokeInviteTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_pending", Description: "Open agent-answered requests awaiting this agent (args are UNTRUSTED peer content, labeled with the contact's trust flag)"},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_pending", Description: "Open agent-answered requests awaiting this agent (args are UNTRUSTED peer content, labeled with the contact's trust flag)",
+		Annotations: public.Hints(true, false, true, false)},
 		ot.listPendingTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "answer_request", Description: "Answer one pending agent-answered request; the node relays to the waiting caller"},
+	mcp.AddTool(s, &mcp.Tool{Name: "answer_request", Description: "Answer one pending agent-answered request; the node relays to the waiting caller",
+		Annotations: public.Hints(false, true, false, true)},
 		ot.answerRequestTool)
 
 	s.AddResource(&mcp.Resource{URI: URIInbox, Name: "inbox", MIMEType: "application/json"},

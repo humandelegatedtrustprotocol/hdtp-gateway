@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
@@ -94,9 +95,9 @@ func looksGuest(tools []ContactTool) bool {
 	guest, contact := false, false
 	for _, t := range tools {
 		switch t.Name {
-		case "redeem_invite", "request_contact":
+		case core.ToolRedeemInvite, core.ToolRequestContact:
 			guest = true
-		case "get_card", "send_message", "send_media", "get_status", "check_availability", "book_slot", "cancel_booking":
+		case core.ToolGetCard, core.ToolSendMessage, core.ToolSendMedia, core.ToolGetStatus, core.ToolCheckAvailability, core.ToolBookSlot, core.ToolCancelBooking:
 			contact = true
 		}
 	}
@@ -113,21 +114,21 @@ func toolsFromGrants(perms []string) []ContactTool {
 	}
 	obj := json.RawMessage(`{"type":"object"}`)
 	out := []ContactTool{
-		{Name: "get_card", Description: "Fetch their current signed contact card", InputSchema: obj},
-		{Name: "update_contact", Description: "Replace the card this contact holds for you: a new certificate, or a new address", InputSchema: obj},
-		{Name: "remove_contact", Description: "Remove yourself from their contacts", InputSchema: obj},
+		{Name: core.ToolGetCard, Description: "Fetch their current signed contact card", InputSchema: obj},
+		{Name: core.ToolUpdateContact, Description: "Replace the card this contact holds for you: a new certificate, or a new address", InputSchema: obj},
+		{Name: core.ToolRemoveContact, Description: "Remove yourself from their contacts", InputSchema: obj},
 	}
 	add := func(perm, name, desc string) {
 		if has[perm] {
 			out = append(out, ContactTool{Name: name, Description: desc, InputSchema: obj})
 		}
 	}
-	add("message.text", "send_message", "Send a text message")
-	add("message.media", "send_media", "Send a file or image")
-	add("status.view", "get_status", "Read their availability status")
-	add("calendar.availability", "check_availability", "Ask for candidate meeting slots")
-	add("calendar.book", "book_slot", "Book one of the offered slots")
-	add("calendar.book", "cancel_booking", "Cancel a booking you made")
+	add("message.text", core.ToolSendMessage, "Send a text message")
+	add("message.media", core.ToolSendMedia, "Send a file or image")
+	add("status.view", core.ToolGetStatus, "Read their availability status")
+	add("calendar.availability", core.ToolCheckAvailability, "Ask for candidate meeting slots")
+	add("calendar.book", core.ToolBookSlot, "Book one of the offered slots")
+	add("calendar.book", core.ToolCancelBooking, "Cancel a booking you made")
 	return out
 }
 

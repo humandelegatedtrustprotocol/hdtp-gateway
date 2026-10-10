@@ -28,6 +28,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -107,43 +108,50 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 	ot := ownerTools{d: d, e: e, ident: ident, allow: allow}
 	if e.Card != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "export_card",
-			Description: "This account's current signed contact card (vCard)"},
+			Description: "This account's current signed contact card (vCard)",
+			Annotations: public.Hints(true, false, true, false)},
 			ot.exportCardTool)
 	}
 
 	if e.Certificate != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "identity_certificate",
-			Description: "This identity's certificate state (HDTP 1.0): the root that is the identity, the leaf this host serves under, its validity, and whether a renewal is due"},
+			Description: "This identity's certificate state (HDTP 1.0): the root that is the identity, the leaf this host serves under, its validity, and whether a renewal is due",
+			Annotations: public.Hints(true, false, true, false)},
 			ot.identityCertificateTool)
 	}
 
 	if e.Passkeys != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "list_passkeys",
-			Description: "Registered passkeys. Registering a new one is portal-only (SPEC §8.6)"},
+			Description: "Registered passkeys. Registering a new one is portal-only (SPEC §8.6)",
+			Annotations: public.Hints(true, false, true, false)},
 			ot.listPasskeysTool)
 	}
 
 	if e.RemovePasskey != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "remove_passkey",
-			Description: "Remove a registered passkey by id"},
+			Description: "Remove a registered passkey by id",
+			Annotations: public.Hints(false, true, true, false)},
 			ot.removePasskeyTool)
 	}
 
 	if e.CallContact != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "call_contact",
-			Description: "Call a tool on a contact's agent server. The contact's own switchboard still applies"},
+			Description: "Call a tool on a contact's agent server. The contact's own switchboard still applies",
+			Annotations: public.Hints(false, true, false, true)},
 			ot.callContactTool)
 	}
 
 	if e.Integrations != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "list_integrations",
-			Description: "Connected upstreams and the tools each currently exposes (SPEC §6)"},
+			Description: "Connected upstreams and the tools each currently exposes (SPEC §6)",
+			Annotations: public.Hints(true, false, true, false)},
 			ot.listIntegrationsTool)
 	}
 
 	if e.SetExposure != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "set_exposure",
-			Description: "Republish which of an integration's tools are exposed to contacts (SPEC §6.5)"},
+			Description: "Republish which of an integration's tools are exposed to contacts (SPEC §6.5)",
+			Annotations: public.Hints(false, true, true, false)},
 			ot.setExposureTool)
 	}
 
@@ -151,13 +159,15 @@ func AddParityTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow f
 		mcp.AddTool(s, &mcp.Tool{Name: "add_contact",
 			Description: "Reach out to a peer: redeem their invite link, or request contact with a card " +
 				"they gave you out of band (SPEC §9). Lands `pending_out` until they accept, or `active` " +
-				"immediately if their invite auto-accepts."},
+				"immediately if their invite auto-accepts.",
+			Annotations: public.Hints(false, true, false, true)},
 			ot.addContactTool)
 	}
 
 	if e.Audit != nil {
 		mcp.AddTool(s, &mcp.Tool{Name: "audit_query",
-			Description: "Read the audit trail for the accounts you administer (SPEC §11.6)"},
+			Description: "Read the audit trail for the accounts you administer (SPEC §11.6)",
+			Annotations: public.Hints(true, false, true, false)},
 			ot.auditQueryTool)
 	}
 }

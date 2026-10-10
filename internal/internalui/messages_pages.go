@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
@@ -424,7 +425,7 @@ func (d MessagesDeps) postMessagesSendMedia(w http.ResponseWriter, r *http.Reque
 	res, err := d.SendMedia(r.Context(), account, contact, in, name, mime, data)
 	if err != nil {
 		if d.Audit != nil {
-			d.Audit("send_media", withAccount(r, "contact:"+contact), "error")
+			d.Audit(core.ToolSendMedia, withAccount(r, "contact:"+contact), "error")
 		}
 		// Recorded but undelivered is still a message that exists; say which.
 		status := http.StatusBadGateway
@@ -477,7 +478,7 @@ func (d MessagesDeps) postMessagesSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := d.Send(r.Context(), account, contact, in); err != nil {
 		if d.Audit != nil {
-			d.Audit("send_message", withAccount(r, "contact:"+contact), "error")
+			d.Audit(core.ToolSendMessage, withAccount(r, "contact:"+contact), "error")
 		}
 		back(err.Error())
 		return

@@ -16,14 +16,15 @@ import (
 	"testing"
 	"time"
 
-	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // totalRig is two demo nodes, alina behind a proxy at proxyAddr with a small guest total, and bharat
@@ -114,7 +115,7 @@ func (r *totalRig) stranger(i int) *testid.Host {
 func (r *totalRig) post(remote, source string, env *hdtpidentity.Envelope) (answer string, retryAfter int) {
 	r.t.Helper()
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": public.SealedToolName, "arguments": env}})
+		"params": map[string]any{"name": core.ToolSealedCall, "arguments": env}})
 	req := httptest.NewRequest(http.MethodPost, "https://"+r.alina.host+"/a/"+r.alina.slug+"/mcp", strings.NewReader(string(body)))
 	req.RemoteAddr = remote
 	req.Header.Set("Content-Type", "application/json")

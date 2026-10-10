@@ -72,7 +72,22 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 	literal := regexp.MustCompile(`^"([a-z][a-z0-9_]*)"$`)
 	slugAsAccount := regexp.MustCompile(`account:"\s*\+\s*[\w.]*\.Slug`)
 
-	var checked int
+	// An action may be spelt as one of core's tool-name constants rather than a literal; it is
+	// read through internal/core/toolnames.go, so such a call is checked like a literal one.
+	toolConst := regexp.MustCompile(`^core\.(Tool\w+)$`)
+	toolNames := map[string]string{}
+	decl, err := os.ReadFile(filepath.Join(root, "internal/core/toolnames.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range regexp.MustCompile(`(?m)^\t(Tool\w+)\s*=\s*"([a-z][a-z0-9_]*)"$`).FindAllStringSubmatch(string(decl), -1) {
+		toolNames[m[1]] = m[2]
+	}
+	if len(toolNames) < 14 {
+		t.Fatalf("read %d tool-name constants from internal/core/toolnames.go; the reader is broken", len(toolNames))
+	}
+
+	var checked, viaConst int
 	for _, dir := range dirs {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -101,7 +116,17 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 				if want >= len(args) {
 					continue
 				}
-				m := literal.FindStringSubmatch(strings.TrimSpace(args[want]))
+				arg := strings.TrimSpace(args[want])
+				m := literal.FindStringSubmatch(arg)
+				if c := toolConst.FindStringSubmatch(arg); m == nil && c != nil {
+					name, ok := toolNames[c[1]]
+					if !ok {
+						t.Errorf("%s:%d audits under %s, which internal/core/toolnames.go does not declare", rel, span.line, arg)
+						continue
+					}
+					m = []string{arg, name}
+					viaConst++
+				}
 				if m == nil {
 					continue // a forwarding shim, or a call whose action is a variable
 				}
@@ -138,6 +163,9 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if viaConst == 0 {
+		t.Fatal("no audit call spelt its action as a core tool-name constant; the constant reader is checking nothing")
 	}
 	if checked < 50 {
 		t.Fatalf("only %d audit calls found; this lint is checking nothing", checked)
