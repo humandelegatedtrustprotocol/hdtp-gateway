@@ -9,8 +9,7 @@
 services:
   # Named volumes are created root-owned and ownership propagation from the image
   # is not reliable across Docker variants; this one-shot init hands /data to the
-  # distroless nonroot uid (65532). Using the -full image (user node, uid 1000)?
-  # Change the chown target to 1000:1000.
+  # distroless nonroot uid (65532). The -full image (Dockerfile.full) runs as the same uid.
   init-data:
     image: alpine:3.20
     command: ["chown", "65532:65532", "/data"]
