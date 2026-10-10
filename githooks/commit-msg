@@ -6,6 +6,8 @@
 # TestNoTrackedFileLeaksALocalPath refuses in the tracked files, which no test can see in a message.
 # Say "the worktree" or "the sibling checkout" instead. Only what the commit will keep is read: the
 # comment lines git strips, and everything under a scissors line (`git commit -v`), are not.
+# TestCommitMsgHookRefusesWhatTheTreeRefuses runs this hook on planted messages and holds its pattern
+# to the tree test's.
 #
 # This project does not bypass its hooks (CONTRIBUTING.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail

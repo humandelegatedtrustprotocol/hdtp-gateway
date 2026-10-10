@@ -3,6 +3,7 @@ package integrationtest
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"testing"
 )
+
+// homeDir is a home directory on macOS or Linux: the shape githooks/commit-msg refuses in a message.
+const homeDir = `/Users/|/home/[A-Za-z0-9._-]+/`
 
 // No tracked text may carry a path from the machine that wrote it.
 //
@@ -32,7 +36,7 @@ func TestNoTrackedFileLeaksALocalPath(t *testing.T) {
 	if err != nil {
 		t.Skipf("git unavailable: %v", err)
 	}
-	leak := regexp.MustCompile(`/Users/|/home/[A-Za-z0-9._-]+/|/private/tmp/claude|\.claude/(jobs|projects)/`)
+	leak := regexp.MustCompile(homeDir + `|/private/tmp/claude|\.claude/(jobs|projects)/`)
 	self := "localpaths_test.go"
 	frozen := frozenRecords(t, root)
 
@@ -69,4 +73,44 @@ func TestNoTrackedFileLeaksALocalPath(t *testing.T) {
 		t.Fatalf("checked %d files; this lint is checking too little", checked)
 	}
 	t.Logf("checked %d tracked text files", checked)
+}
+
+// The hook and homeDir are two copies of one rule: each planted message is judged by both. A
+// message keeps neither its comment lines nor what follows a scissors line, so a path there passes.
+func TestCommitMsgHookRefusesWhatTheTreeRefuses(t *testing.T) {
+	root := repoRoot(t)
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash unavailable: %v", err)
+	}
+	home := regexp.MustCompile(homeDir)
+	scissors := "# ------------------------ >8 ------------------------"
+	cases := []struct {
+		name, msg string
+		refused   bool
+	}{
+		{"a macOS home", "Fix\n\nbuilt in /Users/alina/x\n", true},
+		{"a Linux home", "Fix\n\nbuilt in /home/alina/x\n", true},
+		{"no path", "Fix\n\nbuilt in the worktree\n", false},
+		{"a path in a comment line", "Fix\n\nbuilt in the worktree\n# /Users/alina/x\n", false},
+		{"a path under the scissors", "Fix\n\nbuilt in the worktree\n" + scissors + "\n/home/alina/x\n", false},
+	}
+	for _, c := range cases {
+		f := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+		if err := os.WriteFile(f, []byte(c.msg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", filepath.Join("githooks", "commit-msg"), f)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if err != nil && !errors.As(err, &exit) {
+			t.Fatalf("%s: the hook did not run: %v", c.name, err)
+		}
+		if refused := err != nil; refused != c.refused {
+			t.Errorf("%s: the hook refused=%v, want %v\n%s", c.name, refused, c.refused, out)
+		}
+		if c.refused && !home.MatchString(c.msg) {
+			t.Errorf("%s: homeDir lets it through, and the hook refuses it", c.name)
+		}
+	}
 }
