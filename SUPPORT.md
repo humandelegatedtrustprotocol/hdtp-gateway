@@ -1,6 +1,8 @@
 # Support
 
-**Nothing has been released yet.** Questions and bug reports go to this repository's
+**Released since v0.1.0.** Each [release](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/releases)
+carries the binaries, SHA256SUMS, the SBOM and THIRD_PARTY_NOTICES, and [`RELEASING.md`](RELEASING.md)
+says how to verify one you downloaded. Questions and bug reports go to this repository's
 issues; the bug report template asks for what helps most. There is no discussion forum.
 
 **A security report is not a support question.** It goes privately to **security@hdtp.io**, under the
