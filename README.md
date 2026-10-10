@@ -454,23 +454,25 @@ Written down because they do not disappear by going unmentioned:
 
 ## No warranty, and no liability
 
-hdtp-gateway is free software, offered as it is. You run it at your own risk.
+hdtp-gateway is free software: free of charge, open source under the Apache
+License 2.0, and offered as it is. Nothing comes with it — no warranty, no
+support, no security guarantee and no liability. You run it at your own risk.
 
 The [Apache License 2.0](LICENSE) is what governs. Its Section 7 (Disclaimer of
 Warranty) and Section 8 (Limitation of Liability) are the binding terms. This
 section says what they mean for a node in plain words, and it narrows neither.
 
-- **No warranty.** Unless the law requires it or a contributor has agreed with
-  you in writing, the software comes with no warranty or condition of any kind,
-  express or implied, including of title, non-infringement, merchantability,
-  fitness for a particular purpose, security, availability or freedom from
-  defects.
-- **No liability.** Unless the law requires it or a contributor has agreed with
-  you in writing, no contributor (the licence's word for the copyright holders
+- **No warranty.** Unless the law requires it, or a contributor has agreed with
+  you in writing about its own contribution, the software comes with no warranty
+  or condition of any kind, express or implied, including of title,
+  non-infringement, merchantability, fitness for a particular purpose, security,
+  availability or freedom from defects.
+- **No liability.** No contributor (the licence's word for the copyright holders
   and anyone on whose behalf a part of it was contributed) is liable to you for
-  any damages arising
-  from using it or being unable to use it. That includes direct, indirect,
-  special, incidental and consequential damages. It includes, without limit:
+  any damages arising from using it or being unable to use it, unless the law
+  requires it or that contributor has agreed with you in writing. That includes
+  direct, indirect, special, incidental and consequential damages. It includes,
+  without limit:
   - a security incident: a key, an identity, an account, a host or a
     connected service compromised, including through an agent you delegated to
     or a contact you accepted;
@@ -487,14 +489,18 @@ section says what they mean for a node in plain words, and it narrows neither.
   updates, its backups, its network exposure, the agents and contacts you
   authorise, the integrations you connect and the actions taken on your behalf.
   Read [Honest trade-offs](#honest-trade-offs) and [SECURITY.md](SECURITY.md)
+  and [docs/threat-model.md](docs/threat-model.md)
   before you run a node with anything you cannot afford to lose.
 - **No duty of support.** Nobody undertakes to answer questions, fix defects or
-  publish updates on any schedule. The one undertaking is the handling of
-  vulnerability reports described in [SECURITY.md](SECURITY.md).
+  publish updates on any schedule. [SECURITY.md](SECURITY.md) says how a
+  vulnerability report is handled; that is a process for reports, not a
+  warranty, a security guarantee or a duty to fix.
 - **If you offer it to others,** any warranty, support or liability you offer
   them is yours alone, not the contributors'. If you redistribute it and accept
   such obligations while doing so, Section 9 of the licence makes you indemnify
-  the contributors for them.
+  the contributors for them (defend them, and make good any liability or cost
+  they incur). The indemnity runs from you to the contributors, never the other
+  way.
 - **Where the law does not allow this.** These exclusions apply to the fullest
   extent the law that applies to you allows. Some laws do not allow certain
   warranties to be excluded, or liability for gross negligence, wilful
@@ -507,6 +513,6 @@ Those terms, not this section, govern that service.
 
 ## License
 
-[Apache-2.0](LICENSE), the same licence as
+[Apache-2.0](LICENSE), with [NOTICE](NOTICE), the same licence as
 [hdtp-spec](https://github.com/humandelegatedtrustprotocol/hdtp-spec)'s code and
 data and [hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity).

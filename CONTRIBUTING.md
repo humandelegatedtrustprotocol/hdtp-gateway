@@ -33,12 +33,10 @@ make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; 
 `make check` is the gate. If it is green your change is in reasonable shape; if it is
 red nothing else matters yet.
 
-`make all` is what to run before you push: `web` → `check` → `analyze` → `build` →
-`dist` → `sbom`. Two steps of that order are load-bearing rather than tidy —
-**`web` before `check`**, because the bundle-contract tests read the embedded
-`web/dist` and checking first would greenlight whatever bundle happened to be
-committed rather than the one your sources produce; and **`sbom` after `dist`**,
-because `dist` begins by deleting the directory `sbom` writes into.
+`make all` is what to run before you push: `web` → `check` → `analyze` → `build`.
+**`web` before `check`** is load-bearing rather than tidy: the bundle-contract tests
+read the embedded `web/dist`, and checking first would greenlight whatever bundle
+happened to be committed rather than the one your sources produce.
 
 `make analyze` (govulncheck, staticcheck, gosec, and deadcode held to the Reachability
 table of docs/conformance.md) is exactly what the pre-push hook runs — the versions and
@@ -46,8 +44,10 @@ flags are pinned in the Makefile and the hook calls the target, so there is one 
 rather than two to drift apart. Same for `make fuzz`, which is not part of `all`: it is
 two minutes that find nothing on most runs, and the pre-push hook runs it on every push.
 
-`make all` does **not** run the scenario harness or build the container images. Those
-are `make harness` / `make harness-pr` and `make harness-image`.
+`make all` does **not** run the scenario harness, build the container images or build the
+release artifacts. Those are `make harness` / `make harness-pr`, `make harness-image`, and
+`make dist` / `make sbom`, built from a clean checkout of a tag: `dist` refuses anything else
+([RELEASING.md](RELEASING.md)).
 
 ## Hooks
 
