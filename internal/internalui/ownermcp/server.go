@@ -604,10 +604,6 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 		return r, nil, err
 	}
 	gone, err := ot.d.Msg.DeleteThread(ctx, a.AccountID, a.ThreadID)
-	resource := "account:" + a.AccountID + " thread_id:" + a.ThreadID
-	if gone.Status == "deleted" {
-		resource = gone.AuditResource(a.AccountID)
-	}
 	code, outcome := "", "ok"
 	switch {
 	case err == nil:
@@ -620,7 +616,7 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 	default:
 		code, outcome = "internal", "error"
 	}
-	ot.d.audit("thread_delete", resource, outcome)
+	ot.d.audit("thread_delete", "account:"+a.AccountID+" "+gone.AuditDetail(a.ThreadID), outcome)
 	if code != "" {
 		b, _ := json.Marshal(map[string]string{"code": code})
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil

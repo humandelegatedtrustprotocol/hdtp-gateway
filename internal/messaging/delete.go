@@ -19,11 +19,14 @@ type Deleted struct {
 	Files    int64  `json:"files"`
 }
 
-// AuditResource is the resource of the one `thread_delete` row a deletion writes: the account, the
-// contact, the thread and what went, never the topic or a body.
-func (d Deleted) AuditResource(accountID string) string {
-	return fmt.Sprintf("account:%s contact:%s thread_id:%s messages:%d files:%d",
-		accountID, d.Contact, d.ThreadID, d.Messages, d.Files)
+// AuditDetail is what the one `thread_delete` row a deletion writes says after the account: the
+// contact, the thread and what went, never the topic or a body. A door that did not delete names
+// the thread asked for instead.
+func (d Deleted) AuditDetail(threadID string) string {
+	if d.Status != "deleted" {
+		return "thread_id:" + threadID
+	}
+	return fmt.Sprintf("contact:%s thread_id:%s messages:%d files:%d", d.Contact, d.ThreadID, d.Messages, d.Files)
 }
 
 // DeleteThread deletes one conversation of the account, locally (SPEC §7.9): the thread row (its

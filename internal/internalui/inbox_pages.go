@@ -155,12 +155,8 @@ func (d InboxDeps) postThreadsIDDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	gone, err := d.Msg.DeleteThread(r.Context(), account, id)
 	status, code, outcome := deleteOutcome(gone, err)
-	resource := "account:" + account + " thread_id:" + id
-	if gone.Status == "deleted" {
-		resource = gone.AuditResource(account)
-	}
 	if d.Audit != nil {
-		d.Audit("thread_delete", resource, outcome)
+		d.Audit("thread_delete", "account:"+account+" "+gone.AuditDetail(id), outcome)
 	}
 	if code != "" {
 		apiJSONStatus(w, status, map[string]any{"error": code})
