@@ -112,7 +112,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
 	auditFn func(action, resource, outcome string), publicURL string,
 	settings internalui.SettingsDeps, authDeps *internalui.AuthDeps,
-	cfg *core.Config, background func(work func(ctx context.Context))) http.Handler {
+	cfg *core.Config, background func(work func(ctx context.Context)), onError func(error)) http.Handler {
 	// Everything below is owner-initiated by construction: it is the internal
 	// surface. auditFn arrives already tagged.
 
@@ -198,9 +198,10 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				Fetch: nd.FetchMedia, Audit: auditFn,
 			})
 			internalui.MountInboxPages(mux, internalui.InboxDeps{
-				Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus()},
-				Bus:  nd.Bus(),
-				Send: nd.SendMessage,
+				Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus(), Blobs: messaging.BlobDir{Root: cfg.Blobs()}, OnError: onError},
+				Bus:   nd.Bus(),
+				Send:  nd.SendMessage,
+				Audit: auditFn,
 			})
 		},
 		func(mux *http.ServeMux) {
@@ -246,7 +247,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", internalui.Health(nd.LimitsAnswer))
-	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, tokens, authSvc, chain, agent, presence, auditFn))
+	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, messaging.BlobDir{Root: cfg.Blobs()}, onError, tokens, authSvc, chain, agent, presence, auditFn))
 	mux.Handle("/", internalui.HandlerWithAuth(st, setup, authDeps, mounts...))
 	return mux
 }
@@ -255,7 +256,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 // bearer identity that request carries, so a token scoped to one account can never reach another
 // (SPEC §8.4). Stateless like the public surface (public.StatelessMCP, SPEC §8.5): what an agent
 // waits for, it asks for with `wait_for_updates`.
-func ownerMCPHandler(nd *node.Node, st store.Store,
+func ownerMCPHandler(nd *node.Node, st store.Store, blobs messaging.BlobDir, onError func(error),
 	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationchain.Chain,
 	agent *integrations.AgentAnswered, presence *presence.Tracker,
 	auditFn func(action, resource, outcome string)) http.Handler {
@@ -270,7 +271,7 @@ func ownerMCPHandler(nd *node.Node, st store.Store,
 		// Account-agnostic services: every method takes the account id, and the
 		// token identity is what scopes it (SPEC §8.4).
 		srv := ownermcp.NewServerWithExtra(ownermcp.Deps{
-			Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus()}, PublicURL: nd.PublicURL,
+			Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus(), Blobs: blobs, OnError: onError}, PublicURL: nd.PublicURL,
 			// Without this an approval made by the owner's AGENT writes the store
 			// while the cached per-caller server keeps serving the old tier, so
 			// the contact stays at guest tier until the node restarts (P14-05e).

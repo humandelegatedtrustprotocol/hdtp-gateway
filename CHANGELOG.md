@@ -17,17 +17,30 @@ changelog can be and is not summarized into a fictional release history.
   travels: each of its threads as a removed thread in `threads.csv`, carrying per name the newest
   its threads kept that is not empty, with its messages and files. Its root is never written as a contact and never
   called; into an identity that
-  holds the root, the thread is that contact's. Migration 0003 keeps on each thread whether its root
+  holds the root, the thread is that contact's. Migration 0004 keeps on each thread whether its root
   was ever a contact, as its row is deleted (`ever_active` or active; once kept it stays), and marks
   every thread written before it that holds a message, since only a contact's conversation can. What
   an export still leaves out — a conversation with a root this host has no record of as a contact,
-  its request waiting or gone — is named by thread id and reason; a thread whose row went before 0003
+  its request waiting or gone — is named by thread id and reason; a thread whose row went before 0004
   and that has no message left is one, a gap the migration cannot close. An import strips a display
   name a contact chose, and a removed thread's, as a card's FN is (HDTP §3), and the conversation
   list and the owner MCP strip it as they render it. Requires hdtp-identity 0.8.0.
+- The owner can delete one conversation, here only: the portal's Delete on a conversation (which
+  asks first) and the owner MCP's `delete_thread` run one operation. The thread, its messages
+  (one still being retried is not sent) and the files no other message names go; the contact and
+  its other threads stay, and nothing is sent to them (SPEC §7.9).
 
 ### Changed
 
+- **Upgrading:** a link the owner fetches is now fetched for one message and its file recorded on
+  that message, so the conversation opens it, an export carries it and a deletion collects it. The
+  hourly pass now also takes files no message names, whatever the retention window (once older than
+  an hour). A node upgraded from 0.1.2 or earlier holds files it fetched before, which no message
+  names and whose records cannot say which message would: those are KEPT, and counted in the
+  quota, because they are the owner's and the link behind one may be dead. Migration 0003 records
+  when the node began to judge files, and the sweep judges only records written since. Nothing names
+  such a file, so deleting its conversation does not find it either: it stays until the identity
+  leaves the node (`account leave`).
 - A removed contact's conversation stays in the inbox, under the name it had (the owner's petname,
   else theirs) and ` · removed`, readable and with no composer; it used to vanish from the list
   with the contact. A conversation whose contact is now a request or blocked stays listed too,

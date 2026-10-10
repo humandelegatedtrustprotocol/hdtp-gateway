@@ -898,3 +898,42 @@ func TestRedeemByABlockedRootReadsAsAStrangersRedemption(t *testing.T) {
 		t.Errorf("the audit trail does not record the blocked redemption: %v", e.rows)
 	}
 }
+
+// HDTP §6.2: send_media's msg_id is required. One without it is refused bad_request before its
+// bytes are decoded or stored: no message, no file record, nothing counted.
+func TestSendMediaWithoutAMsgIDIsRefusedBeforeAnythingIsStored(t *testing.T) {
+	e := newToolEnv(t)
+	fpr, _ := e.contact("active", "message.text", "message.media")
+	data := base64.StdEncoding.EncodeToString([]byte("bytes with no msg_id"))
+	for _, args := range []map[string]any{
+		{"filename": "x.bin", "mime": "application/octet-stream", "data": data},
+		{"msg_id": "", "filename": "x.bin", "mime": "application/octet-stream", "data": data},
+	} {
+		res, _ := e.call(fpr, "send_media", args, nil)
+		if !res.IsError || !strings.Contains(body(t, res), "bad_request") {
+			t.Fatalf("send_media %v: %s", args, body(t, res))
+		}
+	}
+	if n := e.countMessages(); n != 0 {
+		t.Fatalf("%d messages stored", n)
+	}
+	if used, err := e.st.SumBlobBytes(context.Background(), e.acct.ID); err != nil || used != 0 {
+		t.Fatalf("%d bytes counted (%v)", used, err)
+	}
+	// Refused at the boundary, as a malformed call is: the row names the caller and nothing the
+	// media service said (a refusal from inside it carries a `why:`).
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	refused := 0
+	for _, r := range e.rows {
+		if strings.HasPrefix(r, "send_media ") {
+			if strings.Contains(r, "why:") || !strings.HasSuffix(r, " bad_request") {
+				t.Fatalf("send_media without a msg_id reached the media service: %q", r)
+			}
+			refused++
+		}
+	}
+	if refused != 2 {
+		t.Fatalf("%d send_media rows, want the two refusals: %v", refused, e.rows)
+	}
+}

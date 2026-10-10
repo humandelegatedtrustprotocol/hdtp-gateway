@@ -67,7 +67,7 @@ func TestMediaFetchIsOwnerInitiatedAndReportsRefusal(t *testing.T) {
 	called := 0
 	MountMediaPages(mux, MediaDeps{
 		Store: e.st, Blobs: messaging.BlobDir{Root: t.TempDir()},
-		Fetch: func(_ context.Context, _, raw string) (string, error) {
+		Fetch: func(_ context.Context, _, message string) (string, error) {
 			called++
 			return "", errRefused
 		},
@@ -78,7 +78,7 @@ func TestMediaFetchIsOwnerInitiatedAndReportsRefusal(t *testing.T) {
 	}
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/media/fetch",
-		strings.NewReader("account=a&url=http://127.0.0.1/secret"))
+		strings.NewReader("account=a&message=m1"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rr, req)
 	if called != 1 {
@@ -112,5 +112,41 @@ func TestPortalPagesConsumeTheEventStream(t *testing.T) {
 	}
 	if !strings.Contains(js, "/events") {
 		t.Error("the compiled portal does not know the event stream's path")
+	}
+}
+
+// The fetch names a message, and its refusals say which kind they are: a message the account does
+// not hold is 404, one that is not a link 400, a refused fetch 422; the view reads `ok` and shows
+// the error.
+func TestMediaFetchNamesAMessageAndSaysWhyItWasRefused(t *testing.T) {
+	e := newEnv(t)
+	for _, c := range []struct {
+		err  error
+		want int
+	}{
+		{store.ErrNotFound, http.StatusNotFound},
+		{messaging.ErrBadRequest, http.StatusBadRequest},
+		{errRefused, http.StatusUnprocessableEntity},
+	} {
+		var asked string
+		mux := http.NewServeMux()
+		MountMediaPages(mux, MediaDeps{Store: e.st, Blobs: messaging.BlobDir{Root: t.TempDir()},
+			Fetch: func(_ context.Context, _, message string) (string, error) { asked = message; return "", c.err }})
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/media/fetch", strings.NewReader("account=a&message=m7"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mux.ServeHTTP(rr, req)
+		if rr.Code != c.want || asked != "m7" {
+			t.Fatalf("%v: %d (asked %q), want %d for message m7", c.err, rr.Code, asked, c.want)
+		}
+	}
+	mux := http.NewServeMux()
+	MountMediaPages(mux, MediaDeps{Store: e.st, Fetch: func(context.Context, string, string) (string, error) { return "h", nil }})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/media/fetch", strings.NewReader("account=a&url=http://x"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("a fetch naming a URL and no message: %d, want 400", rr.Code)
 	}
 }

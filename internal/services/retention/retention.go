@@ -1,6 +1,6 @@
 // Package retention is the retention sweeper (SPEC §7.9): unlimited by default, and when an owner
-// sets a window, messages and their orphaned blobs past it are deleted locally.
-// The same pass expires contact requests nobody answered (SPEC §9.1).
+// sets a window, messages and their orphaned blobs past it are deleted locally; files no message
+// names go whatever the window. The same pass expires contact requests nobody answered (SPEC §9.1).
 //
 // It runs on a slow ticker rather than on every write. Retention is a policy
 // about age, not a reaction to an event, and a sweep that ran constantly would
@@ -43,7 +43,9 @@ const ChangeLogKept = 7 * 24 * time.Hour
 // then, per account, requests nobody answered within settings.RequestExpiryFor
 // (each audited as contact_expire, and passed to invalidate); then, only when the account's
 // retention window is positive, the message sweep (messaging.Sweeper). A zero window deletes no
-// message. A failed step is printed to stderr as "retention: ..." unless ctx has ended, and the
+// message. Before the window, every account's files that no message names and that are older than
+// messaging.FileGrace go (Sweeper.CollectOrphans).
+// A failed step is printed to stderr as "retention: ..." unless ctx has ended, and the
 // pass goes on to the next step; a failed account listing ends the pass silently.
 //
 // The same tick retires expired leaves (`retireLeaves`, the node's own pass): a leaf's key is
@@ -110,9 +112,13 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 			for _, g := range gone {
 				auditFn("contact_expire", "account:"+a.ID+" contact:"+g.Fingerprint+" status:"+g.Status, "ok")
 			}
+			// Files nothing names, whatever the window (messaging.FileGrace): unlimited retention
+			// keeps messages, not files no message names.
+			_, err = sweeper.CollectOrphans(ctx, a.ID)
+			report(a.Slug+" files", err)
 			_, window := settings.StorageFor(ctx, a.ID)
 			if window <= 0 {
-				continue // unlimited: the default, and it deletes nothing
+				continue // unlimited: the default, and it deletes no message
 			}
 			_, err = sweeper.Sweep(ctx, a.ID, window)
 			report(a.Slug, err)

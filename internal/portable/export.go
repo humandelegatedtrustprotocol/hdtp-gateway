@@ -70,7 +70,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		names, isFormer := former[t.ContactFpr]
 		if !carried[t.ContactFpr] && !isFormer {
 			// A root this host has no record of as a contact: a stranger's request not yet decided, one
-			// whose row went (expired or refused), or a thread written before migration 0003 that no
+			// whose row went (expired or refused), or a thread written before migration 0004 that no
 			// message is left in to prove its root was one. Its conversation stays here, and is named
 			// (HDTP §9.2).
 			why := "who this host has no record of as a contact"

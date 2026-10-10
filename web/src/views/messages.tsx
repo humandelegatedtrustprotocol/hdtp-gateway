@@ -22,13 +22,15 @@ type Person = {
 };
 type Media = { filename: string; mime: string; size?: number; hash?: string; url?: string };
 /** `ts` is when it was written and `until` when a message still being tried stops being tried (unix seconds). */
-type Msg = { mine: boolean; body: string; who: string; ts: number; until?: number; state?: string; media?: Media };
+type Msg = { id?: string; mine: boolean; body: string; who: string; ts: number; until?: number; state?: string; media?: Media };
 /**
  * One page of conversations, most recently active first (the node's ConversationsPage); `more` when there
  * are others past it, which a search reaches. `through` is the newest message of the selected conversation
  * this answer shows: what showing it marks read through (POST /messages/read).
  */
-type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string; unread: Tally; more: boolean; through: number };
+type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string; unread: Tally; more: boolean; through: number;
+  /** The threads the selected conversation merges: what Delete deletes, each through POST /threads/{id}/delete. */
+  threads: string[] | null };
 
 type PermRow = { name: string; on: boolean };
 type Contact = {
@@ -179,6 +181,20 @@ export function Messages() {
     load(); // also fetches a fresh msg_id
   };
 
+  // Deleting the conversation on screen deletes each thread it merges, here only: the contact keeps
+  // their copy, and nothing is sent (node SPEC §7.9). A thread already gone is not a failure.
+  const deleteConversation = async () => {
+    setSendErr("");
+    let failed = false;
+    for (const id of d?.threads ?? []) {
+      const r = await postForm(`/threads/${encodeURIComponent(id)}/delete`, {});
+      if (!r.ok && r.status !== 404) failed = true;
+    }
+    if (failed) setSendErr("The conversation was not deleted in full. Try again.");
+    dispatchEvent(new Event("hdtp:counts"));
+    load();
+  };
+
   const upload = async (file: File) => {
     if (!sel || !d?.new_msg_id) return;
     if (file.size > 5 * 1024 * 1024) { setSendErr("That file is over 5 MiB, the protocol's limit for inline media."); return; }
@@ -271,6 +287,11 @@ export function Messages() {
                     <Button variant="quiet" icon="panel" aria-pressed={panelOpen && !focus} title={panelOpen && !focus ? "Hide contact panel" : "Show contact panel"} aria-label="Contact panel"
                       onClick={() => { if (window.innerWidth <= 900) setPane(pane === "panel" ? "thread" : "panel"); else { if (focus) toggleFocus(); if (!panelOpen || focus) { if (!panelOpen) togglePanel(); } else togglePanel(); } }} />
                   </Toolbar>}
+                  {(d.threads ?? []).length > 0 && <Toolbar className="delete">
+                    <Button variant="quiet" icon="trash" title="Delete conversation" aria-label="Delete conversation"
+                      confirm={`Delete your conversation with ${current.label}? It is deleted here only: they keep their copy.`}
+                      onClick={deleteConversation} />
+                  </Toolbar>}
                   <Toolbar className="expand">
                     <Button variant="quiet" icon={focus ? "collapse" : "expand"} aria-pressed={focus} title={focus ? "Exit full width" : "Full width"} aria-label={focus ? "Exit full width" : "Full width"} onClick={toggleFocus} />
                   </Toolbar>
@@ -300,7 +321,7 @@ export function Messages() {
                         </div>
                         <div className="bubble">
                           {m.body}
-                          {m.media && <MediaBubble m={m.media} onFetched={load} />}
+                          {m.media && <MediaBubble id={m.id ?? ""} m={m.media} onFetched={load} />}
                         </div>
                         {m.mine && <Undelivered m={m} />}
                       </div>
@@ -530,7 +551,7 @@ function csrfCookie(): string {
 // already holds open directly, while a URL a contact sent is fetched only when
 // the owner asks. Auto-fetching an attacker-supplied URL would let any contact
 // drive requests out of this node — into a home LAN, for instance (§7.5).
-function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
+function MediaBubble({ id, m, onFetched }: { id: string; m: Media; onFetched: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const name = m.filename || "attachment";
@@ -557,9 +578,11 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
         onClick={async () => {
           setBusy(true);
           setErr("");
-          const r = await postForm("/media/fetch", { url: m.url ?? "" });
+          // The message is named, not its link: the node fetches the link that message carries and
+          // records the file on it, so the bubble opens it from then on.
+          const r = await postForm("/media/fetch", { message: id });
           setBusy(false);
-          if (!r.ok) setErr(r.body || "that fetch was refused");
+          if (!r.ok) setErr(fetchRefusal(r.body));
           else onFetched();
         }}>
         Fetch it
@@ -567,6 +590,11 @@ function MediaBubble({ m, onFetched }: { m: Media; onFetched: () => void }) {
       {err && <span className="bad">{err}</span>}
     </span>
   );
+}
+
+/** The words of a refused fetch: the node answers `{"error": …}`. */
+function fetchRefusal(body: string): string {
+  try { return (JSON.parse(body) as { error?: string }).error || "that fetch was refused"; } catch { return body || "that fetch was refused"; }
 }
 
 /**

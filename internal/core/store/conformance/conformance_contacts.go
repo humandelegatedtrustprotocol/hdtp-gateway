@@ -450,7 +450,7 @@ func contacts(t *testing.T, newStore Factory) {
 		}
 	})
 
-	// A row that leaves says on its threads whether its root was ever a contact (migrations 0003):
+	// A row that leaves says on its threads whether its root was ever a contact (migrations 0004):
 	// an export carries a former contact's conversation and leaves a stranger's (HDTP §9.2). The cases
 	// are testdata/kept_was_contact.json; BatonDeck's cloud/1004 is to run the same list by the same
 	// names against its own trigger once it lands, so the two hosts cannot drift.

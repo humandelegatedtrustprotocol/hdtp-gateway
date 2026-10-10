@@ -222,7 +222,7 @@ func TestARemovedConversationJoinsAContactHeldHere(t *testing.T) {
 	}
 }
 
-// beforeKeptWasContact opens a store whose schema stops at migration 0002, before threads kept
+// beforeKeptWasContact opens a store whose schema stops at migration 0003, before threads kept
 // whether their root was a contact, so a test can write what a node held then and migrate it.
 func beforeKeptWasContact(t *testing.T, name string) (store.Store, func() error) {
 	t.Helper()
@@ -239,7 +239,7 @@ func beforeKeptWasContact(t *testing.T, name string) (store.Store, func() error)
 		must(t, err)
 		p, err := goose.NewProvider(goose.DialectSQLite3, db, sub)
 		must(t, err)
-		_, err = p.UpTo(ctx, 2)
+		_, err = p.UpTo(ctx, 3)
 		must(t, err)
 		return st, func() error { return st.Migrate(ctx) }
 	}
@@ -268,18 +268,18 @@ func beforeKeptWasContact(t *testing.T, name string) (store.Store, func() error)
 	must(t, err)
 	p, err := goose.NewProvider(goose.DialectPostgres, conn, sub)
 	must(t, err)
-	_, err = p.UpTo(ctx, 2)
+	_, err = p.UpTo(ctx, 3)
 	must(t, err)
 	return st, func() error { return st.Migrate(ctx) }
 }
 
-// Migration 0003 on a node that removed contacts before it: a thread that holds a message was a
+// Migration 0004 on a node that removed contacts before it: a thread that holds a message was a
 // contact's, since only a contact writes one (inbound at the contact tier, outbound to an active
 // contact alone; a request's note is never stored), so a former contact's conversation travels as a
 // removed thread with the names it kept. A thread with no message left proves nothing and stays,
 // named as one with a root this host has no record of as a contact — the gap the migration cannot
 // close. A stranger whose request expired left no thread at all: its note was never written.
-func TestMigration0003KeepsAFormerContactsConversationRemovedBeforeIt(t *testing.T) {
+func TestMigration0004KeepsAFormerContactsConversationRemovedBeforeIt(t *testing.T) {
 	names := []string{"sqlite"}
 	if os.Getenv("HDTP_TEST_POSTGRES_DSN") != "" {
 		names = append(names, "postgres")

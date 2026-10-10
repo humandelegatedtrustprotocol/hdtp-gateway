@@ -34,6 +34,7 @@ func Run(t *testing.T, newStore Factory) {
 	importAndMove(t, newStore)
 	identityState(t, newStore)
 	retention(t, newStore)
+	conversationDeletion(t, newStore)
 	settings(t, newStore)
 	credentials(t, newStore)
 	messages(t, newStore)

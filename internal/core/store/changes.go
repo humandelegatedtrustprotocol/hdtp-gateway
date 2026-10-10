@@ -70,6 +70,12 @@ func (s *SQLite) DeleteChangesByAccount(ctx context.Context, accountID string) (
 	return s.q.DeleteChangesByAccount(ctx, accountID)
 }
 
+// DeleteChangesByThread deletes the change rows that name one thread of one account, for a deleted
+// conversation, and returns how many went.
+func (s *SQLite) DeleteChangesByThread(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteChangesByThread(ctx, sqlitedb.DeleteChangesByThreadParams{AccountID: accountID, ThreadID: threadID})
+}
+
 // DeleteChangesBefore deletes the change rows written before at (unix seconds) and returns how many
 // went.
 func (s *SQLite) DeleteChangesBefore(ctx context.Context, at int64) (int64, error) {
@@ -142,6 +148,12 @@ func (s *Postgres) ChangeBounds(ctx context.Context) (int64, int64, error) {
 // rows name the account without a foreign key, so DeleteAccount's cascade does not reach them.
 func (s *Postgres) DeleteChangesByAccount(ctx context.Context, accountID string) (int64, error) {
 	return s.q.DeleteChangesByAccount(ctx, accountID)
+}
+
+// DeleteChangesByThread deletes the change rows that name one thread of one account, for a deleted
+// conversation, and returns how many went.
+func (s *Postgres) DeleteChangesByThread(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteChangesByThread(ctx, pgdb.DeleteChangesByThreadParams{AccountID: accountID, ThreadID: threadID})
 }
 
 // DeleteChangesBefore deletes the change rows written before at (unix seconds) and returns how many
