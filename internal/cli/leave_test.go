@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,12 +50,17 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer hold.Close()
+	// Closed when the walk first dials the silent host: by then it has read alice's contacts and is
+	// calling this one, so blocking the contact afterwards cannot take it out of the walk.
+	dialled := make(chan struct{})
 	go func() {
+		var once sync.Once
 		for {
 			c, err := hold.Accept()
 			if err != nil {
 				return
 			}
+			once.Do(func() { close(dialled) })
 			go func() { time.Sleep(3 * time.Second); c.Close() }()
 		}
 	}()
@@ -132,7 +138,14 @@ func TestAccountLeaveOnARunningNode(t *testing.T) {
 		t.Fatalf("a refused leave erased the account: %v", err)
 	}
 	// Once the walk has given up on the silent host, the leave goes through. The contact is blocked
-	// first, so it is no longer owed the move and no announce starts another walk.
+	// first, so it is no longer owed the move and no announce starts another walk — but only once
+	// the walk is calling it: blocked before the walk reads the contacts, it is never called, and
+	// no row names its fingerprint.
+	select {
+	case <-dialled:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the walk never dialled the contact's host")
+	}
 	if err := st.UpdateContactStatus(ctx, alice.ID, slowRoot, "blocked"); err != nil {
 		t.Fatal(err)
 	}
