@@ -518,6 +518,7 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 			s := seed(t, src)
 			file, _ := exportOf(t, src, "alina")
 			dst := newEnv(t, eng.open)
+			importedAt := time.Now().Unix()
 			p, res, err := importFile(t, dst, file, "alina", time.Now())
 			if err != nil {
 				t.Fatal(err)
@@ -559,6 +560,13 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 			}
 			if b, err := dst.st.GetBlob(ctx, a.ID, s.mediaHash); err != nil || b.Mime != "image/png" {
 				t.Fatalf("the file's record: %+v %v", b, err)
+			} else if b.CreatedAt < importedAt {
+				// Stamped with the import's time, not the message's: the orphan sweep judges records by
+				// when they were written here (migration 0003).
+				t.Fatalf("the imported file's record is dated %d, before the import at %d", b.CreatedAt, importedAt)
+			}
+			if m := byID["m2"]; m.CreatedAt != 1790000022 {
+				t.Fatalf("the file message lost its own time: %d", m.CreatedAt)
 			}
 			if m := byID["m3"]; m.Kind != "text" || m.Body != "https://files.example/slides.pdf" {
 				t.Fatalf("the link message arrived as %+v", m)
@@ -739,5 +747,115 @@ func TestAnImportIsHeldToTheContactCap(t *testing.T) {
 	must(t, err)
 	if _, err := p.Apply(ctx, fits.st, fits.blobs, time.Now(), 0); err != nil {
 		t.Fatalf("re-importing what an identity over its cap holds was refused: %v", err)
+	}
+}
+
+// A link the owner fetched names its file (messaging.MediaService.FetchMessage): the export carries
+// the file as the message's attachment. The format gives a message with an attachment an empty body
+// (HDTP §9.2's MessageRow) and has no field for a link beside a file, so the link itself does not
+// travel; the file it pointed at does.
+func TestAFetchedLinkTravelsAsItsFile(t *testing.T) {
+	e := newEnv(t, sqliteStore)
+	s := seed(t, e)
+	ctx := context.Background()
+	fetched, _ := json.Marshal(messaging.MediaMeta{Filename: "board.png", Mime: "image/png", URL: "https://files.example/board.png", Hash: s.mediaHash, Size: 28})
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: "m5", AccountID: s.accountID, ContactFpr: s.peer.Fpr, MsgID: "msg-5", ThreadID: "t1",
+		Direction: "in", Sender: "agent", Kind: "media", Body: string(fetched), Status: "delivered", CreatedAt: 1790000025}))
+	file, _ := exportOf(t, e, "alina")
+	got, err := hdtpidentity.ReadExportZip(zipReader(t, file), s.me.Fpr, time.Now(), ImportCeiling)
+	if err != nil {
+		t.Fatalf("the core refuses the export: %v", err)
+	}
+	for _, m := range got.Messages {
+		if m.ID != "m5" {
+			continue
+		}
+		if m.Body != "" || len(m.Attachments) != 1 || m.Attachments[0].File != s.mediaHash || m.Attachments[0].Filename != "board.png" {
+			t.Fatalf("the fetched link's message: %+v", m)
+		}
+		return
+	}
+	t.Fatal("the fetched link's message is not in the export")
+}
+
+// countPause pauses a transaction after it counts a file's references, until told to go on or a
+// second has passed: the moment between a collection's count and its removal.
+type countPause struct {
+	store.Store
+	paused chan struct{}
+	resume chan struct{}
+}
+
+func (c *countPause) Atomically(ctx context.Context, fn func(tx store.Store) error) error {
+	return c.Store.Atomically(ctx, func(tx store.Store) error { return fn(&countPauseTx{Store: tx, c: c}) })
+}
+
+type countPauseTx struct {
+	store.Store
+	c *countPause
+}
+
+func (t *countPauseTx) CountBlobRefs(ctx context.Context, hash string) (int64, error) {
+	n, err := t.Store.CountBlobRefs(ctx, hash)
+	close(t.c.paused)
+	select {
+	case <-t.c.resume:
+	case <-time.After(time.Second):
+	}
+	return n, err
+}
+
+// An import's file locks: another identity's collection of the same bytes has counted their other
+// records and not yet removed them when the import writes its records, messages and bytes. Without
+// the locks the import finds the bytes there, commits, and the collection then removes them; with
+// them it waits, and writes the bytes anew after.
+func TestAnImportWaitsForACollectionOfTheSameBytes(t *testing.T) {
+	ctx := context.Background()
+	for _, eng := range engines(t) {
+		t.Run(eng.name, func(t *testing.T) {
+			src := newEnv(t, eng.open)
+			s := seed(t, src)
+			file, _ := exportOf(t, src, "alina")
+			dst := newEnv(t, eng.open)
+			other, err := dst.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+			must(t, err)
+			if _, err := dst.blobs.Put([]byte("a photograph of a whiteboard")); err != nil {
+				t.Fatal(err)
+			}
+			// Another identity's record of the same bytes, old and named by nothing: collected.
+			must(t, dst.st.InsertBlob(ctx, store.Blob{AccountID: other.ID, Hash: s.mediaHash, Size: 28, CreatedAt: 1}))
+			pause := &countPause{Store: dst.st, paused: make(chan struct{}), resume: make(chan struct{})}
+			collected := make(chan error, 1)
+			go func() {
+				_, _, err := messaging.Files{Store: pause, Blobs: dst.blobs}.Collect(ctx, other.ID, []string{s.mediaHash}, 2)
+				collected <- err
+			}()
+			<-pause.paused
+			imported := make(chan error, 1)
+			go func() {
+				_, _, err := importFile(t, dst, file, "alina", time.Now())
+				imported <- err
+			}()
+			var importErr error
+			finished := false
+			select {
+			case importErr = <-imported:
+				finished = true
+				close(pause.resume)
+			case <-time.After(500 * time.Millisecond):
+			}
+			if err := <-collected; err != nil {
+				t.Fatal(err)
+			}
+			if !finished {
+				importErr = <-imported
+			}
+			if importErr != nil {
+				t.Fatal(importErr)
+			}
+			if data, err := dst.blobs.Get(s.mediaHash); err != nil || string(data) != "a photograph of a whiteboard" {
+				t.Fatalf("the imported message names a file whose bytes are gone: %v", err)
+			}
+		})
 	}
 }

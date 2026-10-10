@@ -3,7 +3,9 @@ package retention
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
 )
 
@@ -187,5 +190,80 @@ func TestTheRetentionPassRunsOnlyWhileItLeads(t *testing.T) {
 		if did != lead {
 			t.Fatalf("leading %v, the pass at start ran %v", lead, did)
 		}
+	}
+}
+
+// Unlimited retention (no window set) keeps every message and takes the files no message names
+// once they are older than messaging.FileGrace: the pass runs the orphan sweep for every account.
+func TestThePassTakesUnnamedFilesUnderUnlimitedRetention(t *testing.T) {
+	dir := t.TempDir()
+	st := migrated(t, dir)
+	defer st.Close()
+	bg := context.Background()
+	a, err := st.CreateAccount(bg, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &core.Config{DataDir: dir}
+	blobs := messaging.BlobDir{Root: cfg.Blobs()}
+	// The node was upgraded three hours ago (migration 0003's row; raw SQL, as nothing else writes it).
+	since := time.Now().Add(-3 * messaging.FileGrace).Unix()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "hdtp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE orphan_sweep SET since = ?", since); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	file := func(data string, createdAt int64) string {
+		hash, err := blobs.Put([]byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.InsertBlob(bg, store.Blob{AccountID: a.ID, Hash: hash, Size: int64(len(data)), CreatedAt: createdAt}); err != nil {
+			t.Fatal(err)
+		}
+		return hash
+	}
+	hash := file("nothing names this file", time.Now().Add(-2*messaging.FileGrace).Unix())
+	// A link the node fetched before the upgrade: unnamed, the owner's, kept.
+	before := file("fetched before the upgrade", since-3600)
+	var mu sync.Mutex
+	var swept []string
+	ctx, cancel := context.WithCancel(bg)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Run(ctx, settings.New(st, nil, nil, nil), st, cfg, func(action, resource, outcome string) {
+			if action == "retention_sweep" {
+				mu.Lock()
+				swept = append(swept, resource+" "+outcome)
+				mu.Unlock()
+			}
+		}, io.Discard, nil, nil, nil, nil)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		mu.Lock()
+		n := len(swept)
+		mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if _, err := blobs.Get(hash); err == nil {
+		t.Fatal("a file nothing names outlived the pass under unlimited retention")
+	}
+	if _, err := blobs.Get(before); err != nil {
+		t.Fatal("the pass took a file from before the upgrade")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(swept) != 1 || swept[0] != "account:"+a.ID+" blobs:1 ok" {
+		t.Fatalf("audit rows: %v", swept)
 	}
 }

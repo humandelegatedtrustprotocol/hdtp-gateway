@@ -26,9 +26,9 @@ func (s *SQLite) GetThread(ctx context.Context, accountID, threadID string) (Thr
 	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname}, nil
 }
 
-// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it, and
-// a thread that is not there is not reported.
-func (s *SQLite) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error {
+// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it. It
+// returns how many threads it touched: 0 when the thread is not there.
+func (s *SQLite) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) (int64, error) {
 	return s.q.TouchThread(ctx, sqlitedb.TouchThreadParams{LastAt: lastAt, AccountID: accountID, ID: threadID})
 }
 
@@ -226,4 +226,53 @@ func (s *SQLite) ImportBlob(ctx context.Context, b Blob) (bool, error) {
 		Filename: b.Filename, CreatedAt: b.CreatedAt,
 	})
 	return n > 0, err
+}
+
+// GetMessage returns the account's message by its id, or ErrNotFound.
+func (s *SQLite) GetMessage(ctx context.Context, accountID, id string) (Message, error) {
+	r, err := s.q.GetMessage(ctx, sqlitedb.GetMessageParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Message{}, err
+	}
+	return messageFromRow(r), nil
+}
+
+// SetMediaBody rewrites a media message's description and returns how many rows it changed: 0 when
+// the account has no media message with that id.
+func (s *SQLite) SetMediaBody(ctx context.Context, accountID, id, body string) (int64, error) {
+	return s.q.SetMediaBody(ctx, sqlitedb.SetMediaBodyParams{Body: body, AccountID: accountID, ID: id})
+}
+
+// ListThreadMediaBodies returns the bodies of one thread's media messages, oldest first.
+func (s *SQLite) ListThreadMediaBodies(ctx context.Context, accountID, threadID string) ([]string, error) {
+	return s.q.ListThreadMediaBodies(ctx, sqlitedb.ListThreadMediaBodiesParams{AccountID: accountID, ThreadID: threadID})
+}
+
+// DeleteThreadMessages deletes every message of one thread and returns how many went.
+func (s *SQLite) DeleteThreadMessages(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteThreadMessages(ctx, sqlitedb.DeleteThreadMessagesParams{AccountID: accountID, ThreadID: threadID})
+}
+
+// DeleteThread deletes one thread row, its read marker and its kept names with it, and returns how
+// many went (0 or 1).
+func (s *SQLite) DeleteThread(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteThread(ctx, sqlitedb.DeleteThreadParams{AccountID: accountID, ID: threadID})
+}
+
+// MediaNames reports whether any media message of the account names the file.
+func (s *SQLite) MediaNames(ctx context.Context, accountID, hash string) (bool, error) {
+	n, err := s.q.CountMediaNaming(ctx, sqlitedb.CountMediaNamingParams{AccountID: accountID, Body: mediaNamingPattern(hash)})
+	return n > 0, err
+}
+
+// LockFile is nothing on SQLite: its transactions are one at a time already.
+func (s *SQLite) LockFile(context.Context, string) error { return nil }
+
+// mediaNamingPattern is the LIKE pattern for a media body that names a file: the host writes the
+// hash as `"hash":"<hex>"`, and a hash is lowercase hex, which LIKE reads literally.
+func mediaNamingPattern(hash string) string { return `%"hash":"` + hash + `"%` }
+
+// OrphanSweepSince is when the orphan sweep began to judge files (migration 0003), unix seconds.
+func (s *SQLite) OrphanSweepSince(ctx context.Context) (int64, error) {
+	return s.q.OrphanSweepSince(ctx)
 }

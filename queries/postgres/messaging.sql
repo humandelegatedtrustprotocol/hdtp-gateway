@@ -4,7 +4,7 @@ INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at) VA
 -- name: GetThread :one
 SELECT * FROM threads WHERE account_id = $1 AND id = $2;
 
--- name: TouchThread :exec
+-- name: TouchThread :execrows
 UPDATE threads SET last_at = $1 WHERE account_id = $2 AND id = $3;
 
 -- name: InsertMessage :exec
@@ -133,3 +133,34 @@ ON CONFLICT DO NOTHING;
 -- The record of a file arriving in an export. One already here, by hash, is left as it is.
 INSERT INTO blobs (account_id, hash, size, mime, filename, created_at) VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT DO NOTHING;
+
+-- name: GetMessage :one
+SELECT * FROM messages WHERE account_id = $1 AND id = $2;
+
+-- name: SetMediaBody :execrows
+-- A media message's description, rewritten: a URL the owner fetched now names the file it fetched.
+UPDATE messages SET body = $1 WHERE account_id = $2 AND id = $3 AND kind = 'media';
+
+-- name: ListThreadMediaBodies :many
+-- The media one thread's messages describe: the files deleting the thread may leave unreferenced.
+SELECT body FROM messages WHERE account_id = $1 AND thread_id = $2 AND kind = 'media' ORDER BY seq;
+
+-- name: DeleteThreadMessages :execrows
+DELETE FROM messages WHERE account_id = $1 AND thread_id = $2;
+
+-- name: DeleteThread :execrows
+DELETE FROM threads WHERE account_id = $1 AND id = $2;
+
+-- name: CountMediaNaming :one
+-- How many of the account's media messages name a file: their body carries "hash":"<hash>", which
+-- only the host writes (a peer's filename is JSON-escaped inside it). Asked under the file's lock.
+SELECT COUNT(*) FROM messages WHERE account_id = $1 AND kind = 'media' AND body LIKE $2;
+
+-- name: LockFileHash :exec
+-- Holds one file, by its hash, until this transaction ends, across every process on the store: the
+-- writes that store it and the collection that deletes it take turns.
+SELECT pg_advisory_xact_lock(hashtext('blob:' || $1::text));
+
+-- name: OrphanSweepSince :one
+-- When the orphan sweep began to judge files: records written before it are kept (migration 0003).
+SELECT since FROM orphan_sweep LIMIT 1;

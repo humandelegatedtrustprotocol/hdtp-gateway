@@ -435,17 +435,18 @@ func (n *Node) retryTick(ctx context.Context, leading func(context.Context) bool
 	}
 }
 
-// FetchMedia fetches a media URL a peer sent, on the owner's request (SPEC §7.5: a peer's URL is
-// never fetched automatically), through the account's media service and its address checks. It
+// FetchMedia fetches the link of one url media message a peer sent, on the owner's request (SPEC
+// §7.5: a peer's URL is never fetched automatically), through the account's media service and its
+// address checks, and records the file on that message (messaging.MediaService.FetchMessage). It
 // returns "media: unknown account" for an account this node does not serve or one with no media service, and otherwise the media service's error (a URL that resolves to a private address is refused there).
-func (n *Node) FetchMedia(ctx context.Context, accountID, rawURL string) (string, error) {
+func (n *Node) FetchMedia(ctx context.Context, accountID, messageID string) (string, error) {
 	n.mu.RLock()
 	a := n.accounts[accountID]
 	n.mu.RUnlock()
 	if a == nil || a.media == nil {
 		return "", fmt.Errorf("media: unknown account")
 	}
-	return a.media.Fetch(ctx, accountID, rawURL)
+	return a.media.FetchMessage(ctx, accountID, messageID)
 }
 
 // InvalidateAccount reconciles every cached caller on an account, on every

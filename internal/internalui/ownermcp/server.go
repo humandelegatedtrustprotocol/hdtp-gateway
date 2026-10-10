@@ -208,6 +208,12 @@ type ReadThreadArgs struct {
 	ThreadID  string `json:"thread_id"`
 }
 
+// DeleteThreadArgs are delete_thread's arguments: one thread of one account.
+type DeleteThreadArgs struct {
+	AccountID string `json:"account_id"`
+	ThreadID  string `json:"thread_id" jsonschema:"the thread to delete, as get_inbox names it"`
+}
+
 // SendArgs are send_to_contact's arguments. MsgID is the idempotency key. ThreadID is empty to
 // start a new thread; Topic is for that case only.
 type SendArgs struct {
@@ -353,6 +359,9 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest"},
 		ot.readThreadTool)
+
+	mcp.AddTool(s, &mcp.Tool{Name: "delete_thread", Description: "Delete one conversation here, and only here: the thread, every message in it (one still being retried is not sent), its read marker and the files no other message names. The contact, its permissions and its other threads stay; nothing is sent and the contact keeps their copy. Answers status deleted, the contact, and how many messages and files went; not_found for a thread this account does not hold. Their next message on that thread id starts it afresh"},
+		ot.deleteThreadTool)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)"},
 		ot.sendToContactTool)
@@ -582,6 +591,35 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 		}
 	}
 	r, err := jsonResult(out)
+	return r, nil, err
+}
+
+// deleteThreadTool is the `delete_thread` tool: the portal's POST /threads/{id}/delete through the
+// same operation (messaging.Service.DeleteThread), with one thread_delete row beside the call's own
+// owner_mcp_call row. Like remove_contact and revoke_invite it acts at once: no owner MCP tool asks
+// for a confirmation.
+func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequest, a DeleteThreadArgs) (*mcp.CallToolResult, any, error) {
+	if !ot.allow(ctx, a.AccountID) {
+		r, err := deny()
+		return r, nil, err
+	}
+	gone, err := ot.d.Msg.DeleteThread(ctx, a.AccountID, a.ThreadID)
+	code, outcome := "", "ok"
+	switch {
+	case err == nil:
+	case errors.Is(err, messaging.ErrBadRequest):
+		code, outcome = "bad_request", "bad_request"
+	case errors.Is(err, store.ErrNotFound):
+		code, outcome = "not_found", "not_found"
+	default:
+		code, outcome = "internal", "error"
+	}
+	ot.d.audit("thread_delete", "account:"+a.AccountID+" "+gone.AuditDetail(a.ThreadID), outcome)
+	if code != "" {
+		b, _ := json.Marshal(map[string]string{"code": code})
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+	}
+	r, err := jsonResult(gone)
 	return r, nil, err
 }
 

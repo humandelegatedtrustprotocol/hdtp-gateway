@@ -13,7 +13,7 @@ Import (`import.go`)
 
 - `Read` checks a whole export against a slug and writes nothing; it returns a `*Plan`.
 - `Plan` carries the checked contents and the merge result: `Write` (contacts `Apply` writes), `Fill` (held with no leaf, the file's pin fills it), `Keep` (held, left as they are), `Skip` (roots this host holds as a stranger's request), `Conflicts` (`Conflict`: where the file disagrees with a held pin; the held pin stands).
-- `Plan.Apply` writes the rows in one `st.Atomically` transaction, then the files.
+- `Plan.Apply` writes the rows and then the files' bytes in one `st.Atomically` transaction, holding the lock of every file the messages name (taken first, in sorted order); a file's record is stamped with the import's time.
 
 Checks on a written file (`check.go`)
 

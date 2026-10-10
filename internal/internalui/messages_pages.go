@@ -64,6 +64,8 @@ type convContact struct {
 }
 
 type convMessage struct {
+	// ID is the message's own id: what `POST /media/fetch` names to fetch its link.
+	ID   string `json:"id"`
 	Mine bool   `json:"mine"` // right-hand side: we sent it
 	Body string `json:"body"`
 	Who  string `json:"who"` // agent | human, per HDTP §6.2's mandatory labelling
@@ -91,9 +93,9 @@ type convMedia struct {
 	Size     int64  `json:"size,omitempty"`
 	// Hash is set when this node already holds the bytes: GET /media/<hash>.
 	Hash string `json:"hash,omitempty"`
-	// URL is set when the contact sent a link instead. Fetching it is an
-	// owner-initiated act (POST /media/fetch), because auto-fetching an
-	// attacker-supplied URL would let any contact drive server-side requests.
+	// URL is set when the contact sent a link. Fetching it is an owner-initiated act
+	// (POST /media/fetch, naming the message), because auto-fetching an attacker-supplied URL
+	// would let any contact drive server-side requests; once fetched, Hash is set too.
 	URL string `json:"url,omitempty"`
 }
 
@@ -277,7 +279,15 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	// through is the newest message of the selected conversation this answer shows: what the view
 	// marks read through (POST /messages/read), so a message that lands after it stays unread.
 	var through int64
+	// threadIDs are the threads the selected conversation merges: what its Delete deletes, one
+	// POST /threads/{id}/delete each.
+	threadIDs := []string{}
 	if chosen != nil {
+		for _, t := range threads {
+			if t.ContactFpr == chosen.Fpr {
+				threadIDs = append(threadIDs, t.ID)
+			}
+		}
 		// EVERY thread with this contact, merged in time order. A conversation
 		// is with a person, not with a thread id: HDTP threads are a shared
 		// grouping a peer can start at will (§7), and reading only the newest
@@ -285,7 +295,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		for _, m := range historyWith(r.Context(), d.Store, account, threads, chosen.Fpr) {
 			through = max(through, m.Seq)
 			cm := convMessage{
-				Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
+				ID: m.ID, Mine: m.Direction == "out", Body: m.Body, Who: m.Sender,
 				TS: m.CreatedAt, State: deliveryState(m),
 			}
 			if cm.State == "retrying" {
@@ -304,7 +314,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 		}
 	}
 	apiJSON(w, map[string]any{
-		"contacts": people, "messages": msgs, "through": through,
+		"contacts": people, "messages": msgs, "through": through, "threads": threadIDs,
 		"unread": total, "more": more,
 		// A fresh idempotency key per load: the send form posts it, so a
 		// double-submit acknowledges rather than re-sends (HDTP §7).

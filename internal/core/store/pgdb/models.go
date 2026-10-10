@@ -226,6 +226,10 @@ type MoveFanout struct {
 	UpdatedAt  int64
 }
 
+type OrphanSweep struct {
+	Since int64
+}
+
 type Owner struct {
 	ID          string
 	DisplayName string

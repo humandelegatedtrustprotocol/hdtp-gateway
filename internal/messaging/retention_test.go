@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 type sweepEnv struct {
+	path  string
 	st    store.Store
 	blobs BlobDir
 	svc   *Service
@@ -24,7 +26,8 @@ func newSweepEnv(t *testing.T) *sweepEnv {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.OpenSQLite(filepath.Join(dir, "r.db"))
+	path := filepath.Join(dir, "r.db")
+	st, err := store.OpenSQLite(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +39,7 @@ func newSweepEnv(t *testing.T) *sweepEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &sweepEnv{st: st, blobs: BlobDir{Root: filepath.Join(dir, "blobs")},
+	e := &sweepEnv{path: path, st: st, blobs: BlobDir{Root: filepath.Join(dir, "blobs")},
 		acct: a.ID, clock: time.Unix(1756000000, 0)}
 	e.svc = &Service{Store: st, Now: func() time.Time { return e.clock }}
 	e.media = &MediaService{Store: st, Blobs: e.blobs, Now: func() time.Time { return e.clock }}
@@ -188,12 +191,25 @@ func TestUnreadableMediaBodyStopsBlobDeletion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.sweeper().Sweep(ctx, e.acct, 24*time.Hour)
+	var rows []string
+	sw := e.sweeper()
+	sw.Audit = func(action, resource, outcome string) { rows = append(rows, outcome) }
+	res, err := sw.Sweep(ctx, e.acct, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Blobs != 0 {
 		t.Fatalf("blobs were deleted while the live set was unknown: %+v", res)
+	}
+	// The same body on the next pass, and on the orphan sweep: said once, not every hour.
+	if _, err := sw.Sweep(ctx, e.acct, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sw.CollectOrphans(ctx, e.acct); err != nil {
+		t.Fatal(err)
+	}
+	if n := slices.Index(rows, "blobs_skipped_unreadable_media"); n < 0 || slices.Index(rows[n+1:], "blobs_skipped_unreadable_media") >= 0 {
+		t.Fatalf("an unreadable body was reported %v; want once", rows)
 	}
 	if _, err := e.blobs.Get(hash); err != nil {
 		t.Fatalf("bytes deleted on a guess: %v", err)
@@ -211,16 +227,15 @@ func firstThread(t *testing.T, e *sweepEnv) string {
 	return threads[0].ID
 }
 
-// AC (P9-05, H1): a blob is deleted only when it is BOTH unreferenced and older
-// than the window. Deleting every unreferenced blob destroys media that arrived
-// seconds ago: ReceiveInline writes the blob row and the message as two
-// statements, so a sweep landing between them sees a blob nothing references yet.
+// AC (P9-05, H1): a blob is deleted by the window's sweep only when it is BOTH unreferenced and
+// older than the window. (ReceiveInline once wrote the blob row and the message as two statements,
+// which is why this was first held; it now writes them in one transaction under the file's lock,
+// and the window stays a condition of the sweep.)
 func TestSweepNeverDeletesBlobsInsideTheWindow(t *testing.T) {
 	ctx := context.Background()
 	e := newSweepEnv(t)
 
-	// a blob row with no referencing message, created NOW — exactly the state
-	// ReceiveInline is in for the instant between its two writes
+	// a blob row with no referencing message, created NOW
 	data := []byte("just arrived")
 	hash, err := e.blobs.Put(data)
 	if err != nil {

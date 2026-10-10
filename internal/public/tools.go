@@ -694,6 +694,10 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 		if !ok {
 			return d.refuse(ctx, "send_media", "bad_request"), nil
 		}
+		// HDTP §6.2: msg_id is required. Refused here, before a byte is decoded or stored.
+		if a.MsgID == "" {
+			return d.refuse(ctx, "send_media", "bad_request"), nil
+		}
 		fpr := callerFpr(ctx)
 		in := messaging.Input{MsgID: a.MsgID, ThreadID: a.ThreadID, Origin: messaging.OriginPeer, Sender: sender}
 		var (

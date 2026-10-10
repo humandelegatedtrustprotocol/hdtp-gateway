@@ -102,16 +102,16 @@ func (b BlobDir) Remove(hash string) error {
 type MediaMeta struct {
 	Filename string `json:"filename"`
 	Mime     string `json:"mime"`
-	Hash     string `json:"hash,omitempty"` // set once content is held locally
-	URL      string `json:"url,omitempty"`  // present until an explicit fetch
+	Hash     string `json:"hash,omitempty"` // set once content is held locally: sent inline, or a URL fetched
+	URL      string `json:"url,omitempty"`  // the link a contact sent; kept when the owner fetches it
 	Size     int64  `json:"size,omitempty"`
 }
 
 // MediaService stores and fetches media for an account under its byte quota. Inline media is
 // content-addressed into Blobs and recorded as a kind=media message through a Service; url media
-// is recorded without fetching, and Fetch is the explicit act that retrieves it.
+// is recorded without fetching, and FetchMessage is the explicit act that retrieves it.
 type MediaService struct {
-	Store store.MessageStore
+	Store ConversationStore
 	Blobs BlobDir
 	// Quota reports this account's current byte allowance. It is a FUNCTION on
 	// purpose: the owner can change the quota from the portal at any time, and a
@@ -190,22 +190,7 @@ func (m *MediaService) ReceiveInline(ctx context.Context, msgSvc *Service, accou
 	if used+int64(len(data)) > m.quota() {
 		return Result{}, fmt.Errorf("%w: account media quota exhausted", ErrQuota)
 	}
-	hash, err := m.Blobs.Put(data)
-	if err != nil {
-		return Result{}, err
-	}
-	// per-account row (idempotent: dedup on (account, hash))
-	if _, err := m.Store.GetBlob(ctx, accountID, hash); err != nil {
-		if err := m.Store.InsertBlob(ctx, store.Blob{
-			AccountID: accountID, Hash: hash, Size: int64(len(data)), Mime: mime,
-			Filename: filename, CreatedAt: m.now().Unix(),
-		}); err != nil {
-			return Result{}, err
-		}
-	}
-	meta, _ := json.Marshal(MediaMeta{Filename: filename, Mime: mime, Hash: hash, Size: int64(len(data))})
-	in.Text = string(meta)
-	return msgSvc.record(ctx, accountID, contactFpr, DirIn, in, "media")
+	return m.keepAndRecord(ctx, msgSvc, accountID, contactFpr, DirIn, in, data, mime, filename)
 }
 
 // SendInline stores media the OWNER is sending as an outbound media message:
@@ -224,21 +209,7 @@ func (m *MediaService) SendInline(ctx context.Context, msgSvc *Service, accountI
 	if used+int64(len(data)) > m.quota() {
 		return Result{}, fmt.Errorf("%w: account media quota exhausted", ErrQuota)
 	}
-	hash, err := m.Blobs.Put(data)
-	if err != nil {
-		return Result{}, err
-	}
-	if _, err := m.Store.GetBlob(ctx, accountID, hash); err != nil {
-		if err := m.Store.InsertBlob(ctx, store.Blob{
-			AccountID: accountID, Hash: hash, Size: int64(len(data)), Mime: mime,
-			Filename: filename, CreatedAt: m.now().Unix(),
-		}); err != nil {
-			return Result{}, err
-		}
-	}
-	meta, _ := json.Marshal(MediaMeta{Filename: filename, Mime: mime, Hash: hash, Size: int64(len(data))})
-	in.Text = string(meta)
-	return msgSvc.record(ctx, accountID, contactFpr, DirOut, in, "media")
+	return m.keepAndRecord(ctx, msgSvc, accountID, contactFpr, DirOut, in, data, mime, filename)
 }
 
 // ReceiveURL records url media WITHOUT fetching (SPEC §7.5).
@@ -248,24 +219,89 @@ func (m *MediaService) ReceiveURL(ctx context.Context, msgSvc *Service, accountI
 	return msgSvc.record(ctx, accountID, contactFpr, DirIn, in, "media")
 }
 
-// Fetch is the EXPLICIT owner action for url media: resolve, vet every address,
-// pin the dial, cap the read, count the quota, store content-addressed.
-func (m *MediaService) Fetch(ctx context.Context, accountID, rawURL string) (string, error) {
+// errGone rolls back a fetch whose message went while its link was fetched.
+var errGone = errors.New("messaging: the message went")
+
+// FetchMessage is the EXPLICIT owner action for one url media message (SPEC §7.5): it fetches the
+// link the message carries and records the file on that message, so the message names its file as
+// an inline one does — the conversation view opens it, retention and a deleted conversation collect
+// it (Files), the quota counts it, and an export carries it. A message whose file is already held
+// answers its hash and fetches nothing. A message the account does not hold is store.ErrNotFound;
+// one that is not url media is ErrBadRequest. A message deleted while its file was being fetched is
+// store.ErrNotFound, and the file it leaves unnamed goes with the next orphan sweep after FileGrace.
+func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID string) (string, error) {
+	msg, err := m.Store.GetMessage(ctx, accountID, messageID)
+	if err != nil {
+		return "", err
+	}
+	var meta MediaMeta
+	if msg.Kind != "media" || json.Unmarshal([]byte(msg.Body), &meta) != nil || (meta.URL == "" && meta.Hash == "") {
+		return "", fmt.Errorf("%w: not a media message with a link", ErrBadRequest)
+	}
+	if meta.Hash != "" {
+		return meta.Hash, nil
+	}
+	data, mime, err := m.fetchURL(ctx, accountID, meta.URL)
+	if err != nil {
+		return "", err
+	}
+	// The file and the message that names it change in one transaction, under the file's lock: a
+	// conversation deleted meanwhile leaves neither a record nor bytes that nothing names.
+	var hash string
+	gone := false
+	err = m.Store.Atomically(ctx, func(tx store.Store) error {
+		var err error
+		if hash, _, err = fileRecord(ctx, tx, accountID, data, mime, "", m.now().Unix()); err != nil {
+			return err
+		}
+		meta.Hash, meta.Size = hash, int64(len(data))
+		body, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		n, err := tx.SetMediaBody(ctx, accountID, messageID, string(body))
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			// The message went while its link was fetched: the record rolls back with this
+			// transaction, and no byte is written.
+			gone = true
+			return errGone
+		}
+		_, err = m.Blobs.Put(data)
+		return err
+	})
+	if gone {
+		return "", fmt.Errorf("%w: the message went while its file was fetched", store.ErrNotFound)
+	}
+	if err != nil {
+		return "", err
+	}
+	if gone {
+		return "", fmt.Errorf("%w: the message went while its file was fetched", store.ErrNotFound)
+	}
+	return hash, nil
+}
+
+// fetchURL retrieves a link for the owner: resolve, vet every address, pin the dial, cap the read,
+// count the quota. It answers the bytes and the type the server named; FetchMessage stores them.
+func (m *MediaService) fetchURL(ctx context.Context, accountID, rawURL string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("bad_request: %w", err)
+		return nil, "", fmt.Errorf("bad_request: %w", err)
 	}
 	host := req.URL.Hostname()
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
-		return "", fmt.Errorf("unavailable: cannot resolve %s", host)
+		return nil, "", fmt.Errorf("unavailable: cannot resolve %s", host)
 	}
 	for _, ip := range ips {
 		if m.privateCheck(ip) {
 			if m.Audit != nil {
 				m.Audit("media_fetch_refused", "account:"+accountID+" host:"+host+" ip:"+ip.String(), "denied")
 			}
-			return "", fmt.Errorf("permission_denied: %s resolves to a private address", host)
+			return nil, "", fmt.Errorf("permission_denied: %s resolves to a private address", host)
 		}
 	}
 	pinned := ips[0].String()
@@ -288,34 +324,77 @@ func (m *MediaService) Fetch(ctx context.Context, accountID, rawURL string) (str
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("unavailable: %w", err)
+		return nil, "", fmt.Errorf("unavailable: %w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxMediaBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("unavailable: %w", err)
+		return nil, "", fmt.Errorf("unavailable: %w", err)
 	}
 	if len(data) > MaxMediaBytes {
-		return "", fmt.Errorf("%w: fetched media over 5 MiB", ErrTooLarge)
+		return nil, "", fmt.Errorf("%w: fetched media over 5 MiB", ErrTooLarge)
 	}
 	used, err := m.Store.SumBlobBytes(ctx, accountID)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if used+int64(len(data)) > m.quota() {
-		return "", fmt.Errorf("%w: account media quota exhausted", ErrQuota)
+		return nil, "", fmt.Errorf("%w: account media quota exhausted", ErrQuota)
 	}
-	hash, err := m.Blobs.Put(data)
-	if err != nil {
-		return "", err
+	return data, resp.Header.Get("Content-Type"), nil
+}
+
+// fileRecord is the first half of storing a file inside tx, a transaction its caller holds and in
+// which the message naming the file is written too: it takes the file's lock (store.LockFile, the
+// lock Files.Collect takes to delete one) and writes the account's record when there is none. The
+// caller writes the message next and the bytes LAST (BlobDir.Put), still in the transaction and
+// under the lock, so a refusal anywhere before leaves neither a record nor bytes. A collection
+// therefore sees either the message that names the file or no file being stored; one that deleted
+// the record and the bytes just before is followed by both being written anew. It returns the
+// file's hash (the hex SHA-256 its bytes are stored under) and whether it wrote the record.
+func fileRecord(ctx context.Context, tx store.Store, accountID string, data []byte, mime, filename string, now int64) (string, bool, error) {
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	if err := tx.LockFile(ctx, hash); err != nil {
+		return "", false, err
 	}
-	if _, err := m.Store.GetBlob(ctx, accountID, hash); err != nil {
-		if err := m.Store.InsertBlob(ctx, store.Blob{
-			AccountID: accountID, Hash: hash, Size: int64(len(data)),
-			Mime: resp.Header.Get("Content-Type"), CreatedAt: m.now().Unix(),
-		}); err != nil {
-			return "", err
+	if _, err := tx.GetBlob(ctx, accountID, hash); err == nil {
+		return hash, false, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", false, err
+	}
+	if err := tx.InsertBlob(ctx, store.Blob{
+		AccountID: accountID, Hash: hash, Size: int64(len(data)), Mime: mime,
+		Filename: filename, CreatedAt: now,
+	}); err != nil {
+		return "", false, err
+	}
+	return hash, true, nil
+}
+
+// keepAndRecord stores a media message's file and records the message in one transaction
+// (fileRecord, the message, then the bytes), and publishes the message once it is committed.
+func (m *MediaService) keepAndRecord(ctx context.Context, msgSvc *Service, accountID, contactFpr string, dir Direction, in Input, data []byte, mime, filename string) (Result, error) {
+	var res Result
+	var fresh bool
+	err := m.Store.Atomically(ctx, func(tx store.Store) error {
+		hash, _, err := fileRecord(ctx, tx, accountID, data, mime, filename, m.now().Unix())
+		if err != nil {
+			return err
 		}
+		meta, _ := json.Marshal(MediaMeta{Filename: filename, Mime: mime, Hash: hash, Size: int64(len(data))})
+		in.Text = string(meta)
+		if res, fresh, err = msgSvc.write(ctx, tx, accountID, contactFpr, dir, in, "media"); err != nil {
+			return err // refused: the record rolls back, and no byte was written
+		}
+		_, err = m.Blobs.Put(data)
+		return err
+	})
+	if err != nil {
+		return Result{}, err
 	}
-	return hash, nil
+	if fresh {
+		msgSvc.publish(accountID, contactFpr, res.ThreadID)
+	}
+	return res, nil
 }

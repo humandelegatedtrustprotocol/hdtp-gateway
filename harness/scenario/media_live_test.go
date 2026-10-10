@@ -75,9 +75,36 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 		t.Fatalf("the canary is at %s, which is not a private address", canaryIP)
 	}
 
-	fetch := func(t *testing.T, url string) (hash, refusal string) {
+	// The owner fetches the link of one message (SPEC §7.5): messageCarrying finds, in the
+	// conversation view, the message bob sent with that link, and fetchMessage fetches it.
+	messageCarrying := func(t *testing.T, url string) string {
 		t.Helper()
-		r, err := alice.Portal.Post(ctx, "/media/fetch", alice.AccountID, map[string]string{"url": url})
+		r, err := alice.Portal.Read(ctx, "/api/conversations?account="+alice.AccountID+"&contact="+bob.Fingerprint())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var view struct {
+			Messages []struct {
+				ID    string `json:"id"`
+				Media *struct {
+					URL string `json:"url"`
+				} `json:"media"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal([]byte(r.Body), &view); err != nil {
+			t.Fatalf("GET /api/conversations answered %d, not JSON: %s", r.Code, shorten(r.Body, 200))
+		}
+		for _, m := range view.Messages {
+			if m.Media != nil && m.Media.URL == url {
+				return m.ID
+			}
+		}
+		t.Fatalf("no message in bob's conversation carries %s", url)
+		return ""
+	}
+	fetchMessage := func(t *testing.T, id string) (hash, refusal string) {
+		t.Helper()
+		r, err := alice.Portal.Post(ctx, "/media/fetch", alice.AccountID, map[string]string{"message": id})
 		if err != nil {
 			t.Fatalf("POST /media/fetch: %v", err)
 		}
@@ -86,6 +113,19 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 			t.Fatalf("POST /media/fetch answered %d, not JSON: %s", r.Code, shorten(r.Body, 200))
 		}
 		return out.Hash, out.Error
+	}
+	// fetch has bob send the link, then fetches it as the owner.
+	sent := 0
+	fetch := func(t *testing.T, url string) (hash, refusal string) {
+		t.Helper()
+		sent++
+		msgID := fmt.Sprintf("s3-link-%d", sent)
+		if _, err := bob.Call(ctx, target, "send_media", map[string]any{
+			"filename": "link.bin", "mime": "application/octet-stream", "sender": "agent", "msg_id": msgID, "url": url,
+		}, msgID); err != nil {
+			t.Fatalf("send_media url: %v", err)
+		}
+		return fetchMessage(t, messageCarrying(t, url))
 	}
 	download := func(t *testing.T, hash, want string) {
 		t.Helper()
@@ -169,8 +209,9 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 		if n := hits(ctx, t, w, files, "/sent-by-bob"); n != 0 {
 			t.Fatalf("the node fetched a contact's url on arrival (%d request(s)); SPEC §7.5 says never", n)
 		}
-		// The control: the owner's fetch of the same url gets through, and the listener counts it.
-		hash, refusal := fetch(t, url)
+		// The control: the owner's fetch of that message's url gets through, and the listener counts it.
+		id := messageCarrying(t, url)
+		hash, refusal := fetchMessage(t, id)
 		if refusal != "" {
 			t.Fatalf("the owner's fetch of a routable url was refused: %s", refusal)
 		}
@@ -181,6 +222,14 @@ func TestMessagingAndMediaUnderTheFetchGuard(t *testing.T) {
 			t.Fatalf("the fetch stored %s, not the hash of what the host served", hash)
 		}
 		download(t, hash, fileBody)
+		// The file is the message's now: the conversation offers it to open, and a second fetch
+		// sends nothing.
+		if again, _ := fetchMessage(t, id); again != hash {
+			t.Fatalf("a second fetch answered %q, want the file already held", again)
+		}
+		if n := hits(ctx, t, w, files, "/sent-by-bob"); n != 1 {
+			t.Fatalf("a second fetch of a held file reached the host again (%d requests)", n)
+		}
 	})
 
 	t.Run("a fetch of a private address is refused before it is sent, and audited", func(t *testing.T) {

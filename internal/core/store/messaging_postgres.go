@@ -27,9 +27,9 @@ func (s *Postgres) GetThread(ctx context.Context, accountID, threadID string) (T
 	return Thread{ID: r.ID, AccountID: r.AccountID, ContactFpr: r.ContactFpr, Topic: r.Topic, CreatedAt: r.CreatedAt, LastAt: r.LastAt, KeptDisplayName: r.KeptDisplayName, KeptPetname: r.KeptPetname}, nil
 }
 
-// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it, and
-// a thread that is not there is not reported.
-func (s *Postgres) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) error {
+// TouchThread sets the thread's last activity time to lastAt, whatever it was: it can lower it. It
+// returns how many threads it touched: 0 when the thread is not there.
+func (s *Postgres) TouchThread(ctx context.Context, accountID, threadID string, lastAt int64) (int64, error) {
 	return s.q.TouchThread(ctx, pgdb.TouchThreadParams{LastAt: lastAt, AccountID: accountID, ID: threadID})
 }
 
@@ -211,4 +211,51 @@ func (s *Postgres) ImportBlob(ctx context.Context, b Blob) (bool, error) {
 		Filename: b.Filename, CreatedAt: b.CreatedAt,
 	})
 	return n > 0, err
+}
+
+// GetMessage returns the account's message by its id, or ErrNotFound.
+func (s *Postgres) GetMessage(ctx context.Context, accountID, id string) (Message, error) {
+	r, err := s.q.GetMessage(ctx, pgdb.GetMessageParams{AccountID: accountID, ID: id})
+	if err != nil {
+		return Message{}, err
+	}
+	return messageFromRow(sqlitedb.Message(r)), nil
+}
+
+// SetMediaBody rewrites a media message's description and returns how many rows it changed: 0 when
+// the account has no media message with that id.
+func (s *Postgres) SetMediaBody(ctx context.Context, accountID, id, body string) (int64, error) {
+	return s.q.SetMediaBody(ctx, pgdb.SetMediaBodyParams{Body: body, AccountID: accountID, ID: id})
+}
+
+// ListThreadMediaBodies returns the bodies of one thread's media messages, oldest first.
+func (s *Postgres) ListThreadMediaBodies(ctx context.Context, accountID, threadID string) ([]string, error) {
+	return s.q.ListThreadMediaBodies(ctx, pgdb.ListThreadMediaBodiesParams{AccountID: accountID, ThreadID: threadID})
+}
+
+// DeleteThreadMessages deletes every message of one thread and returns how many went.
+func (s *Postgres) DeleteThreadMessages(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteThreadMessages(ctx, pgdb.DeleteThreadMessagesParams{AccountID: accountID, ThreadID: threadID})
+}
+
+// DeleteThread deletes one thread row, its read marker and its kept names with it, and returns how
+// many went (0 or 1).
+func (s *Postgres) DeleteThread(ctx context.Context, accountID, threadID string) (int64, error) {
+	return s.q.DeleteThread(ctx, pgdb.DeleteThreadParams{AccountID: accountID, ID: threadID})
+}
+
+// MediaNames reports whether any media message of the account names the file.
+func (s *Postgres) MediaNames(ctx context.Context, accountID, hash string) (bool, error) {
+	n, err := s.q.CountMediaNaming(ctx, pgdb.CountMediaNamingParams{AccountID: accountID, Body: mediaNamingPattern(hash)})
+	return n > 0, err
+}
+
+// LockFile holds one file, by its hash, until the transaction ends, across every process on the store.
+func (s *Postgres) LockFile(ctx context.Context, hash string) error {
+	return s.q.LockFileHash(ctx, hash)
+}
+
+// OrphanSweepSince is when the orphan sweep began to judge files (migration 0003), unix seconds.
+func (s *Postgres) OrphanSweepSince(ctx context.Context) (int64, error) {
+	return s.q.OrphanSweepSince(ctx)
 }

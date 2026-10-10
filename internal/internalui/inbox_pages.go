@@ -7,6 +7,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -27,6 +28,8 @@ type InboxDeps struct {
 	// row, said "delivered", and sent nothing. nil keeps the old record-only
 	// behaviour for tests that do not compose a node.
 	Send func(ctx context.Context, accountID, contactFpr string, in messaging.Input) (messaging.Result, error)
+	// Audit records each deletion of a conversation; nil records nothing (tests).
+	Audit func(action, resource, outcome string)
 }
 
 // formOrQuery prefers the form body and falls back to the query, so a link and a
@@ -38,12 +41,13 @@ func formOrQuery(r *http.Request, key string) string {
 	return r.URL.Query().Get(key)
 }
 
-// MountInboxPages registers GET /api/inbox, GET /api/threads/{id}, POST /threads/{id}/send and the
-// server-sent-events stream GET /events.
+// MountInboxPages registers GET /api/inbox, GET /api/threads/{id}, POST /threads/{id}/send,
+// POST /threads/{id}/delete and the server-sent-events stream GET /events.
 func MountInboxPages(mux *http.ServeMux, d InboxDeps) {
 	mux.HandleFunc("GET /api/inbox", d.getAPIInbox)
 	mux.HandleFunc("GET /api/threads/{id}", d.getAPIThreadsID)
 	mux.HandleFunc("POST /threads/{id}/send", d.postThreadsIDSend)
+	mux.HandleFunc("POST /threads/{id}/delete", d.postThreadsIDDelete)
 	mux.HandleFunc("GET /events", d.getEvents)
 }
 
@@ -133,6 +137,48 @@ func (d InboxDeps) postThreadsIDSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/threads/"+id+"?account="+account, http.StatusSeeOther)
+}
+
+// postThreadsIDDelete serves `POST /threads/{id}/delete`: one conversation of the account in the
+// form body, deleted here and only here (messaging.Service.DeleteThread, SPEC §7.9); the owner MCP's
+// delete_thread is the same operation. It answers JSON, the operation's own answer: 200
+// {status:"deleted", thread_id, contact, messages, files}; 400 {"error":"bad_request"} for an empty id; 404
+// {"error":"not_found"} for a thread the account does not hold (an account the owner does not
+// administer is 404 before this, accountMiddleware); 500 {"error":"internal"}. Each writes one
+// thread_delete row.
+func (d InboxDeps) postThreadsIDDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+		return
+	}
+	account := formOrQuery(r, "account")
+	id := r.PathValue("id")
+	gone, err := d.Msg.DeleteThread(r.Context(), account, id)
+	status, code, outcome := deleteOutcome(err)
+	if d.Audit != nil {
+		d.Audit("thread_delete", "account:"+account+" "+gone.AuditDetail(id), outcome)
+	}
+	if code != "" {
+		apiJSONStatus(w, status, map[string]any{"error": code})
+		return
+	}
+	apiJSON(w, gone)
+}
+
+// deleteOutcome reads a DeleteThread result as the portal answers it: the HTTP status, the refusal
+// code ("" for an answer) and the audit outcome. A deletion whose files could not all be taken is
+// still a deletion (the orphan sweep takes them later): `ok`, as BatonDeck records it.
+func deleteOutcome(err error) (int, string, string) {
+	switch {
+	case err == nil:
+		return http.StatusOK, "", "ok"
+	case errors.Is(err, messaging.ErrBadRequest):
+		return http.StatusBadRequest, "bad_request", "bad_request"
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusNotFound, "not_found", "not_found"
+	default:
+		return http.StatusInternalServerError, "internal", "error"
+	}
 }
 
 // getEvents serves `GET /events`.

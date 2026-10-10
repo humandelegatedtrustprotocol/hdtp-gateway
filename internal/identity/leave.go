@@ -139,21 +139,36 @@ func (m *Manager) Leave(ctx context.Context, accountID string, settingKeys func(
 		failed = append(failed, fmt.Errorf("the erased leaf keys may remain on disk: %w", err))
 	}
 	// A media file is shared by hash across identities, so it goes only when no row on this node
-	// still refers to it.
+	// still refers to it. Counted and removed under the file's lock (store.LockFile), the lock every
+	// write that stores a file takes: another identity storing the same bytes meanwhile is counted,
+	// or writes them anew after they went.
 	for _, b := range held {
-		refs, err := m.Store.CountBlobRefs(ctx, b.Hash)
+		if removeBlob == nil {
+			break
+		}
+		removed := false
+		err := m.Store.Atomically(ctx, func(tx store.Store) error {
+			removed = false
+			if err := tx.LockFile(ctx, b.Hash); err != nil {
+				return err
+			}
+			refs, err := tx.CountBlobRefs(ctx, b.Hash)
+			if err != nil || refs > 0 {
+				return err
+			}
+			if err := removeBlob(b.Hash); err != nil {
+				return fmt.Errorf("media %s: %w", b.Hash, err)
+			}
+			removed = true
+			return nil
+		})
 		if err != nil {
 			failed = append(failed, err)
 			continue
 		}
-		if refs > 0 || removeBlob == nil {
-			continue
+		if removed {
+			res.BlobsRemoved++
 		}
-		if err := removeBlob(b.Hash); err != nil {
-			failed = append(failed, fmt.Errorf("media %s: %w", b.Hash, err))
-			continue
-		}
-		res.BlobsRemoved++
 	}
 	if len(failed) > 0 {
 		return res, fmt.Errorf("identity: leave %s: the records are erased, and %d thing(s) were not finished: %w", res.Slug, len(failed), errors.Join(failed...))
