@@ -27,7 +27,7 @@ make build      # static binary
 make check      # fmt, vet, the deploy templates, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
-make hooks      # install the hooks (pre-commit gofmt, pre-push the whole gate; do this once)
+make hooks      # install the hooks (pre-commit gofmt, commit-msg no local path in the message, pre-push the whole gate; do this once)
 ```
 
 `make check` is the gate. If it is green your change is in reasonable shape; if it is
@@ -58,6 +58,9 @@ its own copy):
 - **pre-commit** refuses any staged file over 5 MiB (5,242,880 bytes), then runs every staged
   `*.go` file through gofmt (and every `*.rs` file through rustfmt) and re-stages it, so a commit
   is styled before it exists. A partly staged Go or Rust file is refused, not styled.
+- **commit-msg** refuses a message that carries a path under `/Users` or `/home`: a message is
+  published with its commit, and `TestNoTrackedFileLeaksALocalPath` holds the tracked files to the
+  same rule but cannot see a message. Say "the worktree" or "the sibling checkout" instead.
 - **pre-push** runs, in order: `make web` and a check that it left `web/dist`
   unchanged (only when the push touches `web/`); `make check` with
   `HDTP_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name

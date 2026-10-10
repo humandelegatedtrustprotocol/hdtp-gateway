@@ -19,8 +19,8 @@ func TestNodeTagSeparatesNodesAPersonWouldRunTogether(t *testing.T) {
 		},
 		{
 			name:         "two local nodes, no public URL, different data dirs",
-			a:            [3]string{"/home/me/nodeA", "", "127.0.0.1:8080"},
-			b:            [3]string{"/home/me/nodeB", "", "127.0.0.1:8080"},
+			a:            [3]string{"/var/lib/hdtp/nodeA", "", "127.0.0.1:8080"},
+			b:            [3]string{"/var/lib/hdtp/nodeB", "", "127.0.0.1:8080"},
 			wantDistinct: true,
 		},
 		{

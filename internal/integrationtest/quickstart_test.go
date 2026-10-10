@@ -16,7 +16,6 @@ package integrationtest
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -93,53 +92,4 @@ func limitdHealthcheckAsksTheSidecar(t *testing.T, file string, limitd any) {
 		t.Errorf("%s: the limitd service's healthcheck is %v; the image's asks the portal, which this "+
 			"container does not serve, so it must be %v", file, test, want)
 	}
-}
-
-// No tracked file may carry a path from the machine that wrote it.
-//
-// `docs/harness-fabric-notes.md` shipped with a subagent's scratchpad path as
-// its first line — "The design is durable at /private/tmp/claude-501/…" — and
-// sat there unreferenced because it was an intermediate whose edits had already
-// been folded into harness-design.md. In a public repository that is a stranger
-// reading someone's home directory layout, and it is the kind of thing nobody
-// greps for until it is already published.
-func TestNoTrackedFileLeaksALocalPath(t *testing.T) {
-	root := repoRoot(t)
-	out, err := exec.Command("git", "-C", root, "ls-files").Output()
-	if err != nil {
-		t.Skipf("git unavailable: %v", err)
-	}
-	// Deliberately narrow. `/home/me/nodeA` in a table-driven test is invented
-	// fixture data, not a leak, and a pattern broad enough to catch it flags
-	// honest tests forever. These three shapes are what actually escapes: a
-	// macOS home directory, an agent scratchpad, and an agent job directory.
-	leak := regexp.MustCompile(`/Users/[a-z]|/private/tmp/claude|\.claude/(jobs|projects)/`)
-	self := "quickstart_test.go"
-
-	var checked int
-	for _, rel := range strings.Fields(string(out)) {
-		switch filepath.Ext(rel) {
-		case ".md", ".go", ".yml", ".yaml", ".json", ".sh", ".ts", ".tsx", ".css":
-		default:
-			continue
-		}
-		if strings.HasSuffix(rel, self) {
-			continue // this file names the patterns; it is describing them, not leaking
-		}
-		b, rerr := os.ReadFile(filepath.Join(root, rel))
-		if rerr != nil {
-			continue // deleted between ls-files and now
-		}
-		checked++
-		for i, line := range strings.Split(string(b), "\n") {
-			if m := leak.FindString(line); m != "" {
-				t.Errorf("%s:%d carries a local machine path (%q). It would ship to "+
-					"whoever clones this.", rel, i+1, m)
-			}
-		}
-	}
-	if checked == 0 {
-		t.Fatal("no files checked; this lint is checking nothing")
-	}
-	t.Logf("checked %d tracked text files", checked)
 }

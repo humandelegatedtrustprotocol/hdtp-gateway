@@ -136,7 +136,7 @@ dist:
 hooks:
 	git config core.hooksPath githooks
 	@echo "hooks installed: $$(git config core.hooksPath)"
-	@echo "pre-commit styles staged Go; pre-push runs the whole gate (this repository has no CI)."
+	@echo "pre-commit styles staged Go; commit-msg refuses a local path in the message; pre-push runs the whole gate (this repository has no CI)."
 
 # web rebuilds the embedded portal SPA. Its OUTPUT (web/dist) is committed, so
 # plain `go build` and `make dist` need no Node toolchain; run this
