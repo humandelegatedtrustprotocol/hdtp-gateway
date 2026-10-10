@@ -43,12 +43,38 @@ type Plan struct {
 	// pin fills it. Keep are the roots held already, left as they are. Skip are the roots of file
 	// rows this host holds as a stranger's request (aRequest): not a contact, so not merged, and
 	// left as they are.
-	Write     []hdtpidentity.ContactRow
+	Write []hdtpidentity.ContactRow
+	// Removed are the file's former contacts, one per root of its removed threads (a thread whose
+	// contact is no row of its contacts.csv), with the names those threads carry: never written as a
+	// contact and never called (HDTP §9.2).
+	Removed   []RemovedContact
 	Fill      []string
 	Keep      []string
 	Skip      []string
 	Conflicts []Conflict
 	zr        *zip.Reader
+}
+
+// RemovedContact is a former contact as an import's review shows it: its root and the names its
+// removed threads carry.
+type RemovedContact struct {
+	Root, Name, DisplayName string
+}
+
+// removedOf is the file's former contacts, in the order their first removed thread comes.
+func removedOf(c *hdtpidentity.ExportContents) []RemovedContact {
+	held := map[string]bool{}
+	for _, r := range c.Contacts {
+		held[r.Root] = true
+	}
+	var out []RemovedContact
+	for _, t := range c.Threads {
+		if !held[t.Contact] {
+			held[t.Contact] = true
+			out = append(out, RemovedContact{Root: t.Contact, Name: t.ContactName, DisplayName: t.ContactDisplayName})
+		}
+	}
+	return out
 }
 
 // Read checks a whole export for the identity called slug (HDTP §9.2) and writes nothing.
@@ -97,6 +123,7 @@ func Read(ctx context.Context, st store.Store, zr *zip.Reader, slug string, now 
 	if err != nil {
 		return nil, refuse("%v", err)
 	}
+	p.Removed = removedOf(p.Contents)
 	if p.New {
 		// The one rule every door holds a display name to (identity.ValidDisplayName): the new
 		// account takes this as its name, and a name is one line of its card.
@@ -305,8 +332,22 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		if after > int64(contactCap) && after > before {
 			return fmt.Errorf("%w: %w", ErrRefused, core.ContactCapRefusal(after, contactCap))
 		}
+		// A removed thread keeps its names and that its root was a contact (HDTP §9.2 step 3):
+		// labelled so while no contact row of that root is held here, and that row's when one is. Its
+		// root is never written as a contact, and never called.
+		// removed holds each root of the file's removed threads, true while no contact row of it is
+		// held here; written, the roots a removed thread was written for as one.
+		removed, written := map[string]bool{}, map[string]bool{}
+		for _, r := range p.Removed {
+			_, gerr := tx.GetContact(ctx, accountID, r.Root)
+			removed[r.Root] = gerr != nil
+		}
 		for _, t := range p.Contents.Threads {
-			wrote, err := tx.ImportThread(ctx, store.Thread{ID: t.ID, AccountID: accountID, ContactFpr: t.Contact, Topic: t.Topic, CreatedAt: unixOf(t.CreatedAt), LastAt: unixOf(t.LastAt)})
+			th := store.Thread{ID: t.ID, AccountID: accountID, ContactFpr: t.Contact, Topic: t.Topic, CreatedAt: unixOf(t.CreatedAt), LastAt: unixOf(t.LastAt)}
+			if _, isRemoved := removed[t.Contact]; isRemoved {
+				th.KeptDisplayName, th.KeptPetname, th.KeptWasContact = identity.StripDisplayName(t.ContactDisplayName), t.ContactName, true
+			}
+			wrote, err := tx.ImportThread(ctx, th)
 			if err != nil {
 				return fmt.Errorf("import: thread %s: %w", t.ID, err)
 			}
@@ -316,6 +357,9 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 				if err := threadFits(ctx, tx, accountID, t); err != nil {
 					return err
 				}
+			}
+			if wrote && removed[t.Contact] {
+				written[t.Contact] = true
 			}
 			res.count(&res.Threads, wrote)
 		}
@@ -360,6 +404,7 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 			res.count(&res.Media, newFiles[m.Hash])
 		}
 		p.AccountID = accountID
+		res.Removed = len(written)
 		return nil
 	})
 	if err != nil {
@@ -403,7 +448,7 @@ func mediaBytes(zr *zip.Reader, hash string) ([]byte, error) {
 func storeContact(accountID string, r hdtpidentity.ContactRow) (store.Contact, error) {
 	c := store.Contact{
 		AccountID: accountID, Fingerprint: r.Root, Status: r.Status, Permissions: r.Permissions,
-		TheirPermissions: r.TheirPermissions, TrustFlag: "messages_only", DisplayName: r.DisplayName,
+		TheirPermissions: r.TheirPermissions, TrustFlag: "messages_only", DisplayName: identity.StripDisplayName(r.DisplayName),
 		Petname: r.Name, CreatedAt: unixOf(r.Added), Endpoint: r.Endpoint, EverActive: r.WasActive,
 	}
 	if r.RootCert != nil {

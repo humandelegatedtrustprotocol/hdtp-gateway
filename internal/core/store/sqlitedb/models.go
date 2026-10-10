@@ -289,6 +289,7 @@ type Thread struct {
 	LastReadSeq     int64
 	KeptDisplayName string
 	KeptPetname     string
+	KeptWasContact  int64
 }
 
 type Token struct {

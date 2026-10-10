@@ -242,6 +242,34 @@ type Thread struct {
 	// gone; while a row names ContactFpr, the row's names are the ones that count.
 	KeptDisplayName string
 	KeptPetname     string
+	// KeptWasContact says the thread's root was ever a contact when its row was deleted (migrations
+	// 0004), or, for a thread written before that migration, that the thread holds a message, which
+	// only a contact's conversation can: a former contact's conversation, which an export carries
+	// (HDTP §9.2).
+	KeptWasContact bool
+}
+
+// KeptNames is what a root's threads kept of its names: Petname and DisplayName.
+type KeptNames struct{ Petname, DisplayName string }
+
+// KeptNamesByRoot is, for each root of `threads` (newest first, as ListThreadsByAccount answers),
+// each of the names its threads kept, the first that is not empty, newest first: a thread a root
+// opened when its row held no name keeps none, and does not hide the names an older thread kept.
+// The export (a removed thread's names) and the conversation list (a former contact's label) both
+// read a root's names here.
+func KeptNamesByRoot(threads []Thread) map[string]KeptNames {
+	out := map[string]KeptNames{}
+	for _, t := range threads {
+		k := out[t.ContactFpr]
+		if k.Petname == "" {
+			k.Petname = t.KeptPetname
+		}
+		if k.DisplayName == "" {
+			k.DisplayName = t.KeptDisplayName
+		}
+		out[t.ContactFpr] = k
+	}
+	return out
 }
 
 // Blob is the record of an inline media file an account holds, named by the hash of its content. The

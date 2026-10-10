@@ -15,7 +15,7 @@ require (
 	github.com/fatedier/frp v0.71.0
 	github.com/go-webauthn/webauthn v0.18.1
 	github.com/google/jsonschema-go v0.4.3
-	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.3
+	github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.8.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/letsencrypt/pebble/v2 v2.10.1
 	github.com/libdns/cloudflare v0.2.2

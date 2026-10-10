@@ -158,18 +158,18 @@ func TestAnImportCountsWhatItWrote(t *testing.T) {
 	}
 }
 
-// L11. An export that leaves a conversation out says why, truly: a request never accepted, or a
-// contact that was removed (a conversation outlives its contact's row).
+// L11. An export that leaves a conversation out says which and why, truly: a request not yet
+// decided, or a root that was never a contact. A thread naming a root with no row and no record of
+// being a contact is the second (HDTP §9.2); a former contact's travels (removed_test.go).
 func TestAnExportSaysTrulyWhyItLeftAConversationOut(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, sqliteStore)
 	s := seed(t, e)
-	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-removed", AccountID: s.accountID, ContactFpr: "sha256:removed", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-gone", AccountID: s.accountID, ContactFpr: "sha256:gone", Topic: "old", CreatedAt: 1790000040, LastAt: 1790000040}))
 	_, res := exportOf(t, e, "alina")
 	joined := strings.Join(res.LeftOut, "\n")
-	if !strings.Contains(joined, "with "+s.strangerID+", whose request was never accepted") ||
-		!strings.Contains(joined, "with sha256:removed, a contact removed from this identity") ||
-		strings.Contains(joined, "sha256:removed, whose request was never accepted") {
+	if !strings.Contains(joined, "thread t-stranger: a conversation of 1 message(s) with "+s.strangerID+", whose request is not yet decided") ||
+		!strings.Contains(joined, "thread t-gone: a conversation of 0 message(s) with sha256:gone, who this host has no record of as a contact") {
 		t.Fatalf("left out:\n%s", joined)
 	}
 }

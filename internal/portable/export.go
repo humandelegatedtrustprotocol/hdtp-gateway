@@ -27,7 +27,8 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		return res, refuse("%s has never been issued a certificate, so it has no root for an export to name as its owner", slug)
 	}
 	in := hdtpidentity.ExportInput{Owner: a.RootFingerprint, OwnerName: a.DisplayName, Tool: tool, ExportedAt: now,
-		Contacts: []hdtpidentity.ContactRow{}, Threads: []hdtpidentity.ThreadRow{}, Messages: []hdtpidentity.MessageRow{}, Media: []hdtpidentity.ExportMedia{}}
+		Contacts: []hdtpidentity.ContactRow{}, Threads: []hdtpidentity.ThreadRow{},
+		Messages: []hdtpidentity.MessageRow{}, Media: []hdtpidentity.ExportMedia{}}
 
 	held, err := st.ListContacts(ctx, a.ID)
 	if err != nil {
@@ -48,6 +49,17 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	if err != nil {
 		return res, fmt.Errorf("export: %w", err)
 	}
+	// A former contact (HDTP §9.2): a root with no contact row carried here — none, or a request not
+	// yet decided — any of whose threads kept that it was once a contact. Each of its threads travels
+	// as a removed thread carrying the names its threads kept (store.KeptNamesByRoot), the names the
+	// conversation list shows it by (internalui formerContacts), so they agree on every one.
+	kept := store.KeptNamesByRoot(threads)
+	former := map[string]store.KeptNames{}
+	for _, t := range threads {
+		if !carried[t.ContactFpr] && t.KeptWasContact {
+			former[t.ContactFpr] = kept[t.ContactFpr]
+		}
+	}
 	sort.SliceStable(threads, func(i, j int) bool { return threads[i].CreatedAt < threads[j].CreatedAt })
 	sizes := map[string]int64{}
 	for _, t := range threads {
@@ -55,17 +67,21 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 		if err != nil {
 			return res, fmt.Errorf("export: %w", err)
 		}
-		if !carried[t.ContactFpr] {
-			// Why, truly: the stranger's request was never accepted, or the contact was removed and
-			// its conversation outlived it (a removal deletes the contact's row, not its thread).
-			why := "whose request was never accepted"
-			if !requested[t.ContactFpr] {
-				why = "a contact removed from this identity"
+		names, isFormer := former[t.ContactFpr]
+		if !carried[t.ContactFpr] && !isFormer {
+			// A root this host has no record of as a contact: a stranger's request not yet decided, one
+			// whose row went (expired or refused), or a thread written before migration 0004 that no
+			// message is left in to prove its root was one. Its conversation stays here, and is named
+			// (HDTP §9.2).
+			why := "who this host has no record of as a contact"
+			if requested[t.ContactFpr] {
+				why = "whose request is not yet decided"
 			}
-			res.LeftOut = append(res.LeftOut, fmt.Sprintf("a conversation of %d message(s) with %s, %s", len(msgs), t.ContactFpr, why))
+			res.LeftOut = append(res.LeftOut, fmt.Sprintf("thread %s: a conversation of %d message(s) with %s, %s", t.ID, len(msgs), t.ContactFpr, why))
 			continue
 		}
-		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt)})
+		in.Threads = append(in.Threads, hdtpidentity.ThreadRow{ID: t.ID, Contact: t.ContactFpr, Topic: t.Topic, CreatedAt: rfc3339(t.CreatedAt), LastAt: rfc3339(t.LastAt),
+			ContactName: names.Petname, ContactDisplayName: names.DisplayName})
 		for _, m := range msgs {
 			row, hash, err := messageRow(m)
 			if err != nil {
@@ -120,7 +136,7 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 			files[a.File] = true
 		}
 	}
-	res.Contacts, res.Threads, res.Media = len(in.Contacts), len(in.Threads), len(files)
+	res.Contacts, res.Removed, res.Threads, res.Media = len(in.Contacts), len(former), len(in.Threads), len(files)
 	return res, nil
 }
 

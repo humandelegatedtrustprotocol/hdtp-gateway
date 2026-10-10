@@ -412,5 +412,5 @@ func displayName(c store.Contact) string {
 	if c.Petname != "" {
 		return c.Petname
 	}
-	return c.DisplayName
+	return stripName(c.DisplayName)
 }

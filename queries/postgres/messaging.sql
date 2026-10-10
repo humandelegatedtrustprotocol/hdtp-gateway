@@ -119,7 +119,9 @@ FROM messages WHERE direction = 'out' AND status = 'pending' ORDER BY seq LIMIT 
 -- name: ImportThread :execrows
 -- A thread arriving in an export (SPEC sec. 3.10). One already here, by id, is left as it is:
 -- importing into an identity this host already holds adds what it lacks and changes nothing else.
-INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at) VALUES ($1, $2, $3, $4, $5, $6)
+-- A removed thread arrives with the names it carries, and as a former contact's.
+INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at, kept_display_name, kept_petname, kept_was_contact)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT DO NOTHING;
 
 -- name: ImportMessage :execrows

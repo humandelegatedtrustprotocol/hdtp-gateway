@@ -6,6 +6,7 @@ import (
 	"golang.org/x/text/secure/precis"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 )
 
 // labelContacts decides what to CALL each contact in a list.
@@ -33,7 +34,9 @@ func labelContacts(cs []store.Contact) map[string]string {
 	for _, c := range cs {
 		l := label{text: strings.TrimSpace(c.Petname), mine: true}
 		if l.text == "" {
-			l = label{text: strings.TrimSpace(c.DisplayName)}
+			// The contact's own name, stripped as a card's FN is before it renders (HDTP §3),
+			// wherever it came from: a card, or an export's display_name or contact_display_name.
+			l = label{text: identity.StripDisplayName(c.DisplayName)}
 		}
 		eff[c.Fingerprint] = l
 		if l.text != "" {
@@ -121,15 +124,16 @@ func flatten(pairs [][2]string) []string {
 const statusRemoved = "removed"
 
 // formerContacts are the people this account holds a conversation with and no contact row for,
-// as rows labelContacts can name beside the live ones: each carries the names its newest thread kept
-// when the row was deleted (store.Thread.KeptDisplayName, KeptPetname; threads come newest first)
-// and the status statusRemoved. A kept name that matches a live contact's is decorated by the same
-// rule two live ones are.
+// as rows labelContacts can name beside the live ones: each carries the names its threads kept when
+// the row was deleted (store.KeptNamesByRoot: per name, the newest that is not empty), as the export
+// names it, and the status statusRemoved. A kept name that matches a live contact's is decorated by
+// the same rule two live ones are.
 func formerContacts(list []store.Contact, threads []store.Thread) []store.Contact {
 	held := make(map[string]bool, len(list))
 	for _, c := range list {
 		held[c.Fingerprint] = true
 	}
+	kept := store.KeptNamesByRoot(threads)
 	var out []store.Contact
 	for _, t := range threads {
 		if held[t.ContactFpr] {
@@ -138,7 +142,7 @@ func formerContacts(list []store.Contact, threads []store.Thread) []store.Contac
 		held[t.ContactFpr] = true
 		out = append(out, store.Contact{
 			AccountID: t.AccountID, Fingerprint: t.ContactFpr, Status: statusRemoved,
-			DisplayName: t.KeptDisplayName, Petname: t.KeptPetname,
+			DisplayName: kept[t.ContactFpr].DisplayName, Petname: kept[t.ContactFpr].Petname,
 		})
 	}
 	return out

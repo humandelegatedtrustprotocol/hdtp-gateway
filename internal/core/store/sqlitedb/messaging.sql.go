@@ -238,7 +238,7 @@ func (q *Queries) GetMessageByMsgID(ctx context.Context, arg GetMessageByMsgIDPa
 }
 
 const getThread = `-- name: GetThread :one
-SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname FROM threads WHERE account_id = ? AND id = ?
+SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname, kept_was_contact FROM threads WHERE account_id = ? AND id = ?
 `
 
 type GetThreadParams struct {
@@ -259,6 +259,7 @@ func (q *Queries) GetThread(ctx context.Context, arg GetThreadParams) (Thread, e
 		&i.LastReadSeq,
 		&i.KeptDisplayName,
 		&i.KeptPetname,
+		&i.KeptWasContact,
 	)
 	return i, err
 }
@@ -338,21 +339,26 @@ func (q *Queries) ImportMessage(ctx context.Context, arg ImportMessageParams) (i
 }
 
 const importThread = `-- name: ImportThread :execrows
-INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO threads (id, account_id, contact_fpr, topic, created_at, last_at, kept_display_name, kept_petname, kept_was_contact)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 `
 
 type ImportThreadParams struct {
-	ID         string
-	AccountID  string
-	ContactFpr string
-	Topic      string
-	CreatedAt  int64
-	LastAt     int64
+	ID              string
+	AccountID       string
+	ContactFpr      string
+	Topic           string
+	CreatedAt       int64
+	LastAt          int64
+	KeptDisplayName string
+	KeptPetname     string
+	KeptWasContact  int64
 }
 
 // A thread arriving in an export (SPEC sec. 3.10). One already here, by id, is left as it is:
 // importing into an identity this host already holds adds what it lacks and changes nothing else.
+// A removed thread arrives with the names it carries, and as a former contact's.
 func (q *Queries) ImportThread(ctx context.Context, arg ImportThreadParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, importThread,
 		arg.ID,
@@ -361,6 +367,9 @@ func (q *Queries) ImportThread(ctx context.Context, arg ImportThreadParams) (int
 		arg.Topic,
 		arg.CreatedAt,
 		arg.LastAt,
+		arg.KeptDisplayName,
+		arg.KeptPetname,
+		arg.KeptWasContact,
 	)
 	if err != nil {
 		return 0, err
@@ -704,7 +713,7 @@ func (q *Queries) ListThreadMediaBodies(ctx context.Context, arg ListThreadMedia
 }
 
 const listThreadsByAccount = `-- name: ListThreadsByAccount :many
-SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname FROM threads WHERE account_id = ? ORDER BY last_at DESC, id
+SELECT id, account_id, contact_fpr, topic, created_at, last_at, last_read_seq, kept_display_name, kept_petname, kept_was_contact FROM threads WHERE account_id = ? ORDER BY last_at DESC, id
 `
 
 func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([]Thread, error) {
@@ -726,6 +735,7 @@ func (q *Queries) ListThreadsByAccount(ctx context.Context, accountID string) ([
 			&i.LastReadSeq,
 			&i.KeptDisplayName,
 			&i.KeptPetname,
+			&i.KeptWasContact,
 		); err != nil {
 			return nil, err
 		}

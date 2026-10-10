@@ -1,0 +1,13 @@
+{
+  "about": "Whether a thread keeps that its root was ever a contact, as the root's contact row comes and goes (HDTP 9.2, SEP-0004). One list, run by name on the node (store conformance, KeptWasContactCases); BatonDeck's cloud/1004 is to run the same list, read from the node checkout, once it lands. Steps: active, blocked, pending_in and pending_out insert a row in that status when the root has none, and active or blocked move a held row; removed deletes the row; expired deletes every request past its time.",
+  "cases": [
+    { "name": "a contact removed", "steps": ["active", "removed"], "kept_was_contact": true },
+    { "name": "a contact blocked after being one, then removed", "steps": ["active", "blocked", "removed"], "kept_was_contact": true },
+    { "name": "a stranger blocked, then forgotten", "steps": ["blocked", "removed"], "kept_was_contact": false },
+    { "name": "a request that expired", "steps": ["pending_in", "expired"], "kept_was_contact": false },
+    { "name": "an approach that expired", "steps": ["pending_out", "expired"], "kept_was_contact": false },
+    { "name": "a former contact who asks again and expires", "steps": ["active", "removed", "pending_in", "expired"], "kept_was_contact": true },
+    { "name": "added again after removal and removed again", "steps": ["active", "removed", "active", "removed"], "kept_was_contact": true },
+    { "name": "a contact still held", "steps": ["active"], "kept_was_contact": false }
+  ]
+}

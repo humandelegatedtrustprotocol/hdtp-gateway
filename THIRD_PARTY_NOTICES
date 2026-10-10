@@ -9,7 +9,7 @@ as the dependency's own source holds them; this file classifies nothing.
 Written by `make notices` (scripts/notices.mjs) from these inputs, which `make notices-check`
 (part of `make check`) holds it to:
 
-  go.sum                      sha256 c01343aa5cb7711546ec1375f9238241a332cde37e8f1d2d182363749012395c
+  go.sum                      sha256 3cbac103a76b0044af18347d92e4c00768d8da528bf43b2bde1dd464ea603ba4
   cmd/hdtp-limitd/Cargo.lock  sha256 ac4527ff7687cd994e31824d78c6b094f0c359a49c5ec594a3b9b608b56e33c3
   web/package-lock.json       sha256 71a6314115f7faa5c572f8f0b1157c16f1e9d5f6788be171948a3d2bc29b0861
 
@@ -3302,7 +3302,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 --------------------------------------------------------------------------------
-github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.7.3
+github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.8.0
 --------------------------------------------------------------------------------
 [LICENSE]
 

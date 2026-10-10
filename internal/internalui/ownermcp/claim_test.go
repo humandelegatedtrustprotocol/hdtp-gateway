@@ -60,3 +60,44 @@ func TestListContactsNamesWhoseAddressARequestComesFrom(t *testing.T) {
 		}
 	}
 }
+
+// The name an address claim gives is the held contact's own name, stripped as it renders (HDTP §3):
+// a bidi override in it does not reach the owner's agent.
+func TestAnAddressClaimNamesTheHolderStripped(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	const at = "https://bharat.example/mcp"
+	friend := testid.NewWallet(t, "Bharat")
+	squatter := testid.NewWallet(t, "Bharat")
+	for _, c := range []struct {
+		w      *testid.Wallet
+		status string
+		name   string
+	}{{friend, "active", "\u202eBharat\u0007"}, {squatter, "pending_in", "Bharat"}} {
+		h := c.w.Issue(t, at)
+		if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: c.w.Fpr, SPKI: h.Key.Public().SPKI,
+			Status: c.status, Endpoint: at, Leaf: h.LeafDER, DisplayName: c.name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	text, isErr := callJSON(t, cs, "list_contacts", map[string]any{"account_id": e.acctA})
+	if isErr {
+		t.Fatal(text)
+	}
+	var rows []struct {
+		Fingerprint  string `json:"fingerprint"`
+		AddressClaim *struct {
+			Root string `json:"root"`
+			Name string `json:"name"`
+		} `json:"address_claim"`
+	}
+	if err := json.Unmarshal([]byte(text), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Fingerprint == squatter.Fpr && (r.AddressClaim == nil || r.AddressClaim.Name != "Bharat") {
+			t.Fatalf("the claim: %+v", r.AddressClaim)
+		}
+	}
+}

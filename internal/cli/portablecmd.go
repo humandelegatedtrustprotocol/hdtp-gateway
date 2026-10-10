@@ -132,7 +132,7 @@ func exportCmd(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "export:", err)
 		return 1
 	}
-	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d threads:%d messages:%d media:%d left_out:%s", accountID, res.Contacts, res.Threads, res.Messages, res.Media, strings.Join(res.LeftOutMessages, ",")), "ok")
+	auditFn("account_export", fmt.Sprintf("account:%s contacts:%d removed:%d threads:%d messages:%d media:%d left_out:%s", accountID, res.Contacts, res.Removed, res.Threads, res.Messages, res.Media, strings.Join(res.LeftOutMessages, ",")), "ok")
 	fmt.Fprintf(stdout, "exported %s to %s: %s\n", slug, out, countsLine(res))
 	for _, s := range res.LeftOut {
 		fmt.Fprintf(stdout, "left out: %s\n", s)
@@ -246,8 +246,8 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "import:", err)
 		return 1
 	}
-	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d pins_filled:%d threads:%d messages:%d media:%d already:%d new:%t",
-		plan.AccountID, res.Contacts, res.PinsFilled, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New), "ok")
+	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d removed:%d pins_filled:%d threads:%d messages:%d media:%d already:%d new:%t",
+		plan.AccountID, res.Contacts, res.Removed, res.PinsFilled, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New), "ok")
 	fmt.Fprintf(stdout, "imported %s into %s: %s", from, slug, countsLine(res))
 	if res.PinsFilled > 0 {
 		fmt.Fprintf(stdout, "; %d held contact(s) given the file's pin", res.PinsFilled)
@@ -345,9 +345,14 @@ func review(w io.Writer, p *portable.Plan) {
 	for _, c := range p.Conflicts {
 		fmt.Fprintf(w, "  the file says %s's %s is %v; this host's %v stands\n", c.Root, c.Field, c.Row, c.Held)
 	}
+	// HDTP §9.2 step 1: each former contact, by its root and the names its removed threads carry. It
+	// is never a contact here.
+	for _, r := range p.Removed {
+		fmt.Fprintf(w, "  removed %s %q (%q): a former contact's conversation, never written as a contact\n", r.Root, r.DisplayName, r.Name)
+	}
 	fmt.Fprintf(w, "and %d thread(s), %d message(s), %d file(s)\n", len(p.Contents.Threads), len(p.Contents.Messages), len(p.Contents.Media))
 }
 
 func countsLine(r portable.Result) string {
-	return fmt.Sprintf("%d contact(s), %d thread(s), %d message(s), %d file(s)", r.Contacts, r.Threads, r.Messages, r.Media)
+	return fmt.Sprintf("%d contact(s), %d removed contact(s), %d thread(s), %d message(s), %d file(s)", r.Contacts, r.Removed, r.Threads, r.Messages, r.Media)
 }
