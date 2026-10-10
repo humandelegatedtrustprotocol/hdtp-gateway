@@ -166,10 +166,8 @@ make screenshots
 
 - One logical change per commit. The commit message says what changed and **why** —
   if it fixes a defect, say how the defect was proved, not just what was edited.
-- Sign off your commits: `git commit -s` adds a `Signed-off-by: Your Name <you@example.com>`
-  line, which certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/):
-  that you wrote the contribution or otherwise have the right to submit it under this repository's
-  licence. There is no CLA. A pull request with a non-merge commit that has no sign-off is not merged; the merge commit GitHub makes is not signed off and is not held to it.
+- There is no sign-off and no CLA: under section 5 of the repository's licence, a contribution you
+  intentionally submit for inclusion is under its terms unless you explicitly state otherwise.
 - Inbound is outbound: a contribution is accepted under the Apache License 2.0
   ([`LICENSE`](LICENSE)), the terms the repository gives out.
 - Tests come with the change, in the same commit. A test that has never been seen
