@@ -498,8 +498,9 @@ section says what they mean for a node in plain words, and it narrows neither.
 - **If you offer it to others,** any warranty, support or liability you offer
   them is yours alone, not the contributors'. If you redistribute it and accept
   such obligations while doing so, Section 9 of the licence makes you indemnify
-  the contributors for them (defend them, and cover their costs). The indemnity
-  runs from you to the contributors, never the other way.
+  the contributors for them (defend them, and make good any liability or cost
+  they incur). The indemnity runs from you to the contributors, never the other
+  way.
 - **Where the law does not allow this.** These exclusions apply to the fullest
   extent the law that applies to you allows. Some laws do not allow certain
   warranties to be excluded, or liability for gross negligence, wilful
