@@ -14,7 +14,8 @@ import (
 )
 
 // homeDir is a home directory on macOS or Linux: the shape githooks/commit-msg refuses in a message.
-const homeDir = `/Users/|/home/[A-Za-z0-9._-]+/`
+// The patterns and plants in this file are spelled in halves so that it does not carry what it plants.
+const homeDir = `/Users` + `/|/home` + `/[A-Za-z0-9._-]+/`
 
 // No tracked text may carry a path from the machine that wrote it.
 //
@@ -36,7 +37,7 @@ func TestNoTrackedFileLeaksALocalPath(t *testing.T) {
 	if err != nil {
 		t.Skipf("git unavailable: %v", err)
 	}
-	leak := regexp.MustCompile(homeDir + `|/private/tmp/claude|\.claude/(jobs|projects)/`)
+	leak := regexp.MustCompile(homeDir + `|/private` + `/tmp/claude|\.claude/(jobs|projects)/`)
 	self := "localpaths_test.go"
 	frozen := frozenRecords(t, root)
 
@@ -84,15 +85,16 @@ func TestCommitMsgHookRefusesWhatTheTreeRefuses(t *testing.T) {
 	}
 	home := regexp.MustCompile(homeDir)
 	scissors := "# ------------------------ >8 ------------------------"
+	mac, linux := "/Users"+"/alina/x", "/home"+"/alina/x"
 	cases := []struct {
 		name, msg string
 		refused   bool
 	}{
-		{"a macOS home", "Fix\n\nbuilt in /Users/alina/x\n", true},
-		{"a Linux home", "Fix\n\nbuilt in /home/alina/x\n", true},
+		{"a macOS home", "Fix\n\nbuilt in " + mac + "\n", true},
+		{"a Linux home", "Fix\n\nbuilt in " + linux + "\n", true},
 		{"no path", "Fix\n\nbuilt in the worktree\n", false},
-		{"a path in a comment line", "Fix\n\nbuilt in the worktree\n# /Users/alina/x\n", false},
-		{"a path under the scissors", "Fix\n\nbuilt in the worktree\n" + scissors + "\n/home/alina/x\n", false},
+		{"a path in a comment line", "Fix\n\nbuilt in the worktree\n# " + mac + "\n", false},
+		{"a path under the scissors", "Fix\n\nbuilt in the worktree\n" + scissors + "\n" + linux + "\n", false},
 	}
 	for _, c := range cases {
 		f := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
