@@ -4,10 +4,12 @@ package integrationtest
 // measured against the code on the day it was written. A row that nothing holds goes stale the day
 // after. The rows that can be derived from the tree are held to it here: the fuzz targets and their
 // time, the analysers and their pinned versions, the form of every gosec waiver, the versions of the
-// libraries the table names, the scenario tiers, the authorization call sites, the release-build
-// checks `make dist` runs, what the pre-push hook runs, the absence of Dependabot and CI, and that
-// every test the table cites exists. A change to any of those changes the record in the same
-// commit, or fails the build.
+// libraries the table names, the floor under the scenario count and its tiers, the authorization
+// call sites, the release-build checks `make dist` runs, what the pre-push hook runs, the absence of
+// Dependabot and CI, and that every test the table cites exists. A change to any of those changes
+// the record in the same commit, or fails the build. Exact values are held only where they are
+// deliberate configuration; a count that moves with ordinary work, such as adding a scenario, is a
+// floor.
 
 import (
 	"fmt"
@@ -159,19 +161,29 @@ func TestTheHardeningStatusTableMatchesTheTree(t *testing.T) {
 	})
 
 	t.Run("scenario tiers", func(t *testing.T) {
+		// A floor, not a count: adding a scenario is ordinary work and must not need this file
+		// edited. What it holds is that the floor is true and that the tiers are the ones named.
 		row := rows.get(t, "Automated tests")
 		tiers := scenarioTiers(t, filepath.Join(root, "harness"))
-		total := tiers["fabric"] + tiers["pr"] + tiers["nightly"]
-		if total == 0 {
-			t.Fatal("no registry.Spec in the harness; this check is looking at nothing")
+		m := regexp.MustCompile(`more than (\d+) live scenarios in three nested tiers, fabric, PR and nightly`).FindStringSubmatch(row)
+		if m == nil {
+			t.Fatal("the Automated tests row no longer says \"more than <n> live scenarios in three nested tiers, fabric, PR and nightly\"; change it and this check together")
 		}
-		for _, want := range []string{
-			fmt.Sprintf("%d live scenarios", total),
-			fmt.Sprintf("%d fabric, %d PR, %d nightly", tiers["fabric"], tiers["pr"], tiers["nightly"]),
-		} {
-			if !strings.Contains(row, want) {
-				t.Errorf("the harness registers %v; the Automated tests row does not say %q", tiers, want)
+		floor, _ := strconv.Atoi(m[1])
+		total := 0
+		for _, tier := range []string{"fabric", "pr", "nightly"} {
+			if tiers[tier] == 0 {
+				t.Errorf("the harness registers no %s scenario; the Automated tests row names that tier", tier)
 			}
+			total += tiers[tier]
+		}
+		for tier := range tiers {
+			if tier != "fabric" && tier != "pr" && tier != "nightly" {
+				t.Errorf("the harness registers a scenario in tier %q, which the Automated tests row does not name", tier)
+			}
+		}
+		if total <= floor {
+			t.Errorf("the harness registers %d live scenarios; the Automated tests row says more than %d", total, floor)
 		}
 	})
 
