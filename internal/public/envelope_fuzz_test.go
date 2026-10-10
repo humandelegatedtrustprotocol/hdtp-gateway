@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // FuzzSealedEnvelope feeds arbitrary bytes down the path a sealed_call's argument takes in
@@ -44,11 +42,11 @@ func FuzzSealedEnvelope(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var env hdtpidentity.Envelope
-		if json.Unmarshal(data, &env) != nil {
+		env, err := envelopeOf(data)
+		if err != nil {
 			return // the wrapper answers envelope_invalid before OpenSealed is reached
 		}
-		facts, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, &env)
+		facts, err := e.id.OpenSealed(context.Background(), e.acct.ID, TransportFacts{}, env)
 		if err != nil {
 			if c := Code(err); c == "unavailable" {
 				t.Fatalf("an envelope refusal is not an HDTP §12 code: %v", err)

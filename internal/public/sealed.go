@@ -89,6 +89,28 @@ func sealedTool() *mcp.Tool {
 	}
 }
 
+// envelopeOf reads the wrapper's arguments as an envelope of exactly the four members the tool's
+// schema names (HDTP §13.1). encoding/json would drop any other member and match these four
+// without regard to case, so the member names are held first, byte for byte.
+func envelopeOf(args json.RawMessage) (*hdtpidentity.Envelope, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(args, &members); err != nil {
+		return nil, err
+	}
+	for k := range members {
+		switch k {
+		case "protected", "enc", "ct", "sig":
+		default:
+			return nil, fmt.Errorf("envelope member %q is not one of the four", k)
+		}
+	}
+	var env hdtpidentity.Envelope
+	if err := json.Unmarshal(args, &env); err != nil {
+		return nil, err
+	}
+	return &env, nil
+}
+
 // SealedEntries returns the registry entries for `sealed_call` — one per tier (guest, pending,
 // contact), ungated by any permission, so every caller sees exactly one (SPEC.md §4). The handler
 // is the numbered pipeline: the guest total before the open; the open; the budget a refusal costs;
@@ -143,14 +165,14 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, r.Code())
 			return r.Result(), nil
 		}
-		var env hdtpidentity.Envelope
-		if err := json.Unmarshal(req.Params.Arguments, &env); err != nil {
+		env, err := envelopeOf(req.Params.Arguments)
+		if err != nil {
 			// Not an envelope at all. Refused like any other that does not open, and audited like
 			// one: this answered and wrote nothing.
 			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, "envelope_invalid")
 			return errEnvelope("envelope_invalid"), nil
 		}
-		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), &env)
+		facts, err := d.Identifier.OpenSealed(ctx, d.AccountID, FactsFrom(ctx), env)
 		if err != nil {
 			// Opened, and answered with a refusal that proves nobody: one call of the guest total,
 			// whatever the total answers — the open is done, and the refusal below is the answer, and
