@@ -14,11 +14,10 @@ import (
 
 // No tracked text may carry a path from the machine that wrote it.
 //
-// `docs/harness-fabric-notes.md` shipped with a subagent's scratchpad path as its first line — "The
-// design is durable at /private/tmp/claude-501/…" — and sat there unreferenced because it was an
-// intermediate whose edits had already been folded into harness-design.md. In a public repository
-// that is a stranger reading someone's home directory layout, and it is the kind of thing nobody
-// greps for until it is already published.
+// `docs/harness-fabric-notes.md` shipped with a subagent's scratchpad path as its first line, and
+// sat there unreferenced because it was an intermediate whose edits had already been folded into
+// harness-design.md. In a public repository that is a stranger reading someone's home directory
+// layout, and it is the kind of thing nobody greps for until it is already published.
 //
 // Four shapes: a home directory on macOS or Linux (a path under /Users or /home, whatever the
 // name), an agent scratchpad and an agent job directory. Every tracked file is read, whatever its
