@@ -140,7 +140,8 @@ dist:
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
 # release-check runs dist against fixture repositories: refused on a dirty or untagged tree,
-# passing on a clean tagged one, and the binary check refusing a modified or unstamped build.
+# passing on a clean tagged one, and the binary check refusing a modified or unstamped build;
+# and sbom refused on a dirty tree, before it fetches anything.
 release-check:
 	scripts/release-check-test.sh
 
@@ -161,7 +162,9 @@ web:
 
 # sbom emits CycloneDX for the shipped binary's dependency graph. Pinned, not
 # @latest: a supply-chain document produced by an unpinned tool is worth less.
+# It is a release asset, so it holds to dist's tree check: clean, and HEAD is tag v$(VERSION).
 sbom:
+	@$(RELEASE_CHECK) tree $(VERSION)
 	@mkdir -p dist
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
 		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .

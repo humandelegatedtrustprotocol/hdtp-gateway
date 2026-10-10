@@ -94,6 +94,17 @@ else
   pass "tree modified during the build: refused"
 fi
 
+# sbom is a release asset too: refused on a dirty tree before it runs its tool (GOPROXY=off, so a
+# check that let it through fails on the fetch, not on "not clean").
+d=$(fixture sbom); touch "$d/stray"
+if make -s -C "$d" -f "$makefile" sbom VERSION=9.9.9 >"$tmp/out" 2>&1; then
+  bad "sbom on an untracked file: ran"
+elif ! grep -q "not clean" "$tmp/out"; then
+  bad "sbom on an untracked file: failed, but not for 'not clean':"; cat "$tmp/out" >&2
+else
+  pass "sbom on an untracked file: refused"
+fi
+
 # The binary check on builds dist would not make, each in a tree that is otherwise a clean tag.
 d=$(fixture binaries)
 build() { (cd "$d" && CGO_ENABLED=0 go build -trimpath "$@" -o "$tmp/bin" ./cmd/hdtp-gateway); }

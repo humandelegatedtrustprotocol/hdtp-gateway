@@ -19,7 +19,7 @@ rebuild a tag and compare.
    git clone --branch v1.2.3 https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git "$dir"
    cd "$dir"
    make dist VERSION=1.2.3
-   make sbom
+   make sbom VERSION=1.2.3
    ```
 
    `make dist` refuses to build unless `git status --porcelain` is empty and HEAD is the commit
@@ -27,7 +27,7 @@ rebuild a tag and compare.
    `vcs.modified=true`, and that stamp changes the checksum. After building, it refuses unless every
    binary's build info (`go version -m`) records `vcs.modified=false` and that commit as
    `vcs.revision`. A working checkout usually holds something untracked, which is why the build is
-   done in a fresh clone. `make release-check`, part of `make check`, runs `dist` against fixture
+   done in a fresh clone. `make sbom` holds to the same tree check. `make release-check`, part of `make check`, runs `dist` against fixture
    repositories and shows each refusal and the clean build that passes.
 
    `make sbom` reads the repository through its own git library (cyclonedx-gomod), so run it in
