@@ -15,7 +15,7 @@
 # This project does not bypass its hooks (CONTRIBUTING.md): a gate that is wrong is fixed, not skipped.
 set -euo pipefail
 
-LOCAL_PATH="/Users""/|(^|[^A-Za-z0-9_/-])/home""/[A-Za-z0-9._-]+([/\"'\`]|[[:space:]]|\$)"
+LOCAL_PATH="/Users""/|(^|[^A-Za-z0-9_/-])/home""/[A-Za-z0-9._-]+"
 if hits="$(grep -n -E "$LOCAL_PATH" "$1")"; then
   echo "commit-msg: the message carries a path from this machine, which would be published with the commit:" >&2
   printf '              %s\n' "$hits" >&2

@@ -15,9 +15,9 @@ import (
 
 // homeDir is a home directory on macOS or Linux: the shape githooks/commit-msg refuses in a message.
 // A /home path counts where it begins a path (not inside one, as in a route like a/home/x) and names
-// someone, whatever follows the name. The patterns and plants in this file are spelled in halves so
-// that it does not carry what it refuses.
-const homeDir = "(?m)/Users" + "/|(^|[^A-Za-z0-9_/-])/home" + "/[A-Za-z0-9._-]+([/\"'`]|[[:space:]]|$)"
+// someone, whatever follows the name (a slash, a space, punctuation or the end of the line). The
+// patterns and plants in this file are spelled in halves so that it does not carry what it refuses.
+const homeDir = "(?m)/Users" + "/|(^|[^A-Za-z0-9_/-])/home" + "/[A-Za-z0-9._-]+"
 
 // No tracked text may carry a path from the machine that wrote it.
 //
@@ -92,6 +92,7 @@ func TestCommitMsgHookRefusesWhatTheTreeRefuses(t *testing.T) {
 		{"a macOS home", "Fix\n\nbuilt in " + mac + "\n", true},
 		{"a Linux home", "Fix\n\nbuilt in " + linux + "\n", true},
 		{"a Linux home with no trailing slash", "Fix\n\n" + bare + "\n", true},
+		{"a Linux home in parentheses", "Fix\n\n(see /home" + "/alina)\n", true},
 		{"a path in a comment line", "Fix\n\nbuilt in the worktree\n# " + mac + "\n", true},
 		{"a path under the scissors", "Fix\n\nbuilt in the worktree\n" + scissors + "\n" + linux + "\n", true},
 		{"no path", "Fix\n\nbuilt in the worktree\n", false},
