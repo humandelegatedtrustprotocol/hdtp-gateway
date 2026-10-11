@@ -3,16 +3,19 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pressly/goose/v3"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/migrations"
 )
 
@@ -119,4 +122,47 @@ func beforeTheWipe(t *testing.T) (dir, cfg string) {
 	}
 	conn.Close()
 	return dir, cfg
+}
+
+// export and import run the wipe with what it could not finish on their stderr: here a file of a
+// wiped conversation whose directory refuses the deletion, told as "files not all collected", while
+// the conversation itself is gone.
+func TestAnExportsWipeTellsTheFilesItCouldNotCollect(t *testing.T) {
+	dir, cfg := beforeTheWipe(t)
+	ctx := context.Background()
+	st := openStoreAt(t, dir)
+	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	blobs := messaging.BlobDir{Root: (&core.Config{DataDir: dir}).Blobs()}
+	hash, err := blobs.Put([]byte("a file of a wiped conversation"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertBlob(ctx, store.Blob{AccountID: a.ID, Hash: hash, Size: 30, Mime: "text/plain", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(messaging.MediaMeta{Filename: "f.txt", Mime: "text/plain", Hash: hash})
+	if err := st.InsertThread(ctx, store.Thread{ID: "a/b", AccountID: a.ID, ContactFpr: "sha256:peer", CreatedAt: 1, LastAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertMessage(ctx, store.Message{ID: "m1", AccountID: a.ID, ContactFpr: "sha256:peer", MsgID: "p1", ThreadID: "a/b",
+		Direction: "in", Sender: "agent", Kind: "media", Body: string(body), Status: "delivered", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	held := filepath.Dir(filepath.Join(blobs.Root, hash[:2], hash))
+	if _, err := blobs.Get(hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(held, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(held, 0o700) })
+	_, _, errb := run(t, "export", "-config", cfg, "-slug", "me", "-out", filepath.Join(t.TempDir(), "me.zip"))
+	if !strings.Contains(errb, `thread "a/b" deleted, its files not all collected`) {
+		t.Fatalf("stderr does not tell the file it could not collect:\n%s", errb)
+	}
+	st = openStoreAt(t, dir)
+	if _, err := st.GetThread(ctx, a.ID, "a/b"); err == nil {
+		t.Fatal("the conversation was not wiped")
+	}
 }

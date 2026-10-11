@@ -106,7 +106,8 @@ func TestTheWipeDeletesEveryConversationOfNeitherFormAndOnlyThose(t *testing.T) 
 				t.Fatal(err)
 			}
 
-			got, err := svc.WipeThreadIDs(ctx)
+			var got []Wiped
+			err = svc.WipeThreadIDs(ctx, func(w Wiped) { got = append(got, w) })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,7 +170,8 @@ func TestTheWipeDeletesEveryConversationOfNeitherFormAndOnlyThose(t *testing.T) 
 			if err := st.InsertThread(ctx, store.Thread{ID: "after-the-wipe", AccountID: a.ID, ContactFpr: peer, CreatedAt: 2, LastAt: 2}); err != nil {
 				t.Fatal(err)
 			}
-			if again, err := svc.WipeThreadIDs(ctx); err != nil || len(again) != 0 {
+			var again []Wiped
+			if err := svc.WipeThreadIDs(ctx, func(w Wiped) { again = append(again, w) }); err != nil || len(again) != 0 {
 				t.Fatalf("the second run: %+v %v", again, err)
 			}
 			if _, err := st.GetThread(ctx, a.ID, "after-the-wipe"); err != nil {

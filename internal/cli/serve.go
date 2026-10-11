@@ -242,10 +242,9 @@ func (s *serveRun) wipeThreadIDs() error {
 func wipeThreadIDs(ctx context.Context, st store.Store, cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer) error {
 	svc := &messaging.Service{Store: st, Blobs: messaging.BlobDir{Root: cfg.Blobs()},
 		OnError: func(err error) { fmt.Fprintf(stderr, "messaging: %v\n", err) }}
-	wiped, err := svc.WipeThreadIDs(ctx)
-	for _, w := range wiped {
+	err := svc.WipeThreadIDs(ctx, func(w messaging.Wiped) {
 		auditFn("thread_id_wipe", fmt.Sprintf("account:%s threads:%d messages:%d files:%d", w.AccountID, w.Threads, w.Messages, w.Files), "ok")
-	}
+	})
 	if err != nil {
 		return fmt.Errorf("deleting the threads stored under a thread id of neither form: %w", err)
 	}
@@ -253,12 +252,13 @@ func wipeThreadIDs(ctx context.Context, st store.Store, cfg *core.Config, auditF
 }
 
 // migrateAndWipe is what an offline command that migrates runs: the migrations, then the wipe they
-// may have scheduled, audited as the node's own.
-func migrateAndWipe(ctx context.Context, st store.Store, cfg *core.Config, stderr io.Writer) error {
+// may have scheduled, audited as the node's own. auditOut is where the audit sink mirrors its rows;
+// stderr hears what the wipe could not finish, the files it could not collect.
+func migrateAndWipe(ctx context.Context, st store.Store, cfg *core.Config, auditOut, stderr io.Writer) error {
 	if err := st.Migrate(ctx); err != nil {
 		return err
 	}
-	return wipeThreadIDs(ctx, st, cfg, auditsink.New(ctx, st, stderr).System(), stderr)
+	return wipeThreadIDs(ctx, st, cfg, auditsink.New(ctx, st, auditOut).System(), stderr)
 }
 
 // startTunnel wires the audit sink and the owner's settings, then starts the tunnel the settings

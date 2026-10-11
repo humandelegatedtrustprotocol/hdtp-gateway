@@ -68,7 +68,7 @@ func portableStore(name string, args []string, stderr io.Writer, define func(*fl
 	}
 	st, err := openStore(cfg)
 	if err == nil {
-		err = migrateAndWipe(context.Background(), st, cfg, io.Discard)
+		err = migrateAndWipe(context.Background(), st, cfg, io.Discard, stderr)
 	}
 	if err != nil {
 		lock.Release()
