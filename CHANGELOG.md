@@ -19,6 +19,14 @@ changelog can be and is not summarized into a fictional release history.
   `internal/core/store/README.md` state it truly. `kept_was_contact.json` and the comments that cite
   it no longer say BatonDeck "is to run" the list "once it lands": it runs it, from a byte copy held to
   the node's file.
+- SPEC §12.3 said the image is "published multi-arch" and §12.5 that releases (binaries and images)
+  are built with goreleaser. No image is published and goreleaser is not used: a release is
+  `make dist` and `make sbom` on a maintainer's machine (`RELEASING.md`), publishing binaries for
+  four platforms, `SHA256SUMS`, the SBOM and `THIRD_PARTY_NOTICES`, and the image is built locally
+  from the `Dockerfile`. The SPEC, `docs/deploy.md` and a comment now say so, and name the `-full`
+  image by its `Dockerfile.full` rather than as a tag.
+- `compose.yaml` told a `-full` user to chown `/data` to 1000:1000; `Dockerfile.full` runs as
+  65532:65532, the slim image's uid, which the comment now says.
 
 ## [0.1.3] — 2026-10-11
 

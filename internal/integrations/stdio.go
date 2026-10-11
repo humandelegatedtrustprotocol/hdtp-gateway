@@ -7,7 +7,7 @@ package integrations
 // environ), exponential restart backoff 1 s → 60 s, and give-up after N
 // consecutive failures inside a window, after which dialing fails `unavailable`
 // until the owner reconnects. Runtime note (SPEC §12): the slim image ships no
-// node/uv — stdio servers needing them require the `-full` tag or a mount.
+// node/uv — stdio servers needing them require the `-full` image or a mount.
 
 import (
 	"fmt"

@@ -47,7 +47,7 @@ The two roles compose rather than exclude each other: one binary, one configurat
 
 ### 2.1 One binary
 
-hdtp-gateway ships as a single static Go binary (`CGO_ENABLED=0`) containing every role and every surface. Upstream integrations are consumed HTTP-first; stdio-only MCP servers run as supervised child processes of the node. The container image is a slim distroless build, with a `-full` tag adding the node and uv runtimes that stdio children commonly need (§12).
+hdtp-gateway ships as a single static Go binary (`CGO_ENABLED=0`) containing every role and every surface. Upstream integrations are consumed HTTP-first; stdio-only MCP servers run as supervised child processes of the node. The container image, built locally from the `Dockerfile` (none is published, §12.3), is a slim distroless build; `Dockerfile.full` builds a `-full` image adding the node and uv runtimes that stdio children commonly need (§12).
 
 ```mermaid
 flowchart LR
@@ -598,7 +598,7 @@ A `stdio-supervised` integration runs a local child process (newline-delimited J
 - The child receives only the command, arguments, and environment variables configured for the integration; `static` credentials destined for the child are decrypted at spawn time and passed via that environment, never written to disk.
 - On unexpected exit the node MUST restart the child with backoff; repeated failures mark the integration `unreachable` and follow §6.10. Shutdown uses `TerminateDuration` for a graceful stop before killing. Every crash and restart is audited (§11).
 - Children MUST run under resource caps (memory/CPU) so a misbehaving upstream cannot starve the node. Defaults, each configurable per integration: restart backoff exponential from 1 s to a 60 s cap; give-up after 5 consecutive failures within 5 minutes, marking the integration `unreachable` (§6.10); per-child caps of 512 MiB RSS and 1 CPU. Both are enforced by `setrlimit` as the closest approximations a plain binary can apply without cgroups: `RLIMIT_DATA` for the memory cap and `RLIMIT_CPU` for the CPU one. `RLIMIT_AS` is NOT usable here — it bounds reserved address space rather than memory in use, and a Node child needs more than 8 GiB of address space to start at all, so no `RLIMIT_AS` value both admits an `npx` child (§12.3) and bounds anything.
-- The slim container image is static and ships no runtimes. stdio servers that need `node`/`npx` or `uv`/`uvx` require the **`-full` image tag** (which ships node and uv), or the owner mounts the runtime or a native server binary into the container (§12).
+- The slim container image is static and ships no runtimes. stdio servers that need `node`/`npx` or `uv`/`uvx` require the **`-full` image** (`Dockerfile.full`, which ships node and uv), or the owner mounts the runtime or a native server binary into the container (§12).
 
 ### 6.3 Upstream authentication and OAuth
 
@@ -1179,7 +1179,7 @@ Owner-set values go through the same derivation as any other layer (§10.1): cho
 
 ### 12.3 Container image
 
-The release image contains a static binary built with `CGO_ENABLED=0` on a **distroless** base, published multi-arch, and beside it the limits sidecar, `hdtp-limitd`, a static Rust binary, with its shipped configuration at `/etc/hdtp-limitd/limits.json` (socket `/data/limits.sock`, the node's default `limits_socket` under `/data`). The sidecar runs as a process of its own, from the same image (§12.4). The default image is slim; the **`-full` tag** adds the node and uv runtimes so supervised stdio integration children can run in-container (§6). State lives on a single `/data` volume (store, blobs, tunnel state). The image defines a healthcheck that reports readiness of the node process.
+No image is published. A release publishes binaries for four platforms (linux and darwin, amd64 and arm64), their `SHA256SUMS`, a CycloneDX SBOM and `THIRD_PARTY_NOTICES` (`RELEASING.md`); the image is built locally from a checkout, as `docker compose up` does (§12.4). The image the `Dockerfile` builds contains a static binary built with `CGO_ENABLED=0` on a **distroless** base, for the architecture of the machine that builds it, and beside it the limits sidecar, `hdtp-limitd`, a static Rust binary, with its shipped configuration at `/etc/hdtp-limitd/limits.json` (socket `/data/limits.sock`, the node's default `limits_socket` under `/data`). The sidecar runs as a process of its own, from the same image (§12.4). That image is slim; the **`-full` image**, built from `Dockerfile.full`, adds the node and uv runtimes so supervised stdio integration children can run in-container (§6). State lives on a single `/data` volume (store, blobs, tunnel state). The image defines a healthcheck that reports readiness of the node process.
 
 ### 12.4 Compose and first run
 
@@ -1189,7 +1189,7 @@ First run is `docker compose up`: the node starts, and the logs print the **port
 
 ### 12.5 Releases and telemetry
 
-Releases (binaries and images) are built with **goreleaser** from tags. hdtp-gateway contains **no telemetry** of any kind: it makes no network connections other than those the owner configures — peers, upstream integrations, tunnel, ingress, and DNS/ACME when the ingress role is enabled. This is stated in the documentation, not merely implied.
+Releases are built from tags on a maintainer's machine with `make dist` and `make sbom` (`RELEASING.md`), and carry binaries, not images (§12.3). hdtp-gateway contains **no telemetry** of any kind: it makes no network connections other than those the owner configures — peers, upstream integrations, tunnel, ingress, and DNS/ACME when the ingress role is enabled. This is stated in the documentation, not merely implied.
 
 
 ---

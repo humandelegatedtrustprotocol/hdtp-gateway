@@ -26,7 +26,7 @@ four review passes correcting.
 
 | Run | Verdict | What substitutes for the real resource | What the substitute does **not** prove |
 |---|---|---|---|
-| **P10-12e** README quickstart on a clean machine | **closable** | A pristine container from the published image; README commands run verbatim; CDP completes the passkey ceremony | A genuinely fresh *host* — a different OS, a different Docker daemon version, an ARM/x86 difference |
+| **P10-12e** README quickstart on a clean machine | **closable** | A pristine container from the image the repository's `Dockerfile` builds; README commands run verbatim; CDP completes the passkey ceremony | A genuinely fresh *host* — a different OS, a different Docker daemon version, an ARM/x86 difference |
 | **P10-12i** NAT crossing, all three paths | **closable** | Two isolated bridges joined by NAT router containers (`iptables MASQUERADE`, no inbound DNAT) | Carrier-grade NAT, ISP middleboxes, real-world MTU and idle timeouts |
 | **P10-12j** Own-domain VPS ingress | **partly** | Local authoritative DNS + Pebble ACME + real SNI routing between containers | Cloudflare's DNS API and tunnel-token path; Let's Encrypt rate limits and CAA; public internet routing |
 | **P10-12f** Real Google Calendar booking | **partly** | Radicale (CalDAV) behind a third-party calendar MCP server we did not write | Google's OAuth consent flow, refresh-token semantics, quota and API quirks |
