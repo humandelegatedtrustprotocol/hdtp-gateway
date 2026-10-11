@@ -146,7 +146,7 @@ func (s *integrationSurface) buildEntries(ctx context.Context, in store.Integrat
 // said of itself. Nothing else the upstream annotated is re-served: the tool is served under the
 // owner's exposed name, and an upstream title would label it with the upstream's. BatonDeck's
 // `servedAnnotations` (gateway/src/integrations/dispatch.ts) is the same rule over the same stored
-// annotations, held to the same table of cases in its tests.
+// annotations; both run the cases of its gateway/test/fixtures/go-served-annotations.json.
 func servedAnnotations(stored json.RawMessage, mode string) *mcp.ToolAnnotations {
 	if mode == integrations.ModeAgent {
 		return public.Hints(false, true, false, true)
