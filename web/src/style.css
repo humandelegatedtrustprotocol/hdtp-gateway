@@ -451,6 +451,9 @@ main.tables{max-width:72rem}
 .audit-mini time{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:.74rem}
 .panel .links{display:flex;flex-direction:column;gap:.4rem;font-size:.88rem}
 .panel .cardbox{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem}
+/* What is done to the conversation itself, set apart at the panel's foot (messages.tsx ContactPanel `end`). */
+.panel .panel-end{margin-top:auto;padding-top:1rem;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start;gap:.5rem}
+.panel .panel-end h3{margin:0}
 
 /* ---------------------------------------------------------------- responsive */
 @media (max-width:900px){

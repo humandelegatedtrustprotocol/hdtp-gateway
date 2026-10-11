@@ -4,7 +4,7 @@
 // The right-hand panel is the contact's permission switchboard and their slice
 // of the audit trail, so "what may this contact do" is answered next to what
 // they are doing.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { accountName, currentAccount, failureOf, getJSON, postForm, subscribe } from "../api";
 import { Link, navigate } from "../router";
 import { Avatar, Badge, Button, CountChip, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, tallyCount, toolAction, toolLabel, trustWord, type IconName, type Tally } from "../ui";
@@ -53,6 +53,7 @@ export function Messages() {
   const [d, setD] = useState<Data | null>(null);
   const [text, setText] = useState("");
   const [sendErr, setSendErr] = useState("");
+  const [deleteErr, setDeleteErr] = useState("");
   // The message being sent right now, shown before the node answers.
   const [pending, setPending] = useState<Msg | null>(null);
   const [q, setQ] = useState("");
@@ -160,6 +161,7 @@ export function Messages() {
 
   const pick = (fpr: string) => {
     setSel(fpr);
+    setDeleteErr("");
     setPane("thread");
     history.replaceState(null, "", "/messages?contact=" + encodeURIComponent(fpr));
   };
@@ -183,14 +185,16 @@ export function Messages() {
 
   // Deleting the conversation on screen deletes each thread it merges, here only: the contact keeps
   // their copy, and nothing is sent (node SPEC §7.9). A thread already gone is not a failure.
+  // Its refusal is said beside the button, in the contact panel, where it was pressed: on a phone the
+  // panel is the pane on screen and the conversation is not.
   const deleteConversation = async () => {
-    setSendErr("");
+    setDeleteErr("");
     let failed = false;
     for (const id of d?.threads ?? []) {
       const r = await postForm(`/threads/${encodeURIComponent(id)}/delete`, {});
       if (!r.ok && r.status !== 404) failed = true;
     }
-    if (failed) setSendErr("The conversation was not deleted in full. Try again.");
+    if (failed) setDeleteErr("The conversation was not deleted in full. Try again.");
     dispatchEvent(new Event("hdtp:counts"));
     load();
   };
@@ -283,15 +287,10 @@ export function Messages() {
                 </div>
                 <div className="end">
                   {!selReadOnly && <Badge tone="ok" title={`Their key is pinned: a message that does not verify against it is refused.\n${current.fingerprint}`}><Icon name="shield" size={12} /> pinned</Badge>}
-                  {!selRemoved && <Toolbar className="details">
+                  <Toolbar className="details">
                     <Button variant="quiet" icon="panel" aria-pressed={panelOpen && !focus} title={panelOpen && !focus ? "Hide contact panel" : "Show contact panel"} aria-label="Contact panel"
                       onClick={() => { if (window.innerWidth <= 900) setPane(pane === "panel" ? "thread" : "panel"); else { if (focus) toggleFocus(); if (!panelOpen || focus) { if (!panelOpen) togglePanel(); } else togglePanel(); } }} />
-                  </Toolbar>}
-                  {(d.threads ?? []).length > 0 && <Toolbar className="delete">
-                    <Button variant="quiet" icon="trash" title="Delete conversation" aria-label="Delete conversation"
-                      confirm={`Delete your conversation with ${current.label}? It is deleted here only: they keep their copy.`}
-                      onClick={deleteConversation} />
-                  </Toolbar>}
+                  </Toolbar>
                   <Toolbar className="expand">
                     <Button variant="quiet" icon={focus ? "collapse" : "expand"} aria-pressed={focus} title={focus ? "Exit full width" : "Full width"} aria-label={focus ? "Exit full width" : "Full width"} onClick={toggleFocus} />
                   </Toolbar>
@@ -415,7 +414,17 @@ export function Messages() {
           )}
         </section>
 
-        {current && !selRemoved && <ContactPanel fpr={current.fingerprint} label={current.label} onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }} />}
+        {current && <ContactPanel fpr={current.fingerprint} label={current.label} removed={selRemoved}
+          onBack={() => { if (window.innerWidth <= 900) setPane("thread"); else togglePanel(); }}
+          end={(d.threads ?? []).length > 0 && (
+            <div className="panel-end">
+              <h3>Conversation</h3>
+              {deleteErr && <Notice kind="err">{deleteErr}</Notice>}
+              <Button variant="danger" icon="trash"
+                confirm={`Delete your conversation with ${current.label}? It is deleted here only: they keep their copy.`}
+                onClick={deleteConversation}>Delete conversation</Button>
+            </div>
+          )} />}
       </div>
     </main>
   );
@@ -445,8 +454,10 @@ function toolIcon(name: string): "calendar" | "calendarCheck" | "calendarX" | "a
 }
 
 // The right-hand panel: who this is, what they may do here (live switches),
-// what they let you do there, and their recent entries in the audit trail.
-function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBack: () => void }) {
+// what they let you do there, their recent entries in the audit trail, and last, set apart, `end`:
+// what may be done to the conversation itself. A removed contact has no contact to read or change,
+// so its panel is who they were and `end` alone.
+function ContactPanel({ fpr, label, removed, onBack, end }: { fpr: string; label: string; removed: boolean; onBack: () => void; end: ReactNode }) {
   const [c, setC] = useState<Contact | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -454,6 +465,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
   const base = `/contacts/${encodeURIComponent(fpr)}`;
 
   const load = useCallback(() => {
+    if (removed) return;
     getJSON<Contact>(`/api/contacts/${encodeURIComponent(fpr)}`).then(setC).catch(() => setC(null));
     // A contact's own calls are recorded as system actions carrying their
     // fingerprint in the resource, and the owner's decisions about them carry it
@@ -466,7 +478,7 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
       // consumer.
       .then((a) => setAudit((a.rows ?? []).filter((r) => r.ActorID === fpr || String(r.Resource).includes(fpr)).slice(0, 8)))
       .catch(() => {});
-  }, [fpr]);
+  }, [fpr, removed]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe(load), [load]);
 
@@ -494,50 +506,53 @@ function ContactPanel({ fpr, label, onBack }: { fpr: string; label: string; onBa
         <Avatar name={label} identity={fpr} size="lg" />
         <div>
           <b>{label}</b>
-          <small>{c?.status ?? ""}{c?.trust && <> · {trustWord(c.trust)}</>}</small>
+          <small>{removed ? "No longer a contact" : <>{c?.status ?? ""}{c?.trust && <> · {trustWord(c.trust)}</>}</>}</small>
         </div>
       </div>
       <div>
         <h3>Identity</h3>
         <IdText id={fpr} />
       </div>
-      <div>
-        <h3>What they may do here</h3>
-        {note && <Notice kind="err">{note}</Notice>}
-        {c ? c.permissions.map((p) => (
-          <div className="perm" key={p.name}>
-            <span className="k" title={p.name}>{permLabel(p.name)}</span>
-            <button type="button" role="switch" aria-checked={p.on} aria-label={permLabel(p.name)} title={p.name}
-              className={"sw" + (p.on ? " on" : "")} disabled={busy === p.name}
-              onClick={() => toggle(p.name, !p.on)} />
-          </div>
-        )) : <p className="muted">Loading…</p>}
-        {c && <p className="muted">Preset: {c.preset || "custom"}</p>}
-      </div>
-      {c && (c.their_permissions ?? []).length > 0 && (
+      {!removed && <>
         <div>
-          <h3>What they let you do there</h3>
-          <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} title={p}>{permLabel(p)}</Badge>)}</div>
+          <h3>What they may do here</h3>
+          {note && <Notice kind="err">{note}</Notice>}
+          {c ? c.permissions.map((p) => (
+            <div className="perm" key={p.name}>
+              <span className="k" title={p.name}>{permLabel(p.name)}</span>
+              <button type="button" role="switch" aria-checked={p.on} aria-label={permLabel(p.name)} title={p.name}
+                className={"sw" + (p.on ? " on" : "")} disabled={busy === p.name}
+                onClick={() => toggle(p.name, !p.on)} />
+            </div>
+          )) : <p className="muted">Loading…</p>}
+          {c && <p className="muted">Preset: {c.preset || "custom"}</p>}
         </div>
-      )}
-      <div>
-        <h3>Recent activity</h3>
-        {audit.length === 0 ? <p className="muted">Nothing recorded for this contact yet.</p> : (
-          <div className="audit-mini">
-            {audit.map((r) => (
-              <div key={r.Seq}>
-                <b title={r.Action}>{actionWord(r.Action)}</b>
-                <Badge status={r.Outcome} />
-                <time dateTime={new Date(r.TS * 1000).toISOString()} title={whenTitle(r.TS * 1000)}>{when(r.TS * 1000)}</time>
-              </div>
-            ))}
+        {c && (c.their_permissions ?? []).length > 0 && (
+          <div>
+            <h3>What they let you do there</h3>
+            <div className="rowline">{(c.their_permissions ?? []).map((p) => <Badge key={p} title={p}>{permLabel(p)}</Badge>)}</div>
           </div>
         )}
-      </div>
-      <div className="links">
-        <Link to={`/contacts/${encodeURIComponent(fpr)}`}>Open full profile →</Link>
-        <Link to="/audit">Full audit trail →</Link>
-      </div>
+        <div>
+          <h3>Recent activity</h3>
+          {audit.length === 0 ? <p className="muted">Nothing recorded for this contact yet.</p> : (
+            <div className="audit-mini">
+              {audit.map((r) => (
+                <div key={r.Seq}>
+                  <b title={r.Action}>{actionWord(r.Action)}</b>
+                  <Badge status={r.Outcome} />
+                  <time dateTime={new Date(r.TS * 1000).toISOString()} title={whenTitle(r.TS * 1000)}>{when(r.TS * 1000)}</time>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="links">
+          <Link to={`/contacts/${encodeURIComponent(fpr)}`}>Open full profile →</Link>
+          <Link to="/audit">Full audit trail →</Link>
+        </div>
+      </>}
+      {end}
     </aside>
   );
 }
