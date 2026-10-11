@@ -10,6 +10,20 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Changed
+
+- hdtp-identity 0.8.1. A sealed call whose `sig` is not base64url in its one spelling is refused
+  `envelope_invalid` before the open in the small form too, where it was answered `chain_required`;
+  such a call now spends the guest total alone, as every `envelope_invalid` the node's keys reach
+  does, not the source's guest budget. An empty `sig` is still `chain_required` in the small form.
+  An export no longer refuses, or leaves anything out, for a contact's text that reads as a private
+  key: a thread id, a `msg_id` or a `reply_to` in that shape is written as `r-` and 62 hex digits,
+  the same at every reference, and a topic or a contact's display name in it is written empty
+  (SPEC §3.10). The node writes such an export where 0.8.0 refused it whole.
+  `TestAContactsKeyShapedTextNeverStopsTheExport` exports and imports one; the small form's cases
+  are in `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `TestARespelledSmallFormSigIsAnOpenedRefusal`
+  (the answer, the audit row and the charge) and `TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer`.
+
 ### Fixed
 
 - A conversation whose thread id is `.` or `..` (a contact chooses the id) could not be opened, sent

@@ -101,7 +101,8 @@ func opener(now time.Time, e *hdtpidentity.Envelope, st *RecipientState) (*ident
 }
 
 // errOpened marks a refusal of an envelope this node OPENED (one of its keys is the one the header
-// named, so HPKE ran on it) and that proved no caller: the wrapper spends the guest total for it
+// named, so the core took it to the open, or to the checks of `enc` and `sig` just before it) and
+// that proved no caller: the wrapper spends the guest total for it
 // (sealed.go), so a flood the open cannot place drains it and meets the check before the open. The
 // refusal's code is unchanged: errOpened is none of the errors Code reads.
 var errOpened = errors.New("the envelope was opened")

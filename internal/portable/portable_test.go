@@ -579,6 +579,72 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 	}
 }
 
+// What a contact controls never stops the export, and neither does text of theirs that reads as a
+// private key (the identity core 0.8.1): a thread id and a msg_id a contact chose in that shape are
+// written anew, with every reference to them, and a topic in it is written empty. The conversation
+// arrives whole on the other side and the key-shaped text is nowhere in the file. Shown red on 0.8.0,
+// whose writer refused the whole export.
+func TestAContactsKeyShapedTextNeverStopsTheExport(t *testing.T) {
+	ctx := context.Background()
+	const keyShaped = "MAoCAQAwAwYBAAQA" // decodes to a PKCS #8 key
+	src := newEnv(t, sqliteStore)
+	s := seed(t, src)
+	must(t, src.st.InsertThread(ctx, store.Thread{ID: keyShaped, AccountID: s.accountID, ContactFpr: s.peer.Fpr, Topic: keyShaped, CreatedAt: 1790000040, LastAt: 1790000042}))
+	for _, m := range []store.Message{
+		{ID: "k1", MsgID: keyShaped, Direction: "in", Sender: "human", Kind: "text", Body: "from the contact", Status: "delivered", CreatedAt: 1790000040},
+		{ID: "k2", MsgID: "msg-k2", Direction: "out", Sender: "human", Kind: "text", Body: "the reply", Status: "delivered", CreatedAt: 1790000042, ReplyTo: keyShaped},
+	} {
+		m.AccountID, m.ContactFpr, m.ThreadID = s.accountID, s.peer.Fpr, keyShaped
+		must(t, src.st.InsertMessage(ctx, m))
+	}
+	file, res := exportOf(t, src, "alina")
+	if len(res.LeftOutMessages) != 0 {
+		t.Fatalf("messages left out: %v", res.LeftOut)
+	}
+	zr := zipReader(t, file)
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		must(t, err)
+		b, err := io.ReadAll(rc)
+		rc.Close()
+		must(t, err)
+		if bytes.Contains(b, []byte(keyShaped)) {
+			t.Fatalf("%s carries the key-shaped text", f.Name)
+		}
+	}
+	dst := newEnv(t, sqliteStore)
+	_, got, err := importFile(t, dst, file, "alina", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Threads != 2 || got.Messages != 6 {
+		t.Fatalf("imported %+v, want both threads and all six messages", got)
+	}
+	a, err := dst.st.GetAccountBySlug(ctx, "alina")
+	must(t, err)
+	threads, err := dst.st.ListThreadsByAccount(ctx, a.ID)
+	must(t, err)
+	var reissued store.Thread
+	for _, th := range threads {
+		if th.ID != "t1" {
+			reissued = th
+		}
+	}
+	if !strings.HasPrefix(reissued.ID, "r-") || len(reissued.ID) != 64 || reissued.Topic != "" {
+		t.Fatalf("the contact's thread arrived as id %q topic %q; want an r- id of 64 characters and no topic", reissued.ID, reissued.Topic)
+	}
+	msgs, err := dst.st.ListMessagesByThread(ctx, a.ID, reissued.ID)
+	must(t, err)
+	byID := map[string]store.Message{}
+	for _, m := range msgs {
+		byID[m.ID] = m
+	}
+	in, reply := byID["k1"], byID["k2"]
+	if !strings.HasPrefix(in.MsgID, "r-") || reply.ReplyTo != in.MsgID || reply.MsgID != "msg-k2" {
+		t.Fatalf("the conversation arrived apart: in %+v, reply %+v", in, reply)
+	}
+}
+
 // An export that cannot be what it claims is refused by name, and leaves no file behind a caller
 // could mistake for one.
 func TestAnExportRefusesWhatItCannotCarry(t *testing.T) {

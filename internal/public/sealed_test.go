@@ -361,3 +361,34 @@ func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
 		t.Fatalf("the control, the four members of a well-formed envelope from a contact, must get through: %s", text(t, res))
 	}
 }
+
+// A small form whose `sig` is not in its one spelling is refused `envelope_invalid` before the open
+// (the identity core 0.8.1), audited once as that, and charged as an opened refusal: the guest total
+// alone, not the source's budget a `chain_required` spends. The control, the same envelope in its
+// canonical spelling, gets through. Shown red on 0.8.0, which answered it `chain_required`.
+func TestARespelledSmallFormSigIsAnOpenedRefusal(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt)
+	s.pin(t, p, "active")
+	var charges []Charge
+	s.pool.Limit = func(_ context.Context, as Charge) *Refusal { charges = append(charges, as); return nil }
+	var rows []string
+	s.deps.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+outcome) }
+	env := s.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"})
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := strings.IndexByte(alphabet, env.Sig[len(env.Sig)-1])
+	respelled := *env
+	respelled.Sig = env.Sig[:len(env.Sig)-1] + string(alphabet[last|1])
+	if res := s.call(t, &respelled, TransportFacts{RemoteIP: "203.0.113.9"}); !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) {
+		t.Fatalf("a respelled small-form sig answered %s, want envelope_invalid", text(t, res))
+	}
+	if len(rows) != 1 || rows[0] != "sealed_call envelope_invalid" {
+		t.Fatalf("audited %q, want one sealed_call envelope_invalid", rows)
+	}
+	if len(charges) != 1 || charges[0] != ChargeOpened {
+		t.Fatalf("charged %v, want the guest total alone (ChargeOpened)", charges)
+	}
+	if res := s.call(t, env, TransportFacts{RemoteIP: "203.0.113.9"}); res.IsError {
+		t.Fatalf("the control, the same envelope in its one spelling, must get through: %s", text(t, res))
+	}
+}
