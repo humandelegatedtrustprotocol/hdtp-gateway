@@ -108,8 +108,11 @@ func Export(ctx context.Context, st store.Store, blobs messaging.BlobDir, w io.W
 	sort.Slice(in.Media, func(i, j int) bool { return in.Media[i].Hash < in.Media[j].Hash })
 	// The writer leaves out what the file must never carry and a contact could put there — a
 	// message whose body or file reads as a private key, with its file — and lists each one; it
-	// nulls a reply_to whose message the file does not carry (SPEC §9.2, hdtp-identity 0.3.3). Every
-	// message left out is named to the person, with the writer's reason (SPEC §9.2 #25).
+	// nulls a reply_to whose message the file does not carry (SPEC §9.2, hdtp-identity 0.3.3). A
+	// thread id, msg_id or reply_to a contact chose that reads as a key it writes anew, with every
+	// reference to it, and such a topic or contact name it writes empty (hdtp-identity 0.8.1): none
+	// of these stops the export or leaves anything out. Every message left out is named to the
+	// person, with the writer's reason (SPEC §9.2 #25).
 	leftOut, err := hdtpidentity.WriteExportZip(w, in, func(hash string) (io.ReadCloser, error) {
 		data, err := blobs.Get(hash)
 		if err != nil {

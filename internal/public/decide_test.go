@@ -332,6 +332,30 @@ func TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer(t *testing.T) {
 	if _, err := e.open(t, e.sealFrom(t, old, "leaf", "send_message", nil), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
 		t.Fatalf("expired held leaf: %v", err)
 	}
+	// An active contact's small form whose signature fails is the same answer, whether the signature is
+	// another's bytes in the one spelling or none at all (an empty sig reads as zero bytes and fails as
+	// a signature, the identity core 0.8.1). A sig in another spelling is a different envelope, refused
+	// envelope_invalid (TestAnEnvelopeMemberHasOneSpellingOnTheWire).
+	signer := newPeer(t, fixedNow)
+	e.pin(t, signer, "active")
+	for name, sig := range map[string]func(string) string{
+		"a signature over other bytes": func(s string) string {
+			b, err := hdtpidentity.DecodeB64url(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b[0] ^= 1
+			return hdtpidentity.B64url(b)
+		},
+		"an empty signature": func(string) string { return "" },
+	} {
+		if _, err := e.open(t, respell(t, e.sealFrom(t, signer, "leaf", "send_message", nil), "sig", sig), TransportFacts{}); !errors.Is(err, ErrChainRequired) {
+			t.Fatalf("%s, small form: %v; want chain_required", name, err)
+		}
+	}
+	if f, err := e.open(t, e.sealFrom(t, signer, "leaf", "send_message", nil), TransportFacts{}); err != nil || f.Tier != policy.TierContact {
+		t.Fatalf("the contact's own small form must open: %v %+v", err, f)
+	}
 	// A blocked contact's chain is a guest's (silently).
 	f, err := e.open(t, e.sealFrom(t, blocked, "chain", "request_contact", map[string]any{"card": cardOf(blocked)}), TransportFacts{})
 	if err != nil || f.Tier != policy.TierGuest || !f.Demote || f.Why != "blocked" {
@@ -713,8 +737,9 @@ func respell(t *testing.T, env *hdtpidentity.Envelope, member string, fn func(st
 // every other spelling a reader accepts is a second envelope that verifies. The core refuses a last
 // character with its unused bits set and a line break inside a member. The node used to decode the
 // members itself, leniently, and hand the core a canonical re-encoding — so the core's refusal never
-// ran and the node opened both spellings. `enc` is 32 or 65 bytes, so its last character always has
-// unused bits.
+// ran and the node opened both spellings. `enc` is 32 or 65 bytes, and `sig` 64, so the last
+// character of each always has unused bits. The small form is refused the same way, `envelope_invalid`
+// before the open, where the identity core before 0.8.1 answered a respelled `sig` `chain_required`.
 func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 	e := newRecvEnv(t)
 	p := newPeer(t, fixedNow)
@@ -729,17 +754,24 @@ func TestAnEnvelopeMemberHasOneSpellingOnTheWire(t *testing.T) {
 	}
 	lineBreak := func(s string) string { return s[:8] + "\r\n" + s[8:] }
 	for name, c := range map[string]struct {
+		form   string
 		member string
 		fn     func(string) string
 	}{
-		"enc with a spare bit set": {"enc", spare},
-		"sig with a line break":    {"sig", lineBreak},
-		"ct with a line break":     {"ct", lineBreak},
+		"enc with a spare bit set":             {"chain", "enc", spare},
+		"sig with a line break":                {"chain", "sig", lineBreak},
+		"ct with a line break":                 {"chain", "ct", lineBreak},
+		"sig with a spare bit set, chain form": {"chain", "sig", spare},
+		"sig with a spare bit set, small form": {"leaf", "sig", spare},
+		"sig with a line break, small form":    {"leaf", "sig", lineBreak},
 	} {
-		env := respell(t, e.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"}), c.member, c.fn)
+		env := respell(t, e.sealFrom(t, p, c.form, "send_message", map[string]any{"text": "hi"}), c.member, c.fn)
 		if _, err := e.open(t, env, TransportFacts{}); Code(err) != "envelope_invalid" {
 			t.Errorf("%s: opened (%v); a second spelling of an envelope must be refused", name, err)
 		}
+	}
+	if f, err := e.open(t, e.sealFrom(t, p, "leaf", "send_message", map[string]any{"text": "hi"}), TransportFacts{}); err != nil || f.From != p.fpr() {
+		t.Fatalf("the small form, in its canonical spelling, must open: %v %+v", err, f)
 	}
 }
 
