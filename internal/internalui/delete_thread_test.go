@@ -152,6 +152,16 @@ func TestEveryThreadIDOpensSendsAndDeletesFromThePortal(t *testing.T) {
 		e.h.ServeHTTP(rec, req)
 		return rec
 	}
+	// No thread named: refused, never an empty conversation and never a new thread.
+	if rec := send(http.MethodGet, "/api/thread?account="+mine.ID, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"bad_request"`) {
+		t.Fatalf("opening no thread: %d %s", rec.Code, rec.Body)
+	}
+	if rec := send(http.MethodPost, "/thread/send", url.Values{"account": {mine.ID}, "contact": {"sha256:friend"}, "msg_id": {"no-thread"}, "text": {"hello"}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("sending into no thread: %d %s", rec.Code, rec.Body)
+	}
+	if threads, _ := e.st.ListThreadsByAccount(ctx, mine.ID); len(threads) != 0 {
+		t.Fatalf("a send naming no thread started one: %+v", threads)
+	}
 	for i, id := range threadIDsAPathCannotCarry {
 		if _, err := svc.Record(ctx, mine.ID, "sha256:friend", messaging.DirIn, messaging.Input{
 			Origin: messaging.OriginPeer, MsgID: fmt.Sprintf("in-%d", i), ThreadID: id, Text: "hi", Sender: messaging.SenderHuman,

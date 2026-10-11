@@ -69,10 +69,14 @@ func (d InboxDeps) getAPIInbox(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, map[string]any{"threads": threads, "unread": unread})
 }
 
-// getAPIThread serves `GET /api/thread?thread_id=`.
+// getAPIThread serves `GET /api/thread?thread_id=`; no thread named is 400 {"error":"bad_request"}.
 func (d InboxDeps) getAPIThread(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
 	id := r.URL.Query().Get("thread_id")
+	if id == "" {
+		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+		return
+	}
 	msgs, err := d.Msg.Thread(r.Context(), account, id)
 	if err != nil {
 		http.NotFound(w, r)
@@ -119,6 +123,12 @@ func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
 	id := formOrQuery(r, "thread_id")
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	// This route sends INTO the thread named; an empty id would start a new one, which is
+	// POST /messages/send's job.
+	if id == "" {
+		http.Error(w, "thread_id required", http.StatusBadRequest)
 		return
 	}
 	// The portal surface fixes the label: human (SPEC §7.2).

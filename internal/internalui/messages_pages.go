@@ -2,12 +2,10 @@ package internalui
 
 // The conversation view: contacts on the left, the thread on the right.
 //
-// Messaging existed end to end — threads, sending, delivery, SSE — and had no way
-// IN. `/inbox` listed threads that already existed and `/threads/{id}` opened one,
-// so an owner could reply to somebody who had written first and could never start
-// a conversation. `send_to_contact` was on the agent surface only. That is why the
-// portal looked like it could not send: it could, but only to a thread it had no
-// way to create.
+// A conversation is with a person, not a thread: the view lists contacts, and
+// `POST /messages/send` sends to a contact and lets the node pick the thread, so an
+// owner can start a conversation as well as answer one (the agent's
+// `send_to_contact` does the same).
 //
 // Selecting a contact IS the conversation, and sending returns to the same one,
 // so the view survives the round trip.
