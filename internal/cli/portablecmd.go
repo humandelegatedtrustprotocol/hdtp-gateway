@@ -68,7 +68,7 @@ func portableStore(name string, args []string, stderr io.Writer, define func(*fl
 	}
 	st, err := openStore(cfg)
 	if err == nil {
-		err = st.Migrate(context.Background())
+		err = migrateAndWipe(context.Background(), st, cfg, io.Discard)
 	}
 	if err != nil {
 		lock.Release()
@@ -353,7 +353,7 @@ func review(w io.Writer, p *portable.Plan) {
 	// HDTP §9.2 step 1: the id of each thread the import leaves out, quoted, since it is of neither
 	// form of §7 and may hold anything; its messages and the files only they name are not written.
 	for _, t := range p.Contents.LeftOutThreads {
-		fmt.Fprintf(w, "  left out thread %q with %s: %s; its messages and the files only they name are not written\n", t.ID, t.Contact, t.Reason)
+		fmt.Fprintf(w, "  left out thread %q with %q: %s; its messages and the files only they name are not written\n", t.ID, t.Contact, t.Reason)
 	}
 	fmt.Fprintf(w, "and %d thread(s), %d message(s), %d file(s)\n", len(p.Contents.Threads), len(p.Contents.Messages), len(p.Contents.Media))
 }

@@ -235,7 +235,7 @@ func TestTheReviewShowsEachThreadTheImportLeavesOut(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("import: code=%d out=%q err=%q", code, out, errb)
 	}
-	want := `  left out thread "my thread\x01" with ` + peer + ": "
+	want := `  left out thread "my thread\x01" with "` + peer + `": `
 	shownAt, writtenAt := strings.Index(out, want), strings.Index(out, "imported ")
 	if shownAt < 0 || writtenAt < 0 || shownAt > writtenAt {
 		t.Fatalf("the review must show the left-out thread's id, quoted, before the import writes:\n%s", out)

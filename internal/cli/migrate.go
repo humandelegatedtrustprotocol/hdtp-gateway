@@ -38,7 +38,7 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer s.Close()
-	if err := s.Migrate(context.Background()); err != nil {
+	if err := migrateAndWipe(context.Background(), s, cfg, stderr); err != nil {
 		fmt.Fprintln(stderr, "migrate:", err)
 		return 1
 	}

@@ -21,7 +21,8 @@ changelog can be and is not summarized into a fictional release history.
   and audited as the contact's call, and a renewal or a new address the envelope carried is learned.
   The portal and the owner MCP refuse an id
   of neither form that the owner names, to send into, read or delete a thread. A thread stored
-  under such an id is deleted on the first start after the upgrade, with its messages, its files,
+  under such an id is deleted on the first start after the upgrade (or the first `migrate`,
+  `export` or `import`), with its messages, its files,
   its read marker and its change rows, and nothing takes its place; each identity that lost one gets
   a `thread_id_wipe` audit row with the counts (SPEC §7, migration 0005). An import leaves out a
   thread whose id is of neither form, and its messages, and shows the id in its review.

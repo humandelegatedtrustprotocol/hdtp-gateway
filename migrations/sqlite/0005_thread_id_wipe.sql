@@ -3,8 +3,8 @@
 -- UUID. A thread stored under any other id is deleted, with its messages, the files only they name,
 -- its read marker and its change rows, and nothing is kept in its place. SQL cannot remove a file's
 -- bytes, and the grammar has one implementation, the identity core's IsThreadID, so the deletion is
--- not here: this row schedules it, and serve runs it once, before it serves
--- (messaging.WipeThreadIDs), and then deletes the row.
+-- not here: this row schedules it; serve, before it serves, or the migrate, export or
+-- import command that migrated, runs it once (messaging.WipeThreadIDs) and deletes the row.
 CREATE TABLE thread_id_wipe (
     scheduled_at INTEGER NOT NULL
 );

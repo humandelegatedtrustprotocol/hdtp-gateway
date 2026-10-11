@@ -242,7 +242,12 @@ behind whatever balances between them (SPEC §11.1):
 The first `serve` on an idle data dir migrates; the others check that the schema is the one they
 were built for and refuse to start if it is not. To migrate, stop every process on the data dir
 (on Postgres, every process) and start the new binary. `migrate`, `export`, `import` and the
-`audit` commands refuse to run while any `serve` holds the data dir. One process serves the admin
+`audit` commands refuse to run while any `serve` holds the data dir. Migration 0005 deletes data:
+the first `serve`, `migrate`, `export` or `import` after it deletes every conversation stored
+under a `thread_id` of neither form of HDTP §7, with its messages and the files only it names,
+once, and writes a `thread_id_wipe` audit row per identity that lost one (SPEC §7). Export first
+with the old binary if you want a copy; an import of that file leaves those threads out and names
+them in its review. One process serves the admin
 socket and `serve` prints `admin: ... is served by another hdtp-gateway process` on the others;
 the setup URL a first run prints works on the portal of the process that printed it. The outbound
 retries and the hourly retention pass run on one process at a time: the one holding the work's

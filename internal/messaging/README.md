@@ -21,7 +21,7 @@ Messages (service.go):
   A new thread's id is 32 lower-case hex digits, of the first form.
 - `Service.WipeThreadIDs` deletes, once, every conversation stored under an id of neither form, with
   its messages, change rows and the files only it names, and the messages and change rows of such an
-  id that no thread row names (migration 0005 schedules it; `serve` runs it before it serves).
+  id that no thread row names (migration 0005 schedules it; `serve` runs it before it serves, and `migrate`, `export` and `import` after they migrate).
 - `Origin` (`OriginPortal`, `OriginMCP`, `OriginPeer`, `OriginStored`) is the surface a message came
   from; it decides the sender label (`Origin.Sender`, `Input.Label`). `Sender` is `SenderAgent` or
   `SenderHuman`. `Direction` is `DirIn` or `DirOut`.
