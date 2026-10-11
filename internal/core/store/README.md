@@ -191,3 +191,9 @@ sets it, and so runs them; by hand, `compose.test.yaml` starts one.
   list rather than an error.
 - The generated packages are not edited: a statement changes in `queries/`, the schema in `migrations/`,
   and `make sqlc` regenerates.
+- A released migration is not edited, its comment included. `0004_thread_kept_was_contact.sql`
+  (released in v0.1.3) says of a thread written before it that "only a contact writes" a message.
+  That holds for what a host records itself; an import writes its file's threads and messages whatever
+  this host holds of their root (`portable.Apply`: a request held here, or a row the file gives as
+  `pending_out` or as a blocked root never active), so on an imported thread a message says its root
+  was a contact of the host that recorded it. `Thread.KeptWasContact` states it so.

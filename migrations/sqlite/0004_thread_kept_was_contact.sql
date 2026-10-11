@@ -4,12 +4,9 @@
 -- was never accepted, blocked or not, was never one. The row's ever_active, or its status active,
 -- says so. Once kept it stays: the same root asking again and expiring, or rejected, does not
 -- unmake a contact it once was. A thread written before this migration is kept as a contact's if it
--- holds a message. A host records a message only in a contact's conversation: inbound at the contact
--- tier (send_message, send_media need an active row), outbound to an active contact alone, and a
--- request's note is never stored. An import writes its file's threads and messages whatever this
--- host holds of their root (a request held here, or a row the file gives as pending_out or as a
--- blocked root never active), so on an imported thread a message says its root was a contact of the
--- host that recorded it, not of this one. A thread with no message (one an import wrote empty, or one a crash left between its
+-- holds a message: only a contact writes one, inbound at the contact tier (send_message, send_media
+-- need an active row) and outbound to an active contact alone, and a request's note is never
+-- stored. A thread with no message (one an import wrote empty, or one a crash left between its
 -- thread and its message) proves nothing, keeps 0 and stays with this host, named as one with a
 -- root this host has no record of as a contact.
 ALTER TABLE threads ADD COLUMN kept_was_contact INTEGER NOT NULL DEFAULT 0;

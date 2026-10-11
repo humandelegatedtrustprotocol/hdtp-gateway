@@ -10,7 +10,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The claim, in migration 0004's comment and the [0.1.3] entry, that a thread holding a message was a
+  contact's because "only a contact writes one" holds for what a host records itself, not for an
+  import, which writes its file's threads and messages whatever this host holds of their root. The
+  released migration is left as it shipped; `store.Thread.KeptWasContact`, SPEC §3.10 and
+  `internal/core/store/README.md` state it truly. `kept_was_contact.json` and the comments that cite
+  it no longer say BatonDeck "is to run" the list "once it lands": it runs it, from a byte copy held to
+  the node's file.
 
 ## [0.1.3] — 2026-10-11
 
@@ -31,8 +39,7 @@ Nothing yet.
   called; into an identity that
   holds the root, the thread is that contact's. Migration 0004 keeps on each thread whether its root
   was ever a contact, as its row is deleted (`ever_active` or active; once kept it stays), and marks
-  every thread written before it that holds a message, since a host records one only in a contact's
-  conversation (an imported thread's, in the conversation on the host it came from). What
+  every thread written before it that holds a message, since only a contact's conversation can. What
   an export still leaves out — a conversation with a root this host has no record of as a contact,
   its request waiting or gone — is named by thread id and reason; a thread whose row went before 0004
   and that has no message left is one, a gap the migration cannot close. An import strips a display
