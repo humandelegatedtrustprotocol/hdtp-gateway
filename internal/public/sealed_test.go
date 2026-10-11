@@ -3,6 +3,7 @@ package public
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -305,5 +306,58 @@ func TestAnUnreadableEnvelopeIsRefusedLikeAnyOther(t *testing.T) {
 	s.id.Seal = core.SealNone
 	if res := raw(unreadable); !res.IsError || !strings.Contains(text(t, res), "seal_not_accepted") {
 		t.Fatalf("under seal=none, members that are not base64url: %s", text(t, res))
+	}
+}
+
+// The tool's schema closes the envelope at its four members (additionalProperties: false), and
+// the go-sdk does not hold a raw tool to its schema, so the wrapper does: a fifth member, or a
+// member spelled other than as the schema names it, is not an envelope (HDTP §13.1) and is
+// answered envelope_invalid and audited once. encoding/json matches member names without regard to
+// case, so "SIG" used to be read as `sig` and a fifth member was dropped unread.
+func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt)
+	s.pin(t, p, "active")
+	var rows []string
+	s.deps.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+outcome) }
+	call := func(members map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		args, err := json.Marshal(members)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.WithValue(context.Background(), factsKey{}, TransportFacts{})
+		res, err := sealedHandler(s.deps)(ctx, &mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: args},
+		})
+		if err != nil {
+			t.Fatalf("sealed_call returned a transport error rather than a result: %v", err)
+		}
+		return res
+	}
+	n := 0
+	members := func() map[string]any {
+		n++
+		env := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"},
+			func(o *hdtpidentity.SealOpts) { o.MsgID = "m-members-" + strconv.Itoa(n) })
+		return map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
+	}
+	for name, mutate := range map[string]func(m map[string]any){
+		"a fifth member":              func(m map[string]any) { m["note"] = "x" },
+		"a member spelled in caps":    func(m map[string]any) { m["SIG"] = m["sig"]; delete(m, "sig") },
+		"a member twice in two cases": func(m map[string]any) { m["Protected"] = m["protected"] },
+	} {
+		m := members()
+		mutate(m)
+		rows = nil
+		if res := call(m); !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) {
+			t.Errorf("%s: answered %s, want envelope_invalid", name, text(t, res))
+		}
+		if len(rows) != 1 || rows[0] != "sealed_call envelope_invalid" {
+			t.Errorf("%s: the refusal must be audited once, as a sealed_call refusal; audited %q", name, rows)
+		}
+	}
+	if res := call(members()); res.IsError {
+		t.Fatalf("the control, the four members of a well-formed envelope from a contact, must get through: %s", text(t, res))
 	}
 }
