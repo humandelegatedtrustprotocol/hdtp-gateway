@@ -10,7 +10,16 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- SPEC §12.3 said the image is "published multi-arch" and §12.5 that releases (binaries and images)
+  are built with goreleaser. No image is published and goreleaser is not used: a release is
+  `make dist` and `make sbom` on a maintainer's machine (`RELEASING.md`), publishing binaries for
+  four platforms, `SHA256SUMS`, the SBOM and `THIRD_PARTY_NOTICES`, and the image is built locally
+  from the `Dockerfile`. The SPEC, `docs/deploy.md` and a comment now say so, and name the `-full`
+  image by its `Dockerfile.full` rather than as a tag.
+- `compose.yaml` told a `-full` user to chown `/data` to 1000:1000; `Dockerfile.full` runs as
+  65532:65532, the slim image's uid, which the comment now says.
 
 ## [0.1.3] — 2026-10-11
 
@@ -114,12 +123,6 @@ Nothing yet.
   that does not verify, or is refused (`certificate_renewed` when the pinned key retired in
   between, which the next call follows), ends the call with an error naming both failures; no
   second `get_card` is asked. A peer that takes plaintext is still asked in plaintext.
-- SPEC §12.3 said the image is "published multi-arch" and §12.5 that releases (binaries and images)
-  are built with goreleaser. No image is published and goreleaser is not used: a release is
-  `make dist` and `make sbom` on a maintainer's machine (`RELEASING.md`), publishing binaries for
-  four platforms, `SHA256SUMS`, the SBOM and `THIRD_PARTY_NOTICES`, and the image is built locally
-  from the `Dockerfile`. The SPEC, `docs/deploy.md` and a comment now say so, and name the `-full`
-  image by its `Dockerfile.full` rather than as a tag.
 
 ## [0.1.2] — 2026-10-09
 
