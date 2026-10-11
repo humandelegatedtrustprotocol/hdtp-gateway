@@ -152,6 +152,24 @@ test("between a phone and PANEL_BESIDE the contact panel is a drawer, and the In
   assert.equal(lastAt(css, ".inbox .panel", "position", 390), null, "a phone's panel is a pane of its own");
 });
 
+test("the contact panel's foot is set apart, and the panel is reachable at every width", () => {
+  // Delete conversation lives there (messages.tsx ContactPanel `end`): at the panel's foot, under a rule.
+  for (const w of [390, 1100, 1440]) {
+    assert.equal(lastAt(css, ".panel .panel-end", "margin-top", w), "auto", `the foot at ${w}`);
+    assert.equal(lastAt(css, ".panel .panel-end", "border-top", w), "1px solid var(--line)", `its rule at ${w}`);
+    // The header's panel button is what reaches it: a pane on a phone, a drawer, a column.
+    assert.equal(lastAt(css, ".thread-h .details", "display", w), "inline-flex", `the panel button at ${w}`);
+  }
+});
+
+test("a rail collapsed on a desktop gives a phone's drawer its account name back as a column", () => {
+  // `display:initial` made the name's box a block of inline text whose ellipsis could not apply: a long
+  // name and host ran out of the hidden drawer across the foot of every phone page, over the Inbox's
+  // Send and the contact panel's Delete (found by the cloud's e2e/portal-layout.mjs, 2026-10-11).
+  assert.equal(lastAt(css, ".side-min .acct-btn .who", "display", 390), "flex");
+  assert.equal(lastAt(css, ".side-min .acct-btn .who", "display", 1440), "none");
+});
+
 test("on a phone nothing pins itself over the page, and what fills a row is said in less", () => {
   // The Exposure save bar was 590px of an 844px phone, pinned over the list it saves (S-F10).
   assert.equal(lastAt(css, ".card.sticky", "position", 390), "static");
