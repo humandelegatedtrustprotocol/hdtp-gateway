@@ -27,7 +27,8 @@ changelog can be and is not summarized into a fictional release history.
   called; into an identity that
   holds the root, the thread is that contact's. Migration 0004 keeps on each thread whether its root
   was ever a contact, as its row is deleted (`ever_active` or active; once kept it stays), and marks
-  every thread written before it that holds a message, since only a contact's conversation can. What
+  every thread written before it that holds a message, since a host records one only in a contact's
+  conversation (an imported thread's, in the conversation on the host it came from). What
   an export still leaves out — a conversation with a root this host has no record of as a contact,
   its request waiting or gone — is named by thread id and reason; a thread whose row went before 0004
   and that has no message left is one, a gap the migration cannot close. An import strips a display

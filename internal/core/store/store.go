@@ -243,9 +243,11 @@ type Thread struct {
 	KeptDisplayName string
 	KeptPetname     string
 	// KeptWasContact says the thread's root was ever a contact when its row was deleted (migrations
-	// 0004), or, for a thread written before that migration, that the thread holds a message, which
-	// only a contact's conversation can: a former contact's conversation, which an export carries
-	// (HDTP §9.2).
+	// 0004), or, for a thread written before that migration, that the thread holds a message: a host
+	// records one only in a contact's conversation, though an import writes its file's messages
+	// whatever this host holds of their root, so an imported thread's message says the root was a
+	// contact of the host that recorded it. Either way it is a former contact's conversation, which
+	// an export carries (HDTP §9.2).
 	KeptWasContact bool
 }
 

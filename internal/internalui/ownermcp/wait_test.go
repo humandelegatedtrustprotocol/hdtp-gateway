@@ -192,3 +192,51 @@ func TestACursorPastTheLogIsSaidToBe(t *testing.T) {
 		t.Fatalf("a cursor past the log: %s after %s; want cursor_expired and cursor %d at once", text, time.Since(began), newest)
 	}
 }
+
+// HDTP §3: the wait and the digest name a contact by the name it chose stripped of control and
+// bidirectional-format characters (displayName, stripName), whatever the store holds, as every
+// other answer of this server does.
+func TestTheWaitAndTheDigestNameAContactStripped(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:live", Status: "active", DisplayName: "\u202eevil\u0007", SPKI: []byte{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:live", messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "x-1", ThreadID: "t-live", Text: "hello", Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	raw := func(text string) bool {
+		return strings.ContainsRune(text, '\u202e') || strings.ContainsRune(text, '\u0007') || strings.Contains(text, `\u202e`) || strings.Contains(text, `\u0007`)
+	}
+
+	text, isErr := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": e.acctA, "since": 0, "timeout_sec": 1})
+	if isErr {
+		t.Fatalf("wait_for_updates: %s", text)
+	}
+	var w waitResult
+	if err := json.Unmarshal([]byte(text), &w); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Threads) != 1 || w.Threads[0].ThreadID != "t-live" || w.Threads[0].Contact != "evil" || raw(text) {
+		t.Fatalf("wait_for_updates: %s", text)
+	}
+
+	text, isErr = callJSON(t, cs, "digest", map[string]any{"account_id": e.acctA, "since_ts": 1})
+	if isErr {
+		t.Fatalf("digest: %s", text)
+	}
+	var d struct {
+		Contacts []struct {
+			ContactFpr string `json:"contact_fpr"`
+			Contact    string `json:"contact"`
+		} `json:"contacts"`
+	}
+	if err := json.Unmarshal([]byte(text), &d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Contacts) != 1 || d.Contacts[0].ContactFpr != "sha256:live" || d.Contacts[0].Contact != "evil" || raw(text) {
+		t.Fatalf("digest: %s", text)
+	}
+}
