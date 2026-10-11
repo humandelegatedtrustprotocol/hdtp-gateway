@@ -11,7 +11,11 @@ rebuild a tag and compare.
 1. Update `CHANGELOG.md` — the release notes are its section for this version.
 2. The gate green on the commit being tagged: the pre-push hook runs it (`make check`
    on both engines, `make analyze`, `make sqlc-check`, `make fuzz`, `make harness`).
-3. Tag and push: `git tag v1.2.3 && git push origin v1.2.3`.
+3. Tag and push, with an annotated tag whose message is one line naming the release:
+   `git tag -a v1.2.3 -m "hdtp-gateway 1.2.3 — <summary>; CHANGELOG.md has the notes" && git push origin v1.2.3`.
+   v0.1.0 to v0.1.2 are annotated tags; v0.1.3 was tagged lightweight, on the merge commit `beb206c`,
+   and stays as it is, since a published tag is never moved. `scripts/release-check.sh` resolves the
+   tag to its commit (`v1.2.3^{commit}`), and the fixtures `make release-check` builds are annotated.
 4. Build every platform and the SBOM from a fresh clone of that tag:
 
    ```
@@ -84,8 +88,8 @@ saw as modified, so a rebuild from a clean checkout of the tag does not match th
   the main module's version, `v0.1.2+dirty` against `v0.1.2` (compared for v0.1.2). The other
   three platforms were not rebuilt.
 
-The published releases are left as they are. The next release, built under the checks above,
-supersedes them.
+The published releases are left as they are. v0.1.3, the first release built under the checks
+above, supersedes them.
 
 ## What this does not prove
 
