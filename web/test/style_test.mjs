@@ -162,6 +162,14 @@ test("the contact panel's foot is set apart, and the panel is reachable at every
   }
 });
 
+test("a rail collapsed on a desktop gives a phone's drawer its account name back as a column", () => {
+  // `display:initial` made the name's box a block of inline text whose ellipsis could not apply: a long
+  // name and host ran out of the hidden drawer across the foot of every phone page, over the Inbox's
+  // Send and the contact panel's Delete (found by the cloud's e2e/portal-layout.mjs, 2026-10-11).
+  assert.equal(lastAt(css, ".side-min .acct-btn .who", "display", 390), "flex");
+  assert.equal(lastAt(css, ".side-min .acct-btn .who", "display", 1440), "none");
+});
+
 test("on a phone nothing pins itself over the page, and what fills a row is said in less", () => {
   // The Exposure save bar was 590px of an 844px phone, pinned over the list it saves (S-F10).
   assert.equal(lastAt(css, ".card.sticky", "position", 390), "static");
