@@ -274,11 +274,11 @@ func beforeKeptWasContact(t *testing.T, name string) (store.Store, func() error)
 }
 
 // Migration 0004 on a node that removed contacts before it: a thread that holds a message was a
-// contact's, since only a contact writes one (inbound at the contact tier, outbound to an active
-// contact alone; a request's note is never stored), so a former contact's conversation travels as a
-// removed thread with the names it kept. A thread with no message left proves nothing and stays,
-// named as one with a root this host has no record of as a contact — the gap the migration cannot
-// close. A stranger whose request expired left no thread at all: its note was never written.
+// contact's, since a host records one only in a contact's conversation (inbound at the contact tier,
+// outbound to an active contact alone; a request's note is never stored), so a former contact's
+// conversation travels as a removed thread with the names it kept. A thread with no message left
+// proves nothing and stays, named as one with a root this host has no record of as a contact — the
+// gap the migration cannot close. A stranger whose request expired left no thread at all: its note was never written.
 func TestMigration0004KeepsAFormerContactsConversationRemovedBeforeIt(t *testing.T) {
 	names := []string{"sqlite"}
 	if os.Getenv("HDTP_TEST_POSTGRES_DSN") != "" {

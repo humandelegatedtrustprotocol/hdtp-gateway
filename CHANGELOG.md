@@ -10,7 +10,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The claim, in migration 0004's comment and the [0.1.3] entry, that a thread holding a message was a
+  contact's because "only a contact writes one" holds for what a host records itself, not for an
+  import, which writes its file's threads and messages whatever this host holds of their root. The
+  released migration is left as it shipped; `store.Thread.KeptWasContact`, SPEC §3.10 and
+  `internal/core/store/README.md` state it truly. `kept_was_contact.json` and the comments that cite
+  it no longer say BatonDeck "is to run" the list "once it lands": it runs it, from a byte copy held to
+  the node's file.
 
 ## [0.1.3] — 2026-10-11
 
