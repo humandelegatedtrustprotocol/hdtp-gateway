@@ -63,11 +63,11 @@ func TestAWaitWakesForAChangeAnotherProcessMade(t *testing.T) {
 	}()
 	time.Sleep(time.Second) // B is parked
 	if _, err := a.deps.Msg.Record(ctx, a.acctA, "sha256:alina", messaging.DirIn,
-		messaging.Input{Origin: messaging.OriginPeer, MsgID: "x-1", ThreadID: "t-cross", Text: "from A", Sender: messaging.SenderAgent}); err != nil {
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "x-1", ThreadID: "tcross", Text: "from A", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
 	}
 	got := <-woke
-	if got.res.TimedOut || len(got.res.Threads) != 1 || got.res.Threads[0].ThreadID != "t-cross" {
+	if got.res.TimedOut || len(got.res.Threads) != 1 || got.res.Threads[0].ThreadID != "tcross" {
 		t.Fatalf("the wait on B did not wake for A's message: %+v", got.res)
 	}
 	if got.elapsed > 10*time.Second {
@@ -203,7 +203,7 @@ func TestTheWaitAndTheDigestNameAContactStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:live", messaging.DirIn,
-		messaging.Input{Origin: messaging.OriginPeer, MsgID: "x-1", ThreadID: "t-live", Text: "hello", Sender: messaging.SenderAgent}); err != nil {
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "x-1", ThreadID: "tlive", Text: "hello", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
 	}
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
@@ -219,7 +219,7 @@ func TestTheWaitAndTheDigestNameAContactStripped(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &w); err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Threads) != 1 || w.Threads[0].ThreadID != "t-live" || w.Threads[0].Contact != "evil" || raw(text) {
+	if len(w.Threads) != 1 || w.Threads[0].ThreadID != "tlive" || w.Threads[0].Contact != "evil" || raw(text) {
 		t.Fatalf("wait_for_updates: %s", text)
 	}
 

@@ -41,7 +41,7 @@ const (
 	// MaxInlineData caps decoded inline media.
 	MaxInlineData = 5 * 1024 * 1024
 	// MaxFieldBytes caps a short field.
-	MaxFieldBytes = 1024 // filename, mime, subject, topic, booking_id, msg_id, thread_id, token, url
+	MaxFieldBytes = 1024 // filename, mime, subject, topic, booking_id, msg_id, token, url
 )
 
 // Calendar is the calendar capability as the public surface needs it — the
@@ -212,6 +212,23 @@ func (d ToolDeps) audit(action, resource, outcome string) {
 // probing a node with malformed calls left no trace.
 func (d ToolDeps) refuse(ctx context.Context, action, code string) *mcp.CallToolResult {
 	d.audit(action, "caller:"+callerFpr(ctx), code)
+	return toolErr(code)
+}
+
+// refuseThreadID is HDTP §7's refusal of a call's thread_id, the core's (hdtpidentity.ThreadIDRefusal),
+// audited with its why, or nil: send_message, send_media and book_slot ask it before anything else,
+// so a call refused for its thread_id records nothing. It reads the arguments as they arrived, where
+// an empty thread_id, which is refused, is not an absent one.
+func (d ToolDeps) refuseThreadID(ctx context.Context, action string, req *mcp.CallToolRequest) *mcp.CallToolResult {
+	var args map[string]any
+	if len(req.Params.Arguments) > 0 && json.Unmarshal(req.Params.Arguments, &args) != nil {
+		return nil // not an object: the handler's decode refuses it
+	}
+	code, why := hdtpidentity.ThreadIDRefusal(action, map[string]any{"arguments": args})
+	if code == "" {
+		return nil
+	}
+	d.audit(action, "caller:"+callerFpr(ctx)+" why:"+why, code)
 	return toolErr(code)
 }
 
@@ -624,6 +641,9 @@ func senderLabel(claimed string) (messaging.Sender, bool) {
 
 func (d ToolDeps) sendMessage() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if refused := d.refuseThreadID(ctx, core.ToolSendMessage, req); refused != nil {
+			return refused, nil
+		}
 		if d.Messages == nil {
 			d.audit(core.ToolSendMessage, "caller:"+callerFpr(ctx)+" why:no messaging service is configured", "unavailable")
 			return toolErr("unavailable"), nil
@@ -643,8 +663,7 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 			d.audit(core.ToolSendMessage, "caller:"+callerFpr(ctx), "too_large")
 			return toolErr("too_large"), nil
 		}
-		if !capped(a.Topic, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) ||
-			!capped(a.ThreadID, MaxFieldBytes) || !capped(a.ReplyTo, MaxFieldBytes) {
+		if !capped(a.Topic, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ReplyTo, MaxFieldBytes) {
 			return d.refuse(ctx, core.ToolSendMessage, "too_large"), nil
 		}
 		sender, ok := senderLabel(a.Sender)
@@ -667,6 +686,9 @@ func (d ToolDeps) sendMessage() mcp.ToolHandler {
 
 func (d ToolDeps) sendMedia() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if refused := d.refuseThreadID(ctx, core.ToolSendMedia, req); refused != nil {
+			return refused, nil
+		}
 		if d.Media == nil || d.Messages == nil {
 			d.audit(core.ToolSendMedia, "caller:"+callerFpr(ctx)+" why:no media service is configured", "unavailable")
 			return toolErr("unavailable"), nil
@@ -684,7 +706,7 @@ func (d ToolDeps) sendMedia() mcp.ToolHandler {
 			return d.refuse(ctx, core.ToolSendMedia, "bad_request"), nil
 		}
 		if !capped(a.Filename, MaxFieldBytes) || !capped(a.MIME, MaxFieldBytes) ||
-			!capped(a.URL, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
+			!capped(a.URL, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) {
 			return d.refuse(ctx, core.ToolSendMedia, "too_large"), nil
 		}
 		// Cap the ENCODED form first: refuse before allocating the decode.
@@ -805,20 +827,22 @@ func (d ToolDeps) checkAvailability() mcp.ToolHandler {
 
 func (d ToolDeps) bookSlot() mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if refused := d.refuseThreadID(ctx, core.ToolBookSlot, req); refused != nil {
+			return refused, nil
+		}
 		if d.Calendar == nil {
 			d.audit(core.ToolBookSlot, "caller:"+callerFpr(ctx)+" why:no calendar is configured", "unavailable")
 			return toolErr("unavailable"), nil
 		}
 		var a struct {
-			MsgID    string `json:"msg_id"`
-			Slot     Slot   `json:"slot"`
-			Subject  string `json:"subject"`
-			ThreadID string `json:"thread_id"`
+			MsgID   string `json:"msg_id"`
+			Slot    Slot   `json:"slot"`
+			Subject string `json:"subject"`
 		}
 		if !decode(req, &a) {
 			return d.refuse(ctx, core.ToolBookSlot, "bad_request"), nil
 		}
-		if !capped(a.Subject, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) || !capped(a.ThreadID, MaxFieldBytes) {
+		if !capped(a.Subject, MaxFieldBytes) || !capped(a.MsgID, MaxFieldBytes) {
 			return d.refuse(ctx, core.ToolBookSlot, "too_large"), nil
 		}
 		if a.MsgID == "" {

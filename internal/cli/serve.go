@@ -162,6 +162,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return fail(err)
 	}
 	defer func() { _ = adapter.Stop() }()
+	if err := s.wipeThreadIDs(); err != nil {
+		return fail(err)
+	}
 
 	if err := s.startNode(); err != nil {
 		return fail(err)
@@ -222,6 +225,23 @@ func (s *serveRun) openKeyring(alone bool) error {
 	s.kr = kr
 	s.admin = core.NewAdminServer(core.AdminSocketPath(s.cfg.DataDir))
 	s.idm = &identity.Manager{Store: s.st, Keyring: kr}
+	return nil
+}
+
+// wipeThreadIDs runs the wipe migration 0005 scheduled (messaging.WipeThreadIDs) before anything is
+// served, so no surface lists a thread whose id every door now refuses. It writes one
+// thread_id_wipe row per account that lost anything, with the counts and never an id: the ids are
+// the ones a contact chose that every door now refuses.
+func (s *serveRun) wipeThreadIDs() error {
+	svc := &messaging.Service{Store: s.st, Blobs: messaging.BlobDir{Root: s.cfg.Blobs()},
+		OnError: func(err error) { fmt.Fprintf(s.stderr, "messaging: %v\n", err) }}
+	wiped, err := svc.WipeThreadIDs(s.ctx)
+	for _, w := range wiped {
+		s.auditFn("thread_id_wipe", fmt.Sprintf("account:%s threads:%d messages:%d files:%d", w.AccountID, w.Threads, w.Messages, w.Files), "ok")
+	}
+	if err != nil {
+		return fmt.Errorf("deleting the threads stored under a thread id of neither form: %w", err)
+	}
 	return nil
 }
 

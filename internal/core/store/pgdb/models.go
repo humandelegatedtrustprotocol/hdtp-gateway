@@ -292,6 +292,10 @@ type Thread struct {
 	KeptWasContact  int64
 }
 
+type ThreadIDWipe struct {
+	ScheduledAt int64
+}
+
 type Token struct {
 	ID        string
 	OwnerID   string

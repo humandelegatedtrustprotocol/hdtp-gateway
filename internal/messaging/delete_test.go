@@ -128,7 +128,7 @@ func TestDeletingAConversationRefusesWhatIsNotThere(t *testing.T) {
 	if _, err := e.svc.DeleteThread(ctx, e.acct, ""); !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("empty id: %v, want ErrBadRequest", err)
 	}
-	if _, err := e.svc.DeleteThread(ctx, e.acct, "no-such-thread"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.svc.DeleteThread(ctx, e.acct, "nosuchthread"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown thread: %v, want ErrNotFound", err)
 	}
 	other, _ := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})

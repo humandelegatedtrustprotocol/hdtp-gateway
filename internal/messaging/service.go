@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // Wire error codes this package returns, wrapped with a detail after a colon (HDTP section 12):
-// ErrTooLarge for text over 16 KiB, a topic over 256 bytes, or media over its caps; ErrBadRequest
-// for a missing msg_id, a missing or invalid origin or sender, a thread of another contact, or a
-// topic given for a thread that exists.
+// ErrTooLarge for text over 16 KiB, a topic over 256 bytes, media over its caps, or a thread_id over
+// 64 bytes; ErrBadRequest for a missing msg_id, a missing or invalid origin or sender, a thread_id of
+// neither form of HDTP §7, a thread of another contact, or a topic given for a thread that exists.
 var (
 	ErrTooLarge   = errors.New("too_large")
 	ErrBadRequest = errors.New("bad_request")
@@ -210,6 +211,13 @@ func (s *Service) write(ctx context.Context, st ConversationStore, accountID, co
 	if owner && len(in.Topic) > maxOwnerTopicBytes {
 		return Result{}, false, fmt.Errorf("%w: topic over 256 bytes", ErrTooLarge)
 	}
+	// Before the replay below: a message is never recorded, nor acknowledged, under an id of neither
+	// form (HDTP §7). Empty starts a new thread.
+	if in.ThreadID != "" {
+		if err := CheckThreadID(in.ThreadID); err != nil {
+			return Result{}, false, err
+		}
+	}
 
 	// Idempotency first: the same msg_id is acknowledged, never re-executed.
 	if prev, err := st.GetMessageByMsgID(ctx, accountID, contactFpr, string(dir), in.MsgID); err == nil {
@@ -219,6 +227,7 @@ func (s *Service) write(ctx context.Context, st ConversationStore, accountID, co
 	nowTS := s.now().Unix()
 	threadID := in.ThreadID
 	if threadID == "" {
+		// 32 lower-case hex digits: of the first form of HDTP §7, and never taken from the call.
 		b := make([]byte, 16)
 		if _, err := rand.Read(b); err != nil {
 			return Result{}, false, err
@@ -285,7 +294,24 @@ func (s *Service) write(ctx context.Context, st ConversationStore, accountID, co
 	return Result{ThreadID: threadID, Status: status}, true, nil
 }
 
-// Thread returns a thread's messages in order.
+// Thread returns a thread's messages in order. A thread_id of neither form is refused (CheckThreadID).
 func (s *Service) Thread(ctx context.Context, accountID, threadID string) ([]store.Message, error) {
+	if err := CheckThreadID(threadID); err != nil {
+		return nil, err
+	}
 	return s.Store.ListMessagesByThread(ctx, accountID, threadID)
+}
+
+// CheckThreadID refuses a thread_id of neither form of HDTP §7, in the core's order: over 64 bytes is
+// ErrTooLarge, and any other id of neither form, the empty one included, ErrBadRequest. It is the
+// rule every owner door holds an id the owner names to (a send into a thread, a read, a deletion);
+// a contact's call is refused by the core's ThreadIDRefusal, before it reaches this package.
+func CheckThreadID(threadID string) error {
+	switch {
+	case len(threadID) > hdtpidentity.ThreadIDMax:
+		return fmt.Errorf("%w: thread_id over 64 bytes", ErrTooLarge)
+	case !hdtpidentity.IsThreadID(threadID):
+		return fmt.Errorf("%w: thread_id of neither form", ErrBadRequest)
+	}
+	return nil
 }

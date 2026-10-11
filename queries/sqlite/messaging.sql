@@ -161,3 +161,19 @@ SELECT COUNT(*) FROM messages WHERE account_id = ? AND kind = 'media' AND body L
 -- name: OrphanSweepSince :one
 -- When the orphan sweep began to judge files: records written before it are kept (migration 0003).
 SELECT since FROM orphan_sweep LIMIT 1;
+
+-- name: ThreadIDWipePending :one
+-- Whether the wipe of thread ids of neither form is still to run (migration 0005).
+SELECT COUNT(*) FROM thread_id_wipe;
+
+-- name: EndThreadIDWipe :exec
+DELETE FROM thread_id_wipe;
+
+-- name: ListStoredThreadIDs :many
+-- Every thread id the store holds, of every account: a thread's, and a message's or a change row's
+-- that no thread row may name. A change row's empty thread_id names no thread.
+SELECT account_id, id AS thread_id FROM threads
+UNION
+SELECT account_id, thread_id FROM messages
+UNION
+SELECT account_id, thread_id FROM changes WHERE thread_id <> '';

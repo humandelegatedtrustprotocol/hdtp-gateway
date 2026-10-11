@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"path/filepath"
 	"regexp"
@@ -935,5 +936,90 @@ func TestSendMediaWithoutAMsgIDIsRefusedBeforeAnythingIsStored(t *testing.T) {
 	}
 	if refused != 2 {
 		t.Fatalf("%d send_media rows, want the two refusals: %v", refused, e.rows)
+	}
+}
+
+// HDTP §7 (SEP-0006) at the three tools that take a thread_id, the door a client certificate's
+// call reaches: an id of neither form is refused with its code (testid.ThreadIDs: too_large over 64
+// bytes, else bad_request; a thread_id that is not a string bad_request) before anything is
+// recorded: no message, no thread, no file, no booking, and its msg_id taken afterwards. The
+// controls get through: every id of a form, an absent thread_id and a null one.
+func TestAThreadIDOfNeitherFormIsRefusedAtEachToolAndRecordsNothing(t *testing.T) {
+	e := newToolEnv(t)
+	ctx := context.Background()
+	fpr, _ := e.contact("active", "message.text", "message.media", "calendar.book")
+	start := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Hour)
+	argsFor := func(tool, msgID string) map[string]any {
+		switch tool {
+		case "send_media":
+			return map[string]any{"msg_id": msgID, "filename": "x.bin", "mime": "application/octet-stream", "data": base64.StdEncoding.EncodeToString([]byte("bytes of " + msgID))}
+		case "book_slot":
+			return map[string]any{"msg_id": msgID, "subject": "s", "slot": map[string]any{"start": start.Format(time.RFC3339), "end": start.Add(30 * time.Minute).Format(time.RFC3339), "tz": "UTC"}}
+		}
+		return map[string]any{"msg_id": msgID, "text": "hi"}
+	}
+	nothingRecorded := func(what string) {
+		t.Helper()
+		threads, _ := e.st.ListThreadsByAccount(ctx, e.acct.ID)
+		used, _ := e.st.SumBlobBytes(ctx, e.acct.ID)
+		if len(threads) != 0 || used != 0 || !e.cal.booked.Start.IsZero() {
+			t.Fatalf("%s recorded: %d threads, %d file bytes, booked %v", what, len(threads), used, e.cal.booked)
+		}
+	}
+	tools := []string{"send_message", "send_media", "book_slot"}
+	refused := 0
+	for _, tool := range tools {
+		cases := append(testid.ThreadIDs(), testid.ThreadIDCase{Name: "a number", Code: "bad_request"})
+		for i, c := range cases {
+			if c.Code == "" {
+				continue
+			}
+			args := argsFor(tool, fmt.Sprintf("%s-refused-%d", tool, i))
+			args["thread_id"] = c.ID
+			if c.Name == "a number" {
+				args["thread_id"] = 42
+			}
+			res, err := e.call(fpr, tool, args, nil)
+			if err != nil || !res.IsError || body(t, res) != `{"code":"`+c.Code+`"}` {
+				t.Fatalf("%s, %s: %v %s, want %s", tool, c.Name, err, body(t, res), c.Code)
+			}
+			nothingRecorded(tool + ", " + c.Name)
+			refused++
+		}
+	}
+	e.mu.Lock()
+	rows := 0
+	for _, r := range e.rows {
+		if strings.Contains(r, " why:thread_id ") {
+			rows++
+		}
+	}
+	e.mu.Unlock()
+	if rows != refused {
+		t.Fatalf("%d refusals audited with their why, want %d", rows, refused)
+	}
+	// The controls, last: a refused call's msg_id is not taken, so the same msg_id goes through.
+	for _, tool := range tools {
+		for i, c := range append(testid.ThreadIDs(), testid.ThreadIDCase{Name: "absent"}, testid.ThreadIDCase{Name: "null"}) {
+			if c.Code != "" {
+				continue
+			}
+			args := argsFor(tool, fmt.Sprintf("%s-refused-%d", tool, i))
+			switch c.Name {
+			case "absent":
+			case "null":
+				args["thread_id"] = nil
+			default:
+				args["thread_id"] = c.ID
+			}
+			if res, err := e.call(fpr, tool, args, nil); err != nil || res.IsError {
+				t.Fatalf("%s, %s: %v %s", tool, c.Name, err, body(t, res))
+			}
+			if tool != "book_slot" && c.ID != "" {
+				if _, err := e.st.GetThread(ctx, e.acct.ID, c.ID); err != nil {
+					t.Fatalf("%s, %s: no thread %q: %v", tool, c.Name, c.ID, err)
+				}
+			}
+		}
 	}
 }

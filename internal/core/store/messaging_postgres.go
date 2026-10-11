@@ -260,3 +260,28 @@ func (s *Postgres) LockFile(ctx context.Context, hash string) error {
 func (s *Postgres) OrphanSweepSince(ctx context.Context) (int64, error) {
 	return s.q.OrphanSweepSince(ctx)
 }
+
+// ThreadIDWipePending reports whether the wipe of thread ids of neither form is still to run
+// (migration 0005).
+func (s *Postgres) ThreadIDWipePending(ctx context.Context) (bool, error) {
+	n, err := s.q.ThreadIDWipePending(ctx)
+	return n > 0, err
+}
+
+// EndThreadIDWipe records that the wipe of thread ids of neither form ran.
+func (s *Postgres) EndThreadIDWipe(ctx context.Context) error {
+	return s.q.EndThreadIDWipe(ctx)
+}
+
+// ListStoredThreadIDs returns every thread id the store holds, of every account, each once.
+func (s *Postgres) ListStoredThreadIDs(ctx context.Context) ([]StoredThreadID, error) {
+	rows, err := s.q.ListStoredThreadIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StoredThreadID, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, StoredThreadID(r))
+	}
+	return out, nil
+}

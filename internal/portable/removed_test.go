@@ -49,8 +49,8 @@ func formerContact(t *testing.T, e env, accountID string) string {
 		DisplayName: "Chen Wu", Endpoint: h.Endpoint, Leaf: h.LeafDER, RootCert: chen.RootDER, CreatedAt: 1790000040, PinnedAt: 1790000040})
 	must(t, err)
 	must(t, e.st.SetContactPetname(ctx, accountID, chen.Fpr, "Chen, old team"))
-	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-chen", AccountID: accountID, ContactFpr: chen.Fpr, Topic: "handover", CreatedAt: 1790000041, LastAt: 1790000042}))
-	must(t, e.st.InsertMessage(ctx, store.Message{ID: "mc1", AccountID: accountID, ContactFpr: chen.Fpr, MsgID: "c-1", ThreadID: "t-chen",
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "tchen", AccountID: accountID, ContactFpr: chen.Fpr, Topic: "handover", CreatedAt: 1790000041, LastAt: 1790000042}))
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: "mc1", AccountID: accountID, ContactFpr: chen.Fpr, MsgID: "c-1", ThreadID: "tchen",
 		Direction: "in", Sender: "human", Kind: "text", Body: "the keys are in the drawer", Status: "delivered", CreatedAt: 1790000042}))
 	must(t, e.st.DeleteContact(ctx, accountID, chen.Fpr))
 	return chen.Fpr
@@ -77,7 +77,7 @@ func TestAFormerContactsConversationTravelsAsARemovedThread(t *testing.T) {
 			}
 			carried := false
 			for _, th := range got.Threads {
-				carried = carried || th.ID == "t-chen" && th.Contact == chen
+				carried = carried || th.ID == "tchen" && th.Contact == chen
 			}
 			if !carried || res.Removed != 1 || res.Threads != 2 || res.Messages != 5 {
 				t.Fatalf("the former contact's thread is not carried: %+v, result %+v", got.Threads, res)
@@ -164,7 +164,7 @@ func TestARemovedConversationArrivesAndNeverBecomesAContact(t *testing.T) {
 			if _, err := dst.st.GetContact(ctx, p.AccountID, chen); err == nil {
 				t.Fatal("a removed thread's root was written as a contact")
 			}
-			th, err := dst.st.GetThread(ctx, p.AccountID, "t-chen")
+			th, err := dst.st.GetThread(ctx, p.AccountID, "tchen")
 			must(t, err)
 			if th.ContactFpr != chen || th.KeptPetname != "Chen, old team" || th.KeptDisplayName != "Chen Wu" || !th.KeptWasContact {
 				t.Fatalf("the thread as imported: %+v", th)
@@ -215,7 +215,7 @@ func TestARemovedConversationJoinsAContactHeldHere(t *testing.T) {
 	if c.Status != "pending_in" || c.DisplayName != "Chen again" {
 		t.Fatalf("the held row was changed: %+v", c)
 	}
-	th, err := dst.st.GetThread(ctx, a.ID, "t-chen")
+	th, err := dst.st.GetThread(ctx, a.ID, "tchen")
 	must(t, err)
 	if th.ContactFpr != chen {
 		t.Fatalf("the thread: %+v", th)
@@ -297,11 +297,11 @@ func TestMigration0004KeepsAFormerContactsConversationRemovedBeforeIt(t *testing
 			dana := testid.NewWallet(t, "Dana")
 			_, err = st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: dana.Fpr, Status: "active", DisplayName: "Dana", CreatedAt: 1790000080, PinnedAt: 1790000080})
 			must(t, err)
-			must(t, st.InsertThread(ctx, store.Thread{ID: "t-dana", AccountID: a.ID, ContactFpr: dana.Fpr, CreatedAt: 1790000081, LastAt: 1790000081}))
+			must(t, st.InsertThread(ctx, store.Thread{ID: "tdana", AccountID: a.ID, ContactFpr: dana.Fpr, CreatedAt: 1790000081, LastAt: 1790000081}))
 			must(t, st.DeleteContact(ctx, a.ID, dana.Fpr))
 
 			must(t, migrate())
-			for id, want := range map[string]bool{"t-chen": true, "t-dana": false} {
+			for id, want := range map[string]bool{"tchen": true, "tdana": false} {
 				th, err := st.GetThread(ctx, a.ID, id)
 				must(t, err)
 				if th.KeptWasContact != want {
@@ -314,7 +314,7 @@ func TestMigration0004KeepsAFormerContactsConversationRemovedBeforeIt(t *testing
 			if rt := removedThreads(got); len(rt) != 1 || rt[chen] != [2]string{"Chen, old team", "Chen Wu"} {
 				t.Fatalf("removed threads: %+v", rt)
 			}
-			want := "thread t-dana: a conversation of 0 message(s) with " + dana.Fpr + ", who this host has no record of as a contact"
+			want := "thread tdana: a conversation of 0 message(s) with " + dana.Fpr + ", who this host has no record of as a contact"
 			if joined := strings.Join(res.LeftOut, "\n"); !strings.Contains(joined, want) {
 				t.Fatalf("left out:\n%s\nwant %q", joined, want)
 			}
@@ -333,11 +333,11 @@ func TestARemovedThreadCarriesTheNewestNameEachOfItsThreadsKept(t *testing.T) {
 	chen := formerContact(t, e, s.accountID)
 	_, err := e.st.InsertContact(ctx, store.Contact{AccountID: s.accountID, Fingerprint: chen, Status: "active", CreatedAt: 1790000090, PinnedAt: 1790000090})
 	must(t, err)
-	must(t, e.st.InsertThread(ctx, store.Thread{ID: "t-chen-2", AccountID: s.accountID, ContactFpr: chen, CreatedAt: 1790000091, LastAt: 1790000091}))
-	must(t, e.st.InsertMessage(ctx, store.Message{ID: "mc2", AccountID: s.accountID, ContactFpr: chen, MsgID: "c-2", ThreadID: "t-chen-2",
+	must(t, e.st.InsertThread(ctx, store.Thread{ID: "tchen2", AccountID: s.accountID, ContactFpr: chen, CreatedAt: 1790000091, LastAt: 1790000091}))
+	must(t, e.st.InsertMessage(ctx, store.Message{ID: "mc2", AccountID: s.accountID, ContactFpr: chen, MsgID: "c-2", ThreadID: "tchen2",
 		Direction: "in", Sender: "human", Kind: "text", Body: "back again", Status: "delivered", CreatedAt: 1790000091}))
 	must(t, e.st.DeleteContact(ctx, s.accountID, chen))
-	newer, err := e.st.GetThread(ctx, s.accountID, "t-chen-2")
+	newer, err := e.st.GetThread(ctx, s.accountID, "tchen2")
 	must(t, err)
 	if newer.KeptPetname != "" || newer.KeptDisplayName != "" {
 		t.Fatalf("the newer thread kept names, so this case proves nothing: %+v", newer)
@@ -365,8 +365,8 @@ func TestAnImportedContactsOwnNameIsStrippedWhereItEnters(t *testing.T) {
 	dana := testid.NewWallet(t, "Dana")
 	_, err = src.st.InsertContact(ctx, store.Contact{AccountID: s.accountID, Fingerprint: dana.Fpr, Status: "active", DisplayName: "\u202eDana\u2066", CreatedAt: 1790000100, PinnedAt: 1790000100})
 	must(t, err)
-	must(t, src.st.InsertThread(ctx, store.Thread{ID: "t-dana", AccountID: s.accountID, ContactFpr: dana.Fpr, CreatedAt: 1790000101, LastAt: 1790000101}))
-	must(t, src.st.InsertMessage(ctx, store.Message{ID: "md1", AccountID: s.accountID, ContactFpr: dana.Fpr, MsgID: "d-1", ThreadID: "t-dana",
+	must(t, src.st.InsertThread(ctx, store.Thread{ID: "tdana", AccountID: s.accountID, ContactFpr: dana.Fpr, CreatedAt: 1790000101, LastAt: 1790000101}))
+	must(t, src.st.InsertMessage(ctx, store.Message{ID: "md1", AccountID: s.accountID, ContactFpr: dana.Fpr, MsgID: "d-1", ThreadID: "tdana",
 		Direction: "in", Sender: "human", Kind: "text", Body: "hello", Status: "delivered", CreatedAt: 1790000101}))
 	must(t, src.st.DeleteContact(ctx, s.accountID, dana.Fpr))
 	file, _ := exportOf(t, src, "alina")
@@ -382,7 +382,7 @@ func TestAnImportedContactsOwnNameIsStrippedWhereItEnters(t *testing.T) {
 	if c.DisplayName != "Bharat Mehta" {
 		t.Fatalf("contact display_name as imported: %q", c.DisplayName)
 	}
-	th, err := dst.st.GetThread(ctx, p.AccountID, "t-dana")
+	th, err := dst.st.GetThread(ctx, p.AccountID, "tdana")
 	must(t, err)
 	if th.KeptDisplayName != "Dana" {
 		t.Fatalf("kept display name as imported: %q", th.KeptDisplayName)
