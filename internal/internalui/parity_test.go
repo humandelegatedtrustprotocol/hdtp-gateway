@@ -49,7 +49,7 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"list_integrations":    "GET /api/integrations",
 		"list_passkeys":        "GET /api/owners",
 		"read_thread":          "GET /api/conversations",
-		"delete_thread":        "POST /threads/{id}/delete",
+		"delete_thread":        "POST /thread/delete",
 		"remove_passkey":       "POST /owners/passkeys/{id}/remove",
 		"refresh_contact":      "POST /contacts/{fpr}/refresh",
 		"rename_contact":       "POST /contacts/{fpr}/petname",

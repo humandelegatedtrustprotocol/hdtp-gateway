@@ -12,6 +12,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- A conversation whose thread id is `.` or `..` (a contact chooses the id) could not be opened, sent
+  into or deleted from the portal: the id was a path segment, which the browser's URL parser removes
+  before the request leaves and Go's mux answers with a redirect. The routes that take a thread id
+  now read it from `thread_id` in the query or the form: `GET /api/thread`, `POST /thread/send` and
+  `POST /thread/delete` replace `GET /api/threads/{id}`, `POST /threads/{id}/send` and
+  `POST /threads/{id}/delete`. `POST /thread/send` redirects to `/messages`.
 - The claim, in migration 0004's comment and the [0.1.3] entry, that a thread holding a message was a
   contact's because "only a contact writes one" holds for what a host records itself, not for an
   import, which writes its file's threads and messages whatever this host holds of their root. The

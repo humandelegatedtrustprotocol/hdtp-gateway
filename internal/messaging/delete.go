@@ -10,7 +10,7 @@ import (
 )
 
 // Deleted is what deleting one conversation removed: the answer of every door (the portal's
-// POST /threads/{id}/delete, the owner MCP's delete_thread), and BatonDeck's deleteThread's shape.
+// POST /thread/delete, the owner MCP's delete_thread), and BatonDeck's deleteThread's shape.
 type Deleted struct {
 	Status   string `json:"status"`
 	ThreadID string `json:"thread_id"`

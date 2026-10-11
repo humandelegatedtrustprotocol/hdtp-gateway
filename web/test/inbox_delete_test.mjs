@@ -1,7 +1,7 @@
 // Deleting a conversation (node SPEC §7.9). The node's view is a conversation with a person, merging
 // every thread with them, and the node answers which threads those are (`threads`,
 // internal/internalui/messages_pages.go). Delete asks first, in words that say the contact keeps their
-// copy, then deletes each of those threads through POST /threads/{id}/delete, the one operation the
+// copy, then deletes each of those threads through POST /thread/delete, the one operation the
 // owner MCP's delete_thread runs too. It is the contact panel's last section, set apart, and nowhere
 // else (the owner, 2026-10-11: "move delete conversation button inside the right sidebar in chat").
 // Read from the source, because the portal has no DOM test harness; the cloud's e2e/portal-layout.mjs
@@ -44,7 +44,10 @@ test("a refused delete is said beside the button, in the same words", () => {
 });
 
 test("Delete deletes each thread the conversation merges, through the one operation", () => {
-  assert.match(view, /for \(const id of d\?\.threads \?\? \[\]\) \{\n\s+const r = await postForm\(`\/threads\/\$\{encodeURIComponent\(id\)\}\/delete`, \{\}\);/);
+  // The id travels in the form, never in the path: a contact chooses it, and a URL parser drops a
+  // "." or ".." path segment before the request leaves the browser (encodeURIComponent keeps dots).
+  assert.match(view, /for \(const id of d\?\.threads \?\? \[\]\) \{\n\s+const r = await postForm\("\/thread\/delete", \{ thread_id: id \}\);/);
+  assert.doesNotMatch(view, /\/threads?\/\$\{/, "no thread id in a path");
   assert.match(view, /if \(!r\.ok && r\.status !== 404\) failed = true;/, "a thread already gone is not a failure; any other refusal is said");
 });
 

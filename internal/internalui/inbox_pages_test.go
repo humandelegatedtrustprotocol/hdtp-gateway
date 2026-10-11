@@ -91,8 +91,8 @@ func TestComposerSendsAsHuman(t *testing.T) {
 	in, _ := msg.Record(ctx, acct, "sha256:alina", messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", Text: "hello", Sender: messaging.SenderAgent})
 
-	form := url.Values{"text": {"hey!"}, "msg_id": {"ui-1"}}
-	req := httptest.NewRequest("POST", "/threads/"+in.ThreadID+"/send?account="+acct+"&contact=sha256:alina",
+	form := url.Values{"text": {"hey!"}, "msg_id": {"ui-1"}, "thread_id": {in.ThreadID}}
+	req := httptest.NewRequest("POST", "/thread/send?account="+acct+"&contact=sha256:alina",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
@@ -123,7 +123,7 @@ func TestUnreadCountsAcrossTwoContacts(t *testing.T) {
 
 	// opening alina's thread marks it read; bharat stays unread
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/threads/"+a.ThreadID+"?account="+acct, nil))
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/thread?thread_id="+url.QueryEscape(a.ThreadID)+"&account="+acct, nil))
 	if rr.Code != 200 {
 		t.Fatalf("thread read: %d", rr.Code)
 	}

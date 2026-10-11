@@ -41,13 +41,15 @@ func formOrQuery(r *http.Request, key string) string {
 	return r.URL.Query().Get(key)
 }
 
-// MountInboxPages registers GET /api/inbox, GET /api/threads/{id}, POST /threads/{id}/send,
-// POST /threads/{id}/delete and the server-sent-events stream GET /events.
+// MountInboxPages registers GET /api/inbox, GET /api/thread, POST /thread/send, POST /thread/delete
+// and the server-sent-events stream GET /events. A thread id is never a path segment: a contact
+// chooses it, and "." or ".." in a path is removed by the browser's URL parser and redirected by the
+// mux, so the routes that take one read it from `thread_id` in the query or the form.
 func MountInboxPages(mux *http.ServeMux, d InboxDeps) {
 	mux.HandleFunc("GET /api/inbox", d.getAPIInbox)
-	mux.HandleFunc("GET /api/threads/{id}", d.getAPIThreadsID)
-	mux.HandleFunc("POST /threads/{id}/send", d.postThreadsIDSend)
-	mux.HandleFunc("POST /threads/{id}/delete", d.postThreadsIDDelete)
+	mux.HandleFunc("GET /api/thread", d.getAPIThread)
+	mux.HandleFunc("POST /thread/send", d.postThreadSend)
+	mux.HandleFunc("POST /thread/delete", d.postThreadDelete)
 	mux.HandleFunc("GET /events", d.getEvents)
 }
 
@@ -67,10 +69,10 @@ func (d InboxDeps) getAPIInbox(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, map[string]any{"threads": threads, "unread": unread})
 }
 
-// getAPIThreadsID serves `GET /api/threads/{id}`.
-func (d InboxDeps) getAPIThreadsID(w http.ResponseWriter, r *http.Request) {
+// getAPIThread serves `GET /api/thread?thread_id=`.
+func (d InboxDeps) getAPIThread(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
-	id := r.PathValue("id")
+	id := r.URL.Query().Get("thread_id")
 	msgs, err := d.Msg.Thread(r.Context(), account, id)
 	if err != nil {
 		http.NotFound(w, r)
@@ -107,14 +109,14 @@ func (d InboxDeps) getAPIThreadsID(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// postThreadsIDSend serves `POST /threads/{id}/send`.
-func (d InboxDeps) postThreadsIDSend(w http.ResponseWriter, r *http.Request) {
+// postThreadSend serves `POST /thread/send`.
+func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	// Both travel in the form BODY: nothing about which identity or which
 	// contact belongs in the address bar.
 	account := formOrQuery(r, "account")
 	contact := formOrQuery(r, "contact")
-	id := r.PathValue("id")
+	id := formOrQuery(r, "thread_id")
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -136,23 +138,23 @@ func (d InboxDeps) postThreadsIDSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "recorded, but delivery failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	http.Redirect(w, r, "/threads/"+id+"?account="+account, http.StatusSeeOther)
+	http.Redirect(w, r, "/messages", http.StatusSeeOther)
 }
 
-// postThreadsIDDelete serves `POST /threads/{id}/delete`: one conversation of the account in the
+// postThreadDelete serves `POST /thread/delete`: one conversation (`thread_id`) of the account in the
 // form body, deleted here and only here (messaging.Service.DeleteThread, SPEC §7.9); the owner MCP's
 // delete_thread is the same operation. It answers JSON, the operation's own answer: 200
 // {status:"deleted", thread_id, contact, messages, files}; 400 {"error":"bad_request"} for an empty id; 404
 // {"error":"not_found"} for a thread the account does not hold (an account the owner does not
 // administer is 404 before this, accountMiddleware); 500 {"error":"internal"}. Each writes one
 // thread_delete row.
-func (d InboxDeps) postThreadsIDDelete(w http.ResponseWriter, r *http.Request) {
+func (d InboxDeps) postThreadDelete(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
 		return
 	}
 	account := formOrQuery(r, "account")
-	id := r.PathValue("id")
+	id := formOrQuery(r, "thread_id")
 	gone, err := d.Msg.DeleteThread(r.Context(), account, id)
 	status, code, outcome := deleteOutcome(err)
 	if d.Audit != nil {
