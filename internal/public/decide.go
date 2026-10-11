@@ -415,6 +415,42 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 			facts.Header, facts.From, facts.SPKI, facts.Leaf, facts.Form = h, sg.root, sg.spki, sg.leaf, sg.form
 		}
 		return facts, nil
+	case "too_large", "bad_request":
+		// HDTP §7 (SEP-0006): a contact's send_message, send_media or book_slot whose thread_id is of
+		// neither form. Decide refused it at the contact tier with what the signature proved (the root,
+		// the address, the leaf it verified under and the form), and the effects beside it are the pin's
+		// own moves, never the envelope's `seen`: a renewal or a new address under `auto` the envelope
+		// carried is learned (§14.3, §5.3), and nothing of the call is recorded, so the msg_id is not
+		// seen and the same msg_id with a thread_id of a form is taken. The refusal is sealed back to
+		// that leaf (§13.2), charged and audited as the contact's call (sealedHandler); nothing is
+		// dispatched.
+		root, _ := d.Result["root"].(string)
+		endpoint, _ := d.Result["endpoint"].(string)
+		form, _ := d.Result["form"].(string)
+		why, _ := d.Result["why"].(string)
+		leafB64, _ := d.Result["leaf"].(string)
+		leafDER, err := hdtpidentity.DecodeB64url(leafB64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: decided leaf unreadable", envelope.ErrInvalid)
+		}
+		leaf, err := hdtpidentity.Parse(leafDER)
+		if err != nil {
+			return nil, fmt.Errorf("%w: decided leaf unreadable", envelope.ErrInvalid)
+		}
+		if len(tf.ClientCertSPKI) > 0 && !bytes.Equal(tf.ClientCertSPKI, leaf.SPKI) {
+			id.audit("identity_mismatch", "account:"+id.AccountID+" contact:"+root, "envelope_invalid")
+			return nil, openedIf(opened, fmt.Errorf("%w: client certificate key does not match the envelope's leaf", envelope.ErrInvalid))
+		}
+		var h envelope.Header
+		protected, _ := hdtpidentity.DecodeB64url(e.Protected)
+		_ = json.Unmarshal(protected, &h)
+		if err := id.apply(ctx, accountID, d.Effects, now); err != nil {
+			return nil, fmt.Errorf("%w: recording the decision: %v", envelope.ErrInvalid, err)
+		}
+		return &EnvelopeFacts{
+			Header: h, From: root, SPKI: leaf.SPKI, Leaf: leafDER, Form: form, Endpoint: endpoint,
+			Tier: policy.TierContact, Refusal: code, Why: why, state: st,
+		}, nil
 	case "ok":
 	default:
 		return nil, fmt.Errorf("%w: undecided", envelope.ErrInvalid)

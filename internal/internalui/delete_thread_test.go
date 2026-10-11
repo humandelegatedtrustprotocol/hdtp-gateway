@@ -12,6 +12,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // POST /thread/delete through the whole portal (session, CSRF, account resolution): the
@@ -86,7 +87,7 @@ func TestDeletingAConversationFromThePortal(t *testing.T) {
 		t.Fatalf("audit after a refusal = %v; want one not_found row", rows)
 	}
 	// Unknown thread.
-	if rec := post("/thread/delete", "thread_id=no-such-thread&account="+mine.ID, true); rec.Code != http.StatusNotFound {
+	if rec := post("/thread/delete", "thread_id=nosuchthread&account="+mine.ID, true); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown thread: %d %s", rec.Code, rec.Body)
 	}
 	// No thread named: the operation's bad_request.
@@ -112,19 +113,21 @@ func TestDeletingAConversationFromThePortal(t *testing.T) {
 	}
 }
 
-// threadIDsAPathCannotCarry are thread ids a contact may choose (HDTP leaves thread_id free) that a
-// path segment cannot carry as they are: a URL parser removes "." and ".." (and their percent
-// forms) before the request leaves a browser, and Go's mux redirects them; the rest break a path or
-// a query that is not encoded. Each must open, send and delete like any other.
-var threadIDsAPathCannotCarry = []string{".", "..", "%2e", "%2E%2e", "a/b", "../x", "a+b", "a&b=c", "#x", "?q", "a b", "é", "日本"}
-
-// Every thread id that can exist is reachable at each portal route that takes one: GET /api/thread
-// opens it, POST /thread/send sends into it and POST /thread/delete deletes it, each reading the id
-// from `thread_id` in the query or the form, through the whole portal (session, CSRF, the mux).
+// Every portal route that takes a thread id reads it from `thread_id` in the query or the form,
+// through the whole portal (session, CSRF, the mux), and holds it to HDTP §7's two forms
+// (testid.ThreadIDs): an id of a form opens, sends and deletes; an id of neither form is refused at
+// each, 400 bad_request or 413 too_large, before anything is read, recorded or deleted. A thread
+// stored under such an id before the wipe (migration 0005) stays where it is: the wipe is what
+// removes it, not a door.
 func TestEveryThreadIDOpensSendsAndDeletesFromThePortal(t *testing.T) {
 	ctx := context.Background()
+	var rows []string
 	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
-		MountInboxPages(mux, InboxDeps{Store: st, Msg: &messaging.Service{Store: st}})
+		MountInboxPages(mux, InboxDeps{Store: st, Msg: &messaging.Service{Store: st}, Audit: func(action, detail, outcome string) {
+			if action == "thread_delete" {
+				rows = append(rows, detail+" "+outcome)
+			}
+		}})
 	})
 	me, session := e.signIn(t, "Me")
 	mine, _ := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "mine", DisplayName: "Mine", Algo: "p256"})
@@ -152,6 +155,7 @@ func TestEveryThreadIDOpensSendsAndDeletesFromThePortal(t *testing.T) {
 		e.h.ServeHTTP(rec, req)
 		return rec
 	}
+	statusOf := map[string]int{"bad_request": http.StatusBadRequest, "too_large": http.StatusRequestEntityTooLarge}
 	// No thread named: refused, never an empty conversation and never a new thread.
 	if rec := send(http.MethodGet, "/api/thread?account="+mine.ID, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"bad_request"`) {
 		t.Fatalf("opening no thread: %d %s", rec.Code, rec.Body)
@@ -162,11 +166,15 @@ func TestEveryThreadIDOpensSendsAndDeletesFromThePortal(t *testing.T) {
 	if threads, _ := e.st.ListThreadsByAccount(ctx, mine.ID); len(threads) != 0 {
 		t.Fatalf("a send naming no thread started one: %+v", threads)
 	}
-	for i, id := range threadIDsAPathCannotCarry {
+	for i, c := range testid.ThreadIDs() {
+		if c.Code != "" {
+			continue
+		}
+		id := c.ID
 		if _, err := svc.Record(ctx, mine.ID, "sha256:friend", messaging.DirIn, messaging.Input{
 			Origin: messaging.OriginPeer, MsgID: fmt.Sprintf("in-%d", i), ThreadID: id, Text: "hi", Sender: messaging.SenderHuman,
 		}); err != nil {
-			t.Fatalf("%q: recording: %v", id, err)
+			t.Fatalf("%s: recording: %v", c.Name, err)
 		}
 
 		rec := send(http.MethodGet, "/api/thread?"+url.Values{"thread_id": {id}, "account": {mine.ID}}.Encode(), nil)
@@ -175,27 +183,60 @@ func TestEveryThreadIDOpensSendsAndDeletesFromThePortal(t *testing.T) {
 			Rows     []json.RawMessage `json:"rows"`
 		}
 		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &opened) != nil || opened.ThreadID != id || len(opened.Rows) != 1 {
-			t.Fatalf("%q: opening: %d %s", id, rec.Code, rec.Body)
+			t.Fatalf("%s: opening: %d %s", c.Name, rec.Code, rec.Body)
 		}
 
 		rec = send(http.MethodPost, "/thread/send", url.Values{
 			"thread_id": {id}, "account": {mine.ID}, "contact": {"sha256:friend"}, "msg_id": {fmt.Sprintf("out-%d", i)}, "text": {"hello"},
 		})
 		if msgs, _ := svc.Thread(ctx, mine.ID, id); rec.Code != http.StatusSeeOther || len(msgs) != 2 || msgs[1].Direction != "out" {
-			t.Fatalf("%q: sending: %d %s, %d messages in the thread", id, rec.Code, rec.Body, len(msgs))
+			t.Fatalf("%s: sending: %d %s, %d messages in the thread", c.Name, rec.Code, rec.Body, len(msgs))
 		}
 
 		rec = send(http.MethodPost, "/thread/delete", url.Values{"thread_id": {id}, "account": {mine.ID}})
 		var got messaging.Deleted
 		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.ThreadID != id || got.Messages != 2 {
-			t.Fatalf("%q: deleting: %d %s", id, rec.Code, rec.Body)
+			t.Fatalf("%s: deleting: %d %s", c.Name, rec.Code, rec.Body)
 		}
 		if _, err := e.st.GetThread(ctx, mine.ID, id); err == nil {
-			t.Fatalf("%q: still there after the delete", id)
+			t.Fatalf("%s: still there after the delete", c.Name)
 		}
 		// A second delete finds nothing: the operation's refusal, not a redirect or another route.
 		if rec := send(http.MethodPost, "/thread/delete", url.Values{"thread_id": {id}, "account": {mine.ID}}); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"not_found"`) {
-			t.Fatalf("%q: deleting again: %d %s", id, rec.Code, rec.Body)
+			t.Fatalf("%s: deleting again: %d %s", c.Name, rec.Code, rec.Body)
+		}
+	}
+	for i, c := range testid.ThreadIDs() {
+		if c.Code == "" || c.ID == "" {
+			continue
+		}
+		id, want := c.ID, statusOf[c.Code]
+		// A thread stored under this id before the wipe, as a contact once could.
+		if err := e.st.InsertThread(ctx, store.Thread{ID: id, AccountID: mine.ID, ContactFpr: "sha256:friend", CreatedAt: 1, LastAt: 1}); err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		if rec := send(http.MethodGet, "/api/thread?"+url.Values{"thread_id": {id}, "account": {mine.ID}}.Encode(), nil); rec.Code != want || !strings.Contains(rec.Body.String(), `"`+c.Code+`"`) {
+			t.Fatalf("%s: opening: %d %s, want %d %s", c.Name, rec.Code, rec.Body, want, c.Code)
+		}
+		rec := send(http.MethodPost, "/thread/send", url.Values{
+			"thread_id": {id}, "account": {mine.ID}, "contact": {"sha256:friend"}, "msg_id": {fmt.Sprintf("refused-%d", i)}, "text": {"hello"},
+		})
+		if msgs, _ := e.st.ListMessagesByThread(ctx, mine.ID, id); rec.Code != want || len(msgs) != 0 {
+			t.Fatalf("%s: sending: %d %s, %d messages recorded, want %d and none", c.Name, rec.Code, rec.Body, len(msgs), want)
+		}
+		rows = nil
+		rec = send(http.MethodPost, "/thread/delete", url.Values{"thread_id": {id}, "account": {mine.ID}})
+		if rec.Code != want || !strings.Contains(rec.Body.String(), `"`+c.Code+`"`) {
+			t.Fatalf("%s: deleting: %d %s, want %d %s", c.Name, rec.Code, rec.Body, want, c.Code)
+		}
+		if _, err := e.st.GetThread(ctx, mine.ID, id); err != nil {
+			t.Fatalf("%s: a refused delete deleted: %v", c.Name, err)
+		}
+		if wantRow := "account:" + mine.ID + " thread_id:neither_form " + c.Code; len(rows) != 1 || rows[0] != wantRow {
+			t.Fatalf("%s: audit = %q, want [%q]", c.Name, rows, wantRow)
+		}
+		if _, err := e.st.DeleteThread(ctx, mine.ID, id); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

@@ -3,12 +3,17 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // delete_thread is the portal's delete through the same operation: the owner's conversation is
@@ -53,7 +58,7 @@ func TestDeleteThreadDeletesOneConversationAndRefusesTheRest(t *testing.T) {
 		name, thread, code string
 	}{
 		{"empty id", "", "bad_request"},
-		{"unknown thread", "no-such-thread", "not_found"},
+		{"unknown thread", "nosuchthread", "not_found"},
 		{"another account's thread", other, "not_found"},
 	} {
 		text, isErr := callJSON(t, cs, "delete_thread", map[string]any{"account_id": e.acctA, "thread_id": c.thread})
@@ -97,32 +102,73 @@ func TestDeleteThreadDeletesOneConversationAndRefusesTheRest(t *testing.T) {
 	}
 }
 
-// The owner MCP takes a thread id as an argument, never in a path, so every id a contact may choose
-// reads and deletes here as it does in the portal (internalui's threadIDsAPathCannotCarry).
+// The owner MCP takes a thread id as an argument, never in a path, and holds it to HDTP §7's two
+// forms as the portal does (testid.ThreadIDs): an id of a form reads, takes a message and deletes;
+// an id of neither form is refused by read_thread, send_to_contact, delete_thread and the thread
+// resource, with its code, before anything is read, recorded or deleted.
 func TestEveryThreadIDReadsAndDeletesOverTheOwnerMCP(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
-	for i, id := range []string{".", "..", "%2e", "a/b", "a+b", "a&b=c", "#x", "é"} {
+	for i, c := range testid.ThreadIDs() {
+		if c.Code != "" {
+			continue
+		}
+		id := c.ID
 		if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn, messaging.Input{
-			Origin: messaging.OriginPeer, MsgID: "dot-" + strconv.Itoa(i), ThreadID: id, Text: "hi " + id, Sender: messaging.SenderAgent,
+			Origin: messaging.OriginPeer, MsgID: "in-" + strconv.Itoa(i), ThreadID: id, Text: "hi " + id, Sender: messaging.SenderAgent,
 		}); err != nil {
-			t.Fatalf("%q: recording: %v", id, err)
+			t.Fatalf("%s: recording: %v", c.Name, err)
 		}
 		text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": id})
 		var read []struct {
 			Body string `json:"body"`
 		}
 		if isErr || json.Unmarshal([]byte(text), &read) != nil || len(read) != 1 || read[0].Body != "hi "+id {
-			t.Fatalf("%q: read_thread: %s (error %v)", id, text, isErr)
+			t.Fatalf("%s: read_thread: %s (error %v)", c.Name, text, isErr)
+		}
+		if text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:alina", "thread_id": id, "msg_id": "out-" + strconv.Itoa(i), "text": "back"}); isErr {
+			t.Fatalf("%s: send_to_contact: %s", c.Name, text)
 		}
 		text, isErr = callJSON(t, cs, "delete_thread", map[string]any{"account_id": e.acctA, "thread_id": id})
 		var got messaging.Deleted
-		if isErr || json.Unmarshal([]byte(text), &got) != nil || got.ThreadID != id || got.Messages != 1 {
-			t.Fatalf("%q: delete_thread: %s (error %v)", id, text, isErr)
+		if isErr || json.Unmarshal([]byte(text), &got) != nil || got.ThreadID != id || got.Messages != 2 {
+			t.Fatalf("%s: delete_thread: %s (error %v)", c.Name, text, isErr)
 		}
 		if _, err := e.st.GetThread(ctx, e.acctA, id); err == nil {
-			t.Fatalf("%q: still there after delete_thread", id)
+			t.Fatalf("%s: still there after delete_thread", c.Name)
+		}
+	}
+	for i, c := range testid.ThreadIDs() {
+		if c.Code == "" || c.ID == "" {
+			continue
+		}
+		id := c.ID
+		// A thread stored under this id before the wipe (migration 0005), as a contact once could.
+		if err := e.st.InsertThread(ctx, store.Thread{ID: id, AccountID: e.acctA, ContactFpr: "sha256:alina", CreatedAt: 1, LastAt: 1}); err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		if text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": id}); !isErr || !strings.Contains(text, c.Code) {
+			t.Fatalf("%s: read_thread: %s (error %v), want %s", c.Name, text, isErr, c.Code)
+		}
+		text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:alina", "thread_id": id, "msg_id": "refused-" + strconv.Itoa(i), "text": "back"})
+		if msgs, _ := e.st.ListMessagesByThread(ctx, e.acctA, id); !isErr || !strings.Contains(text, c.Code) || len(msgs) != 0 {
+			t.Fatalf("%s: send_to_contact: %s (error %v), %d recorded, want %s and none", c.Name, text, isErr, len(msgs), c.Code)
+		}
+		if text, isErr := callJSON(t, cs, "delete_thread", map[string]any{"account_id": e.acctA, "thread_id": id}); !isErr || text != `{"code":"`+c.Code+`"}` {
+			t.Fatalf("%s: delete_thread: %s (error %v), want %s", c.Name, text, isErr, c.Code)
+		}
+		// A URI the client cannot send (a control character) closes the session before it leaves.
+		if _, perr := url.Parse(URIThreadPrefix + id); perr == nil {
+			if _, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: URIThreadPrefix + id}); err == nil {
+				t.Fatalf("%s: the thread resource read it", c.Name)
+			}
+		}
+		if _, err := e.st.GetThread(ctx, e.acctA, id); err != nil {
+			t.Fatalf("%s: a refusal deleted it: %v", c.Name, err)
+		}
+		if _, err := e.st.DeleteThread(ctx, e.acctA, id); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

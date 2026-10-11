@@ -109,7 +109,7 @@ func TestTheOwnerSurfaceOffersNoSubscriptionsAndAMessageIsReadable(t *testing.T)
 	if err := json.Unmarshal([]byte(first), &start); err != nil {
 		t.Fatalf("first wait: %s", first)
 	}
-	const threadID = "t-readable"
+	const threadID = "treadable"
 	if _, err := e.deps.Msg.Record(context.Background(), e.acctA, "sha256:alina", messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", ThreadID: threadID, Text: "hi", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestReadThreadMarksTheThreadReadThroughWhatItReturned(t *testing.T) {
 	e := newEnv(t)
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
 	ctx := context.Background()
-	const threadID = "t-read"
+	const threadID = "tread"
 	for _, id := range []string{"m1", "m2"} {
 		if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn,
 			messaging.Input{Origin: messaging.OriginPeer, MsgID: id, ThreadID: threadID, Text: id, Sender: messaging.SenderAgent}); err != nil {

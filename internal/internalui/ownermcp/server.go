@@ -645,6 +645,8 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 	case err == nil:
 	case errors.Is(err, messaging.ErrBadRequest):
 		code, outcome = "bad_request", "bad_request"
+	case errors.Is(err, messaging.ErrTooLarge):
+		code, outcome = "too_large", "too_large"
 	case errors.Is(err, store.ErrNotFound):
 		code, outcome = "not_found", "not_found"
 	default:
@@ -1064,7 +1066,7 @@ func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadR
 // is not known until a thread exists.
 func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	id := strings.TrimPrefix(req.Params.URI, URIThreadPrefix)
-	if id == "" || id == req.Params.URI {
+	if id == req.Params.URI || messaging.CheckThreadID(id) != nil {
 		return nil, fmt.Errorf("ownermcp: %s is not a thread URI", req.Params.URI)
 	}
 	sc, err := ot.d.scope(ctx, ot.ident)

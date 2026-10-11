@@ -69,12 +69,27 @@ func (d InboxDeps) getAPIInbox(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, map[string]any{"threads": threads, "unread": unread})
 }
 
-// getAPIThread serves `GET /api/thread?thread_id=`; no thread named is 400 {"error":"bad_request"}.
+// threadIDRefusal is how the portal answers an owner-named thread_id of neither form of HDTP §7
+// (messaging.CheckThreadID, the empty one included): its status and code, or ok false for an id of a
+// form.
+func threadIDRefusal(id string) (status int, code string, refused bool) {
+	switch err := messaging.CheckThreadID(id); {
+	case err == nil:
+		return 0, "", false
+	case errors.Is(err, messaging.ErrTooLarge):
+		return http.StatusRequestEntityTooLarge, "too_large", true
+	default:
+		return http.StatusBadRequest, "bad_request", true
+	}
+}
+
+// getAPIThread serves `GET /api/thread?thread_id=`. A thread_id of neither form, none included, is
+// 400 {"error":"bad_request"}, or 413 {"error":"too_large"} over 64 bytes (threadIDRefusal).
 func (d InboxDeps) getAPIThread(w http.ResponseWriter, r *http.Request) {
 	account := accountParam(r)
 	id := r.URL.Query().Get("thread_id")
-	if id == "" {
-		apiJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+	if status, code, refused := threadIDRefusal(id); refused {
+		apiJSONStatus(w, status, map[string]any{"error": code})
 		return
 	}
 	msgs, err := d.Msg.Thread(r.Context(), account, id)
@@ -126,9 +141,9 @@ func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// This route sends INTO the thread named; an empty id would start a new one, which is
-	// POST /messages/send's job.
-	if id == "" {
-		http.Error(w, "thread_id required", http.StatusBadRequest)
+	// POST /messages/send's job. An id of neither form is refused before anything is recorded.
+	if status, code, refused := threadIDRefusal(id); refused {
+		http.Error(w, code, status)
 		return
 	}
 	// The portal surface fixes the label: human (SPEC §7.2).
@@ -154,7 +169,8 @@ func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
 // postThreadDelete serves `POST /thread/delete`: one conversation (`thread_id`) of the account in the
 // form body, deleted here and only here (messaging.Service.DeleteThread, SPEC §7.9); the owner MCP's
 // delete_thread is the same operation. It answers JSON, the operation's own answer: 200
-// {status:"deleted", thread_id, contact, messages, files}; 400 {"error":"bad_request"} for an empty id; 404
+// {status:"deleted", thread_id, contact, messages, files}; 400 {"error":"bad_request"} for an id of
+// neither form of HDTP §7, the empty one included, and 413 {"error":"too_large"} for one over 64 bytes; 404
 // {"error":"not_found"} for a thread the account does not hold (an account the owner does not
 // administer is 404 before this, accountMiddleware); 500 {"error":"internal"}. Each writes one
 // thread_delete row.
@@ -186,6 +202,8 @@ func deleteOutcome(err error) (int, string, string) {
 		return http.StatusOK, "", "ok"
 	case errors.Is(err, messaging.ErrBadRequest):
 		return http.StatusBadRequest, "bad_request", "bad_request"
+	case errors.Is(err, messaging.ErrTooLarge):
+		return http.StatusRequestEntityTooLarge, "too_large", "too_large"
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound, "not_found", "not_found"
 	default:

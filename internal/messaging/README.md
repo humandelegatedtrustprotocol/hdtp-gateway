@@ -16,6 +16,12 @@ Messages (service.go):
 
 - `Service.Record(ctx, account, contact, dir, Input)` stores one message with idempotency and returns
   a `Result` (thread id and the row's status). `Service.Thread` lists a thread's messages in order.
+  `CheckThreadID` is HDTP §7's rule for an id an owner names, the identity core's `IsThreadID` and
+  `ThreadIDMax`: `Record` with a thread id, `Thread` and `DeleteThread` refuse an id of neither form.
+  A new thread's id is 32 lower-case hex digits, of the first form.
+- `Service.WipeThreadIDs` deletes, once, every conversation stored under an id of neither form, with
+  its messages, change rows and the files only it names, and the messages and change rows of such an
+  id that no thread row names (migration 0005 schedules it; `serve` runs it before it serves, and `migrate`, `export` and `import` after they migrate).
 - `Origin` (`OriginPortal`, `OriginMCP`, `OriginPeer`, `OriginStored`) is the surface a message came
   from; it decides the sender label (`Origin.Sender`, `Input.Label`). `Sender` is `SenderAgent` or
   `SenderHuman`. `Direction` is `DirIn` or `DirOut`.
@@ -57,9 +63,11 @@ written by this package.
 
 - `bad_request` (`ErrBadRequest`): empty `msg_id`; `OriginStored` (a stored message is not recorded
   again); an origin that is none of portal, mcp, peer; a peer sender that is neither agent nor human; a
-  thread id that belongs to another contact; an owner-composed message giving a topic for a thread that
-  already exists.
-- `too_large` (`ErrTooLarge`): text over 16 KiB (`maxTextBytes`); an owner topic over 256 bytes.
+  thread id of neither form of HDTP §7 (`CheckThreadID`, before the replay check, so nothing is recorded
+  or acknowledged under one); a thread id that belongs to another contact; an owner-composed message
+  giving a topic for a thread that already exists.
+- `too_large` (`ErrTooLarge`): text over 16 KiB (`maxTextBytes`); an owner topic over 256 bytes; a thread
+  id over 64 bytes.
 
 Media: `too_large` for empty data or data over 5 MiB, and for a fetch over 5 MiB; `ErrQuota` (the same
 code text, a distinct value) when the account's blob bytes plus the new data exceed the quota. The quota

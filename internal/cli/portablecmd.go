@@ -68,7 +68,7 @@ func portableStore(name string, args []string, stderr io.Writer, define func(*fl
 	}
 	st, err := openStore(cfg)
 	if err == nil {
-		err = st.Migrate(context.Background())
+		err = migrateAndWipe(context.Background(), st, cfg, io.Discard)
 	}
 	if err != nil {
 		lock.Release()
@@ -246,8 +246,8 @@ func importCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "import:", err)
 		return 1
 	}
-	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d removed:%d pins_filled:%d threads:%d messages:%d media:%d already:%d new:%t",
-		plan.AccountID, res.Contacts, res.Removed, res.PinsFilled, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New), "ok")
+	auditFn("account_import", fmt.Sprintf("account:%s contacts:%d removed:%d pins_filled:%d threads:%d messages:%d media:%d already:%d new:%t left_out_threads:%d",
+		plan.AccountID, res.Contacts, res.Removed, res.PinsFilled, res.Threads, res.Messages, res.Media, res.AlreadyHere, plan.New, len(plan.Contents.LeftOutThreads)), "ok")
 	fmt.Fprintf(stdout, "imported %s into %s: %s", from, slug, countsLine(res))
 	if res.PinsFilled > 0 {
 		fmt.Fprintf(stdout, "; %d held contact(s) given the file's pin", res.PinsFilled)
@@ -349,6 +349,11 @@ func review(w io.Writer, p *portable.Plan) {
 	// is never a contact here.
 	for _, r := range p.Removed {
 		fmt.Fprintf(w, "  removed %s %q (%q): a former contact's conversation, never written as a contact\n", r.Root, r.DisplayName, r.Name)
+	}
+	// HDTP §9.2 step 1: the id of each thread the import leaves out, quoted, since it is of neither
+	// form of §7 and may hold anything; its messages and the files only they name are not written.
+	for _, t := range p.Contents.LeftOutThreads {
+		fmt.Fprintf(w, "  left out thread %q with %q: %s; its messages and the files only they name are not written\n", t.ID, t.Contact, t.Reason)
 	}
 	fmt.Fprintf(w, "and %d thread(s), %d message(s), %d file(s)\n", len(p.Contents.Threads), len(p.Contents.Messages), len(p.Contents.Media))
 }

@@ -141,6 +141,15 @@ func (q *Queries) DeleteThreadMessages(ctx context.Context, arg DeleteThreadMess
 	return result.RowsAffected(), nil
 }
 
+const endThreadIDWipe = `-- name: EndThreadIDWipe :exec
+DELETE FROM thread_id_wipe
+`
+
+func (q *Queries) EndThreadIDWipe(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, endThreadIDWipe)
+	return err
+}
+
 const getBlob = `-- name: GetBlob :one
 SELECT account_id, hash, size, mime, filename, created_at FROM blobs WHERE account_id = $1 AND hash = $2
 `
@@ -664,6 +673,41 @@ func (q *Queries) ListPendingOutbound(ctx context.Context, limit int32) ([]ListP
 	return items, nil
 }
 
+const listStoredThreadIDs = `-- name: ListStoredThreadIDs :many
+SELECT account_id, id AS thread_id FROM threads
+UNION
+SELECT account_id, thread_id FROM messages
+UNION
+SELECT account_id, thread_id FROM changes WHERE thread_id <> ''
+`
+
+type ListStoredThreadIDsRow struct {
+	AccountID string
+	ThreadID  string
+}
+
+// Every thread id the store holds, of every account: a thread's, and a message's or a change row's
+// that no thread row may name. A change row's empty thread_id names no thread.
+func (q *Queries) ListStoredThreadIDs(ctx context.Context) ([]ListStoredThreadIDsRow, error) {
+	rows, err := q.db.Query(ctx, listStoredThreadIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStoredThreadIDsRow
+	for rows.Next() {
+		var i ListStoredThreadIDsRow
+		if err := rows.Scan(&i.AccountID, &i.ThreadID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listThreadMediaBodies = `-- name: ListThreadMediaBodies :many
 SELECT body FROM messages WHERE account_id = $1 AND thread_id = $2 AND kind = 'media' ORDER BY seq
 `
@@ -882,6 +926,18 @@ func (q *Queries) SumBlobBytes(ctx context.Context, accountID string) (int64, er
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const threadIDWipePending = `-- name: ThreadIDWipePending :one
+SELECT COUNT(*) FROM thread_id_wipe
+`
+
+// Whether the wipe of thread ids of neither form is still to run (migration 0005).
+func (q *Queries) ThreadIDWipePending(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, threadIDWipePending)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const touchThread = `-- name: TouchThread :execrows

@@ -49,6 +49,7 @@ var justified = map[string]string{
 	"LastAuditEvent":        "one row, from the end of the primary key",
 	"DeleteExpiredSessions": "reads the owner sessions, which this statement is what keeps few: one per sign-in, gone within the hour of expiring",
 	"PinCandidates":         "sorts the few rows three index probes found (one root's, those at one address, the one holding one leaf), never the account's contacts",
+	"ListStoredThreadIDs":   "the wipe of thread ids of neither form reads every thread id the store holds, once, when migration 0005 scheduled it (messaging.WipeThreadIDs)",
 }
 
 // SQLite only.

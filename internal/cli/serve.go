@@ -162,6 +162,9 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return fail(err)
 	}
 	defer func() { _ = adapter.Stop() }()
+	if err := s.wipeThreadIDs(); err != nil {
+		return fail(err)
+	}
 
 	if err := s.startNode(); err != nil {
 		return fail(err)
@@ -223,6 +226,39 @@ func (s *serveRun) openKeyring(alone bool) error {
 	s.admin = core.NewAdminServer(core.AdminSocketPath(s.cfg.DataDir))
 	s.idm = &identity.Manager{Store: s.st, Keyring: kr}
 	return nil
+}
+
+// wipeThreadIDs runs the wipe migration 0005 scheduled before anything is served, so no surface
+// lists a thread whose id every door now refuses (wipeThreadIDs).
+func (s *serveRun) wipeThreadIDs() error {
+	return wipeThreadIDs(s.ctx, s.st, s.cfg, s.auditFn, s.stderr)
+}
+
+// wipeThreadIDs runs the wipe migration 0005 scheduled (messaging.WipeThreadIDs), if it has not run:
+// serve before it serves, and every offline command that migrates (migrate, export, import), so no
+// command reads the store, or writes an export, with a thread of neither form in it. It writes one
+// thread_id_wipe row per account that lost a conversation, with the counts and never an id: the ids
+// are the ones a contact chose that every door now refuses.
+func wipeThreadIDs(ctx context.Context, st store.Store, cfg *core.Config, auditFn func(action, resource, outcome string), stderr io.Writer) error {
+	svc := &messaging.Service{Store: st, Blobs: messaging.BlobDir{Root: cfg.Blobs()},
+		OnError: func(err error) { fmt.Fprintf(stderr, "messaging: %v\n", err) }}
+	wiped, err := svc.WipeThreadIDs(ctx)
+	for _, w := range wiped {
+		auditFn("thread_id_wipe", fmt.Sprintf("account:%s threads:%d messages:%d files:%d", w.AccountID, w.Threads, w.Messages, w.Files), "ok")
+	}
+	if err != nil {
+		return fmt.Errorf("deleting the threads stored under a thread id of neither form: %w", err)
+	}
+	return nil
+}
+
+// migrateAndWipe is what an offline command that migrates runs: the migrations, then the wipe they
+// may have scheduled, audited as the node's own.
+func migrateAndWipe(ctx context.Context, st store.Store, cfg *core.Config, stderr io.Writer) error {
+	if err := st.Migrate(ctx); err != nil {
+		return err
+	}
+	return wipeThreadIDs(ctx, st, cfg, auditsink.New(ctx, st, stderr).System(), stderr)
 }
 
 // startTunnel wires the audit sink and the owner's settings, then starts the tunnel the settings

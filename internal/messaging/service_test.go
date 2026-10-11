@@ -77,8 +77,8 @@ func TestThreadIDSharedAcrossDirections(t *testing.T) {
 func TestPeerSuppliedThreadIDAdoptedOnFirstSight(t *testing.T) {
 	svc, acct := newSvc(t)
 	ctx := context.Background()
-	r, err := svc.Record(ctx, acct, alina, DirIn, Input{Origin: OriginPeer, MsgID: "m1", ThreadID: "their-thread-42", Text: "x", Sender: SenderAgent})
-	if err != nil || r.ThreadID != "their-thread-42" {
+	r, err := svc.Record(ctx, acct, alina, DirIn, Input{Origin: OriginPeer, MsgID: "m1", ThreadID: "theirThread42", Text: "x", Sender: SenderAgent})
+	if err != nil || r.ThreadID != "theirThread42" {
 		t.Fatalf("%v %+v", err, r)
 	}
 }

@@ -208,3 +208,56 @@ func TestTheReviewListsEachRemovedRoot(t *testing.T) {
 		t.Fatalf("counts: %q", got)
 	}
 }
+
+// HDTP §9.2 step 1 and step 3 (SEP-0006): a file holding a thread whose id is of neither form of §7
+// still imports; the review shows that id, quoted, before anything is written, and the import writes
+// neither the thread nor its messages, while the thread of a form beside it arrives (the control).
+// The import's audit row counts what it left out.
+func TestTheReviewShowsEachThreadTheImportLeavesOut(t *testing.T) {
+	n, st, a, peer := exportedNode(t)
+	ctx := context.Background()
+	if err := st.InsertThread(ctx, store.Thread{ID: "my thread\x01", AccountID: a.ID, ContactFpr: peer, CreatedAt: 1790000000, LastAt: 1790000010}); err != nil {
+		t.Fatal(err)
+	}
+	for i, th := range []string{"my thread\x01", "t1"} {
+		if err := st.InsertMessage(ctx, store.Message{ID: "m" + th, AccountID: a.ID, ContactFpr: peer, MsgID: "p-" + string(rune('a'+i)), ThreadID: th,
+			Direction: "in", Sender: "human", Kind: "text", Body: "hello", Status: "delivered", CreatedAt: 1790000005}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st.Close()
+	file := filepath.Join(t.TempDir(), "alice.zip")
+	if code, out, errb := run(t, "export", "-config", n.cfg, "-slug", "alice", "-out", file); code != 0 {
+		t.Fatalf("export: code=%d out=%q err=%q", code, out, errb)
+	}
+	fresh := newIDNode(t, "fresh")
+	code, out, errb := run(t, "import", file, "-config", fresh.cfg, "-slug", "alice", "-yes")
+	if code != 0 {
+		t.Fatalf("import: code=%d out=%q err=%q", code, out, errb)
+	}
+	want := `  left out thread "my thread\x01" with "` + peer + `": `
+	shownAt, writtenAt := strings.Index(out, want), strings.Index(out, "imported ")
+	if shownAt < 0 || writtenAt < 0 || shownAt > writtenAt {
+		t.Fatalf("the review must show the left-out thread's id, quoted, before the import writes:\n%s", out)
+	}
+	got := openStoreAt(t, fresh.dir)
+	b, err := got.GetAccountBySlug(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	threads, _ := got.ListThreadsByAccount(ctx, b.ID)
+	if len(threads) != 1 || threads[0].ID != "t1" {
+		t.Fatalf("threads written: %+v, want t1 alone", threads)
+	}
+	if msgs, _ := got.ListMessagesByThread(ctx, b.ID, "my thread\x01"); len(msgs) != 0 {
+		t.Fatalf("the left-out thread's messages were written: %d", len(msgs))
+	}
+	rows, _ := got.ListAuditEvents(ctx, "")
+	counted := false
+	for _, r := range rows {
+		counted = counted || (r.Action == "account_import" && r.Outcome == "ok" && strings.HasSuffix(r.Resource, " left_out_threads:1"))
+	}
+	if !counted {
+		t.Fatal("the import's audit row does not count the thread it left out")
+	}
+}

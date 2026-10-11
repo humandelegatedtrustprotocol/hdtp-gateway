@@ -35,7 +35,7 @@ Shared (`portable.go`)
 - Messages (`messageRow`, `export.go:161`): id, thread, contact, msg id, direction, sender, time, body, status, reply_to. A media message's description JSON (`messaging.MediaMeta`) is lifted into one attachment and the body is emptied; a media message with no hash (a link never fetched) travels the link as the body.
 - Status mapping (`exportStatus`): `pending` and `queued_for_human` become `queued`; `failed` stays; everything else is `delivered`.
 - Media: each distinct hash once, with its size read from the blob; sorted by hash.
-- The writer itself (hdtp-identity) omits messages whose body or file reads as a private key, and nulls a `reply_to` the file does not carry; each is returned and recorded in `Result.LeftOut` and `LeftOutMessages`. A thread id, `msg_id` or `reply_to` a contact chose that reads as a key is written as `r-` and 62 hex digits, the same at every reference, and such a topic or contact display name is written empty (hdtp-identity 0.8.1); nothing is left out for it, and an import takes the re-issued ids as any others.
+- The writer itself (hdtp-identity) omits messages whose body or file reads as a private key, and nulls a `reply_to` the file does not carry; each is returned and recorded in `Result.LeftOut` and `LeftOutMessages`. A thread id, `msg_id` or `reply_to` a contact chose that reads as a key, or that is already of the re-issued form, is written as `r` and 62 hex digits, the same at every reference, and such a topic or contact display name is written empty (hdtp-identity 0.8.1; the `r` prefix 0.8.2's); nothing is left out for it, and an import takes the re-issued ids as any others.
 
 ### The import as the code reads it
 

@@ -227,6 +227,12 @@ type Invite struct {
 	CreatedAt   int64
 }
 
+// StoredThreadID is one thread id the store holds, and the account it is held under.
+type StoredThreadID struct {
+	AccountID string
+	ThreadID  string
+}
+
 // Thread is one conversation topic between an account and a contact. LastAt is its last activity
 // time; the read marker (last_read_seq) is kept in the table and is reached through the read-state
 // methods of MessageStore, not through this type.
@@ -958,6 +964,14 @@ type MessageStore interface {
 	DeleteThreadMessages(ctx context.Context, accountID, threadID string) (int64, error)
 	DeleteThread(ctx context.Context, accountID, threadID string) (int64, error)
 	DeleteChangesByThread(ctx context.Context, accountID, threadID string) (int64, error)
+
+	// The wipe of the thread ids of neither form of HDTP §7 (migration 0005, messaging.WipeThreadIDs).
+	// ThreadIDWipePending reports whether it is still to run, and EndThreadIDWipe records that it ran.
+	// ListStoredThreadIDs returns every thread id the store holds, of every account, each once: a
+	// thread row's, and a message's or a change row's, which no thread row may name.
+	ThreadIDWipePending(ctx context.Context) (bool, error)
+	EndThreadIDWipe(ctx context.Context) error
+	ListStoredThreadIDs(ctx context.Context) ([]StoredThreadID, error)
 
 	// ListMediaBodies returns the bodies of an account's media messages, oldest first: what
 	// retention reads to learn which media a retained message still references.

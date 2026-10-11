@@ -12,6 +12,22 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- A `thread_id` has two forms, 1 to 64 ASCII letters and digits or a lower-case UUID, and the node
+  takes no other (HDTP §7, SEP-0006; hdtp-identity 0.8.2). At `send_message`, `send_media` and
+  `book_slot` a contact's `thread_id` over 64 bytes is refused `too_large`, and any other of neither
+  form, the empty string included, `bad_request`, where the node took any string of up to 1024 bytes
+  and read the empty one as none. The refusal records nothing of the call: no message, no thread,
+  and the `msg_id` is not seen. Inside a sealed envelope it is sealed back as a tool error, charged
+  and audited as the contact's call, and a renewal or a new address the envelope carried is learned.
+  The portal and the owner MCP refuse an id
+  of neither form that the owner names, to send into, read or delete a thread. A thread stored
+  under such an id is deleted on the first start after the upgrade (or the first `migrate`,
+  `export` or `import`), with its messages, its files,
+  its read marker and its change rows, and nothing takes its place; each identity that lost one gets
+  a `thread_id_wipe` audit row with the counts (SPEC §7, migration 0005). An import leaves out a
+  thread whose id is of neither form, and its messages, and shows the id in its review.
+- hdtp-identity 0.8.2. The export writer re-issues an id as `r` and 62 hex digits, where 0.8.1 wrote
+  `r-` and 62, and re-issues every id already of that form (SPEC §3.10).
 - hdtp-identity 0.8.1. A sealed call whose `sig` is not base64url in its one spelling is refused
   `envelope_invalid` before the open in the small form too, where it was answered `chain_required`;
   such a call now spends the guest total alone, as every `envelope_invalid` the node's keys reach

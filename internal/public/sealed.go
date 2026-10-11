@@ -203,6 +203,18 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			d.audit("guest", core.ToolSealedCall, "account:"+d.AccountID, Code(err))
 			return errEnvelope(Code(err)), nil
 		}
+		if facts.Refusal != "" && facts.Tier == policy.TierContact {
+			// A contact's call refused for its thread_id (HDTP §7, decideEnvelope): charged as the
+			// contact's call is, before the dispatch it does not reach, and sealed as a tool error inside
+			// `result`, the answer the same call gets from the tool over a client certificate
+			// (ToolDeps.refuseThreadID). It is not the envelope's recorded answer: nothing is reserved.
+			if r := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); r != nil {
+				d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, r.Code())
+				return d.sealLimited(ctx, facts, r.Result())
+			}
+			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From+" why:"+facts.Why, facts.Refusal)
+			return d.sealLimited(ctx, facts, codeResult(facts.Refusal))
+		}
 		if facts.Refusal != "" {
 			// A pinned root at an address the owner has not approved (HDTP
 			// §5.3): the seed's plain code, nothing dispatched — and charged, so
@@ -279,8 +291,9 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 	}
 }
 
-// sealLimited seals a budget's refusal as a tool error inside `result`, where the client keeps its
-// `retry_after`; an `error` member is reduced to its code (HDTP §12, as the cloud seals it).
+// sealLimited seals a refusal as a tool error inside `result`: a budget's, where the client keeps its
+// `retry_after` (an `error` member is reduced to its code; HDTP §12, as the cloud seals it), and a
+// thread_id's (HDTP §7), as the tool answers it.
 //
 // A refusal that cannot be sealed goes out as itself, in the clear (sealBackErr says when), never
 // as another code.

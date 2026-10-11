@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -580,8 +581,8 @@ func TestARoundTripKeepsWhatAnExportCarries(t *testing.T) {
 }
 
 // What a contact controls never stops the export, and neither does text of theirs that reads as a
-// private key (the identity core 0.8.1): a thread id and a msg_id a contact chose in that shape are
-// written anew, with every reference to them, and a topic in it is written empty. The conversation
+// private key (the identity core 0.8.1; the r prefix 0.8.2's): a thread id and a msg_id a contact
+// chose in that shape are written anew, with every reference to them, and a topic in it is written empty. The conversation
 // arrives whole on the other side and the key-shaped text is nowhere in the file. Shown red on 0.8.0,
 // whose writer refused the whole export.
 func TestAContactsKeyShapedTextNeverStopsTheExport(t *testing.T) {
@@ -630,8 +631,8 @@ func TestAContactsKeyShapedTextNeverStopsTheExport(t *testing.T) {
 			reissued = th
 		}
 	}
-	if !strings.HasPrefix(reissued.ID, "r-") || len(reissued.ID) != 64 || reissued.Topic != "" {
-		t.Fatalf("the contact's thread arrived as id %q topic %q; want an r- id of 64 characters and no topic", reissued.ID, reissued.Topic)
+	if !reissuedID.MatchString(reissued.ID) || reissued.Topic != "" {
+		t.Fatalf("the contact's thread arrived as id %q topic %q; want r and 62 hex digits, and no topic", reissued.ID, reissued.Topic)
 	}
 	msgs, err := dst.st.ListMessagesByThread(ctx, a.ID, reissued.ID)
 	must(t, err)
@@ -640,10 +641,14 @@ func TestAContactsKeyShapedTextNeverStopsTheExport(t *testing.T) {
 		byID[m.ID] = m
 	}
 	in, reply := byID["k1"], byID["k2"]
-	if !strings.HasPrefix(in.MsgID, "r-") || reply.ReplyTo != in.MsgID || reply.MsgID != "msg-k2" {
+	if !reissuedID.MatchString(in.MsgID) || reply.ReplyTo != in.MsgID || reply.MsgID != "msg-k2" {
 		t.Fatalf("the conversation arrived apart: in %+v, reply %+v", in, reply)
 	}
 }
+
+// reissuedID is the form the core's writer re-issues an id in (HDTP §9.2): r and the first 62
+// lower-case hex digits of its sha256, which is of the first form of a thread_id (§7).
+var reissuedID = regexp.MustCompile(`^r[0-9a-f]{62}$`)
 
 // An export that cannot be what it claims is refused by name, and leaves no file behind a caller
 // could mistake for one.
