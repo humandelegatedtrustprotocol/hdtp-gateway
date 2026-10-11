@@ -31,6 +31,12 @@ test("Delete is the contact panel's last section, and one control", () => {
   assert.match(view, /<\/div>\n\s+<div className="end">\n[^\n]*\n\s+<Toolbar className="details">/);
 });
 
+test("a deleted conversation leaves the panel for the list, as the cloud's does", () => {
+  // A removed contact's row goes with its last thread, so staying put left a phone on a panel pane with
+  // no panel: a blank page. Only a delete that went through moves; a refused one stays to say why.
+  assert.match(view, /if \(failed\) setDeleteErr\("The conversation was not deleted in full\. Try again\."\);\n\s+else \{\n\s+setSel\(""\);\n\s+setPane\("list"\);\n\s+history\.replaceState\(null, "", "\/messages"\);\n\s+\}/);
+});
+
 test("a refused delete is said beside the button, in the same words", () => {
   assert.match(view, /if \(failed\) setDeleteErr\("The conversation was not deleted in full\. Try again\."\);/);
   assert.match(view, /<h3>Conversation<\/h3>\n\s+\{deleteErr && <Notice kind="err">\{deleteErr\}<\/Notice>\}/);

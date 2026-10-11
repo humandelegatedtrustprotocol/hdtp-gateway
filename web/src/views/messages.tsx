@@ -195,6 +195,11 @@ export function Messages() {
       if (!r.ok && r.status !== 404) failed = true;
     }
     if (failed) setDeleteErr("The conversation was not deleted in full. Try again.");
+    else {
+      setSel("");
+      setPane("list");
+      history.replaceState(null, "", "/messages");
+    }
     dispatchEvent(new Event("hdtp:counts"));
     load();
   };
