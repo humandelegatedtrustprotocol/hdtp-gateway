@@ -3,6 +3,7 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,5 +94,35 @@ func TestDeleteThreadDeletesOneConversationAndRefusesTheRest(t *testing.T) {
 	}
 	if len(shape) != 5 || shape["contact"] != "sha256:alina" {
 		t.Fatalf("answer is not its five members, naming the contact: %s", text)
+	}
+}
+
+// The owner MCP takes a thread id as an argument, never in a path, so every id a contact may choose
+// reads and deletes here as it does in the portal (internalui's threadIDsAPathCannotCarry).
+func TestEveryThreadIDReadsAndDeletesOverTheOwnerMCP(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	for i, id := range []string{".", "..", "%2e", "a/b", "a+b", "a&b=c", "#x", "é"} {
+		if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn, messaging.Input{
+			Origin: messaging.OriginPeer, MsgID: "dot-" + strconv.Itoa(i), ThreadID: id, Text: "hi " + id, Sender: messaging.SenderAgent,
+		}); err != nil {
+			t.Fatalf("%q: recording: %v", id, err)
+		}
+		text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": id})
+		var read []struct {
+			Body string `json:"body"`
+		}
+		if isErr || json.Unmarshal([]byte(text), &read) != nil || len(read) != 1 || read[0].Body != "hi "+id {
+			t.Fatalf("%q: read_thread: %s (error %v)", id, text, isErr)
+		}
+		text, isErr = callJSON(t, cs, "delete_thread", map[string]any{"account_id": e.acctA, "thread_id": id})
+		var got messaging.Deleted
+		if isErr || json.Unmarshal([]byte(text), &got) != nil || got.ThreadID != id || got.Messages != 1 {
+			t.Fatalf("%q: delete_thread: %s (error %v)", id, text, isErr)
+		}
+		if _, err := e.st.GetThread(ctx, e.acctA, id); err == nil {
+			t.Fatalf("%q: still there after delete_thread", id)
+		}
 	}
 }

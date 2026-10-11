@@ -630,7 +630,7 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 	return r, nil, err
 }
 
-// deleteThreadTool is the `delete_thread` tool: the portal's POST /threads/{id}/delete through the
+// deleteThreadTool is the `delete_thread` tool: the portal's POST /thread/delete through the
 // same operation (messaging.Service.DeleteThread), with one thread_delete row beside the call's own
 // owner_mcp_call row. Like remove_contact and revoke_invite it acts at once: no owner MCP tool asks
 // for a confirmation.

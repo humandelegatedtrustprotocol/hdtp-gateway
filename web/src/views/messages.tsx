@@ -29,7 +29,7 @@ type Msg = { id?: string; mine: boolean; body: string; who: string; ts: number; 
  * this answer shows: what showing it marks read through (POST /messages/read).
  */
 type Data = { contacts: Person[] | null; messages: Msg[] | null; new_msg_id: string; unread: Tally; more: boolean; through: number;
-  /** The threads the selected conversation merges: what Delete deletes, each through POST /threads/{id}/delete. */
+  /** The threads the selected conversation merges: what Delete deletes, each through POST /thread/delete. */
   threads: string[] | null };
 
 type PermRow = { name: string; on: boolean };
@@ -191,7 +191,7 @@ export function Messages() {
     setDeleteErr("");
     let failed = false;
     for (const id of d?.threads ?? []) {
-      const r = await postForm(`/threads/${encodeURIComponent(id)}/delete`, {});
+      const r = await postForm("/thread/delete", { thread_id: id });
       if (!r.ok && r.status !== 404) failed = true;
     }
     if (failed) setDeleteErr("The conversation was not deleted in full. Try again.");

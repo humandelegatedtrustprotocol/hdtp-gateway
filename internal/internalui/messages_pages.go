@@ -2,12 +2,10 @@ package internalui
 
 // The conversation view: contacts on the left, the thread on the right.
 //
-// Messaging existed end to end — threads, sending, delivery, SSE — and had no way
-// IN. `/inbox` listed threads that already existed and `/threads/{id}` opened one,
-// so an owner could reply to somebody who had written first and could never start
-// a conversation. `send_to_contact` was on the agent surface only. That is why the
-// portal looked like it could not send: it could, but only to a thread it had no
-// way to create.
+// A conversation is with a person, not a thread: the view lists contacts, and
+// `POST /messages/send` sends to a contact and lets the node pick the thread, so an
+// owner can start a conversation as well as answer one (the agent's
+// `send_to_contact` does the same).
 //
 // Selecting a contact IS the conversation, and sending returns to the same one,
 // so the view survives the round trip.
@@ -281,7 +279,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 	// marks read through (POST /messages/read), so a message that lands after it stays unread.
 	var through int64
 	// threadIDs are the threads the selected conversation merges: what its Delete deletes, one
-	// POST /threads/{id}/delete each.
+	// POST /thread/delete each.
 	threadIDs := []string{}
 	if chosen != nil {
 		for _, t := range threads {
@@ -327,7 +325,7 @@ func (d MessagesDeps) getAPIConversations(w http.ResponseWriter, r *http.Request
 // message `through` names (the `through` of the `GET /api/conversations` that showed it).
 //
 // The marker is the reader's own and never wire-visible (SPEC §7.6), so it writes no audit row,
-// as BatonDeck's `POST /v1/identities/:slug/threads/:threadId/read` writes no chain row and as
+// as BatonDeck's `markThreadRead` writes no chain row and as
 // reading a conversation writes none here: the trail records what was said and done, not every
 // glance. It is a high-water mark, never lowered, so a repeat, or a stale mark arriving after a
 // newer one, changes nothing. A `through` that is not a message of this conversation is 404 (an
