@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.3] — 2026-10-11
+
 ### Added
 
 - Every tool the node serves states the four MCP hints (`readOnlyHint`, `destructiveHint`,
@@ -37,6 +41,12 @@ changelog can be and is not summarized into a fictional release history.
   asks first) and the owner MCP's `delete_thread` run one operation. The thread, its messages
   (one still being retried is not sent) and the files no other message names go; the contact and
   its other threads stay, and nothing is sent to them (SPEC §7.9).
+- `SECURITY.md` records the node's current hardening status: one row for each of fourteen areas
+  (tests, fuzzing, static analysis, release integrity, authorization, secrets at rest and others),
+  each naming the file, target or test it was measured from.
+  `TestTheHardeningStatusTableMatchesTheTree` holds the rows to the tree: the analysers' pins, the
+  pre-push hook's steps, the fuzz targets, the `policy.Allow` call sites, the release-build checks,
+  and the live scenarios as a floor (more than 25, in the fabric, PR and nightly tiers).
 
 ### Changed
 
@@ -63,6 +73,32 @@ changelog can be and is not summarized into a fictional release history.
   answers them as `removed_contact` (SPEC §9.1).
 - `get_inbox` answers each thread's `contact_status`: its contact row's status, or `removed` when
   no row names the thread's fingerprint, in the words BatonDeck's thread rows use (SPEC §9.1).
+- An avatar's colour is picked by the identity it stands for, not by its name: the first 30 bits of
+  the root fingerprint choose one of ten fills (`--av-1` to `--av-10` in `brand.css`), so a rename
+  keeps the colour and two contacts with one name almost always differ. A removed contact's
+  conversation keeps its root's colour; the node's own identities are keyed by account id, since an
+  account's fingerprint is its current leaf. A key that is not a fingerprint is hashed as text.
+- The README states that the node comes with no warranty and no liability, in plain words under
+  Sections 7 and 8 of the Apache License 2.0, which govern. `SUPPORT.md` no longer says nothing has
+  been released.
+- Contributing: no `Signed-off-by` line is asked for (no DCO, no CLA; the licence's section 5
+  covers a contribution). The `commit-msg` hook refuses a message carrying a path under `/Users` or
+  `/home`, and `TestNoTrackedFileLeaksALocalPath` reads the tracked text files for one. The name
+  guard (`scripts/check-names.mjs`, `scripts/hdtp-names.txt`) is removed.
+- `make deploy-check` holds the Azure sample parameters, the two deploy scripts' usage lines and
+  `docs/deploy.md` to the AWS template's default release, as well as the four template defaults.
+- The harness asks the local cloud's runner what a run links in and checks each in the checkout
+  before it promises a scenario that needs the local cloud; a runner that cannot answer is refused,
+  with node's error line.
+
+### Security
+
+- `make dist` refuses to build unless `git status --porcelain` is empty, untracked files included,
+  and HEAD is the commit tag `v$(VERSION)` names; after building it refuses unless every binary's
+  build info records `vcs.modified=false` and that commit. `make sbom` holds to the same tree check,
+  and `make release-check`, in `make check`, shows each refusal against fixture repositories. 0.1.3
+  is the first release built under these checks; the binaries of 0.1.0 to 0.1.2 are stamped
+  `vcs.modified=true` (`RELEASING.md` records what was measured).
 
 ### Fixed
 
