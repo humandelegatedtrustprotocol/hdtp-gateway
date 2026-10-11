@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
@@ -103,7 +104,7 @@ func (s *Service) remove(ctx context.Context, accountID, threadID string, held b
 		files, _, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
 		out.Files = files
 		if err != nil && s.OnError != nil {
-			s.OnError(fmt.Errorf("thread %s deleted, its files not all collected: %w", threadID, err))
+			s.OnError(fmt.Errorf("thread %q deleted, its files not all collected: %w", threadID, err))
 		}
 	}
 	return out, nil
@@ -120,43 +121,54 @@ type Wiped struct {
 // WipeThreadIDs deletes, once, every conversation the store holds under a thread id of neither form
 // of HDTP §7 (SEP-0006): the thread row with its read marker, its messages, its change rows and the
 // files only they name, as DeleteThread deletes one, and also the messages and change rows of such an
-// id that no thread row names. Nothing is kept in its place. It runs when migration 0005 scheduled it
-// and records that it ran; a run that fails part way leaves it scheduled, and the next start runs it
-// again over what is left. It answers what went, one Wiped per account that lost a thread, a
-// message or a file.
-func (s *Service) WipeThreadIDs(ctx context.Context) ([]Wiped, error) {
+// id that no thread row names, the empty id included. Nothing is kept in its place. It runs while
+// migration 0005's row says it is pending and then deletes that row; a run that fails part way leaves
+// it pending, and the next run takes what is left.
+//
+// It works one account at a time and tells done what went from each account that lost a thread, a
+// message or a file as soon as that account is finished, or as it stops on an error, so what was
+// deleted before a failure is told. A process that dies inside one account's deletions tells nothing
+// of that account; the next run tells what it deletes.
+func (s *Service) WipeThreadIDs(ctx context.Context, done func(Wiped)) error {
 	pending, err := s.Store.ThreadIDWipePending(ctx)
 	if err != nil || !pending {
-		return nil, err
+		return err
 	}
 	ids, err := s.Store.ListStoredThreadIDs(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var out []Wiped
-	at := map[string]int{}
+	sort.Slice(ids, func(i, j int) bool {
+		if ids[i].AccountID != ids[j].AccountID {
+			return ids[i].AccountID < ids[j].AccountID
+		}
+		return ids[i].ThreadID < ids[j].ThreadID
+	})
+	var cur Wiped
+	flush := func() {
+		if cur.Threads != 0 || cur.Messages != 0 || cur.Files != 0 {
+			done(cur)
+		}
+	}
 	for _, id := range ids {
 		if hdtpidentity.IsThreadID(id.ThreadID) {
 			continue
 		}
+		if id.AccountID != cur.AccountID {
+			flush()
+			cur = Wiped{AccountID: id.AccountID}
+		}
 		gone, err := s.remove(ctx, id.AccountID, id.ThreadID, false)
 		if err != nil {
-			return out, err
-		}
-		if gone.Contact == "" && gone.Messages == 0 && gone.Files == 0 {
-			continue
-		}
-		i, ok := at[id.AccountID]
-		if !ok {
-			i = len(out)
-			at[id.AccountID] = i
-			out = append(out, Wiped{AccountID: id.AccountID})
+			flush()
+			return err
 		}
 		if gone.Contact != "" {
-			out[i].Threads++
+			cur.Threads++
 		}
-		out[i].Messages += gone.Messages
-		out[i].Files += gone.Files
+		cur.Messages += gone.Messages
+		cur.Files += gone.Files
 	}
-	return out, s.Store.EndThreadIDWipe(ctx)
+	flush()
+	return s.Store.EndThreadIDWipe(ctx)
 }
