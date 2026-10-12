@@ -309,26 +309,26 @@ func TestAnUnreadableEnvelopeIsRefusedLikeAnyOther(t *testing.T) {
 	}
 }
 
-// The tool's schema closes the envelope at its four members (additionalProperties: false), and
-// the go-sdk does not hold a raw tool to its schema, so the wrapper does: a fifth member, or a
-// member spelled other than as the schema names it, is not an envelope (HDTP §13.1) and is
-// answered envelope_invalid and audited once. encoding/json matches member names without regard to
-// case, so "SIG" used to be read as `sig` and a fifth member was dropped unread.
+// An envelope is exactly `protected`, `enc`, `ct` and `sig`, each a string, by name byte for byte
+// (HDTP §13.1, SEP-0005). Anything else is refused `envelope_invalid` by the library's reader before
+// the open, audited once and not charged as opened. A member written twice is read at its last
+// occurrence: the real `sig` last gets through, and `AAAA` last is refused at the signature, after
+// the open. Shown red on 0.8.2 for an absent or null `sig`, which the struct decode read as the empty
+// string and decided at the open (in the small form, `chain_required`).
 func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
 	s := newSealedEnv(t)
 	p := newPeer(t, s.nowAt)
 	s.pin(t, p, "active")
 	var rows []string
 	s.deps.Audit = func(action, resource, outcome string) { rows = append(rows, action+" "+outcome) }
-	call := func(members map[string]any) *mcp.CallToolResult {
+	var charges []Charge
+	s.pool.Limit = func(_ context.Context, as Charge) *Refusal { charges = append(charges, as); return nil }
+	call := func(args string) *mcp.CallToolResult {
 		t.Helper()
-		args, err := json.Marshal(members)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ctx := context.WithValue(context.Background(), factsKey{}, TransportFacts{})
+		rows, charges = nil, nil
+		ctx := context.WithValue(context.Background(), factsKey{}, TransportFacts{RemoteIP: "203.0.113.9"})
 		res, err := sealedHandler(s.deps)(ctx, &mcp.CallToolRequest{
-			Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: args},
+			Params: &mcp.CallToolParamsRaw{Name: core.ToolSealedCall, Arguments: json.RawMessage(args)},
 		})
 		if err != nil {
 			t.Fatalf("sealed_call returned a transport error rather than a result: %v", err)
@@ -336,28 +336,68 @@ func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
 		return res
 	}
 	n := 0
-	members := func() map[string]any {
+	// envelope is a fresh envelope's arguments as text, its members in the order given, each a
+	// member's name and its raw JSON value; "" as a value leaves the member out, and a name
+	// prefixed "=" writes the real value of the member it names.
+	envelope := func(form string, members ...[2]string) string {
 		n++
-		env := s.sealFrom(t, p, "chain", "send_message", map[string]any{"text": "hi"},
+		env := s.sealFrom(t, p, form, "send_message", map[string]any{"text": "hi"},
 			func(o *hdtpidentity.SealOpts) { o.MsgID = "m-members-" + strconv.Itoa(n) })
-		return map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
+		real := map[string]string{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
+		parts := []string{}
+		for _, m := range members {
+			v := m[1]
+			if strings.HasPrefix(v, "=") {
+				q, _ := json.Marshal(real[v[1:]])
+				v = string(q)
+			}
+			if v != "" {
+				parts = append(parts, strconv.Quote(m[0])+":"+v)
+			}
+		}
+		return "{" + strings.Join(parts, ",") + "}"
 	}
-	for name, mutate := range map[string]func(m map[string]any){
-		"a fifth member":              func(m map[string]any) { m["note"] = "x" },
-		"a member spelled in caps":    func(m map[string]any) { m["SIG"] = m["sig"]; delete(m, "sig") },
-		"a member twice in two cases": func(m map[string]any) { m["Protected"] = m["protected"] },
+	head := [][2]string{{"protected", "=protected"}, {"enc", "=enc"}, {"ct", "=ct"}}
+	with := func(rest ...[2]string) [][2]string { return append(append([][2]string{}, head...), rest...) }
+	opened := func() bool {
+		for _, c := range charges {
+			if c == ChargeOpened {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		name, form string
+		members    [][2]string
+	}{
+		{"a fifth member", "chain", with([2]string{"sig", "=sig"}, [2]string{"note", `"x"`})},
+		{"a member spelled in caps", "chain", with([2]string{"SIG", "=sig"})},
+		{"a member twice in two cases", "chain", with([2]string{"sig", "=sig"}, [2]string{"Protected", "=protected"})},
+		{"sig absent", "chain", with()},
+		{"sig absent, the small form", "leaf", with()},
+		{"sig null", "chain", with([2]string{"sig", "null"})},
+		{"sig a number", "chain", with([2]string{"sig", "7"})},
+		{"sig an array", "chain", with([2]string{"sig", "[]"})},
 	} {
-		m := members()
-		mutate(m)
-		rows = nil
-		if res := call(m); !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) {
-			t.Errorf("%s: answered %s, want envelope_invalid", name, text(t, res))
+		if res := call(envelope(c.form, c.members...)); !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) {
+			t.Errorf("%s: answered %s, want envelope_invalid", c.name, text(t, res))
 		}
 		if len(rows) != 1 || rows[0] != "sealed_call envelope_invalid" {
-			t.Errorf("%s: the refusal must be audited once, as a sealed_call refusal; audited %q", name, rows)
+			t.Errorf("%s: the refusal must be audited once, as a sealed_call refusal; audited %q", c.name, rows)
+		}
+		if opened() {
+			t.Errorf("%s: refused before the open, so not charged as opened; charged %v", c.name, charges)
 		}
 	}
-	if res := call(members()); res.IsError {
+	if res := call(envelope("chain", with([2]string{"sig", `"AAAA"`}, [2]string{"sig", "=sig"})...)); res.IsError {
+		t.Errorf("a sig written twice, the real one last, is read at its last occurrence and gets through: %s", text(t, res))
+	}
+	res := call(envelope("chain", with([2]string{"sig", "=sig"}, [2]string{"sig", `"AAAA"`})...))
+	if !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) || !opened() {
+		t.Errorf("a sig written twice, AAAA last, must be refused at the signature, after the open: answered %s, charged %v", text(t, res), charges)
+	}
+	if res := call(envelope("chain", with([2]string{"sig", "=sig"})...)); res.IsError {
 		t.Fatalf("the control, the four members of a well-formed envelope from a contact, must get through: %s", text(t, res))
 	}
 }

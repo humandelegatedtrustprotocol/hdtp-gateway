@@ -12,6 +12,14 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- hdtp-identity 0.8.3. A sealed call whose envelope is not exactly `protected`, `enc`, `ct` and
+  `sig`, each a string, is refused `envelope_invalid` before the open by the library's reader
+  (HDTP §13.1, SEP-0005), which replaces the node's own check of the member names. A `sig` absent or
+  null, which was read as the empty string and decided at the open (`chain_required` in the small
+  form), is now one of them, and is not charged as an opened refusal. A member written twice is read
+  at its last occurrence, as before. A peer's sealed answer of other members fails as it is decoded,
+  `envelope_invalid`, where a fifth member or a name in another case was read past and an absent or
+  null `sig` was taken for an unverifiable answer and followed by a `get_card`.
 - A `thread_id` has two forms, 1 to 64 ASCII letters and digits or a lower-case UUID, and the node
   takes no other (HDTP §7, SEP-0006; hdtp-identity 0.8.2). At `send_message`, `send_media` and
   `book_slot` a contact's `thread_id` over 64 bytes is refused `too_large`, and any other of neither
