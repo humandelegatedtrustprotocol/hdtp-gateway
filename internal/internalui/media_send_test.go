@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
@@ -239,5 +242,72 @@ func TestContactToolsAreListedAndCallable(t *testing.T) {
 	mux.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("malformed arguments must be 400, got %d", rr.Code)
+	}
+}
+
+// A call to a contact, or a listing of its tools, that did not complete is answered by what is
+// true: 404 not_found for a contact the account does not hold, 409 conflict for one that is not
+// active, 502 envelope_invalid for a contact's answer that did not verify, 502 unavailable for
+// anything else; never the error's own text. The page writes no call_contact row of its own: the
+// call's one row is Call's (node.CallContact). The control, an answer, is 200.
+func TestAContactCallThatFailsIsAnsweredByItsCode(t *testing.T) {
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "secret-detail-from-the-store"
+	for _, c := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"a contact the account does not hold", fmt.Errorf("contact sha256:bob is not held by this account: %s: %w", secret, store.ErrNotFound), http.StatusNotFound, "not_found"},
+		{"a contact that is not active", fmt.Errorf("contact sha256:bob is pending_out, not active %s: %w", secret, contacts.ErrWrongState), http.StatusConflict, "conflict"},
+		{"an answer that did not verify", fmt.Errorf("outbound: unverifiable answer: %s: %w", secret, envelope.ErrInvalid), http.StatusBadGateway, "envelope_invalid"},
+		{"an unreachable contact", fmt.Errorf("outbound: dial: %s", secret), http.StatusBadGateway, "unavailable"},
+		{"the control", nil, http.StatusOK, ""},
+	} {
+		var audited []string
+		mux := http.NewServeMux()
+		MountContactPages(mux, ContactsDeps{
+			Store: st,
+			Audit: func(action, resource, outcome string) { audited = append(audited, action) },
+			ListTools: func(context.Context, string, string) ([]ContactTool, error) {
+				if c.err != nil {
+					return nil, c.err
+				}
+				return []ContactTool{{Name: "get_card"}}, nil
+			},
+			Call: func(context.Context, string, string, string, map[string]any) (string, error) {
+				if c.err != nil {
+					return "", c.err
+				}
+				return `{"content":[]}`, nil
+			},
+		})
+		req := httptest.NewRequest("POST", "/contacts/sha256:bob/call?account=acct-1", strings.NewReader("tool=get_card"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		call := httptest.NewRecorder()
+		mux.ServeHTTP(call, req)
+		tools := httptest.NewRecorder()
+		mux.ServeHTTP(tools, httptest.NewRequest("GET", "/api/contacts/sha256:bob/tools?account=acct-1", nil))
+		for door, rr := range map[string]*httptest.ResponseRecorder{"call": call, "tools": tools} {
+			if rr.Code != c.status || strings.Contains(rr.Body.String(), secret) {
+				t.Errorf("%s, %s: %d %s; want %d and no error text", c.name, door, rr.Code, rr.Body.String(), c.status)
+			}
+			if c.err != nil && strings.TrimSpace(rr.Body.String()) != `{"error":"`+c.code+`"}` {
+				t.Errorf("%s, %s: %s; want {\"error\":%q}", c.name, door, rr.Body.String(), c.code)
+			}
+		}
+		for _, a := range audited {
+			if a == "call_contact" {
+				t.Errorf("%s: the page wrote a call_contact row of its own", c.name)
+			}
+		}
 	}
 }

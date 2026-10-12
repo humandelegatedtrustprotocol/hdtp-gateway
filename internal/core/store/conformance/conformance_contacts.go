@@ -76,8 +76,8 @@ func contacts(t *testing.T, newStore Factory) {
 		if err := s.DeleteContact(ctx, a.ID, "sha256:f1"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.GetContact(ctx, a.ID, "sha256:f1"); err == nil {
-			t.Fatal("deleted contact still readable")
+		if _, err := s.GetContact(ctx, a.ID, "sha256:f1"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("a deleted contact read as %v, want ErrNotFound", err)
 		}
 		if all, _ := s.ListContacts(ctx, a.ID); len(all) != 0 {
 			t.Fatalf("list after delete: %d", len(all))

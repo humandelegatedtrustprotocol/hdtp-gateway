@@ -128,7 +128,7 @@ func TestTheOwnerAgentDecidesAContactAtANewAddress(t *testing.T) {
 
 	// A root nobody waits for is refused by name; a token narrowed to one account cannot decide
 	// another's, and the other account's contact stays waiting.
-	if text, isErr := callJSON(t, cs, "approve_address", map[string]any{"account_id": e.acctA, "root": approved}); !isErr || !strings.Contains(text, "unknown_contact") {
+	if text, isErr := callJSON(t, cs, "approve_address", map[string]any{"account_id": e.acctA, "root": approved}); !isErr || !strings.Contains(text, `"code":"not_found"`) {
 		t.Fatalf("a second answer: %v %s", isErr, text)
 	}
 	if _, isErr := callJSON(t, cs, "approve_address", map[string]any{"account_id": e.acctB, "root": elsewhere}); !isErr {

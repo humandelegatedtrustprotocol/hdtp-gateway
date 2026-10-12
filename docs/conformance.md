@@ -332,6 +332,7 @@ them, no source names them — and the rest are debt with a task against it.
 | `ownerUser.WebAuthnName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnDisplayName` | Interface dispatch, as above. | — |
 | `ownerUser.WebAuthnCredentials` | Interface dispatch, as above. | — |
+| `errUnverifiable.Unwrap` | Interface dispatch: `errors.Is` calls it through the `Unwrap() error` convention, which is how the owner MCP's `call_contact` reads an answer that did not verify as `envelope_invalid` (`callFailureCode`). | — |
 | `Server.WithFactsForTest` | Test seam onto the facts middleware, so a test can assert what a request is SEEN as rather than asserting on the flag that decides it — which is the difference between pinning behaviour and pinning a variable. | — |
 | `SQLite.MigrateDown` | A rollback seam on the `Store` interface, used by the conformance suite's `MigrateUpDownUp` and by the populated-rollback case (P14-03). SPEC §12.1 documents `migrate` as forward-only — there is deliberately no rollback command — so this has no production caller by design. | — |
 | `SQLite.RemoveMembership` | v1 has no surface for editing account membership: it is granted automatically (P14-05c) and never revoked, because v1 defines one role and no multi-owner UX. Pre-shaped for post-v1 the same way the `role` column is. | post-v1 |

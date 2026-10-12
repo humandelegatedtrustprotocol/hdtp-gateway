@@ -1057,7 +1057,7 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 		}
 	}
 
-	// call_contact refuses somebody who is not an active contact
+	// call_contact refuses somebody who is not a contact of this account: not_found
 	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
 		Name: "call_contact", Arguments: map[string]any{
 			"account_id": acct.ID, "contact_fpr": "sha256:stranger", "tool": "send_message",
@@ -1066,7 +1066,7 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(textOf(res), "unknown_contact") {
+	if !strings.Contains(textOf(res), `"code":"not_found"`) {
 		t.Fatalf("call_contact reached a non-contact: %s", textOf(res))
 	}
 }

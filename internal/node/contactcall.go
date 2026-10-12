@@ -5,11 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
 
@@ -26,11 +29,19 @@ type ContactTool struct {
 }
 
 // peerFor resolves an ACTIVE contact into the outbound peer and client for it.
-// A blocked or pending contact is not somebody this node reaches out to.
+// A blocked or pending contact is not somebody this node reaches out to: a fingerprint
+// the account does not hold is store.ErrNotFound, a row in another state
+// contacts.ErrWrongState.
 func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outbound.Client, outbound.Peer, error) {
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
-	if err != nil || c.Status != "active" {
-		return nil, outbound.Peer{}, fmt.Errorf("unknown contact")
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, outbound.Peer{}, fmt.Errorf("contact %s is not held by this account: %w", contactFpr, err)
+	}
+	if err != nil {
+		return nil, outbound.Peer{}, fmt.Errorf("reading contact %s: %w", contactFpr, err)
+	}
+	if c.Status != "active" {
+		return nil, outbound.Peer{}, fmt.Errorf("contact %s is %s, not active: %w", contactFpr, c.Status, contacts.ErrWrongState)
 	}
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
@@ -137,10 +148,12 @@ func toolsFromGrants(perms []string) []ContactTool {
 // The peer applies its OWN switchboard either way: this cannot reach anything
 // the contact has not granted us. The owner MCP's call_contact and the portal
 // both go through here, so the two surfaces cannot disagree about what a call
-// to a contact is.
+// to a contact is. It writes the call's one call_contact row, whatever the call
+// came to: neither door writes one of its own.
 func (n *Node) CallContact(ctx context.Context, accountID, contactFpr, tool string, args map[string]any) (string, error) {
 	client, peer, err := n.peerFor(ctx, accountID, contactFpr)
 	if err != nil {
+		n.auditFor(accountID, "call_contact", "contact:"+contactFpr+" tool:"+tool, unreachedOutcome(err))
 		return "", err
 	}
 	if args == nil {
@@ -161,6 +174,18 @@ func (n *Node) CallContact(ctx context.Context, accountID, contactFpr, tool stri
 		return "", err
 	}
 	return string(b), nil
+}
+
+// unreachedOutcome is the call_contact row's outcome for a call that never left: the contact is
+// not held (not_found), not active (conflict), or could not be dialled from here (failed).
+func unreachedOutcome(err error) string {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, contacts.ErrWrongState):
+		return "conflict"
+	}
+	return "failed"
 }
 
 func outcomeOf(res *mcp.CallToolResult) string {

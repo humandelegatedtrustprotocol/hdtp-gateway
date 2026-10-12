@@ -159,7 +159,7 @@ func refused(err error) (*mcp.CallToolResult, error) {
 	code := "internal"
 	switch {
 	case errors.Is(err, contacts.ErrUnknownContact):
-		code = "unknown_contact"
+		code = "not_found"
 	case errors.Is(err, contacts.ErrWrongState):
 		code = "conflict"
 	case errors.Is(err, contacts.ErrBadRequest):
@@ -179,6 +179,15 @@ func deny() (*mcp.CallToolResult, error) {
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: `{"code":"permission_denied"}`}},
 	}, nil
+}
+
+// errorResult is jsonResult marked IsError: a tool's refusal that carries a code.
+func errorResult(v any) (*mcp.CallToolResult, error) {
+	r, err := jsonResult(v)
+	if r != nil {
+		r.IsError = true
+	}
+	return r, err
 }
 
 func jsonResult(v any) (*mcp.CallToolResult, error) {

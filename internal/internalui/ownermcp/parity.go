@@ -301,30 +301,36 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 		return r, nil, err
 	}
 	if a.ContactFpr == "" || a.Tool == "" {
-		r, err := jsonResult(map[string]string{"code": "bad_request"})
+		r, err := errorResult(map[string]string{"code": "bad_request"})
 		return r, nil, err
 	}
-	// Only an ACTIVE contact can be called: a blocked or pending one
-	// is not somebody this node reaches out to.
-	c, err := ot.d.Store.GetContact(ctx, a.AccountID, a.ContactFpr)
-	if err != nil || c.Status != "active" {
-		ot.e.log("call_contact", "contact:"+a.ContactFpr, "unknown_contact")
-		r, err := jsonResult(map[string]string{"code": "unknown_contact"})
-		return r, nil, err
-	}
+	// The call's call_contact row is CallContact's (node.CallContact); this door's own row is the
+	// middleware's owner_mcp_call, which reads `refused` off IsError for a call that failed.
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
-		ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, "failed")
-		code := "unavailable"
-		if errors.Is(err, envelope.ErrInvalid) {
-			code = "envelope_invalid"
-		}
-		r, jerr := jsonResult(map[string]string{"code": code, "detail": err.Error()})
+		r, jerr := errorResult(map[string]string{"code": callFailureCode(err), "detail": err.Error()})
 		return r, nil, jerr
 	}
-	ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, "ok")
 	r, err := jsonResult(map[string]string{"result": out})
 	return r, nil, err
+}
+
+// callFailureCode is the code call_contact answers a call that did not complete with. Only an
+// active contact is called (node.peerFor), so a
+// fingerprint the account does not hold is not_found and a row in another state conflict; an
+// answer that is not an envelope, did not verify, or a certificate_renewed whose chain could not be
+// followed is envelope_invalid (HDTP §12); anything else that kept the call from its answer is
+// unavailable.
+func callFailureCode(err error) string {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, contacts.ErrWrongState):
+		return "conflict"
+	case errors.Is(err, envelope.ErrInvalid):
+		return "envelope_invalid"
+	}
+	return "unavailable"
 }
 
 // listIntegrationsTool is the `list_integrations` tool.

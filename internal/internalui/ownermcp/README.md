@@ -109,18 +109,21 @@ Three shapes of refusal exist; a caller must not treat them alike.
 1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). `refused(err)` answers `{"code","detail"}` for the
-   lifecycle and permission tools: `unknown_contact` (`contacts.ErrUnknownContact`), `conflict`
+   lifecycle and permission tools: `not_found` (`contacts.ErrUnknownContact`), `conflict`
    (`ErrWrongState`), `bad_request` (`ErrBadRequest`), `payment_required` (`ErrContactCap`),
    `internal` otherwise. Also: `create_invite` answers `unavailable` when the node has no public
    address ("set public_url") and mints nothing; `revoke_invite` answers `not_found` only for a
    missing or spent invite (a store failure is `internal`); `delete_thread` answers `{"code"}`
    `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
-   `bad_request` for a `timeout_sec` outside 1 to 25. `answer_request` answers a relay failure as
+   `bad_request` for a `timeout_sec` outside 1 to 25. `call_contact` answers `{"code","detail"}`:
+   `bad_request` for an empty contact or tool; `not_found` for a contact the account does not hold
+   and `conflict` for one that is not active; `envelope_invalid` when the contact's answer is not an
+   envelope, did not verify, or carried a `certificate_renewed` that could not be followed;
+   `unavailable` when the call failed otherwise. The call's one `call_contact` audit row is
+   `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers a relay failure as
    an `IsError` result whose text is the error, with no code; another account's request id is
    answered as one that names nothing (`integrations: unknown pending request`).
-2. A result that carries a code but is not marked an error (`IsError` false): `call_contact`
-   (`bad_request` for an empty contact or tool; `unknown_contact` when the contact is not active;
-   `unavailable` when the call failed), `remove_passkey` (`bad_request` for an empty id and for the
+2. A result that carries a code but is not marked an error (`IsError` false): `remove_passkey` (`bad_request` for an empty id and for the
    last passkey), `set_exposure` (`bad_request`), `add_contact` (`bad_request`, including for both
    or neither of `invite_url` and `card`), and `answer_request` when dispatch is not enabled
    (`{"error":"agent-answered dispatch is not enabled"}`). The audit middleware records these as
@@ -134,7 +137,7 @@ Account scope is not checked per account by `list_accounts` (it is the scope), `
 (`allowNode`) and answer `permission_denied` otherwise. `audit_query` checks scope per row: a row
 with no account is shown only to an identity without a narrowing.
 
-`set_permissions` refuses an unknown contact (`unknown_contact`) and any permission the account
+`set_permissions` refuses an unknown contact (`not_found`) and any permission the account
 does not offer (`contacts.Offered`: the core permissions, those the account's surface serves, and
 those the contact already holds) with `bad_request`, rather than dropping it and answering ok.
 

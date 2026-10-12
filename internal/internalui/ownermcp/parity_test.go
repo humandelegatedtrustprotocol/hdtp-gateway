@@ -2,6 +2,7 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
@@ -68,6 +70,13 @@ func TestAuditQueryNeverLeavesTheIdentitysAccounts(t *testing.T) {
 // callParity drives one tool on a parity-equipped server.
 func callParity(t *testing.T, ctx context.Context, srv *mcp.Server, tool string, args map[string]any) string {
 	t.Helper()
+	text, _ := callParityResult(t, ctx, srv, tool, args)
+	return text
+}
+
+// callParityResult is callParity with the result's IsError.
+func callParityResult(t *testing.T, ctx context.Context, srv *mcp.Server, tool string, args map[string]any) (string, bool) {
+	t.Helper()
 	ct, st := mcp.NewInMemoryTransports()
 	ss, err := srv.Connect(ctx, st, nil)
 	if err != nil {
@@ -84,13 +93,13 @@ func callParity(t *testing.T, ctx context.Context, srv *mcp.Server, tool string,
 		t.Fatalf("%s: %v", tool, err)
 	}
 	if len(res.Content) == 0 {
-		return ""
+		return "", res.IsError
 	}
 	tc, _ := res.Content[0].(*mcp.TextContent)
 	if tc == nil {
-		return ""
+		return "", res.IsError
 	}
-	return tc.Text
+	return tc.Text, res.IsError
 }
 
 // AC (P10-08e): every owner-MCP tool call is audited, including reads and
@@ -316,24 +325,29 @@ func TestIdentityCertificateDescribesNoLeafWhenThereIsNone(t *testing.T) {
 	}
 }
 
-// call_contact answers a contact's answer that is not an envelope (internal/outbound, HDTP §13.1)
-// envelope_invalid, as the cloud's door does, and any other failure to reach the contact
-// unavailable; the control, an answer, goes through.
-func TestCallContactAnswersAMalformedAnswerEnvelopeInvalid(t *testing.T) {
+// call_contact answers each way a call can fail with one code (callFailureCode): a contact the
+// account does not hold not_found, one in another state conflict (node.peerFor), a contact's answer
+// that is not an envelope, did not verify, or a certificate_renewed that could not be followed
+// envelope_invalid (internal/outbound, HDTP §12), and any other failure to reach the contact
+// unavailable; the control, an answer, goes through. The whole code is compared, not a substring.
+// A failure is an IsError result, so the door's own owner_mcp_call row says `refused`; the door
+// writes no call_contact row, which is CallContact's alone (node.CallContact).
+func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:c", Status: "active"}); err != nil {
-		t.Fatal(err)
-	}
 	for _, c := range []struct {
 		name string
 		err  error
 		want string
 	}{
-		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), `"code":"envelope_invalid"`},
-		{"an unreachable contact", errors.New("outbound: dial: connection refused"), `"code":"unavailable"`},
-		{"the control", nil, `"result":"ok"`},
+		{"a contact the account does not hold", fmt.Errorf("contact sha256:c: %w", store.ErrNotFound), "not_found"},
+		{"a contact in another state", fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict"},
+		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), "envelope_invalid"},
+		{"an answer that did not verify", fmt.Errorf("outbound: unverifiable answer: unknown leaf: %w", envelope.ErrInvalid), "envelope_invalid"},
+		{"an unreachable contact", errors.New("outbound: dial: connection refused"), "unavailable"},
+		{"the control", nil, ""},
 	} {
+		var rows []string
 		srv := NewServerWithExtra(e.deps, Extra{
 			CallContact: func(context.Context, string, string, string, map[string]any) (string, error) {
 				if c.err != nil {
@@ -341,10 +355,28 @@ func TestCallContactAnswersAMalformedAnswerEnvelopeInvalid(t *testing.T) {
 				}
 				return "ok", nil
 			},
+			Log: func(action, resource, outcome string) { rows = append(rows, action+" "+resource+" "+outcome) },
 		}, auth.Identity{OwnerID: e.owner})
-		body := callParity(t, ctx, srv, "call_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "tool": "get_card"})
-		if !strings.Contains(body, c.want) {
-			t.Errorf("%s: answered %s, want %s", c.name, body, c.want)
+		body, isErr := callParityResult(t, ctx, srv, "call_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "tool": "get_card"})
+		wantRow := "owner_mcp_call tool:call_contact refused"
+		if c.err == nil {
+			wantRow = "owner_mcp_call tool:call_contact ok"
+		}
+		if isErr != (c.err != nil) || len(rows) != 1 || rows[0] != wantRow {
+			t.Errorf("%s: IsError %v, rows %q; want IsError %v and exactly [%q]", c.name, isErr, rows, c.err != nil, wantRow)
+		}
+		var got map[string]string
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("%s: %v (%s)", c.name, err, body)
+		}
+		if c.err == nil {
+			if got["result"] != "ok" || got["code"] != "" {
+				t.Errorf("the control answered %s", body)
+			}
+			continue
+		}
+		if got["code"] != c.want || got["detail"] != c.err.Error() {
+			t.Errorf("%s: answered %s, want code %s with the error as detail", c.name, body, c.want)
 		}
 	}
 }

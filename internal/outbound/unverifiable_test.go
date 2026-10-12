@@ -44,8 +44,17 @@ type renewedPeer struct {
 	cardChain  [][]byte
 	addr       string
 	state      hdtpidentity.NodeState
-	// mangle, when set, rewrites the text of every sealed answer as it leaves.
-	mangle func(string) string
+	// mangle, when set, rewrites the text of every sealed answer as it leaves, or of the answers to
+	// mangleTool alone when that is set.
+	mangle     func(string) string
+	mangleTool string
+	// renewedData, when set, is the `data` every certificate_renewed is answered with instead of the
+	// current chain.
+	renewedData any
+	// retrySigner and retryChain, when set, are what every sealed send_message after the first is
+	// answered under, in the leaf form: a leaf the caller holds no pin for.
+	retrySigner *hdtpidentity.PrivateKey
+	retryChain  [][]byte
 }
 
 // startRenewedPeer issues a second leaf under the test identity's root, newer than the one the
@@ -99,7 +108,11 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			d, err := hdtpidentity.Decide(time.Now(), env, p.state)
 			if err == nil && d.Result["code"] == "certificate_renewed" {
 				p.calls["certificate_renewed"]++
-				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": d.Result["data"]})
+				data := d.Result["data"]
+				if p.renewedData != nil {
+					data = p.renewedData
+				}
+				body, _ := json.Marshal(map[string]any{"code": "certificate_renewed", "data": data})
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
 			}
 			if err != nil || d.Result["code"] != "ok" {
@@ -116,6 +129,9 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 				if p.cardChain != nil {
 					signer, senderChain = p.cardSigner, p.cardChain
 				}
+			}
+			if tool == "send_message" && p.calls["sealed send_message"] > 1 && p.retryChain != nil {
+				form, signer, senderChain = "leaf", p.retrySigner, p.retryChain
 			}
 			protected, _ := hdtpidentity.DecodeB64url(env.Protected)
 			var h struct {
@@ -138,7 +154,7 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 			}
 			body, _ := json.Marshal(out)
 			text := string(body)
-			if p.mangle != nil {
+			if p.mangle != nil && (p.mangleTool == "" || p.mangleTool == tool) {
 				text = p.mangle(text)
 			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
