@@ -10,7 +10,19 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The owner MCP's `call_contact` answers a contact the account does not hold `not_found` and one
+  that is not active `conflict`, where both were `unknown_contact`; and `envelope_invalid` for an
+  answer that did not verify — after its one `get_card`, or on the retry after it — and for a
+  `certificate_renewed` whose chain could not be followed, where those were `unavailable`. On
+  PostgreSQL a contact that is not there is read as `ErrNotFound`, as on SQLite.
+
+### Fixed
+
+- 0.1.4's entry says `call_contact` answers a malformed answer `envelope_invalid` "as BatonDeck's
+  does". BatonDeck's call route answered it `unavailable` at the time; that sentence claimed more
+  than was measured.
 
 ## [0.1.4] — 2026-10-12
 

@@ -119,8 +119,10 @@ Three shapes of refusal exist; a caller must not treat them alike.
    an `IsError` result whose text is the error, with no code; another account's request id is
    answered as one that names nothing (`integrations: unknown pending request`).
 2. A result that carries a code but is not marked an error (`IsError` false): `call_contact`
-   (`bad_request` for an empty contact or tool; `unknown_contact` when the contact is not active;
-   `unavailable` when the call failed), `remove_passkey` (`bad_request` for an empty id and for the
+   (`bad_request` for an empty contact or tool; `not_found` for a contact the account does not
+   hold and `conflict` for one that is not active; `envelope_invalid` when the contact's answer is
+   not an envelope, did not verify, or carried a `certificate_renewed` that could not be followed;
+   `unavailable` when the call failed otherwise; each with the error as `detail`), `remove_passkey` (`bad_request` for an empty id and for the
    last passkey), `set_exposure` (`bad_request`), `add_contact` (`bad_request`, including for both
    or neither of `invite_url` and `card`), and `answer_request` when dispatch is not enabled
    (`{"error":"agent-answered dispatch is not enabled"}`). The audit middleware records these as

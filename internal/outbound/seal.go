@@ -145,14 +145,14 @@ func (c *Client) sealedExchange(ctx context.Context, peer Peer, method string, p
 					}
 					der, err := hdtpidentity.DecodeB64url(str)
 					if err != nil {
-						return nil, refusal, errors.New("outbound: certificate_renewed not followed: the chain is not base64url")
+						return nil, refusal, fmt.Errorf("outbound: certificate_renewed not followed: the chain is not base64url: %w", envelope.ErrInvalid)
 					}
 					chain = append(chain, der)
 				}
 			}
 			ok, why, leaf := hdtpidentity.FollowRenewed(chain, peer.Root, peer.Leaf, peer.Endpoint, c.now())
 			if !ok {
-				return nil, refusal, fmt.Errorf("outbound: certificate_renewed not followed: %s", why)
+				return nil, refusal, fmt.Errorf("outbound: certificate_renewed not followed: %s: %w", why, envelope.ErrInvalid)
 			}
 			next, _, err := c.repin(peer, leaf)
 			if err != nil {
@@ -220,10 +220,13 @@ func newMsgID() string {
 }
 
 // errUnverifiable is an answer that opened but could not be verified against
-// any leaf this caller holds for the peer.
+// any leaf this caller holds for the peer: mis-signed, in HDTP §12's words, so it is
+// envelope_invalid to whoever reads the code, as an answer that is not an envelope is.
 type errUnverifiable struct{ why string }
 
 func (e *errUnverifiable) Error() string { return "outbound: unverifiable answer: " + e.why }
+
+func (e *errUnverifiable) Unwrap() error { return envelope.ErrInvalid }
 
 // errUnattributable is a plaintext refusal that §13.2 says the peer would have
 // sealed. Nobody proved they sent it, so it is not reported as the peer's

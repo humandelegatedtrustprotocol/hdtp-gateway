@@ -2,6 +2,7 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
@@ -316,23 +318,25 @@ func TestIdentityCertificateDescribesNoLeafWhenThereIsNone(t *testing.T) {
 	}
 }
 
-// call_contact answers a contact's answer that is not an envelope (internal/outbound, HDTP §13.1)
-// envelope_invalid, as the cloud's door does, and any other failure to reach the contact
-// unavailable; the control, an answer, goes through.
-func TestCallContactAnswersAMalformedAnswerEnvelopeInvalid(t *testing.T) {
+// call_contact answers each way a call can fail with one code (callFailureCode): a contact the
+// account does not hold not_found, one in another state conflict (node.peerFor), a contact's answer
+// that is not an envelope, did not verify, or a certificate_renewed that could not be followed
+// envelope_invalid (internal/outbound, HDTP §12), and any other failure to reach the contact
+// unavailable; the control, an answer, goes through. The whole code is compared, not a substring.
+func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:c", Status: "active"}); err != nil {
-		t.Fatal(err)
-	}
 	for _, c := range []struct {
 		name string
 		err  error
 		want string
 	}{
-		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), `"code":"envelope_invalid"`},
-		{"an unreachable contact", errors.New("outbound: dial: connection refused"), `"code":"unavailable"`},
-		{"the control", nil, `"result":"ok"`},
+		{"a contact the account does not hold", fmt.Errorf("contact sha256:c: %w", store.ErrNotFound), "not_found"},
+		{"a contact in another state", fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict"},
+		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), "envelope_invalid"},
+		{"an answer that did not verify", fmt.Errorf("outbound: unverifiable answer: unknown leaf: %w", envelope.ErrInvalid), "envelope_invalid"},
+		{"an unreachable contact", errors.New("outbound: dial: connection refused"), "unavailable"},
+		{"the control", nil, ""},
 	} {
 		srv := NewServerWithExtra(e.deps, Extra{
 			CallContact: func(context.Context, string, string, string, map[string]any) (string, error) {
@@ -343,8 +347,18 @@ func TestCallContactAnswersAMalformedAnswerEnvelopeInvalid(t *testing.T) {
 			},
 		}, auth.Identity{OwnerID: e.owner})
 		body := callParity(t, ctx, srv, "call_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "tool": "get_card"})
-		if !strings.Contains(body, c.want) {
-			t.Errorf("%s: answered %s, want %s", c.name, body, c.want)
+		var got map[string]string
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("%s: %v (%s)", c.name, err, body)
+		}
+		if c.err == nil {
+			if got["result"] != "ok" || got["code"] != "" {
+				t.Errorf("the control answered %s", body)
+			}
+			continue
+		}
+		if got["code"] != c.want || got["detail"] != c.err.Error() {
+			t.Errorf("%s: answered %s, want code %s with the error as detail", c.name, body, c.want)
 		}
 	}
 }

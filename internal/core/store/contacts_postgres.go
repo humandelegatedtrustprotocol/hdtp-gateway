@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
@@ -45,6 +48,9 @@ func (s *Postgres) InsertContact(ctx context.Context, c Contact) (Contact, error
 // GetContact returns the contact, or ErrNotFound.
 func (s *Postgres) GetContact(ctx context.Context, accountID, fingerprint string) (Contact, error) {
 	r, err := s.q.GetContact(ctx, pgdb.GetContactParams{AccountID: accountID, Fingerprint: fingerprint})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Contact{}, ErrNotFound
+	}
 	if err != nil {
 		return Contact{}, err
 	}

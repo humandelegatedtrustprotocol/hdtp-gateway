@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
@@ -26,11 +27,16 @@ type ContactTool struct {
 }
 
 // peerFor resolves an ACTIVE contact into the outbound peer and client for it.
-// A blocked or pending contact is not somebody this node reaches out to.
+// A blocked or pending contact is not somebody this node reaches out to: a fingerprint
+// the account does not hold is store.ErrNotFound, a row in another state
+// contacts.ErrWrongState.
 func (n *Node) peerFor(ctx context.Context, accountID, contactFpr string) (*outbound.Client, outbound.Peer, error) {
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
-	if err != nil || c.Status != "active" {
-		return nil, outbound.Peer{}, fmt.Errorf("unknown contact")
+	if err != nil {
+		return nil, outbound.Peer{}, fmt.Errorf("contact %s: %w", contactFpr, err)
+	}
+	if c.Status != "active" {
+		return nil, outbound.Peer{}, fmt.Errorf("contact %s is %s, not active: %w", contactFpr, c.Status, contacts.ErrWrongState)
 	}
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
