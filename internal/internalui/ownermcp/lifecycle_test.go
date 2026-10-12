@@ -148,11 +148,11 @@ func TestTheAgentRunsTheWholeContactLifecycle(t *testing.T) {
 	if c, _ := e.st.GetContact(ctx, e.acctA, "sha256:friend"); c.Status != "active" || c.Preset != "friend" || len(c.Permissions) != 2 {
 		t.Fatalf("unblocked contact is not the contact it was: %+v", c)
 	}
-	// unblock of something not blocked is a conflict, and nobody is unknown_contact
+	// unblock of something not blocked is a conflict, and nobody is not_found
 	if out, isErr := callJSON(t, cs, "unblock_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:friend"}); !isErr || !strings.Contains(out, "conflict") {
 		t.Fatalf("unblock of an active contact: %s", out)
 	}
-	if out, isErr := callJSON(t, cs, "block_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:nobody"}); !isErr || !strings.Contains(out, "unknown_contact") {
+	if out, isErr := callJSON(t, cs, "block_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:nobody"}); !isErr || !strings.Contains(out, `"code":"not_found"`) {
 		t.Fatalf("block of nobody: %s", out)
 	}
 	// withdraw our own pending request: silent; remove an active contact: told

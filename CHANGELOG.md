@@ -15,8 +15,17 @@ changelog can be and is not summarized into a fictional release history.
 - The owner MCP's `call_contact` answers a contact the account does not hold `not_found` and one
   that is not active `conflict`, where both were `unknown_contact`; and `envelope_invalid` for an
   answer that did not verify — after its one `get_card`, or on the retry after it — and for a
-  `certificate_renewed` whose chain could not be followed, where those were `unavailable`. On
-  PostgreSQL a contact that is not there is read as `ErrNotFound`, as on SQLite.
+  `certificate_renewed` whose chain could not be followed, where those were `unavailable`. Each of
+  these is an `IsError` result now, so its `owner_mcp_call` row says `refused`, not `ok`. The store
+  suite now asserts `ErrNotFound` for a deleted contact on both engines.
+- A call to a contact writes one `call_contact` audit row, `node.CallContact`'s, including for a
+  contact not held (`not_found`) or not active (`conflict`). The owner MCP's door wrote a second,
+  `failed`, and the portal's page a second of its own.
+- The owner MCP's lifecycle and permission tools answer a contact the account does not hold
+  `not_found`, where they answered `unknown_contact`.
+- The portal's contact call and tool-list routes answer `{"error":<code>}` by what is true — 404
+  `not_found`, 409 `conflict`, 502 `envelope_invalid`, 502 `unavailable` — where every failure was a
+  502 carrying the error's text.
 
 ### Fixed
 

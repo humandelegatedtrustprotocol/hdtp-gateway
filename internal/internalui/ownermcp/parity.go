@@ -301,21 +301,16 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 		return r, nil, err
 	}
 	if a.ContactFpr == "" || a.Tool == "" {
-		r, err := jsonResult(map[string]string{"code": "bad_request"})
+		r, err := errorResult(map[string]string{"code": "bad_request"})
 		return r, nil, err
 	}
+	// The call's call_contact row is CallContact's (node.CallContact); this door's own row is the
+	// middleware's owner_mcp_call, which reads `refused` off IsError for a call that failed.
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
-		code := callFailureCode(err)
-		outcome := code
-		if code == "unavailable" || code == "envelope_invalid" {
-			outcome = "failed"
-		}
-		ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, outcome)
-		r, jerr := jsonResult(map[string]string{"code": code, "detail": err.Error()})
+		r, jerr := errorResult(map[string]string{"code": callFailureCode(err), "detail": err.Error()})
 		return r, nil, jerr
 	}
-	ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, "ok")
 	r, err := jsonResult(map[string]string{"result": out})
 	return r, nil, err
 }

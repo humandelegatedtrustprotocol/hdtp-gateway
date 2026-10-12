@@ -8,6 +8,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 )
 
 // Invalidator drops a caller's composed server (public.Pool.Invalidate).
@@ -149,7 +151,8 @@ func (d ContactsDeps) getAPIContactsFprTools(w http.ResponseWriter, r *http.Requ
 	}
 	tools, err := d.ListTools(r.Context(), account, fpr)
 	if err != nil {
-		apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		status, code := contactCallRefusal(err)
+		apiJSONStatus(w, status, map[string]any{"error": code})
 		return
 	}
 	if tools == nil {
@@ -188,19 +191,31 @@ func (d ContactsDeps) postContactsFprCall(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	// The call's call_contact row is Call's (node.CallContact), as for the owner MCP's door.
 	out, err := d.Call(r.Context(), account, fpr, tool, args)
 	if err != nil {
-		if d.Audit != nil {
-			d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "failed")
-		}
-		apiJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		status, code := contactCallRefusal(err)
+		apiJSONStatus(w, status, map[string]any{"error": code})
 		return
-	}
-	if d.Audit != nil {
-		d.Audit("call_contact", withAccount(r, "contact:"+fpr+" tool:"+tool), "ok")
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"result":` + out + `}`))
+}
+
+// contactCallRefusal is the status and code a call to a contact, or a listing of its tools, that
+// did not complete is answered with: a contact the account does not hold 404, one that is not
+// active 409, a contact's answer that is not an envelope or did not verify 502 envelope_invalid
+// (HDTP §12), anything else 502 unavailable. The error's own text stays off the wire.
+func contactCallRefusal(err error) (int, string) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusNotFound, "not_found"
+	case errors.Is(err, contacts.ErrWrongState):
+		return http.StatusConflict, "conflict"
+	case errors.Is(err, envelope.ErrInvalid):
+		return http.StatusBadGateway, "envelope_invalid"
+	}
+	return http.StatusBadGateway, "unavailable"
 }
 
 // getAPIContacts serves `GET /api/contacts`.
