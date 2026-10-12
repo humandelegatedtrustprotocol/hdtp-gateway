@@ -44,6 +44,8 @@ type renewedPeer struct {
 	cardChain  [][]byte
 	addr       string
 	state      hdtpidentity.NodeState
+	// mangle, when set, rewrites the text of every sealed answer as it leaves.
+	mangle func(string) string
 }
 
 // startRenewedPeer issues a second leaf under the test identity's root, newer than the one the
@@ -135,7 +137,11 @@ func startRenewedPeer(t *testing.T, id *testIdentity, caller *testIdentity) *ren
 				p.state.Former = append(p.state.Former, id.kp.Fingerprint)
 			}
 			body, _ := json.Marshal(out)
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
+			text := string(body)
+			if p.mangle != nil {
+				text = p.mangle(text)
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 		})
 	mcp.AddTool(srv, &mcp.Tool{Name: "get_card", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {

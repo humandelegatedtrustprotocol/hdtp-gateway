@@ -2,6 +2,7 @@ package ownermcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
@@ -310,6 +312,39 @@ func TestIdentityCertificateDescribesNoLeafWhenThereIsNone(t *testing.T) {
 	for _, want := range []string{`"kid":"sha256:leaf"`, `"endpoint":"https://a.example/a/x/mcp"`, `"not_after":"2027-09-01T00:00:00Z"`, `"renewal_due":false`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("a served identity's certificate lacks %s: %s", want, body)
+		}
+	}
+}
+
+// call_contact answers a contact's answer that is not an envelope (internal/outbound, HDTP §13.1)
+// envelope_invalid, as the cloud's door does, and any other failure to reach the contact
+// unavailable; the control, an answer, goes through.
+func TestCallContactAnswersAMalformedAnswerEnvelopeInvalid(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:c", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), `"code":"envelope_invalid"`},
+		{"an unreachable contact", errors.New("outbound: dial: connection refused"), `"code":"unavailable"`},
+		{"the control", nil, `"result":"ok"`},
+	} {
+		srv := NewServerWithExtra(e.deps, Extra{
+			CallContact: func(context.Context, string, string, string, map[string]any) (string, error) {
+				if c.err != nil {
+					return "", c.err
+				}
+				return "ok", nil
+			},
+		}, auth.Identity{OwnerID: e.owner})
+		body := callParity(t, ctx, srv, "call_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "tool": "get_card"})
+		if !strings.Contains(body, c.want) {
+			t.Errorf("%s: answered %s, want %s", c.name, body, c.want)
 		}
 	}
 }

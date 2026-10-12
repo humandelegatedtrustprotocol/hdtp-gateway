@@ -24,6 +24,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -300,7 +301,7 @@ func (c *Client) attempt(ctx context.Context, peer *Peer, method string, params 
 	}
 	var out hdtpidentity.Envelope
 	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
-		return nil, nil, fmt.Errorf("outbound: sealed result: %w", err)
+		return nil, nil, fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, err)
 	}
 	opened, err := hdtpidentity.OpenResult(out, hdtpidentity.OpenOpts{
 		Recipient: sender, RecipientPublic: senderPublic, MsgID: msgID, Now: now, Pins: []hdtpidentity.Pin{pinOf(*peer)},

@@ -26,6 +26,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
@@ -314,7 +315,11 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
 		ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, "failed")
-		r, jerr := jsonResult(map[string]string{"code": "unavailable", "detail": err.Error()})
+		code := "unavailable"
+		if errors.Is(err, envelope.ErrInvalid) {
+			code = "envelope_invalid"
+		}
+		r, jerr := jsonResult(map[string]string{"code": code, "detail": err.Error()})
 		return r, nil, jerr
 	}
 	ot.e.log("call_contact", "contact:"+a.ContactFpr+" tool:"+a.Tool, "ok")

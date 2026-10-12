@@ -89,21 +89,8 @@ func sealedTool() *mcp.Tool {
 	}
 }
 
-// envelopeOf reads the wrapper's arguments as an envelope of exactly the four members the tool's
-// schema names (HDTP §13.1). encoding/json would drop any other member and match these four
-// without regard to case, so the member names are held first, byte for byte.
+// envelopeOf reads the wrapper's arguments as an envelope (HDTP §13.1) by the library's reader.
 func envelopeOf(args json.RawMessage) (*hdtpidentity.Envelope, error) {
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(args, &members); err != nil {
-		return nil, err
-	}
-	for k := range members {
-		switch k {
-		case "protected", "enc", "ct", "sig":
-		default:
-			return nil, fmt.Errorf("envelope member %q is not one of the four", k)
-		}
-	}
 	var env hdtpidentity.Envelope
 	if err := json.Unmarshal(args, &env); err != nil {
 		return nil, err

@@ -74,7 +74,7 @@ that cited test names exist and cannot check that the list is complete.
 | `bad_request` | `TestSendMessageRecordsAndIsIdempotent`, `TestCalendarToolsRespectSlotCapAndBookIdempotently` |
 | `seal_required` | `TestPlaintextToSealRequiredAccountRefused` |
 | `identity_required` | `TestEdgeModeSealedSucceedsPlaintextRefusedCertsIgnored`, `TestClientCertRequiredTakesAChainAndNothingElse` |
-| `envelope_invalid` | `TestFirstContactMustRedeemOrRequest`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `TestARespelledSmallFormSigIsAnOpenedRefusal`, `TestAnUnreadableEnvelopeIsRefusedLikeAnyOther`, `FuzzSealedEnvelope`, and the whole intrusion battery (`hdtp vectors intrude`) |
+| `envelope_invalid` | `TestFirstContactMustRedeemOrRequest`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `TestARespelledSmallFormSigIsAnOpenedRefusal`, `TestAnEnvelopeOfOtherMembersIsRefused`, `TestAnUnreadableEnvelopeIsRefusedLikeAnyOther`, `FuzzSealedEnvelope`, and the whole intrusion battery (`hdtp vectors intrude`) |
 | `chain_required` (a small-form envelope the receiver cannot verify; one answer for unknown, blocked, expired and mis-signed alike: a `sig` in its one spelling that fails, an empty one included; one in another spelling is `envelope_invalid`, in either form) | `TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer`, `TestAnEnvelopeMemberHasOneSpellingOnTheWire` |
 | `certificate_renewed` (an envelope sealed to a leaf key this endpoint once held; the data carries the current chain) | `TestStaleKidIsAnsweredWithTheCurrentChain` |
 | `seal_not_accepted` (a sealed call to a recipient whose card says `X-HDTP-SEAL: none`) | `TestSealNoneRefusesEnvelopes`, `TestAnUnreadableEnvelopeIsRefusedLikeAnyOther` |
