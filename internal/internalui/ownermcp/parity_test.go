@@ -375,8 +375,113 @@ func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 			}
 			continue
 		}
-		if got["code"] != c.want || got["detail"] != c.err.Error() {
-			t.Errorf("%s: answered %s, want code %s with the error as detail", c.name, body, c.want)
+		if got["code"] != c.want || got["detail"] != callFailureDetail[c.want] {
+			t.Errorf("%s: answered %s, want code %s with its fixed detail", c.name, body, c.want)
 		}
+	}
+}
+
+// storeCanary is driver text a failed read could carry; no answer on the wire may hold it.
+const storeCanary = "pq: relation contacts_canary_7f3a does not exist"
+
+// The detail a failed call_contact answers is its code's fixed phrase: neither node.peerFor's
+// two store branches (a fingerprint not held wraps sql.ErrNoRows; a failed read wraps the
+// driver's error) nor any other error's text reaches the caller. Two different errors under one
+// code answer byte-identical details, so the detail is the code's and not the error's.
+func TestCallContactDetailCarriesNoStoreText(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	answer := func(callErr error) map[string]string {
+		srv := NewServerWithExtra(e.deps, Extra{
+			CallContact: func(context.Context, string, string, string, map[string]any) (string, error) {
+				return "", callErr
+			},
+			Log: func(string, string, string) {},
+		}, auth.Identity{OwnerID: e.owner})
+		body, isErr := callParityResult(t, ctx, srv, "call_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "tool": "get_card"})
+		if !isErr {
+			t.Fatalf("%v: not an error result: %s", callErr, body)
+		}
+		if strings.Contains(body, "sql:") || strings.Contains(body, storeCanary) || strings.Contains(body, "relation") {
+			t.Errorf("store text on the wire: %s", body)
+		}
+		var got map[string]string
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("%v: %v (%s)", callErr, err, body)
+		}
+		return got
+	}
+	notHeld := answer(fmt.Errorf("contact sha256:c is not held by this account: %w", store.ErrNotFound))
+	notHeldToo := answer(fmt.Errorf("contact sha256:d: %w", store.ErrNotFound))
+	if notHeld["code"] != "not_found" || notHeld["detail"] == "" || notHeld["detail"] != notHeldToo["detail"] {
+		t.Errorf("not held: answered %q and %q, want not_found with one fixed detail", notHeld, notHeldToo)
+	}
+	readFailed := answer(fmt.Errorf("reading contact sha256:c: %w", errors.New(storeCanary)))
+	dialFailed := answer(errors.New("outbound: dial: connection refused"))
+	if readFailed["code"] != "unavailable" || readFailed["detail"] == "" || readFailed["detail"] != dialFailed["detail"] {
+		t.Errorf("read failed: answered %q and %q, want unavailable with one fixed detail", readFailed, dialFailed)
+	}
+}
+
+// refresh_contact answers a refresh that could not be attempted (node.peerFor's refusals, a store
+// that failed) with a code and a fixed detail, never the store's text; it answered the bare error.
+func TestRefreshContactDetailCarriesNoStoreText(t *testing.T) {
+	e := newEnv(t)
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("contact sha256:c is not held by this account: %w", store.ErrNotFound), "not_found"},
+		{fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict"},
+		{fmt.Errorf("reading contact sha256:c: %w", errors.New(storeCanary)), "internal"},
+	} {
+		d := e.deps
+		d.RefreshContact = func(context.Context, string, string) (string, string, error) { return "", "", c.err }
+		srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+		body, isErr := callParityResult(t, context.Background(), srv, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c"})
+		var got map[string]string
+		_, wantDetail := refreshFailure(c.err)
+		if !isErr || json.Unmarshal([]byte(body), &got) != nil || got["code"] != c.want || got["detail"] != wantDetail || wantDetail == "" {
+			t.Errorf("%v: answered %s (IsError %v), want code %s with its fixed detail", c.err, body, isErr, c.want)
+		}
+		if strings.Contains(body, "sql:") || strings.Contains(body, storeCanary) {
+			t.Errorf("store text on the wire: %s", body)
+		}
+	}
+	// The control: a refresh that ran answers its outcome.
+	d := e.deps
+	d.RefreshContact = func(context.Context, string, string) (string, string, error) { return "unchanged", "", nil }
+	srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+	if body, isErr := callParityResult(t, context.Background(), srv, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c"}); isErr || !strings.Contains(body, `"outcome":"unchanged"`) {
+		t.Errorf("the control answered %s (IsError %v)", body, isErr)
+	}
+}
+
+// refused() answers an error the contacts package did not code — a store's — as internal with a
+// fixed detail, never the error's text; a coded refusal keeps the node's own sentence.
+func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
+	text := func(err error) map[string]string {
+		r, rerr := refused(err)
+		if rerr != nil || r == nil || !r.IsError || len(r.Content) != 1 {
+			t.Fatalf("refused(%v) = %v, %v", err, r, rerr)
+		}
+		var got map[string]string
+		if err := json.Unmarshal([]byte(r.Content[0].(*mcp.TextContent).Text), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	for _, err := range []error{
+		fmt.Errorf("revoking invite: %w", errors.New(storeCanary)),
+		fmt.Errorf("reading contact: %w", store.ErrNotFound),
+	} {
+		got := text(err)
+		if got["code"] != "internal" || got["detail"] == "" || strings.Contains(got["detail"], storeCanary) || strings.Contains(got["detail"], "sql:") {
+			t.Errorf("refused(%v) answered %q", err, got)
+		}
+	}
+	coded := fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact)
+	if got := text(coded); got["code"] != "not_found" || got["detail"] != coded.Error() {
+		t.Errorf("the control answered %q", got)
 	}
 }

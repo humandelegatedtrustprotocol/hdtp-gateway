@@ -154,20 +154,21 @@ func (d Deps) owner() contacts.Owner {
 		TellApproved: d.Approved, TellRejected: d.Rejected, TellRemoved: d.Removed}
 }
 
-// refused answers a refusal as a tool error carrying its code, the shape deny() uses.
+// refused answers a refusal as a tool error carrying its code, the shape deny() uses. An error
+// the contacts package did not code is the store's or a peer's, and its text stays off the wire.
 func refused(err error) (*mcp.CallToolResult, error) {
-	code := "internal"
+	code, detail := "internal", "the node could not complete this"
 	switch {
 	case errors.Is(err, contacts.ErrUnknownContact):
-		code = "not_found"
+		code, detail = "not_found", err.Error()
 	case errors.Is(err, contacts.ErrWrongState):
-		code = "conflict"
+		code, detail = "conflict", err.Error()
 	case errors.Is(err, contacts.ErrBadRequest):
-		code = "bad_request"
+		code, detail = "bad_request", err.Error()
 	case errors.Is(err, contacts.ErrContactCap):
-		code = "payment_required"
+		code, detail = "payment_required", err.Error()
 	}
-	b, jerr := json.Marshal(map[string]string{"code": code, "detail": err.Error()})
+	b, jerr := json.Marshal(map[string]string{"code": code, "detail": detail})
 	if jerr != nil {
 		return nil, jerr
 	}
@@ -858,7 +859,9 @@ func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	outcome, why, err := ot.d.RefreshContact(ctx, a.AccountID, a.ContactFpr)
 	if err != nil {
-		return nil, nil, err
+		code, detail := refreshFailure(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": detail})
+		return r, nil, jerr
 	}
 	out := map[string]string{"outcome": outcome}
 	if why != "" {
@@ -866,6 +869,20 @@ func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	r, err := jsonResult(out)
 	return r, nil, err
+}
+
+// refreshFailure is the code and fixed detail refresh_contact answers a refresh that could not be
+// attempted or recorded with (node.RefreshContact): only an active contact is refreshed, so a
+// fingerprint the account does not hold is not_found and a row in another state conflict;
+// anything else is the node's own failure. The error's text, the store's words, stays off the wire.
+func refreshFailure(err error) (code, detail string) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "not_found", callFailureDetail["not_found"]
+	case errors.Is(err, contacts.ErrWrongState):
+		return "conflict", callFailureDetail["conflict"]
+	}
+	return "internal", "the node could not complete this"
 }
 
 // setTrustFlagTool is the `set_trust_flag` tool.

@@ -308,7 +308,8 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 	// middleware's owner_mcp_call, which reads `refused` off IsError for a call that failed.
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
-		r, jerr := errorResult(map[string]string{"code": callFailureCode(err), "detail": err.Error()})
+		code := callFailureCode(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": callFailureDetail[code]})
 		return r, nil, jerr
 	}
 	r, err := jsonResult(map[string]string{"result": out})
@@ -331,6 +332,15 @@ func callFailureCode(err error) string {
 		return "envelope_invalid"
 	}
 	return "unavailable"
+}
+
+// callFailureDetail is the one detail each call_contact failure code answers with. The error's
+// own text stays off the wire: it carries the store's and the dialler's words.
+var callFailureDetail = map[string]string{
+	"not_found":        "no contact with that fingerprint on this account",
+	"conflict":         "that contact is not active",
+	"envelope_invalid": "the contact's answer did not verify",
+	"unavailable":      "the call did not complete",
 }
 
 // listIntegrationsTool is the `list_integrations` tool.
