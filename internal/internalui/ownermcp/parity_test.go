@@ -239,7 +239,8 @@ func TestSetExposureCannotReachAnotherAccountsIntegration(t *testing.T) {
 	if len(acted) != 0 {
 		t.Fatalf("a scoped token republished another account's integration: %v", acted)
 	}
-	if !strings.Contains(out, "bad_request") && !strings.Contains(out, "permission_denied") {
+	// Another account's integration answers what one that does not exist answers (rule 3: 404).
+	if !strings.Contains(out, `"code":"not_found"`) && !strings.Contains(out, "permission_denied") {
 		t.Fatalf("the cross-account attempt was not refused: %s", out)
 	}
 
@@ -457,8 +458,9 @@ func TestRefreshContactDetailCarriesNoStoreText(t *testing.T) {
 	}
 }
 
-// refused() answers an error the contacts package did not code — a store's — as internal with a
-// fixed detail, never the error's text; a coded refusal keeps the node's own sentence.
+// refused() answers an error the node did not code as internal, and a store's not-found as
+// not_found, each with a fixed detail and never the error's text; a BadRequest answers its
+// sentence without its cause; a coded refusal keeps the node's own sentence.
 func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
 	text := func(err error) map[string]string {
 		r, rerr := refused(err)
@@ -471,13 +473,18 @@ func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
 		}
 		return got
 	}
-	for _, err := range []error{
-		fmt.Errorf("revoking invite: %w", errors.New(storeCanary)),
-		fmt.Errorf("reading contact: %w", store.ErrNotFound),
+	for _, c := range []struct {
+		err        error
+		code, want string
+	}{
+		{fmt.Errorf("revoking invite: %w", errors.New(storeCanary)), "internal", internalDetail},
+		{fmt.Errorf("reading contact: %w", store.ErrNotFound), "not_found", notFoundDetail},
+		{BadRequest("the invite link answered HTTP 404", nil), "bad_request", "the invite link answered HTTP 404"},
+		{BadRequest("could not reach the invite link", errors.New(storeCanary)), "bad_request", "could not reach the invite link"},
 	} {
-		got := text(err)
-		if got["code"] != "internal" || got["detail"] == "" || strings.Contains(got["detail"], storeCanary) || strings.Contains(got["detail"], "sql:") {
-			t.Errorf("refused(%v) answered %q", err, got)
+		got := text(c.err)
+		if got["code"] != c.code || got["detail"] != c.want || strings.Contains(got["detail"], storeCanary) || strings.Contains(got["detail"], "sql:") {
+			t.Errorf("refused(%v) answered %q, want %s with %q", c.err, got, c.code, c.want)
 		}
 	}
 	coded := fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact)

@@ -108,29 +108,37 @@ Three shapes of refusal exist; a caller must not treat them alike.
 
 1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
-   one outside a narrowed token, alike). `refused(err)` answers `{"code","detail"}` for the
-   lifecycle and permission tools: `not_found` (`contacts.ErrUnknownContact`), `conflict`
-   (`ErrWrongState`), `bad_request` (`ErrBadRequest`), `payment_required` (`ErrContactCap`),
-   `internal` otherwise. Also: `create_invite` answers `unavailable` when the node has no public
-   address ("set public_url") and mints nothing; `revoke_invite` answers `not_found` only for a
-   missing or spent invite (a store failure is `internal`); `delete_thread` answers `{"code"}`
-   `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
-   `bad_request` for a `timeout_sec` outside 1 to 25. `call_contact` answers `{"code","detail"}`:
-   `bad_request` for an empty contact or tool; `not_found` for a contact the account does not hold
-   and `conflict` for one that is not active; `envelope_invalid` when the contact's answer is not an
-   envelope, did not verify, or carried a `certificate_renewed` that could not be followed;
-   `unavailable` when the call failed otherwise. The call's one `call_contact` audit row is
-   `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers a relay failure as
-   an `IsError` result whose text is the error, with no code; another account's request id is
-   answered as one that names nothing (`integrations: unknown pending request`).
+   one outside a narrowed token, alike). Every other failure of a tool's work is answered by
+   `refused(err)` as `{"code","detail"}`: `bad_request` with the sentence alone for an error marked
+   `BadRequest` (what `add_contact` and `set_exposure` say about their arguments; the error behind
+   the sentence, a dial or a peer's answer, is not sent); `not_found` (`contacts.ErrUnknownContact`,
+   `integrations.ErrUnknownRequest`), `conflict` (`contacts.ErrWrongState`,
+   `integrations.ErrRequestClosed`), `bad_request` (`contacts.ErrBadRequest`,
+   `messaging.ErrBadRequest`), `payment_required` (`contacts.ErrContactCap`) and `too_large`
+   (`messaging.ErrTooLarge`, `messaging.ErrQuota`), each with the error's text, which the node
+   wrote; `not_found` with a fixed detail for a store read that found nothing (`store.ErrNotFound`);
+   and `internal` with a fixed detail for anything else, a store failure included. No error text
+   the node did not write reaches the caller. Also: `create_invite` answers `unavailable` when the
+   node has no public address ("set public_url") and mints nothing; `revoke_invite` answers
+   `not_found` only for a missing or spent invite (a store failure is `internal`); `delete_thread`
+   answers `{"code"}` `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
+   `bad_request` for a `timeout_sec` outside 1 to 25. `call_contact` answers `{"code","detail"}`
+   with one fixed detail per code: `bad_request` for an empty contact or tool; `not_found` for a
+   contact the account does not hold and `conflict` for one that is not active; `envelope_invalid`
+   when the contact's answer is not an envelope, did not verify, or carried a
+   `certificate_renewed` that could not be followed; `unavailable` when the call failed otherwise.
+   `refresh_contact` answers a refresh that could not be attempted `not_found`, `conflict` or
+   `internal`, each with a fixed detail. The call's one `call_contact` audit row is
+   `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers
+   another account's request id as one that names nothing (`not_found`).
 2. A result that carries a code but is not marked an error (`IsError` false): `remove_passkey` (`bad_request` for an empty id and for the
-   last passkey), `set_exposure` (`bad_request`), `add_contact` (`bad_request`, including for both
-   or neither of `invite_url` and `card`), and `answer_request` when dispatch is not enabled
-   (`{"error":"agent-answered dispatch is not enabled"}`). The audit middleware records these as
-   `ok`, because it reads only `IsError`.
-3. A returned error (no code): store failures, `rename_contact` over the display-name limit
-   (`contacts.MaxDisplayName`), `set_trust_flag` with a value other than the two (`bad_request:
-   trust must be messages_only|may_instruct`), and `read_thread` or `send_to_contact` failing.
+   last passkey), `set_exposure` (`bad_request` for an empty integration id), `add_contact`
+   (`bad_request` for both or neither of `invite_url` and `card`), and `answer_request` when
+   dispatch is not enabled (`{"error":"agent-answered dispatch is not enabled"}`). The audit
+   middleware records these as `ok`, because it reads only `IsError`.
+3. A returned error (no code), whose text the SDK sends as the result: `rename_contact` over the
+   display-name limit (`contacts.MaxDisplayName`) and `set_trust_flag` with a value other than the
+   two (`bad_request: trust must be messages_only|may_instruct`). Both texts are fixed sentences.
 
 Account scope is not checked per account by `list_accounts` (it is the scope), `list_passkeys` and
 `remove_passkey`. The two passkey tools are node-level: they require an identity without a narrowing
@@ -153,8 +161,8 @@ those the contact already holds) with `bad_request`, rather than dropping it and
   unknown one: `TestRemovePasskeyAnswersTheLastOneAndAnUnknownOne`.
 - A wait answers for a parked address and for an integration needing attention:
   `TestAWaitAnswersForAParkedAddressAndForAttention`.
-- `set_exposure` hands the account and the integration id to `Extra.SetExposure` and reports its
-  refusal as `bad_request`; the check that the integration belongs to the account is the
+- `set_exposure` hands the account and the integration id to `Extra.SetExposure` and answers its
+  refusal through `refused()`; the check that the integration belongs to the account is the
   callback's (`internal/cli/ownerextra.go`), which answers another account's integration as one
   that does not exist: the store's account-bound read (`GetAccountIntegration`) tells the two apart
   for no door. `TestSetExposureCannotReachAnotherAccountsIntegration` holds the tool's side of this

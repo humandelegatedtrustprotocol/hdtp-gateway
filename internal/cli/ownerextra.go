@@ -80,7 +80,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			for _, t := range tools {
 				d, ok := byName[t]
 				if !ok {
-					return fmt.Errorf("%s does not offer a tool called %q", in.Slug, t)
+					return ownermcp.BadRequest(fmt.Sprintf("%s does not offer a tool called %q", in.Slug, t), nil)
 				}
 				entries = append(entries, integrations.ExposureEntry{
 					Tool: d.Name, Mode: integrations.ModePassthrough,

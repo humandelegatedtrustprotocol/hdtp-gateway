@@ -173,7 +173,7 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 	if a.Since == nil {
 		_, newest, err := ot.d.Store.ChangeBounds(ctx)
 		if err != nil {
-			return nil, nil, err
+			return fail(err)
 		}
 		r, err := jsonResult(waitResult{Cursor: newest})
 		return r, nil, err
@@ -188,7 +188,7 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	res, err := ot.d.changesSince(ctx, a.AccountID, *a.Since)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	if res.news() {
 		r, err := jsonResult(res)
@@ -209,7 +209,7 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 		// Every event is a reason to look, and not every one is news for this wait (an answer
 		// relayed, say): what the store holds decides whether to answer or wait on.
 		if res, err = ot.d.changesSince(ctx, a.AccountID, *a.Since); err != nil {
-			return nil, nil, err
+			return fail(err)
 		}
 		if res.news() {
 			r, err := jsonResult(res)
@@ -237,7 +237,7 @@ func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a
 	}
 	threads, err := ot.d.Store.ListThreadsByAccount(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	type perContact struct {
 		ContactFpr    string `json:"contact_fpr"`

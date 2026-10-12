@@ -27,6 +27,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
@@ -77,15 +78,15 @@ type inviteOffer struct {
 func splitInviteURL(raw string) (origin, token string, err error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return "", "", fmt.Errorf("an invite link is an https:// URL")
+		return "", "", ownermcp.BadRequest("an invite link is an https:// URL", nil)
 	}
 	i := strings.LastIndex(u.Path, "/i/")
 	if i < 0 {
-		return "", "", fmt.Errorf("that does not look like an invite link (no /i/<token>)")
+		return "", "", ownermcp.BadRequest("that does not look like an invite link (no /i/<token>)", nil)
 	}
 	token = strings.Trim(u.Path[i+len("/i/"):], "/")
 	if token == "" {
-		return "", "", fmt.Errorf("the invite link carries no token")
+		return "", "", ownermcp.BadRequest("the invite link carries no token", nil)
 	}
 	return u.Scheme + "://" + u.Host, token, nil
 }
@@ -109,18 +110,18 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 	req.Header.Set("Accept", "application/hdtp-invite+json")
 	res, err := hc.Do(req)
 	if err != nil {
-		return off, fmt.Errorf("could not reach the invite link: %w", err)
+		return off, ownermcp.BadRequest("could not reach the invite link", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return off, fmt.Errorf("the invite link answered HTTP %d", res.StatusCode)
+		return off, ownermcp.BadRequest(fmt.Sprintf("the invite link answered HTTP %d", res.StatusCode), nil)
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxOfferBytes))
 	if err != nil {
 		return off, err
 	}
 	if err := json.Unmarshal(body, &off); err != nil {
-		return off, fmt.Errorf("the invite link did not return a machine-readable card")
+		return off, ownermcp.BadRequest("the invite link did not return a machine-readable card", nil)
 	}
 	return off, nil
 }
@@ -144,30 +145,30 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 //     follows reach the peer this document describes and nobody else.
 func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, err error) {
 	if len(off.Card) > maxOfferBytes {
-		return card, nil, nil, fmt.Errorf("the card is implausibly large")
+		return card, nil, nil, ownermcp.BadRequest("the card is implausibly large", nil)
 	}
 	card, err = contacts.ValidateInbound(off.Card)
 	if err != nil {
-		return card, nil, nil, fmt.Errorf("the invite's card: %w", err)
+		return card, nil, nil, ownermcp.BadRequest("the invite's card: "+err.Error(), nil)
 	}
 	if len(off.Chain) != 2 {
-		return card, nil, nil, fmt.Errorf("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)")
+		return card, nil, nil, ownermcp.BadRequest("the invite offer carries no [leaf, root] chain, so there is no root to pin (SPEC §9.2)", nil)
 	}
 	leafDER, errLeaf := hdtpidentity.DecodeB64url(off.Chain[0])
 	rootDER, errRoot := hdtpidentity.DecodeB64url(off.Chain[1])
 	if errLeaf != nil || errRoot != nil {
-		return card, nil, nil, fmt.Errorf("the invite's chain is not base64url")
+		return card, nil, nil, ownermcp.BadRequest("the invite's chain is not base64url", nil)
 	}
 	chain := [][]byte{leafDER, rootDER}
 	v := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
 	if !v.OK {
-		return card, nil, nil, fmt.Errorf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason)
+		return card, nil, nil, ownermcp.BadRequest(fmt.Sprintf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason), nil)
 	}
 	if !bytes.Equal(chain[0], card.Cert) {
-		return card, nil, nil, fmt.Errorf("the invite's chain does not carry the certificate its card does")
+		return card, nil, nil, ownermcp.BadRequest("the invite's chain does not carry the certificate its card does", nil)
 	}
 	if v.RootFingerprint != card.Key {
-		return card, nil, nil, fmt.Errorf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint)
+		return card, nil, nil, ownermcp.BadRequest(fmt.Sprintf("the invite's chain is signed by %s, not the root the card names", v.RootFingerprint), nil)
 	}
 	// The key to seal to is the validated leaf's, read from the chain and from nowhere else.
 	// An offer used to have to carry it a second time as `spki` and was refused without it —
@@ -176,7 +177,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	// spec-exact issuer unredeemable here.
 	spki = v.LeafKey.SPKI
 	if err := identity.VerifyCardSig(spki, off.Card, off.CardSig); err != nil {
-		return card, nil, nil, fmt.Errorf("the invite's card: %v", err)
+		return card, nil, nil, ownermcp.BadRequest("the invite's card: "+err.Error(), nil)
 	}
 	return card, spki, chain[1], nil
 }
@@ -258,13 +259,13 @@ type addContactResult struct {
 func (ci *contactInitiator) Add(ctx context.Context, accountID, inviteURL, card, note, grant string) (addContactResult, error) {
 	switch {
 	case inviteURL != "" && card != "":
-		return addContactResult{}, fmt.Errorf("an invite link or a card, not both")
+		return addContactResult{}, ownermcp.BadRequest("an invite link or a card, not both", nil)
 	case inviteURL != "":
 		return ci.RedeemInvite(ctx, accountID, inviteURL, grant)
 	case card != "":
 		return ci.RequestContact(ctx, accountID, card, note)
 	}
-	return addContactResult{}, fmt.Errorf("an invite link or their card is needed")
+	return addContactResult{}, ownermcp.BadRequest("an invite link or their card is needed", nil)
 }
 
 // RedeemInvite is the owner pasting somebody's invite link.
@@ -300,7 +301,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	// pending_out (harness S21).
 	if ours, err := contacts.ValidateInbound(ourCard); err == nil && ours.Key == peerCard.Key {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "own_invite")
-		return out, fmt.Errorf("that is this identity's own invite")
+		return out, ownermcp.BadRequest("that is this identity's own invite", nil)
 	}
 	// The contact cap, before their invite is spent: whatever they answer, the row this writes is
 	// active or pending_out, and both count. Checked once, here, as the cloud checks it; a row they
@@ -318,7 +319,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
-		return out, fmt.Errorf("the peer refused the redemption: %w", err)
+		return out, ownermcp.BadRequest("the peer refused the redemption", err)
 	}
 	// A refusal is an answer with isError and its code (HDTP §12): nothing was redeemed, so
 	// nothing is recorded. It used to fall through to decodeRedeemAnswer, whose empty status
@@ -326,7 +327,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if res.IsError {
 		code := refusalCodeOf(res)
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "refused")
-		return out, fmt.Errorf("the peer refused the redemption: %s", code)
+		return out, ownermcp.BadRequest("the peer refused the redemption: "+code, nil)
 	}
 	answer := decodeRedeemAnswer(res)
 	// Record only AFTER the peer accepted the redemption: a contact row written
@@ -421,7 +422,7 @@ func decodeRedeemAnswer(res *mcp.CallToolResult) redeemAnswer {
 func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerCardText, note string) (addContactResult, error) {
 	var out addContactResult
 	if len(peerCardText) > maxOfferBytes || len(note) > 1024 {
-		return out, fmt.Errorf("that card or note is too large")
+		return out, ownermcp.BadRequest("that card or note is too large", nil)
 	}
 	// `ValidateInbound`, not `ParseCard`: a card's identity and address are inside its
 	// certificate, and reading them is the difference between pinning a root and pinning
@@ -431,9 +432,9 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 		// What the person can do about it, for the agent to relay: a card whose certificate is cut
 		// or changed was damaged in the copy, and its file or its invite link cannot be.
 		if contacts.CertificateUnreadable(err) {
-			return out, fmt.Errorf("that card cannot be pinned: %w; %s", err, contacts.CardUnreadableHint)
+			return out, ownermcp.BadRequest("that card cannot be pinned: "+err.Error()+"; "+contacts.CardUnreadableHint, nil)
 		}
-		return out, fmt.Errorf("that card cannot be pinned: %w", err)
+		return out, ownermcp.BadRequest("that card cannot be pinned: "+err.Error(), nil)
 	}
 	// **The key comes with the card now.** A card used to name a fingerprint and nothing more, so
 	// this call went out in plain text and the key was bound on first contact. A card carries
@@ -451,7 +452,7 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 			outcome = "refused"
 		}
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, outcome)
-		return out, fmt.Errorf("the request did not land: %w", err)
+		return out, ownermcp.BadRequest("the request did not land", err)
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err
