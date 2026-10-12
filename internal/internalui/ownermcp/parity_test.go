@@ -16,6 +16,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // AC (P10-08f): a token scoped to one account must not read another account's
@@ -477,10 +478,10 @@ func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
 		err        error
 		code, want string
 	}{
-		{fmt.Errorf("revoking invite: %w", errors.New(storeCanary)), "internal", internalDetail},
-		{fmt.Errorf("reading contact: %w", store.ErrNotFound), "not_found", notFoundDetail},
-		{BadRequest("the invite link answered HTTP 404", nil), "bad_request", "the invite link answered HTTP 404"},
-		{BadRequest("could not reach the invite link", errors.New(storeCanary)), "bad_request", "could not reach the invite link"},
+		{fmt.Errorf("revoking invite: %w", errors.New(storeCanary)), "internal", refusal.InternalDetail},
+		{fmt.Errorf("reading contact: %w", store.ErrNotFound), "not_found", refusal.NotFoundDetail},
+		{refusal.BadRequest("the invite link answered HTTP 404", nil), "bad_request", "the invite link answered HTTP 404"},
+		{refusal.BadRequest("could not reach the invite link", errors.New(storeCanary)), "bad_request", "could not reach the invite link"},
 	} {
 		got := text(c.err)
 		if got["code"] != c.code || got["detail"] != c.want || strings.Contains(got["detail"], storeCanary) || strings.Contains(got["detail"], "sql:") {

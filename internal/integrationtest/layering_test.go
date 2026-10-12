@@ -68,6 +68,8 @@ var layerRank = map[string]int{
 	"internal/services/presence":         4,
 	"internal/services/integrationchain": 4,
 	"internal/services/retention":        4,
+	// the one reading of a failure the owner's doors answer with, over the domain's refusals
+	"internal/refusal": 4,
 	// the walk over the store's cards, certificates and contact states, read as the contacts
 	// package and the public surface's pinsOf read them
 	"internal/storecheck": 5,

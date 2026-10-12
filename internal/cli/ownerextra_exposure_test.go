@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
@@ -65,5 +66,41 @@ func TestSetExposureAnswersAForeignIntegrationAsAMissingOne(t *testing.T) {
 	}
 	if _, err := st.LatestExposure(ctx, in.ID); err != nil {
 		t.Fatalf("nothing published for the integration's own account: %v", err)
+	}
+}
+
+// set_exposure's refusal of a tool the integration does not offer is the node's own sentence,
+// marked (refusal.BadRequest) so the owner MCP answers it bad_request with that sentence; it was a
+// plain error, answered internal. The control, a tool it offers, publishes.
+func TestSetExposureRefusesAnUnofferedToolWithAMarkedSentence(t *testing.T) {
+	ctx := context.Background()
+	st := migrated(t, t.TempDir())
+	defer st.Close()
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.InsertIntegration(ctx, store.Integration{
+		AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://upstream.invalid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.InsertCatalog(ctx, store.Catalog{
+		IntegrationID: in.ID, Version: 1,
+		Tools: `[{"name":"find_slots","description":"find","input_schema":{"type":"object"},"hash":"h1"}]`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audit := func(string, string, string) {}
+	extra := ownerExtra(nil, st, nil, integrationchain.Build(st, nil, nil, "", audit, nil, nil, nil), audit)
+
+	err = extra.SetExposure(ctx, a.ID, in.ID, []string{"delete_everything"})
+	want := `cal does not offer a tool called "delete_everything"`
+	if got, ok := refusal.Sentence(err); !ok || got != want || err.Error() != want {
+		t.Errorf("an unoffered tool: %v (sentence %q, marked %v), want the marked sentence %q", err, got, ok, want)
+	}
+	if err := extra.SetExposure(ctx, a.ID, in.ID, []string{"find_slots"}); err != nil {
+		t.Fatalf("the control: %v", err)
 	}
 }

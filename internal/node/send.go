@@ -28,6 +28,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
@@ -40,6 +41,30 @@ const (
 	StatusDelivered = "delivered"
 	StatusFailed    = "failed"
 )
+
+// ErrUnknownContact is a send to a fingerprint this account holds no contact by. It satisfies
+// errors.Is with contacts.ErrUnknownContact, which is how a door codes it not_found.
+var ErrUnknownContact error = sendRefusal{text: "send: unknown contact", is: contacts.ErrUnknownContact}
+
+// ErrNotActive is a send to a contact that is blocked or still pending: not somebody this node
+// writes to. The error a send returns names the contact's status and satisfies errors.Is with
+// ErrNotActive and with contacts.ErrWrongState, which is how a door codes it conflict.
+var ErrNotActive error = sendRefusal{text: "send: contact is not active", is: contacts.ErrWrongState}
+
+type sendRefusal struct {
+	text string
+	is   error
+}
+
+func (e sendRefusal) Error() string        { return e.text }
+func (e sendRefusal) Is(target error) bool { return target == e.is }
+
+type notActive struct{ status string }
+
+func (e notActive) Error() string { return "send: contact is " + e.status + ", not active" }
+func (e notActive) Is(target error) bool {
+	return target == ErrNotActive || target == contacts.ErrWrongState
+}
 
 // SendMessage records an owner-composed message and delivers it to the contact.
 //
@@ -54,12 +79,15 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		return messaging.Result{}, fmt.Errorf("send: unknown account")
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
+	if errors.Is(err, store.ErrNotFound) {
+		return messaging.Result{}, ErrUnknownContact
+	}
 	if err != nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown contact")
+		return messaging.Result{}, err
 	}
 	if c.Status != "active" {
 		// A blocked or still-pending contact is not somebody this node writes to.
-		return messaging.Result{}, fmt.Errorf("send: contact is %s, not active", c.Status)
+		return messaging.Result{}, notActive{status: c.Status}
 	}
 
 	res, err := acct.msg.Record(ctx, accountID, contactFpr, messaging.DirOut, in)
@@ -120,11 +148,14 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 		return messaging.Result{}, fmt.Errorf("send: unknown account")
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
+	if errors.Is(err, store.ErrNotFound) {
+		return messaging.Result{}, ErrUnknownContact
+	}
 	if err != nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown contact")
+		return messaging.Result{}, err
 	}
 	if c.Status != "active" {
-		return messaging.Result{}, fmt.Errorf("send: contact is %s, not active", c.Status)
+		return messaging.Result{}, notActive{status: c.Status}
 	}
 	res, err := acct.media.SendInline(ctx, acct.msg, accountID, contactFpr, in, filename, mime, data)
 	if err != nil {

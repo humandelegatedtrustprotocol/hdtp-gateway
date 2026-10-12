@@ -19,6 +19,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
@@ -80,7 +81,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			for _, t := range tools {
 				d, ok := byName[t]
 				if !ok {
-					return ownermcp.BadRequest(fmt.Sprintf("%s does not offer a tool called %q", in.Slug, t), nil)
+					return refusal.BadRequest(fmt.Sprintf("%s does not offer a tool called %q", in.Slug, t), nil)
 				}
 				entries = append(entries, integrations.ExposureEntry{
 					Tool: d.Name, Mode: integrations.ModePassthrough,

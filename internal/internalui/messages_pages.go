@@ -25,6 +25,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // MessagesDeps is what the conversation view needs.
@@ -478,10 +479,18 @@ func (d MessagesDeps) postMessagesSend(w http.ResponseWriter, r *http.Request) {
 		if d.Audit != nil {
 			d.Audit(core.ToolSendMessage, withAccount(r, "contact:"+contact), "error")
 		}
-		back(err.Error())
+		back(pageError(err))
 		return
 	}
 	back("")
+}
+
+// pageError is what a page shows for a failed action: the node's own sentence for a refusal it
+// coded, a fixed phrase for anything else (refusal.Of, the owner MCP's reading of the same
+// error). A store's or a library's text is not shown.
+func pageError(err error) string {
+	_, detail := refusal.Of(err)
+	return detail
 }
 
 // presenceWindow is how recently we must have confirmed contact to call somebody

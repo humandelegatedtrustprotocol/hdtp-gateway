@@ -37,6 +37,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -154,74 +155,10 @@ func (d Deps) owner() contacts.Owner {
 		TellApproved: d.Approved, TellRejected: d.Rejected, TellRemoved: d.Removed}
 }
 
-// BadRequest marks a sentence the node wrote about the caller's arguments as a bad_request
-// refusal. The owner MCP answers the sentence alone as the detail; cause, when there is one,
-// is the error behind it (a dial, a peer's answer) and stays off the wire. Error() is the
-// sentence followed by the cause's text, for the portal, which shows the whole of it.
-func BadRequest(sentence string, cause error) error {
-	return badRequest{sentence: sentence, cause: cause}
-}
-
-type badRequest struct {
-	sentence string
-	cause    error
-}
-
-func (b badRequest) Error() string {
-	if b.cause == nil {
-		return b.sentence
-	}
-	return b.sentence + ": " + b.cause.Error()
-}
-
-func (b badRequest) Unwrap() error { return b.cause }
-
-// Sentence is the sentence a BadRequest in err's chain carries, without its cause; ok is false
-// when err holds none.
-func Sentence(err error) (sentence string, ok bool) {
-	var br badRequest
-	if errors.As(err, &br) {
-		return br.sentence, true
-	}
-	return "", false
-}
-
-// internalDetail is the detail of every failure that is the node's own: its text is the
-// store's or a library's words and stays off the wire.
-const internalDetail = "the node could not complete this"
-
-// notFoundDetail is the detail of a store read that found nothing by the id it was given.
-const notFoundDetail = "nothing by that id on this account"
-
-// refused answers a failure as a tool error carrying its code, the shape deny() uses. A refusal
-// the node coded keeps the node's own sentence as its detail; a store's not-found is not_found
-// with a fixed detail; anything else is internal with a fixed detail. No error's text that the
-// node did not write reaches the caller.
+// refused answers a failure as a tool error carrying its code and detail (refusal.Of), the
+// shape deny() uses.
 func refused(err error) (*mcp.CallToolResult, error) {
-	code, detail := "internal", internalDetail
-	sentence, marked := Sentence(err)
-	switch {
-	case marked:
-		code, detail = "bad_request", sentence
-	case errors.Is(err, contacts.ErrUnknownContact):
-		code, detail = "not_found", err.Error()
-	case errors.Is(err, contacts.ErrWrongState):
-		code, detail = "conflict", err.Error()
-	case errors.Is(err, contacts.ErrBadRequest):
-		code, detail = "bad_request", err.Error()
-	case errors.Is(err, contacts.ErrContactCap):
-		code, detail = "payment_required", err.Error()
-	case errors.Is(err, messaging.ErrBadRequest):
-		code, detail = "bad_request", err.Error()
-	case errors.Is(err, messaging.ErrTooLarge), errors.Is(err, messaging.ErrQuota):
-		code, detail = "too_large", err.Error()
-	case errors.Is(err, integrations.ErrUnknownRequest):
-		code, detail = "not_found", err.Error()
-	case errors.Is(err, integrations.ErrRequestClosed):
-		code, detail = "conflict", err.Error()
-	case errors.Is(err, store.ErrNotFound):
-		code, detail = "not_found", notFoundDetail
-	}
+	code, detail := refusal.Of(err)
 	b, jerr := json.Marshal(map[string]string{"code": code, "detail": detail})
 	if jerr != nil {
 		return nil, jerr
@@ -942,7 +879,7 @@ func refreshFailure(err error) (code, detail string) {
 	case errors.Is(err, contacts.ErrWrongState):
 		return "conflict", callFailureDetail["conflict"]
 	}
-	return "internal", internalDetail
+	return "internal", refusal.InternalDetail
 }
 
 // setTrustFlagTool is the `set_trust_flag` tool.

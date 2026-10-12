@@ -13,6 +13,9 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // failingStore is the real store with one method made to fail with driver text. Every method it
@@ -161,8 +164,8 @@ func TestAStoreFailureAnswersInternalWithNoStoreText(t *testing.T) {
 			continue
 		}
 		got := noStoreText(t, c.tool, body, isErr)
-		if got["code"] != "internal" || got["detail"] != internalDetail {
-			t.Errorf("%s: answered %s, want internal with %q", c.tool, body, internalDetail)
+		if got["code"] != "internal" || got["detail"] != refusal.InternalDetail {
+			t.Errorf("%s: answered %s, want internal with %q", c.tool, body, refusal.InternalDetail)
 		}
 		if c.tool == "answer_request" {
 			// Its control is an id that names nothing: not_found, which a store failure used to
@@ -219,8 +222,8 @@ func TestAnExtraFailureAnswersInternalWithNoStoreText(t *testing.T) {
 			return callParityResult(t, ctx, srv, c.tool, c.args)
 		}
 		body, isErr := answer(canary)
-		if got := noStoreText(t, c.tool, body, isErr); got["code"] != "internal" || got["detail"] != internalDetail {
-			t.Errorf("%s: answered %s, want internal with %q", c.tool, body, internalDetail)
+		if got := noStoreText(t, c.tool, body, isErr); got["code"] != "internal" || got["detail"] != refusal.InternalDetail {
+			t.Errorf("%s: answered %s, want internal with %q", c.tool, body, refusal.InternalDetail)
 		}
 		if c.tool == "export_card" {
 			continue // its control needs a real card; the other rows hold the shape
@@ -260,15 +263,49 @@ func TestSetExposureAndAddContactKeepStoreTextOffTheWire(t *testing.T) {
 			return callParityResult(t, ctx, srv, c.tool, c.args)
 		}
 		body, isErr := answer(fmt.Errorf("publishing: %w", errors.New(storeCanary)))
-		if got := noStoreText(t, c.tool, body, isErr); got["code"] != "internal" || got["detail"] != internalDetail {
-			t.Errorf("%s, a store failure: answered %s, want internal with %q", c.tool, body, internalDetail)
+		if got := noStoreText(t, c.tool, body, isErr); got["code"] != "internal" || got["detail"] != refusal.InternalDetail {
+			t.Errorf("%s, a store failure: answered %s, want internal with %q", c.tool, body, refusal.InternalDetail)
 		}
-		body, isErr = answer(BadRequest(sentence, errors.New(storeCanary)))
+		body, isErr = answer(refusal.BadRequest(sentence, errors.New(storeCanary)))
 		if got := noStoreText(t, c.tool, body, isErr); got["code"] != "bad_request" || got["detail"] != sentence {
 			t.Errorf("%s, a refused argument: answered %s, want bad_request with %q", c.tool, body, sentence)
 		}
 		if body, isErr := answer(nil); isErr || strings.Contains(body, "code") {
 			t.Errorf("%s: the control did not get through: %s", c.tool, body)
+		}
+	}
+}
+
+// send_to_contact answers the node's send refusals by code with the node's sentence: a contact
+// the account does not hold not_found, one that is not active conflict. With no sentinel behind
+// them they answered internal. The control, a send that is recorded, gets through.
+func TestSendToContactAnswersTheNodesRefusalsByCode(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		err        error
+		code, want string
+	}{
+		{node.ErrUnknownContact, "not_found", "send: unknown contact"},
+		{node.ErrNotActive, "conflict", "send: contact is not active"},
+		{fmt.Errorf("recording: %w", errors.New(storeCanary)), "internal", refusal.InternalDetail},
+		{nil, "", ""},
+	} {
+		d := e.deps
+		d.Send = func(context.Context, string, string, messaging.Input) (messaging.Result, error) {
+			return messaging.Result{Status: "delivered"}, c.err
+		}
+		srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+		body, isErr := callParityResult(t, ctx, srv, "send_to_contact", map[string]any{
+			"account_id": e.acctA, "contact_fpr": "sha256:c", "msg_id": "m1", "text": "hi"})
+		if c.err == nil {
+			if isErr {
+				t.Errorf("the control did not get through: %s", body)
+			}
+			continue
+		}
+		if got := noStoreText(t, "send_to_contact", body, isErr); got["code"] != c.code || got["detail"] != c.want {
+			t.Errorf("%v: answered %s, want %s with %q", c.err, body, c.code, c.want)
 		}
 	}
 }

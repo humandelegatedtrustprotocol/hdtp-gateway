@@ -338,7 +338,7 @@ func (d ContactsDeps) postContactsAdd(w http.ResponseWriter, r *http.Request) {
 			// audited, never the link itself
 			d.Audit("contact_add", "account:"+account, "refused")
 		}
-		redirectContacts(w, r, account, "", err.Error())
+		redirectContacts(w, r, account, "", pageError(err))
 		return
 	}
 	if d.Audit != nil {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // Reaching out to somebody — pasting the invite link they sent you — existed only
@@ -110,7 +111,9 @@ func TestARefusedInviteIsReportedToTheOwner(t *testing.T) {
 	MountContactPages(mux, ContactsDeps{
 		Store: e.st,
 		AddContact: func(context.Context, string, string, string, string, string) (string, string, error) {
-			return "", "", errInviteRefused{}
+			// The node's refusals are marked sentences (refusal.BadRequest); the page shows the
+			// sentence.
+			return "", "", refusal.BadRequest("that invite is expired or already used", nil)
 		},
 	})
 	form := url.Values{"invite_url": {"https://friend.example/i/gone"}}
@@ -135,10 +138,6 @@ func TestARefusedInviteIsReportedToTheOwner(t *testing.T) {
 		t.Errorf("the refusal was never carried to the owner: redirect %q", loc)
 	}
 }
-
-type errInviteRefused struct{}
-
-func (errInviteRefused) Error() string { return "that invite is expired or already used" }
 
 // SPEC §9.3: the portal imports a card, and on the owner's confirmation the node runs the HDTP
 // §5.2 manual flow — request_contact at the address the card names, landing pending_out. The
