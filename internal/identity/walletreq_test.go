@@ -130,11 +130,15 @@ func TestAWalletLeafNotNewerIsRefusedAsThat(t *testing.T) {
 	if _, err := m.InstallWalletLeaf(ctx, a.ID, w.issue(t, same, now, 365), req.State, later); !errors.Is(err, ErrNotNewer) || !errors.Is(err, ErrLeafRefused) {
 		t.Fatalf("a leaf as old as the current one: %v", err)
 	}
-	// A root that is this identity's key but not self-signed: rule 2, and not the wrong root.
+	// A root that is this identity's key but not self-signed: rule 2, and not the wrong root. Said in
+	// the node's words alone (Worded), with no core's reason after the rule.
 	chain := w.issue(t, req, later, 365)
 	broken := append([]byte(nil), chain[1]...)
 	broken[len(broken)-1] ^= 1 // the root's signature
-	if _, err := m.InstallWalletLeaf(ctx, a.ID, [][]byte{chain[0], broken}, req.State, later); !errors.Is(err, ErrLeafRefused) || errors.Is(err, ErrWrongRoot) || !strings.Contains(err.Error(), "rule 2") {
+	if _, err := m.InstallWalletLeaf(ctx, a.ID, [][]byte{chain[0], broken}, req.State, later); !errors.Is(err, ErrLeafRefused) || errors.Is(err, ErrWrongRoot) ||
+		err.Error() != "identity: chain refused by rule 2: leaf refused" {
+		t.Fatalf("a root that is not self-signed: %v", err)
+	} else if text, ok := Worded(err); !ok || text != err.Error() {
 		t.Fatalf("a root that is not self-signed: %v", err)
 	}
 	// And the request is still answerable.

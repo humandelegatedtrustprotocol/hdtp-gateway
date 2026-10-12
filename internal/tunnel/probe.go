@@ -57,7 +57,9 @@ type Result struct {
 	Verdict Verdict `json:"verdict"`
 	// Endpoint is the URL that was probed, as given.
 	Endpoint string `json:"endpoint"`
-	// Detail is the error or the observation behind a verdict other than reachable.
+	// Detail is the node's sentence behind a verdict other than reachable: its own refusal of the
+	// chain served, or a fixed phrase; never a TLS stack's or a parser's text, nor anything the
+	// answerer chose.
 	Detail string `json:"detail,omitempty"`
 	// Caveat is set when the probe originated from the node itself (hairpin
 	// NAT may make the result unrepresentative).
@@ -105,6 +107,11 @@ func ProbeHandler(instanceID string) http.Handler {
 	})
 }
 
+// probeRefusal is the probe's own refusal of what was served, in the node's words.
+type probeRefusal string
+
+func (p probeRefusal) Error() string { return string(p) }
+
 // Probe runs one reachability check against endpoint (scheme://host[:port]) and always returns a
 // Result; it never returns an error. It GETs ProbePath with a fresh random nonce and reads at most
 // 4096 bytes of the answer. With o.Identities set, Go's WebPKI verification is replaced by hdtp-identity's
@@ -141,7 +148,7 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 		tlsCfg.InsecureSkipVerify = true
 		tlsCfg.VerifyConnection = func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) != 2 {
-				return fmt.Errorf("served %d certificate(s): a node presents its chain, leaf then root (HDTP §14.2)", len(cs.PeerCertificates))
+				return probeRefusal(fmt.Sprintf("served %d certificate(s): a node presents its chain, leaf then root (HDTP §14.2)", len(cs.PeerCertificates)))
 			}
 			chain := [][]byte{cs.PeerCertificates[0].Raw, cs.PeerCertificates[1].Raw}
 			why := ""
@@ -153,10 +160,10 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 				// The refusal worth reading is the one about OUR root: a chain under it that
 				// fails is a leaf naming the wrong address, or an expired one.
 				if why == "" || vr.Rule > 1 {
-					why = fmt.Sprintf("for %s at %s: rule %d, %s", id.Root, id.Endpoint, vr.Rule, vr.Reason)
+					why = fmt.Sprintf("for %s at %s: rule %d", id.Root, id.Endpoint, vr.Rule)
 				}
 			}
-			return fmt.Errorf("the chain served there is not one a peer would accept (%s)", why)
+			return probeRefusal("the chain served there is not one a peer would accept (" + why + ")")
 		}
 	}
 	dial := (&net.Dialer{Timeout: timeout}).DialContext
@@ -177,18 +184,21 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 	resp, err := client.Do(req)
 	if err != nil {
+		// The detail is the node's: its own refusal of the chain, or a fixed phrase. A TLS stack's,
+		// a resolver's or an x509 parser's text is not shown.
+		var refused probeRefusal
 		var certErr *tls.CertificateVerificationError
 		var unknownAuth x509.UnknownAuthorityError
 		var hostErr x509.HostnameError
 		switch {
+		case errors.As(err, &refused):
+			res.Verdict, res.Detail = VerdictWrongCert, string(refused)
 		case errors.As(err, &certErr), errors.As(err, &unknownAuth), errors.As(err, &hostErr),
-			strings.Contains(err.Error(), "not one a peer would accept"), strings.Contains(err.Error(), "a node presents its chain"),
 			strings.Contains(err.Error(), "x509:"):
-			res.Verdict = VerdictWrongCert
+			res.Verdict, res.Detail = VerdictWrongCert, "the certificate served there does not verify for this address"
 		default:
-			res.Verdict = VerdictUnreachable
+			res.Verdict, res.Detail = VerdictUnreachable, "the endpoint did not answer the probe"
 		}
-		res.Detail = err.Error()
 		return res
 	}
 	defer resp.Body.Close()
@@ -204,7 +214,8 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 	}
 	if o.InstanceID != "" && echo.Instance != o.InstanceID {
 		res.Verdict = VerdictWrongInstance
-		res.Detail = "endpoint reaches a different hdtp-gateway instance (" + echo.Instance + ")"
+		// The id it echoed is the answerer's to choose, so it is not repeated.
+		res.Detail = "endpoint reaches a different hdtp-gateway instance"
 		return res
 	}
 	res.Verdict = VerdictReachable

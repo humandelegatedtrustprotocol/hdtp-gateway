@@ -3,7 +3,6 @@ package internalui
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -113,10 +112,10 @@ func TestCreatingAnIdentitySucceedsAndIsAudited(t *testing.T) {
 
 func TestAFailedCreateIsReportedAndAudited(t *testing.T) {
 	mux, audits := identityHarness(t, func(context.Context, string, string, string) (store.Account, error) {
-		return store.Account{}, errors.New("slug already taken")
+		return store.Account{}, identity.ErrDisplayName
 	})
 	w := createPost(mux, url.Values{"slug": {"alice"}, "name": {"Alice"}})
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "slug already taken") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), identity.ErrDisplayName.Error()) {
 		t.Fatalf("failed create: %d %s", w.Code, w.Body.String())
 	}
 	if len(*audits) != 1 || (*audits)[0] != "account_create/error" {

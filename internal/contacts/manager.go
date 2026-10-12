@@ -210,7 +210,7 @@ func (p Proof) vet(card string) (Card, error) {
 	}
 	pc, err := ValidateInbound(card)
 	if err != nil {
-		return Card{}, fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return Card{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	if pc.Key != p.Fingerprint {
 		return Card{}, fmt.Errorf("%w: the card names another root than the chain proved", ErrIdentityRequired)
@@ -415,7 +415,7 @@ func (m *Manager) ContactAccepted(ctx context.Context, accountID, callerFpr, car
 	if card != "" {
 		pc, err := ValidateInbound(card)
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrBadRequest, err)
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 		// A card that is not the caller's own is a bad card, not a missing proof: the call
 		// proved who it is; the card says otherwise. `bad_request` is what HDTP §3 answers a
@@ -459,7 +459,7 @@ func (m *Manager) UpdateContact(ctx context.Context, accountID, oldFpr, newCard 
 	}
 	nc, err := ValidateInbound(newCard)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	// Both refusals are `bad_request`, as ContactAccepted's is: the call's chain proved the
 	// caller, and the card disagrees with that proof (HDTP §3, §14.2). One fault, one code on

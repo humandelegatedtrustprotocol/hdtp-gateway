@@ -15,7 +15,7 @@ package integrations
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -150,6 +150,12 @@ func (a *AgentAnswered) fallbackResult(ctx context.Context, accountID string, re
 	return errResult("unavailable"), nil
 }
 
+// ErrUnknownRequest is an answer to a request id this account holds no request by.
+var ErrUnknownRequest = errors.New("integrations: unknown pending request")
+
+// ErrRequestClosed is an answer to a request that has expired or was answered already.
+var ErrRequestClosed = errors.New("integrations: request is expired or already answered")
+
 // Answer records the agent's result (owner-MCP answer_request, SPEC §6.8):
 // atomic against expiry; relays to the waiting caller when one is still there, in
 // this process or another on the store, and reports relayed only when the held call
@@ -158,8 +164,11 @@ func (a *AgentAnswered) fallbackResult(ctx context.Context, accountID string, re
 // that names nothing answers, so the answer does not say which ids exist.
 func (a *AgentAnswered) Answer(ctx context.Context, accountID, requestID, result string) (relayed bool, err error) {
 	row, err := a.Store.GetAccountPendingRequest(ctx, accountID, requestID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, ErrUnknownRequest
+	}
 	if err != nil {
-		return false, fmt.Errorf("integrations: unknown pending request")
+		return false, err
 	}
 	// Listening before the answer is written: the held call's word may come back at once.
 	evs, stop := a.Bus.Subscribe(row.AccountID)
@@ -171,7 +180,7 @@ func (a *AgentAnswered) Answer(ctx context.Context, accountID, requestID, result
 	}
 	if !ok {
 		a.audit("answer_request", "account:"+row.AccountID+" pending:"+requestID, "error")
-		return false, fmt.Errorf("integrations: request is expired or already answered")
+		return false, ErrRequestClosed
 	}
 	a.Bus.Publish(messaging.Event{Kind: messaging.EventAnswered, AccountID: row.AccountID, Ref: requestID})
 	t := time.NewTimer(RelayWait)

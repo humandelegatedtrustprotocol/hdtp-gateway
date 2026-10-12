@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/ownermcp"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
 
@@ -65,6 +67,9 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			// confirmed hashes come from the bound snapshot, so an agent cannot
 			// smuggle in a name or a hash of its own.
 			cat, err := st.LatestCatalog(ctx, integrationID)
+			if errors.Is(err, store.ErrNotFound) {
+				return integrations.ErrNoCatalog
+			}
 			if err != nil {
 				return err
 			}
@@ -80,7 +85,7 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			for _, t := range tools {
 				d, ok := byName[t]
 				if !ok {
-					return fmt.Errorf("%s does not offer a tool called %q", in.Slug, t)
+					return refusal.BadRequest(fmt.Sprintf("%s does not offer a tool called %q", in.Slug, t), nil)
 				}
 				entries = append(entries, integrations.ExposureEntry{
 					Tool: d.Name, Mode: integrations.ModePassthrough,

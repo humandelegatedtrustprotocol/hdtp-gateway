@@ -59,21 +59,6 @@ func (d ManageDeps) owner() contacts.Owner {
 	return contacts.Owner{Manager: d.Contacts, Invalidate: d.Invalidate, TellApproved: d.Approved, TellRejected: d.Rejected}
 }
 
-// lifecycleStatus is the HTTP answer to a refused lifecycle action.
-func lifecycleStatus(err error) int {
-	switch {
-	case errors.Is(err, contacts.ErrUnknownContact):
-		return http.StatusNotFound
-	case errors.Is(err, contacts.ErrWrongState):
-		return http.StatusConflict
-	case errors.Is(err, contacts.ErrBadRequest):
-		return http.StatusBadRequest
-	case errors.Is(err, contacts.ErrContactCap):
-		return http.StatusPaymentRequired
-	}
-	return http.StatusInternalServerError
-}
-
 // redirectRequests returns to the Requests tab, with a notice when there is one to show.
 func redirectRequests(w http.ResponseWriter, r *http.Request, account, notice string) {
 	q := url.Values{}
@@ -124,7 +109,7 @@ func (d ManageDeps) decideAddress(approve bool) http.HandlerFunc {
 		p, err := d.owner().DecideAddress(r.Context(), account, root, approve)
 		if err != nil {
 			d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root), "error")
-			http.Error(w, err.Error(), lifecycleStatus(err))
+			http.Error(w, pageError(err), pageStatus(err))
 			return
 		}
 		d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root+" endpoint:"+p.Endpoint), "ok")
@@ -223,7 +208,7 @@ func (d ManageDeps) postRequestsFprApprove(w http.ResponseWriter, r *http.Reques
 	dec, err := d.owner().Approve(r.Context(), account, fpr, r.Form.Get("preset"))
 	if err != nil {
 		d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
-		http.Error(w, err.Error(), lifecycleStatus(err))
+		http.Error(w, pageError(err), pageStatus(err))
 		return
 	}
 	d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "ok")
@@ -246,7 +231,7 @@ func (d ManageDeps) postRequestsFprReject(w http.ResponseWriter, r *http.Request
 	dec, err := d.owner().Reject(r.Context(), account, fpr)
 	if err != nil {
 		d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "error")
-		http.Error(w, err.Error(), lifecycleStatus(err))
+		http.Error(w, pageError(err), pageStatus(err))
 		return
 	}
 	d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "ok")

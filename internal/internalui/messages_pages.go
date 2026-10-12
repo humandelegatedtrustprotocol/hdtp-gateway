@@ -25,6 +25,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // MessagesDeps is what the conversation view needs.
@@ -426,11 +427,7 @@ func (d MessagesDeps) postMessagesSendMedia(w http.ResponseWriter, r *http.Reque
 			d.Audit(core.ToolSendMedia, withAccount(r, "contact:"+contact), "error")
 		}
 		// Recorded but undelivered is still a message that exists; say which.
-		status := http.StatusBadGateway
-		if res.ThreadID == "" {
-			status = http.StatusBadRequest
-		}
-		apiJSONStatus(w, status, map[string]any{"error": err.Error(), "recorded": res.ThreadID != ""})
+		apiJSONStatus(w, pageStatus(err), map[string]any{"error": pageError(err), "recorded": res.ThreadID != ""})
 		return
 	}
 	apiJSON(w, map[string]any{"ok": true, "status": res.Status})
@@ -478,10 +475,39 @@ func (d MessagesDeps) postMessagesSend(w http.ResponseWriter, r *http.Request) {
 		if d.Audit != nil {
 			d.Audit(core.ToolSendMessage, withAccount(r, "contact:"+contact), "error")
 		}
-		back(err.Error())
+		back(pageError(err))
 		return
 	}
 	back("")
+}
+
+// pageError is what a page shows for a failed action: the node's own sentence for a refusal it
+// coded, a fixed phrase for anything else (refusal.Of, the owner MCP's reading of the same
+// error). A store's or a library's text is not shown.
+func pageError(err error) string {
+	_, detail := refusal.Of(err)
+	return detail
+}
+
+// pageStatus is the HTTP status a failed action answers with, read from the same code: a message
+// recorded and not delivered is 502, as the peer's side failed and not the request.
+func pageStatus(err error) int {
+	code, _ := refusal.Of(err)
+	switch code {
+	case "unavailable":
+		return http.StatusBadGateway
+	case "not_found":
+		return http.StatusNotFound
+	case "conflict":
+		return http.StatusConflict
+	case "bad_request", "too_large":
+		return http.StatusBadRequest
+	case "payment_required":
+		return http.StatusPaymentRequired
+	case "permission_denied":
+		return http.StatusForbidden
+	}
+	return http.StatusInternalServerError
 }
 
 // presenceWindow is how recently we must have confirmed contact to call somebody

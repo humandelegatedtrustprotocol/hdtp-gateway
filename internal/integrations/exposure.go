@@ -95,6 +95,24 @@ func decodeEntries(entriesJSON string) ([]ExposureEntry, error) {
 	return out, nil
 }
 
+// ErrNoCatalog is a publish to an integration with no catalog snapshot yet: there is nothing to bind
+// the exposure to until the integration has been connected and its tools listed.
+var ErrNoCatalog = errors.New("integrations: no catalog snapshot to bind")
+
+// ErrExposureRefused is a publish whose entries this node refuses: a tool not in the catalog, a
+// serving mode or fallback it does not have, or an exposed name that is reserved or taken. The
+// error a publish returns says which, in the node's words, and satisfies errors.Is with it.
+var ErrExposureRefused = errors.New("integrations: exposure refused")
+
+type exposureRefusal struct{ text string }
+
+func (e exposureRefusal) Error() string        { return e.text }
+func (e exposureRefusal) Is(target error) bool { return target == ErrExposureRefused }
+
+func exposureRefused(format string, a ...any) error {
+	return exposureRefusal{text: fmt.Sprintf(format, a...)}
+}
+
 // Publish validates entries against the LATEST catalog snapshot and mints vM+1.
 func (e *Exposures) Publish(ctx context.Context, integrationID string, entries []ExposureEntry) (store.Exposure, error) {
 	in, err := e.Store.GetIntegrationByID(ctx, integrationID)
@@ -102,8 +120,11 @@ func (e *Exposures) Publish(ctx context.Context, integrationID string, entries [
 		return store.Exposure{}, err
 	}
 	cat, err := e.Store.LatestCatalog(ctx, integrationID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Exposure{}, ErrNoCatalog
+	}
 	if err != nil {
-		return store.Exposure{}, fmt.Errorf("integrations: no catalog snapshot to bind: %w", err)
+		return store.Exposure{}, err
 	}
 	var tools []ToolDef
 	if err := json.Unmarshal([]byte(cat.Tools), &tools); err != nil {
@@ -123,27 +144,27 @@ func (e *Exposures) Publish(ctx context.Context, integrationID string, entries [
 		en := &entries[i]
 		h, ok := hashes[en.Tool]
 		if !ok {
-			return store.Exposure{}, fmt.Errorf("integrations: tool %q is not in catalog v%d", en.Tool, cat.Version)
+			return store.Exposure{}, exposureRefused("integrations: tool %q is not in catalog v%d", en.Tool, cat.Version)
 		}
 		switch en.Mode {
 		case ModePassthrough, ModeMapped, ModeAgent:
 		default:
-			return store.Exposure{}, fmt.Errorf("integrations: unknown serving mode %q", en.Mode)
+			return store.Exposure{}, exposureRefused("integrations: unknown serving mode %q", en.Mode)
 		}
 		switch {
 		case en.Fallback == "":
 		case en.Mode != ModeAgent:
-			return store.Exposure{}, fmt.Errorf("integrations: fallback is only for agent-answered entries")
+			return store.Exposure{}, exposureRefused("integrations: fallback is only for agent-answered entries")
 		case en.Fallback != ModePassthrough && en.Fallback != ModeMapped:
 			// falling back to agent-answered would be circular (SPEC §6.5)
-			return store.Exposure{}, fmt.Errorf("integrations: fallback %q must be passthrough or mapped", en.Fallback)
+			return store.Exposure{}, exposureRefused("integrations: fallback %q must be passthrough or mapped", en.Fallback)
 		}
 		if en.Mode == ModeMapped {
 			if en.Recipe == "" {
-				return store.Exposure{}, fmt.Errorf("integrations: mapped entry %q needs a recipe", en.Tool)
+				return store.Exposure{}, exposureRefused("integrations: mapped entry %q needs a recipe", en.Tool)
 			}
 			if en.ExposedName == "" {
-				return store.Exposure{}, fmt.Errorf("integrations: mapped entry %q must name the HDTP capability it implements", en.Tool)
+				return store.Exposure{}, exposureRefused("integrations: mapped entry %q must name the HDTP capability it implements", en.Tool)
 			}
 		} else if en.ExposedName == "" {
 			en.ExposedName = SnakeName(in.Slug + "_" + en.Tool)
@@ -153,10 +174,10 @@ func (e *Exposures) Publish(ctx context.Context, integrationID string, entries [
 		// A mapped entry is exposed under the HDTP capability name it implements; every other entry
 		// sits beside the built-in tools and never takes one of their names (core.ReservedToolNames).
 		if en.Mode != ModeMapped && core.ReservedToolNames[en.ExposedName] {
-			return store.Exposure{}, fmt.Errorf("integrations: %q is a built-in tool's name and cannot be taken by an integration", en.ExposedName)
+			return store.Exposure{}, exposureRefused("integrations: %q is a built-in tool's name and cannot be taken by an integration", en.ExposedName)
 		}
 		if seen[en.ExposedName] {
-			return store.Exposure{}, fmt.Errorf("integrations: exposed name %q is not unique", en.ExposedName)
+			return store.Exposure{}, exposureRefused("integrations: exposed name %q is not unique", en.ExposedName)
 		}
 		seen[en.ExposedName] = true
 		en.ConfirmedHash = h

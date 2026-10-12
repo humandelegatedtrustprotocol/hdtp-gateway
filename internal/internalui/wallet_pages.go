@@ -31,6 +31,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -300,7 +301,7 @@ func walletPortalOrigin(r *http.Request) (string, error) {
 	o := browserOrigin(r)
 	u, err := url.Parse(o)
 	if err != nil || u.Host == "" {
-		return "", errors.New("this portal's address could not be read from the request")
+		return "", refusal.BadRequest("this portal's address could not be read from the request", nil)
 	}
 	if u.Scheme == "https" {
 		return o, nil
@@ -312,7 +313,7 @@ func walletPortalOrigin(r *http.Request) (string, error) {
 	if walletLoopbackHost(host) {
 		return o, nil
 	}
-	return "", errors.New("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost, 127.x.y.z or [::1]")
+	return "", refusal.BadRequest("this portal is served over http at an address that is not this machine; a web wallet sends its answer only to https, or to http on localhost, 127.x.y.z or [::1]", nil)
 }
 
 // walletLoopbackHost is the wallet's rule for a host it answers over http (hdtp-identity's
@@ -358,7 +359,7 @@ func (d WalletDeps) prepare(w http.ResponseWriter, r *http.Request, a store.Acco
 		return walletAsk{}, false
 	}
 	if _, err := walletPortalOrigin(r); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, pageError(err), http.StatusConflict)
 		return walletAsk{}, false
 	}
 	purpose, err := d.Purpose(r, a.ID, endpoint)
@@ -505,13 +506,13 @@ func (d WalletDeps) getWalletReturn(w http.ResponseWriter, r *http.Request) {
 func parseWalletChain(s string) ([][]byte, error) {
 	parts := strings.Split(s, ".")
 	if len(parts) != 2 {
-		return nil, errors.New("the chain is two certificates, leaf then root")
+		return nil, refusal.BadRequest("the chain is two certificates, leaf then root", nil)
 	}
 	var out [][]byte
 	for _, p := range parts {
 		b, err := hdtpidentity.DecodeB64url(p)
 		if err != nil || len(b) == 0 {
-			return nil, errors.New("the chain is not base64url DER")
+			return nil, refusal.BadRequest("the chain is not base64url DER", nil)
 		}
 		out = append(out, b)
 	}
@@ -543,7 +544,7 @@ func (d WalletDeps) postWalletInstall(w http.ResponseWriter, r *http.Request) {
 		d.audit("account_leaf_install_refused", "account:"+a.ID+" slug:"+a.Slug+" reason:malformed", "refused")
 		msg := "the answer carries no state"
 		if err != nil {
-			msg = err.Error()
+			msg = pageError(err)
 		}
 		refuse(http.StatusBadRequest, "malformed", msg)
 		return
@@ -593,7 +594,7 @@ func walletRefusal(err error) (int, string, string) {
 		}
 	}
 	if errors.Is(err, identity.ErrLeafRefused) {
-		msg := strings.TrimSuffix(strings.TrimPrefix(err.Error(), "identity: "), ": "+identity.ErrLeafRefused.Error())
+		msg := strings.TrimSuffix(strings.TrimPrefix(pageError(err), "identity: "), ": "+identity.ErrLeafRefused.Error())
 		return http.StatusBadRequest, "chain", msg
 	}
 	return http.StatusInternalServerError, "failed", "the certificate could not be installed"

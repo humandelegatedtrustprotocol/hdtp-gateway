@@ -28,10 +28,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/calendar"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // Delivery statuses a message row can carry (SPEC §7.1).
@@ -40,6 +42,26 @@ const (
 	StatusDelivered = "delivered"
 	StatusFailed    = "failed"
 )
+
+// ErrUnknownContact is a send to a fingerprint this account holds no contact by. It satisfies
+// errors.Is with contacts.ErrUnknownContact, which is how a door codes it not_found.
+var ErrUnknownContact error = sendRefusal{text: "send: unknown contact", is: contacts.ErrUnknownContact}
+
+type sendRefusal struct {
+	text string
+	is   error
+}
+
+func (e sendRefusal) Error() string        { return e.text }
+func (e sendRefusal) Is(target error) bool { return target == e.is }
+
+type notActive struct{ status string }
+
+func (e notActive) Error() string { return "send: contact is " + e.status + ", not active" }
+
+// Is makes a send to a contact that is not active contacts.ErrWrongState, which is how a door
+// codes it conflict.
+func (e notActive) Is(target error) bool { return target == contacts.ErrWrongState }
 
 // SendMessage records an owner-composed message and delivers it to the contact.
 //
@@ -54,12 +76,15 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		return messaging.Result{}, fmt.Errorf("send: unknown account")
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
+	if errors.Is(err, store.ErrNotFound) {
+		return messaging.Result{}, ErrUnknownContact
+	}
 	if err != nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown contact")
+		return messaging.Result{}, err
 	}
 	if c.Status != "active" {
 		// A blocked or still-pending contact is not somebody this node writes to.
-		return messaging.Result{}, fmt.Errorf("send: contact is %s, not active", c.Status)
+		return messaging.Result{}, notActive{status: c.Status}
 	}
 
 	res, err := acct.msg.Record(ctx, accountID, contactFpr, messaging.DirOut, in)
@@ -120,11 +145,14 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 		return messaging.Result{}, fmt.Errorf("send: unknown account")
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
+	if errors.Is(err, store.ErrNotFound) {
+		return messaging.Result{}, ErrUnknownContact
+	}
 	if err != nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown contact")
+		return messaging.Result{}, err
 	}
 	if c.Status != "active" {
-		return messaging.Result{}, fmt.Errorf("send: contact is %s, not active", c.Status)
+		return messaging.Result{}, notActive{status: c.Status}
 	}
 	res, err := acct.media.SendInline(ctx, acct.msg, accountID, contactFpr, in, filename, mime, data)
 	if err != nil {
@@ -153,15 +181,15 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Contact, msgID, threadID, sender, filename, mime string, data []byte) error {
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: %w", err)
+		return refusal.Undelivered(WhyUnreachable, fmt.Errorf("send: %w", err))
 	}
 	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
-		return err
+		return refusal.Undelivered(WhyEndpointRefused, err)
 	}
 	client, err := n.OutboundClient(accountID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
 	args := map[string]any{
 		"msg_id": msgID, "thread_id": threadID, "filename": filename, "mime": mime,
@@ -169,9 +197,9 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 	}
 	res, err := client.Call(ctx, peer, core.ToolSendMedia, args, msgID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
-	return refusal(res)
+	return peerRefusal(res)
 }
 
 // retryMedia is the sweep's media branch: the bytes come from the blob store,
@@ -217,15 +245,15 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	// unreadable", parsing the card for an endpoint it then overwrote with the pin's.
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: %w", err)
+		return refusal.Undelivered(WhyUnreachable, fmt.Errorf("send: %w", err))
 	}
 	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
-		return err
+		return refusal.Undelivered(WhyEndpointRefused, err)
 	}
 	client, err := n.OutboundClient(accountID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
 	args := map[string]any{
 		"msg_id": in.MsgID, "text": in.Text, "thread_id": threadID,
@@ -242,31 +270,34 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	// every outbound path obeys the same one.
 	res, derr := client.Call(ctx, peer, core.ToolSendMessage, args, in.MsgID)
 	if derr != nil {
-		return derr
+		return refusal.Undelivered(WhyUnreachable, derr)
 	}
-	return refusal(res)
+	return peerRefusal(res)
 }
 
-// refusal turns a peer's error result into an error. A peer that refuses is not
-// a transport failure: it is an answer, and it must not read as delivered.
-func refusal(res *mcp.CallToolResult) error {
+// The reasons a recorded message was not delivered, as refusal.Undelivered carries them beside a
+// peer's own §12 code: the endpoint on file was refused before dialling, or the contact could not
+// be reached from here.
+const (
+	WhyEndpointRefused = "endpoint_refused"
+	WhyUnreachable     = "unreachable"
+	// WhyRefused is a peer's refusal that carried no §12 code.
+	WhyRefused = core.PeerRefused
+)
+
+// peerRefusal turns a peer's error result into an error. A peer that refuses is not a transport
+// failure: it is an answer, and it must not read as delivered. The reason it carries is the peer's
+// §12 code when it is one (core.PeerCode), and WhyRefused otherwise: a peer's own words reach
+// neither the owner nor the audit row.
+func peerRefusal(res *mcp.CallToolResult) error {
 	if res == nil || !res.IsError {
 		return nil
 	}
-	body := ""
-	if len(res.Content) > 0 {
-		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-			body = tc.Text
-		}
+	code, ok := refusalCodeOf(res)
+	if !ok || code == WhyRefused {
+		return refusal.Undelivered(WhyRefused, errors.New("send: the contact's node refused"))
 	}
-	var code struct {
-		Code string `json:"code"`
-	}
-	_ = json.Unmarshal([]byte(body), &code)
-	if code.Code != "" {
-		return fmt.Errorf("send: the contact's node refused: %s", code.Code)
-	}
-	return fmt.Errorf("send: the contact's node refused")
+	return refusal.Undelivered(code, errors.New("send: the contact's node refused: "+code))
 }
 
 /* ---------------------------- retry (SPEC §7.1) ---------------------------- */

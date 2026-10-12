@@ -158,9 +158,9 @@ func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := send(r.Context(), account, contact, in); err != nil {
-		// The message IS recorded — SendMessage writes before it dials — so
-		// this reports a delivery failure, not a lost message.
-		http.Error(w, "recorded, but delivery failed: "+err.Error(), http.StatusBadGateway)
+		// A message recorded and not delivered says so ("recorded, not delivered: <why>"); a send
+		// refused before it was recorded says why in the node's words, or a fixed phrase.
+		http.Error(w, pageError(err), pageStatus(err))
 		return
 	}
 	http.Redirect(w, r, "/messages", http.StatusSeeOther)

@@ -133,7 +133,7 @@ func (d IdentityDeps) postIdentityCreate(render func(w http.ResponseWriter, r *h
 		a, err := d.Create(r.Context(), slug, name, r.Form.Get("algo"))
 		if err != nil {
 			d.audit("account_create", "slug:"+slug, "error")
-			render(w, r, "", "Could not create that identity: "+err.Error())
+			render(w, r, "", "Could not create that identity: "+pageError(err))
 			return
 		}
 		d.audit("account_create", "account:"+a.ID+" slug:"+a.Slug, "ok")

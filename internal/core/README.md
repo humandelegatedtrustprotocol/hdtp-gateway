@@ -77,7 +77,10 @@ JWTs and vendor-prefixed tokens. It matches shapes, not entropy, so HDTP's own h
 the holder name of leases. `ToolRedeemInvite` … `ToolCancelBooking` and `ToolSealedCall` are the wire
 names of the HDTP tools and the envelope carrier, the one spelling the registrations, the hint table,
 the audit actions and the outbound calls use. `ReservedToolNames`, built from them, is every name an
-integration's tool may not be exposed under: the built-in tools and `sealed_call`.
+integration's tool may not be exposed under: the built-in tools and `sealed_call`. `PeerCode` is a
+peer's refusal code as the node repeats it: one of HDTP §12's codes, `refused` (`PeerRefused`) for
+any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the specification's table when
+the hdtp-spec checkout is beside this repository, and skips, saying so, when it is not.
 
 ## What it refuses, and how
 

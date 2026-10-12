@@ -37,6 +37,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -154,24 +155,21 @@ func (d Deps) owner() contacts.Owner {
 		TellApproved: d.Approved, TellRejected: d.Rejected, TellRemoved: d.Removed}
 }
 
-// refused answers a refusal as a tool error carrying its code, the shape deny() uses.
+// refused answers a failure as a tool error carrying its code and detail (refusal.Of), the
+// shape deny() uses.
 func refused(err error) (*mcp.CallToolResult, error) {
-	code := "internal"
-	switch {
-	case errors.Is(err, contacts.ErrUnknownContact):
-		code = "not_found"
-	case errors.Is(err, contacts.ErrWrongState):
-		code = "conflict"
-	case errors.Is(err, contacts.ErrBadRequest):
-		code = "bad_request"
-	case errors.Is(err, contacts.ErrContactCap):
-		code = "payment_required"
-	}
-	b, jerr := json.Marshal(map[string]string{"code": code, "detail": err.Error()})
+	code, detail := refusal.Of(err)
+	b, jerr := json.Marshal(map[string]string{"code": code, "detail": detail})
 	if jerr != nil {
 		return nil, jerr
 	}
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil
+}
+
+// fail is refused() in a tool handler's three results.
+func fail(err error) (*mcp.CallToolResult, any, error) {
+	r, rerr := refused(err)
+	return r, nil, rerr
 }
 
 func deny() (*mcp.CallToolResult, error) {
@@ -530,7 +528,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 func (ot ownerTools) listAccountsTool(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(sc.AdminAccounts)
 	return r, nil, err
@@ -549,11 +547,11 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	threads, err := ot.d.Store.ListThreadsByAccount(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	contacts, err := ot.d.Store.ListContacts(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	status := make(map[string]string, len(contacts))
 	for _, c := range contacts {
@@ -608,7 +606,7 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 	}
 	msgs, err := ot.d.Msg.Thread(ctx, a.AccountID, a.ThreadID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	type row struct {
 		Direction string `json:"direction"`
@@ -632,7 +630,7 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 	// lands after it stays unread. The marker is local and never wire-visible (SPEC §7.6).
 	if n := len(msgs); n > 0 {
 		if _, err := ot.d.Store.MarkThreadReadThrough(ctx, a.AccountID, a.ThreadID, msgs[n-1].Seq); err != nil {
-			return nil, nil, err
+			return fail(err)
 		}
 	}
 	r, err := jsonResult(out)
@@ -687,8 +685,16 @@ func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolReq
 		}
 	}
 	res, err := send(ctx, a.AccountID, a.ContactFpr, in)
+	if _, recorded := refusal.Why(err); recorded && res.ThreadID != "" {
+		// Recorded and not delivered: the message exists and the retry sweep goes on with it, so
+		// the answer carries the recorded result beside the code.
+		code, detail := refusal.Of(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": detail,
+			"ThreadID": res.ThreadID, "Status": res.Status})
+		return r, nil, jerr
+	}
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(res)
 	return r, nil, err
@@ -702,7 +708,7 @@ func (ot ownerTools) listContactsTool(ctx context.Context, req *mcp.CallToolRequ
 	}
 	list, err := ot.d.Store.ListContacts(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	out := make([]contactView, 0, len(list))
 	for _, c := range list {
@@ -787,7 +793,7 @@ func (ot ownerTools) listPendingAddressesTool(ctx context.Context, req *mcp.Call
 	}
 	list, err := ot.d.owner().PendingAddresses(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(list)
 	return r, nil, err
@@ -826,7 +832,7 @@ func (ot ownerTools) setPermissionsTool(ctx context.Context, req *mcp.CallToolRe
 		preset = ""
 	}
 	if err := ot.d.Store.UpdateContactPermissions(ctx, a.AccountID, a.ContactFpr, a.Permissions, preset); err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	ot.d.reconcile(ctx, a.AccountID, a.ContactFpr)
 	r, err := jsonResult("ok")
@@ -844,7 +850,7 @@ func (ot ownerTools) renameContactTool(ctx context.Context, req *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("petname over %d characters", contacts.MaxDisplayName)
 	}
 	if err := ot.d.Store.SetContactPetname(ctx, a.AccountID, a.ContactFpr, name); err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult("ok")
 	return r, nil, err
@@ -858,7 +864,9 @@ func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	outcome, why, err := ot.d.RefreshContact(ctx, a.AccountID, a.ContactFpr)
 	if err != nil {
-		return nil, nil, err
+		code, detail := refreshFailure(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": detail})
+		return r, nil, jerr
 	}
 	out := map[string]string{"outcome": outcome}
 	if why != "" {
@@ -866,6 +874,20 @@ func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRe
 	}
 	r, err := jsonResult(out)
 	return r, nil, err
+}
+
+// refreshFailure is the code and fixed detail refresh_contact answers a refresh that could not be
+// attempted or recorded with (node.RefreshContact): only an active contact is refreshed, so a
+// fingerprint the account does not hold is not_found and a row in another state conflict;
+// anything else is the node's own failure. The error's text, the store's words, stays off the wire.
+func refreshFailure(err error) (code, detail string) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "not_found", callFailureDetail["not_found"]
+	case errors.Is(err, contacts.ErrWrongState):
+		return "conflict", callFailureDetail["conflict"]
+	}
+	return "internal", refusal.InternalDetail
 }
 
 // setTrustFlagTool is the `set_trust_flag` tool.
@@ -879,7 +901,7 @@ func (ot ownerTools) setTrustFlagTool(ctx context.Context, req *mcp.CallToolRequ
 	}
 	if err := ot.d.Store.UpdateContactTrust(ctx, a.AccountID, a.ContactFpr, a.Trust); err != nil {
 		ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "error")
-		return nil, nil, err
+		return fail(err)
 	}
 	ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "ok")
 	r, err := jsonResult("ok")
@@ -910,7 +932,7 @@ func (ot ownerTools) createInviteTool(ctx context.Context, req *mcp.CallToolRequ
 		Preset: a.Preset, Permissions: a.Perms,
 	})
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	// The cloud's answer (createInvite: id, url, expires_at). The token is in the link and nowhere
 	// else: the link is what a person sends.
@@ -926,7 +948,7 @@ func (ot ownerTools) listInvitesTool(ctx context.Context, req *mcp.CallToolReque
 	}
 	list, err := ot.d.Store.ListInvites(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	type row struct {
 		ID          string   `json:"invite_id"`
@@ -979,7 +1001,7 @@ func (ot ownerTools) listPendingTool(ctx context.Context, req *mcp.CallToolReque
 	}
 	rows, err := ot.d.Store.ListOpenPendingRequests(ctx, a.AccountID, time.Now().Unix())
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(rows)
 	return r, nil, err
@@ -997,8 +1019,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 	}
 	relayed, err := ot.d.Pending.Answer(ctx, a.AccountID, a.RequestID, a.Result)
 	if err != nil {
-		return &mcp.CallToolResult{IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil, nil
+		return fail(err)
 	}
 	r, err := jsonResult(map[string]any{"relayed": relayed})
 	return r, nil, err
@@ -1010,7 +1031,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	summary := map[string]int64{}
 	for _, acct := range sc.AdminAccounts {
@@ -1033,7 +1054,7 @@ func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceReq
 func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	var pending []store.Contact
 	for _, acct := range sc.AdminAccounts {
@@ -1055,7 +1076,7 @@ func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadR
 func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	var rows []store.PendingRequest
 	for _, acct := range sc.AdminAccounts {
@@ -1080,7 +1101,7 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 	}
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	// A thread belongs to exactly one account, and this identity may only
 	// read the accounts it administers — the same rule every tool applies.
@@ -1091,11 +1112,18 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		}
 		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
 		if err != nil {
-			return nil, err
+			return nil, resourceFailure(err)
 		}
 		b, _ := json.Marshal(map[string]any{"thread": th, "messages": msgs})
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}
 	return nil, fmt.Errorf("ownermcp: no such thread")
+}
+
+// resourceFailure is a resource read that failed, as the reader is told it: the code and the
+// detail refusal.Of gives, never the error's text.
+func resourceFailure(err error) error {
+	code, detail := refusal.Of(err)
+	return errors.New(code + ": " + detail)
 }

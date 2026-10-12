@@ -84,16 +84,12 @@ func TestMediaFetchIsOwnerInitiatedAndReportsRefusal(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("the owner's explicit fetch did not reach the service (%d)", called)
 	}
-	if !strings.Contains(rr.Body.String(), "refused") {
+	if !strings.Contains(rr.Body.String(), "media.example resolves to a private address") {
 		t.Fatalf("a refused fetch was not reported to the owner: %s", rr.Body.String())
 	}
 }
 
-var errRefused = &fetchErr{"refused: private range"}
-
-type fetchErr struct{ s string }
-
-func (e *fetchErr) Error() string { return e.s }
+var errRefused = messaging.FetchRefusal{Code: "permission_denied", Sentence: "media.example resolves to a private address"}
 
 // AC (P10-11f): the portal listens to the SSE stream it serves.
 //
@@ -116,7 +112,7 @@ func TestPortalPagesConsumeTheEventStream(t *testing.T) {
 }
 
 // The fetch names a message, and its refusals say which kind they are: a message the account does
-// not hold is 404, one that is not a link 400, a refused fetch 422; the view reads `ok` and shows
+// not hold is 404, one that is not a link 400, a fetch refused for a private address 403; the view reads `ok` and shows
 // the error.
 func TestMediaFetchNamesAMessageAndSaysWhyItWasRefused(t *testing.T) {
 	e := newEnv(t)
@@ -126,7 +122,7 @@ func TestMediaFetchNamesAMessageAndSaysWhyItWasRefused(t *testing.T) {
 	}{
 		{store.ErrNotFound, http.StatusNotFound},
 		{messaging.ErrBadRequest, http.StatusBadRequest},
-		{errRefused, http.StatusUnprocessableEntity},
+		{errRefused, http.StatusForbidden},
 	} {
 		var asked string
 		mux := http.NewServeMux()

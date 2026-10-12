@@ -22,6 +22,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // ingressAdapters are the two adapters that require a completed pairing.
@@ -67,7 +68,7 @@ func (s *Service) pairedAdapters(ctx context.Context) (map[string]bool, error) {
 // over.
 func (s *Service) pair(ctx context.Context, accountID string, in internalui.PairInput) (internalui.PairResult, error) {
 	if s.node == nil {
-		return internalui.PairResult{}, fmt.Errorf("the node is not serving yet")
+		return internalui.PairResult{}, refusal.BadRequest("the node is not serving yet", nil)
 	}
 	mode := ingress.ModePassthrough
 	if in.Mode == string(ingress.ModeTerminate) {
@@ -88,7 +89,8 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		ingress.PairRequest{Token: in.Token, Subdomain: in.Subdomain, Mode: mode})
 	if err != nil {
 		s.audit("ingress_pair", "url:"+in.PairURL, "refused")
-		return internalui.PairResult{Fingerprint: seen}, err
+		// The ingress's answer or the dial's error is behind the sentence, never in front of it.
+		return internalui.PairResult{Fingerprint: seen}, refusal.BadRequest("the ingress did not pair this node", err)
 	}
 
 	adapter := adapterFor(mode)
@@ -143,7 +145,7 @@ func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.
 // because the alternative is a node that cannot start.
 func (s *Service) unpair(ctx context.Context, adapter string) error {
 	if _, ok := ingressAdapters[adapter]; !ok {
-		return fmt.Errorf("%q is not an ingress adapter", adapter)
+		return refusal.BadRequest(fmt.Sprintf("%q is not an ingress adapter", adapter), nil)
 	}
 	// Both the running selection and the STORED one matter: pairing selects the
 	// adapter for the next start, so forgetting the pairing while that selection
@@ -160,8 +162,8 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 		}
 	}
 	if selected {
-		return fmt.Errorf("%s is the selected tunnel — choose another adapter first, "+
-			"otherwise the node would have no way to start", adapter)
+		return refusal.BadRequest(fmt.Sprintf("%s is the selected tunnel — choose another adapter first, "+
+			"otherwise the node would have no way to start", adapter), nil)
 	}
 	for _, k := range pairingKeys {
 		if err := s.store.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {

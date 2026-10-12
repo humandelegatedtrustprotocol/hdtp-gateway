@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -205,11 +206,11 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 		Now: now, ExpectedRoot: pin.Fingerprint, ExpectedEndpoint: pin.Endpoint,
 	})
 	if !vr.OK {
-		return nil, fmt.Errorf("the chain it answered with fails rule %d: %s", vr.Rule, vr.Reason)
+		return nil, fmt.Errorf("the chain it answered with fails rule %d", vr.Rule)
 	}
 	held, perr := hdtpidentity.Parse(pin.Leaf)
 	if perr != nil {
-		return nil, fmt.Errorf("the pinned leaf is unreadable: %v", perr)
+		return nil, errors.New("the pinned leaf is unreadable")
 	}
 	switch {
 	case vr.Leaf.NotBefore.After(held.NotBefore):
@@ -228,7 +229,7 @@ func verifyRefreshedCard(pin store.Contact, chain [][]byte, card, sigB64 string,
 		return nil, fmt.Errorf("the card's certificate is not the leaf the chain proved")
 	}
 	if err := identity.VerifyCardSig(vr.LeafKey.SPKI, card, sigB64); err != nil {
-		return nil, fmt.Errorf("under the proven leaf key: %v", err)
+		return nil, fmt.Errorf("under the proven leaf key: %w", err)
 	}
 	return renewed, nil
 }

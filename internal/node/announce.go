@@ -146,5 +146,6 @@ func refusalCodeOf(res *mcp.CallToolResult) (string, bool) {
 	if json.Unmarshal([]byte(tc.Text), &body) != nil {
 		return "", false
 	}
-	return body.Code, body.Code != ""
+	code := core.PeerCode(body.Code)
+	return code, code != ""
 }

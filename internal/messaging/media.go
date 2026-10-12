@@ -284,24 +284,39 @@ func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID st
 	return hash, nil
 }
 
+// FetchRefusal is a link the owner asked for that was not fetched: the §12 code and the node's
+// sentence, with the error behind it (a resolver's, a dial's, an HTTP client's) kept apart. Error()
+// is "<code>: <sentence>", followed by the cause's text when there is one.
+type FetchRefusal struct {
+	Code, Sentence string
+	cause          error
+}
+
+func (f FetchRefusal) Error() string {
+	if f.cause == nil {
+		return f.Code + ": " + f.Sentence
+	}
+	return f.Code + ": " + f.Sentence + ": " + f.cause.Error()
+}
+
 // fetchURL retrieves a link for the owner: resolve, vet every address, pin the dial, cap the read,
 // count the quota. It answers the bytes and the type the server named; FetchMessage stores them.
 func (m *MediaService) fetchURL(ctx context.Context, accountID, rawURL string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("bad_request: %w", err)
+		return nil, "", FetchRefusal{Code: "bad_request", Sentence: "the link is not a URL this node fetches", cause: err}
 	}
 	host := req.URL.Hostname()
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
-		return nil, "", fmt.Errorf("unavailable: cannot resolve %s", host)
+		return nil, "", FetchRefusal{Code: "unavailable", Sentence: "cannot resolve " + host}
 	}
 	for _, ip := range ips {
 		if m.privateCheck(ip) {
 			if m.Audit != nil {
 				m.Audit("media_fetch_refused", "account:"+accountID+" host:"+host+" ip:"+ip.String(), "denied")
 			}
-			return nil, "", fmt.Errorf("permission_denied: %s resolves to a private address", host)
+			return nil, "", FetchRefusal{Code: "permission_denied", Sentence: host + " resolves to a private address"}
 		}
 	}
 	pinned := ips[0].String()
@@ -324,12 +339,12 @@ func (m *MediaService) fetchURL(ctx context.Context, accountID, rawURL string) (
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("unavailable: %w", err)
+		return nil, "", FetchRefusal{Code: "unavailable", Sentence: "the link did not answer", cause: err}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxMediaBytes+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("unavailable: %w", err)
+		return nil, "", FetchRefusal{Code: "unavailable", Sentence: "the link did not answer", cause: err}
 	}
 	if len(data) > MaxMediaBytes {
 		return nil, "", fmt.Errorf("%w: fetched media over 5 MiB", ErrTooLarge)

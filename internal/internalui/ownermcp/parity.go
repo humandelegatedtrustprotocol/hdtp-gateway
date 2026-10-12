@@ -181,16 +181,16 @@ func (ot ownerTools) exportCardTool(ctx context.Context, req *mcp.CallToolReques
 	}
 	card, err := ot.e.Card(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	acct, err := ot.d.Store.GetAccountByID(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	// The card and what the owner reads it by, as the portal's card read answers them.
 	facts, err := contacts.FactsOf(card, acct.Fingerprint)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(facts)
 	return r, nil, err
@@ -204,7 +204,7 @@ func (ot ownerTools) identityCertificateTool(ctx context.Context, req *mcp.CallT
 	}
 	info, err := ot.e.Certificate(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	out := map[string]any{"certified": info.Certified}
 	if info.Certified {
@@ -240,7 +240,7 @@ func (ot ownerTools) listPasskeysTool(ctx context.Context, req *mcp.CallToolRequ
 	}
 	list, err := ot.e.Passkeys(ctx)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, err := jsonResult(list)
 	return r, nil, err
@@ -281,7 +281,7 @@ func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolReq
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
 		}
 		ot.e.log("passkey_remove", "passkey:"+a.ID, "error")
-		return nil, nil, err
+		return fail(err)
 	}
 	ot.e.log("passkey_remove", "passkey:"+a.ID, "ok")
 	r, err := jsonResult(map[string]string{"status": "ok"})
@@ -308,7 +308,8 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 	// middleware's owner_mcp_call, which reads `refused` off IsError for a call that failed.
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
-		r, jerr := errorResult(map[string]string{"code": callFailureCode(err), "detail": err.Error()})
+		code := callFailureCode(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": callFailureDetail[code]})
 		return r, nil, jerr
 	}
 	r, err := jsonResult(map[string]string{"result": out})
@@ -333,6 +334,15 @@ func callFailureCode(err error) string {
 	return "unavailable"
 }
 
+// callFailureDetail is the one detail each call_contact failure code answers with. The error's
+// own text stays off the wire: it carries the store's and the dialler's words.
+var callFailureDetail = map[string]string{
+	"not_found":        "no contact with that fingerprint on this account",
+	"conflict":         "that contact is not active",
+	"envelope_invalid": "the contact's answer did not verify",
+	"unavailable":      "the call did not complete",
+}
+
 // listIntegrationsTool is the `list_integrations` tool.
 func (ot ownerTools) listIntegrationsTool(ctx context.Context, req *mcp.CallToolRequest, a AccountArg) (*mcp.CallToolResult, any, error) {
 	if !ot.allow(ctx, a.AccountID) {
@@ -341,7 +351,7 @@ func (ot ownerTools) listIntegrationsTool(ctx context.Context, req *mcp.CallTool
 	}
 	rows, err := ot.e.Integrations(ctx, a.AccountID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	r, jerr := jsonResult(rows)
 	return r, nil, jerr
@@ -366,8 +376,7 @@ func (ot ownerTools) setExposureTool(ctx context.Context, req *mcp.CallToolReque
 	// not treated as a missing argument.
 	if err := ot.e.SetExposure(ctx, a.AccountID, a.IntegrationID, a.Tools); err != nil {
 		ot.e.log("set_exposure", "integration:"+a.IntegrationID, "error")
-		r, jerr := jsonResult(map[string]string{"code": "bad_request", "detail": err.Error()})
-		return r, nil, jerr
+		return fail(err)
 	}
 	ot.e.log("set_exposure", fmt.Sprintf("integration:%s tools:%d", a.IntegrationID, len(a.Tools)), "ok")
 	r, jerr := jsonResult(map[string]any{"status": "ok", "exposed": len(a.Tools)})
@@ -397,8 +406,7 @@ func (ot ownerTools) addContactTool(ctx context.Context, req *mcp.CallToolReques
 	res, err := ot.e.AddContact(ctx, a.AccountID, a.InviteURL, a.Card, a.Note, a.Grant)
 	if err != nil {
 		ot.e.log("add_contact", "account:"+a.AccountID, "error")
-		r, jerr := jsonResult(map[string]string{"code": "bad_request", "detail": err.Error()})
-		return r, nil, jerr
+		return fail(err)
 	}
 	ot.e.log("add_contact", "peer:"+res.Fingerprint, res.Status)
 	r, jerr := jsonResult(res)
@@ -433,7 +441,7 @@ func (ot ownerTools) auditQueryTool(ctx context.Context, req *mcp.CallToolReques
 		return ot.allow(ctx, accountID)
 	})
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	// The chain records what happened, not the bodies (§11): rows
 	// already reference rather than copy, so they go out as stored.

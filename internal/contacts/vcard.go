@@ -156,7 +156,12 @@ func ValidateInbound(text string) (Card, error) {
 				return Card{}, fmt.Errorf("the card names a protocol version this node does not speak; it speaks %s only", cardMajor)
 			}
 		}
-		return Card{}, fmt.Errorf("the card's certificate: %w", err)
+		// The core's reason is its own text (an x509 parser's among it); the node says what it
+		// refused in its own words, and whether the certificate did not read at all.
+		if errors.As(err, &ce) && strings.HasPrefix(ce.Why, "certificate does not parse") {
+			return Card{}, cardRefusal{text: "the card's certificate does not parse", unreadable: true}
+		}
+		return Card{}, cardRefusal{text: "the card's certificate is not one this node accepts"}
 	}
 	c := Card{
 		FN: displayName(dc.FN), Version: strconv.Itoa(dc.Version),
@@ -178,6 +183,14 @@ const CardUnreadableHint = "the card's certificate is cut or changed, so send th
 // read: the refusal a person who pasted a card can act on, by sending the card's file or its invite
 // link, which no copy-and-paste can damage.
 func CertificateUnreadable(err error) bool {
-	var ce hdtpidentity.CardError
-	return errors.As(err, &ce) && strings.HasPrefix(ce.Why, "certificate does not parse")
+	var cr cardRefusal
+	return errors.As(err, &cr) && cr.unreadable
 }
+
+// cardRefusal is ValidateInbound's refusal of a card's certificate, in the node's words.
+type cardRefusal struct {
+	text       string
+	unreadable bool
+}
+
+func (c cardRefusal) Error() string { return c.text }

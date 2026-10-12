@@ -54,12 +54,23 @@ func Fingerprint(pub crypto.PublicKey) (string, error) {
 	return hdtpidentity.Fingerprint(spki), nil
 }
 
+// ErrUnknownAlgorithm is a key algorithm this node does not make: the error Generate returns names
+// it and satisfies errors.Is with this.
+var ErrUnknownAlgorithm = errors.New("identity: unknown algorithm")
+
+type unknownAlgorithm struct{ algo Algo }
+
+func (u unknownAlgorithm) Error() string {
+	return fmt.Sprintf("identity: unknown algorithm %q (want p256|ed25519)", u.algo)
+}
+func (u unknownAlgorithm) Is(target error) bool { return target == ErrUnknownAlgorithm }
+
 // Generate draws a fresh key with the library's GenerateKey. Its algorithm names are this
 // package's (AlgoP256 is hdtpidentity.AlgP256, AlgoEd25519 is hdtpidentity.AlgEd25519; a test
 // holds them equal), and the key the library draws becomes a crypto.Signer here.
 func Generate(algo Algo) (*Keypair, error) {
 	if algo != AlgoP256 && algo != AlgoEd25519 {
-		return nil, fmt.Errorf("identity: unknown algorithm %q (want p256|ed25519)", algo)
+		return nil, unknownAlgorithm{algo: algo}
 	}
 	k, err := hdtpidentity.GenerateKey(string(algo))
 	if err != nil {
@@ -145,7 +156,7 @@ func VerifyCardSig(spki []byte, card, sigB64 string) error {
 	}
 	pub, err := hdtpidentity.ParseSPKI(spki)
 	if err != nil {
-		return fmt.Errorf("the key to check the card under is unreadable: %v", err)
+		return errors.New("the key to check the card under is unreadable")
 	}
 	if !hdtpidentity.VerifyDetached(pub, []byte(card), sig) {
 		return errors.New("the card signature does not verify")

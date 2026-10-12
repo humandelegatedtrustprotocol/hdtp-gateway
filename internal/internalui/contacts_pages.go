@@ -259,7 +259,7 @@ func (d ContactsDeps) postContactsFprRemove(w http.ResponseWriter, r *http.Reque
 	dec, err := d.owner().Remove(r.Context(), account, fpr)
 	if err != nil {
 		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
-		redirectContacts(w, r, account, "", "could not remove them: "+err.Error())
+		redirectContacts(w, r, account, "", "could not remove them: "+pageError(err))
 		return
 	}
 	d.audit("contact_remove", withAccount(r, "contact:"+fpr), "ok")
@@ -282,7 +282,7 @@ func (d ContactsDeps) postContactsFprBlock(w http.ResponseWriter, r *http.Reques
 	fpr := r.PathValue("fpr")
 	if _, err := d.owner().Block(r.Context(), account, fpr); err != nil {
 		d.audit("contact_block", withAccount(r, "contact:"+fpr), "error")
-		redirectContacts(w, r, account, "", "could not block them: "+err.Error())
+		redirectContacts(w, r, account, "", "could not block them: "+pageError(err))
 		return
 	}
 	d.audit("contact_block", withAccount(r, "contact:"+fpr), "ok")
@@ -303,7 +303,7 @@ func (d ContactsDeps) postContactsFprUnblock(w http.ResponseWriter, r *http.Requ
 	dec, err := d.owner().Unblock(r.Context(), account, fpr)
 	if err != nil {
 		d.audit("contact_unblock", withAccount(r, "contact:"+fpr), "error")
-		redirectContacts(w, r, account, "", "could not unblock them: "+err.Error())
+		redirectContacts(w, r, account, "", "could not unblock them: "+pageError(err))
 		return
 	}
 	d.audit("contact_unblock", withAccount(r, "contact:"+fpr+" status:"+dec.Status), "ok")
@@ -338,7 +338,7 @@ func (d ContactsDeps) postContactsAdd(w http.ResponseWriter, r *http.Request) {
 			// audited, never the link itself
 			d.Audit("contact_add", "account:"+account, "refused")
 		}
-		redirectContacts(w, r, account, "", err.Error())
+		redirectContacts(w, r, account, "", pageError(err))
 		return
 	}
 	if d.Audit != nil {
@@ -504,7 +504,7 @@ func (d ContactsDeps) postContactsFprRefresh(w http.ResponseWriter, r *http.Requ
 	}
 	outcome, why, err := d.RefreshContact(r.Context(), accountParam(r), r.PathValue("fpr"))
 	if err != nil {
-		http.NotFound(w, r)
+		http.Error(w, pageError(err), pageStatus(err))
 		return
 	}
 	apiJSON(w, map[string]string{"outcome": outcome, "why": why})

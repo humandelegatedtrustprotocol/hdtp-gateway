@@ -17,6 +17,45 @@ import (
 // one that is not newer than the current leaf. The install doors audit it as a refusal, not a failure.
 var ErrLeafRefused = errors.New("leaf refused")
 
+// leafRefusal is an install's refusal in the node's words, with the sentinels it satisfies. Its text
+// is the sentence followed by each sentinel's, as fmt.Errorf("identity: <sentence>: %w: %w") wrote
+// it. refuseLeaf makes one; its sentence is the node's, never a core's or a library's reason.
+type leafRefusal struct {
+	sentence string
+	is       []error
+}
+
+func refuseLeaf(sentence string, is ...error) error {
+	return leafRefusal{sentence: sentence, is: is}
+}
+
+func (l leafRefusal) Error() string {
+	out := "identity: " + l.sentence
+	for _, e := range l.is {
+		out += ": " + e.Error()
+	}
+	return out
+}
+
+func (l leafRefusal) Is(target error) bool {
+	for _, e := range l.is {
+		if e == target {
+			return true
+		}
+	}
+	return false
+}
+
+// Worded is the text of an install's refusal that the node wrote whole, with no core's or
+// library's words in it; ok is false for any other error.
+func Worded(err error) (text string, ok bool) {
+	var l leafRefusal
+	if errors.As(err, &l) {
+		return l.Error(), true
+	}
+	return "", false
+}
+
 // ErrEndpointRefused marks a signing request refused for its endpoint: an address HDTP's address
 // rule refuses (hdtpidentity.AddressGuard), which no wallet would certify. It comes with
 // ErrLeafRefused.

@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -65,12 +66,21 @@ func HashTool(name, description string, inputSchema json.RawMessage) (string, er
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ErrNotConnected is a catalog asked of an integration with no live session: the error Snapshot
+// returns names it and satisfies errors.Is with this.
+var ErrNotConnected = errors.New("integrations: not connected")
+
+type notConnected struct{ name string }
+
+func (n notConnected) Error() string        { return "integrations: " + n.name + " is not connected" }
+func (n notConnected) Is(target error) bool { return target == ErrNotConnected }
+
 // Snapshot walks the connected upstream's tools and returns hashed definitions,
 // sorted by name for deterministic storage.
 func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef, error) {
 	cs := m.Session(integrationID)
 	if cs == nil {
-		return nil, fmt.Errorf("integrations: %s is not connected", nameOf(ctx, m.Store, integrationID))
+		return nil, notConnected{name: nameOf(ctx, m.Store, integrationID)}
 	}
 	var defs []ToolDef
 	var cursor string
