@@ -10,55 +10,66 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.4] — 2026-10-12
+
 ### Changed
 
-- hdtp-identity 0.8.3. A sealed call whose envelope is not exactly `protected`, `enc`, `ct` and
-  `sig`, each a string, is refused `envelope_invalid` before the open by the library's reader
-  (HDTP §13.1, SEP-0005), which replaces the node's own check of the member names. A `sig` absent or
-  null, which was read as the empty string and decided at the open (`chain_required` in the small
-  form), is now one of them, and is not charged as an opened refusal. A member written twice is read
-  at its last occurrence alone: an earlier occurrence that is not a string (`"sig":5` before the
-  real `sig`), which the struct decode refused `envelope_invalid`, no longer refuses the envelope.
-  A peer's sealed answer of other members fails as it is decoded, `envelope_invalid`, where a fifth
-  member or a name in another case was read past and an absent or null `sig` was taken for an
-  unverifiable answer and followed by a `get_card`. The owner MCP's `call_contact` answers it
-  `envelope_invalid`, as BatonDeck's does, where it answered `unavailable`.
+- **Upgrading deletes data.** A conversation stored under a `thread_id` of neither form of HDTP §7
+  (below) is deleted by the first `serve`, `migrate`, `export` or `import` after the upgrade, and
+  again by each of them until one run finishes: the thread, its messages, the files only it names,
+  its read marker and its change rows, with nothing kept in its place (migration 0005). Each identity
+  that lost one gets a `thread_id_wipe` audit row with the counts and no id; `export` and `import`
+  print on stderr a file the wipe could not collect. The new binary's `export` runs the wipe before it
+  writes, so a copy of such a conversation is taken with the old binary, before upgrading
+  (`docs/operations.md`); an import of that file leaves those threads and their messages out and
+  shows their ids in its review.
 - A `thread_id` has two forms, 1 to 64 ASCII letters and digits or a lower-case UUID, and the node
-  takes no other (HDTP §7, SEP-0006; hdtp-identity 0.8.2). At `send_message`, `send_media` and
-  `book_slot` a contact's `thread_id` over 64 bytes is refused `too_large`, and any other of neither
-  form, the empty string included, `bad_request`, where the node took any string of up to 1024 bytes
-  and read the empty one as none. The refusal records nothing of the call: no message, no thread,
-  and the `msg_id` is not seen. Inside a sealed envelope it is sealed back as a tool error, charged
-  and audited as the contact's call, and a renewal or a new address the envelope carried is learned.
-  The portal and the owner MCP refuse an id
-  of neither form that the owner names, to send into, read or delete a thread. A thread stored
-  under such an id is deleted on the first start after the upgrade (or the first `migrate`,
-  `export` or `import`), with its messages, its files,
-  its read marker and its change rows, and nothing takes its place; each identity that lost one gets
-  a `thread_id_wipe` audit row with the counts (SPEC §7, migration 0005). An import leaves out a
-  thread whose id is of neither form, and its messages, and shows the id in its review.
-- hdtp-identity 0.8.2. The export writer re-issues an id as `r` and 62 hex digits, where 0.8.1 wrote
-  `r-` and 62, and re-issues every id already of that form (SPEC §3.10).
-- hdtp-identity 0.8.1. A sealed call whose `sig` is not base64url in its one spelling is refused
-  `envelope_invalid` before the open in the small form too, where it was answered `chain_required`;
-  such a call now spends the guest total alone, as every `envelope_invalid` the node's keys reach
-  does, not the source's guest budget. An empty `sig` is still `chain_required` in the small form.
-  An export no longer refuses, or leaves anything out, for a contact's text that reads as a private
-  key: a thread id, a `msg_id` or a `reply_to` in that shape is written as `r-` and 62 hex digits,
-  the same at every reference, and a topic or a contact's display name in it is written empty
-  (SPEC §3.10). The node writes such an export where 0.8.0 refused it whole.
-  `TestAContactsKeyShapedTextNeverStopsTheExport` exports and imports one; the small form's cases
-  are in `TestAnEnvelopeMemberHasOneSpellingOnTheWire`, `TestARespelledSmallFormSigIsAnOpenedRefusal`
-  (the answer, the audit row and the charge) and `TestSmallFormUnknownBlockedAndBadSignatureAreOneAnswer`.
+  takes no other (HDTP §7, SEP-0006). At `send_message`, `send_media` and `book_slot` a contact's
+  `thread_id` over 64 bytes is refused `too_large`, and any other of neither form, the empty string
+  included, `bad_request`, where the node took any string of up to 1024 bytes and read the empty one
+  as none. The refusal records nothing of the call: no message, no thread, and the `msg_id` is not
+  seen. Inside a sealed envelope it is sealed back as a tool error, charged and audited as the
+  contact's call, and a renewal or a new address the envelope carried is learned. The portal and the
+  owner MCP refuse an id of neither form that the owner names, to send into, read or delete a thread.
+- hdtp-identity 0.8.3, from 0.8.0. A sealed call whose envelope is not exactly `protected`, `enc`,
+  `ct` and `sig`, each a string, is refused `envelope_invalid` before the open by the library's
+  reader (HDTP §13.1, SEP-0005): a fifth member or a member name in another case was read past, and
+  a `sig` absent or null was read as the empty string and decided at the open (`chain_required` in
+  the small form); now each is refused before the open, and not charged as an opened refusal. A
+  member written twice is read at its last occurrence alone: an earlier occurrence that is not a
+  string (`"sig":5` before the real `sig`), which the decode refused `envelope_invalid`, no longer
+  refuses the envelope. A `sig` present and not base64url in its one spelling is refused
+  `envelope_invalid` before the open in the small form too, where it was answered `chain_required`,
+  and spends the guest total alone, not the source's guest budget; an empty `sig` is still
+  `chain_required` in the small form. A peer's sealed answer of other members fails as it is decoded,
+  `envelope_invalid`, where it was read past or, with no `sig`, taken for an unverifiable answer and
+  followed by a `get_card`; the owner MCP's `call_contact` answers it `envelope_invalid`, as
+  BatonDeck's does, where it answered `unavailable`.
+- An export no longer refuses, or leaves anything out, for a contact's text that reads as a private
+  key: a thread id, a `msg_id` or a `reply_to` in that shape is written as `r` and 62 hex digits, the
+  same at every reference, as is every id already of that form, and a topic or a contact's display
+  name in it is written empty (SPEC §3.10, hdtp-identity 0.8.1 and 0.8.2). 0.1.3 refused such an
+  export whole.
+- Portal: Delete conversation is the last section of the contact panel, a "Conversation" heading and
+  one button, where it was a trash icon in the conversation's header; it asks first, as before, and
+  runs the same operation. A removed contact's conversation now opens the panel too, showing who they
+  were and the button. A refused delete is said in the panel beside the button; one that went
+  through clears the selection and goes back to the conversation list.
 
 ### Fixed
 
-- A conversation whose thread id is `.` or `..` (a contact chooses the id) could not be opened, sent
+- A conversation whose thread id is `.` or `..` (a contact chose the id) could not be opened, sent
   into or deleted from the portal: the id was a path segment, which the browser's URL parser removes
   before the request leaves and Go's mux answers with a redirect. The routes that take a thread id
   now read it from `thread_id` in the query or the form: `GET /api/thread`, `POST /thread/send` and
   `POST /thread/delete` replace `GET /api/threads/{id}`, `POST /threads/{id}/send` and
   `POST /threads/{id}/delete`. `POST /thread/send` redirects to `/messages`.
+- Portal, on a phone: with the rail collapsed (kept from a desktop) and a long account name or host,
+  the account button's text ran out of the hidden drawer across the foot of every page, over the
+  Inbox's Send and the panel's Delete, and took their presses. The name box is laid out as a column
+  again at 900px and below.
 - The claim, in migration 0004's comment and the [0.1.3] entry, that a thread holding a message was a
   contact's because "only a contact writes one" holds for what a host records itself, not for an
   import, which writes its file's threads and messages whatever this host holds of their root. The
