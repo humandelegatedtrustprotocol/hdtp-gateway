@@ -312,9 +312,10 @@ func TestAnUnreadableEnvelopeIsRefusedLikeAnyOther(t *testing.T) {
 // An envelope is exactly `protected`, `enc`, `ct` and `sig`, each a string, by name byte for byte
 // (HDTP §13.1, SEP-0005). Anything else is refused `envelope_invalid` by the library's reader before
 // the open, audited once and not charged as opened. A member written twice is read at its last
-// occurrence: the real `sig` last gets through, and `AAAA` last is refused at the signature, after
-// the open. Shown red on 0.8.2 for an absent or null `sig`, which the struct decode read as the empty
-// string and decided at the open (in the small form, `chain_required`).
+// occurrence alone: the real `sig` last gets through, after `AAAA` or after `5`, and `AAAA` last is
+// refused at the signature, after the open. Shown red on 0.8.2 for an absent or null `sig`, which the
+// struct decode read as the empty string and decided at the open (in the small form,
+// `chain_required`), and for `5` then the real `sig`, which it refused envelope_invalid.
 func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
 	s := newSealedEnv(t)
 	p := newPeer(t, s.nowAt)
@@ -392,6 +393,9 @@ func TestAnEnvelopeOfOtherMembersIsRefused(t *testing.T) {
 	}
 	if res := call(envelope("chain", with([2]string{"sig", `"AAAA"`}, [2]string{"sig", "=sig"})...)); res.IsError {
 		t.Errorf("a sig written twice, the real one last, is read at its last occurrence and gets through: %s", text(t, res))
+	}
+	if res := call(envelope("chain", with([2]string{"sig", "5"}, [2]string{"sig", "=sig"})...)); res.IsError {
+		t.Errorf("a sig written twice, a number first and the real one last, is read at its last occurrence and gets through: %s", text(t, res))
 	}
 	res := call(envelope("chain", with([2]string{"sig", "=sig"}, [2]string{"sig", `"AAAA"`})...))
 	if !res.IsError || !strings.Contains(text(t, res), `"envelope_invalid"`) || !opened() {
