@@ -83,7 +83,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		{fmt.Errorf("x: %w: %w", identity.ErrWrongRoot, identity.ErrLeafRefused), 400, "wrong_root"},
 		{fmt.Errorf("x: %w: %w", identity.ErrWrongKey, identity.ErrLeafRefused), 400, "wrong_key"},
 		{fmt.Errorf("x: %w: %w", identity.ErrNotNewer, identity.ErrLeafRefused), 400, "not_newer"},
-		{fmt.Errorf("identity: chain refused by rule 4: leaf outside its validity: %w", identity.ErrLeafRefused), 400, "chain"},
+		{identity.RefuseLeaf("chain refused by rule 4", identity.ErrLeafRefused), 400, "chain"},
 		{errors.New("sqlite: disk I/O error at /var/lib/hdtp/hdtp.db"), 500, "failed"},
 	}
 	for _, c := range cases {
@@ -95,7 +95,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		msg, _ := out["error"].(string)
 		switch c.code {
 		case "chain":
-			if msg != "chain refused by rule 4: leaf outside its validity" {
+			if msg != "chain refused by rule 4" {
 				t.Errorf("a refused chain does not say which rule: %q", msg)
 			}
 		case "failed":

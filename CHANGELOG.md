@@ -26,6 +26,38 @@ changelog can be and is not summarized into a fictional release history.
 - The portal's contact call and tool-list routes answer `{"error":<code>}` by what is true — 404
   `not_found`, 409 `conflict`, 502 `envelope_invalid`, 502 `unavailable` — where every failure was a
   502 carrying the error's text.
+- No error text the node did not write reaches a caller of the owner MCP or a page of the portal.
+  A failure the node coded keeps the node's sentence; a store's not-found is `not_found` and any
+  other failure `internal`, each with a fixed detail (`internal/refusal`). This changes answers:
+  - Every owner MCP tool that returned a store failure as a bare error, whose text the SDK sent,
+    answers `{"code","detail"}`.
+  - `add_contact` and `set_exposure` answer their failures as `IsError` results, where they were
+    results not marked as errors carrying `bad_request` and the error's text. Their
+    `owner_mcp_call` row says `refused`, not `ok`.
+  - `add_contact` over the contact cap answers `payment_required`, where it answered
+    `bad_request`; a store failure answers `internal`.
+  - `set_exposure` on another account's integration answers `not_found` (was `bad_request`); on an
+    integration with no catalog snapshot, `conflict`; a publish it refuses, `bad_request` with the
+    node's reason; a store failure, `internal`.
+  - `send_to_contact` answers a contact the account does not hold `not_found` and one that is not
+    active `conflict`. A message recorded and not delivered is answered with the recorded result
+    (`Status` `pending`) beside `unavailable` and "recorded, not delivered: <why>", where `<why>`
+    is the peer's §12 code, `endpoint_refused` or `unreachable`; the portal's three sends show the
+    same sentence.
+  - `answer_request` answers an unknown request `not_found` and a closed one `conflict`; a store
+    failure is `internal`, where it was reported as an unknown request.
+  - `refresh_contact` answers a refresh that could not be attempted `not_found`, `conflict` or
+    `internal`, where it returned the error's text.
+  - The portal's forms and routes that showed `err.Error()` (sending, adding a contact, the
+    contact lifecycle, requests, identities, tokens, settings, pairing, integrations, media, the
+    web wallet) show the node's sentence or a fixed phrase.
+- A card, an invite's chain and a refreshed contact are refused in the node's words: "the card's
+  certificate does not parse", "the card's certificate is not one this node accepts", "the invite's
+  chain is refused by rule <n>", "the chain it answered with fails rule <n>". These carried the
+  identity core's reason or a parser's text. A web wallet's chain refused at install says the rule
+  and not the core's reason, on the page and from `account install-leaf`.
+- A lifecycle action on a contact whose row could not be read answers `internal`, where a store
+  failure was reported as `not_found`.
 
 ### Fixed
 

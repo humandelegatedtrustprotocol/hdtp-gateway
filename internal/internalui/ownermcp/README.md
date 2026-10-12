@@ -109,17 +109,12 @@ Three shapes of refusal exist; a caller must not treat them alike.
 1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). Every other failure of a tool's work is answered by
-   `refused(err)` as `{"code","detail"}`: `bad_request` with the sentence alone for an error marked
-   `refusal.BadRequest` (what `add_contact` and `set_exposure` say about their arguments; the error behind
-   the sentence, a dial or a peer's answer, is not sent); `not_found` (`contacts.ErrUnknownContact`, which `node.ErrUnknownContact` satisfies,
-   `integrations.ErrUnknownRequest`), `conflict` (`contacts.ErrWrongState`, which `node.ErrNotActive` satisfies,
-   `integrations.ErrRequestClosed`), `bad_request` (`contacts.ErrBadRequest`,
-   `messaging.ErrBadRequest`), `payment_required` (`contacts.ErrContactCap`) and `too_large`
-   (`messaging.ErrTooLarge`, `messaging.ErrQuota`), each with the error's text, which the node
-   wrote; `not_found` with a fixed detail for a store read that found nothing (`store.ErrNotFound`);
-   and `internal` with a fixed detail for anything else, a store failure included. No error text
-   the node did not write reaches the caller. The portal's send and add-contact forms show the
-   same detail (`refusal.Of`). Also: `create_invite` answers `unavailable` when the
+   `refused(err)` as `{"code","detail"}`, read by `refusal.Of` (`internal/refusal`, whose README
+   lists every code): a refusal the node coded keeps the node's sentence, a store's not-found is
+   `not_found` and anything else `internal`, each with a fixed detail. No error text the node did
+   not write reaches the caller, and the portal's pages show the same detail. `send_to_contact`
+   answers a message recorded and not delivered with the recorded result (`ThreadID`, `Status`
+   `pending`) beside `unavailable` and "recorded, not delivered: <why>". Also: `create_invite` answers `unavailable` when the
    node has no public address ("set public_url") and mints nothing; `revoke_invite` answers
    `not_found` only for a missing or spent invite (a store failure is `internal`); `delete_thread`
    answers `{"code"}` `bad_request`, `not_found` or `internal`; `wait_for_updates` answers

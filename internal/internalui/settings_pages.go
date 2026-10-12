@@ -22,6 +22,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // SettingsDeps is what the settings routes need. A nil optional callback hides its section and
@@ -340,12 +341,14 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := core.ValidateSetting(key, value); err != nil {
 			d.audit("settings_save", "key:"+key, "bad_request")
-			d.render(w, r, err.Error(), true, "", "")
+			// The validator's sentences are the node's, and it reads nothing: marked here, where
+			// the refusal is known to be one of them.
+			d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 			return
 		}
 		if err := d.Save(r.Context(), key, value); err != nil {
 			d.audit("settings_save", "key:"+key, "error")
-			d.render(w, r, "could not save "+key+": "+err.Error(), true, "", "")
+			d.render(w, r, "could not save "+key+": "+pageError(err), true, "", "")
 			return
 		}
 		saved = append(saved, key)
@@ -418,7 +421,7 @@ func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request
 	}
 	if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
 		d.audit("settings_storage", "account:"+account, "error")
-		d.render(w, r, "could not save: "+err.Error(), true, "", "")
+		d.render(w, r, "could not save: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_storage",
@@ -440,12 +443,13 @@ func (d SettingsDeps) postSettingsPresets(w http.ResponseWriter, r *http.Request
 	perms := r.PostForm["perm"]
 	if err := contacts.ValidatePreset(name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "bad_request")
-		d.render(w, r, err.Error(), true, "", "")
+		// As above: the validator's own sentences, from a check that reads nothing.
+		d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 		return
 	}
 	if err := d.SavePreset(r.Context(), name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not save the preset: "+err.Error(), true, "", "")
+		d.render(w, r, "could not save the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" perms:"+strings.Join(perms, ","), "ok")
@@ -461,7 +465,7 @@ func (d SettingsDeps) postSettingsPresetsNameDelete(w http.ResponseWriter, r *ht
 	name := r.PathValue("name")
 	if err := d.DeletePreset(r.Context(), name); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not delete the preset: "+err.Error(), true, "", "")
+		d.render(w, r, "could not delete the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" deleted:1", "ok")
@@ -488,7 +492,7 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := d.Pair(r.Context(), in)
 	if err != nil {
-		msg := "pairing refused: " + err.Error()
+		msg := "pairing refused: " + pageError(err)
 		if res.Fingerprint != "" && in.IngressFingerprint != "" {
 			msg += " (the ingress presented " + res.Fingerprint + ")"
 		}
@@ -510,7 +514,7 @@ func (d SettingsDeps) postSettingsUnpair(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
-		d.render(w, r, "could not unpair: "+err.Error(), true, "", "")
+		d.render(w, r, "could not unpair: "+pageError(err), true, "", "")
 		return
 	}
 	d.render(w, r, "Unpaired.", false, "", "")

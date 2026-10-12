@@ -137,7 +137,7 @@ func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r 
 		plain, id, err := d.Tokens.Create(r.Context(), owner, label, scope)
 		if err != nil {
 			d.audit("token_create", attributed("owner:"+owner), "error")
-			render(w, r, "could not create that token: "+err.Error(), "")
+			render(w, r, "could not create that token: "+pageError(err), "")
 			return
 		}
 		// The id is audited; the token itself never is.

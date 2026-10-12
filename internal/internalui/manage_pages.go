@@ -124,7 +124,7 @@ func (d ManageDeps) decideAddress(approve bool) http.HandlerFunc {
 		p, err := d.owner().DecideAddress(r.Context(), account, root, approve)
 		if err != nil {
 			d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root), "error")
-			http.Error(w, err.Error(), lifecycleStatus(err))
+			http.Error(w, pageError(err), lifecycleStatus(err))
 			return
 		}
 		d.Audit("contact_address_"+decision, withAccount(r, "contact:"+root+" endpoint:"+p.Endpoint), "ok")
@@ -223,7 +223,7 @@ func (d ManageDeps) postRequestsFprApprove(w http.ResponseWriter, r *http.Reques
 	dec, err := d.owner().Approve(r.Context(), account, fpr, r.Form.Get("preset"))
 	if err != nil {
 		d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "error")
-		http.Error(w, err.Error(), lifecycleStatus(err))
+		http.Error(w, pageError(err), lifecycleStatus(err))
 		return
 	}
 	d.Audit("contact_approve", withAccount(r, "contact:"+fpr), "ok")
@@ -246,7 +246,7 @@ func (d ManageDeps) postRequestsFprReject(w http.ResponseWriter, r *http.Request
 	dec, err := d.owner().Reject(r.Context(), account, fpr)
 	if err != nil {
 		d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "error")
-		http.Error(w, err.Error(), lifecycleStatus(err))
+		http.Error(w, pageError(err), lifecycleStatus(err))
 		return
 	}
 	d.Audit("contact_reject", withAccount(r, "contact:"+fpr), "ok")

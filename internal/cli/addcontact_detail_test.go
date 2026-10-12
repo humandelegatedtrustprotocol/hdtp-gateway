@@ -2,12 +2,16 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // What add_contact refuses is the node's own sentence, marked so the owner MCP answers it as
@@ -53,5 +57,64 @@ func TestAddContactRefusalsAreMarkedSentences(t *testing.T) {
 	// The control: a well-formed link is no refusal.
 	if _, tok, err := splitInviteURL("https://peer.example/i/tok"); err != nil || tok != "tok" {
 		t.Errorf("a well-formed link was refused: %q, %v", tok, err)
+	}
+}
+
+// An invite's refusals carry the node's words and nothing of the identity core's or a library's
+// reasons: a chain refused by a rule names the rule alone, a card that does not read and a
+// signature that does not verify say so in fixed sentences. The chain's sentence carried the core's
+// reason, and the card's the core's error text. The control, a good offer, verifies.
+func TestAnInviteIsRefusedInTheNodesWords(t *testing.T) {
+	p := newTestPeer(t, "Alina Rao", "https://agent.alina.example/mcp")
+	other := newTestPeer(t, "Someone Else", "https://agent.alina.example/mcp")
+	if _, _, _, err := verifyOffer(offerFor(t, p, "Alina Rao")); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+	expired := offerFor(t, p, "Alina Rao")
+	hostKey, err := hdtpidentity.GenerateKey("p256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	leaf, err := hdtpidentity.BuildLeaf(hdtpidentity.LeafOpts{
+		CN: p.Wallet.CN, RootCN: p.Wallet.CN, RootKey: p.Wallet.Key, HostPub: hostKey.Public(),
+		URIs: []string{p.Endpoint}, NotBefore: now.Add(-48 * time.Hour), NotAfter: now.Add(-24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := hdtpidentity.EncodeCard("Alina Rao", leaf, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := hdtpidentity.SignDetached(hostKey, []byte(card))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired.Card, expired.CardSig = card, base64.RawURLEncoding.EncodeToString(sig)
+	expired.Chain = []string{hdtpidentity.B64url(leaf), hdtpidentity.B64url(p.Wallet.RootDER)}
+
+	forged := offerFor(t, p, "Alina Rao")
+	fsig, err := hdtpidentity.SignDetached(other.Host.Key, []byte(forged.Card))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged.CardSig = base64.RawURLEncoding.EncodeToString(fsig)
+
+	for _, c := range []struct {
+		name string
+		off  inviteOffer
+		want *regexp.Regexp
+	}{
+		{"an expired leaf", expired, regexp.MustCompile(`^the invite's chain is refused by rule \d+$`)},
+		{"a signature by another key", forged, regexp.MustCompile(`^the invite's card: the card signature does not verify$`)},
+		{"a card with no certificate", inviteOffer{Card: "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Nobody\r\nX-HDTP-VERSION:1\r\nEND:VCARD\r\n"},
+			regexp.MustCompile(`^the invite's card: the card's certificate is not one this node accepts$`)},
+	} {
+		_, _, _, err := verifyOffer(c.off)
+		got, ok := refusal.Sentence(err)
+		if !ok || !c.want.MatchString(got) {
+			t.Errorf("%s: %v (sentence %q, marked %v), want %s", c.name, err, got, ok, c.want)
+		}
 	}
 }

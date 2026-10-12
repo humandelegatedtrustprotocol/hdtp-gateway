@@ -27,6 +27,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
@@ -421,7 +422,7 @@ func (s *Service) Deps() internalui.SettingsDeps {
 		Pair: func(ctx context.Context, in internalui.PairInput) (internalui.PairResult, error) {
 			accts, err := s.store.ListAccounts(ctx)
 			if err != nil || len(accts) == 0 {
-				return internalui.PairResult{}, fmt.Errorf("create an account before pairing")
+				return internalui.PairResult{}, refusal.BadRequest("create an account before pairing", nil)
 			}
 			if in.Account != "" {
 				for _, a := range accts {
@@ -429,10 +430,10 @@ func (s *Service) Deps() internalui.SettingsDeps {
 						return s.pair(ctx, a.ID, in)
 					}
 				}
-				return internalui.PairResult{}, fmt.Errorf("unknown account")
+				return internalui.PairResult{}, refusal.BadRequest("unknown account", nil)
 			}
 			if len(accts) > 1 {
-				return internalui.PairResult{}, fmt.Errorf("this node has several identities — choose which one to pair")
+				return internalui.PairResult{}, refusal.BadRequest("this node has several identities — choose which one to pair", nil)
 			}
 			return s.pair(ctx, accts[0].ID, in)
 		},

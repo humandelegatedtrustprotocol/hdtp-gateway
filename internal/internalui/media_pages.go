@@ -114,7 +114,7 @@ func (d MediaDeps) postMediaFetch(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 		}
 		d.audit("media_fetch", "account:"+account+" message:"+message, "refused")
-		apiJSONStatus(w, status, map[string]string{"error": err.Error()})
+		apiJSONStatus(w, status, map[string]string{"error": pageError(err)})
 		return
 	}
 	d.audit("media_fetch", "account:"+account+" message:"+message+" blob:"+hash, "ok")

@@ -92,10 +92,11 @@ func (o Owner) moved(ctx context.Context, accountID, fpr, was string) error {
 
 func (o Owner) row(ctx context.Context, accountID, fpr string) (store.Contact, error) {
 	c, err := o.Manager.Store.GetContact(ctx, accountID, fpr)
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
 		return c, fmt.Errorf("%w: no such contact", ErrUnknownContact)
 	}
-	return c, nil
+	// A store that failed has not said the contact is absent.
+	return c, err
 }
 
 // Approve accepts a waiting request (pending_in → active). A named preset replaces the grant with

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -66,6 +67,9 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 			// confirmed hashes come from the bound snapshot, so an agent cannot
 			// smuggle in a name or a hash of its own.
 			cat, err := st.LatestCatalog(ctx, integrationID)
+			if errors.Is(err, store.ErrNotFound) {
+				return integrations.ErrNoCatalog
+			}
 			if err != nil {
 				return err
 			}

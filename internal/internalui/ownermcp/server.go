@@ -685,6 +685,14 @@ func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolReq
 		}
 	}
 	res, err := send(ctx, a.AccountID, a.ContactFpr, in)
+	if _, recorded := refusal.Why(err); recorded && res.ThreadID != "" {
+		// Recorded and not delivered: the message exists and the retry sweep goes on with it, so
+		// the answer carries the recorded result beside the code.
+		code, detail := refusal.Of(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": detail,
+			"ThreadID": res.ThreadID, "Status": res.Status})
+		return r, nil, jerr
+	}
 	if err != nil {
 		return fail(err)
 	}

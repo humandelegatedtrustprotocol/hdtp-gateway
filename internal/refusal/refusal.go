@@ -9,7 +9,9 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
@@ -43,6 +45,31 @@ func Sentence(err error) (sentence string, ok bool) {
 	return "", false
 }
 
+// Undelivered marks a message that was recorded and not delivered. why is the node's reason: a
+// peer's §12 code, or one the node names (node.WhyEndpointRefused, node.WhyUnreachable). The
+// message exists and the retry sweep goes on with it, so a door answers the recorded result beside
+// the code (unavailable) and the detail "recorded, not delivered: <why>". Error() is the cause's
+// text, as the audit row's why reads it; no door shows it.
+func Undelivered(why string, cause error) error {
+	return undelivered{why: why, cause: cause}
+}
+
+type undelivered struct {
+	why   string
+	cause error
+}
+
+func (u undelivered) Error() string { return u.cause.Error() }
+
+// Why is the reason an Undelivered in err's chain carries; ok is false when err holds none.
+func Why(err error) (why string, ok bool) {
+	var u undelivered
+	if errors.As(err, &u) {
+		return u.why, true
+	}
+	return "", false
+}
+
 // InternalDetail is the detail of every failure that is the node's own: its text is the
 // store's or a library's words and stays off the wire.
 const InternalDetail = "the node could not complete this"
@@ -58,12 +85,26 @@ func Of(err error) (code, detail string) {
 	if sentence, marked := Sentence(err); marked {
 		return "bad_request", sentence
 	}
+	if why, ok := Why(err); ok {
+		return "unavailable", "recorded, not delivered: " + why
+	}
+	if text, ok := identity.Worded(err); ok {
+		return "bad_request", text
+	}
+	var fr messaging.FetchRefusal
+	if errors.As(err, &fr) {
+		return fr.Code, fr.Sentence
+	}
 	switch {
 	case errors.Is(err, contacts.ErrUnknownContact), errors.Is(err, integrations.ErrUnknownRequest):
 		return "not_found", err.Error()
-	case errors.Is(err, contacts.ErrWrongState), errors.Is(err, integrations.ErrRequestClosed):
+	case errors.Is(err, contacts.ErrWrongState), errors.Is(err, integrations.ErrRequestClosed),
+		errors.Is(err, integrations.ErrNoCatalog):
 		return "conflict", err.Error()
-	case errors.Is(err, contacts.ErrBadRequest), errors.Is(err, messaging.ErrBadRequest):
+	case errors.Is(err, contacts.ErrBadRequest), errors.Is(err, messaging.ErrBadRequest),
+		errors.Is(err, integrations.ErrExposureRefused), errors.Is(err, identity.ErrDisplayName),
+		errors.Is(err, identity.ErrUnknownAlgorithm),
+		errors.Is(err, auth.ErrLabelRequired):
 		return "bad_request", err.Error()
 	case errors.Is(err, contacts.ErrContactCap):
 		return "payment_required", err.Error()

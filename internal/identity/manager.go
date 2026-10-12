@@ -53,6 +53,9 @@ type Manager struct {
 	beforeInstallWrites func()
 }
 
+// ErrDisplayName is a display name with a control character in it.
+var ErrDisplayName = errors.New("identity: a display name carries no control character (it is one line of the account's card)")
+
 // ValidDisplayName is the one rule for an account's display name, on every door that names one
 // (`account create`, the portal, an import's owner_name): the name is written into the account's
 // card as one line (HDTP §3), and a control character in it is a card the writer refuses to write —
@@ -62,7 +65,7 @@ type Manager struct {
 func ValidDisplayName(name string) error {
 	for _, r := range name {
 		if unicode.IsControl(r) {
-			return errors.New("identity: a display name carries no control character (it is one line of the account's card)")
+			return ErrDisplayName
 		}
 	}
 	return nil

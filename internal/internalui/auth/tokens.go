@@ -34,11 +34,14 @@ func (t *TokenService) now() time.Time {
 	return time.Now()
 }
 
+// ErrLabelRequired is a token asked for with no label.
+var ErrLabelRequired = errors.New("auth: token label required")
+
 // Create mints a token for ownerID, optionally scoped to one account.
 // The returned plaintext is the ONLY time the secret exists outside a hash.
 func (t *TokenService) Create(ctx context.Context, ownerID, label, accountID string) (plaintext string, id string, err error) {
 	if label == "" {
-		return "", "", errors.New("auth: token label required")
+		return "", "", ErrLabelRequired
 	}
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {

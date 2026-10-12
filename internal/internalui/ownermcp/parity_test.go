@@ -430,21 +430,20 @@ func TestCallContactDetailCarriesNoStoreText(t *testing.T) {
 func TestRefreshContactDetailCarriesNoStoreText(t *testing.T) {
 	e := newEnv(t)
 	for _, c := range []struct {
-		err  error
-		want string
+		err          error
+		want, detail string
 	}{
-		{fmt.Errorf("contact sha256:c is not held by this account: %w", store.ErrNotFound), "not_found"},
-		{fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict"},
-		{fmt.Errorf("reading contact sha256:c: %w", errors.New(storeCanary)), "internal"},
+		{fmt.Errorf("contact sha256:c is not held by this account: %w", store.ErrNotFound), "not_found", "no contact with that fingerprint on this account"},
+		{fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict", "that contact is not active"},
+		{fmt.Errorf("reading contact sha256:c: %w", errors.New(storeCanary)), "internal", "the node could not complete this"},
 	} {
 		d := e.deps
 		d.RefreshContact = func(context.Context, string, string) (string, string, error) { return "", "", c.err }
 		srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
 		body, isErr := callParityResult(t, context.Background(), srv, "refresh_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c"})
 		var got map[string]string
-		_, wantDetail := refreshFailure(c.err)
-		if !isErr || json.Unmarshal([]byte(body), &got) != nil || got["code"] != c.want || got["detail"] != wantDetail || wantDetail == "" {
-			t.Errorf("%v: answered %s (IsError %v), want code %s with its fixed detail", c.err, body, isErr, c.want)
+		if !isErr || json.Unmarshal([]byte(body), &got) != nil || got["code"] != c.want || got["detail"] != c.detail {
+			t.Errorf("%v: answered %s (IsError %v), want code %s with %q", c.err, body, isErr, c.want, c.detail)
 		}
 		if strings.Contains(body, "sql:") || strings.Contains(body, storeCanary) {
 			t.Errorf("store text on the wire: %s", body)

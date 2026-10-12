@@ -162,7 +162,7 @@ func verifyOffer(off inviteOffer) (card contacts.Card, spki, rootCert []byte, er
 	chain := [][]byte{leafDER, rootDER}
 	v := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: time.Now(), ExpectedEndpoint: card.Endpoint})
 	if !v.OK {
-		return card, nil, nil, refusal.BadRequest(fmt.Sprintf("the invite's chain is refused by rule %d: %s", v.Rule, v.Reason), nil)
+		return card, nil, nil, refusal.BadRequest(fmt.Sprintf("the invite's chain is refused by rule %d", v.Rule), nil)
 	}
 	if !bytes.Equal(chain[0], card.Cert) {
 		return card, nil, nil, refusal.BadRequest("the invite's chain does not carry the certificate its card does", nil)

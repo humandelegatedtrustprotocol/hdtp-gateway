@@ -18,6 +18,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // IntegrationsDeps is what the integration pages need. MountIntegrationPages panics without
@@ -57,27 +58,27 @@ type IntegrationsDeps struct {
 // an owner can fix later — it is one they cannot even see the shape of.
 func checkIntegration(slug, transport, endpoint, command string) error {
 	if slug == "" {
-		return fmt.Errorf("give it a name (slug), so you can tell it apart from the others")
+		return refusal.BadRequest("give it a name (slug), so you can tell it apart from the others", nil)
 	}
 	// The slug is what its permission, integration.<slug>, names (HDTP §8). One that permission
 	// cannot spell was created and then could never be granted to a contact.
 	if !contacts.ValidIntegrationSlug(slug) {
-		return fmt.Errorf("the name (slug) is lowercase letters, digits and hyphens, starting with a letter or digit, 2 to 32 characters")
+		return refusal.BadRequest("the name (slug) is lowercase letters, digits and hyphens, starting with a letter or digit, 2 to 32 characters", nil)
 	}
 	switch transport {
 	case "streamable-http", "sse":
 		if endpoint == "" {
-			return fmt.Errorf("a %s integration needs an endpoint URL to connect to", transport)
+			return refusal.BadRequest(fmt.Sprintf("a %s integration needs an endpoint URL to connect to", transport), nil)
 		}
 		if !strings.HasPrefix(endpoint, "https://") && !strings.HasPrefix(endpoint, "http://") {
-			return fmt.Errorf("the endpoint should be an http(s) URL")
+			return refusal.BadRequest("the endpoint should be an http(s) URL", nil)
 		}
 	case "stdio-supervised":
 		if command == "" {
-			return fmt.Errorf("a stdio integration needs a command to run")
+			return refusal.BadRequest("a stdio integration needs a command to run", nil)
 		}
 	default:
-		return fmt.Errorf("choose a transport")
+		return refusal.BadRequest("choose a transport", nil)
 	}
 	return nil
 }
@@ -210,7 +211,7 @@ func (d IntegrationsDeps) postIntegrationsCreate(audit func(action string, resou
 		command := strings.TrimSpace(r.PostForm.Get("command"))
 		if err := checkIntegration(slug, transport, endpoint, command); err != nil {
 			audit("integration_create", withAccount(r, "integration:"+slug), "refused")
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, pageError(err), http.StatusBadRequest)
 			return
 		}
 		in, err := d.Store.InsertIntegration(r.Context(), store.Integration{
@@ -285,7 +286,7 @@ func (d IntegrationsDeps) postIntegrationsIDConnect(timeout time.Duration) func(
 			}
 			u, err := d.Connector.AuthorizeURL(r.Context(), in.ID, timeout)
 			if err != nil {
-				apiJSONStatus(w, http.StatusGatewayTimeout, map[string]any{"error": "authorization did not start: " + err.Error()})
+				apiJSONStatus(w, http.StatusGatewayTimeout, map[string]any{"error": "authorization did not start: " + pageError(err)})
 				return
 			}
 			apiJSON(w, map[string]any{"authorize_url": u})
@@ -313,7 +314,7 @@ func (d IntegrationsDeps) getIntegrationsIDAuthorize(timeout time.Duration) func
 		d.Connector.SetOrigin(in.ID, browserOrigin(r))
 		u, err := d.Connector.AuthorizeURL(r.Context(), in.ID, timeout)
 		if err != nil {
-			http.Error(w, "authorization did not start: "+err.Error(), http.StatusGatewayTimeout)
+			http.Error(w, "authorization did not start: "+pageError(err), http.StatusGatewayTimeout)
 			return
 		}
 		http.Redirect(w, r, u, http.StatusSeeOther)
@@ -333,7 +334,7 @@ func (d IntegrationsDeps) postIntegrationsIDRefresh(w http.ResponseWriter, r *ht
 		return
 	}
 	if _, _, err := d.Cataloger.Refresh(r.Context(), in.ID); err != nil {
-		http.Error(w, "refresh failed: "+err.Error(), http.StatusConflict)
+		http.Error(w, "refresh failed: "+pageError(err), http.StatusConflict)
 		return
 	}
 	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
@@ -403,7 +404,7 @@ func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, r
 		}
 		if _, err := d.Exposures.Publish(r.Context(), in.ID, entries); err != nil {
 			audit("exposure_publish", withAccount(r, "integration:"+in.Slug), "error")
-			http.Error(w, "publish failed: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "publish failed: "+pageError(err), http.StatusBadRequest)
 			return
 		}
 		http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
@@ -423,7 +424,7 @@ func (d IntegrationsDeps) postIntegrationsIDReconfirm(w http.ResponseWriter, r *
 		return
 	}
 	if _, err := d.Exposures.Reconfirm(r.Context(), in.ID, r.PostForm["name"]); err != nil {
-		http.Error(w, "reconfirm failed: "+err.Error(), http.StatusConflict)
+		http.Error(w, "reconfirm failed: "+pageError(err), http.StatusConflict)
 		return
 	}
 	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)

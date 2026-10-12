@@ -43,7 +43,7 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	}
 	c, err := ValidateInbound(card)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
@@ -95,14 +95,14 @@ func (m *Manager) InitiatedByFingerprint(ctx context.Context, accountID, peerFpr
 	}
 	c, err := ValidateInbound(card)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	if c.Key != peerFpr {
 		return fmt.Errorf("%w: the card's certificate does not name the identity being pinned", ErrIdentityRequired)
 	}
 	leaf, err := hdtpidentity.Parse(c.Cert)
 	if err != nil {
-		return fmt.Errorf("%w: the card's certificate does not parse: %v", ErrBadRequest, err)
+		return fmt.Errorf("%w: the card's certificate does not parse", ErrBadRequest)
 	}
 	if _, err := m.Store.InsertContact(ctx, store.Contact{
 		AccountID: accountID, Fingerprint: peerFpr, SPKI: leaf.SPKI, Status: "pending_out",

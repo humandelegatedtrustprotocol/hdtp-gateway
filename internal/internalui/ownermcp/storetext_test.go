@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
@@ -287,7 +288,7 @@ func TestSendToContactAnswersTheNodesRefusalsByCode(t *testing.T) {
 		code, want string
 	}{
 		{node.ErrUnknownContact, "not_found", "send: unknown contact"},
-		{node.ErrNotActive, "conflict", "send: contact is not active"},
+		{sendNotActive{}, "conflict", "send: contact is pending_out, not active"},
 		{fmt.Errorf("recording: %w", errors.New(storeCanary)), "internal", refusal.InternalDetail},
 		{nil, "", ""},
 	} {
@@ -307,5 +308,40 @@ func TestSendToContactAnswersTheNodesRefusalsByCode(t *testing.T) {
 		if got := noStoreText(t, "send_to_contact", body, isErr); got["code"] != c.code || got["detail"] != c.want {
 			t.Errorf("%v: answered %s, want %s with %q", c.err, body, c.code, c.want)
 		}
+	}
+}
+
+// sendNotActive has the shape node.SendMessage answers a contact that is not active with (its text,
+// and errors.Is with contacts.ErrWrongState), which TestASendIsRefusedByCodeForAContactNotHeldOrNotActive
+// holds on the node's side.
+type sendNotActive struct{}
+
+func (sendNotActive) Error() string        { return "send: contact is pending_out, not active" }
+func (sendNotActive) Is(target error) bool { return target == contacts.ErrWrongState }
+
+// A message recorded and not delivered is answered with the recorded result (its thread, status
+// pending) beside unavailable and "recorded, not delivered: <why>", and no text of the error behind
+// it. The answer dropped the result and answered internal. The control, a delivered send, answers
+// the result alone.
+func TestSendToContactAnswersARecordedUndeliveredMessage(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	answer := func(res messaging.Result, err error) (string, bool) {
+		d := e.deps
+		d.Send = func(context.Context, string, string, messaging.Input) (messaging.Result, error) { return res, err }
+		srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+		return callParityResult(t, ctx, srv, "send_to_contact", map[string]any{
+			"account_id": e.acctA, "contact_fpr": "sha256:c", "msg_id": "m1", "text": "hi"})
+	}
+	body, isErr := answer(messaging.Result{ThreadID: "t1", Status: "pending"},
+		refusal.Undelivered("unreachable", fmt.Errorf("dial: %w", errors.New(storeCanary))))
+	got := noStoreText(t, "send_to_contact", body, isErr)
+	if got["code"] != "unavailable" || got["detail"] != "recorded, not delivered: unreachable" ||
+		got["ThreadID"] != "t1" || got["Status"] != "pending" {
+		t.Errorf("a recorded, undelivered message: answered %s", body)
+	}
+	if body, isErr := answer(messaging.Result{ThreadID: "t1", Status: "delivered"}, nil); isErr ||
+		!strings.Contains(body, `"Status":"delivered"`) || strings.Contains(body, "code") {
+		t.Errorf("the control: answered %s (IsError %v)", body, isErr)
 	}
 }

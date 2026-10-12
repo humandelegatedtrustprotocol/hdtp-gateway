@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 )
@@ -101,6 +102,35 @@ func TestSetExposureRefusesAnUnofferedToolWithAMarkedSentence(t *testing.T) {
 		t.Errorf("an unoffered tool: %v (sentence %q, marked %v), want the marked sentence %q", err, got, ok, want)
 	}
 	if err := extra.SetExposure(ctx, a.ID, in.ID, []string{"find_slots"}); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+}
+
+// set_exposure on an integration with no catalog snapshot is integrations.ErrNoCatalog, which the
+// owner MCP answers conflict: the store's not-found read as not_found, though the integration is
+// there. The control, an integration with a snapshot, publishes.
+func TestSetExposureWithNoCatalogIsErrNoCatalog(t *testing.T) {
+	ctx := context.Background()
+	st := migrated(t, t.TempDir())
+	defer st.Close()
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "bare", Transport: "streamable-http", Endpoint: "https://upstream.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := func(string, string, string) {}
+	extra := ownerExtra(nil, st, nil, integrationchain.Build(st, nil, nil, "", audit, nil, nil, nil), audit)
+	if err := extra.SetExposure(ctx, a.ID, bare.ID, []string{"find_slots"}); !errors.Is(err, integrations.ErrNoCatalog) {
+		t.Errorf("no catalog: %v, want integrations.ErrNoCatalog", err)
+	}
+	if _, err := st.InsertCatalog(ctx, store.Catalog{IntegrationID: bare.ID, Version: 1,
+		Tools: `[{"name":"find_slots","description":"find","input_schema":{"type":"object"},"hash":"h1"}]`}); err != nil {
+		t.Fatal(err)
+	}
+	if err := extra.SetExposure(ctx, a.ID, bare.ID, []string{"find_slots"}); err != nil {
 		t.Fatalf("the control: %v", err)
 	}
 }

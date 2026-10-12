@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,6 +34,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // Delivery statuses a message row can carry (SPEC §7.1).
@@ -46,11 +48,6 @@ const (
 // errors.Is with contacts.ErrUnknownContact, which is how a door codes it not_found.
 var ErrUnknownContact error = sendRefusal{text: "send: unknown contact", is: contacts.ErrUnknownContact}
 
-// ErrNotActive is a send to a contact that is blocked or still pending: not somebody this node
-// writes to. The error a send returns names the contact's status and satisfies errors.Is with
-// ErrNotActive and with contacts.ErrWrongState, which is how a door codes it conflict.
-var ErrNotActive error = sendRefusal{text: "send: contact is not active", is: contacts.ErrWrongState}
-
 type sendRefusal struct {
 	text string
 	is   error
@@ -62,9 +59,10 @@ func (e sendRefusal) Is(target error) bool { return target == e.is }
 type notActive struct{ status string }
 
 func (e notActive) Error() string { return "send: contact is " + e.status + ", not active" }
-func (e notActive) Is(target error) bool {
-	return target == ErrNotActive || target == contacts.ErrWrongState
-}
+
+// Is makes a send to a contact that is not active contacts.ErrWrongState, which is how a door
+// codes it conflict.
+func (e notActive) Is(target error) bool { return target == contacts.ErrWrongState }
 
 // SendMessage records an owner-composed message and delivers it to the contact.
 //
@@ -184,15 +182,15 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Contact, msgID, threadID, sender, filename, mime string, data []byte) error {
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: %w", err)
+		return refusal.Undelivered(WhyUnreachable, fmt.Errorf("send: %w", err))
 	}
 	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
-		return err
+		return refusal.Undelivered(WhyEndpointRefused, err)
 	}
 	client, err := n.OutboundClient(accountID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
 	args := map[string]any{
 		"msg_id": msgID, "thread_id": threadID, "filename": filename, "mime": mime,
@@ -200,9 +198,9 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 	}
 	res, err := client.Call(ctx, peer, core.ToolSendMedia, args, msgID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
-	return refusal(res)
+	return peerRefusal(res)
 }
 
 // retryMedia is the sweep's media branch: the bytes come from the blob store,
@@ -248,15 +246,15 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	// unreadable", parsing the card for an endpoint it then overwrote with the pin's.
 	peer, err := n.PeerOf(accountID, c)
 	if err != nil {
-		return fmt.Errorf("send: %w", err)
+		return refusal.Undelivered(WhyUnreachable, fmt.Errorf("send: %w", err))
 	}
 	if err := checkEndpoint(peer.Endpoint, len(c.SPKI) > 0); err != nil {
 		n.auditFor(c.AccountID, "delivery", "contact:"+c.Fingerprint, "endpoint_refused")
-		return err
+		return refusal.Undelivered(WhyEndpointRefused, err)
 	}
 	client, err := n.OutboundClient(accountID)
 	if err != nil {
-		return err
+		return refusal.Undelivered(WhyUnreachable, err)
 	}
 	args := map[string]any{
 		"msg_id": in.MsgID, "text": in.Text, "thread_id": threadID,
@@ -273,14 +271,29 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	// every outbound path obeys the same one.
 	res, derr := client.Call(ctx, peer, core.ToolSendMessage, args, in.MsgID)
 	if derr != nil {
-		return derr
+		return refusal.Undelivered(WhyUnreachable, derr)
 	}
-	return refusal(res)
+	return peerRefusal(res)
 }
 
-// refusal turns a peer's error result into an error. A peer that refuses is not
-// a transport failure: it is an answer, and it must not read as delivered.
-func refusal(res *mcp.CallToolResult) error {
+// The reasons a recorded message was not delivered, as refusal.Undelivered carries them beside a
+// peer's own §12 code: the endpoint on file was refused before dialling, or the contact could not
+// be reached from here.
+const (
+	WhyEndpointRefused = "endpoint_refused"
+	WhyUnreachable     = "unreachable"
+	// WhyRefused is a peer's refusal that carried no code this node can name.
+	WhyRefused = "refused"
+)
+
+// peerCode is the shape of a §12 code a peer may answer with: lowercase letters and underscores,
+// as every code the protocol names is. Anything else is not repeated to the owner.
+var peerCode = regexp.MustCompile(`^[a-z][a-z_]{0,39}$`)
+
+// peerRefusal turns a peer's error result into an error. A peer that refuses is not a transport
+// failure: it is an answer, and it must not read as delivered. The reason it carries is the peer's
+// §12 code when it has one of that shape, and WhyRefused otherwise.
+func peerRefusal(res *mcp.CallToolResult) error {
 	if res == nil || !res.IsError {
 		return nil
 	}
@@ -295,9 +308,13 @@ func refusal(res *mcp.CallToolResult) error {
 	}
 	_ = json.Unmarshal([]byte(body), &code)
 	if code.Code != "" {
-		return fmt.Errorf("send: the contact's node refused: %s", code.Code)
+		why := WhyRefused
+		if peerCode.MatchString(code.Code) {
+			why = code.Code
+		}
+		return refusal.Undelivered(why, fmt.Errorf("send: the contact's node refused: %s", code.Code))
 	}
-	return fmt.Errorf("send: the contact's node refused")
+	return refusal.Undelivered(WhyRefused, fmt.Errorf("send: the contact's node refused"))
 }
 
 /* ---------------------------- retry (SPEC §7.1) ---------------------------- */
