@@ -166,3 +166,29 @@ func TestThePortalsSendsSayARecordedMessageWasNotDelivered(t *testing.T) {
 		}
 	}
 }
+
+// A contact's refresh that could not be attempted answers the status its code gives: 404 for a
+// contact not held, 500 for a store that failed, each with the node's sentence or a fixed phrase.
+// Every failure was 404. The control, a refresh that ran, is 200.
+func TestARefreshThatFailsAnswersItsStatus(t *testing.T) {
+	var next error
+	mux := http.NewServeMux()
+	MountContactPages(mux, ContactsDeps{Store: newEnv(t).st,
+		RefreshContact: func(context.Context, string, string) (string, string, error) { return "unchanged", "", next }})
+	for _, c := range []struct {
+		err    error
+		status int
+		body   string
+	}{
+		{fmt.Errorf("contact sha256:x is not held by this account: %w", store.ErrNotFound), http.StatusNotFound, refusal.NotFoundDetail},
+		{fmt.Errorf("reading: %w", errors.New(pageCanary)), http.StatusInternalServerError, refusal.InternalDetail},
+		{nil, http.StatusOK, `"outcome":"unchanged"`},
+	} {
+		next = c.err
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contacts/sha256:x/refresh?account=a", nil))
+		if rr.Code != c.status || !strings.Contains(rr.Body.String(), c.body) || strings.Contains(rr.Body.String(), pageCanary) {
+			t.Errorf("%v: %d %q, want %d with %q", c.err, rr.Code, rr.Body, c.status, c.body)
+		}
+	}
+}

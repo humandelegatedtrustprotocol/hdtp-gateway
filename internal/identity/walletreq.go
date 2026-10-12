@@ -19,13 +19,13 @@ var ErrLeafRefused = errors.New("leaf refused")
 
 // leafRefusal is an install's refusal in the node's words, with the sentinels it satisfies. Its text
 // is the sentence followed by each sentinel's, as fmt.Errorf("identity: <sentence>: %w: %w") wrote
-// it. RefuseLeaf makes one; its sentence is the node's, never a core's or a library's reason.
+// it. refuseLeaf makes one; its sentence is the node's, never a core's or a library's reason.
 type leafRefusal struct {
 	sentence string
 	is       []error
 }
 
-func RefuseLeaf(sentence string, is ...error) error {
+func refuseLeaf(sentence string, is ...error) error {
 	return leafRefusal{sentence: sentence, is: is}
 }
 

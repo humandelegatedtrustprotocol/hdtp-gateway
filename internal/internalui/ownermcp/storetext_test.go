@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
@@ -343,5 +345,86 @@ func TestSendToContactAnswersARecordedUndeliveredMessage(t *testing.T) {
 	if body, isErr := answer(messaging.Result{ThreadID: "t1", Status: "delivered"}, nil); isErr ||
 		!strings.Contains(body, `"Status":"delivered"`) || strings.Contains(body, "code") {
 		t.Errorf("the control: answered %s (IsError %v)", body, isErr)
+	}
+}
+
+func (f *failingStore) ListMembershipsByOwner(ctx context.Context, owner string) ([]store.Membership, error) {
+	if err := f.hit("ListMembershipsByOwner"); err != nil {
+		return nil, err
+	}
+	return f.Store.ListMembershipsByOwner(ctx, owner)
+}
+
+func (f *failingStore) ListMessagesByThread(ctx context.Context, a, id string) ([]store.Message, error) {
+	if err := f.hit("ListMessagesByThread"); err != nil {
+		return nil, err
+	}
+	return f.Store.ListMessagesByThread(ctx, a, id)
+}
+
+// A resource read whose scope or messages could not be read answers a fixed error, "internal: the
+// node could not complete this", never the store's text: the readers returned the error bare. Each
+// row's control, the same read with nothing failing, gets through.
+func TestAResourceReadThatFailsCarriesNoStoreText(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	res, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:c", messaging.DirOut, messaging.Input{MsgID: "m1", Text: "hi", Origin: messaging.OriginMCP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(fail, uri string) (string, *failingStore, error) {
+		fs := &failingStore{Store: e.st, fail: fail, called: map[string]bool{}}
+		d := e.deps
+		d.Store = fs
+		srv := NewServerWithExtra(d, Extra{}, auth.Identity{OwnerID: e.owner})
+		ct, st := mcp.NewInMemoryTransports()
+		if _, err := srv.Connect(ctx, st, nil); err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, nil).Connect(ctx, ct, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cs.Close()
+		rr, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
+		if err != nil {
+			return "", fs, err
+		}
+		return rr.Contents[0].Text, fs, nil
+	}
+	thread := URIThreadPrefix + res.ThreadID
+	for _, c := range []struct{ uri, method string }{
+		{URIInbox, "ListMembershipsByOwner"}, {URIRequests, "ListMembershipsByOwner"},
+		{URIPending, "ListMembershipsByOwner"}, {thread, "ListMembershipsByOwner"},
+		{thread, "ListMessagesByThread"},
+	} {
+		_, fs, err := read(c.method, c.uri)
+		if !fs.called[c.method] {
+			t.Errorf("%s: never reached %s", c.uri, c.method)
+			continue
+		}
+		if err == nil || strings.Contains(err.Error(), storeCanary) || !strings.Contains(err.Error(), "internal: "+refusal.InternalDetail) {
+			t.Errorf("%s with %s failing: %v, want the fixed error", c.uri, c.method, err)
+		}
+		if text, _, err := read("", c.uri); err != nil || text == "" {
+			t.Errorf("%s, the control: %v", c.uri, err)
+		}
+	}
+}
+
+// export_card for an identity awaiting its wallet answers not_found with the node's sentence, as the
+// portal's card route answers 404 no_card; it answered internal. The control is the card.
+func TestExportCardForAnIdentityAwaitingItsWalletIsNotFound(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	answer := func(err error) (string, bool) {
+		srv := NewServerWithExtra(e.deps, Extra{Card: func(context.Context, string) (string, error) { return "", err },
+			Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+		return callParityResult(t, ctx, srv, "export_card", map[string]any{"account_id": e.acctA})
+	}
+	awaiting := fmt.Errorf("node: %s awaits its wallet: %w", e.acctA, identity.ErrNoCertificate)
+	body, isErr := answer(awaiting)
+	if got := noStoreText(t, "export_card", body, isErr); got["code"] != "not_found" || got["detail"] != awaiting.Error() {
+		t.Errorf("an identity awaiting its wallet: answered %s", body)
 	}
 }

@@ -9,14 +9,16 @@ may not import each other, import it.
 ## What it holds
 
 - `Of(err)` returns the code and the detail, reading through `%w` and `errors.Join`:
-  - a `BadRequest` in the chain is `bad_request` with its sentence alone;
+  - a `BadRequest` in the chain is `bad_request`, and an `Unavailable` `unavailable`, each with its
+    sentence alone;
   - an `Undelivered` is `unavailable` with "recorded, not delivered: <why>";
   - an install refusal the identity package worded (`identity.Worded`) is `bad_request` with its
     text;
   - a `messaging.FetchRefusal` is its code with its sentence;
-  - `contacts.ErrUnknownContact` and `integrations.ErrUnknownRequest` are `not_found`;
-  - `contacts.ErrWrongState`, `integrations.ErrRequestClosed` and `integrations.ErrNoCatalog` are
-    `conflict`;
+  - `contacts.ErrUnknownContact`, `integrations.ErrUnknownRequest` and `identity.ErrNoCertificate`
+    are `not_found`;
+  - `contacts.ErrWrongState`, `integrations.ErrRequestClosed`, `integrations.ErrNoCatalog`,
+    `integrations.ErrNotConnected` and `identity.ErrSlugTaken` are `conflict`;
   - `contacts.ErrBadRequest`, `messaging.ErrBadRequest`, `integrations.ErrExposureRefused`,
     `identity.ErrDisplayName`, `identity.ErrUnknownAlgorithm` and `auth.ErrLabelRequired` are
     `bad_request`;
@@ -25,8 +27,9 @@ may not import each other, import it.
 
   Each of these keeps the error's own text, which the node wrote. `store.ErrNotFound` is
   `not_found` with `NotFoundDetail`. Anything else is `internal` with `InternalDetail`.
-- `BadRequest(sentence, cause)` marks a sentence the node wrote about a caller's arguments;
-  `Sentence(err)` reads it back. `Undelivered(why, cause)` marks a message recorded and not
+- `BadRequest(sentence, cause)` marks a sentence the node wrote about a caller's arguments, and
+  `Unavailable(sentence, cause)` one about something it could not reach; `Of` answers either with its
+  sentence alone. `Undelivered(why, cause)` marks a message recorded and not
   delivered; `Why(err)` reads the reason back. A cause (a dial, a peer's answer) is in `Error()` and
   in no detail.
 

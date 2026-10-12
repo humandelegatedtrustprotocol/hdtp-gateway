@@ -421,7 +421,10 @@ func (s *Service) Deps() internalui.SettingsDeps {
 		AdapterSettings: s.adapterSettings,
 		Pair: func(ctx context.Context, in internalui.PairInput) (internalui.PairResult, error) {
 			accts, err := s.store.ListAccounts(ctx)
-			if err != nil || len(accts) == 0 {
+			if err != nil {
+				return internalui.PairResult{}, err
+			}
+			if len(accts) == 0 {
 				return internalui.PairResult{}, refusal.BadRequest("create an account before pairing", nil)
 			}
 			if in.Account != "" {

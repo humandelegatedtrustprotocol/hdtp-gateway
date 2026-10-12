@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -282,39 +281,23 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 const (
 	WhyEndpointRefused = "endpoint_refused"
 	WhyUnreachable     = "unreachable"
-	// WhyRefused is a peer's refusal that carried no code this node can name.
-	WhyRefused = "refused"
+	// WhyRefused is a peer's refusal that carried no §12 code.
+	WhyRefused = core.PeerRefused
 )
-
-// peerCode is the shape of a §12 code a peer may answer with: lowercase letters and underscores,
-// as every code the protocol names is. Anything else is not repeated to the owner.
-var peerCode = regexp.MustCompile(`^[a-z][a-z_]{0,39}$`)
 
 // peerRefusal turns a peer's error result into an error. A peer that refuses is not a transport
 // failure: it is an answer, and it must not read as delivered. The reason it carries is the peer's
-// §12 code when it has one of that shape, and WhyRefused otherwise.
+// §12 code when it is one (core.PeerCode), and WhyRefused otherwise: a peer's own words reach
+// neither the owner nor the audit row.
 func peerRefusal(res *mcp.CallToolResult) error {
 	if res == nil || !res.IsError {
 		return nil
 	}
-	body := ""
-	if len(res.Content) > 0 {
-		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-			body = tc.Text
-		}
+	code, ok := refusalCodeOf(res)
+	if !ok || code == WhyRefused {
+		return refusal.Undelivered(WhyRefused, errors.New("send: the contact's node refused"))
 	}
-	var code struct {
-		Code string `json:"code"`
-	}
-	_ = json.Unmarshal([]byte(body), &code)
-	if code.Code != "" {
-		why := WhyRefused
-		if peerCode.MatchString(code.Code) {
-			why = code.Code
-		}
-		return refusal.Undelivered(why, fmt.Errorf("send: the contact's node refused: %s", code.Code))
-	}
-	return refusal.Undelivered(WhyRefused, fmt.Errorf("send: the contact's node refused"))
+	return refusal.Undelivered(code, errors.New("send: the contact's node refused: "+code))
 }
 
 /* ---------------------------- retry (SPEC §7.1) ---------------------------- */

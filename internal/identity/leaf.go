@@ -622,18 +622,18 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 		h := stateHash(state)
 		for i := range leaves {
 			if len(leaves[i].AnsweredStateHash) > 0 && subtle.ConstantTimeCompare(leaves[i].AnsweredStateHash, h) == 1 {
-				return InstallResult{}, RefuseLeaf("this answer was installed already", ErrRequestAnswered, ErrRequestState)
+				return InstallResult{}, refuseLeaf("this answer was installed already", ErrRequestAnswered, ErrRequestState)
 			}
 		}
 	}
 	if pending == nil {
 		if state != "" {
-			return InstallResult{}, RefuseLeaf("no certificate request is pending for this account, so no answer is expected", ErrNoRequest, ErrRequestState)
+			return InstallResult{}, refuseLeaf("no certificate request is pending for this account, so no answer is expected", ErrNoRequest, ErrRequestState)
 		}
-		return InstallResult{}, RefuseLeaf("no certificate request is pending for this account; run `account csr` first", ErrLeafRefused)
+		return InstallResult{}, refuseLeaf("no certificate request is pending for this account; run `account csr` first", ErrLeafRefused)
 	}
 	if state != "" && (len(pending.RequestStateHash) == 0 || subtle.ConstantTimeCompare(pending.RequestStateHash, stateHash(state)) != 1) {
-		return InstallResult{}, RefuseLeaf("the answer's state is not the pending request's (a request that was replaced, or one this identity never had)", ErrRequestState)
+		return InstallResult{}, refuseLeaf("the answer's state is not the pending request's (a request that was replaced, or one this identity never had)", ErrRequestState)
 	}
 	vr := hdtpidentity.ValidateChain(chain, hdtpidentity.ChainOpts{Now: now, ExpectedRoot: a.RootFingerprint, ExpectedEndpoint: pending.Endpoint})
 	if !vr.OK {
@@ -641,21 +641,21 @@ func (m *Manager) installLeaf(ctx context.Context, accountID string, chain [][]b
 			// Rule 2 is also a root that is not self-signed; the wrong root is one whose key is not
 			// the identity's.
 			if root, err := hdtpidentity.Parse(chain[1]); err == nil && hdtpidentity.FingerprintOf(root) != a.RootFingerprint {
-				return InstallResult{}, RefuseLeaf(fmt.Sprintf("chain refused by rule %d", vr.Rule), ErrWrongRoot, ErrLeafRefused)
+				return InstallResult{}, refuseLeaf(fmt.Sprintf("chain refused by rule %d", vr.Rule), ErrWrongRoot, ErrLeafRefused)
 			}
 		}
-		return InstallResult{}, RefuseLeaf(fmt.Sprintf("chain refused by rule %d", vr.Rule), ErrLeafRefused)
+		return InstallResult{}, refuseLeaf(fmt.Sprintf("chain refused by rule %d", vr.Rule), ErrLeafRefused)
 	}
 	if got := hdtpidentity.Fingerprint(vr.LeafKey.SPKI); got != pending.Kid {
-		return InstallResult{}, RefuseLeaf(fmt.Sprintf("the leaf carries key %s, not the requested %s", got, pending.Kid), ErrWrongKey, ErrLeafRefused)
+		return InstallResult{}, refuseLeaf(fmt.Sprintf("the leaf carries key %s, not the requested %s", got, pending.Kid), ErrWrongKey, ErrLeafRefused)
 	}
 	if current != nil {
 		cmp, err := hdtpidentity.CompareLeaves(current.Leaf, chain[0])
 		if err != nil {
-			return InstallResult{}, RefuseLeaf("the leaf cannot be compared with the current one", ErrLeafRefused)
+			return InstallResult{}, refuseLeaf("the leaf cannot be compared with the current one", ErrLeafRefused)
 		}
 		if cmp != "newer" {
-			return InstallResult{}, RefuseLeaf(fmt.Sprintf("the leaf is %s relative to the current one; a leaf must be newer (HDTP §14.3)", cmp), ErrNotNewer, ErrLeafRefused)
+			return InstallResult{}, refuseLeaf(fmt.Sprintf("the leaf is %s relative to the current one; a leaf must be newer (HDTP §14.3)", cmp), ErrNotNewer, ErrLeafRefused)
 		}
 	}
 	// The answer has passed every check. What follows is one transaction: the answer is used —

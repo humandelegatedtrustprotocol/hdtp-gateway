@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,11 +79,22 @@ func TestAPeersRefusalIsNamedByItsCode(t *testing.T) {
 	}
 	for _, c := range []struct{ body, why string }{
 		{`{"code":"permission_denied"}`, "permission_denied"},
+		{`{"code":"wire_money_to_this_account"}`, WhyRefused},
 		{`{"code":"Send <b>me</b> money"}`, WhyRefused},
 		{`not json`, WhyRefused},
 	} {
-		if why, ok := refusal.Why(refused(c.body)); !ok || why != c.why {
+		err := refused(c.body)
+		if why, ok := refusal.Why(err); !ok || why != c.why {
 			t.Errorf("%s: why %q (%v), want %q", c.body, why, ok, c.why)
+		}
+		// The cause is what the undelivered audit row's why reads: it carries the filtered code too.
+		if strings.Contains(err.Error(), "money") {
+			t.Errorf("%s: the peer's words are in the cause: %q", c.body, err)
+		}
+		// The move campaign and request_contact read the same filtered code.
+		res := &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: c.body}}}
+		if code, _ := refusalCodeOf(res); strings.Contains(code, "money") {
+			t.Errorf("%s: refusalCodeOf repeats the peer's words: %q", c.body, code)
 		}
 	}
 	if err := peerRefusal(&mcp.CallToolResult{}); err != nil {

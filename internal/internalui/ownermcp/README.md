@@ -114,7 +114,9 @@ Three shapes of refusal exist; a caller must not treat them alike.
    `not_found` and anything else `internal`, each with a fixed detail. No error text the node did
    not write reaches the caller, and the portal's pages show the same detail. `send_to_contact`
    answers a message recorded and not delivered with the recorded result (`ThreadID`, `Status`
-   `pending`) beside `unavailable` and "recorded, not delivered: <why>". Also: `create_invite` answers `unavailable` when the
+   `pending`) beside `unavailable` and "recorded, not delivered: <why>". A resource read whose scope,
+   or a thread's messages, could not be read fails with "<code>: <detail>" from `refusal.Of`
+   (`resourceFailure`). Also: `create_invite` answers `unavailable` when the
    node has no public address ("set public_url") and mints nothing; `revoke_invite` answers
    `not_found` only for a missing or spent invite (a store failure is `internal`); `delete_thread`
    answers `{"code"}` `bad_request`, `not_found` or `internal`; `wait_for_updates` answers

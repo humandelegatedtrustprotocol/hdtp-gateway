@@ -3,6 +3,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -490,7 +491,7 @@ func TestRefreshRouteNamesOneContactAndAnswersWhatWasFound(t *testing.T) {
 		RefreshContact: func(_ context.Context, accountID, fpr string) (string, string, error) {
 			calls = append(calls, asked{accountID, fpr})
 			if fpr == "sha256:gone" {
-				return "", "", context.DeadlineExceeded // any error: nobody was asked
+				return "", "", fmt.Errorf("contact %s is not held by this account: %w", fpr, store.ErrNotFound)
 			}
 			return "renewed", "", nil
 		},

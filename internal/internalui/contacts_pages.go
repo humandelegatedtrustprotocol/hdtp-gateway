@@ -504,7 +504,7 @@ func (d ContactsDeps) postContactsFprRefresh(w http.ResponseWriter, r *http.Requ
 	}
 	outcome, why, err := d.RefreshContact(r.Context(), accountParam(r), r.PathValue("fpr"))
 	if err != nil {
-		http.NotFound(w, r)
+		http.Error(w, pageError(err), pageStatus(err))
 		return
 	}
 	apiJSON(w, map[string]string{"outcome": outcome, "why": why})

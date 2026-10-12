@@ -26,8 +26,9 @@ changelog can be and is not summarized into a fictional release history.
 - The portal's contact call and tool-list routes answer `{"error":<code>}` by what is true — 404
   `not_found`, 409 `conflict`, 502 `envelope_invalid`, 502 `unavailable` — where every failure was a
   502 carrying the error's text.
-- No error text the node did not write reaches a caller of the owner MCP or a page of the portal.
-  A failure the node coded keeps the node's sentence; a store's not-found is `not_found` and any
+- No error text the node did not write reaches a caller of the owner MCP or a page of the portal,
+  except `/healthz`, whose 503 names the limits sidecar's socket and the dial's error. A failure
+  the node coded keeps the node's sentence; a store's not-found is `not_found` and any
   other failure `internal`, each with a fixed detail (`internal/refusal`). This changes answers:
   - Every owner MCP tool that returned a store failure as a bare error, whose text the SDK sent,
     answers `{"code","detail"}`.
@@ -51,6 +52,27 @@ changelog can be and is not summarized into a fictional release history.
   - The portal's forms and routes that showed `err.Error()` (sending, adding a contact, the
     contact lifecycle, requests, identities, tokens, settings, pairing, integrations, media, the
     web wallet) show the node's sentence or a fixed phrase.
+- A peer's refusal code is repeated only when it is one of HDTP §12's codes; any other string is
+  `refused`, in add_contact's answer, in a send's "recorded, not delivered: <why>", in its audit
+  row and in the move campaign's. A peer chose the string and could put words in front of the owner.
+- add_contact answers a peer or an invite link it could not reach `unavailable` ("the peer could not
+  be reached to redeem the invite", "the request did not reach the peer", "could not reach the
+  invite link"), where it answered `bad_request` "the peer refused ..."; a peer's refusal of a
+  request is `bad_request` naming its code.
+- Owner MCP resource reads whose scope or a thread's messages could not be read fail with
+  "<code>: <detail>", where they returned the store's error.
+- `export_card` for an identity awaiting its wallet answers `not_found` with the node's sentence,
+  as the portal's card route answers 404 `no_card`; it answered `internal`.
+- The reachability probe's detail, on the settings page and from `doctor`, is the node's: the rule a
+  served chain fails, without the identity core's reason; fixed phrases for an endpoint that does
+  not answer or a certificate that does not verify; another instance without the id it echoed.
+- Portal statuses follow the code of the failure (`pageStatus`): a media fetch of a private address
+  is 403 (was 422) and one whose link did not answer 502; a contact refresh that could not be
+  attempted is 404, 409 or 500 (was 404); an integration refresh of one not connected 409, a store
+  failure 500 (was 409).
+- Pairing whose account list cannot be read answers `internal`, where it said "create an account
+  before pairing". Creating an identity under a slug another holds answers `conflict` ("the slug
+  ... is another identity's"), where the page showed the store's refusal.
 - A card, an invite's chain and a refreshed contact are refused in the node's words: "the card's
   certificate does not parse", "the card's certificate is not one this node accepts", "the invite's
   chain is refused by rule <n>", "the chain it answered with fails rule <n>". These carried the

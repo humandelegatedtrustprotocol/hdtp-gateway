@@ -112,7 +112,7 @@ func TestPortalPagesConsumeTheEventStream(t *testing.T) {
 }
 
 // The fetch names a message, and its refusals say which kind they are: a message the account does
-// not hold is 404, one that is not a link 400, a refused fetch 422; the view reads `ok` and shows
+// not hold is 404, one that is not a link 400, a fetch refused for a private address 403; the view reads `ok` and shows
 // the error.
 func TestMediaFetchNamesAMessageAndSaysWhyItWasRefused(t *testing.T) {
 	e := newEnv(t)
@@ -122,7 +122,7 @@ func TestMediaFetchNamesAMessageAndSaysWhyItWasRefused(t *testing.T) {
 	}{
 		{store.ErrNotFound, http.StatusNotFound},
 		{messaging.ErrBadRequest, http.StatusBadRequest},
-		{errRefused, http.StatusUnprocessableEntity},
+		{errRefused, http.StatusForbidden},
 	} {
 		var asked string
 		mux := http.NewServeMux()

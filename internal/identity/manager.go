@@ -53,6 +53,17 @@ type Manager struct {
 	beforeInstallWrites func()
 }
 
+// ErrSlugTaken is an identity asked for under a slug another identity holds: the error CreateAccount
+// returns names the slug and satisfies errors.Is with this.
+var ErrSlugTaken = errors.New("identity: that slug is taken")
+
+type slugTaken struct{ slug string }
+
+func (s slugTaken) Error() string {
+	return fmt.Sprintf("identity: the slug %q is another identity's", s.slug)
+}
+func (s slugTaken) Is(target error) bool { return target == ErrSlugTaken }
+
 // ErrDisplayName is a display name with a control character in it.
 var ErrDisplayName = errors.New("identity: a display name carries no control character (it is one line of the account's card)")
 
@@ -99,6 +110,14 @@ func StripDisplayName(s string) string {
 // installed (InstallLeaf). The steps are separate store writes, not one transaction.
 func (m *Manager) CreateAccount(ctx context.Context, slug, displayName string, algo Algo) (store.Account, error) {
 	if err := ValidDisplayName(displayName); err != nil {
+		return store.Account{}, err
+	}
+	// A slug names one identity for good. Read before anything is made for it, so the answer to a
+	// slug in use is that, not the store's refusal of a second row; two creates racing for one slug
+	// still meet the store's constraint, and the one that loses answers as a failure of the node.
+	if _, err := m.Store.GetAccountBySlug(ctx, slug); err == nil {
+		return store.Account{}, slugTaken{slug: slug}
+	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Account{}, err
 	}
 	if algo == "" {

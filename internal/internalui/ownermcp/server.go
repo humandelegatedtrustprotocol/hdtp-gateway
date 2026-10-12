@@ -1031,7 +1031,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	summary := map[string]int64{}
 	for _, acct := range sc.AdminAccounts {
@@ -1054,7 +1054,7 @@ func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceReq
 func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	var pending []store.Contact
 	for _, acct := range sc.AdminAccounts {
@@ -1076,7 +1076,7 @@ func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadR
 func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	var rows []store.PendingRequest
 	for _, acct := range sc.AdminAccounts {
@@ -1101,7 +1101,7 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 	}
 	sc, err := ot.d.scope(ctx, ot.ident)
 	if err != nil {
-		return nil, err
+		return nil, resourceFailure(err)
 	}
 	// A thread belongs to exactly one account, and this identity may only
 	// read the accounts it administers — the same rule every tool applies.
@@ -1112,11 +1112,18 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		}
 		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
 		if err != nil {
-			return nil, err
+			return nil, resourceFailure(err)
 		}
 		b, _ := json.Marshal(map[string]any{"thread": th, "messages": msgs})
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}
 	return nil, fmt.Errorf("ownermcp: no such thread")
+}
+
+// resourceFailure is a resource read that failed, as the reader is told it: the code and the
+// detail refusal.Of gives, never the error's text.
+func resourceFailure(err error) error {
+	code, detail := refusal.Of(err)
+	return errors.New(code + ": " + detail)
 }

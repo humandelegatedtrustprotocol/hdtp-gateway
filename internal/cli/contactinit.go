@@ -110,7 +110,7 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 	req.Header.Set("Accept", "application/hdtp-invite+json")
 	res, err := hc.Do(req)
 	if err != nil {
-		return off, refusal.BadRequest("could not reach the invite link", err)
+		return off, refusal.Unavailable("could not reach the invite link", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
@@ -319,7 +319,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
-		return out, refusal.BadRequest("the peer refused the redemption", err)
+		return out, refusal.Unavailable("the peer could not be reached to redeem the invite", err)
 	}
 	// A refusal is an answer with isError and its code (HDTP §12): nothing was redeemed, so
 	// nothing is recorded. It used to fall through to decodeRedeemAnswer, whose empty status
@@ -367,7 +367,8 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	}, nil
 }
 
-// refusalCodeOf is a tool error's code, or "refused" when its text carries none.
+// refusalCodeOf is a tool error's §12 code (core.PeerCode), or "refused" when its text carries
+// none or a string that is not one.
 func refusalCodeOf(res *mcp.CallToolResult) string {
 	for _, c := range res.Content {
 		if tc, ok := c.(*mcp.TextContent); ok && len(tc.Text) <= maxOfferBytes {
@@ -375,7 +376,7 @@ func refusalCodeOf(res *mcp.CallToolResult) string {
 				Code string `json:"code"`
 			}
 			if json.Unmarshal([]byte(tc.Text), &body) == nil && body.Code != "" {
-				return body.Code
+				return core.PeerCode(body.Code)
 			}
 		}
 	}
@@ -446,13 +447,14 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 		return out, err
 	}
 	if err := ci.request(ctx, accountID, peerOfCard(peerCard), note, newCallID()); err != nil {
-		outcome := "unreachable"
 		var refused node.ErrRequestRefused
 		if errors.As(err, &refused) {
-			outcome = "refused"
+			ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "refused")
+			// The peer answered, with a §12 code (node.RequestContact filters it) or none.
+			return out, refusal.BadRequest(refused.Error(), nil)
 		}
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, outcome)
-		return out, refusal.BadRequest("the request did not land", err)
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
+		return out, refusal.Unavailable("the request did not reach the peer", err)
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err

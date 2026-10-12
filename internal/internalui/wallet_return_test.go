@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/web"
@@ -83,7 +84,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		{fmt.Errorf("x: %w: %w", identity.ErrWrongRoot, identity.ErrLeafRefused), 400, "wrong_root"},
 		{fmt.Errorf("x: %w: %w", identity.ErrWrongKey, identity.ErrLeafRefused), 400, "wrong_key"},
 		{fmt.Errorf("x: %w: %w", identity.ErrNotNewer, identity.ErrLeafRefused), 400, "not_newer"},
-		{identity.RefuseLeaf("chain refused by rule 4", identity.ErrLeafRefused), 400, "chain"},
+		{realInstallRefusal(t), 400, "chain"},
 		{errors.New("sqlite: disk I/O error at /var/lib/hdtp/hdtp.db"), 500, "failed"},
 	}
 	for _, c := range cases {
@@ -95,7 +96,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		msg, _ := out["error"].(string)
 		switch c.code {
 		case "chain":
-			if msg != "chain refused by rule 4" {
+			if msg != "no certificate request is pending for this account; run `account csr` first" {
 				t.Errorf("a refused chain does not say which rule: %q", msg)
 			}
 		case "failed":
@@ -283,4 +284,33 @@ func TestTheWalletReturnPageIsThePortals(t *testing.T) {
 	if !regexp.MustCompile(`@media \(max-width:600px\)\{main\.center\.wr\{[^}]*padding:0 16px`).MatchString(walletReturnStyle) {
 		t.Error("no 16px gutter at phone width")
 	}
+}
+
+// realInstallRefusal is an install refusal the identity package worded, from a real install: an
+// answer to an identity with no request pending.
+func realInstallRefusal(t *testing.T) error {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "i.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	kr, err := core.OpenKeyring(filepath.Join(t.TempDir(), "k"), func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &identity.Manager{Store: st, Keyring: kr}
+	a, err := m.CreateAccount(ctx, "alina", "Alina Rao", identity.AlgoEd25519)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.InstallLeaf(ctx, a.ID, [][]byte{{1}, {2}}, time.Now())
+	if _, ok := identity.Worded(err); !ok {
+		t.Fatalf("the install did not answer a worded refusal: %v", err)
+	}
+	return err
 }

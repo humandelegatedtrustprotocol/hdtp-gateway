@@ -20,29 +20,25 @@ import (
 // cause, when there is one, is the error behind it (a dial, a peer's answer) and is in neither.
 // Error() is the sentence followed by the cause's text; no door shows it.
 func BadRequest(sentence string, cause error) error {
-	return badRequest{sentence: sentence, cause: cause}
+	return coded{code: "bad_request", sentence: sentence, cause: cause}
 }
 
-type badRequest struct {
-	sentence string
-	cause    error
+// Unavailable marks a sentence the node wrote about something it could not reach (a peer, a link)
+// as an unavailable refusal, read as BadRequest's is.
+func Unavailable(sentence string, cause error) error {
+	return coded{code: "unavailable", sentence: sentence, cause: cause}
 }
 
-func (b badRequest) Error() string {
-	if b.cause == nil {
-		return b.sentence
+type coded struct {
+	code, sentence string
+	cause          error
+}
+
+func (c coded) Error() string {
+	if c.cause == nil {
+		return c.sentence
 	}
-	return b.sentence + ": " + b.cause.Error()
-}
-
-// Sentence is the sentence a BadRequest in err's chain carries, without its cause; ok is false
-// when err holds none.
-func Sentence(err error) (sentence string, ok bool) {
-	var br badRequest
-	if errors.As(err, &br) {
-		return br.sentence, true
-	}
-	return "", false
+	return c.sentence + ": " + c.cause.Error()
 }
 
 // Undelivered marks a message that was recorded and not delivered. why is the node's reason: a
@@ -59,7 +55,12 @@ type undelivered struct {
 	cause error
 }
 
-func (u undelivered) Error() string { return u.cause.Error() }
+func (u undelivered) Error() string {
+	if u.cause == nil {
+		return "recorded, not delivered: " + u.why
+	}
+	return u.cause.Error()
+}
 
 // Why is the reason an Undelivered in err's chain carries; ok is false when err holds none.
 func Why(err error) (why string, ok bool) {
@@ -82,8 +83,9 @@ const NotFoundDetail = "nothing by that id on this account"
 // not-found is not_found with a fixed detail; anything else is internal with a fixed detail. No
 // error's text that the node did not write is in either.
 func Of(err error) (code, detail string) {
-	if sentence, marked := Sentence(err); marked {
-		return "bad_request", sentence
+	var c coded
+	if errors.As(err, &c) {
+		return c.code, c.sentence
 	}
 	if why, ok := Why(err); ok {
 		return "unavailable", "recorded, not delivered: " + why
@@ -96,10 +98,12 @@ func Of(err error) (code, detail string) {
 		return fr.Code, fr.Sentence
 	}
 	switch {
-	case errors.Is(err, contacts.ErrUnknownContact), errors.Is(err, integrations.ErrUnknownRequest):
+	case errors.Is(err, contacts.ErrUnknownContact), errors.Is(err, integrations.ErrUnknownRequest),
+		errors.Is(err, identity.ErrNoCertificate):
 		return "not_found", err.Error()
 	case errors.Is(err, contacts.ErrWrongState), errors.Is(err, integrations.ErrRequestClosed),
-		errors.Is(err, integrations.ErrNoCatalog):
+		errors.Is(err, integrations.ErrNoCatalog), errors.Is(err, integrations.ErrNotConnected),
+		errors.Is(err, identity.ErrSlugTaken):
 		return "conflict", err.Error()
 	case errors.Is(err, contacts.ErrBadRequest), errors.Is(err, messaging.ErrBadRequest),
 		errors.Is(err, integrations.ErrExposureRefused), errors.Is(err, identity.ErrDisplayName),

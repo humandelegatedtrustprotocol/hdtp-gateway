@@ -98,8 +98,8 @@ func TestSetExposureRefusesAnUnofferedToolWithAMarkedSentence(t *testing.T) {
 
 	err = extra.SetExposure(ctx, a.ID, in.ID, []string{"delete_everything"})
 	want := `cal does not offer a tool called "delete_everything"`
-	if got, ok := refusal.Sentence(err); !ok || got != want || err.Error() != want {
-		t.Errorf("an unoffered tool: %v (sentence %q, marked %v), want the marked sentence %q", err, got, ok, want)
+	if code, got := refusal.Of(err); code != "bad_request" || got != want || err.Error() != want {
+		t.Errorf("an unoffered tool: %v (%s %q), want bad_request %q", err, code, got, want)
 	}
 	if err := extra.SetExposure(ctx, a.ID, in.ID, []string{"find_slots"}); err != nil {
 		t.Fatalf("the control: %v", err)

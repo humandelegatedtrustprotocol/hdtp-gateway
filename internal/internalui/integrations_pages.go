@@ -211,7 +211,7 @@ func (d IntegrationsDeps) postIntegrationsCreate(audit func(action string, resou
 		command := strings.TrimSpace(r.PostForm.Get("command"))
 		if err := checkIntegration(slug, transport, endpoint, command); err != nil {
 			audit("integration_create", withAccount(r, "integration:"+slug), "refused")
-			http.Error(w, pageError(err), http.StatusBadRequest)
+			http.Error(w, pageError(err), pageStatus(err))
 			return
 		}
 		in, err := d.Store.InsertIntegration(r.Context(), store.Integration{
@@ -334,7 +334,7 @@ func (d IntegrationsDeps) postIntegrationsIDRefresh(w http.ResponseWriter, r *ht
 		return
 	}
 	if _, _, err := d.Cataloger.Refresh(r.Context(), in.ID); err != nil {
-		http.Error(w, "refresh failed: "+pageError(err), http.StatusConflict)
+		http.Error(w, "refresh failed: "+pageError(err), pageStatus(err))
 		return
 	}
 	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
@@ -404,7 +404,7 @@ func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, r
 		}
 		if _, err := d.Exposures.Publish(r.Context(), in.ID, entries); err != nil {
 			audit("exposure_publish", withAccount(r, "integration:"+in.Slug), "error")
-			http.Error(w, "publish failed: "+pageError(err), http.StatusBadRequest)
+			http.Error(w, "publish failed: "+pageError(err), pageStatus(err))
 			return
 		}
 		http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)
@@ -424,7 +424,7 @@ func (d IntegrationsDeps) postIntegrationsIDReconfirm(w http.ResponseWriter, r *
 		return
 	}
 	if _, err := d.Exposures.Reconfirm(r.Context(), in.ID, r.PostForm["name"]); err != nil {
-		http.Error(w, "reconfirm failed: "+pageError(err), http.StatusConflict)
+		http.Error(w, "reconfirm failed: "+pageError(err), pageStatus(err))
 		return
 	}
 	http.Redirect(w, r, "/integrations/"+in.ID+"/exposure?account="+in.AccountID, http.StatusSeeOther)

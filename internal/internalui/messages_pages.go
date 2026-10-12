@@ -504,6 +504,8 @@ func pageStatus(err error) int {
 		return http.StatusBadRequest
 	case "payment_required":
 		return http.StatusPaymentRequired
+	case "permission_denied":
+		return http.StatusForbidden
 	}
 	return http.StatusInternalServerError
 }

@@ -15,7 +15,7 @@ import (
 )
 
 // What add_contact refuses is the node's own sentence, marked so the owner MCP answers it as
-// bad_request with the sentence alone (refusal.Sentence); the error behind it — a dial, a peer —
+// bad_request with the sentence alone (refusal.Of); the error behind it — a dial, a peer —
 // stays off that wire and off the portal's page. Error() keeps its old text, cause included. These
 // errors were plain fmt.Errorf values, which the owner MCP could not tell from a store's.
 func TestAddContactRefusalsAreMarkedSentences(t *testing.T) {
@@ -43,7 +43,8 @@ func TestAddContactRefusalsAreMarkedSentences(t *testing.T) {
 		{"a link that answers 500", errStatus, "the invite link answered HTTP 500", "the invite link answered HTTP 500"},
 		{"a link and a card", errBoth, "an invite link or a card, not both", "an invite link or a card, not both"},
 	} {
-		got, ok := refusal.Sentence(c.err)
+		code, got := refusal.Of(c.err)
+		ok := code == "bad_request" || code == "unavailable"
 		if !ok || got != c.sentence {
 			t.Errorf("%s: sentence %q (marked %v), want %q; error %v", c.name, got, ok, c.sentence, c.err)
 		}
@@ -112,7 +113,8 @@ func TestAnInviteIsRefusedInTheNodesWords(t *testing.T) {
 			regexp.MustCompile(`^the invite's card: the card's certificate is not one this node accepts$`)},
 	} {
 		_, _, _, err := verifyOffer(c.off)
-		got, ok := refusal.Sentence(err)
+		code, got := refusal.Of(err)
+		ok := code == "bad_request"
 		if !ok || !c.want.MatchString(got) {
 			t.Errorf("%s: %v (sentence %q, marked %v), want %s", c.name, err, got, ok, c.want)
 		}

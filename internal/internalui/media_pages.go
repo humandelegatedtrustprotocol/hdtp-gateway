@@ -17,7 +17,6 @@ package internalui
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -106,15 +105,8 @@ func (d MediaDeps) postMediaFetch(w http.ResponseWriter, r *http.Request) {
 	// the file on the message.
 	hash, err := d.Fetch(r.Context(), account, message)
 	if err != nil {
-		status := http.StatusUnprocessableEntity
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			status = http.StatusNotFound
-		case errors.Is(err, messaging.ErrBadRequest):
-			status = http.StatusBadRequest
-		}
 		d.audit("media_fetch", "account:"+account+" message:"+message, "refused")
-		apiJSONStatus(w, status, map[string]string{"error": pageError(err)})
+		apiJSONStatus(w, pageStatus(err), map[string]string{"error": pageError(err)})
 		return
 	}
 	d.audit("media_fetch", "account:"+account+" message:"+message+" blob:"+hash, "ok")
