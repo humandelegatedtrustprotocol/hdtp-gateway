@@ -457,7 +457,7 @@ function selftest() {
   // The subset parser on the full parser's facts: compose.yaml as internal/integrationtest reads it.
   const compose = parseYAML(real.read(COMPOSE), COMPOSE)
   const facts = [
-    [Object.keys(compose.services).join(','), 'init-data,hdtp-gateway,limitd,portal,postgres,cloudflared'],
+    [Object.keys(compose.services).join(','), 'init-data,hdtp-gateway,limitd,portal,postgres,cloudflared,ngrok,bore'],
     [compose.services['hdtp-gateway'].ports[0], '127.0.0.1:8080:8081'],
     [compose.services.portal.network_mode, 'service:hdtp-gateway'],
     [compose.services.limitd.command.join(' '), '-config /etc/hdtp-limitd/limits.json'],
@@ -465,6 +465,8 @@ function selftest() {
     [compose.services.postgres.environment.POSTGRES_PASSWORD, '${POSTGRES_PASSWORD:-}'],
     [compose.services['init-data'].restart, 'no'],
     [String(PINNED.test(compose.services.portal.image)), 'true'],
+    [compose.services.ngrok.profiles[0] + ' ' + compose.services.bore.profiles[0], 'ngrok bore'],
+    [String(PINNED.test(compose.services.ngrok.image) && PINNED.test(compose.services.bore.image)), 'true'],
     [Object.keys(compose.volumes).join(','), 'hdtp-data,hdtp-pg'],
   ]
   for (const [got, want] of facts) {
