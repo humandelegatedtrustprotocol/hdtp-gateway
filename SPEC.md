@@ -1000,7 +1000,7 @@ Adapters shipped in v1, as verified against current vendor documentation and SDK
 | `frp` | direct | Embedded frp client (`client.NewService`) to an owner-run `frps` on any VPS; SNI-routed passthrough | Apache-2.0; `frps` does not perform TLS termination |
 | `ngrok` | direct | ngrok-go v2: `ngrok.Listen(ctx, ngrok.WithURL("tls://…"))` returns the unterminated stream | Paid — TLS endpoints are not available on ngrok's free plan |
 | `cloudflare` | edge | Provision tunnel, configuration, and DNS via cloudflare-go; run a spawned `cloudflared tunnel run --token` child or the `cloudflared` compose sidecar (§12) | Edge terminates TLS; works on the free plan |
-| `ngrok-https` | edge | ngrok free HTTPS endpoint | Edge terminates TLS; free |
+| `ngrok-https` | edge | ngrok free HTTPS endpoint | Broken: the listener carries decrypted HTTP and the node wraps it in TLS, so it serves nothing (#167) |
 
 Wrapping an adapter's raw stream, the node's own TLS server always requests client certificates when `client_cert` is not `off`; unknown certificates still land in the guest tier per HDTP §6.
 

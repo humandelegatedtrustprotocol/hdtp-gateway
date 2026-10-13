@@ -36,11 +36,10 @@ Direct mode keeps mTLS end to end: callers' client certificates reach the node. 
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
 and `client_cert=off`, and callers are identified by their sealed-envelope
 signatures. With no tunnel adapter (a sidecar such as the `ngrok` profile), edge
-mode is set in the environment — `HDTP_MODE=edge` with `HDTP_SEAL=required` and
+mode is set in the environment (or the config file) — `HDTP_MODE=edge` with `HDTP_SEAL=required` and
 `HDTP_CLIENT_CERT=off`; the node refuses to start in edge mode with either set otherwise. The
-portal has no setting for it; the one portal route is the `cloudflare` adapter with
-`sidecar=true` and a placeholder token, under which `doctor` names `cloudflare` whatever the edge
-is ([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)). `hdtp-gateway doctor` reports the derived mode and probes your
+portal has no setting for it ([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)).
+Do not select the `cloudflare` adapter for an edge that is not Cloudflare. `hdtp-gateway doctor` reports the derived mode and probes your
 advertised endpoint; a `wrong_cert` verdict means something between the caller and
 the node is terminating TLS that should not be.
 

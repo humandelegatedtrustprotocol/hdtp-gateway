@@ -136,9 +136,10 @@ agents will dial, and **Save settings**. The page answers `Saved public_url.`
 ![Settings: Reachability with the Public URL field holding https://alex.example.com and an empty Tunnel adapter select; Security posture with sealed envelopes required and client certificates preferred; below, the own-domain ingress pairing form and the contact presets](images/settings.png)
 
 Until it is set, step 6's `account csr` refuses: `no public URL is configured; pass -endpoint`.
-The address is the only thing this guide cannot give you; it is yours to make. The compose file
-offers four ways, and [`docs/operations.md` § Reachability](operations.md#reachability) lists the rest (Tailscale, frp, ngrok's paid
-`tls://` endpoint, the own-domain ingress role). The Envoy deployment needs a domain and a
+The address is the only thing this guide cannot give you; it is yours to make. `compose.yaml`
+offers three tunnel profiles (`cloudflared`, `ngrok`, `bore`), a separate file, `deploy/envoy/compose.yaml`,
+puts Envoy in front for a domain of your own, and [`docs/operations.md` § Reachability](operations.md#reachability) lists the rest
+(Tailscale, frp, ngrok's paid `tls://` endpoint, the own-domain ingress role). The Envoy deployment needs a domain and a
 certificate that are yours and was not run for this guide; what is written about it is read from
 `deploy/envoy/`. The `cloudflared`, `ngrok` and `bore` profiles were run on 2026-10-13 against
 v0.1.5: for each, a node behind it and a second node that reached it only through its public
@@ -161,8 +162,9 @@ from the environment: `TUNNEL_TOKEN=… docker compose --profile cloudflared up 
 reads its routes from Cloudflare, not from a file: in the tunnel's configuration, route the public
 hostname to `https://hdtp-gateway:8443` with **No TLS Verify** on, because the node serves TLS on
 `8443` under its own certificate chain, which is not a WebPKI one. On the node's side the
-`cloudflare` adapter needs the token **as the setting `tunnel.cloudflare.token`**: `TUNNEL_TOKEN`
-reaches only the `cloudflared` service, and a node that selects the adapter without the setting
+`cloudflare` adapter needs the token **as the setting `tunnel.cloudflare.token`** (or `TUNNEL_TOKEN` in
+the node's own environment, which `compose.yaml` does not pass): the `TUNNEL_TOKEN` above reaches only
+the `cloudflared` service, and a node that selects the adapter without the setting
 stops at its next start with `serve: tunnel: cloudflare needs a tunnel token`, restarting in a loop
 ([#168](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/168)). It also needs the
 public hostname the tunnel routes to this node (`tunnel.cloudflare.hostname`), and
@@ -203,6 +205,8 @@ services:
 ```
 
 Then `NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`.
+Compose reads `compose.override.yaml` whether or not the profile is named, so remove the file when
+you stop using the `ngrok` profile.
 `doctor` says `ok   tunnel       direct (mode edge, seal required, client_cert off)` and probes your
 domain. The node's built-in `ngrok-https` adapter is not this: it serves nothing
 ([#167](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/167)). Headless Chrome opening

@@ -417,7 +417,7 @@ function readConst(source, re, what) {
   return m[1]
 }
 
-// A tag kept beside a digest: the way compose.yaml pins portal and cloudflared.
+// A tag kept beside a digest: the way compose.yaml pins portal, cloudflared, ngrok and bore.
 const PINNED = /^[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/
 
 function render(text, values) {
@@ -466,12 +466,17 @@ function selftest() {
     [compose.services['init-data'].restart, 'no'],
     [String(PINNED.test(compose.services.portal.image)), 'true'],
     [compose.services.ngrok.profiles[0] + ' ' + compose.services.bore.profiles[0], 'ngrok bore'],
-    [String(PINNED.test(compose.services.ngrok.image) && PINNED.test(compose.services.bore.image)), 'true'],
     [Object.keys(compose.volumes).join(','), 'hdtp-data,hdtp-pg'],
   ]
   for (const [got, want] of facts) {
     if (got !== want) {
       console.error(`selftest: the YAML subset parser read compose.yaml wrong: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`)
+      process.exit(1)
+    }
+  }
+  for (const s of ['portal', 'cloudflared', 'ngrok', 'bore']) {
+    if (!PINNED.test(compose.services[s].image)) {
+      console.error(`selftest: compose.yaml's ${s} image is not pinned by digest with its tag kept: ${compose.services[s].image}`)
       process.exit(1)
     }
   }
