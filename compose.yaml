@@ -5,7 +5,8 @@
 # over TLS when internal TLS is configured.
 # The node's limits sidecar runs beside it (`limitd`, SPEC §5.7): until it answers, the node refuses
 # every sealed call. `make limitd-vendor` first: the build reads the sidecar's crates from it.
-# Optional profiles: `postgres` (external store), `cloudflared` (edge adapter).
+# Optional profiles: `postgres` (external store), `cloudflared` (edge adapter), `ngrok` and `bore`
+# (tunnel sidecars; docs/quickstart.md § 4 says what the node needs beside each).
 services:
   # Named volumes are created root-owned and ownership propagation from the image
   # is not reliable across Docker variants; this one-shot init hands /data to the
@@ -107,6 +108,33 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}  # REQUIRED when running the cloudflared profile
+
+  # ngrok's agent, forwarding NGROK_URL (an ngrok domain, https://…) to the node's public listener on
+  # this network. ngrok terminates TLS: the node runs in edge mode, set in its environment
+  # (docs/quickstart.md § 4). The agent verifies the node's certificate only with
+  # --upstream-tls-verify, so the node's own chain needs no flag. Pinned by digest, the tag kept for
+  # the reader: `ngrok/ngrok:latest` as resolved on 2026-10-13 (the multi-platform manifest list).
+  ngrok:
+    profiles: ["ngrok"]
+    image: ngrok/ngrok:latest@sha256:14d80d083e5b53145f416bbbd36238336c9de4016c43fd950eb2eb845670583b
+    restart: unless-stopped
+    depends_on:
+      - hdtp-gateway
+    command: ["http", "https://hdtp-gateway:8443", "--url", "${NGROK_URL:-}", "--log", "stdout"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}  # REQUIRED when running the ngrok profile, with NGROK_URL
+
+  # bore, forwarding port BORE_PORT of bore.pub to the node's public listener as raw TCP: the node
+  # stays in direct mode and its public URL is https://bore.pub:BORE_PORT (docs/quickstart.md § 4).
+  # Pinned by digest, the tag kept for the reader: `ekzhang/bore:latest` as resolved on 2026-10-13
+  # (bore 0.6.0, the multi-platform index).
+  bore:
+    profiles: ["bore"]
+    image: ekzhang/bore:latest@sha256:add9294ed874251ca1737f1d4e10a8681c3b885048888b3022cb327e4133c988
+    restart: unless-stopped
+    depends_on:
+      - hdtp-gateway
+    command: ["local", "8443", "--local-host", "hdtp-gateway", "--to", "bore.pub", "--port", "${BORE_PORT:-}"]  # BORE_PORT REQUIRED
 
 volumes:
   hdtp-data:
