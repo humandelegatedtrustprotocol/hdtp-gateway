@@ -217,7 +217,9 @@ in front of it, and machine callers were never shown one.
 service under the profile `bore`, forwarding a port on the public `bore.pub` server to the node's
 `8443`. It needs no account. bore does not touch TLS, so the node stays in **direct mode** and
 callers see its own certificate chain; the chain names the exact address, port included, so choose
-the remote port yourself (`BORE_PORT`) and make it the public URL:
+the remote port yourself (`BORE_PORT`) and make it the public URL, in a `compose.override.yaml`
+beside `compose.yaml` (replacing the ngrok one if you used that profile: its edge-mode settings are
+wrong for direct mode):
 
 ```yaml
 services:
@@ -226,7 +228,8 @@ services:
       HDTP_PUBLIC_URL: https://bore.pub:${BORE_PORT}
 ```
 
-Then `BORE_PORT=<a port> docker compose --profile bore up -d`. `doctor` says
+Then `BORE_PORT=<a port> docker compose --profile bore up -d`. As with ngrok, remove the file when
+you stop using the `bore` profile. `doctor` says
 `ok   tunnel       direct (mode direct, seal required, client_cert preferred)` and the probe
 validates the chain at `https://bore.pub:<port>`. On the measuring machine the host's resolver
 answered no address for `bore.pub`, so that run gave the node and the `bore` service
