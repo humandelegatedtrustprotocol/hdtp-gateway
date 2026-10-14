@@ -208,8 +208,9 @@ a trusted edge, a key supplied from the platform's secrets), not a template that
 Cloudflare is not a host for a Go server; the Tunnel is the Cloudflare path on any machine, the VM
 paths above included. `compose.yaml` carries the `cloudflared` profile, and the quickstart's
 [step 4](quickstart.md#4-set-the-address-people-will-reach-you-at) says what the node needs beside
-it (the `cloudflare` adapter, its hostname, the sidecar setting, the LAN flag) and what edge mode
-forces. Two nodes over two real tunnels were last run on 2026-09-18:
+it (the `cloudflare` adapter, its hostname, the sidecar setting, the token saved as the setting
+`tunnel.cloudflare.token`, the LAN flag, and the tunnel's route to `https://hdtp-gateway:8443` with
+No TLS Verify) and what edge mode forces. Two nodes over two real tunnels were last run on 2026-09-18:
 [docs/demos/cloudflare-two-users.md](demos/cloudflare-two-users.md).
 
 ## After the first boot

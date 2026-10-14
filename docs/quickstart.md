@@ -136,11 +136,15 @@ agents will dial, and **Save settings**. The page answers `Saved public_url.`
 ![Settings: Reachability with the Public URL field holding https://alex.example.com and an empty Tunnel adapter select; Security posture with sealed envelopes required and client certificates preferred; below, the own-domain ingress pairing form and the contact presets](images/settings.png)
 
 Until it is set, step 6's `account csr` refuses: `no public URL is configured; pass -endpoint`.
-The address is the only thing this guide cannot give you; it is yours to make. The compose file
-offers two ways, and [`docs/operations.md` § Reachability](operations.md#reachability) lists the rest (Tailscale, frp, ngrok,
-the own-domain ingress role). Neither of the two below was run for this guide: each needs a
-domain or an account that is yours. What is written here is read from `compose.yaml`,
-`deploy/envoy/` and `internal/tunnel/edge.go`.
+The address is the only thing this guide cannot give you; it is yours to make. `compose.yaml`
+offers three tunnel profiles (`cloudflared`, `ngrok`, `bore`), a separate file, `deploy/envoy/compose.yaml`,
+puts Envoy in front for a domain of your own, and [`docs/operations.md` § Reachability](operations.md#reachability) lists the rest
+(Tailscale, frp, ngrok's paid `tls://` endpoint, the own-domain ingress role). The Envoy deployment needs a domain and a
+certificate that are yours and was not run for this guide; what is written about it is read from
+`deploy/envoy/`. The `cloudflared`, `ngrok` and `bore` profiles were run on 2026-10-13 against
+v0.1.5: for each, a node behind it and a second node that reached it only through its public
+address, with the identity certified, the card fetched at the public URL, an invite redeemed,
+messages and 3–4 MiB files in both directions, and `doctor` reporting the probe `reachable`.
 
 **A domain you own, with TLS in front — `deploy/envoy` (not measured here).**
 `docker compose -f deploy/envoy/compose.yaml up -d` runs the node, the sidecar and Envoy, and only
@@ -152,20 +156,84 @@ address to the node in two headers the node trusts from Envoy's address alone, a
 request to the node over TLS. A public URL set in the environment is **pinned**: the Settings field
 shows it locked, so set it there and not on the page.
 
-**A Cloudflare Tunnel — the `cloudflared` profile (not measured here).** `compose.yaml` carries a
-`cloudflared` service under the profile `cloudflared`, running `tunnel --no-autoupdate run` with
-`TUNNEL_TOKEN` from the environment: `TUNNEL_TOKEN=… docker compose --profile cloudflared up -d`.
-On the node's side the `cloudflare` adapter needs the token (`TUNNEL_TOKEN` in the environment, or
-the setting `tunnel.cloudflare.token`), the public hostname the tunnel routes to this node
-(`tunnel.cloudflare.hostname`), and `tunnel.cloudflare.sidecar` set to `true`, which tells the
-node the connector is the sidecar's job (the image carries no `cloudflared`; without that setting
-the node looks for one, says it found none and that you run the connector yourself, and serves
-anyway); the adapter is chosen under **Settings → Tunnel adapter** and takes effect at the next
-start. Cloudflare terminates TLS, so the node runs in **edge mode**: sealed
-envelopes forced to `required`, client certificates forced `off`, and your public URL is
-`https://<that hostname>`. Because the connector reaches the node from a private address on the
-compose network, the **Accept LAN connections** flag must be on in that deployment
-([SPEC.md](../SPEC.md) § 5.1, "LAN connections flag").
+**A Cloudflare Tunnel — the `cloudflared` profile.** `compose.yaml` carries a `cloudflared`
+service under the profile `cloudflared`, running `tunnel --no-autoupdate run` with `TUNNEL_TOKEN`
+from the environment: `TUNNEL_TOKEN=… docker compose --profile cloudflared up -d`. The connector
+reads its routes from Cloudflare, not from a file: in the tunnel's configuration, route the public
+hostname to `https://hdtp-gateway:8443` with **No TLS Verify** on, because the node serves TLS on
+`8443` under its own certificate chain, which is not a WebPKI one. On the node's side the
+`cloudflare` adapter needs the token **as the setting `tunnel.cloudflare.token`** (or `TUNNEL_TOKEN` in
+the node's own environment, which `compose.yaml` does not pass): the `TUNNEL_TOKEN` above reaches only
+the `cloudflared` service, and a node that selects the adapter without the setting
+stops at its next start with `serve: tunnel: cloudflare needs a tunnel token`, restarting in a loop
+([#168](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/168)). It also needs the
+public hostname the tunnel routes to this node (`tunnel.cloudflare.hostname`), and
+`tunnel.cloudflare.sidecar` set to `true`, which tells the node the connector is the sidecar's job
+(the image carries no `cloudflared`; without that setting the node looks for one, says it found
+none and that you run the connector yourself, and serves anyway). The adapter is chosen under
+**Settings → Tunnel adapter** and takes effect at the next start: `docker compose restart
+hdtp-gateway`, then `docker compose restart portal`, because the portal forwarder shares the node's
+network and answers nothing until it is restarted too; the restart also ends your portal session,
+so you sign in with your passkey again
+([#169](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/169)). Cloudflare
+terminates TLS, so the node runs in **edge mode**: sealed envelopes forced to `required`, client
+certificates forced `off`, and your public URL is `https://<that hostname>`; `doctor` then says
+`ok   tunnel       cloudflare (mode edge, seal required, client_cert off)`. Because the connector
+reaches the node from a private address on the compose network, the **Accept LAN connections**
+flag must be on in that deployment ([SPEC.md](../SPEC.md) § 5.1, "LAN connections flag").
+
+**An ngrok endpoint — the `ngrok` profile.** `compose.yaml` carries an `ngrok` service under the
+profile `ngrok`: ngrok's own agent image, forwarding your ngrok domain to
+`https://hdtp-gateway:8443` on the compose network. It needs an ngrok account (the free plan's one
+static `*.ngrok-free.dev` domain was enough) and two values in the environment, `NGROK_AUTHTOKEN`
+and `NGROK_URL` (`https://<your domain>`). The agent does not verify the node's certificate unless
+it is given `--upstream-tls-verify`, so it needs no flag for the node's own chain. ngrok terminates
+TLS, so the node must run in edge mode; with no tunnel adapter that is set in the node's
+environment, and the portal has no setting for it
+([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)). Put it in a
+`compose.override.yaml` beside `compose.yaml`, which Compose reads with it:
+
+```yaml
+services:
+  hdtp-gateway:
+    environment:
+      HDTP_PUBLIC_URL: ${NGROK_URL}
+      HDTP_MODE: edge
+      HDTP_SEAL: required
+      HDTP_CLIENT_CERT: "off"
+      HDTP_LAN_CONNECTIONS: "true"
+```
+
+Then `NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`.
+Compose reads `compose.override.yaml` whether or not the profile is named, so remove the file when
+you stop using the `ngrok` profile.
+`doctor` says `ok   tunnel       direct (mode edge, seal required, client_cert off)` and probes your
+domain. The node's built-in `ngrok-https` adapter is not this: it serves nothing
+([#167](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/167)). Headless Chrome opening
+your invite link through the free domain showed the node's landing page, with no ngrok warning page
+in front of it, and machine callers were never shown one.
+
+**A raw TCP forward through bore.pub — the `bore` profile.** `compose.yaml` carries a `bore`
+service under the profile `bore`, forwarding a port on the public `bore.pub` server to the node's
+`8443`. It needs no account. bore does not touch TLS, so the node stays in **direct mode** and
+callers see its own certificate chain; the chain names the exact address, port included, so choose
+the remote port yourself (`BORE_PORT`) and make it the public URL, in a `compose.override.yaml`
+beside `compose.yaml` (replacing the ngrok one if you used that profile: its edge-mode settings are
+wrong for direct mode):
+
+```yaml
+services:
+  hdtp-gateway:
+    environment:
+      HDTP_PUBLIC_URL: https://bore.pub:${BORE_PORT}
+```
+
+Then `BORE_PORT=<a port> docker compose --profile bore up -d`. As with ngrok, remove the file when
+you stop using the `bore` profile. `doctor` says
+`ok   tunnel       direct (mode direct, seal required, client_cert preferred)` and the probe
+validates the chain at `https://bore.pub:<port>`. On the measuring machine the host's resolver
+answered no address for `bore.pub`, so that run gave the node and the `bore` service
+`dns: ["1.1.1.1"]`; a browser on that machine could not open the address either.
 
 The pictures and the measured commands use `https://alex.example.com`. Nothing dials it: the
 second party in the pictures reached the node by its published port and validated the certificate

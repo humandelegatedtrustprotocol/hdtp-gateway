@@ -27,13 +27,19 @@ declared (SPEC §10.1).
 | an `frps` you run on any VPS | `tunnel: frp` — raw SNI/tcp passthrough | direct |
 | a paid ngrok plan | `tunnel: ngrok` — `tls://` endpoint | direct |
 | a Cloudflare account | `cloudflare` edge adapter (P4-05) — Cloudflare terminates TLS | edge |
+| a free ngrok account | the `ngrok` compose profile — ngrok's agent as a sidecar, the node in edge mode through its environment ([quickstart § 4](quickstart.md#4-set-the-address-people-will-reach-you-at)); not the built-in `ngrok-https` adapter, which serves nothing ([#167](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/167)) | edge |
+| no account at all | the `bore` compose profile — a raw TCP port on bore.pub, the node's own chain end to end ([quickstart § 4](quickstart.md#4-set-the-address-people-will-reach-you-at)) | direct |
 | a domain of your own | run a second hdtp-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
 | nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
 
 Direct mode keeps mTLS end to end: callers' client certificates reach the node. Edge
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
 and `client_cert=off`, and callers are identified by their sealed-envelope
-signatures. `hdtp-gateway doctor` reports the derived mode and probes your
+signatures. With no tunnel adapter (a sidecar such as the `ngrok` profile), edge
+mode is set in the environment (or the config file) — `HDTP_MODE=edge` with `HDTP_SEAL=required` and
+`HDTP_CLIENT_CERT=off`; the node refuses to start in edge mode with either set otherwise. The
+portal has no setting for it ([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)).
+Do not select the `cloudflare` adapter for an edge that is not Cloudflare. `hdtp-gateway doctor` reports the derived mode and probes your
 advertised endpoint; a `wrong_cert` verdict means something between the caller and
 the node is terminating TLS that should not be.
 
