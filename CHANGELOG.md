@@ -10,7 +10,23 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
+  the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),
+  on both of its paths, and audits it `rate_limited`. It was told as a peer that could not be
+  reached (`unavailable`) and audited `unreachable`, where SPEC.md says a call the outbound budget
+  refuses returns `rate_limited` to the owner. A peer's own `rate_limited` refusal is `rate_limited` too ("…; try again later"),
+  where it was `bad_request`.
+- `add_contact` with an invite link that does not answer writes a `contact_initiate` row naming
+  what failed (`why:`, as an undelivered message's row does), where it wrote none; the refusal is
+  unchanged. Neither that row, the error behind the refusal, nor the row of an offer that does
+  not verify carries the link: the link is a bearer token, and the audit names its origin
+  (`link:`). The error carried the whole link, and the offer's row did.
+- `add_contact` with the invite link of somebody this identity already holds `active` answers
+  `active` from the row and calls nobody, as the cloud answers it. It called the inviter, whose
+  node refuses an active contact's `redeem_invite` (`permission_denied`, the contact tier), and the
+  owner was told `bad_request`.
 
 ## [0.1.5] — 2026-10-12
 

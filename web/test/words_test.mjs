@@ -25,7 +25,7 @@ const repo = fileURLToPath(new URL("../..", import.meta.url));
  * (waiting on somebody), bad (refused or failed: counted as a refusal), neutral (a routing decision).
  */
 export const OUTCOMES = {
-  ok: "ok", paired: "ok", started: "ok", stopped: "ok", stored: "ok",
+  ok: "ok", active: "ok", paired: "ok", started: "ok", stopped: "ok", stored: "ok",
   pending: "warn", pending_approval: "warn", pending_new_address: "warn", pending_out: "warn", late: "warn", skipped: "warn",
   bad_form: "bad", bad_hello: "bad", bad_request: "bad", blobs_skipped_unreadable_media: "bad", blocked_silent: "bad", contact_cap: "bad",
   denied: "bad", envelope_invalid: "bad", error: "bad", failed: "bad", identity_required: "bad", invite_invalid: "bad",

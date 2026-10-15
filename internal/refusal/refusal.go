@@ -29,6 +29,12 @@ func Unavailable(sentence string, cause error) error {
 	return coded{code: "unavailable", sentence: sentence, cause: cause}
 }
 
+// RateLimited marks a sentence the node wrote about a call that a budget refused for now (its own,
+// or the peer's) as a rate_limited refusal, read as BadRequest's is.
+func RateLimited(sentence string, cause error) error {
+	return coded{code: "rate_limited", sentence: sentence, cause: cause}
+}
+
 type coded struct {
 	code, sentence string
 	cause          error

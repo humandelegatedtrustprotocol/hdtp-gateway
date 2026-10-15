@@ -481,6 +481,7 @@ func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
 		{fmt.Errorf("reading contact: %w", store.ErrNotFound), "not_found", refusal.NotFoundDetail},
 		{refusal.BadRequest("the invite link answered HTTP 404", nil), "bad_request", "the invite link answered HTTP 404"},
 		{refusal.BadRequest("could not reach the invite link", errors.New(storeCanary)), "bad_request", "could not reach the invite link"},
+		{refusal.RateLimited("try again in 7 s", errors.New(storeCanary)), "rate_limited", "try again in 7 s"},
 	} {
 		got := text(c.err)
 		if got["code"] != c.code || got["detail"] != c.want || strings.Contains(got["detail"], storeCanary) || strings.Contains(got["detail"], "sql:") {

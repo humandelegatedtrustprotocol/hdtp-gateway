@@ -149,7 +149,7 @@ func TestContactSuppliedEndpointsAreRefusedWhenUnsafe(t *testing.T) {
 // treatment: an upstream that refuses with a credential in the message would
 // otherwise write it into the trail on every retry.
 func TestDeliveryFailureReasonsAreRedacted(t *testing.T) {
-	got := whyFailed(errors.New(`dial https://alice:s3cr3tpw@relay.example/mcp: 401 authorization: Bearer ghp_16C7e42F292c6912E7710c838347Ae178B4a`))
+	got := WhyFailed(errors.New(`dial https://alice:s3cr3tpw@relay.example/mcp: 401 authorization: Bearer ghp_16C7e42F292c6912E7710c838347Ae178B4a`))
 	for _, secret := range []string{"s3cr3tpw", "ghp_16C7e42F"} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("a credential reached the audit text: %q", got)
