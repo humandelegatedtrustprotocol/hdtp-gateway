@@ -254,3 +254,27 @@ func TestAPastedLinkIsFetchedTrimmed(t *testing.T) {
 		}
 	}
 }
+
+// This node's limits sidecar not answering is told as that, on both of add_contact's paths, and
+// audited limits_unavailable: nothing left the host, and the peer was never tried. It was told as a
+// peer that could not be reached and audited unreachable.
+func TestASidecarThatIsDownIsToldAsThat(t *testing.T) {
+	r := newAddContactRig(t,
+		func(string) (*outbound.Client, error) {
+			return &outbound.Client{Budget: func(outbound.Peer, string) error { return outbound.ErrLimitsUnavailable }}, nil
+		},
+		func(context.Context, string, outbound.Peer, string, string) error {
+			return fmt.Errorf("request_contact: %w", outbound.ErrLimitsUnavailable)
+		})
+
+	_, redeemErr := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+	_, requestErr := r.ci.RequestContact(r.ctx, r.account, testid.CardFor(t, "Dev", "https://dev.example/mcp"), "")
+	for _, err := range []error{redeemErr, requestErr} {
+		if code, detail := refusal.Of(err); code != "unavailable" || detail != outbound.LimitsUnavailableSentence {
+			t.Errorf("with the sidecar down: %s %q (%v)", code, detail, err)
+		}
+	}
+	if rows := r.initiated(); len(rows) != 2 || rows[0].outcome != "limits_unavailable" || rows[1].outcome != "limits_unavailable" {
+		t.Errorf("contact_initiate rows %+v, want two, limits_unavailable", rows)
+	}
+}

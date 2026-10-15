@@ -8,7 +8,6 @@ package node
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -152,7 +151,7 @@ func (n *Node) spendOutbound(accountID string, peer outbound.Peer, tool string) 
 	case r == nil:
 		return nil
 	case r.Unavailable:
-		return errors.New("unavailable: this node's limits sidecar is not answering, so nothing is sent")
+		return outbound.ErrLimitsUnavailable
 	default:
 		return &outbound.RateLimited{RetryAfter: r.RetryAfter}
 	}

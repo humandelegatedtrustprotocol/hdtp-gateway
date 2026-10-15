@@ -28,6 +28,19 @@ changelog can be and is not summarized into a fictional release history.
   `accepted`). It called the inviter, whose
   node refuses an active contact's `redeem_invite` (`permission_denied`, the contact tier), and the
   owner was told `bad_request`.
+- `add_contact` with an invite link pasted with a space before it or a newline after it fetches
+  the link it split, trimmed. The split trimmed it and the fetch was given it raw, so the request
+  could not be built and the owner was told `internal` (#181).
+- A call out that never left because this node's own budget refused it, or because the limits
+  sidecar did not answer, is told and audited as that, wherever the node tells it (#179). A send
+  is "recorded, not delivered: rate_limited" or "…: limits_unavailable", where it was
+  "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
+  sidecar is not answering, so nothing is sent", audited `limits_unavailable`, where it said the
+  peer could not be reached and audited `unreachable`. The notice to an asker (`contact_accepted`,
+  `contact_rejected`) is audited `rate_limited` or `limits_unavailable`, where it was audited
+  `unreachable`; what the owner is told was already the budget's or the sidecar's words. A peer's
+  `rate_limited` refusal of a send keeps its `retry_after`, in whole seconds, in the undelivered
+  row's `why:`; the retry sweep's timing does not read it.
 
 ## [0.1.5] — 2026-10-12
 

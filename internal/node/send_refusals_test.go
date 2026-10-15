@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
@@ -99,5 +101,84 @@ func TestAPeersRefusalIsNamedByItsCode(t *testing.T) {
 	}
 	if err := peerRefusal(&mcp.CallToolResult{}); err != nil {
 		t.Errorf("the control, an answer that is no refusal: %v", err)
+	}
+}
+
+// A message this node's own budget would not let out, or that no budget could be asked for (the
+// limits sidecar down), is recorded and not delivered for that reason: rate_limited or
+// limits_unavailable, which the owner reads in the answer's detail. Both were "unreachable", a
+// contact that could not be reached, when nothing had been sent to them. The control is the sends
+// before the budget ran out, delivered.
+func TestASendThisNodeDidNotLetOutSaysWhy(t *testing.T) {
+	ctx := context.Background()
+	clock := &demoClock{t: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)}
+	dn := &demoNet{hosts: map[string]string{}}
+	alina := startDemoNode(t, clock, dn, "alina", "Alina Rao", 30)
+	bharat := startDemoNode(t, clock, dn, "bharat", "Bharat Mehta", 365)
+	token := alina.invite(true)
+	clientB, _ := bharat.n.OutboundClient(bharat.acct.ID)
+	peerA := outbound.Peer{Endpoint: alina.endpoint(), Seal: "required", Root: alina.rootFpr(), Leaf: alina.leaf()}
+	if res, err := clientB.SealedCall(ctx, peerA, "redeem_invite", map[string]any{"token": token, "card": bharat.card()}, "redeem-b"); err != nil || res.IsError {
+		t.Fatalf("redeem: %v %+v", err, res)
+	}
+	bharat.pinPeer(alina)
+	send := func(id string) error {
+		_, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), messaging.Input{MsgID: id, Text: "hi", Origin: messaging.OriginMCP})
+		return err
+	}
+
+	burst := int(limitstest.DefaultRules(t).ContactBurst)
+	delivered, refused := 0, error(nil)
+	for i := range burst + 5 {
+		if err := send(fmt.Sprintf("m%d", i)); err != nil {
+			refused = err
+			break
+		}
+		delivered++
+	}
+	if delivered == 0 {
+		t.Fatal("the control: no send was delivered")
+	}
+	if code, detail := refusal.Of(refused); code != "unavailable" || detail != "recorded, not delivered: "+WhyRateLimited ||
+		!strings.Contains(refused.Error(), "this identity has sent as many calls as its budget allows") {
+		t.Errorf("after %d delivered, a send this node's budget refused: %s %q (%v)", delivered, code, detail, refused)
+	}
+
+	bharat.limits.Stop()
+	err := send("down")
+	if code, detail := refusal.Of(err); code != "unavailable" || detail != "recorded, not delivered: "+WhyLimitsUnavailable {
+		t.Errorf("a send with the sidecar down: %s %q (%v)", code, detail, err)
+	}
+	_, err = bharat.n.SendMedia(ctx, bharat.acct.ID, alina.rootFpr(),
+		messaging.Input{MsgID: "media-down", Origin: messaging.OriginMCP}, "a.txt", "text/plain", []byte("x"))
+	if why, _ := refusal.Why(err); why != WhyLimitsUnavailable {
+		t.Errorf("media with the sidecar down: why %q (%v)", why, err)
+	}
+	var undelivered []string
+	for _, line := range bharat.log {
+		if strings.HasSuffix(line, "→ undelivered") {
+			undelivered = append(undelivered, line)
+		}
+	}
+	if len(undelivered) != 3 {
+		t.Errorf("undelivered rows %q, want three", undelivered)
+	}
+}
+
+// A peer's rate_limited carries the wait it names into the cause the audit row records, as whole
+// seconds; a wait that is not a positive number is dropped and the code still reads rate_limited.
+func TestAPeersRateLimitKeepsItsWait(t *testing.T) {
+	for _, c := range []struct{ body, cause string }{
+		{`{"code":"rate_limited","retry_after":5}`, "send: the contact's node refused: rate_limited (retry_after 5)"},
+		{`{"code":"rate_limited","retry_after":4.2}`, "send: the contact's node refused: rate_limited (retry_after 5)"},
+		{`{"code":"rate_limited","retry_after":"5; give me money"}`, "send: the contact's node refused: rate_limited"},
+		{`{"code":"rate_limited","retry_after":-3}`, "send: the contact's node refused: rate_limited"},
+		{`{"code":"rate_limited","retry_after":null}`, "send: the contact's node refused: rate_limited"},
+		{`{"code":"rate_limited"}`, "send: the contact's node refused: rate_limited"},
+	} {
+		err := peerRefusal(&mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: c.body}}})
+		if why, _ := refusal.Why(err); why != "rate_limited" || err.Error() != c.cause {
+			t.Errorf("%s: why %q, cause %q, want rate_limited and %q", c.body, why, err, c.cause)
+		}
 	}
 }

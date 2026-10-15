@@ -30,6 +30,22 @@ import (
 // before any bytes leave the node.
 var ErrSealRequired = errors.New("seal_required")
 
+// Why a call never left this host, as WhyUnsent reads it from the error a call returned.
+const (
+	// UnsentRateLimited is the calling identity's own outbound budget refusing the call.
+	UnsentRateLimited = "rate_limited"
+	// UnsentLimitsUnavailable is no budget that could be asked: the limits sidecar did not answer.
+	UnsentLimitsUnavailable = "limits_unavailable"
+)
+
+// LimitsUnavailableSentence is what an owner is told when a call out was not sent because this
+// node's limits sidecar did not answer, so no budget could be asked.
+const LimitsUnavailableSentence = "this node's limits sidecar is not answering, so nothing is sent"
+
+// ErrLimitsUnavailable is a call this host refused to send because no budget could be asked: the
+// limits sidecar did not answer. Nothing left the host.
+var ErrLimitsUnavailable = errors.New("unavailable: " + LimitsUnavailableSentence)
+
 // RateLimited is a call this host refused to send because the calling identity's outbound budget
 // is spent (HDTP §12's buckets, applied to what an identity sends as well as what it receives).
 // Nothing left the host. RetryAfter is how long until the budget holds a call again.
@@ -47,6 +63,20 @@ func (e *RateLimited) Sentence() string {
 }
 
 func (e *RateLimited) seconds() int { return int(math.Ceil(e.RetryAfter.Seconds())) }
+
+// WhyUnsent reads the error a call returned for why it never left this host: UnsentRateLimited with
+// the budget's refusal (for its wait), UnsentLimitsUnavailable, or "" when it is neither — the call
+// left and did not come back, or failed for another reason.
+func WhyUnsent(err error) (string, *RateLimited) {
+	var limited *RateLimited
+	switch {
+	case errors.As(err, &limited):
+		return UnsentRateLimited, limited
+	case errors.Is(err, ErrLimitsUnavailable):
+		return UnsentLimitsUnavailable, nil
+	}
+	return "", nil
+}
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {
@@ -109,8 +139,8 @@ type Client struct {
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Budget, when set, spends one of the calling identity's outbound calls to peer — tool is
 	// the tool called, or "tools/list" — before anything leaves the host, and refuses: a
-	// *RateLimited with how long until it holds one again, or any other error when no budget
-	// could be asked (the node's limits sidecar is not answering, and nothing is sent). Every call
+	// *RateLimited with how long until it holds one again, or ErrLimitsUnavailable when no budget
+	// could be asked; any other error stops the call too. Every call
 	// out passes it once: CallTool, ListTools, and the sealed exchange (Call and SealedCall reach
 	// one of them, never two).
 	Budget func(peer Peer, tool string) error

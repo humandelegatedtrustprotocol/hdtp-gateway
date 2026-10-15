@@ -398,12 +398,17 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 }
 
 // unreached is a call to a peer that got no answer. This identity's own budget refusing it before
-// anything left is rate_limited, with the wait; anything else is unavailable, in sentence.
+// anything left is rate_limited, with the wait; the limits sidecar not answering is unavailable,
+// saying so; anything else is unavailable, in sentence.
 func (ci *contactInitiator) unreached(accountID, peerFpr, sentence string, err error) error {
-	var limited *outbound.RateLimited
-	if errors.As(err, &limited) {
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "rate_limited")
+	why, limited := outbound.WhyUnsent(err)
+	switch why {
+	case outbound.UnsentRateLimited:
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, why)
 		return refusal.RateLimited(limited.Sentence(), nil)
+	case outbound.UnsentLimitsUnavailable:
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, why)
+		return refusal.Unavailable(outbound.LimitsUnavailableSentence, nil)
 	}
 	ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "unreachable")
 	return refusal.Unavailable(sentence, err)
@@ -572,7 +577,11 @@ func (ci *contactInitiator) notifyAsker(ctx context.Context, accountID, peerFpr,
 		return err
 	}
 	if _, err := client.Call(ctx, peer, tool, args, newCallID()); err != nil {
-		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "unreachable")
+		outcome, _ := outbound.WhyUnsent(err)
+		if outcome == "" {
+			outcome = "unreachable"
+		}
+		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, outcome)
 		return err
 	}
 	ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "ok")

@@ -7,6 +7,7 @@ package outbound
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -65,5 +66,28 @@ func TestEveryCallOutPassesTheBudgetOnceAndARefusalDialsNothing(t *testing.T) {
 	_, _ = c.Call(ctx, sealed, "send_message", map[string]any{}, "m5")
 	if len(spent) != 1 || spent[0] != "send_message" || dialled == 0 {
 		t.Fatalf("a sealed call let through spent %v (dialled %d), want once as send_message", spent, dialled)
+	}
+}
+
+// WhyUnsent reads the error a call returned, wrapped or not: the identity's own budget refusing it
+// (with the refusal, for its wait), the sidecar not answering, or neither — a call that left, or
+// failed for another reason, is "".
+func TestWhyUnsentReadsWhyACallNeverLeft(t *testing.T) {
+	limited := &RateLimited{RetryAfter: 3 * time.Second}
+	for _, c := range []struct {
+		err     error
+		why     string
+		limited *RateLimited
+	}{
+		{fmt.Errorf("request_contact: %w", limited), UnsentRateLimited, limited},
+		{fmt.Errorf("request_contact: %w", ErrLimitsUnavailable), UnsentLimitsUnavailable, nil},
+		{errors.New("unavailable: this node's limits sidecar is not answering, so nothing is sent"), "", nil},
+		{errors.New("dial tcp: connection refused"), "", nil},
+		{nil, "", nil},
+	} {
+		why, got := WhyUnsent(c.err)
+		if why != c.why || got != c.limited {
+			t.Errorf("%v: %q %v, want %q %v", c.err, why, got, c.why, c.limited)
+		}
 	}
 }

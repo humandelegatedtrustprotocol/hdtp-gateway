@@ -78,6 +78,8 @@ type demoNode struct {
 	root *hdtpidentity.PrivateKey
 	rc   []byte // root certificate
 	log  []string
+	// limits is the node's own limits sidecar, which a test may stop.
+	limits *limitstest.Sidecar
 	// hook, when set, sees each audit line as it is written, inside the handler that writes it.
 	hookMu sync.Mutex
 	hook   func(line string)
@@ -229,7 +231,7 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test", dir: dir}
+	d := &demoNode{t: t, st: st, idm: idm, acct: acct, slug: slug, host: slug + ".test", dir: dir, limits: limitstest.StartDefault(t)}
 	d.root, err = hdtpidentity.GenerateKey("ed25519")
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +243,7 @@ func startDemoNodeSealed(t *testing.T, clock *demoClock, dn *demoNet, slug, name
 
 	cfg := core.Config{DataDir: dir, PublicURL: "https://" + d.host, Mode: core.ModeDirect, Seal: seal, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	n, err := New(ctx, Options{Config: cfg, Store: st, Keyring: kr, Now: clock.now, DialContext: dn.dial, Landing: testLanding,
-		Limits: limitstest.StartDefault(t).Client,
+		Limits: d.limits.Client,
 		Audit: func(action, resource, outcome string) {
 			line := action + " " + resource + " → " + outcome
 			d.log = append(d.log, line)

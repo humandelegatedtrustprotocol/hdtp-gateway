@@ -32,6 +32,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
@@ -197,7 +198,7 @@ func (n *Node) deliverMedia(ctx context.Context, accountID string, c store.Conta
 	}
 	res, err := client.Call(ctx, peer, core.ToolSendMedia, args, msgID)
 	if err != nil {
-		return refusal.Undelivered(WhyUnreachable, err)
+		return callFailed(err)
 	}
 	return peerRefusal(res)
 }
@@ -270,20 +271,33 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 	// every outbound path obeys the same one.
 	res, derr := client.Call(ctx, peer, core.ToolSendMessage, args, in.MsgID)
 	if derr != nil {
-		return refusal.Undelivered(WhyUnreachable, derr)
+		return callFailed(derr)
 	}
 	return peerRefusal(res)
 }
 
 // The reasons a recorded message was not delivered, as refusal.Undelivered carries them beside a
-// peer's own §12 code: the endpoint on file was refused before dialling, or the contact could not
-// be reached from here.
+// peer's own §12 code: the endpoint on file was refused before dialling, this node's own budget
+// refused the call, no budget could be asked (the limits sidecar did not answer), or the contact
+// could not be reached from here.
 const (
-	WhyEndpointRefused = "endpoint_refused"
-	WhyUnreachable     = "unreachable"
+	WhyEndpointRefused   = "endpoint_refused"
+	WhyRateLimited       = outbound.UnsentRateLimited
+	WhyLimitsUnavailable = outbound.UnsentLimitsUnavailable
+	WhyUnreachable       = "unreachable"
 	// WhyRefused is a peer's refusal that carried no §12 code.
 	WhyRefused = core.PeerRefused
 )
+
+// callFailed is a delivery whose call out returned err: not sent, because this node's budget
+// refused it or no budget could be asked (outbound.WhyUnsent), or sent and not answered.
+func callFailed(err error) error {
+	why, _ := outbound.WhyUnsent(err)
+	if why == "" {
+		why = WhyUnreachable
+	}
+	return refusal.Undelivered(why, err)
+}
 
 // peerRefusal turns a peer's error result into an error. A peer that refuses is not a transport
 // failure: it is an answer, and it must not read as delivered. The reason it carries is the peer's
@@ -293,9 +307,12 @@ func peerRefusal(res *mcp.CallToolResult) error {
 	if res == nil || !res.IsError {
 		return nil
 	}
-	code, ok := refusalCodeOf(res)
+	code, retryAfter, ok := refusalOf(res)
 	if !ok || code == WhyRefused {
 		return refusal.Undelivered(WhyRefused, errors.New("send: the contact's node refused"))
+	}
+	if code == "rate_limited" && retryAfter > 0 {
+		return refusal.Undelivered(code, fmt.Errorf("send: the contact's node refused: %s (retry_after %d)", code, retryAfter))
 	}
 	return refusal.Undelivered(code, errors.New("send: the contact's node refused: "+code))
 }
@@ -310,7 +327,7 @@ const deliveryBudget = 30 * time.Second
 
 // RetrySweep is the interval between passes over undelivered outbound messages.
 // The pass itself is cheap — a bounded query that usually returns nothing — and
-// backoffDue, not this, decides how often any given message is actually retried.
+// retryDelay, not this, decides how often any given message is actually retried.
 const RetrySweep = 15 * time.Second
 
 // MaxRetryBatch bounds one pass, so a large backlog cannot monopolise a tick.

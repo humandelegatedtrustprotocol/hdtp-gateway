@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -50,10 +51,11 @@ func TestAnAskerIsAnsweredTheWayItsCardSays(t *testing.T) {
 		askers[w.Fpr] = seal
 	}
 
-	stop := errors.New("the budget refused: nothing is dialled")
+	var stop error = errors.New("the budget refused: nothing is dialled")
 	var seen []outbound.Peer
 	var tools []string
-	ci := newContactInitiator(st, nd, func(string, string, string) {})
+	var outcomes []string
+	ci := newContactInitiator(st, nd, func(_, _, outcome string) { outcomes = append(outcomes, outcome) })
 	ci.card = func(context.Context, string) (string, error) { return "our card", nil }
 	ci.outbound = func(string) (*outbound.Client, error) {
 		kp, err := identity.Generate(identity.AlgoEd25519)
@@ -80,6 +82,32 @@ func TestAnAskerIsAnsweredTheWayItsCardSays(t *testing.T) {
 		// The tool the budget is asked for: the answer itself, whichever way it travels.
 		if tools[0] != "contact_accepted" {
 			t.Fatalf("%s: the budget was asked for %q", seal, tools[0])
+		}
+	}
+
+	// The outcome the answer's audit row records is why it did not land: this node's own budget
+	// refusing it is rate_limited, the sidecar not answering limits_unavailable, and anything else
+	// unreachable (the control). Both were audited unreachable.
+	var asker string
+	for fpr, seal := range askers {
+		if seal == "required" {
+			asker = fpr
+		}
+	}
+	for _, c := range []struct {
+		budget  error
+		outcome string
+	}{
+		{&outbound.RateLimited{RetryAfter: 5 * time.Second}, "rate_limited"},
+		{outbound.ErrLimitsUnavailable, "limits_unavailable"},
+		{errors.New("dial tcp: connection refused"), "unreachable"},
+	} {
+		stop, outcomes = c.budget, nil
+		if err := ci.NotifyApproved(ctx, acct.ID, asker, nil); !errors.Is(err, c.budget) {
+			t.Fatalf("%v: the call must have reached the budget: %v", c.budget, err)
+		}
+		if len(outcomes) != 1 || outcomes[0] != c.outcome {
+			t.Errorf("a notice the budget refused with %v was audited %v, want %s", c.budget, outcomes, c.outcome)
 		}
 	}
 }
