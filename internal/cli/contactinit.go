@@ -325,7 +325,11 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	// Somebody this identity already holds active: answered from the row, nothing dialled, nothing
 	// spent, as the cloud answers it. Their node would refuse the redemption (an active contact is
 	// served the contact tier, where redeem_invite is not, HDTP §6.2).
-	if held, err := ci.manager.Store.GetContact(ctx, accountID, peerCard.Key); err == nil && held.Status == "active" {
+	held, err := ci.manager.Store.GetContact(ctx, accountID, peerCard.Key)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return out, err
+	}
+	if err == nil && held.Status == "active" {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "active")
 		return addContactResult{Fingerprint: peerCard.Key, DisplayName: held.DisplayName, Status: "active"}, nil
 	}

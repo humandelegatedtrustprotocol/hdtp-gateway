@@ -430,8 +430,8 @@ func (n *Node) setStatus(ctx context.Context, accountID, contactFpr, msgID, thre
 	return nil
 }
 
-// WhyFailed is an audit row's "why:" part for a failure: the error's text redacted, then clipped to
-// 200 bytes.
+// WhyFailed is an audit row's "why:" part for a failure: the error's text redacted, then cut at 200
+// bytes with an ellipsis after.
 func WhyFailed(err error) string {
 	if err == nil {
 		return "why:unknown"

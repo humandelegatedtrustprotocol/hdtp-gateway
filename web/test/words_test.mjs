@@ -34,7 +34,8 @@ export const OUTCOMES = {
   terminate_not_configured: "bad", terminate_unavailable: "bad", too_large: "bad", unavailable: "bad", unknown: "bad",
   unpaired: "bad", unreachable: "bad", unreadable: "bad",
   certificate_renewed: "neutral", passthrough: "neutral", terminate: "neutral",
-  // Written through a variable, so no literal names them at the call: the limiter's refusal
+  // Written through a variable at the calls named in VIA_VARIABLE (rate_limited is also a literal
+  // in internal/cli/contactinit.go): the limiter's refusal
   // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, and the
   // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome).
   rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad",

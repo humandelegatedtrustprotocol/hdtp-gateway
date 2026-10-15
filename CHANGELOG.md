@@ -24,7 +24,8 @@ changelog can be and is not summarized into a fictional release history.
   not verify carries the link: the link is a bearer token, and the audit names its origin
   (`link:`). The error carried the whole link, and the offer's row did.
 - `add_contact` with the invite link of somebody this identity already holds `active` answers
-  `active` from the row and calls nobody, as the cloud answers it. It called the inviter, whose
+  `active` from the row and calls nobody, as the cloud answers from its row (where it says
+  `accepted`). It called the inviter, whose
   node refuses an active contact's `redeem_invite` (`permission_denied`, the contact tier), and the
   owner was told `bad_request`.
 

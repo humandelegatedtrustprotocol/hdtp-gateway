@@ -2,14 +2,18 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -192,5 +196,47 @@ func TestALinkThatIsNotARequestIsRefusedWithoutItsToken(t *testing.T) {
 	_, err := fetchOffer(context.Background(), http.DefaultClient, "https://peer.example/i/"+token+"\n")
 	if err == nil || strings.Contains(err.Error(), token) {
 		t.Errorf("the error carries the invite's token: %v", err)
+	}
+}
+
+// A peer that answers a redemption rate_limited is told as rate_limited on this path too: the
+// peer is real, serving redeem_invite under Chitra's chain, and the call reaches it. It was
+// bad_request ("the peer refused the redemption: rate_limited"). The control, the same peer
+// answering invite_invalid, is still bad_request.
+func TestAPeersRateLimitOnARedemptionIsToldAsRateLimited(t *testing.T) {
+	answer := `{"code":"rate_limited","retry_after":5}`
+	var peerAddr string
+	r := newAddContactRig(t, func(string) (*outbound.Client, error) {
+		return &outbound.Client{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if addr == "chitra.invalid:443" {
+				addr = peerAddr
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		}}, nil
+	}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "chitra", Version: "test"}, nil)
+	mcp.AddTool(srv, &mcp.Tool{Name: "redeem_invite", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: answer}}}, nil, nil
+		})
+	peer := httptest.NewUnstartedServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
+		&mcp.StreamableHTTPOptions{DisableLocalhostProtection: true}))
+	peer.TLS = &tls.Config{Certificates: []tls.Certificate{r.peer.Cert}}
+	peer.StartTLS()
+	t.Cleanup(peer.Close)
+	peerAddr = peer.Listener.Addr().String()
+
+	_, err := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+	if code, detail := refusal.Of(err); code != "rate_limited" || detail != "the peer refused the redemption: rate_limited; try again later" {
+		t.Errorf("a peer's rate_limited on a redemption: %s %q (%v)", code, detail, err)
+	}
+	answer = `{"code":"invite_invalid"}`
+	_, err = r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+	if code, _ := refusal.Of(err); code != "bad_request" {
+		t.Errorf("the control, invite_invalid: %s (%v)", code, err)
+	}
+	if rows := r.initiated(); len(rows) != 2 || rows[0].outcome != "refused" || rows[1].outcome != "refused" {
+		t.Errorf("contact_initiate rows %+v, want two, refused", rows)
 	}
 }

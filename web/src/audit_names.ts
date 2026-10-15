@@ -208,7 +208,8 @@ export function resourceParts(resource: string, dir: Directory): Part[] {
   if (!resource) return [];
   const out: Part[] = [];
   // `why:` is free text — an error's message, a reason — and every emitter writes it last
-  // (internal/public/tools.go why, internal/node/send.go whyFailed, decide.go's
+  // (internal/public/tools.go why, internal/node/send.go WhyFailed and internal/cli/contactinit.go
+  // through it, decide.go's
   // identity_state_unreadable and contact_new_address, refresh.go, node.go, agentanswered.go): the
   // rest of the locator is its one value, never a run of tokens.
   const whyAt = resource.search(/(^|\s)why:/);
