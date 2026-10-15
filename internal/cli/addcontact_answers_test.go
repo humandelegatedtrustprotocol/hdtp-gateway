@@ -240,3 +240,17 @@ func TestAPeersRateLimitOnARedemptionIsToldAsRateLimited(t *testing.T) {
 		t.Errorf("contact_initiate rows %+v, want two, refused", rows)
 	}
 }
+
+// A link pasted with a space before it and a newline after it is the link: the offer is fetched
+// and verified, and the answer is about the peer (here, one that cannot be dialled), never internal.
+// The split trimmed the link and the fetch was given it raw, so the request could not be built and
+// the owner was told internal. The control, the clean link, is answered the same.
+func TestAPastedLinkIsFetchedTrimmed(t *testing.T) {
+	r := newAddContactRig(t, func(string) (*outbound.Client, error) { return &outbound.Client{}, nil }, nil)
+	for _, link := range []string{" " + r.landing.URL + "/i/tok\n", r.landing.URL + "/i/tok"} {
+		_, err := r.ci.RedeemInvite(r.ctx, r.account, link, "")
+		if code, detail := refusal.Of(err); code != "unavailable" || detail != "the peer could not be reached to redeem the invite" {
+			t.Errorf("link %q: %s %q (%v)", link, code, detail, err)
+		}
+	}
+}

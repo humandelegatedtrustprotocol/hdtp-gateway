@@ -76,7 +76,7 @@ type inviteOffer struct {
 
 // splitInviteURL separates an invite link into the origin and its token.
 func splitInviteURL(raw string) (origin, token string, err error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return "", "", refusal.BadRequest("an invite link is an https:// URL", nil)
 	}
@@ -287,6 +287,7 @@ func (ci *contactInitiator) Add(ctx context.Context, accountID, inviteURL, card,
 // every message they send is refused `permission_denied` forever.
 func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteURL, grant string) (addContactResult, error) {
 	var out addContactResult
+	inviteURL = strings.TrimSpace(inviteURL)
 	origin, token, err := splitInviteURL(inviteURL)
 	if err != nil {
 		return out, err
