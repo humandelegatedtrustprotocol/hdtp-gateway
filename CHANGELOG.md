@@ -41,6 +41,13 @@ changelog can be and is not summarized into a fictional release history.
   `unreachable`; what the owner is told was already the budget's or the sidecar's words. A peer's
   `rate_limited` refusal of a send keeps its `retry_after`, in whole seconds, in the undelivered
   row's `why:`; the retry sweep's timing does not read it.
+- `add_contact` with the invite link of somebody this identity holds `pending_out` (it asked them
+  by card and they have not answered) moves that row on: `active` when they accept the redemption,
+  unchanged when it is pending. It inserted a second row, which the store refused, so the owner
+  was told `bad_request` "already a contact or already pending" after their node had spent the
+  invite and, when it auto-accepts, made this identity `active` there (#178). With the link of
+  somebody this identity has blocked it answers `bad_request` "you have blocked that identity;
+  unblock them first" and calls nobody, as the cloud does; it called them and spent their invite.
 
 ## [0.1.5] — 2026-10-12
 

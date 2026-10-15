@@ -334,6 +334,12 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "active")
 		return addContactResult{Fingerprint: peerCard.Key, DisplayName: held.DisplayName, Status: "active"}, nil
 	}
+	// Somebody this identity has blocked: refused before anything is dialled or spent, as the cloud
+	// refuses it. An invite is not a way around the owner's block.
+	if err == nil && held.Status == "blocked" {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "blocked")
+		return out, refusal.BadRequest("you have blocked that identity; unblock them first", nil)
+	}
 	// The contact cap, before their invite is spent: whatever they answer, the row this writes is
 	// active or pending_out, and both count. Checked once, here, as the cloud checks it; a row they
 	// accepted is never refused afterwards, which would leave them holding a contact we do not.

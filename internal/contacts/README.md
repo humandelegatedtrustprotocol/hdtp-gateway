@@ -27,7 +27,7 @@ Inbound (manager.go, initiate.go):
 - `AddressClaim`: the root of another contact pinned at an endpoint, or that held it within
   `hdtpidentity.ClaimWindow`.
 - `ContactAccepted`, `ContactRejected`: a peer's answer to an approach of ours (`pending_out`).
-- `Initiated`, `InitiatedByFingerprint`: record an approach the owner started, as `pending_out`.
+- `Initiated`, `InitiatedByFingerprint`: record an approach the owner started, as `pending_out`. `Initiated` over a row already `pending_out` (a request by card that a redemption overtook) inserts nothing: it moves that row to `active` when the peer accepted, and otherwise leaves it, its pin included, as it was.
 - `UpdateContact`: refresh a contact's stored card. `RemoveContact`: a peer ends the relationship.
 - `DecideAddress` (Manager): approve or reject a held move of a contact to a new address.
 
@@ -55,7 +55,7 @@ active, store.go:642). The transitions the code takes:
 | none | pending_in | `RedeemAs` without auto-accept (or with an address claim), `RequestContactAs` |
 | none | active | `RedeemAs` with auto-accept and no address claim (after `Room`) |
 | none | pending_out | `Initiated`, `InitiatedByFingerprint` |
-| pending_out | active | `ContactAccepted` (and `Initiated` when the peer already accepted) |
+| pending_out | active | `ContactAccepted` (and `Initiated` when the peer already accepted, whether it inserted the row or found it `pending_out`) |
 | pending_out | blocked | `ContactRejected` |
 | pending_in | active | `Owner.Approve` (after `Room`; a named preset replaces the grant) |
 | pending_in | blocked | `Owner.Reject` |
@@ -79,7 +79,7 @@ Wire codes are the package's sentinel errors (manager.go:24-29, owner.go:20):
   card's leaf key.
 - `bad_request`: an invite TTL over 90 days; a card that does not read; an endpoint the address guard
   refuses (loopback, link-local, private, or the node's own); a note over 1024 bytes; a card in
-  `ContactAccepted`/`UpdateContact` naming another root; an unknown preset in `Approve`; a failed `InsertContact` in `RequestContactAs` (answered "already known" whatever the store's error was, not only a duplicate root), and in `Initiated` and `InitiatedByFingerprint` (answered "already a contact or already pending" likewise).
+  `ContactAccepted`/`UpdateContact` naming another root; an unknown preset in `Approve`; a failed `InsertContact` in `RequestContactAs` (answered "already known" whatever the store's error was, not only a duplicate root), and in `Initiated` and `InitiatedByFingerprint` (answered "already a contact or already pending" likewise); in `Initiated`, a row already held in any state but `pending_out`.
 - `unknown_contact`: no such row, or not `pending_out` for `ContactAccepted`/`ContactRejected`.
 - `conflict` (`ErrWrongState`): the row is not in a state the owner action applies to, or changed
   between the read and the guarded write (`moved`, owner.go:85).

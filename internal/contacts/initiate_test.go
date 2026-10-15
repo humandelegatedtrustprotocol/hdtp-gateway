@@ -113,20 +113,58 @@ func TestInitiatedRefusesAFingerprintThatDoesNotMatchTheCard(t *testing.T) {
 	}
 }
 
-// Initiating twice must not silently overwrite an existing relationship — in
-// particular it must not be a way to reset a BLOCKED contact back to pending.
+// Initiating over an existing relationship that is not pending_out must not overwrite it — in
+// particular it must not be a way to reset a BLOCKED contact back to pending or to active.
 func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
-	m, _, ctx, acct := newInitEnv(t)
-	card, fpr, spki := peerCard(t, "Bob")
-	if err := m.Initiated(ctx, acct, fpr, card, spki, false, nil); err != nil {
-		t.Fatal(err)
+	m, st, ctx, acct := newInitEnv(t)
+	for _, status := range []string{"blocked", "active", "pending_in"} {
+		card, fpr, spki := peerCard(t, "Bob "+status)
+		if _, err := st.InsertContact(ctx, store.Contact{AccountID: acct, Fingerprint: fpr, SPKI: spki,
+			Status: status, DisplayName: "Bob", Card: card}); err != nil {
+			t.Fatal(err)
+		}
+		for _, accepted := range []bool{false, true} {
+			err := m.Initiated(ctx, acct, fpr, card, spki, accepted, nil)
+			if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "already") {
+				t.Errorf("%s, accepted=%v: %v, want bad_request saying it is already known", status, accepted, err)
+			}
+			if c, _ := st.GetContact(ctx, acct, fpr); c.Status != status {
+				t.Errorf("%s, accepted=%v: the row became %q", status, accepted, c.Status)
+			}
+		}
 	}
-	err := m.Initiated(ctx, acct, fpr, card, spki, false, nil)
-	if err == nil {
-		t.Fatal("a second initiation overwrote the existing contact row")
+}
+
+// Redeeming the invite of somebody this account already holds pending_out (it asked them by card,
+// and they have not answered) moves that row on: an accepted redemption makes it active with what
+// they granted us, one still pending leaves it as it was. Nothing is inserted beside it. Both were
+// refused "already a contact or already pending" after the peer had spent its invite on us, and
+// had made us active on its side when it accepted.
+func TestInitiatedMovesAPendingOutRowOn(t *testing.T) {
+	m, st, ctx, acct := newInitEnv(t)
+	for _, accepted := range []bool{true, false} {
+		card, fpr, spki := peerCard(t, "Bob")
+		if err := m.InitiatedByFingerprint(ctx, acct, fpr, card); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := st.GetContact(ctx, acct, fpr)
+		if err := m.Initiated(ctx, acct, fpr, card, spki, accepted, []string{"message.text"}); err != nil {
+			t.Fatalf("accepted=%v over a pending_out row: %v", accepted, err)
+		}
+		c, err := st.GetContact(ctx, acct, fpr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if accepted && (c.Status != "active" || len(c.TheirPermissions) != 1 || c.TheirPermissions[0] != "message.text" || c.Card != card) {
+			t.Errorf("an accepted redemption over pending_out: %q, their permissions %v", c.Status, c.TheirPermissions)
+		}
+		if !accepted && (c.Status != "pending_out" || c.PinnedAt != before.PinnedAt || !bytes.Equal(c.SPKI, before.SPKI)) {
+			t.Errorf("a pending redemption over pending_out changed the row: %+v, was %+v", c, before)
+		}
 	}
-	if !strings.Contains(err.Error(), "already") {
-		t.Errorf("error should say the contact is already known: %v", err)
+	rows, err := st.ListContacts(ctx, acct)
+	if err != nil || len(rows) != 2 {
+		t.Errorf("rows %d (%v), want one per peer", len(rows), err)
 	}
 }
 

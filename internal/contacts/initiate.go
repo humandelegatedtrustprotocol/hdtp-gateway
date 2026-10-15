@@ -13,6 +13,7 @@ package contacts
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -56,15 +57,24 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	if perr != nil || !bytes.Equal(leaf.SPKI, spki) {
 		return fmt.Errorf("%w: the proven key is not the one this card's certificate carries", ErrIdentityRequired)
 	}
-	// Always inserted pending_out, then moved on by the SAME transition a peer's
-	// later approval takes. Reusing it rather than writing "active" directly is
-	// deliberate: that path already validates the card against the identity and
-	// already knows where the peer's grant belongs.
-	if _, err := m.Store.InsertContact(ctx, store.Contact{
-		AccountID: accountID, Fingerprint: peerFpr, SPKI: spki, Status: "pending_out",
-		DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
-		Endpoint: c.Endpoint, Leaf: c.Cert,
-	}); err != nil {
+	// Inserted pending_out, then moved on by the SAME transition a peer's later approval takes.
+	// Reusing it rather than writing "active" directly is deliberate: that path already validates
+	// the card against the identity and already knows where the peer's grant belongs. A row already
+	// pending_out (a request by card this redemption overtook) is that row: it is moved on, and its
+	// pin stands. Any other row is a relationship this does not overwrite.
+	held, err := m.Store.GetContact(ctx, accountID, peerFpr)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		if _, err := m.Store.InsertContact(ctx, store.Contact{
+			AccountID: accountID, Fingerprint: peerFpr, SPKI: spki, Status: "pending_out",
+			DisplayName: CardName(card), Card: card, PinnedAt: m.now().Unix(),
+			Endpoint: c.Endpoint, Leaf: c.Cert,
+		}); err != nil {
+			return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
+		}
+	case err != nil:
+		return err
+	case held.Status != "pending_out":
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}
 	if !accepted {

@@ -205,27 +205,9 @@ func TestALinkThatIsNotARequestIsRefusedWithoutItsToken(t *testing.T) {
 // answering invite_invalid, is still bad_request.
 func TestAPeersRateLimitOnARedemptionIsToldAsRateLimited(t *testing.T) {
 	answer := `{"code":"rate_limited","retry_after":5}`
-	var peerAddr string
-	r := newAddContactRig(t, func(string) (*outbound.Client, error) {
-		return &outbound.Client{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr == "chitra.invalid:443" {
-				addr = peerAddr
-			}
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		}}, nil
-	}, nil)
-	srv := mcp.NewServer(&mcp.Implementation{Name: "chitra", Version: "test"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "redeem_invite", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
-			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: answer}}}, nil, nil
-		})
-	peer := httptest.NewUnstartedServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{DisableLocalhostProtection: true}))
-	peer.TLS = &tls.Config{Certificates: []tls.Certificate{r.peer.Cert}}
-	peer.StartTLS()
-	t.Cleanup(peer.Close)
-	peerAddr = peer.Listener.Addr().String()
+	r := newRedeemingPeerRig(t, func() *mcp.CallToolResult {
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: answer}}}
+	})
 
 	_, err := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
 	if code, detail := refusal.Of(err); code != "rate_limited" || detail != "the peer refused the redemption: rate_limited; try again later" {
@@ -276,5 +258,88 @@ func TestASidecarThatIsDownIsToldAsThat(t *testing.T) {
 	}
 	if rows := r.initiated(); len(rows) != 2 || rows[0].outcome != "limits_unavailable" || rows[1].outcome != "limits_unavailable" {
 		t.Errorf("contact_initiate rows %+v, want two, limits_unavailable", rows)
+	}
+}
+
+// newRedeemingPeerRig is the rig with Chitra real: an MCP server under her chain, at the address
+// her leaf names, whose redeem_invite answers what answer returns; redeemed counts its calls.
+func newRedeemingPeerRig(t *testing.T, answer func() *mcp.CallToolResult) *redeemingPeerRig {
+	t.Helper()
+	rp := &redeemingPeerRig{}
+	var peerAddr string
+	rp.addContactRig = newAddContactRig(t, func(string) (*outbound.Client, error) {
+		return &outbound.Client{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if addr == "chitra.invalid:443" {
+				addr = peerAddr
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		}}, nil
+	}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "chitra", Version: "test"}, nil)
+	mcp.AddTool(srv, &mcp.Tool{Name: "redeem_invite", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+			rp.redeemed++
+			return answer(), nil, nil
+		})
+	peer := httptest.NewUnstartedServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
+		&mcp.StreamableHTTPOptions{DisableLocalhostProtection: true}))
+	peer.TLS = &tls.Config{Certificates: []tls.Certificate{rp.peer.Cert}}
+	peer.StartTLS()
+	t.Cleanup(peer.Close)
+	peerAddr = peer.Listener.Addr().String()
+	return rp
+}
+
+type redeemingPeerRig struct {
+	*addContactRig
+	redeemed int
+}
+
+// Redeeming the invite of somebody this account holds pending_out — it asked them by card and they
+// have not answered — moves that row on: they accept the redemption, the row is active, and the
+// owner is told active. It was refused bad_request ("already a contact or already pending") after
+// their node had spent the invite and made us active there, so the two sides disagreed.
+func TestARedemptionOverAPendingRequestMakesTheContactActive(t *testing.T) {
+	r := newRedeemingPeerRig(t, func() *mcp.CallToolResult {
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"status": "accepted", "permissions": []string{"message.text"}}}
+	})
+	if err := r.ci.manager.InitiatedByFingerprint(r.ctx, r.account, r.peer.Root(), r.peer.Card("Chitra")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+	if err != nil || got.Status != "active" {
+		t.Fatalf("a redemption over pending_out: %+v, %v", got, err)
+	}
+	rows, err := r.st.ListContacts(r.ctx, r.account)
+	if err != nil || len(rows) != 1 || rows[0].Status != "active" {
+		t.Errorf("contacts %+v (%v), want one, active", rows, err)
+	}
+	if rows := r.initiated(); len(rows) != 1 || rows[0].outcome != "active" {
+		t.Errorf("contact_initiate rows %+v, want one, active", rows)
+	}
+	if r.redeemed != 1 {
+		t.Errorf("redeem_invite called %d times, want once", r.redeemed)
+	}
+}
+
+// Redeeming the invite of somebody this account has blocked is refused before anything is dialled
+// or spent, as the cloud refuses it: unblocking is the owner's decision, and an invite is not a way
+// around it. It was dialled, and their invite spent.
+func TestABlockedIdentitysInviteIsRefusedBeforeTheDial(t *testing.T) {
+	r := newAddContactRig(t, func(string) (*outbound.Client, error) {
+		t.Fatal("the invite of a blocked identity was redeemed by calling them")
+		return nil, nil
+	}, nil)
+	if _, err := r.st.InsertContact(r.ctx, store.Contact{AccountID: r.account, Fingerprint: r.peer.Root(),
+		Status: "blocked", DisplayName: "Chitra"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+	if code, detail := refusal.Of(err); code != "bad_request" || !strings.Contains(detail, "unblock them first") {
+		t.Errorf("a blocked identity's invite: %s %q (%v)", code, detail, err)
+	}
+	if rows := r.initiated(); len(rows) != 1 || rows[0].outcome != "blocked" {
+		t.Errorf("contact_initiate rows %+v, want one, blocked", rows)
 	}
 }

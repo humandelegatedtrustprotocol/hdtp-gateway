@@ -884,7 +884,7 @@ stateDiagram-v2
     pending_in --> active : owner approves<br/>(peer told: contact_accepted)
     pending_in --> blocked : owner rejects<br/>(peer told: contact_rejected)
     pending_in --> none : request expires / owner removes
-    pending_out --> active : peer approves<br/>(contact_accepted)
+    pending_out --> active : peer approves<br/>(contact_accepted) /<br/>owner redeems their auto_accept invite
     pending_out --> blocked : peer rejects<br/>(contact_rejected)
     pending_out --> none : expires / owner withdraws
     active --> blocked : owner blocks (silent)
