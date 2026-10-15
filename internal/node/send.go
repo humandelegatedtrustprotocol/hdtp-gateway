@@ -117,7 +117,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	if derr != nil {
 		// Why it did not land, not just that it did not: a retry that succeeds
 		// leaves a trail that otherwise explains nothing.
-		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
+		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
 		return res, derr
 	}
 	status := StatusDelivered
@@ -166,7 +166,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	dctx, cancelDelivery := context.WithTimeout(context.WithoutCancel(ctx), deliveryBudget)
 	defer cancelDelivery()
 	if derr := n.deliverMedia(dctx, accountID, c, in.MsgID, res.ThreadID, string(in.Label()), filename, mime, data); derr != nil {
-		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+whyFailed(derr), "undelivered")
+		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
 		return res, derr
 	}
 	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, StatusDelivered); err != nil {
@@ -430,7 +430,9 @@ func (n *Node) setStatus(ctx context.Context, accountID, contactFpr, msgID, thre
 	return nil
 }
 
-func whyFailed(err error) string {
+// WhyFailed is an audit row's "why:" part for a failure: the error's text redacted, then cut at 200
+// bytes with an ellipsis after.
+func WhyFailed(err error) string {
 	if err == nil {
 		return "why:unknown"
 	}

@@ -37,9 +37,16 @@ type RateLimited struct{ RetryAfter time.Duration }
 
 // Error reports the wait in whole seconds, rounded up, in the `rate_limited:` form.
 func (e *RateLimited) Error() string {
-	secs := int(math.Ceil(e.RetryAfter.Seconds()))
-	return fmt.Sprintf("rate_limited: this identity has sent as many calls as its budget allows for now; try again in %d s (retry_after %d)", secs, secs)
+	return fmt.Sprintf("rate_limited: %s (retry_after %d)", e.Sentence(), e.seconds())
 }
+
+// Sentence says the budget is spent and how long to wait, in whole seconds, rounded up: the words
+// an owner is told.
+func (e *RateLimited) Sentence() string {
+	return fmt.Sprintf("this identity has sent as many calls as its budget allows for now; try again in %d s", e.seconds())
+}
+
+func (e *RateLimited) seconds() int { return int(math.Ceil(e.RetryAfter.Seconds())) }
 
 // Peer is the contact-card view the client needs (SPEC §9.3).
 type Peer struct {

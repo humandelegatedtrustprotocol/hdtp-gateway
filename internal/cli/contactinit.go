@@ -105,12 +105,12 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 	var off inviteOffer
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, inviteURL, nil)
 	if err != nil {
-		return off, err
+		return off, withoutLink(err)
 	}
 	req.Header.Set("Accept", "application/hdtp-invite+json")
 	res, err := hc.Do(req)
 	if err != nil {
-		return off, refusal.Unavailable("could not reach the invite link", err)
+		return off, refusal.Unavailable("could not reach the invite link", withoutLink(err))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
@@ -124,6 +124,16 @@ func fetchOffer(ctx context.Context, hc *http.Client, inviteURL string) (inviteO
 		return off, refusal.BadRequest("the invite link did not return a machine-readable card", nil)
 	}
 	return off, nil
+}
+
+// withoutLink is what failed, without the link: a *url.Error's text is the whole link, and an invite
+// link is a bearer token.
+func withoutLink(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
 }
 
 // verifyOffer turns an untrusted document into an identity we are willing to pin.
@@ -277,17 +287,26 @@ func (ci *contactInitiator) Add(ctx context.Context, accountID, inviteURL, card,
 // every message they send is refused `permission_denied` forever.
 func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteURL, grant string) (addContactResult, error) {
 	var out addContactResult
-	_, token, err := splitInviteURL(inviteURL)
+	origin, token, err := splitInviteURL(inviteURL)
 	if err != nil {
 		return out, err
 	}
 	off, err := fetchOffer(ctx, ci.offerHTTP(), inviteURL)
 	if err != nil {
+		outcome := "error"
+		switch code, _ := refusal.Of(err); code {
+		case "unavailable":
+			outcome = "unreachable"
+		case "bad_request":
+			outcome = "refused"
+		}
+		// The link's origin, never the link: the link is a bearer token, and the audit is append-only.
+		ci.audit("contact_initiate", "account:"+accountID+" link:"+origin+" "+node.WhyFailed(err), outcome)
 		return out, err
 	}
 	peerCard, spki, peerRootCert, err := verifyOffer(off)
 	if err != nil {
-		ci.audit("contact_initiate", "account:"+accountID+" url:"+inviteURL, "refused")
+		ci.audit("contact_initiate", "account:"+accountID+" link:"+origin, "refused")
 		return out, err
 	}
 	ourCard, err := ci.card(ctx, accountID)
@@ -302,6 +321,17 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if ours, err := contacts.ValidateInbound(ourCard); err == nil && ours.Key == peerCard.Key {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "own_invite")
 		return out, refusal.BadRequest("that is this identity's own invite", nil)
+	}
+	// Somebody this identity already holds active: answered from the row, nothing dialled, nothing
+	// spent, as the cloud answers it. Their node would refuse the redemption (an active contact is
+	// served the contact tier, where redeem_invite is not, HDTP §6.2).
+	held, err := ci.manager.Store.GetContact(ctx, accountID, peerCard.Key)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return out, err
+	}
+	if err == nil && held.Status == "active" {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "active")
+		return addContactResult{Fingerprint: peerCard.Key, DisplayName: held.DisplayName, Status: "active"}, nil
 	}
 	// The contact cap, before their invite is spent: whatever they answer, the row this writes is
 	// active or pending_out, and both count. Checked once, here, as the cloud checks it; a row they
@@ -318,8 +348,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	res, err := client.Call(ctx, peer, core.ToolRedeemInvite,
 		map[string]any{"token": token, "card": ourCard}, newCallID())
 	if err != nil {
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
-		return out, refusal.Unavailable("the peer could not be reached to redeem the invite", err)
+		return out, ci.unreached(accountID, peerCard.Key, "the peer could not be reached to redeem the invite", err)
 	}
 	// A refusal is an answer with isError and its code (HDTP §12): nothing was redeemed, so
 	// nothing is recorded. It used to fall through to decodeRedeemAnswer, whose empty status
@@ -327,7 +356,7 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if res.IsError {
 		code := refusalCodeOf(res)
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "refused")
-		return out, refusal.BadRequest("the peer refused the redemption: "+code, nil)
+		return out, peerRefused("the peer refused the redemption: "+code, code)
 	}
 	answer := decodeRedeemAnswer(res)
 	// Record only AFTER the peer accepted the redemption: a contact row written
@@ -365,6 +394,27 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 		Fingerprint: peerCard.Key, DisplayName: peerCard.FN,
 		Status: status, Permissions: answer.Permissions,
 	}, nil
+}
+
+// unreached is a call to a peer that got no answer. This identity's own budget refusing it before
+// anything left is rate_limited, with the wait; anything else is unavailable, in sentence.
+func (ci *contactInitiator) unreached(accountID, peerFpr, sentence string, err error) error {
+	var limited *outbound.RateLimited
+	if errors.As(err, &limited) {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "rate_limited")
+		return refusal.RateLimited(limited.Sentence(), nil)
+	}
+	ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "unreachable")
+	return refusal.Unavailable(sentence, err)
+}
+
+// peerRefused is a peer's refusal, in sentence, which names code: rate_limited clears with time and
+// is told as such; any other code is bad_request.
+func peerRefused(sentence, code string) error {
+	if code == "rate_limited" {
+		return refusal.RateLimited(sentence+"; try again later", nil)
+	}
+	return refusal.BadRequest(sentence, nil)
 }
 
 // refusalCodeOf is a tool error's §12 code (core.PeerCode), or "refused" when its text carries
@@ -451,10 +501,9 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 		if errors.As(err, &refused) {
 			ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "refused")
 			// The peer answered, with a §12 code (node.RequestContact filters it) or none.
-			return out, refusal.BadRequest(refused.Error(), nil)
+			return out, peerRefused(refused.Error(), refused.Code)
 		}
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "unreachable")
-		return out, refusal.Unavailable("the request did not reach the peer", err)
+		return out, ci.unreached(accountID, peerCard.Key, "the request did not reach the peer", err)
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err

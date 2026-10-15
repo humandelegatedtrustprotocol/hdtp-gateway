@@ -45,6 +45,7 @@ func TestOfAnswersEachRefusalItsCodeAndNoForeignText(t *testing.T) {
 		{"an install refused", realInstallRefusal(t), "bad_request", "identity: no certificate request is pending for this account; run `account csr` first: leaf refused"},
 		{"a token with no label", auth.ErrLabelRequired, "bad_request", auth.ErrLabelRequired.Error()},
 		{"a peer not reached", Unavailable("the request did not reach the peer", storeFailure), "unavailable", "the request did not reach the peer"},
+		{"a budget that refused", fmt.Errorf("adding: %w", RateLimited("try again in 7 s", storeFailure)), "rate_limited", "try again in 7 s"},
 		{"an identity awaiting its wallet", fmt.Errorf("node: a awaits its wallet: %w", identity.ErrNoCertificate), "not_found", "node: a awaits its wallet: identity: no current certificate"},
 		{"a slug in use", fmt.Errorf("creating: %w", identity.ErrSlugTaken), "conflict", "creating: identity: that slug is taken"},
 		{"an integration not connected", fmt.Errorf("x: %w", integrations.ErrNotConnected), "conflict", "x: integrations: not connected"},
