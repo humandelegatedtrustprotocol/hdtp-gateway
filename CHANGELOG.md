@@ -277,9 +277,11 @@ changelog can be and is not summarized into a fictional release history.
   could not be built and the owner was told `internal` (#181).
 - A call out that never left because this node's own budget refused it, or because the limits
   sidecar did not answer, is told and audited as that by a send (text and media), by `add_contact`
-  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179).
-  `refresh_contact` and `call_contact` do not: they still read it as an unreachable peer and an
-  unavailable call (#182). A send is "recorded, not delivered: rate_limited" or
+  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179),
+  and by `refresh_contact` and `call_contact` on the owner MCP and the portal (#182), which read it
+  as an unreachable peer and an unavailable call: a refresh or a call this node's budget refused is
+  `rate_limited` with the wait (429 on the portal), audited `rate_limited`, and one with the sidecar
+  down `unavailable` saying so, audited `limits_unavailable`. A send is "recorded, not delivered: rate_limited" or
   "…: limits_unavailable", where it was "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
   sidecar is not answering, so nothing is sent", audited `limits_unavailable`, where it said the
   peer could not be reached and audited `unreachable`. The notice to an asker (`contact_accepted`,

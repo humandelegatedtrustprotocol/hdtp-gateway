@@ -128,8 +128,11 @@ Every refusal is a tool error with a code (`IsError` true), and the audit middle
    contact the account does not hold and `conflict` for one that is not active; `envelope_invalid`
    when the contact's answer is not an envelope, did not verify, or carried a
    `certificate_renewed` that could not be followed; `unavailable` when the call failed otherwise.
-   `refresh_contact` answers a refresh that could not be attempted `not_found`, `conflict` or
-   `internal`, each with a fixed detail. The call's one `call_contact` audit row is
+   A call that never left is answered as `node.CallContact` codes it, its sentence the detail:
+   `rate_limited` with the wait for this identity's own budget, `unavailable` for the limits
+   sidecar not answering. `refresh_contact` answers a refresh that could not be attempted
+   `not_found`, `conflict` or `internal`, each with a fixed detail, and one that never left as
+   `call_contact` does. The call's one `call_contact` audit row is
    `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers
    another account's request id as one that names nothing (`not_found`), and `unavailable` "agent-answered
    dispatch is not enabled" when it is not. The argument refusals are `bad_request` with the node's

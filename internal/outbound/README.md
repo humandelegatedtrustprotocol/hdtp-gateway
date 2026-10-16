@@ -10,7 +10,7 @@ Calls from this node's accounts to their contacts (SPEC.md §10.3, and §4 for t
 - `Client.SealedCall`, `Client.SealedListTools`: a `tools/call` or `tools/list` inside an envelope sealed to the peer's leaf key, through the peer's `sealed_call`.
 - `Client.CallTool`, `Client.ListTools`: unsealed MCP calls. `CallOptions.Plaintext` marks a call that must be refused against a `required` peer.
 - `Client.HTTPClient`: an `http.Client` that dials a peer under the server-validation rules below.
-- `ErrSealRequired`, `RateLimited`, `ErrLimitsUnavailable`: the three errors callers match on. `WhyUnsent` reads the last two from the error a call returned, wrapped or not, as `rate_limited` (with the `RateLimited`, for its wait) or `limits_unavailable`, and `""` for anything else; the owner's `add_contact`, the notice to an asker (`contact_accepted`, `contact_rejected`) and a delivery (`send_message`, `send_media`) each tell and audit a call that never left by it.
+- `ErrSealRequired`, `RateLimited`, `ErrLimitsUnavailable`: the three errors callers match on. `WhyUnsent` reads the last two from the error a call returned, wrapped or not, as `rate_limited` (with the `RateLimited`, for its wait) or `limits_unavailable`, and `""` for anything else; the owner's `add_contact`, the notice to an asker (`contact_accepted`, `contact_rejected`), a delivery (`send_message`, `send_media`), `refresh_contact` and `call_contact` each tell and audit a call that never left by it.
 
 ## What it refuses, and how
 
