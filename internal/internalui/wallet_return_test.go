@@ -96,7 +96,7 @@ func TestEachInstallRefusalAnswersItsCode(t *testing.T) {
 		msg, _ := out["error"].(string)
 		switch c.code {
 		case "chain":
-			if msg != "no certificate request is pending for this account; run `account csr` first" {
+			if !regexp.MustCompile(`^chain refused by rule \d+$`).MatchString(msg) {
 				t.Errorf("a refused chain does not say which rule: %q", msg)
 			}
 		case "failed":
@@ -287,7 +287,8 @@ func TestTheWalletReturnPageIsThePortals(t *testing.T) {
 }
 
 // realInstallRefusal is an install refusal the identity package worded, from a real install: an
-// answer to an identity with no request pending.
+// answer that is not a chain, to an identity whose request is pending, so ValidateChain refuses it
+// by its rule.
 func realInstallRefusal(t *testing.T) error {
 	t.Helper()
 	ctx := context.Background()
@@ -308,7 +309,12 @@ func realInstallRefusal(t *testing.T) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = m.InstallLeaf(ctx, a.ID, [][]byte{{1}, {2}}, time.Now())
+	now := time.Now()
+	// A request is pending, so what refuses the install is the chain itself, not the absence of one.
+	if _, err := m.IssueCSR(ctx, a.ID, identity.PurposeSignup, identity.EndpointFor("https://alina.example.com", "alina"), now); err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.InstallLeaf(ctx, a.ID, [][]byte{{1}, {2}}, now)
 	if _, ok := identity.Worded(err); !ok {
 		t.Fatalf("the install did not answer a worded refusal: %v", err)
 	}
