@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
@@ -11,7 +10,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
 )
 
-// failingStore is the store with its n-th write under `tunnel.<adapter>.` refused.
+// failingStore is the store with its n-th setting write (a put or a delete, of any key) refused.
 type failingStore struct {
 	store.Store
 	writes, failAt int
@@ -30,13 +29,23 @@ func (f *failingStore) Atomically(ctx context.Context, fn func(tx store.Store) e
 }
 
 func (f *failingStore) PutSetting(ctx context.Context, s store.Setting) error {
-	if strings.HasPrefix(s.Key, "tunnel.ingress-") {
-		f.writes++
-		if f.writes == f.failAt {
-			return errInjected
-		}
+	if f.refuse() {
+		return errInjected
 	}
 	return f.Store.PutSetting(ctx, s)
+}
+
+func (f *failingStore) DeleteSetting(ctx context.Context, key string) error {
+	if f.refuse() {
+		return errInjected
+	}
+	return f.Store.DeleteSetting(ctx, key)
+}
+
+// refuse counts one write and says whether it is the one to refuse.
+func (f *failingStore) refuse() bool {
+	f.writes++
+	return f.writes == f.failAt
 }
 
 func settingValues(t *testing.T, st store.Store) map[string]string {
@@ -55,7 +64,7 @@ func settingValues(t *testing.T, st store.Store) map[string]string {
 // A pairing is eight rows under `tunnel.<adapter>.` plus the selection and the public URL, written in
 // one transaction. They were written one at a time, so a re-pair that failed part-way left the
 // rows already written beside the previous pairing's: a node pinned to one ingress holding another's
-// credentials, still selected. A failure on any of the eight leaves every row as it was: nothing
+// credentials, still selected. A failure on any of the ten writes leaves every row as it was: nothing
 // stored over an empty store, the previous pairing whole over a paired one. The control: every
 // write lands, and the adapter is paired, selected and pinned to the new ingress.
 func TestAPairingThatFailsOnAnyWriteLeavesEveryRowAsItWas(t *testing.T) {
@@ -85,8 +94,9 @@ func TestAPairingThatFailsOnAnyWriteLeavesEveryRowAsItWas(t *testing.T) {
 		return New(writes, openKeyringAt(t, dir), cfg, func(string, string, string) {}), st
 	}
 
+	written := append(append([]string{}, pairingKeys...), "tunnel", "public_url")
 	for _, paired := range []bool{false, true} {
-		for failAt := 1; failAt <= len(pairingKeys); failAt++ {
+		for failAt := 1; failAt <= len(written); failAt++ {
 			s, st := service(t, failAt, paired)
 			was := settingValues(t, st)
 			if err := s.storePairing(ctx, adapter, res, "sha256:node"); !errors.Is(err, errInjected) {
@@ -95,7 +105,7 @@ func TestAPairingThatFailsOnAnyWriteLeavesEveryRowAsItWas(t *testing.T) {
 			now := settingValues(t, st)
 			for k, v := range now {
 				if was[k] != v {
-					t.Errorf("paired=%v: a pairing whose write %d (%s) failed changed %s", paired, failAt, pairingKeys[failAt-1], k)
+					t.Errorf("paired=%v: a pairing whose write %d (%s) failed changed %s", paired, failAt, written[failAt-1], k)
 				}
 			}
 			if len(now) != len(was) {
@@ -118,5 +128,45 @@ func TestAPairingThatFailsOnAnyWriteLeavesEveryRowAsItWas(t *testing.T) {
 	}
 	if PinnedIngress(adapter, values) != "sha256:ingress" {
 		t.Errorf("a completed pairing pins %q", PinnedIngress(adapter, values))
+	}
+}
+
+// Unpairing deletes the eight rows of a pairing in one transaction. They were deleted one at a
+// time with the subdomain last, so a failure part-way left a pairing with its credentials gone and
+// its name still stored. A failure on any of the eight deletes leaves every row as it was; the
+// control, a store that refuses nothing, leaves none of the eight.
+func TestAnUnpairingThatFailsOnAnyDeleteLeavesEveryRowAsItWas(t *testing.T) {
+	ctx := context.Background()
+	const adapter = "ingress-passthrough"
+	for failAt := 0; failAt <= len(pairingKeys); failAt++ {
+		dir := t.TempDir()
+		st := openStoreAt(t, dir)
+		if err := st.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range pairingKeys {
+			if err := st.PutSetting(ctx, store.Setting{Key: "tunnel." + adapter + "." + k, Value: "v"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var writes store.Store = st
+		if failAt > 0 {
+			writes = &failingStore{Store: st, failAt: failAt}
+		}
+		svc := New(writes, openKeyringAt(t, dir), &core.Config{DataDir: dir, Tunnel: "cloudflare"}, func(string, string, string) {})
+		err := svc.Deps().Unpair(ctx, adapter)
+		left := settingValues(t, st)
+		if failAt == 0 {
+			if err != nil || len(left) != 0 {
+				t.Fatalf("the control: %v, %d rows left", err, len(left))
+			}
+			continue
+		}
+		if !errors.Is(err, errInjected) {
+			t.Fatalf("delete %d: %v, want the injected failure", failAt, err)
+		}
+		if len(left) != len(pairingKeys) {
+			t.Errorf("an unpairing whose delete %d (%s) failed left %d of %d rows", failAt, pairingKeys[failAt-1], len(left), len(pairingKeys))
+		}
 	}
 }

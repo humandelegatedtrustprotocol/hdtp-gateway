@@ -184,8 +184,8 @@ func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.
 	return s.applied(ctx, "public_url", publicURL)
 }
 
-// unpair forgets a pairing. It refuses while that adapter is the selected one,
-// because the alternative is a node that cannot start.
+// unpair forgets a pairing, deleting its rows in one transaction. It refuses while that adapter is
+// the selected one, because the alternative is a node that cannot start.
 func (s *Service) unpair(ctx context.Context, adapter string) error {
 	if _, ok := ingressAdapters[adapter]; !ok {
 		return refusal.BadRequest(fmt.Sprintf("%q is not an ingress adapter", adapter), nil)
@@ -210,10 +210,16 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 		return refusal.Conflict(fmt.Sprintf("%s is the selected tunnel — choose another adapter first, "+
 			"otherwise the node would have no way to start", adapter), nil)
 	}
-	for _, k := range pairingKeys {
-		if err := s.store.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {
-			return err
+	// One transaction, as storePairing writes them: a delete that fails leaves the pairing whole.
+	if err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, k := range pairingKeys {
+			if err := tx.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	s.audit("ingress_unpair", "adapter:"+adapter, "ok")
 	return nil
