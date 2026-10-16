@@ -133,7 +133,8 @@ type waitResult struct {
 	TimedOut bool `json:"timed_out"`
 	// queued says a queue only the owner clears gained something since the cursor: a change row of
 	// a contact request or a contact held at a new address (EventRequest), an agent-answered call
-	// (EventPending) or an integration needing re-authorization (EventAttention). The totals above
+	// (EventPending) or an integration newly needing re-authorization (EventAttention, published on
+	// the move into auth_error only: integrations.Manager.OnAuthError). The totals above
 	// stand until the owner clears them, so they are reported and never end a wait by themselves.
 	queued bool
 }

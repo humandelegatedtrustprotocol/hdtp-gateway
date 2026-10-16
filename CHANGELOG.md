@@ -31,6 +31,13 @@ changelog can be and is not summarized into a fictional release history.
   for as long as the queue stood. The counts are reported on every answer as before. [0.1.1]'s
   entry ("answers when a contact is parked at a new address … or an integration needs
   re-authorizing") did not say that it answered so on every wait while either stood.
+- An integration whose token stays dead no longer ends every `wait_for_updates`: each health cycle
+  that redials it (every 60 s by default, while no connection stands), each failed reconnect and
+  each refused call that found it in `auth_error` again fired the change feed's attention event
+  and wrote another `integration_auth` audit row, so a wait parked over it answered within a cycle.
+  Only the move into `auth_error` fires the event and writes the row now, after the status is
+  written; the entry above's "newly needing re-authorization" was not true of the node until this
+  change.
 - Every argument refusal of the owner MCP is a coded tool error audited `refused`: `remove_passkey`
   ("id is required"; the last passkey), `set_exposure` ("integration_id is required"),
   `add_contact` ("give exactly one of invite_url or card", where it said "not both" for neither

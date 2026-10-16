@@ -42,9 +42,11 @@ type Manager struct {
 	// Audit receives integration_connect, _disconnect, _health, _recover,
 	// _withhold, _restore, _auth, _call and _child_crash rows; nil discards.
 	Audit func(action, resource, outcome string)
-	// OnAuthError fires when a dial or health check lands in auth_error: the
-	// token is dead and only the owner can fix it, so whoever is listening
-	// (the change feed) should say so NOW rather than at the next poll.
+	// OnAuthError fires when a dial, a health check or a call moves an
+	// integration INTO auth_error (landFailure): the token is dead and only the
+	// owner can fix it, so whoever is listening (the change feed) should say so
+	// NOW rather than at the next poll. A row already in auth_error that fails
+	// the same way again does not fire it.
 	OnAuthError func(integrationID string)
 	// OnAvailability fires on withhold (true) and restore (false): the serving
 	// layer rebuilds per-caller servers and emits tools/list_changed (SPEC §6.10).
@@ -223,28 +225,39 @@ func (m *Manager) NoteCallFailure(ctx context.Context, integrationID string, err
 	if gerr != nil {
 		return
 	}
-	status := m.failStatus(in, err)
-	if in.Status == status {
+	if in.Status == "auth_error" {
 		return
 	}
-	_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, status)
-	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, status)
+	m.landFailure(ctx, in, err)
+	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, "auth_error")
 }
 
 // failStatus picks the status a dial/health failure lands in (SPEC §6.3/§6.10).
-func (m *Manager) failStatus(in store.Integration, err error) string {
+func failStatus(err error) string {
 	// An upstream answering 401/403 is an authentication problem no matter what
 	// this row was configured with. Filing it under "unreachable" for an
 	// `auth: none` row sent the owner looking for a network fault while the
 	// server was asking, in its WWW-Authenticate header, to be signed into.
 	if isAuthError(err) {
-		m.audit("integration_auth", "account:"+in.AccountID+" integration:"+in.Slug, "error")
-		if m.OnAuthError != nil {
-			m.OnAuthError(in.ID)
-		}
 		return "auth_error"
 	}
 	return "unreachable"
+}
+
+// landFailure writes the status a failure lands in (failStatus) over in, the row as read before the
+// attempt. Moving INTO auth_error is audited integration_auth and fires OnAuthError, after the
+// write, so whoever it wakes reads the new status; a row already in auth_error that fails the same
+// way again is not news, so a health cycle against a token still dead neither audits nor fires.
+func (m *Manager) landFailure(ctx context.Context, in store.Integration, err error) {
+	status := failStatus(err)
+	_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, status)
+	if status != "auth_error" || in.Status == "auth_error" {
+		return
+	}
+	m.audit("integration_auth", "account:"+in.AccountID+" integration:"+in.Slug, "error")
+	if m.OnAuthError != nil {
+		m.OnAuthError(in.ID)
+	}
 }
 
 func (m *Manager) dial(ctx context.Context, in store.Integration) (*mcp.ClientSession, error) {
@@ -384,7 +397,7 @@ func (m *Manager) Connect(ctx context.Context, integrationID string) error {
 	_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, "connecting")
 	session, err := m.dial(ctx, in)
 	if err != nil {
-		_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, m.failStatus(in, err))
+		m.landFailure(ctx, in, err)
 		m.audit("integration_connect", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 		m.startLoop(in.ID)
 		return fmt.Errorf("integrations: connect %s: %w", in.Slug, err)
@@ -490,7 +503,7 @@ func (m *Manager) HealthCheck(ctx context.Context, integrationID string) error {
 		// nothing connected: the cycle IS the retry path
 		session, dialErr := m.dial(ctx, in)
 		if dialErr != nil {
-			_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, m.failStatus(in, dialErr))
+			m.landFailure(ctx, in, dialErr)
 			m.audit("integration_health", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 			return fmt.Errorf("integrations: %s still unreachable: %w", in.Slug, dialErr)
 		}
@@ -576,7 +589,7 @@ func (m *Manager) healthFail(ctx context.Context, in store.Integration, c *conn,
 	}
 	m.mu.Unlock()
 	if failures == 1 {
-		_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, m.failStatus(in, cause))
+		m.landFailure(ctx, in, cause)
 	}
 	m.audit("integration_health", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 	if trip {
