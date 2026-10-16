@@ -153,6 +153,12 @@ func (p *portal) get(path string) string {
 
 func (p *portal) post(path string, form url.Values) string {
 	p.t.Helper()
+	return p.postAnswering(path, form, http.StatusOK)
+}
+
+// postAnswering is post for a request the portal answers with status.
+func (p *portal) postAnswering(path string, form url.Values, status int) string {
+	p.t.Helper()
 	form.Set("csrf", p.csrf)
 	res, err := p.c.PostForm(p.base+path, form)
 	if err != nil {
@@ -160,8 +166,8 @@ func (p *portal) post(path string, form url.Values) string {
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 {
-		p.t.Fatalf("POST %s: %d %s", path, res.StatusCode, firstLine(string(b)))
+	if res.StatusCode != status {
+		p.t.Fatalf("POST %s: %d, want %d: %s", path, res.StatusCode, status, firstLine(string(b)))
 	}
 	return string(b)
 }
@@ -699,7 +705,7 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 	}
 
 	// a fingerprint mismatch aborts before anything is stored
-	body := p.post("/settings/pair", form(mint(), "sha256:definitely-not-the-ingress"))
+	body := p.postAnswering("/settings/pair", form(mint(), "sha256:definitely-not-the-ingress"), http.StatusBadRequest)
 	if !strings.Contains(body, "refused") {
 		t.Fatalf("a mismatched fingerprint was accepted:\n%s", firstLine(body))
 	}
@@ -749,13 +755,13 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 	}
 
 	// the token was single-use
-	body = p.post("/settings/pair", form(token, ingKP.Fingerprint))
+	body = p.postAnswering("/settings/pair", form(token, ingKP.Fingerprint), http.StatusBadRequest)
 	if !strings.Contains(body, "refused") {
 		t.Fatalf("a replayed token was accepted:\n%s", firstLine(body))
 	}
 
 	// unpair is refused while that adapter is selected, and works once it is not
-	if body = p.post("/settings/unpair", url.Values{"adapter": {"ingress-passthrough"}}); !strings.Contains(body, "could not unpair") {
+	if body = p.postAnswering("/settings/unpair", url.Values{"adapter": {"ingress-passthrough"}}, http.StatusConflict); !strings.Contains(body, "could not unpair") {
 		t.Fatalf("unpaired the adapter the node is about to start with:\n%s", firstLine(body))
 	}
 

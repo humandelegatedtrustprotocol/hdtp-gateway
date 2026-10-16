@@ -68,7 +68,7 @@ func (s *Service) pairedAdapters(ctx context.Context) (map[string]bool, error) {
 // over.
 func (s *Service) pair(ctx context.Context, accountID string, in internalui.PairInput) (internalui.PairResult, error) {
 	if s.node == nil {
-		return internalui.PairResult{}, refusal.BadRequest("the node is not serving yet", nil)
+		return internalui.PairResult{}, refusal.Conflict("the node is not serving yet", nil)
 	}
 	mode := ingress.ModePassthrough
 	if in.Mode == string(ingress.ModeTerminate) {
@@ -162,7 +162,7 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 		}
 	}
 	if selected {
-		return refusal.BadRequest(fmt.Sprintf("%s is the selected tunnel — choose another adapter first, "+
+		return refusal.Conflict(fmt.Sprintf("%s is the selected tunnel — choose another adapter first, "+
 			"otherwise the node would have no way to start", adapter), nil)
 	}
 	for _, k := range pairingKeys {

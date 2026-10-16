@@ -9,8 +9,9 @@ may not import each other, import it.
 ## What it holds
 
 - `Of(err)` returns the code and the detail, reading through `%w` and `errors.Join`:
-  - a `BadRequest` in the chain is `bad_request`, an `Unavailable` `unavailable`, and a
-    `RateLimited` `rate_limited`, each with its sentence alone;
+  - a `BadRequest` in the chain is `bad_request`, an `Unavailable` `unavailable`, a
+    `RateLimited` `rate_limited`, a `Conflict` `conflict` and a `NotFound` `not_found`, each with
+    its sentence alone;
   - an `Undelivered` is `unavailable` with "recorded, not delivered: <why>";
   - an install refusal the identity package worded (`identity.Worded`) is `bad_request` with its
     text;
@@ -28,9 +29,11 @@ may not import each other, import it.
   Each of these keeps the error's own text, which the node wrote. `store.ErrNotFound` is
   `not_found` with `NotFoundDetail`. Anything else is `internal` with `InternalDetail`.
 - `BadRequest(sentence, cause)` marks a sentence the node wrote about a caller's arguments,
-  `Unavailable(sentence, cause)` one about something it could not reach, and
+  `Unavailable(sentence, cause)` one about something it could not reach,
   `RateLimited(sentence, cause)` one about a call a budget refused for now (this identity's own, or
-  a peer's); `Of` answers each with its sentence alone. `Undelivered(why, cause)` marks a message recorded and not
+  a peer's), `Conflict(sentence, cause)` one about a target in a state that refuses the call, and
+  `NotFound(sentence, cause)` one about a target the node does not hold; `Of` answers each with
+  its sentence alone. `Undelivered(why, cause)` marks a message recorded and not
   delivered; `Why(err)` reads the reason back. A cause (a dial, a peer's answer) is in `Error()` and
   in no detail.
 

@@ -35,6 +35,18 @@ func RateLimited(sentence string, cause error) error {
 	return coded{code: "rate_limited", sentence: sentence, cause: cause}
 }
 
+// Conflict marks a sentence the node wrote about a target in a state that refuses the call (a node
+// not serving yet, the selected tunnel) as a conflict refusal, read as BadRequest's is.
+func Conflict(sentence string, cause error) error {
+	return coded{code: "conflict", sentence: sentence, cause: cause}
+}
+
+// NotFound marks a sentence the node wrote about a target it does not hold (an account the caller
+// named) as a not_found refusal, read as BadRequest's is.
+func NotFound(sentence string, cause error) error {
+	return coded{code: "not_found", sentence: sentence, cause: cause}
+}
+
 type coded struct {
 	code, sentence string
 	cause          error
