@@ -229,7 +229,7 @@ func (m *Manager) NoteCallFailure(ctx context.Context, integrationID string, err
 		return
 	}
 	m.landFailure(ctx, in, err)
-	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, "auth_error")
+	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, failStatus(err))
 }
 
 // failStatus picks the status a dial/health failure lands in (SPEC §6.3/§6.10).
