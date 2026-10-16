@@ -19,7 +19,8 @@ may not import each other, import it.
   - `contacts.ErrUnknownContact`, `integrations.ErrUnknownRequest` and `identity.ErrNoCertificate`
     are `not_found`;
   - `contacts.ErrWrongState`, `integrations.ErrRequestClosed`, `integrations.ErrNoCatalog`,
-    `integrations.ErrNotConnected` and `identity.ErrSlugTaken` are `conflict`;
+    `integrations.ErrNoExposure`, `integrations.ErrNotConnected` and `identity.ErrSlugTaken` are
+    `conflict`;
   - `contacts.ErrBadRequest`, `messaging.ErrBadRequest`, `integrations.ErrExposureRefused`,
     `identity.ErrDisplayName`, `identity.ErrUnknownAlgorithm` and `auth.ErrLabelRequired` are
     `bad_request`;

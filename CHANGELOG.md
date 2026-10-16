@@ -39,6 +39,10 @@ changelog can be and is not summarized into a fictional release history.
   answered a bare error with no code. [0.1.5]'s entry said `add_contact` and `set_exposure` answer
   their failures as `IsError` results audited `refused`; that was true of the failures of their
   work, not of these argument refusals.
+- The portal's `POST /integrations/{id}/reconfirm` answers an integration with nothing published,
+  or with no catalogue snapshot, 409 with the node's sentence ("integrations: nothing published to
+  reconfirm"), as its README says; it answered 404, the answer for an integration not on the
+  account.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

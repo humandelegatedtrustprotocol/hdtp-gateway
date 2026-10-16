@@ -344,6 +344,25 @@ func TestPickerShowsStaleAndReconfirmRestores(t *testing.T) {
 	}
 }
 
+// A reconfirm of an integration with nothing published is 409, as the README says, with the node's
+// sentence: it answered 404, the answer for an integration not on the account. The control, a
+// reconfirm of a published set, redirects back to the picker.
+func TestAReconfirmWithNothingPublishedIsAConflict(t *testing.T) {
+	mux, st, _, in := pickerEnv(t)
+	ctx := context.Background()
+	rr := postForm(t, mux, "/integrations/"+in.ID+"/reconfirm?account="+in.AccountID, url.Values{})
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "nothing published to reconfirm") {
+		t.Fatalf("reconfirm with nothing published: %d %s, want 409", rr.Code, rr.Body.String())
+	}
+	exps := &integrations.Exposures{Store: st}
+	if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{{Tool: "get_freebusy", Mode: integrations.ModePassthrough}}); err != nil {
+		t.Fatal(err)
+	}
+	if rr := postForm(t, mux, "/integrations/"+in.ID+"/reconfirm?account="+in.AccountID, url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestIntegrationListOffersReconnectOnAuthError(t *testing.T) {
 	mux, st, _, acct := integrationsEnv(t)
 	in, _ := st.InsertIntegration(context.Background(), store.Integration{

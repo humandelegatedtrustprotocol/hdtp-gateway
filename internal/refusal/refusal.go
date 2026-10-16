@@ -122,7 +122,8 @@ func Of(err error) (code, detail string) {
 		errors.Is(err, identity.ErrNoCertificate):
 		return "not_found", err.Error()
 	case errors.Is(err, contacts.ErrWrongState), errors.Is(err, integrations.ErrRequestClosed),
-		errors.Is(err, integrations.ErrNoCatalog), errors.Is(err, integrations.ErrNotConnected),
+		errors.Is(err, integrations.ErrNoCatalog), errors.Is(err, integrations.ErrNoExposure),
+		errors.Is(err, integrations.ErrNotConnected),
 		errors.Is(err, identity.ErrSlugTaken):
 		return "conflict", err.Error()
 	case errors.Is(err, contacts.ErrBadRequest), errors.Is(err, messaging.ErrBadRequest),
