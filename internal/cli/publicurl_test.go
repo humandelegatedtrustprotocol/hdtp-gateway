@@ -16,6 +16,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
@@ -95,7 +96,7 @@ func TestSavingANewPublicURLCallsNobodyAndNamesWhoMustMove(t *testing.T) {
 	svc := settings.New(st, kr, cfg, audit)
 	svc.AttachNode(nd)
 
-	if err := svc.Deps().Save(ctx, "public_url", newURL); err != nil {
+	if err := svc.Deps().Save(ctx, []internalui.SettingValue{{Key: "public_url", Value: newURL}}); err != nil {
 		t.Fatal(err)
 	}
 	// The old announcement ran detached, so give it the time it would have needed to dial.

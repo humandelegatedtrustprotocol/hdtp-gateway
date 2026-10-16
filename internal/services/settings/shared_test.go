@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
@@ -81,7 +82,7 @@ func TestASettingSavedOnOneProcessIsAppliedByAnother(t *testing.T) {
 	ctx := context.Background()
 
 	for _, kv := range [][2]string{{"seal", "required"}, {"lan_connections", "false"}, {"public_url", "https://new.example"}} {
-		if err := a.save(ctx, kv[0], kv[1]); err != nil {
+		if err := a.save(ctx, []internalui.SettingValue{{Key: kv[0], Value: kv[1]}}); err != nil {
 			t.Fatal(err)
 		}
 	}

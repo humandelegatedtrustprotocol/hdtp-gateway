@@ -311,15 +311,33 @@ func (s *Service) adapterSettings(ctx context.Context) ([]internalui.AdapterSett
 	return out, nil
 }
 
-// save persists one knob and applies whatever part of it can take effect now.
-func (s *Service) save(ctx context.Context, key, value string) error {
-	if err := core.ValidateSetting(key, value); err != nil {
+// save persists the knobs of one save, every one or none, and then applies whatever part of each
+// can take effect now. Every value is validated before anything is written, and the rows are
+// written in one transaction (store.Atomically). Applying runs after the commit, outside it: a
+// failure there leaves the rows stored and the running node on the old value of that knob and of
+// those after it until the next start or Follow reads them.
+func (s *Service) save(ctx context.Context, values []internalui.SettingValue) error {
+	for _, v := range values {
+		if err := core.ValidateSetting(v.Key, v.Value); err != nil {
+			return err
+		}
+	}
+	if err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, v := range values {
+			if err := s.put(ctx, tx, v.Key, v.Value); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err := s.saveRaw(ctx, key, value); err != nil {
-		return err
+	for _, v := range values {
+		if err := s.applied(ctx, v.Key, v.Value); err != nil {
+			return err
+		}
 	}
-	return s.applied(ctx, key, value)
+	return nil
 }
 
 // applied takes a knob this process has just stored into the running node and tells the other

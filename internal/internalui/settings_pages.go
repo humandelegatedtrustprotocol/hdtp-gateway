@@ -31,9 +31,10 @@ import (
 type SettingsDeps struct {
 	// Effective is the resolved view of every owner-settable knob.
 	Effective func() []core.Effective
-	// Save persists one knob after validation; it is also where a live-applied
-	// change (seal) is pushed into the serving node.
-	Save func(ctx context.Context, key, value string) error
+	// Save persists the values of one save after validating every one, all of them or none (one
+	// transaction); after the commit it is also where a live-applied change (seal) is pushed into
+	// the serving node.
+	Save func(ctx context.Context, values []SettingValue) error
 	// AdapterSettings lists the stored `tunnel.<adapter>.<name>` keys and
 	// whether each holds a secret. Values are never returned.
 	AdapterSettings func(ctx context.Context) ([]AdapterSetting, error)
@@ -74,6 +75,12 @@ type SettingsDeps struct {
 	Probe func(ctx context.Context) (verdict, detail string)
 	// Audit records settings changes (keys and outcomes, never values). Nil records nothing.
 	Audit func(action, resource, outcome string)
+}
+
+// SettingValue is one key and the value a save stores for it.
+type SettingValue struct {
+	Key   string
+	Value string
 }
 
 // PairInput is what the owner types to pair with an ingress (SPEC §10.6).
@@ -359,7 +366,10 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			editable[e.Key] = true
 		}
 	}
-	var saved, restart []string
+	// Two passes, so a save stores every submitted knob or none: the first checks each (the pairing
+	// read, the pairing, the validator) and refuses the whole form at the first that fails; the
+	// second hands them all to Save, which writes them in one transaction.
+	var values []SettingValue
 	for _, key := range core.OwnerSettableKeys() {
 		if !editable[key] {
 			continue
@@ -406,18 +416,22 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			d.render(w, r, true, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 			return
 		}
-		if err := d.Save(r.Context(), key, value); err != nil {
-			d.audit("settings_save", "key:"+key, "error")
-			d.render(w, r, true, "could not save "+key+": "+pageError(err), true, "", "")
-			return
-		}
-		saved = append(saved, key)
-		if core.RestartScoped(key) {
-			restart = append(restart, key)
+		values = append(values, SettingValue{Key: key, Value: value})
+	}
+	if len(values) == 0 {
+		d.render(w, r, true, "Nothing to save.", false, "", "")
+		return
+	}
+	var saved, restart []string
+	for _, v := range values {
+		saved = append(saved, v.Key)
+		if core.RestartScoped(v.Key) {
+			restart = append(restart, v.Key)
 		}
 	}
-	if len(saved) == 0 {
-		d.render(w, r, true, "Nothing to save.", false, "", "")
+	if err := d.Save(r.Context(), values); err != nil {
+		d.audit("settings_save", "keys:"+strings.Join(saved, ","), "error")
+		d.render(w, r, true, "could not save "+strings.Join(saved, ", ")+": "+pageError(err), true, "", "")
 		return
 	}
 	notice := "Saved " + strings.Join(saved, ", ") + "."
@@ -448,7 +462,7 @@ func (d SettingsDeps) postSettingsAdapter(w http.ResponseWriter, r *http.Request
 			"integration.<slug>.<name>", true, "", "")
 		return
 	}
-	if err := d.Save(r.Context(), key, value); err != nil {
+	if err := d.Save(r.Context(), []SettingValue{{Key: key, Value: value}}); err != nil {
 		d.audit("settings_save", "key:"+key, "error")
 		d.render(w, r, true, "could not store "+key, true, "", "")
 		return

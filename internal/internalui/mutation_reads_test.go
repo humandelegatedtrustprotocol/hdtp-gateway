@@ -212,35 +212,58 @@ func TestAReadOfThePageAnswersAFailedRead500ForEveryMethod(t *testing.T) {
 
 // Selecting an ingress tunnel when the pairings cannot be read answers the store's failure: 500 with
 // page_error "store", nothing saved, audited "error". The failed read was taken as "not paired" and
-// answered as the owner's mistake (a 200 telling them to pair first, audited bad_request). The
-// control, the pairing read, saves the tunnel.
+// answered as the owner's mistake (a 200 telling them to pair first, audited bad_request). A save
+// stores every knob the form submitted or none: the portal posts public_url beside the tunnel, and
+// public_url comes first, so a refusal of the tunnel (the pairing read, an unpaired adapter, the
+// validator) must leave public_url unsaved too, with the refusal its one audit row. Each key was
+// saved as it was checked, so public_url was stored with no row. The control saves both, one row.
 func TestSelectingAnIngressTunnelAnswersAFailedPairingRead(t *testing.T) {
 	var cs *canaryStore
-	var saved []string
-	var outcomes []string
+	var saved, outcomes []string
+	paired := map[string]bool{"ingress-passthrough": true}
 	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
 		cs = &canaryStore{Store: st, fail: map[string]bool{}}
-		MountSettingsPages(mux, SettingsDeps{Owners: cs, Effective: func() []core.Effective { return []core.Effective{{Key: "tunnel"}} },
-			Save: func(_ context.Context, key, value string) error { saved = append(saved, key+"="+value); return nil },
+		MountSettingsPages(mux, SettingsDeps{Owners: cs,
+			Effective: func() []core.Effective { return []core.Effective{{Key: "public_url"}, {Key: "tunnel"}} },
+			Save: func(_ context.Context, values []SettingValue) error {
+				for _, v := range values {
+					saved = append(saved, v.Key+"="+v.Value)
+				}
+				return nil
+			},
 			Paired: func(context.Context) (map[string]bool, error) {
 				if err := cs.err("Paired"); err != nil {
 					return nil, err
 				}
-				return map[string]bool{"ingress-passthrough": true}, nil
+				return paired, nil
 			},
-			Audit: func(action, resource, outcome string) { outcomes = append(outcomes, action+" "+outcome) },
+			Audit: func(action, resource, outcome string) { outcomes = append(outcomes, action+" "+resource+" "+outcome) },
 		})
 	})
 	_, session := e.signIn(t, "Me")
-	cs.fail["Paired"] = true
-	code, body := e.postPage(t, "/settings", url.Values{"tunnel": {"ingress-passthrough"}}, session)
-	if code != http.StatusInternalServerError || body["page_error"] != "store" || body["error"] != true || len(saved) != 0 ||
-		strings.Join(outcomes, ",") != "settings_save error" {
-		t.Errorf("tunnel ingress-passthrough, the pairings failing: %d %v, saved %v, audited %v; want 500, page_error store, error, nothing saved, audited error", code, body, saved, outcomes)
+	for _, c := range []struct {
+		name, tunnel, failing string
+		status                int
+		audited               string
+	}{
+		{"the pairings failing", "ingress-passthrough", "Paired", http.StatusInternalServerError, "settings_save key:tunnel value:ingress-passthrough error"},
+		{"an adapter not paired", "ingress-terminate", "", http.StatusOK, "settings_save key:tunnel value:ingress-terminate bad_request"},
+		{"a value the validator refuses", "nonesuch", "", http.StatusOK, "settings_save key:tunnel bad_request"},
+	} {
+		cs.fail, saved, outcomes = map[string]bool{c.failing: c.failing != ""}, nil, nil
+		code, body := e.postPage(t, "/settings", url.Values{"public_url": {"https://n.example"}, "tunnel": {c.tunnel}}, session)
+		if code != c.status || body["error"] != true || len(saved) != 0 || strings.Join(outcomes, ",") != c.audited {
+			t.Errorf("public_url and tunnel %s, %s: %d %v, saved %v, audited %v; want %d, error, nothing saved, audited %q only",
+				c.tunnel, c.name, code, body, saved, outcomes, c.status, c.audited)
+		}
+		if c.failing != "" && body["page_error"] != "store" {
+			t.Errorf("%s: page_error %v; want store", c.name, body["page_error"])
+		}
 	}
 	cs.fail, outcomes, saved = map[string]bool{}, nil, nil
-	code, body = e.postPage(t, "/settings", url.Values{"tunnel": {"ingress-passthrough"}}, session)
-	if code != http.StatusOK || body["error"] != false || strings.Join(saved, ",") != "tunnel=ingress-passthrough" {
-		t.Errorf("the control, the pairing read: %d %v, saved %v; want 200 and the tunnel saved", code, body, saved)
+	code, body := e.postPage(t, "/settings", url.Values{"public_url": {"https://n.example"}, "tunnel": {"ingress-passthrough"}}, session)
+	if code != http.StatusOK || body["error"] != false || strings.Join(saved, ",") != "public_url=https://n.example,tunnel=ingress-passthrough" ||
+		strings.Join(outcomes, ",") != "settings_save keys:public_url,tunnel ok" {
+		t.Errorf("the control, the pairing read: %d %v, saved %v, audited %v; want 200, both saved, one ok row", code, body, saved, outcomes)
 	}
 }

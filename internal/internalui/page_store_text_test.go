@@ -131,7 +131,7 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 	settings := func(fail bool) SettingsDeps {
 		return SettingsDeps{
 			Effective:    func() []core.Effective { return []core.Effective{{Key: "seal"}} },
-			Save:         func(context.Context, string, string) error { return failIf(fail) },
+			Save:         func(context.Context, []SettingValue) error { return failIf(fail) },
 			SaveStorage:  func(context.Context, string, int64, int, int) error { return failIf(fail) },
 			SavePreset:   func(context.Context, string, []string) error { return failIf(fail) },
 			DeletePreset: func(context.Context, string) error { return failIf(fail) },

@@ -94,6 +94,13 @@ changelog can be and is not summarized into a fictional release history.
   `page_error` `"store"` when the page cannot be read after it either), saves nothing and audits
   `settings_save` `error`; the failed read was taken as no pairing, a 200 telling the owner to
   pair first.
+- A Settings save stores every knob the form submits or none. Each knob was checked and saved in
+  turn, and the portal posts `public_url` (saved first) beside the tunnel, so a refusal of a later
+  knob (a value the validator refused, an ingress tunnel not paired, the pairings that could not
+  be read) left the earlier ones saved, with the refusal the only audit row; the entry above's
+  "saves nothing" was not true of that form. Every knob is now checked before any is written, and
+  they are written in one transaction, so a failed write stores none either. A failure applying a
+  stored knob to the running node, after the write, still answers the failure with the knobs stored.
 - The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
   memory first, so a pairing whose write failed was routed until the next start forgot it.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
