@@ -101,16 +101,17 @@ sidecar, from a copy of [`deploy/limitd/limits.json`](../deploy/limitd/limits.js
 `<your data directory>/limits.sock`, the node's default `limits_socket`, then the node:
 
 ```
-mkdir -p ./data
+mkdir -p -m 700 ./data
 hdtp-limitd -config limits.json &
 hdtp-gateway serve
 ```
 
 The sidecar does not make the directory: started before it exists, it stops with `listen
 ./data/limits.sock: No such file or directory`. These three lines were run as written on
-2026-10-16, with a node and a sidecar built from this checkout in an empty directory (the node's
-binds moved off ports already in use there): the node's banner said `limits:  data/limits.sock
-answering`, and `/healthz` on the internal bind answered `200 ok`.
+2026-10-16, with a node and a sidecar built from this checkout on the `PATH`, in a directory
+holding only `limits.json` (the node's binds moved off ports already in use there): the node's
+banner said `limits:  data/limits.sock answering`, and `/healthz` on the internal bind answered
+`200 ok`.
 
 The rest of this guide runs every command inside the container (`docker compose exec hdtp-gateway
 hdtp-gateway …`); without Docker it is `hdtp-gateway …` on the host.
@@ -233,8 +234,9 @@ service under the profile `bore`, forwarding a port on the public `bore.pub` ser
 `8443`. It needs no account. bore does not touch TLS, so the node stays in **direct mode** and
 callers see its own certificate chain; the chain names the exact address, port included, so choose
 the remote port yourself (`BORE_PORT`) and make it the public URL, in a `compose.override.yaml`
-beside `compose.yaml` (replacing the ngrok one if you used that profile: its edge-mode settings are
-wrong for direct mode):
+beside `compose.yaml`. If you followed the ngrok path, choose `direct` as the tunnel adapter under
+**Settings** first (or add `HDTP_TUNNEL: direct` beside the URL below): a stored `edge` keeps the
+node in edge mode behind a forward that does not terminate TLS.
 
 ```yaml
 services:
@@ -243,8 +245,8 @@ services:
       HDTP_PUBLIC_URL: https://bore.pub:${BORE_PORT}
 ```
 
-Then `BORE_PORT=<a port> docker compose --profile bore up -d`. As with ngrok, remove the file when
-you stop using the `bore` profile. `doctor` says
+Then `BORE_PORT=<a port> docker compose --profile bore up -d`. Remove the file when you stop using
+the `bore` profile. `doctor` says
 `ok   tunnel       direct (mode direct, seal required, client_cert preferred)` and the probe
 validates the chain at `https://bore.pub:<port>`. On the measuring machine the host's resolver
 answered no address for `bore.pub`, so that run gave the node and the `bore` service
