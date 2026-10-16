@@ -47,7 +47,11 @@ rebuild a tag and compare.
    ```
 
    `THIRD_PARTY_NOTICES` is the licence text of everything the binaries and the portal
-   redistribute; `make notices-check`, in the gate, holds it to the dependency set.
+   redistribute, the Go modules taken for every platform in the Makefile's `PLATFORMS`;
+   `make notices-check`, in the gate, holds it to that list and to the dependency set. The files
+   attached to v0.1.5 and before were made for the host alone and lack the eight modules only the
+   Linux binaries link (`github.com/vishvananda/netlink` among them); they are left as they were
+   published.
 
 ## Verifying a release you downloaded
 

@@ -190,16 +190,17 @@ names:
 		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
 	fi
 
-# notices writes THIRD_PARTY_NOTICES: the licence texts of every Go module the shipped binary
-# links, every crate the limits sidecar builds and every npm package the portal bundles, as their
-# own sources hold them (scripts/notices.mjs says how each set is read). notices-check holds the
-# file to the three inputs its header names (go.sum, Cargo.lock, package-lock.json) by hash: it
-# reads four files and nothing else, so it is part of `check`. A dependency change that forgets
+# notices writes THIRD_PARTY_NOTICES: the licence texts of every Go module the shipped binaries
+# link on any of PLATFORMS, every crate the limits sidecar builds and every npm package the portal
+# bundles, as their own sources hold them (scripts/notices.mjs says how each set is read; it is
+# handed PLATFORMS, the one list). notices-check holds the file to PLATFORMS and to the three inputs
+# its header names (go.sum, Cargo.lock, package-lock.json) by hash: it reads four files and nothing
+# else, so it is part of `check`. A dependency change, or a change to PLATFORMS, that forgets
 # `make notices` fails there.
 notices:
-	node scripts/notices.mjs
+	NOTICES_PLATFORMS="$(PLATFORMS)" node scripts/notices.mjs
 notices-check:
-	node scripts/notices.mjs --check
+	NOTICES_PLATFORMS="$(PLATFORMS)" node scripts/notices.mjs --check
 
 # The deploy templates (deploy/, docs/deploy.md) only run on a provider's machine, so between runs
 # they go stale silently: this holds them to each other and to the node on every `make check`

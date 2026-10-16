@@ -39,6 +39,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- `THIRD_PARTY_NOTICES` covers every platform a release ships. It was made from one `go list
+  -deps` for the host (macOS), so it lacked the eight modules only the Linux binaries link
+  (`github.com/vishvananda/netlink`, `vishvananda/netns`, `mdlayher/netlink`, `mdlayher/socket`,
+  `jsimonetti/rtnetlink`, `safchain/ethtool`, `prometheus/procfs`, `godbus/dbus/v5`), and listed
+  `github.com/tailscale/certstore`, which only a cgo build on macOS links and no release binary
+  does. It is now the union of one run per entry of the Makefile's `PLATFORMS` with
+  `CGO_ENABLED=0`, as `make dist` builds, and `make notices-check` refuses a file made for another
+  list (#140). The files attached to v0.1.5 and earlier releases were incomplete in the same way;
+  they are left as published.
 - `doctor`'s `FAIL probe` line gives the dialer's, resolver's or TLS stack's reason after the
   node's own phrase again (`unreachable: the endpoint did not answer the probe: …`); since #126 it
   gave the phrase alone. The portal's probe still shows the phrase only (#129).
