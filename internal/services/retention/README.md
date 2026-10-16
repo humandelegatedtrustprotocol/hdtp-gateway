@@ -17,7 +17,7 @@ A pass does, in this order (`retention.go:78-130`):
 
 ## What it refuses, and how
 
-Nothing is refused. A failed step is printed to stderr as `retention: <what>: <error>` and the pass continues, except that a failed account listing ends the pass without a message. Nothing is printed once `ctx` has ended: a pass cut short by shutdown has not failed.
+Nothing is refused. A failed step is printed to stderr as `retention: <what>: <error>` and the pass continues, except that a failed account listing is printed as `retention: accounts: <error>` and ends the pass, since no account's step can run without it. Nothing is printed once `ctx` has ended: a pass cut short by shutdown has not failed.
 
 ## Invariants
 
@@ -33,6 +33,7 @@ Nothing is refused. A failed step is printed to stderr as `retention: <what>: <e
 - `TestTheSweeperReturnsOnlyWhenItsPassHasAndAStoppingNodeIsNotAFailure`: `Run` does not return while the leaf-retirement callback is blocked, returns after it is released, and prints nothing to stderr.
 - `TestTheSweepExpiresRequestsNobodyAnswered`: with the default 30 days and one account set to 7, a 31-day-old `pending_in`, a 31-day-old `pending_out` and an 8-day-old `pending_in` on the 7-day account are removed; an 8-day-old `pending_in` on the default account and a 90-day-old `active` contact stay; three `contact_expire` rows are audited and `invalidate` is called for the expired outgoing one.
 - `TestTheRetentionPassRunsOnlyWhileItLeads`: the startup pass runs when `leading` is true and not when false.
+- `TestAPassThatCannotListAccountsSaysSo`: a failed account listing prints `retention: accounts: <error>`.
 
 No test here covers the message sweep itself; `internal/messaging/retention_test.go` holds `Sweeper`.
 
