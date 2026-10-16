@@ -130,7 +130,7 @@ func pairRefusal(err error) error {
 		case "unavailable":
 			return refusal.Unavailable("the ingress could not record the pairing; try again with a new token", err)
 		}
-		return refusal.BadRequest(fmt.Sprintf("the pairing URL answered HTTP %d, which is not an ingress's pairing answer", pe.Status), err)
+		return refusal.BadRequest(fmt.Sprintf("the pairing URL answered HTTP %d without a code this node reads", pe.Status), err)
 	}
 	if errors.Is(err, ingress.ErrIngressPin) {
 		return refusal.BadRequest("the ingress served a certificate whose fingerprint is not the one given", err)

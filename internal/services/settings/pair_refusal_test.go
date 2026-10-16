@@ -148,6 +148,11 @@ func TestAPairingTheIngressRefusedAnswersTheIngresssCode(t *testing.T) {
 	if _, _, err := ingress.Pair(nil, srv.URL+"/pair", mine, "", ingress.PairRequest{Token: spent, Subdomain: "taken", Mode: ingress.ModePassthrough}); err != nil {
 		t.Fatal(err)
 	}
+	// an ingress whose refusal is plain text, not a JSON code
+	plain := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "subdomain taken", http.StatusConflict)
+	}))
+	defer plain.Close()
 	gone := httptest.NewTLSServer(http.NotFoundHandler())
 	goneURL := gone.URL + "/pair"
 	gone.Close()
@@ -170,7 +175,8 @@ func TestAPairingTheIngressRefusedAnswersTheIngresssCode(t *testing.T) {
 		{"a malformed subdomain", pair(srv.URL+"/pair", mine, "", mint(), "Not_A_Label"), "bad_request",
 			"the ingress refused the subdomain or the mode: a subdomain is one DNS label of lowercase letters, digits and hyphens, and the mode passthrough or terminate"},
 		{"an ingress that could not record it", unwritable(), "unavailable", "the ingress could not record the pairing; try again with a new token"},
-		{"not an ingress's answer", pair(srv.URL+"/elsewhere", mine, "", mint(), "lost"), "bad_request", "the pairing URL answered HTTP 404, which is not an ingress's pairing answer"},
+		{"not an ingress's answer", pair(srv.URL+"/elsewhere", mine, "", mint(), "lost"), "bad_request", "the pairing URL answered HTTP 404 without a code this node reads"},
+		{"a refusal in plain text", pair(plain.URL+"/pair", mine, "", "pair_x", "plain"), "bad_request", "the pairing URL answered HTTP 409 without a code this node reads"},
 		{"another ingress's certificate", pair(srv.URL+"/pair", mine, "sha256:not-this-ingress", mint(), "pinned"), "bad_request", "the ingress served a certificate whose fingerprint is not the one given"},
 		{"an ingress not reached", pair(goneURL, mine, "", "pair_x", "dark"), "unavailable", "the ingress could not be reached"},
 	}
