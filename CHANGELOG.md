@@ -233,6 +233,9 @@ changelog can be and is not summarized into a fictional release history.
   looked the node up by fingerprint alone and compared the secret of whichever pairing it met
   first, so such a node was refused with its own credential most of the time (349 of 400 lookups
   measured).
+- `add_contact` with a card tells a failure of this node before the request leaves — its card or
+  its client could not be read — as `internal`, audited `error` (#131). It was told as a peer that
+  could not be reached (`unavailable`) and audited `unreachable`.
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a

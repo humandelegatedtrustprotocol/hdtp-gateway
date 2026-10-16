@@ -515,7 +515,14 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 			// The peer answered, with a §12 code (node.RequestContact filters it) or none.
 			return out, peerRefused(refused.Error(), refused.Code)
 		}
-		return out, ci.unreached(accountID, peerCard.Key, "the request did not reach the peer", err)
+		var notReached node.ErrNotReached
+		if errors.As(err, &notReached) {
+			return out, ci.unreached(accountID, peerCard.Key, "the request did not reach the peer", err)
+		}
+		// This node's own failure before the call left — its card or its client: internal, and
+		// audited as that, never as a peer that could not be reached.
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "error")
+		return out, err
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err

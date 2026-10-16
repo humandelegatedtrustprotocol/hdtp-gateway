@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -131,7 +131,7 @@ func TestThisNodesOwnBudgetIsToldAsRateLimited(t *testing.T) {
 		t.Errorf("a redemption this node's budget refused: %s %q (%v)", code, detail, err)
 	}
 	card := testid.CardFor(t, "Dev", "https://dev.example/mcp")
-	requestErr = fmt.Errorf("request_contact: %w", limited)
+	requestErr = node.ErrNotReached{Err: limited}
 	_, err = r.ci.RequestContact(r.ctx, r.account, card, "")
 	if code, detail := refusal.Of(err); code != "rate_limited" || !strings.Contains(detail, "try again in 7 s") {
 		t.Errorf("a request this node's budget refused: %s %q (%v)", code, detail, err)
@@ -139,10 +139,39 @@ func TestThisNodesOwnBudgetIsToldAsRateLimited(t *testing.T) {
 	if rows := r.initiated(); len(rows) != 2 || rows[0].outcome != "rate_limited" || rows[1].outcome != "rate_limited" {
 		t.Errorf("contact_initiate rows %+v, want two, rate_limited", rows)
 	}
-	requestErr = fmt.Errorf("request_contact: dial tcp: connection refused")
+	requestErr = node.ErrNotReached{Err: errors.New("dial tcp: connection refused")}
 	_, err = r.ci.RequestContact(r.ctx, r.account, card, "")
 	if code, _ := refusal.Of(err); code != "unavailable" {
 		t.Errorf("the control, a dial that failed: %s (%v)", code, err)
+	}
+}
+
+// A request that failed on this node before it left — its card or its client could not be read — is
+// this node's failure: internal, audited error, never a peer that could not be reached (#131). It
+// was told unavailable and audited unreachable. The control, a call that left and got no answer
+// (node.ErrNotReached), is still unavailable and unreachable.
+func TestARequestThatFailsHereIsInternal(t *testing.T) {
+	var requestErr error
+	r := newAddContactRig(t, nil, func(context.Context, string, outbound.Peer, string, string) error { return requestErr })
+	card := testid.CardFor(t, "Dev", "https://dev.example/mcp")
+
+	requestErr = errors.New("sqlite: disk I/O error")
+	_, err := r.ci.RequestContact(r.ctx, r.account, card, "")
+	if code, detail := refusal.Of(err); code != "internal" || strings.Contains(detail, "sqlite") {
+		t.Errorf("a request that failed here: %s %q (%v)", code, detail, err)
+	}
+	if rows := r.initiated(); len(rows) != 1 || rows[0].outcome != "error" {
+		t.Errorf("contact_initiate rows %+v, want one, error", rows)
+	}
+
+	r.rows = nil
+	requestErr = node.ErrNotReached{Err: errors.New("dial tcp: connection refused")}
+	_, err = r.ci.RequestContact(r.ctx, r.account, card, "")
+	if code, _ := refusal.Of(err); code != "unavailable" {
+		t.Errorf("the control, a call that got no answer: %s (%v)", code, err)
+	}
+	if rows := r.initiated(); len(rows) != 1 || rows[0].outcome != "unreachable" {
+		t.Errorf("the control's rows %+v, want one, unreachable", rows)
 	}
 }
 
@@ -246,7 +275,7 @@ func TestASidecarThatIsDownIsToldAsThat(t *testing.T) {
 			return &outbound.Client{Budget: func(outbound.Peer, string) error { return outbound.ErrLimitsUnavailable }}, nil
 		},
 		func(context.Context, string, outbound.Peer, string, string) error {
-			return fmt.Errorf("request_contact: %w", outbound.ErrLimitsUnavailable)
+			return node.ErrNotReached{Err: outbound.ErrLimitsUnavailable}
 		})
 
 	_, redeemErr := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")

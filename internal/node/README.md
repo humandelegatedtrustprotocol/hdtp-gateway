@@ -15,7 +15,7 @@ Budgets (node.go, outbound.go): the node turns what a call is into the charges t
 Outbound (outbound.go, send.go, contactcall.go, request.go, refresh.go, announce.go, campaign.go):
 - `PeerOf`, `OutboundClient`: the `outbound.Peer` for a pinned contact and a client wired to the store, the clock, the budget and the pin write-backs.
 - `SendMessage`, `SendMedia`, `RetryPending`, `RunRetries`, and the `Status*`, `RetrySweep`, `MaxRetryBatch`, `MaxRetryDelay` constants: record first, then deliver; the retry sweep resends with the same `msg_id`.
-- `ListContactTools`, `CallContact`, `ContactTool`, `RequestContact`, `ErrRequestRefused`, `RefreshContact`, `ContactRefresh`, the `Refresh*` outcomes, `FetchMedia`.
+- `ListContactTools`, `CallContact`, `ContactTool`, `RequestContact`, `ErrRequestRefused`, `ErrNotReached` (a `request_contact` that went out and got no answer, or that the budget or the limits sidecar kept from leaving; a failure before the call is returned as it is), `RefreshContact`, `ContactRefresh`, the `Refresh*` outcomes, `FetchMedia`.
 - `AnnounceMove`, `ResumeMove`, `MoveProgress`, `MoveUnreached`: the durable fan-out that tells contacts of a new leaf.
 
 ## What it refuses, and how
