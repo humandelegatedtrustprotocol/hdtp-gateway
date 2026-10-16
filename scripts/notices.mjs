@@ -17,9 +17,9 @@
 //
 // The header records the platforms and the sha256 of go.sum, cmd/hdtp-limitd/Cargo.lock and
 // web/package-lock.json, what changes when any of the three sets does. `--check` recomputes those
-// and compares, which needs none of the tools above, so it runs on every `make check`; it also
-// refuses a file without github.com/vishvananda/netlink while PLATFORMS holds a Linux entry, the
-// module only Linux links that the host-only file of v0.1.5 and before left out (#140).
+// and compares, which needs none of the tools above, so it runs on every `make check`. A file made
+// for another platform list, or with no list (the host-only file of v0.1.5 and before, #140), does
+// not carry the platforms line.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -47,9 +47,6 @@ function check() {
   if (stale.length) {
     fail(`${OUT} was not made from the dependency set on disk; its header does not carry:\n` +
       `${stale.map((l) => l.trim()).join('\n')}\nrun make notices and commit the result`)
-  }
-  if (PLATFORMS.some((p) => p.startsWith('linux/')) && !text.includes('\ngithub.com/vishvananda/netlink ')) {
-    fail(`${OUT} has no github.com/vishvananda/netlink, which the linux binaries link: it was made for the host alone; run make notices`)
   }
   console.log(`notices-check: ${OUT} matches ${PLATFORMS.join(' ')} and ${INPUTS.join(', ')}`)
 }
