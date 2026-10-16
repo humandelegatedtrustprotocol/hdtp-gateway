@@ -71,9 +71,11 @@ rebuild a tag and compare.
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-**Rebuild it yourself.** Builds are reproducible: `CGO_ENABLED=0` and `-trimpath`
-mean no host libc and no embedded build paths. In a fresh clone of the tag, with the Go
-toolchain from `go.mod`:
+**Rebuild it yourself.** The node's builds are reproducible: `CGO_ENABLED=0` and `-trimpath`
+mean no host libc and no embedded build paths. `make dist` builds the limits sidecar too, so in a
+fresh clone of the tag it needs, beside the Go toolchain from `go.mod`, Docker (the Linux
+sidecars are built in the `rust:1.92-alpine` image), Rust 1.92 on the host and its two darwin
+targets (`rustup target add x86_64-apple-darwin aarch64-apple-darwin`):
 
 ```
 make dist VERSION=1.2.3
@@ -82,9 +84,25 @@ go version -m dist/hdtp-gateway_1.2.3_linux_amd64 | grep vcs
 ```
 
 The checksum must equal the published one, and the published binary's `go version -m` must
-show `vcs.modified=false` and the tag's commit. A mismatch is a bug worth reporting.
+show `vcs.modified=false` and the tag's commit. A mismatch is a bug worth reporting. The Linux
+sidecars rebuilt from another checkout were byte-identical; the macOS sidecars built from a
+checkout at another path differ in the Mach-O `LC_UUID` and, on arm64, the code signature over it,
+so they do not match the published checksum ([What this does not prove](#what-this-does-not-prove)).
 
-**SBOM:** `sbom.cdx.json` (CycloneDX 1.6) lists the full dependency graph.
+To check the node's binaries alone, Go is all it takes: in a fresh clone of the tag, build each
+platform as `make dist` does, here linux/amd64, and compare as above:
+
+```
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true \
+  -ldflags "-s -w -X main.version=1.2.3" -o hdtp-gateway_1.2.3_linux_amd64 ./cmd/hdtp-gateway
+```
+
+Run in two fresh clones at different paths, this line gave the same checksum and
+`vcs.modified=false` in both (2026-10-16, a local tag, linux/amd64).
+
+**SBOM:** `sbom.cdx.json` (CycloneDX 1.6) is the node's: the Go modules `cmd/hdtp-gateway` links
+(`cyclonedx-gomod app`). It does not list the limits sidecar's Rust crates; their list is
+`cmd/hdtp-limitd/Cargo.lock` at the tag.
 
 ## v0.1.0, v0.1.1 and v0.1.2
 
