@@ -78,12 +78,18 @@ changelog can be and is not summarized into a fictional release history.
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
-  its code reads (404, 409, 400, or 500 for a failure of the node) beside the page's state, where
-  every refusal was a 200 with `error` set (a pairing form missing a field still is).
+  its code reads (404, 409, 400, or 500 for a failure of the node) beside the page's state (or
+  `page_error`, when the page cannot be read), where every refusal was a 200 with `error` set (a
+  pairing form missing a field still is).
 - A portal pairing that names no account pairs the node's sole account only when the signed-in
-  owner administers it, as `accountMiddleware` resolves it for the request; otherwise it is
-  refused `not_found` ("unknown account") and audited `ingress_pair` `not_found`, as is a named
-  account the node does not hold. It paired the sole account for any signed-in owner.
+  owner administers it, as `accountMiddleware` resolves it for the request; on a node with one
+  account that the owner does not administer it is refused `not_found` ("unknown account") and
+  audited `ingress_pair` `not_found` under the pairing URL. It paired the sole account for any
+  signed-in owner. On a node with several accounts it is still `bad_request` ("this node has
+  several identities — choose which one to pair"), and on one with none `bad_request` ("create an
+  account before pairing"); neither is audited. A pairing naming an account the owner does not
+  administer, held by the node or not, is 404 before it reaches the pairing, at account
+  resolution, audited `portal_request` `refused`.
 - `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
   the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),
   on both of its paths, and audits it `rate_limited`. It was told as a peer that could not be
