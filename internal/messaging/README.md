@@ -34,7 +34,8 @@ Messages (service.go):
 Media (media.go):
 
 - `MediaService.ReceiveInline` (inbound), `SendInline` (the owner's outbound), `ReceiveURL` (records a
-  url without fetching) and `Fetch` (the explicit owner act that retrieves a url).
+  url without fetching) and `FetchMessage` (the explicit owner act that retrieves a recorded url, through
+  `fetchURL`).
 - `BlobDir`: content-addressed files under `Root/<first two hex>/<sha256>`, mode 0700 directories and
   0600 files; `Put`, `Get`, `Remove`. `MediaMeta` is the JSON body of a kind=media message.
 - `IsPrivateAddr`: the SPEC 7.5 refused ranges (loopback, private, link-local, unspecified, CGNAT
@@ -42,7 +43,12 @@ Media (media.go):
   (5 MiB) and `DefaultQuotaBytes` (10 GiB).
 
 Retention (retention.go): `Sweeper.Sweep(ctx, account, window)` returning a `SweepResult`;
-`RetentionStore`, `BlobRemover`.
+`Sweeper.CollectOrphans(ctx, account)`, the files no message names whose record is older than
+`FileGrace` (1 hour), whatever the window; `Files.Collect`, the one collection of unnamed files the sweep,
+the orphan sweep and a deleted conversation share; `RetentionStore`, `BlobRemover`.
+
+Deletion (delete.go): `Service.DeleteThread` and its answer `Deleted` (with `AuditDetail`, the
+`thread_delete` row's detail); `Service.WipeThreadIDs` and `Wiped`.
 
 Events (bus.go): `NewBus`, `Bus.Subscribe`, `SubscribeSized`, `Publish`, `Run`; `Event`, `EventKind`
 with eleven kinds (message, request, pending, delivery, call, attention, answered, relayed, invalidate,
@@ -59,7 +65,7 @@ A message row's status, as this package writes it: `delivered` for an inbound me
 an outbound one (service.go, status assignment in `record`). It then leaves this package: `internal/node`
 sets `delivered` when a peer accepts it, `failed`, or gives it up at its deadline
 (`StatusDelivered` and `StatusFailed` in `internal/node/send.go`, set by `Node.setStatus` and its callers there). The deadline is the message's `ExpiresAt`, or its creation time plus
-`store.DefaultMessageExpiry` (24 hours) when it has none (store.go:252-261). `queued_for_human` is not
+`store.DefaultMessageExpiry` (24 hours) when it has none (`store.Message.Deadline`). `queued_for_human` is not
 written by this package.
 
 ## What it refuses, and how
@@ -77,7 +83,7 @@ written by this package.
 Media: `too_large` for empty data or data over 5 MiB, and for a fetch over 5 MiB; `ErrQuota` (the same
 code text, a distinct value) when the account's blob bytes plus the new data exceed the quota. The quota
 is `Quota()` when it returns more than 0, else `MaxBytes`, else `DefaultQuotaBytes`, read at each call.
-`Fetch` refuses, with the code in the error text: `bad_request` for an unparsable url, `unavailable` for
+`FetchMessage` refuses, with the code in the error text: `bad_request` for an unparsable url, `unavailable` for
 a name that does not resolve or a transport failure, `permission_denied` when any resolved address is
 private (the refusal is audited as `media_fetch_refused`), and any redirect.
 
@@ -94,10 +100,12 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
 - A published event is appended to the store's change log before it is delivered locally; `Run` skips the
   ids this process published so a subscriber hears each event once; a full subscriber channel drops the
   event instead of blocking the publisher.
-- `Fetch` dials the address it vetted (the first resolved), not the name, so a rebinding DNS answer
+- `FetchMessage` dials the address it vetted (the first resolved), not the name, so a rebinding DNS answer
   cannot change the target between check and connect; it times out at 30 s and follows no redirect.
-- Retention deletes locally only. A blob row goes only when past the window and referenced by no
-  retained message; its file goes only when no account references the hash. If any media body fails to
+- Retention deletes locally only. A file's record goes only when no media message of the account names
+  it and the record is older than the cutoff: the window for `Sweep`, `FileGrace` for `CollectOrphans`
+  (whatever the window, unlimited included), and any age for a deleted conversation's files; the file
+  goes only when no account's record names the hash. If any media body fails to
   parse, no blob is deleted in that sweep. A window of 0 or less deletes nothing.
 - A sweep (`Sweep`, `CollectOrphans`) that deletes anything writes exactly one `retention_sweep` row,
   `account:<id> messages:<n> threads:<n> blobs:<n>`, on every way out: `ok`,
@@ -129,7 +137,7 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
   delivered/failed transitions are `internal/node`'s.
 - It never tells a peer to forget anything: retention is local and there is no wire protocol for remote
   deletion (retention.go header).
-- It does not fetch a url on receipt: `ReceiveURL` records it, and only `Fetch`, an explicit owner
+- It does not fetch a url on receipt: `ReceiveURL` records it, and only `FetchMessage`, an explicit owner
   action, retrieves it.
 - An event is a hint, not the ledger: it names what changed and subscribers re-read the store; a dropped
   event is made up at the subscriber's next read (bus.go header).
