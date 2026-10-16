@@ -509,3 +509,65 @@ func keys(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// The pre-push hook's header and CONTRIBUTING.md's pre-push bullet each list what the hook runs, and
+// both had fallen behind it (CONTRIBUTING.md never named make scale; the header's make check named
+// five of check's eleven prerequisites). Each is held to the hook's own
+// step calls, conditional and live tiers included, in both directions, and the header's make check
+// entry to the Makefile's check prerequisites.
+func TestThePrePushHookAndItsDocsNameWhatItRuns(t *testing.T) {
+	root := repoRoot(t)
+	hook := readDoc(t, root, "githooks/pre-push")
+	runs := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^[^#\n]*\bstep ([a-z][a-z-]*)`).FindAllStringSubmatch(hook, -1) {
+		runs[m[1]] = true
+	}
+	if len(runs) < 6 {
+		t.Fatalf("read %d steps from githooks/pre-push; the reader is broken", len(runs))
+	}
+	header := hook[:strings.Index(hook, "\nset -euo pipefail")]
+	named := func(where, text string) {
+		t.Helper()
+		says := map[string]bool{}
+		for _, m := range regexp.MustCompile("(?m)(?:^#\\s+make ([a-z][a-z-]*)\\s|\\(make ([a-z][a-z-]*)[,)]|`make ([a-z][a-z-]*)`)").FindAllStringSubmatch(text, -1) {
+			says[m[1]+m[2]+m[3]] = true
+		}
+		for step := range runs {
+			if !says[step] {
+				t.Errorf("githooks/pre-push runs make %s; %s does not say so", step, where)
+			}
+		}
+		for step := range says {
+			if !runs[step] {
+				t.Errorf("%s says the hook runs make %s; githooks/pre-push does not", where, step)
+			}
+		}
+	}
+	named("the hook's header", header)
+
+	contributing := readDoc(t, root, "CONTRIBUTING.md")
+	at := strings.Index(contributing, "**pre-push** runs")
+	if at < 0 {
+		t.Fatal("CONTRIBUTING.md has no **pre-push** bullet; the reader is broken or the bullet moved")
+	}
+	bullet := contributing[at:]
+	// The bullet, and the code block of live tiers that closes it.
+	if open := strings.Index(bullet, "```"); open >= 0 {
+		if end := strings.Index(bullet[open+3:], "```"); end >= 0 {
+			bullet = bullet[:open+3+end]
+		}
+	}
+	named("CONTRIBUTING.md's pre-push bullet", bullet)
+
+	makefile := readDoc(t, root, "Makefile")
+	m := regexp.MustCompile(`(?m)^check: (.+)$`).FindStringSubmatch(makefile)
+	if m == nil {
+		t.Fatal("the Makefile has no check: line")
+	}
+	entry := header[strings.Index(header, "#   make check"):strings.Index(header, "#   make analyze")]
+	for _, prereq := range strings.Fields(m[1]) {
+		if !regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(prereq) + `(\s|$)`).MatchString(strings.ReplaceAll(entry, "#", " ")) {
+			t.Errorf("make check runs %s; the hook header's make check entry does not name it", prereq)
+		}
+	}
+}

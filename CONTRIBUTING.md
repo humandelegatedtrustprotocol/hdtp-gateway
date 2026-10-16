@@ -24,7 +24,7 @@ and Docker (the pre-push gate starts a Postgres container, and the scenario harn
 
 ```
 make build      # static binary
-make check      # fmt, vet, the deploy templates, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
+make check      # fmt, vet, names, the notices, the deploy templates, the frp patch, the release checks, the dependents, the limits sidecar's gate, race tests (Postgres too when HDTP_TEST_POSTGRES_DSN is set), the page scripts under node --test
 make harness    # the scenario harness's own unit tests (no Docker needed)
 make all        # the full pre-flight, in the right order (below)
 make hooks      # install the hooks (pre-commit gofmt, commit-msg no local path in the message, pre-push the whole gate; do this once)
@@ -67,9 +67,15 @@ its own copy):
   unchanged (only when the push touches `web/`); `make check` with
   `HDTP_TEST_POSTGRES_DSN` pointing at a Postgres container it starts under the name
   `hdtp-gateway-prepush-pg-<pid>` and removes on every exit (no Docker, no push);
-  `make analyze`; `make sqlc-check`; `make fuzz`; and `make harness`, the harness's
-  hermetic tier. Everything runs with `GOWORK=off`, so the gate proves the committed
-  `go.mod` and `go.sum`, whatever workspace your shell has. The live scenarios need a
+  `make analyze`; `make sqlc-check`; `make fuzz`; `make harness`, the harness's
+  hermetic tier; and last `make scale`, the store's benchmarks and the import's growth,
+  whose wall-clock ratios are the one measurement a busy machine can move. Everything runs
+  with `GOWORK=off`, so the gate proves the committed `go.mod` and `go.sum`, whatever
+  workspace your shell has, and with `HDTP_REQUIRE_SIBLINGS=1`, so a guard that reads a
+  sibling checkout (batondeck, hdtp-identity, hdtp-spec) fails when it is not found
+  instead of skipping: `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` and `HDTP_SPEC_DIR` point
+  at one, and otherwise each is looked for beside this checkout and beside the main
+  checkout of a worktree (`scripts/sibling.sh`). The live scenarios need a
   real Chrome and a real container fabric, so they are opt-in from the same hook:
 
 ```

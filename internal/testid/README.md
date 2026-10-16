@@ -49,7 +49,8 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
   `TestErrorCodesAreTheSpecsTable` (hdtp-spec's released §12, `docs/specification/1.0/`),
   `TestTheCloudsCopyOfTheRefusalsIsCurrent`, `TestTheCloudsCopyOfTheOwnerToolsIsCurrent`,
   `TestTheCloudsCopyOfTheProtocolHintsIsCurrent` and `TestTheCloudsServedAnnotationCasesHoldHere`
-  (batondeck's `gateway/test/fixtures/`).
+  (batondeck's `gateway/test/fixtures/`), and `TestTheArticleRuleIsOneRuleInEveryRepository`
+  (hdtp-identity's `gate.sh`, hdtp-spec's `vectors/lib/stated.mjs`).
 
 ## What it refuses, and how
 

@@ -5,10 +5,11 @@
 # only"), so every check that used to run on a runner runs on this machine, before anything
 # leaves it:
 #
-#   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
-#                     disk), race tests — with HDTP_TEST_POSTGRES_DSN pointing at a Postgres this
-#                     hook starts, so the Postgres engine's tests run rather than skip — and the
-#                     portal's page scripts under node --test (make test-js)
+#   make check        the Makefile's `check` target: fmt vet names notices-check deploy-check
+#                     frp-check release-check dependents limitd-check test test-js — with
+#                     HDTP_TEST_POSTGRES_DSN pointing at a Postgres this hook starts, so the Postgres
+#                     engine's tests run rather than skip, and HDTP_REQUIRE_SIBLINGS=1, so a guard
+#                     whose sibling checkout is not found fails rather than skips
 #   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
 #   make sqlc-check   the committed generated store code matches its sources
 #   make fuzz         every Fuzz target under -fuzz, a fixed number of executions each
