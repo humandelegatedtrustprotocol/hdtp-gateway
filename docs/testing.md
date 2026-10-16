@@ -52,7 +52,7 @@ how to use it and how to add to it.
 
 | Command | Runs | Needs on the machine |
 |---|---|---|
-| `make harness` | the hermetic tier: every package's unit tests against recorders, the registry, image and port guards, `go vet`. No scenario runs: each live test skips without `HDTP_HARNESS_LIVE`. The `pre-push` hook runs this on every push. | Go |
+| `make harness` | the hermetic tier: every package's unit tests against recorders, the registry, image and port guards (the module's `go vet` is `make check`'s, in `dependents`). No scenario runs: each live test skips without `HDTP_HARNESS_LIVE`. The `pre-push` hook runs this on every push. | Go |
 | `make harness-live` | the fabric tier, F1–F5 | Docker |
 | `make harness-pr` | fabric + S2, S9 (`HDTP_PREPUSH_LIVE=1 git push` runs it too) | Docker, Chrome |
 | `make harness-nightly` | every scenario (`HDTP_PREPUSH_LIVE=full git push`) | Docker, Chrome; S8 needs `HDTP_HARNESS_KERNEL`, T7 needs `HDTP_CF_DOMAIN` |

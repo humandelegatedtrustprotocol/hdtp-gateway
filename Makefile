@@ -356,11 +356,12 @@ test-js:
 	node web/tools/kit.mjs check
 
 # The scenario harness (docs/harness-design.md). Separate module, separate command,
-# deliberately not part of `check`.
+# deliberately not part of `check`. Its `go vet` is `dependents`', part of `check`, which every push
+# runs first: vetting it again here judged the same tree twice.
 # The multi-process scenario (harness/multiprocess) runs the limits sidecar, so the hermetic tier builds it
 # first: a fresh checkout has no target/ and the test refuses to run without the binary.
 harness: limitd
-	cd harness && go vet ./... && go test -race ./...
+	cd harness && go test -race ./...
 
 # ---- the identity module ---------------------------------------------------
 # The node requires github.com/humandelegatedtrustprotocol/hdtp-identity/go BY VERSION (go.mod, no replace),
