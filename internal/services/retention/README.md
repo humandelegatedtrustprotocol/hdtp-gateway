@@ -8,12 +8,12 @@ The node's slow background sweeper (SPEC §7.9, §9.1, §11.1): one ticker that 
 - `SweepInterval` = 1 hour. `ChangeLogKept` = 7 days.
 - `Windows`: `RequestExpiryFor(ctx, accountID)` and `StorageFor(ctx, accountID)` (quota, retention window).
 
-A pass does, in this order (`retention.go:78-130`):
+A pass does, in this order (`Run`'s `sweep`):
 
 1. Returns at once when `leading` is non-nil and reports false (one process on the store sweeps).
 2. Calls `retireLeaves(ctx)`, then `archiveTrail(ctx)`, each only when non-nil.
 3. Store-wide: deletes idempotency records and owner sessions past their own expiry, and change-log rows older than `ChangeLogKept`.
-4. For each account: expires pending contact requests (theirs and ours) older than `settings.RequestExpiryFor`, writing one `contact_expire` audit row per removed contact (`account:<id> contact:<fingerprint> status:<status>`), then, only when the account's retention window is positive, runs `messaging.Sweeper.Sweep`, which deletes messages older than the window, empty threads, and blobs no retained message references.
+4. For each account: expires pending contact requests (theirs and ours) older than `settings.RequestExpiryFor`, writing one `contact_expire` audit row per removed contact (`account:<id> contact:<fingerprint> status:<status>`); then, whatever the window, unlimited included, runs `messaging.Sweeper.CollectOrphans`, which deletes the files no message names whose record is older than `messaging.FileGrace`; then, only when the account's retention window is positive, runs `messaging.Sweeper.Sweep`, which deletes messages older than the window, empty threads, and blobs no retained message references.
 
 ## What it refuses, and how
 
@@ -33,6 +33,7 @@ Nothing is refused. A failed step is printed to stderr as `retention: <what>: <e
 - `TestTheSweeperReturnsOnlyWhenItsPassHasAndAStoppingNodeIsNotAFailure`: `Run` does not return while the leaf-retirement callback is blocked, returns after it is released, and prints nothing to stderr.
 - `TestTheSweepExpiresRequestsNobodyAnswered`: with the default 30 days and one account set to 7, a 31-day-old `pending_in`, a 31-day-old `pending_out` and an 8-day-old `pending_in` on the 7-day account are removed; an 8-day-old `pending_in` on the default account and a 90-day-old `active` contact stay; three `contact_expire` rows are audited and `invalidate` is called for the expired outgoing one.
 - `TestTheRetentionPassRunsOnlyWhileItLeads`: the startup pass runs when `leading` is true and not when false.
+- `TestThePassTakesUnnamedFilesUnderUnlimitedRetention`: with no window set, a file no message names and older than `messaging.FileGrace` goes, and one recorded before migration 0003 stays.
 - `TestAPassThatCannotListAccountsSaysSo`: a failed account listing prints `retention: accounts: <error>`.
 
 No test here covers the message sweep itself; `internal/messaging/retention_test.go` holds `Sweeper`.
