@@ -37,7 +37,9 @@ type fileRegistry struct {
 // ConsumeToken and the lookups are the in-memory registry's. The file is written 0600, through a temporary
 // file renamed over it, after Put's checks have passed and before the in-memory book changes.
 func NewFileRegistry(path string, now func() time.Time) (Registry, error) {
-	r := &fileRegistry{memRegistry: newMemRegistry(now), path: path}
+	// The file registry checks and writes before the in-memory book changes, so it holds the memory
+	// registry itself, not the interface.
+	r := &fileRegistry{memRegistry: NewMemoryRegistry(now).(*memRegistry), path: path}
 	nodes, err := readNodes(path)
 	if err != nil {
 		return nil, err

@@ -79,9 +79,7 @@ type memRegistry struct {
 
 // NewMemoryRegistry returns an in-memory Registry. now is the clock for token expiry; nil means
 // time.Now.
-func NewMemoryRegistry(now func() time.Time) Registry { return newMemRegistry(now) }
-
-func newMemRegistry(now func() time.Time) *memRegistry {
+func NewMemoryRegistry(now func() time.Time) Registry {
 	if now == nil {
 		now = time.Now
 	}
