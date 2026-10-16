@@ -146,11 +146,11 @@ var pairingKeys = []string{"domain", "data_plane_addr", "data_plane_port", "data
 // storePairing writes what a completed pairing produced: the adapter's rows, then the adapter as
 // the selected tunnel and the public URL under the name the ingress assigned (the subdomain is
 // not echoed back; it is derived from that name, so what is stored is what the ingress routes).
-// There is no cross-row transaction — store.SettingStore writes one row at a time — so the order
-// carries the invariant: `subdomain`, the marker pairedAdapters reads, is the last of the
-// adapter's rows, and a write that fails before it leaves the pairing incomplete and not
-// selectable. The rows a failed pairing leaves are overwritten by the next pairing and deleted by
-// unpair. `ingress_fpr` is the ingress's identity, which the node pins on the onward leg (§10.6).
+// Every row is written in one transaction (store.Atomically): a write that fails leaves every row
+// as it was, a previous pairing included, so a failed re-pair cannot leave a node pinned to one
+// ingress with another's credentials. The public URL is validated before the transaction and
+// applied to the running node after it commits. `ingress_fpr` is the ingress's identity, which the
+// node pins on the onward leg (§10.6).
 func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.PairResponse, nodeFpr string) error {
 	values := map[string]string{
 		"domain":           res.Domain,
@@ -162,16 +162,26 @@ func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.
 		"ingress_fpr":      res.IngressFingerprint,
 		"subdomain":        strings.TrimSuffix(res.PublicName, "."+res.Domain),
 	}
-	for _, k := range pairingKeys {
-		if err := s.saveRaw(ctx, "tunnel."+adapter+"."+k, values[k]); err != nil {
-			return err
-		}
-	}
-	// Only now is the adapter selectable; both of these are restart-scoped.
-	if err := s.saveRaw(ctx, "tunnel", adapter); err != nil {
+	publicURL := "https://" + res.PublicName
+	if err := core.ValidateSetting("public_url", publicURL); err != nil {
 		return err
 	}
-	return s.save(ctx, "public_url", "https://"+res.PublicName)
+	err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, k := range pairingKeys {
+			if err := s.put(ctx, tx, "tunnel."+adapter+"."+k, values[k]); err != nil {
+				return err
+			}
+		}
+		// Both of these are restart-scoped.
+		if err := s.put(ctx, tx, "tunnel", adapter); err != nil {
+			return err
+		}
+		return s.put(ctx, tx, "public_url", publicURL)
+	})
+	if err != nil {
+		return err
+	}
+	return s.applied(ctx, "public_url", publicURL)
 }
 
 // unpair forgets a pairing. It refuses while that adapter is the selected one,
@@ -213,6 +223,11 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 // adapter settings are not owner knobs, and their shape is the adapter's rule,
 // not `core.ValidateSetting`'s. Secrets are still sealed.
 func (s *Service) saveRaw(ctx context.Context, key, value string) error {
+	return s.put(ctx, s.store, key, value)
+}
+
+// put writes one row through st (the store, or a transaction of it), sealing a secret key's value.
+func (s *Service) put(ctx context.Context, st store.Store, key, value string) error {
 	stored, secret := value, isSecretKey(key)
 	if secret {
 		sealed, err := s.kr.Encrypt([]byte(value), core.SettingsAAD())
@@ -221,7 +236,7 @@ func (s *Service) saveRaw(ctx context.Context, key, value string) error {
 		}
 		stored = encodeSealed(sealed)
 	}
-	return s.store.PutSetting(ctx, store.Setting{
+	return st.PutSetting(ctx, store.Setting{
 		Key: key, Value: stored, Secret: secret, UpdatedAt: s.clock().Unix(),
 	})
 }

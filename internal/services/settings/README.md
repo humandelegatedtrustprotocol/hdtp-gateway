@@ -27,7 +27,7 @@ The owner-set configuration layer (SPEC §8.2, §12.2): settings rows are read f
 ## Invariants
 
 - A secret goes in and never comes back out through rendering: the page reads only non-secret top-level rows and, for adapters, names plus `Set` flags. Credentials are sealed with the node keyring under `core.SettingsAAD()` before they touch the database.
-- `pairedAdapters` treats a stored non-empty `subdomain` as the marker that an ingress adapter is paired. `subdomain` is the last of the rows `storePairing` writes (`pairingKeys`), `ingress_fpr` before it, so a write that fails on any row leaves the pairing not selectable and `unpair` deletes what it left (`TestAPairingThatFailsOnAnyWriteLeavesNoSelectableAdapter`). The `tunnel` selection and `public_url` are written only after every row succeeds.
+- `pairedAdapters` treats a stored non-empty `subdomain` as the marker that an ingress adapter is paired. `storePairing` writes the adapter's rows (`pairingKeys`), the `tunnel` selection and `public_url` in one `store.Atomically` transaction, so a write that fails on any row leaves every row as it was, a previous pairing included (`TestAPairingThatFailsOnAnyWriteLeavesEveryRowAsItWas`); `public_url` is validated before the transaction and applied to the running node after it commits.
 - A changed `public_url` moves nothing by itself: accounts keep answering at the endpoint their leaf names; for each account whose leaf was certified for the node's old derived address, an `account_move_needed` audit row names the move (`settings.go:380-392`).
 - `AccountKeys` names every per-account key function in the package.
 

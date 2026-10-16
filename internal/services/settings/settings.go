@@ -311,19 +311,15 @@ func (s *Service) save(ctx context.Context, key, value string) error {
 	if err := core.ValidateSetting(key, value); err != nil {
 		return err
 	}
-	stored, secret := value, isSecretKey(key)
-	if secret {
-		sealed, err := s.kr.Encrypt([]byte(value), core.SettingsAAD())
-		if err != nil {
-			return err
-		}
-		stored = encodeSealed(sealed)
-	}
-	if err := s.store.PutSetting(ctx, store.Setting{
-		Key: key, Value: stored, Secret: secret, UpdatedAt: s.clock().Unix(),
-	}); err != nil {
+	if err := s.saveRaw(ctx, key, value); err != nil {
 		return err
 	}
+	return s.applied(ctx, key, value)
+}
+
+// applied takes a knob this process has just stored into the running node and tells the other
+// processes and the portal it changed.
+func (s *Service) applied(ctx context.Context, key, value string) error {
 	if err := s.apply(ctx, key, value, true); err != nil {
 		return err
 	}
