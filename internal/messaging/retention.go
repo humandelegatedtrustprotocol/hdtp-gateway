@@ -173,7 +173,8 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 
 // CollectOrphans deletes the account's files that no message names and whose record is older than
 // FileGrace, whatever the retention window, unlimited included: what a deleted conversation could
-// not take (a store failure, an unreadable media body). A record written before migration 0003 is
+// not take after a store failure. While any media body of the account does not parse it takes
+// nothing, as Collect does not. A record written before migration 0003 is
 // kept (OrphanSweepSince): an earlier version of the node stored a fetched link's file without
 // recording it on the message, and that file is the owner's content, which nothing in its record
 // can name. It returns how many records went, and audits them as a retention_sweep (record).

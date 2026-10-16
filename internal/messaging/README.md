@@ -18,7 +18,12 @@ Messages (service.go):
   a `Result` (thread id and the row's status). `Service.Thread` lists a thread's messages in order.
   `CheckThreadID` is HDTP §7's rule for an id an owner names, the identity core's `IsThreadID` and
   `ThreadIDMax`: `Record` with a thread id, `Thread` and `DeleteThread` refuse an id of neither form.
-  A new thread's id is 32 lower-case hex digits, of the first form.
+  A new thread's id is 32 lower-case hex digits, of the first form. `Service.DeleteThread` deletes one
+  conversation here only, then publishes one `EventMessage` naming it on the `Bus` (a portal's view
+  wakes and reads it gone). Its files go with it unless a store failure leaves one (the hourly orphan
+  sweep takes it) or any media body of the account does not parse: then no collection takes a file,
+  and `OnError` hears `thread "<id>" deleted; its files were left: <n> media bodies of the account do
+  not parse`. The startup wipe (`WipeThreadIDs`) publishes nothing.
 - `Service.WipeThreadIDs` deletes, once, every conversation stored under an id of neither form, with
   its messages, change rows and the files only it names, and the messages and change rows of such an
   id that no thread row names (migration 0005 schedules it; `serve` runs it before it serves, and `migrate`, `export` and `import` after they migrate, while it is pending), telling its caller what went one account at a time as each finishes.

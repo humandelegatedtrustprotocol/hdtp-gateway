@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
@@ -427,5 +428,66 @@ func TestARefusedSendLeavesNoBytes(t *testing.T) {
 	}
 	if blobs, _ := e.st.ListBlobs(ctx, e.acct); len(blobs) != 0 {
 		t.Fatalf("refused sends left records: %+v", blobs)
+	}
+}
+
+// A conversation deleted while another media body of the account does not parse keeps its files,
+// and says so: no collection takes a file while the names in use are unknown, and the comments
+// promised the orphan sweep would take them, which it cannot either; nothing was said.
+func TestADeletionThatLeavesFilesForAnUnreadableBodySaysSo(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	gone, hash := e.inline(t, "sha256:peer", "", "m1", []byte("named only by the deleted thread"))
+	kept, _ := e.inline(t, "sha256:other", "", "m2", []byte("in the thread that stays"))
+	if err := e.st.InsertMessage(ctx, store.Message{
+		ID: "broken", AccountID: e.acct, ContactFpr: "sha256:other", MsgID: "broken",
+		ThreadID: kept, Direction: "in", Sender: "human", Kind: "media",
+		Body: "{not json", Status: "delivered", CreatedAt: e.clock.Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	e.svc.OnError = func(err error) { said = append(said, err.Error()) }
+	if _, err := e.svc.DeleteThread(ctx, e.acct, gone); err != nil {
+		t.Fatal(err)
+	}
+	want := `thread "` + gone + `" deleted; its files were left: 1 media bodies of the account do not parse`
+	if len(said) != 1 || said[0] != want {
+		t.Errorf("OnError heard %q, want %q", said, want)
+	}
+	if !e.fileExists(hash) {
+		t.Error("a file was taken while the names in use were unknown")
+	}
+}
+
+// Deleting a conversation publishes one EventMessage naming it, so a portal showing the thread
+// wakes: it published nothing, and the open view kept showing a conversation that was gone. The
+// control: the startup wipe of ids of neither form, which shares the deletion, publishes nothing
+// (its event would write the change row the wipe exists to remove).
+func TestDeletingAConversationWakesThePortal(t *testing.T) {
+	e := deleteEnv(t)
+	ctx := context.Background()
+	gone, _ := e.inline(t, "sha256:peer", "", "m1", []byte("bytes"))
+	e.svc.Bus = NewBus(e.st)
+	events, cancel := e.svc.Bus.Subscribe(e.acct)
+	defer cancel()
+	if _, err := e.svc.DeleteThread(ctx, e.acct, gone); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		if ev.Kind != EventMessage || ev.ThreadID != gone || ev.ContactFpr != "sha256:peer" || ev.AccountID != e.acct {
+			t.Errorf("the deletion published %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("deleting a conversation published nothing within a second")
+	}
+	if _, err := e.svc.remove(ctx, e.acct, "Not.A.Thread.Id", false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		t.Errorf("the wipe's deletion published %+v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

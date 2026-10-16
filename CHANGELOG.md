@@ -31,6 +31,11 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- Deleting a conversation wakes a portal showing it (one `message` event naming the thread), where
+  it published nothing. `wait_for_updates` does not report a deletion, as before.
+- Deleting a conversation while another media body of the account does not parse says that its
+  files were left, and why; the comments beside it promised the orphan sweep would collect them,
+  which it cannot while that body stays.
 - Every retention pass that deletes messages, threads or files writes one `retention_sweep` row
   naming what went (`ok`, `blobs_skipped_unreadable_media`, or `error` when a later step failed).
   While a media body that does not parse held the files back, a pass deleted the messages and,
