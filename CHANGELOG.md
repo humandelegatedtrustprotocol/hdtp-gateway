@@ -95,6 +95,13 @@ changelog can be and is not summarized into a fictional release history.
   lowest of five measured rates: `FuzzVCardParse` 700,000, `FuzzSealedEnvelope` 400,000,
   `FuzzInviteOffer` 250,000, `FuzzRedact` 2,000,000. Ten runs passed, in 136 to 160 s each.
 
+### Docs
+
+- `docs/operations.md` lists a Cloudflare quick tunnel (no account) with the `edge` adapter, and
+  says localtunnel is not supported, with what was measured (#172, #173). The two-users demo no
+  longer names a scenario count its battery has outgrown, and the quickstart says what the pairing
+  run of 2026-10-13 measured where it said the pairing was not run (#172).
+
 ## [0.1.5] — 2026-10-12
 
 ### Changed

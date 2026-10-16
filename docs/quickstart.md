@@ -392,9 +392,13 @@ adds `message.media`, `status.view`, `calendar.availability` and `calendar.book`
 In these two pictures the contact is a test agent on the same machine that redeemed the invite over
 mTLS with a sealed envelope, was approved, and sent one message; it serves no node of its own, so
 the audit trail below records that it could not be told of its approval and that listing its tools
-failed. A real contact's node answers both. This pairing was not run on the clean clone: with the
-shipped compose file the public listener is not published anywhere, so a second party needs the
-address of step 4 to reach you.
+failed. A real contact's node answers both. With the shipped compose file the public listener is not
+published anywhere, so a second party needs the address of step 4 to reach you. A pairing between
+two nodes, each behind its own tunnel, was run end to end on v0.1.5 with the `cloudflared` profile
+on a real zone: identity certified, the card served at the public URL, the invite redeemed,
+messages and 3–4 MiB files both ways, and `doctor` saying `ok   tunnel       cloudflare (mode edge,
+seal required, client_cert off)` and the probe reachable (2026-10-13,
+[#172](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/172)).
 
 ## 9. The rest of the portal
 

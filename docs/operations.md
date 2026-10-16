@@ -28,9 +28,12 @@ declared (SPEC §10.1).
 | a paid ngrok plan | `tunnel: ngrok` — `tls://` endpoint | direct |
 | a Cloudflare account | `cloudflare` edge adapter (P4-05) — Cloudflare terminates TLS | edge |
 | a free ngrok account | the `ngrok` compose profile — ngrok's agent as a sidecar — with `tunnel: edge` ([quickstart § 4](quickstart.md#4-set-the-address-people-will-reach-you-at)) | edge |
+| no account, and an address that changes each start is fine | a Cloudflare quick tunnel, `cloudflared tunnel --url https://<the node's public bind> --no-tls-verify`, as a sidecar, with `tunnel: edge`, the `trycloudflare.com` URL it prints as the public URL, and Accept LAN connections on when it runs on the compose network | edge |
 | no account at all | the `bore` compose profile — a raw TCP port on bore.pub, the node's own chain end to end ([quickstart § 4](quickstart.md#4-set-the-address-people-will-reach-you-at)) | direct |
 | a domain of your own | run a second hdtp-gateway in the **ingress role** on a VPS (below) | direct (passthrough) or edge (terminate) |
 | nothing inbound at all | one of the tunnels above, or a provider hosting the identity under a leaf you issue (HDTP §9). There is no relay role: it went on 2026-09-18, because a store-and-forward gateway sees every sender, recipient and timestamp | — |
+
+localtunnel is not supported: in front of a v0.1.5 node on 2026-10-13, four automated runs were answered `502`/`503` by loca.lt and requests by hand took 8–12 s; its client pre-opens connections to the node, which closes each after 10 s without request headers (`node.PublicHeaderTimeout`), and whether that is the cause was not established ([#173](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/173)).
 
 Direct mode keeps mTLS end to end: callers' client certificates reach the node. Edge
 mode cannot — a third party terminates TLS — so the node **forces** `seal=required`
