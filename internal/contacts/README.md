@@ -59,6 +59,7 @@ active; the conformance suite's `EverActiveIsSetByEveryActivationAndClearedByNon
 | pending_out | blocked | `ContactRejected` |
 | pending_in | active | `Owner.Approve` (after `Room`; a named preset replaces the grant) |
 | pending_in | blocked | `Owner.Reject` |
+| pending_in | pending_out | `Initiated` (the owner redeemed their invite): moved and re-pinned to the offer's address and leaf in one transaction, then on to active when the peer accepted |
 | any | blocked | `Owner.Block` |
 | blocked | active | `Owner.Unblock` when `EverActive` (after `Room`) |
 | blocked | none | `Owner.Unblock` when never active: the row is deleted |

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -370,5 +371,68 @@ func TestABlockedIdentitysInviteIsRefusedBeforeTheDial(t *testing.T) {
 	}
 	if rows := r.initiated(); len(rows) != 1 || rows[0].outcome != "blocked" {
 		t.Errorf("contact_initiate rows %+v, want one, blocked", rows)
+	}
+}
+
+// Redeeming the invite of somebody who asked us by card (pending_in) is the owner reaching out
+// (#183): the row becomes ours, pinned to what the offer proved, and moves on with their answer —
+// active when they accept, pending_out when they hold it — as the cloud's redeemInvite sets an
+// existing row's status and pin. It dialled, spent their invite, and was then refused bad_request
+// ("already a contact or already pending"), so the two sides split.
+func TestARedemptionOverTheirRequestMakesTheContactOurs(t *testing.T) {
+	for _, tc := range []struct {
+		answer, want string
+	}{{"accepted", "active"}, {"pending", "pending_out"}} {
+		r := newRedeemingPeerRig(t, func() *mcp.CallToolResult {
+			return &mcp.CallToolResult{StructuredContent: map[string]any{"status": tc.answer, "permissions": []string{"message.text"}}}
+		})
+		// Their request reached us from an older leaf at another address.
+		old := r.peer.Wallet.Issue(t, "https://old.chitra.invalid/mcp")
+		if _, err := r.st.InsertContact(r.ctx, store.Contact{AccountID: r.account, Fingerprint: r.peer.Root(),
+			SPKI: old.Key.Public().SPKI, Status: "pending_in", DisplayName: "Chitra", Card: old.Card("Chitra", ""),
+			Endpoint: old.Endpoint, Leaf: old.LeafDER}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := r.ci.RedeemInvite(r.ctx, r.account, r.landing.URL+"/i/tok", "")
+		if err != nil || got.Status != tc.want {
+			t.Fatalf("%s: a redemption over pending_in: %+v, %v; want %s", tc.answer, got, err, tc.want)
+		}
+		c, err := r.st.GetContact(r.ctx, r.account, r.peer.Root())
+		if err != nil || c.Status != tc.want || c.Endpoint != r.peer.Endpoint || !bytes.Equal(c.Leaf, r.peer.Host.LeafDER) {
+			t.Errorf("%s: the row is %s at %s (%v), want %s pinned to the offer's leaf at %s", tc.answer, c.Status, c.Endpoint, err, tc.want, r.peer.Endpoint)
+		}
+		if r.redeemed != 1 {
+			t.Errorf("%s: redeem_invite called %d times, want once", tc.answer, r.redeemed)
+		}
+	}
+}
+
+// Asking by card for somebody this identity already holds is answered from the row before anything
+// is dialled, as the cloud's requestContact answers it (#183): our own request (pending_out) is
+// pending_out again, and theirs (pending_in) is the owner's to approve, refused conflict. A second
+// request while pending_out was dialled, and refused bad_request by the INSERT once their side of
+// the request had expired and they answered.
+func TestARequestForAHeldPendingRowIsAnsweredFromTheRow(t *testing.T) {
+	r := newAddContactRig(t, nil, func(context.Context, string, outbound.Peer, string, string) error {
+		t.Fatal("a request for a row this identity holds was dialled")
+		return nil
+	})
+	card := r.peer.Card("Chitra")
+	if err := r.ci.manager.InitiatedByFingerprint(r.ctx, r.account, r.peer.Root(), card); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.ci.RequestContact(r.ctx, r.account, card, "")
+	if err != nil || got.Status != "pending_out" {
+		t.Errorf("a second request while pending_out: %+v, %v", got, err)
+	}
+	if moved, err := r.st.MoveContactStatus(r.ctx, r.account, r.peer.Root(), "pending_out", "pending_in"); err != nil || !moved {
+		t.Fatal(err)
+	}
+	_, err = r.ci.RequestContact(r.ctx, r.account, card, "")
+	if code, detail := refusal.Of(err); code != "conflict" || !strings.Contains(detail, "approve their request") {
+		t.Errorf("a request while we hold theirs (pending_in): %s %q (%v)", code, detail, err)
+	}
+	if rows := r.initiated(); len(rows) != 2 || rows[0].outcome != "pending_out" || rows[1].outcome != "pending_in" {
+		t.Errorf("contact_initiate rows %+v, want pending_out then pending_in", rows)
 	}
 }

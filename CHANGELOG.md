@@ -236,6 +236,14 @@ changelog can be and is not summarized into a fictional release history.
 - `add_contact` with a card tells a failure of this node before the request leaves — its card or
   its client could not be read — as `internal`, audited `error` (#131). It was told as a peer that
   could not be reached (`unavailable`) and audited `unreachable`.
+- `add_contact` with the invite link of somebody who asked this identity by card (`pending_in`)
+  makes the row ours, pinned to what the offer proved, and moves it on with their answer (`active`
+  or `pending_out`), as BatonDeck does (#183). Their invite was spent and the owner was then told
+  `bad_request` ("already a contact or already pending"). By card, a request for somebody already
+  held `pending_out` is answered from the row and dials nobody, and one for somebody held
+  `pending_in` is refused `conflict` ("they have asked you already: approve their request"),
+  audited `pending_in`, as BatonDeck refuses it; the first was dialled and could end in that
+  `bad_request`.
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a
