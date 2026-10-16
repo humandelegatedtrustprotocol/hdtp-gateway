@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -275,12 +277,54 @@ func domainCode(err error) string {
 /* ------------------------------ arguments ------------------------------- */
 
 // decode parses arguments strictly: an unparseable body is `bad_request`, not a
-// zero-valued struct silently accepted.
+// zero-valued struct silently accepted. A member is read by its exact name (exactKeys): the
+// thread_id check reads `thread_id` exactly (refuseThreadID, as the core and the cloud read it), so
+// a `Thread_ID` the struct decode would have matched without regard to case is no thread_id here
+// either, rather than one the check never saw.
 func decode(req *mcp.CallToolRequest, v any) bool {
 	if len(req.Params.Arguments) == 0 {
 		return true
 	}
-	return json.Unmarshal(req.Params.Arguments, v) == nil
+	exact, err := exactKeys(req.Params.Arguments, reflect.TypeOf(v).Elem())
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(exact, v) == nil
+}
+
+// exactKeys is raw, an object, with every member whose name is not exactly one of t's json names
+// left out, and the same done to a member that decodes into a struct. encoding/json matches a
+// member to a field without regard to case; this is how the handlers read each member by its one
+// spelling. A value that is not an object is an error for a struct, and passed as it is otherwise.
+func exactKeys(raw json.RawMessage, t reflect.Type) (json.RawMessage, error) {
+	if t.Kind() != reflect.Struct {
+		return raw, nil
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return nil, err
+	}
+	if members == nil {
+		return raw, nil // null: decoded as encoding/json decodes it
+	}
+	out := map[string]json.RawMessage{}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		v, ok := members[name]
+		if !ok {
+			continue
+		}
+		v, err := exactKeys(v, f.Type)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = v
+	}
+	return json.Marshal(out)
 }
 
 // capped reports whether a field is within its cap.

@@ -49,6 +49,10 @@ changelog can be and is not summarized into a fictional release history.
 - A sealed call refused for its `thread_id` checks the tool's permission first: a contact the tool is
   not granted to is told `permission_denied`, audited as that denial, as over a client certificate
   and as BatonDeck answers (#139). It was told `bad_request`.
+- A public tool reads each argument by its exact name, as the `thread_id` check and BatonDeck read
+  them (#138). `Thread_ID` or `THREAD_ID` is ignored; it was matched to `thread_id` without regard
+  to case after the check had passed, so a call joined a thread the check never saw, or was
+  refused `bad_request` by messaging, which a sealed retry of the same envelope then replayed.
 
 ### Removed
 

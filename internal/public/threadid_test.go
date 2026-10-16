@@ -152,3 +152,49 @@ func TestAContactWithoutTheScopeIsRefusedPermissionBeforeItsThreadID(t *testing.
 		t.Fatalf("granted: answered %s %s, want a sealed bad_request", result, errObj)
 	}
 }
+
+// A tool reads each argument by its exact name (hdtp-gateway #138): the thread_id check reads
+// `thread_id` exactly, as the identity core and the cloud do, so `Thread_ID` or `THREAD_ID` is no
+// thread_id to the handler either. A call carrying one used to be delivered into the thread it named
+// — an id the check never saw — or refused bad_request by messaging's own check, which inside an
+// envelope the replay record then kept as the envelope's answer. Driven through Pool.Dispatch, the
+// path a sealed call's inner call and a plaintext one share.
+func TestAThreadIDIsReadByItsExactName(t *testing.T) {
+	e := newToolEnv(t)
+	fpr, _ := e.contact("active", "message.text")
+	threadOf := func(t *testing.T, args map[string]any) string {
+		t.Helper()
+		res, err := e.call(fpr, "send_message", args, nil)
+		if err != nil || res.IsError {
+			t.Fatalf("%v: answered %v %s", args, err, body(t, res))
+		}
+		var out struct {
+			Status   string `json:"status"`
+			ThreadID string `json:"thread_id"`
+		}
+		if json.Unmarshal([]byte(body(t, res)), &out) != nil || out.ThreadID == "" {
+			t.Fatalf("%v: answered %s", args, body(t, res))
+		}
+		return out.ThreadID
+	}
+	if got := threadOf(t, map[string]any{"msg_id": "c-1", "text": "hi", "Thread_ID": "AdoptedByCase"}); got == "AdoptedByCase" {
+		t.Fatal("a Thread_ID the thread_id check never read was adopted")
+	}
+	if got := threadOf(t, map[string]any{"msg_id": "c-2", "text": "hi", "THREAD_ID": "../bad"}); got == "../bad" {
+		t.Fatal("a THREAD_ID was adopted")
+	}
+	// Both spellings: the exact one is the thread, whichever came last.
+	if got := threadOf(t, map[string]any{"msg_id": "c-3", "text": "hi", "thread_id": "Exact1", "Thread_ID": "AdoptedByCase"}); got != "Exact1" {
+		t.Fatalf("thread_id and Thread_ID: joined %q, want Exact1", got)
+	}
+	// A member of a nested argument is read by its exact name too.
+	var a struct {
+		Slot struct {
+			Start string `json:"start"`
+		} `json:"slot"`
+	}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Arguments: json.RawMessage(`{"Slot":{"start":"x"},"slot":{"START":"y"}}`)}}
+	if !decode(req, &a) || a.Slot.Start != "" {
+		t.Fatalf("a nested member was matched without regard to case: %+v", a)
+	}
+}
