@@ -51,8 +51,8 @@ export function Settings() {
     try {
       const j = (await r.json()) as Data;
       if (j && j.page_error) {
-        // Done (a pairing's one-time token is spent), but the page was not read: keep the one on
-        // screen and say what the write answered.
+        // Answered (a pairing's one-time token may be spent), but the page was not read: keep the
+        // one on screen and say what the post answered.
         const kept = withUnread(d, j);
         setD(kept);
         return kept;
@@ -104,7 +104,7 @@ export function Settings() {
         </Section>
       )}
 
-      {d.show_presets && <Presets d={d} onSaved={setD} />}
+      {d.show_presets && <Presets d={d} onSaved={(update) => setD((prev) => prev && update(prev))} />}
     </main>
   );
 }
@@ -170,27 +170,28 @@ type PresetRow = { name: string; perms: string[] };
 // Delete says so at the top of this section.
 const NEW = "New preset";
 
-function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
+function Presets({ d, onSaved }: { d: Data; onSaved: (update: (prev: Data) => Data) => void }) {
   const presets = d.presets ?? [];
   const columns = presetColumns(d.preset_perms ?? [], presets);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [failed, setFailed] = useState("");
-  // The node answers a settings post with the page's data, `error` set when it refused. A write it did
-  // whose page it could not read back (`page_error`) is applied to the presets on screen by `done`.
-  const post = async (path: string, body: URLSearchParams, done: (ps: PresetRow[]) => PresetRow[]): Promise<{ page: Data | null; say: string }> => {
+  // The node answers a settings post with the page's data, `error` set when it refused (its notice
+  // says why, with or without the page). A write it did whose page it could not read back
+  // (`page_error`) is applied by `done` to the presets on screen when the answer arrives, not to
+  // those of when the save began, which a save answered in between has replaced.
+  const post = async (path: string, body: URLSearchParams, done: (ps: PresetRow[]) => PresetRow[]): Promise<{ update: ((prev: Data) => Data) | null; say: string }> => {
     try {
       const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
-      let page: Data | null = null;
-      try {
-        const j = (await r.json()) as Data;
-        if (j && j.page_error && r.ok && !j.error) page = { ...withUnread(d, j), presets: done(presets) };
-        else if (j && j.reach !== undefined) page = j;
-      } catch { /* not the page's answer */ }
-      if (r.ok && page && !page.error) return { page, say: "" };
-      return { page: null, say: page?.error ? page.notice : r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
+      let j: Data | null = null;
+      try { j = (await r.json()) as Data; } catch { /* not the page's answer */ }
+      const a = j;
+      if (a && a.error === true) return { update: null, say: a.notice };
+      if (r.ok && a && a.page_error) return { update: (prev) => ({ ...withUnread(prev, a), presets: done(prev.presets ?? []) }), say: "" };
+      if (r.ok && a && a.reach !== undefined) return { update: () => a, say: "" };
+      return { update: null, say: r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
     } catch {
-      return { page: null, say: "the node could not be reached" };
+      return { update: null, say: "the node could not be reached" };
     }
   };
   const put = (name: string, perms: readonly string[]) => {
@@ -201,8 +202,8 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   };
   const rows = usePresetAutosave(presets, async (name, perms) => {
     const a = await put(name, perms);
-    if (!a.page) throw new Error(`Could not save the ${name} preset: ${a.say}.`);
-    onSaved(a.page);
+    if (!a.update) throw new Error(`Could not save the ${name} preset: ${a.say}.`);
+    onSaved(a.update);
   });
   const add = async () => {
     const name = newName.trim();
@@ -210,17 +211,17 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
     setFailed("");
     const a = await put(name, rows.perms(NEW));
     setAdding(false);
-    if (!a.page) { setFailed(`Could not add the ${name} preset: ${a.say}.`); return; }
+    if (!a.update) { setFailed(`Could not add the ${name} preset: ${a.say}.`); return; }
     rows.forget(NEW);
     setNewName("");
-    onSaved(a.page);
+    onSaved(a.update);
   };
   const del = async (name: string) => {
     setFailed("");
     const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }), (ps) => ps.filter((p) => p.name !== name));
-    if (!a.page) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
+    if (!a.update) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
     rows.forget(name);
-    onSaved(a.page);
+    onSaved(a.update);
   };
   const grid: GridRow[] = presets.map((p) => ({
     name: p.name, perms: rows.perms(p.name),

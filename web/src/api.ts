@@ -68,11 +68,11 @@ export function failureOf(e: unknown): string {
 }
 
 /**
- * What a write says when the node did it but could not read the page back (`page_error`): its own
- * notice, or that it was saved, and that the page on screen is the one from before.
+ * What a post says when the node answered it but could not read the page back (`page_error`): the
+ * post's own notice, what it did or why it was refused, when it has one, and to reload.
  */
 export function unreadPage(notice: string): string {
-  return `${notice || "Saved."} The page could not be read afterwards, so what is shown is from before; reload to see the change.`;
+  return `${notice ? `${notice} ` : ""}The page could not be read afterwards; reload to see where things stand.`;
 }
 
 export async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T> {

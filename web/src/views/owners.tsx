@@ -37,7 +37,7 @@ export function Owners() {
     try {
       const j = JSON.parse(r.body || "null") as (Data & Partial<Unread>) | null;
       if (j && j.page_error) {
-        // Done, but the page was not read: the lists on screen stay, the token is shown.
+        // Answered, but the page was not read: the lists on screen stay, the token is shown.
         setNote({ kind: "warn", text: unreadPage(j.notice) });
         setFresh(j.new_token ?? "");
         return;
