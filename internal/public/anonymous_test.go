@@ -9,11 +9,15 @@ package public
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
 // anonymousCall calls tool in plaintext with no identity, through the pool's gate as a node wires
@@ -55,5 +59,70 @@ func TestAnAnonymousToolsCallIsIdentityRequired(t *testing.T) {
 	defer done()
 	if names := toolNames(t, cs); !hasTool(names, "request_contact") || !hasTool(names, core.ToolSealedCall) {
 		t.Fatalf("the anonymous guest view lists %v", names)
+	}
+}
+
+// A chain that validated is not anonymous, whatever it earned: a blocked root and a superseded
+// leaf are composed as guests with no fingerprint (ResolveTransport, Demote), and a plaintext
+// call from either outside the guest view answers what a stranger's does, blocked_or_unknown,
+// under each seal policy (SPEC §5.4, §5.8). Only a call with no chain is identity_required.
+// Wired as node.mcpHandler wires it: WithFacts, ResolveTransport, WithTransportCaller, StatelessMCP.
+func TestADemotedChainAnswersAsAStranger(t *testing.T) {
+	for _, seal := range []core.Seal{core.SealOptional, core.SealRequired} {
+		s := newSealedEnv(t)
+		s.id.Seal = seal
+		s.pool.Gate = s.id.PoolGate()
+		blocked := newPeer(t, s.nowAt)
+		s.pin(t, blocked, "blocked")
+		stranger := newPeer(t, s.nowAt)
+		old := newPeer(t, s.nowAt)
+		renewed := &peer{root: old.root, host: old.host}
+		renewed.leaf = renewed.leafFor(t, endpointA, s.nowAt.Add(-30*time.Minute))
+		s.pin(t, renewed, "active")
+		ask := func(tf TransportFacts) string {
+			h := StatelessMCP(func(r *http.Request) *mcp.Server {
+				caller := FactsFrom(r.Context()).ClientCertFingerprint
+				if tc, ok := TransportCallerFrom(r.Context()); ok {
+					caller = tc.Fingerprint
+				}
+				srv, err := s.pool.ServerFor(r.Context(), s.acct.ID, caller)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return srv
+			}, mcp.StreamableHTTPOptions{})
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := WithFacts(r.Context(), tf)
+				ctx = WithTransportCaller(ctx, s.id.ResolveTransport(ctx, tf))
+				h.ServeHTTP(w, r.WithContext(ctx))
+			}))
+			defer ts.Close()
+			cl := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+			cs, err := cl.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = cs.Close() }()
+			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "send_message", Arguments: map[string]any{"text": "x", "msg_id": "m"}})
+			if err != nil {
+				t.Fatalf("seal %s: %v", seal, err)
+			}
+			return text(t, res)
+		}
+		chain := func(p *peer) TransportFacts {
+			c, err := hdtpidentity.Parse(p.leaf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return TransportFacts{ClientCertFingerprint: p.fpr(), ClientCertSPKI: c.SPKI, ClientLeaf: p.leaf, ClientEndpoint: c.URIs[0]}
+		}
+		for name, tf := range map[string]TransportFacts{"blocked": chain(blocked), "superseded": chain(old), "stranger": chain(stranger)} {
+			if got := ask(tf); got != `{"code":"blocked_or_unknown"}` {
+				t.Errorf("seal %s, %s: answered %s, want blocked_or_unknown", seal, name, got)
+			}
+		}
+		if got := ask(TransportFacts{}); got != `{"code":"identity_required"}` {
+			t.Errorf("seal %s, anonymous: answered %s, want identity_required", seal, got)
+		}
 	}
 }

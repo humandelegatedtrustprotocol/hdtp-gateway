@@ -366,8 +366,10 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 				}
 				// An anonymous caller is refused identity_required on any tools/call (SPEC §5.8), a
 				// tool outside the guest view included: the plaintext gate decides it and writes its
-				// one identity_gate row, before the tool's absence is told.
-				if fpr == "" && p.Gate != nil {
+				// one identity_gate row, before the tool's absence is told. Anonymous is a transport
+				// that proved no root: a demoted chain (a blocked root, a superseded leaf) is also
+				// composed with no fingerprint, and answers as a stranger does (§5.4).
+				if FactsFrom(ctx).ClientCertFingerprint == "" && p.Gate != nil {
 					if gerr := p.Gate(ctx, calledTool(req)); gerr != nil {
 						return codeResult(Code(gerr)), nil
 					}
