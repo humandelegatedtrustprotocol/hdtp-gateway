@@ -369,10 +369,10 @@ func (ot ownerTools) setExposureTool(ctx context.Context, req *mcp.CallToolReque
 	// agent withdraws an integration — so an empty list is applied,
 	// not treated as a missing argument.
 	if err := ot.e.SetExposure(ctx, a.AccountID, a.IntegrationID, a.Tools); err != nil {
-		ot.e.log("set_exposure", "integration:"+a.IntegrationID, "error")
+		ot.e.log("set_exposure", "account:"+a.AccountID+" integration:"+a.IntegrationID, "error")
 		return fail(err)
 	}
-	ot.e.log("set_exposure", fmt.Sprintf("integration:%s tools:%d", a.IntegrationID, len(a.Tools)), "ok")
+	ot.e.log("set_exposure", fmt.Sprintf("account:%s integration:%s tools:%d", a.AccountID, a.IntegrationID, len(a.Tools)), "ok")
 	r, jerr := jsonResult(map[string]any{"status": "ok", "exposed": len(a.Tools)})
 	return r, nil, jerr
 }
