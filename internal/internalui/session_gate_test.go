@@ -88,8 +88,8 @@ func TestTheSessionGateIsAnAllowList(t *testing.T) {
 	if rec := e.do(t, http.MethodPost, "/media/fetch", nil, nil); rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST with no session: %d", rec.Code)
 	}
-	if rec := get("/api/inbox?account=" + mine.ID); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "identity_required") {
-		t.Errorf("GET /api/inbox with no session: %d %q", rec.Code, rec.Body.String())
+	if rec := get("/api/integrations?account=" + mine.ID); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "identity_required") {
+		t.Errorf("GET /api/integrations with no session: %d %q", rec.Code, rec.Body.String())
 	}
 
 	// The views and the shell serve without a session, and without a refusal row: the sign-in page

@@ -62,6 +62,14 @@ changelog can be and is not summarized into a fictional release history.
   lowest of five measured rates: `FuzzVCardParse` 700,000, `FuzzSealedEnvelope` 400,000,
   `FuzzInviteOffer` 250,000, `FuzzRedact` 2,000,000. Ten runs passed, in 136 to 160 s each.
 
+### Removed
+
+- The portal's `GET /api/inbox`, `GET /api/thread` and `POST /thread/send`, which nothing in the
+  portal called (the conversation view reads `GET /api/conversations`, marks read with
+  `POST /messages/read` and sends with `POST /messages/send`). `GET /api/thread` sent the stored
+  message rows as they are, and `POST /thread/send` sent into a thread whose id the caller chose.
+  They answer 404 (the two reads) and 405 (the send); `POST /thread/delete` and `GET /events` stay.
+
 ## [0.1.5] — 2026-10-12
 
 ### Changed

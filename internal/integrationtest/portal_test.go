@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +134,7 @@ func portal(t *testing.T, n *node) (*httptest.Server, *http.Client) {
 		},
 		func(mux *http.ServeMux) {
 			internalui.MountInboxPages(mux, internalui.InboxDeps{Store: n.st, Msg: n.msg, Bus: n.bus})
+			internalui.MountMessagePages(mux, internalui.MessagesDeps{Store: n.st})
 		},
 		func(mux *http.ServeMux) { internalui.MountAuditPages(mux, internalui.AuditDeps{Store: n.st}) },
 	)
@@ -330,8 +332,9 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 		t.Fatalf("agent answer: %+v", msgs[1])
 	}
 
-	// 8. The portal inbox shows the exchange (and opening marks it read). read_thread above already
-	// read the thread, so one more arrives first: only the portal's open can clear it.
+	// 8. The portal's conversation view shows the exchange, and reading it through the newest message
+	// shown marks it read. read_thread above already read the thread, so one more arrives first: only
+	// the portal's read can clear it.
 	if _, err := alice.msg.Record(ctx, alice.acct.ID, bella.kp.Fingerprint, messaging.DirIn,
 		messaging.Input{Origin: messaging.OriginPeer, MsgID: "b2", ThreadID: threads[0].ID, Text: "still on?", Sender: messaging.SenderAgent}); err != nil {
 		t.Fatal(err)
@@ -339,9 +342,23 @@ func runPortalPairing(t *testing.T, open func(name string) store.Store) {
 	if n, _ := alice.st.UnreadCount(ctx, alice.acct.ID, threads[0].ID); n != 1 {
 		t.Fatalf("unread before portal open: %d, want 1", n)
 	}
-	if code, body := get(t, clientA, srvA.URL+"/api/thread?thread_id="+url.QueryEscape(threads[0].ID)+"&account="+alice.acct.ID); code != 200 ||
-		!strings.Contains(body, "dinner friday") || !strings.Contains(body, "friday works") {
-		t.Fatalf("thread payload: %d\n%s", code, body)
+	code, body := get(t, clientA, srvA.URL+"/api/conversations?"+url.Values{"contact": {bella.kp.Fingerprint}, "account": {alice.acct.ID}}.Encode())
+	if code != 200 || !strings.Contains(body, "dinner friday") || !strings.Contains(body, "friday works") || !strings.Contains(body, "still on?") {
+		t.Fatalf("conversation payload: %d\n%s", code, body)
+	}
+	if n, _ := alice.st.UnreadCount(ctx, alice.acct.ID, threads[0].ID); n != 1 {
+		t.Fatalf("unread after listing: %d, want 1 (showing marks nothing)", n)
+	}
+	var shown struct {
+		Through int64 `json:"through"`
+	}
+	if err := json.Unmarshal([]byte(body), &shown); err != nil || shown.Through == 0 {
+		t.Fatalf("conversation through: %v %s", err, body)
+	}
+	if resp := post(t, clientA, srvA.URL+"/messages/read?account="+alice.acct.ID, url.Values{
+		"csrf": {csrf}, "contact": {bella.kp.Fingerprint}, "through": {strconv.FormatInt(shown.Through, 10)},
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /messages/read: %d", resp.StatusCode)
 	}
 	if n, _ := alice.st.UnreadCount(ctx, alice.acct.ID, threads[0].ID); n != 0 {
 		t.Fatalf("unread after portal open: %d", n)

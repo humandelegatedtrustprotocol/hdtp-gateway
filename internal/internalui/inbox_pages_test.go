@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,29 +86,39 @@ func TestSSEDeliversNewMessageEvent(t *testing.T) {
 	}
 }
 
+// The conversation form sends as a person: the portal names its origin and the label is derived
+// from it, never a parameter (SPEC §7.2).
 func TestComposerSendsAsHuman(t *testing.T) {
-	mux, msg, _, acct := inboxEnv(t)
+	_, msg, _, acct := inboxEnv(t)
 	ctx := context.Background()
-	in, _ := msg.Record(ctx, acct, "sha256:alina", messaging.DirIn,
-		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", Text: "hello", Sender: messaging.SenderAgent})
-
-	form := url.Values{"text": {"hey!"}, "msg_id": {"ui-1"}, "thread_id": {in.ThreadID}}
-	req := httptest.NewRequest("POST", "/thread/send?account="+acct+"&contact=sha256:alina",
-		strings.NewReader(form.Encode()))
+	if _, err := msg.Record(ctx, acct, "sha256:alina", messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", Text: "hello", Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	MountMessagePages(mux, MessagesDeps{Store: msg.Store.(*store.SQLite), Send: func(ctx context.Context, a, c string, in messaging.Input) (messaging.Result, error) {
+		return msg.Record(ctx, a, c, messaging.DirOut, in)
+	}})
+	form := url.Values{"text": {"hey!"}, "msg_id": {"ui-1"}, "contact": {"sha256:alina"}, "account": {acct}}
+	req := httptest.NewRequest("POST", "/messages/send", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
-	if rr.Code != http.StatusSeeOther {
-		t.Fatalf("composer POST: %d", rr.Code)
+	if rr.Code != http.StatusSeeOther || strings.Contains(rr.Header().Get("Location"), "err=") {
+		t.Fatalf("composer POST: %d %s", rr.Code, rr.Header().Get("Location"))
 	}
-	msgs, _ := msg.Thread(ctx, acct, in.ThreadID)
+	threads, _ := msg.Store.ListThreadsByAccount(ctx, acct)
+	if len(threads) != 1 {
+		t.Fatalf("threads: %+v", threads)
+	}
+	msgs, _ := msg.Thread(ctx, acct, threads[0].ID)
 	if len(msgs) != 2 || msgs[1].Sender != "human" || msgs[1].Direction != "out" {
 		t.Fatalf("composer message: %+v", msgs)
 	}
 }
 
 func TestUnreadCountsAcrossTwoContacts(t *testing.T) {
-	mux, msg, _, acct := inboxEnv(t)
+	_, msg, _, acct := inboxEnv(t)
 	ctx := context.Background()
 	a, _ := msg.Record(ctx, acct, "sha256:alina", messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, MsgID: "a1", Text: "1", Sender: messaging.SenderAgent})
 	_, _ = msg.Record(ctx, acct, "sha256:alina", messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, MsgID: "a2", ThreadID: a.ThreadID, Text: "2", Sender: messaging.SenderAgent})
@@ -121,11 +132,17 @@ func TestUnreadCountsAcrossTwoContacts(t *testing.T) {
 		t.Fatalf("bharat unread = %d, want 1", n)
 	}
 
-	// opening alina's thread marks it read; bharat stays unread
+	// reading alina's conversation through her newest message marks it read; bharat stays unread
+	msgs, _ := msg.Thread(ctx, acct, a.ThreadID)
+	mux := http.NewServeMux()
+	MountMessagePages(mux, MessagesDeps{Store: st.(*store.SQLite)})
+	form := url.Values{"account": {acct}, "contact": {"sha256:alina"}, "through": {strconv.FormatInt(msgs[len(msgs)-1].Seq, 10)}}
+	req := httptest.NewRequest("POST", "/messages/read", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/thread?thread_id="+url.QueryEscape(a.ThreadID)+"&account="+acct, nil))
+	mux.ServeHTTP(rr, req)
 	if rr.Code != 200 {
-		t.Fatalf("thread read: %d", rr.Code)
+		t.Fatalf("conversation read: %d %s", rr.Code, rr.Body)
 	}
 	if n, _ := st.UnreadCount(ctx, acct, a.ThreadID); n != 0 {
 		t.Fatalf("alina unread after open = %d", n)
