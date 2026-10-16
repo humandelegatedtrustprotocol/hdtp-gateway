@@ -7,9 +7,9 @@ one place that builds them, so a suite does not grow six slightly different wall
 certificate comes from `hdtp-identity`'s own builders (`BuildRoot`, `BuildLeaf`, `EncodeCard`), the
 same ones the wallet and the node use.
 
-Callers are test files in `internal/cli` (17 files), `internal/contacts`, `internal/identity`,
-`internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/node`,
-`internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
+Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, `internal/identity`,
+`internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/messaging`,
+`internal/node`, `internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
 `internal/storecheck`'s tests. No non-test file imports it. It is a leaf (rank 0 in
 `internal/integrationtest/layering_test.go`). Every function but `Host.Card` takes a `testing.TB`, not a
 `*testing.T`, so a fuzz target can build a real identity for its seed corpus
@@ -36,8 +36,20 @@ Callers are test files in `internal/cli` (17 files), `internal/contacts`, `inter
 - TLS files (`tlsfiles.go`): `ServerFiles` writes a self-signed ECDSA P-256 server certificate and
   key as PEM into a directory, valid for 24 hours: ordinary web TLS for the internal surface, not
   an HDTP certificate.
+- Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside `../<repo>`
+  from this module's root (the nearest directory upward holding `go.mod`), the checkout the umbrella
+  keeps beside this one. Its callers are the guards that hold a copy here to its source there:
+  `TestErrorCodesAreTheSpecsTable` (hdtp-spec's released §12, `docs/specification/1.0/`),
+  `TestTheCloudsCopyOfTheRefusalsIsCurrent`, `TestTheCloudsCopyOfTheOwnerToolsIsCurrent`,
+  `TestTheCloudsCopyOfTheProtocolHintsIsCurrent` and `TestTheCloudsServedAnnotationCasesHoldHere`
+  (batondeck's `gateway/test/fixtures/`).
 
 ## What it refuses, and how
+
+`SiblingFile` skips the test, naming what goes unchecked, only when the sibling's directory is
+absent; when it is present and the file cannot be read (moved, renamed, another commit) the test
+fails. Each of those guards used to skip on any read error, so a fixture that moved turned its
+guard into a skip that passed (#130).
 
 It has no error returns: every function ends the test with `t.Fatal`/`t.Fatalf` when it cannot
 build what it was asked for (a key or certificate that fails, a card with no `X-HDTP-CERT` for

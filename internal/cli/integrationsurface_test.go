@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // fourHints reads annotations as a listing carries them and fails unless they are exactly the
@@ -83,11 +82,8 @@ func TestServedAnnotationsFillTheDefaultsAndStateOpenWorld(t *testing.T) {
 // apart case by case. Like TestTheCloudsCopyOfTheProtocolHintsIsCurrent, it reads the sibling
 // checkout and skips without one.
 func TestTheCloudsServedAnnotationCasesHoldHere(t *testing.T) {
-	fixture := filepath.Join(repoRootFromTest(t), "..", "batondeck", "gateway", "test", "fixtures", "go-served-annotations.json")
-	raw, err := os.ReadFile(fixture)
-	if err != nil {
-		t.Skipf("SKIPPED, and so the cloud's cases are unchecked here: no fixture beside this repo (%v)", err)
-	}
+	const fixture = "gateway/test/fixtures/go-served-annotations.json"
+	raw := testid.SiblingFile(t, "batondeck", fixture, "the cloud's cases are unchecked here")
 	var doc struct {
 		Cases []struct {
 			Name   string          `json:"name"`

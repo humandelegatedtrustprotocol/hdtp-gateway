@@ -81,8 +81,10 @@ names of the HDTP tools and the envelope carrier, the one spelling the registrat
 the audit actions and the outbound calls use. `ReservedToolNames`, built from them, is every name an
 integration's tool may not be exposed under: the built-in tools and `sealed_call`. `PeerCode` is a
 peer's refusal code as the node repeats it: one of HDTP §12's codes, `refused` (`PeerRefused`) for
-any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the specification's table when
-the hdtp-spec checkout is beside this repository, and skips, saying so, when it is not.
+any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the released specification's table
+(`docs/specification/1.0/errors-limits-conformance.md`) when the hdtp-spec checkout is beside this
+repository, skips, saying so, when it is not, and fails when it is and the file is not there
+(`testid.SiblingFile`).
 
 ## What it refuses, and how
 

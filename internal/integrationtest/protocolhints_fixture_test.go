@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // wireHints is one tool's four hints as a listing carries them, in the fixture's spelling.
@@ -98,12 +97,8 @@ func servedProtocolHints(t *testing.T) map[string]wireHints {
 // what this node serves, as the owner-tools fixture is. When it differs, the fixture is what moves;
 // the cloud's own test then says what the cloud owes.
 func TestTheCloudsCopyOfTheProtocolHintsIsCurrent(t *testing.T) {
-	root := repoRoot(t)
-	fixture := filepath.Join(root, "..", "batondeck", "gateway", "test", "fixtures", "go-protocol-tools.json")
-	raw, err := os.ReadFile(fixture)
-	if err != nil {
-		t.Skipf("SKIPPED, and so the cloud's copy is unchecked: no batondeck beside this repo (%v)", err)
-	}
+	const fixture = "gateway/test/fixtures/go-protocol-tools.json"
+	raw := testid.SiblingFile(t, "batondeck", fixture, "the cloud's copy is unchecked")
 	var doc struct {
 		Tools map[string]wireHints `json:"tools"`
 	}

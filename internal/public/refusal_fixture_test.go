@@ -3,8 +3,6 @@ package public
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -14,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // refusalCase is one case of the cloud's go-refusals.json: where the refusal travels and its body,
@@ -163,11 +162,8 @@ func servedRefusals(t *testing.T) map[string]func(t *testing.T) servedRefusal {
 // them down, so it is checked here against what this node answers, case by case, by the whole body;
 // when it differs the fixture is what moves, and the cloud's own test then says what the cloud owes.
 func TestTheCloudsCopyOfTheRefusalsIsCurrent(t *testing.T) {
-	fixture := filepath.Join("..", "..", "..", "batondeck", "gateway", "test", "fixtures", "go-refusals.json")
-	raw, err := os.ReadFile(fixture)
-	if err != nil {
-		t.Skipf("SKIPPED, and so the cloud's copy is unchecked: no batondeck beside this repo (%v)", err)
-	}
+	const fixture = "gateway/test/fixtures/go-refusals.json"
+	raw := testid.SiblingFile(t, "batondeck", fixture, "the cloud's copy is unchecked")
 	var doc struct {
 		Cases []refusalCase `json:"cases"`
 	}

@@ -1,52 +1,23 @@
 package core
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-// specErrorsSection is where the specification's §12 lives in the hdtp-spec repository.
-const specErrorsSection = "hdtp-spec/docs/specification/draft/errors-limits-conformance.md"
-
-// findSpec looks for the hdtp-spec checkout beside this repository, as the umbrella holds it, from
-// this package's directory upward; "" when there is none.
-func findSpec() string {
-	if p := os.Getenv("HDTP_SPEC_ERRORS"); p != "" {
-		return p
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for {
-		p := filepath.Join(dir, specErrorsSection)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
+// specErrorsSection is where the specification's §12 lives in the hdtp-spec repository: the
+// released text, 1.0.
+const specErrorsSection = "docs/specification/1.0/errors-limits-conformance.md"
 
 // The codes PeerCode repeats are the specification's table, no more and no fewer: the list is a
 // copy of it, and two copies drift the day they are written. The table is the first one in §12,
 // rows of `| `code` | meaning |`, ending at the first line that is not a row.
 func TestErrorCodesAreTheSpecsTable(t *testing.T) {
-	path := findSpec()
-	if path == "" {
-		t.Skip("no hdtp-spec checkout beside this repository (or HDTP_SPEC_ERRORS): the §12 table is not on disk to compare with")
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := testid.SiblingFile(t, "hdtp-spec", specErrorsSection, "§12's table is not compared with errorCodes")
 	row := regexp.MustCompile("^\\| `([a-z_]+)` \\|")
 	var spec []string
 	inTable := false
