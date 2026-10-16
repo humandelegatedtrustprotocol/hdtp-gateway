@@ -41,6 +41,7 @@ var nodeLevelActions = map[string]string{
 	"settings_lan":             "the node's own listener policy",
 	"token_revoke":             "revocation is by token id; the node holds the scope",
 	"settings_save":            "the node's own settings; per-account storage is settings_storage",
+	"settings_apply":           "the node's own settings, stored and not taken by the running node",
 	"settings_probe":           "a probe of the node's own configuration",
 	"ingress_pair":             "pairing the node's own inbound adapter",
 	"ingress_unpair":           "unpairing the node's own inbound adapter, or a subdomain's pairing on the ingress, which holds no accounts",
