@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	plugin "github.com/fatedier/frp/pkg/plugin/server"
+
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
@@ -29,7 +31,7 @@ func TestAnUnpairedNodeLosesItsRouteToTheNextPairing(t *testing.T) {
 	}
 	defer dp.Stop()
 
-	connect := func(name, sub, secret string) {
+	connect := func(name, sub, secret string) string {
 		kp, cert := keypairCert(t, name)
 		ln := nodeListener(t, name, cert)
 		if err := reg.Put(Node{Fingerprint: kp.Fingerprint, SPKI: []byte{1}, Subdomain: sub, Mode: ModePassthrough, Secret: secret}); err != nil {
@@ -47,6 +49,7 @@ func TestAnUnpairedNodeLosesItsRouteToTheNextPairing(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = a.Stop() })
+		return kp.Fingerprint
 	}
 	// dial answers the name of the node that served sub, or "" when none did
 	dial := func(sub string) string {
@@ -73,13 +76,36 @@ func TestAnUnpairedNodeLosesItsRouteToTheNextPairing(t *testing.T) {
 		t.Fatalf("%s reached %q, want %q", sub, got, want)
 	}
 
-	connect("oldnode", "alpha", "secret-old")
-	connect("bystander", "beta", "secret-beta")
+	// held reports which of the fingerprints frps still holds a session for; the predicate
+	// refuses nothing, so the probe closes no session
+	held := func(fprs ...string) map[string]bool {
+		dp.mu.Lock()
+		svc := dp.svc
+		dp.mu.Unlock()
+		got := map[string]bool{}
+		svc.CloseControls(func(u plugin.UserInfo) bool {
+			for _, f := range fprs {
+				if u.Metas[MetaNode] == f {
+					got[f] = true
+				}
+			}
+			return false
+		})
+		return got
+	}
+
+	oldFpr := connect("oldnode", "alpha", "secret-old")
+	beta := connect("bystander", "beta", "secret-beta")
 	until("alpha", "oldnode", 15*time.Second)
 	until("beta", "bystander", 15*time.Second)
 
 	if err := dp.Unpair("alpha"); err != nil {
 		t.Fatal(err)
+	}
+	// Unpair returned only once the old session had closed its proxies: frps removes a session
+	// after closing them, and no longer holds it
+	if h := held(oldFpr, beta); h[oldFpr] || !h[beta] {
+		t.Fatalf("right after the unpair frps holds the old node's session: %v, the bystander's: %v", h[oldFpr], h[beta])
 	}
 	// the work connection the old node pooled before the unpair is not one more way in
 	for i := range 3 {
