@@ -112,6 +112,12 @@ type EnvelopeFacts struct {
 	// state is the recipient state the open was decided against: the answer is sealed under the
 	// key it holds, and reads none of its own (sealed.go, sealResult).
 	state *RecipientState
+	// effects are the pin's moves Decide returned (a newer leaf, a new address, a pending address,
+	// the owner's event), and decidedAt the instant they were decided at. The open does not apply
+	// them: the wrapper does, after the call's budget is spent (sealed.go, Identifier.applyDecision),
+	// so a call the budget refuses changes nothing, as the cloud refuses it (HDTP §12).
+	effects   []map[string]any
+	decidedAt time.Time
 }
 
 // IdempotencyStore records msg_id acknowledgments (SPEC §4.4 step 8).
@@ -207,11 +213,16 @@ func (id *Identifier) PlaintextGateCtx(ctx context.Context, tf TransportFacts, t
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
 		return "", fmt.Errorf("%w: this node requires a client certificate", ErrIdentityRequired)
 	}
+	// An anonymous caller — no chain that validated, no envelope — completes `initialize` and
+	// `tools/list` and is refused identity_required on any tools/call, whatever the seal policy
+	// (SPEC §5.8, HDTP §12). The cloud refuses every plaintext tools/call the same way. Under
+	// `seal: optional` it used to be served the guest view's tools, and a tool outside it was
+	// answered blocked_or_unknown.
+	if substantive && tf.ClientCertFingerprint == "" {
+		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
+		return "", fmt.Errorf("%w: no identity was established", ErrIdentityRequired)
+	}
 	if substantive && id.seal() == core.SealRequired {
-		if tf.ClientCertFingerprint == "" {
-			id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "identity_required")
-			return "", fmt.Errorf("%w: no identity was established", ErrIdentityRequired)
-		}
 		id.audit("identity_gate", "account:"+id.AccountID+" tool:"+tool, "seal_required")
 		return "", fmt.Errorf("%w: this node requires sealed calls", ErrSealRequired)
 	}

@@ -78,6 +78,10 @@ func (s *RecipientState) current() *identity.LeafKey {
 type peeked struct {
 	Chain []string `json:"chain"`
 	Leaf  string   `json:"leaf"`
+	// Method and Params are the inner call, which a thread_id refusal's facts carry (Decide names
+	// no tool with it): the tool's permission is checked before the refusal (sealed.go).
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 }
 
 // opener is the held key an envelope's header names and the suite it is sealed in, when this node
@@ -420,10 +424,11 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		// neither form. Decide refused it at the contact tier with what the signature proved (the root,
 		// the address, the leaf it verified under and the form), and the effects beside it are the pin's
 		// own moves, never the envelope's `seen`: a renewal or a new address under `auto` the envelope
-		// carried is learned (§14.3, §5.3), and nothing of the call is recorded, so the msg_id is not
-		// seen and the same msg_id with a thread_id of a form is taken. The refusal is sealed back to
-		// that leaf (§13.2), charged and audited as the contact's call (sealedHandler); nothing is
-		// dispatched.
+		// carried is learned (§14.3, §5.3) once the call's budget is spent, and nothing of the call is
+		// recorded, so the msg_id is not seen and the same msg_id with a thread_id of a form is taken.
+		// The facts carry the inner call, so the wrapper refuses a tool the contact is not granted for
+		// that first; the refusal is sealed back to that leaf (§13.2), charged and audited as the
+		// contact's call (sealedHandler); nothing is dispatched.
 		root, _ := d.Result["root"].(string)
 		endpoint, _ := d.Result["endpoint"].(string)
 		form, _ := d.Result["form"].(string)
@@ -444,12 +449,10 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		var h envelope.Header
 		protected, _ := hdtpidentity.DecodeB64url(e.Protected)
 		_ = json.Unmarshal(protected, &h)
-		if err := id.apply(ctx, accountID, d.Effects, now); err != nil {
-			return nil, fmt.Errorf("%w: recording the decision: %v", envelope.ErrInvalid, err)
-		}
 		return &EnvelopeFacts{
 			Header: h, From: root, SPKI: leaf.SPKI, Leaf: leafDER, Form: form, Endpoint: endpoint,
-			Tier: policy.TierContact, Refusal: code, Why: why, state: st,
+			Payload: Payload{Method: proof.Method, Params: proof.Params},
+			Tier:    policy.TierContact, Refusal: code, Why: why, state: st, effects: d.Effects, decidedAt: now,
 		}, nil
 	case "ok":
 	default:
@@ -511,10 +514,19 @@ func (id *Identifier) decideEnvelope(ctx context.Context, accountID string, tf T
 		id.audit("identity_mismatch", "account:"+id.AccountID+" contact:"+root, "envelope_invalid")
 		return nil, openedIf(opened, fmt.Errorf("%w: client certificate key does not match the envelope's leaf", envelope.ErrInvalid))
 	}
-	if err := id.apply(ctx, accountID, d.Effects, now); err != nil {
-		return nil, fmt.Errorf("%w: recording the decision: %v", envelope.ErrInvalid, err)
-	}
+	facts.effects, facts.decidedAt = d.Effects, now
 	return facts, nil
+}
+
+// applyDecision records the pin's moves the open decided for f (apply). The wrapper calls it once
+// the call's budget is spent and before anything is dispatched, so an over-budget call moves no pin,
+// records no former address and wakes no owner (HDTP §12; the cloud's surface spends at the same
+// point, review P-10). A replay answered from its record applies nothing, as the cloud answers it.
+func (id *Identifier) applyDecision(ctx context.Context, accountID string, f *EnvelopeFacts) error {
+	if err := id.apply(ctx, accountID, f.effects, f.decidedAt); err != nil {
+		return fmt.Errorf("%w: recording the decision: %v", envelope.ErrInvalid, err)
+	}
+	return nil
 }
 
 // apply records what Decide decided: the effects are the host's to apply in

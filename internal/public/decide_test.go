@@ -217,7 +217,15 @@ func (e *recvEnv) sealFrom(t testing.TB, p *peer, form, tool string, args map[st
 
 func (e *recvEnv) open(t testing.TB, env *hdtpidentity.Envelope, tf TransportFacts) (*EnvelopeFacts, error) {
 	t.Helper()
-	return e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
+	f, err := e.id.OpenSealed(context.Background(), e.acct.ID, tf, env)
+	if err != nil {
+		return nil, err
+	}
+	// The pin's moves, as the wrapper records them once the budget took the call (sealedHandler).
+	if err := e.id.applyDecision(context.Background(), e.acct.ID, f); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // pin records a contact as a first chain would have.

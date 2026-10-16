@@ -11,7 +11,6 @@ package node
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
@@ -32,9 +31,25 @@ func (e ErrRequestRefused) Error() string {
 	return "the peer refused the request: " + e.Code
 }
 
+// ErrNotReached is a `request_contact` that went out and got no answer, or that this identity's
+// own budget or the limits sidecar kept from leaving (outbound.WhyUnsent reads it through Unwrap).
+// Anything else RequestContact returns failed here, before the call: this identity's card or its
+// client could not be read, which is this node's failure and not the peer's.
+type ErrNotReached struct {
+	// Err is the call's failure.
+	Err error
+}
+
+// Error is the call's failure, named as request_contact's.
+func (e ErrNotReached) Error() string { return "request_contact: " + e.Err.Error() }
+
+// Unwrap is the call's failure.
+func (e ErrNotReached) Unwrap() error { return e.Err }
+
 // RequestContact sends `request_contact`, carrying this identity's card and the owner's note, to
-// peer. callID is the call's idempotency key. A transport failure is returned as it is; an answer
-// that refuses is ErrRequestRefused, never taken for a request that landed.
+// peer. callID is the call's idempotency key. The call's failure is ErrNotReached; a failure before
+// it (the card, the client) is returned as it is; an answer that refuses is ErrRequestRefused,
+// never taken for a request that landed.
 func (n *Node) RequestContact(ctx context.Context, accountID string, peer outbound.Peer, note, callID string) error {
 	card, err := n.Card(ctx, accountID)
 	if err != nil {
@@ -50,7 +65,7 @@ func (n *Node) RequestContact(ctx context.Context, accountID string, peer outbou
 	}
 	res, err := client.Call(ctx, peer, core.ToolRequestContact, args, callID)
 	if err != nil {
-		return fmt.Errorf("request_contact: %w", err)
+		return ErrNotReached{Err: err}
 	}
 	if res.IsError {
 		code, _ := refusalCodeOf(res)

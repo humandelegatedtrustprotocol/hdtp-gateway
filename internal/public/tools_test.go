@@ -652,14 +652,15 @@ func TestBlockedCallerIsIndistinguishableFromAStranger(t *testing.T) {
 // and it was specified everywhere and emitted nowhere — a guest got
 // `permission_denied` on the sealed path and the SDK's own unknown-tool error
 // on the plaintext one. The two paths must agree, and at guest tier the answer
-// must not distinguish "you may not" from "no such tool".
+// must not distinguish "you may not" from "no such tool". An anonymous caller is not one of them: it
+// is refused identity_required before any tool is looked for (TestAnAnonymousToolsCallIsIdentityRequired).
 func TestGuestRefusalIsBlockedOrUnknownOnBothPaths(t *testing.T) {
 	e := newToolEnv(t)
 	blocked, blockedKP := e.contact("blocked", "message.text")
 	_ = blockedKP
 	stranger, _ := e.contact("pending_in") // resolves to guest tier
 
-	for _, fpr := range []string{"", blocked, stranger} {
+	for _, fpr := range []string{blocked, stranger} {
 		res, err := e.call(fpr, "send_message", map[string]any{"msg_id": "x", "text": "hi"}, nil)
 		if err != nil {
 			t.Fatalf("caller %q: %v", fpr, err)

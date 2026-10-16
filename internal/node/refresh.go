@@ -35,6 +35,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -58,7 +59,9 @@ type ContactRefresh struct {
 // RefreshContact re-fetches ONE contact's card and applies it when it verifies.
 //
 // The error is for a refresh that could not be attempted or could not be recorded: no such active
-// contact of this account, no endpoint on file, a store that failed. Everything the PEER can cause
+// contact of this account, no endpoint on file, a store that failed, and a call that never left
+// because this identity's budget refused it (rate_limited, with the wait) or the limits sidecar
+// could not be asked (unavailable, saying so). Everything the PEER can cause
 // is an outcome and not an error — an endpoint that is down or an answer that does not verify
 // leaves the pin exactly as it was (§14.3's MUST NOT), and the owner is told which.
 func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string) (ContactRefresh, error) {
@@ -67,6 +70,13 @@ func (n *Node) RefreshContact(ctx context.Context, accountID, contactFpr string)
 		return ContactRefresh{}, err
 	}
 	res, err := client.Call(ctx, peer, core.ToolGetCard, map[string]any{}, newCallID())
+	if refused := unsent(err); refused != nil {
+		// Nothing left this host: this identity's budget refused the call, or the limits sidecar
+		// could not be asked. That is this node's answer, not the peer being unreachable.
+		why, _ := outbound.WhyUnsent(err)
+		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, why)
+		return ContactRefresh{}, refused
+	}
 	if err != nil || res == nil || res.IsError {
 		n.auditFor(accountID, "contact_refresh", "contact:"+contactFpr, "unreachable")
 		return ContactRefresh{Outcome: RefreshUnreachable}, nil

@@ -174,7 +174,8 @@ These are decisions, not backlog (SPEC §13.2):
    shared vectors in HDTP Appendix B and the intrusion battery over both ports.
    Nothing in this repository re-implements §14.2, and nothing reaches for a
    general X.509 path validator.
-4. `internal/core/policy/` — Cedar authorization, three call sites on the public
-   surface (two filter `tools/list`, one gates the call and re-resolves the tier) and
+4. `internal/core/policy/` — Cedar authorization, four call sites on the public
+   surface (two filter `tools/list`, one gates the call and re-resolves the tier, one
+   checks the tool's permission before a sealed `thread_id` refusal) and
    `AllowOwnerManage` on the owner MCP.
 5. `internal/core/audit/` — the hash chain and its archive/prune path.

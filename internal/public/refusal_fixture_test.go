@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
@@ -116,7 +117,28 @@ func servedRefusals(t *testing.T) map[string]func(t *testing.T) servedRefusal {
 		res := s.call(t, s.sealFrom(t, p, "chain", tool, map[string]any{"text": "parity"}), TransportFacts{})
 		return sealed(t, s, res, p, msgIDFor(tool, "chain"))
 	}
+	// threadCall is an active contact's sealed book_slot with a thread_id of neither form, granted
+	// the permissions given.
+	threadCall := func(t *testing.T, perms []string) servedRefusal {
+		s := newSealedEnv(t)
+		p := newPeer(t, s.nowAt.Add(-time.Hour))
+		s.pin(t, p, "active")
+		if err := s.st.UpdateContactPermissions(context.Background(), s.acct.ID, p.fpr(), perms, ""); err != nil {
+			t.Fatal(err)
+		}
+		res := s.call(t, s.sealFrom(t, p, "chain", "book_slot", map[string]any{"thread_id": "."}), TransportFacts{})
+		return sealed(t, s, res, p, msgIDFor("book_slot", "chain"))
+	}
 	return map[string]func(t *testing.T) servedRefusal{
+		"an anonymous plaintext send_message": func(t *testing.T) servedRefusal {
+			return clear(t, anonymousCall(t, newSealedEnv(t), core.SealOptional, "send_message", map[string]any{"text": "parity"}))
+		},
+		"a contact without the tool's scope sends a bad thread_id, sealed": func(t *testing.T) servedRefusal {
+			return threadCall(t, []string{"message.text"})
+		},
+		"a contact with the tool's scope sends a bad thread_id, sealed": func(t *testing.T) servedRefusal {
+			return threadCall(t, []string{"message.text", "calendar.book"})
+		},
 		"a contact calls a tool its grants leave out": func(t *testing.T) servedRefusal {
 			return contactCall(t, "book_slot", nil)
 		},

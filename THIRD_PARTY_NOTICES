@@ -10,7 +10,7 @@ Written by `make notices` (scripts/notices.mjs) for these platforms from these i
 (part of `make check`) holds it to:
 
   platforms                   linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-  go.sum                      sha256 27b1308c1c8ea02f6640e022abb69b91caea2dead25d8db33d1bf136a32cd062
+  go.sum                      sha256 a679e1c8b8bb0e74e75b92eb1169c3358955f564b379ed94093db0ea8ebec60f
   cmd/hdtp-limitd/Cargo.lock  sha256 ac4527ff7687cd994e31824d78c6b094f0c359a49c5ec594a3b9b608b56e33c3
   web/package-lock.json       sha256 0b4a4dc83b830865d5866e5672066f6496cae5add0ecd4f187ced2103ddafafa
 
@@ -3334,7 +3334,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 --------------------------------------------------------------------------------
-github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.8.3
+github.com/humandelegatedtrustprotocol/hdtp-identity/go v0.8.4
 --------------------------------------------------------------------------------
 [LICENSE]
 

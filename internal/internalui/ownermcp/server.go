@@ -870,6 +870,11 @@ func (ot ownerTools) refreshContactTool(ctx context.Context, req *mcp.CallToolRe
 // fingerprint the account does not hold is not_found and a row in another state conflict;
 // anything else is the node's own failure. The error's text, the store's words, stays off the wire.
 func refreshFailure(err error) (code, detail string) {
+	// A refresh that never left, as the node coded it (node.RefreshContact): this identity's budget
+	// (rate_limited, with the wait) or the limits sidecar (unavailable, saying so).
+	if code, detail := refusal.Of(err); code == "rate_limited" || code == "unavailable" {
+		return code, detail
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return "not_found", callFailureDetail["not_found"]

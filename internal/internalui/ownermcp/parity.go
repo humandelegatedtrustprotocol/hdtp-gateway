@@ -303,8 +303,8 @@ func (ot ownerTools) callContactTool(ctx context.Context, req *mcp.CallToolReque
 	// middleware's owner_mcp_call, which reads `refused` off IsError for a call that failed.
 	out, err := ot.e.CallContact(ctx, a.AccountID, a.ContactFpr, a.Tool, a.Arguments)
 	if err != nil {
-		code := callFailureCode(err)
-		r, jerr := errorResult(map[string]string{"code": code, "detail": callFailureDetail[code]})
+		code, detail := callFailure(err)
+		r, jerr := errorResult(map[string]string{"code": code, "detail": detail})
 		return r, nil, jerr
 	}
 	r, err := jsonResult(map[string]string{"result": out})
@@ -327,6 +327,18 @@ func callFailureCode(err error) string {
 		return "envelope_invalid"
 	}
 	return "unavailable"
+}
+
+// callFailure is call_contact's code and detail for a call that did not complete. A call that never
+// left is answered as the node coded it (node.CallContact): this identity's budget refusing it is
+// rate_limited with the wait, the limits sidecar not answering unavailable saying so. Anything else
+// is callFailureCode's, with its one detail.
+func callFailure(err error) (code, detail string) {
+	if code, detail := refusal.Of(err); code == "rate_limited" || code == "unavailable" {
+		return code, detail
+	}
+	code = callFailureCode(err)
+	return code, callFailureDetail[code]
 }
 
 // callFailureDetail is the one detail each call_contact failure code answers with. The error's

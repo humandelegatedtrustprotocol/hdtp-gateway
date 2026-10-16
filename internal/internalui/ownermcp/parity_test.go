@@ -17,6 +17,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
@@ -411,6 +412,9 @@ func TestIdentityCertificateDescribesNoLeafWhenThereIsNone(t *testing.T) {
 // unavailable; the control, an answer, goes through. The whole code is compared, not a substring.
 // A failure is an IsError result, so the door's own owner_mcp_call row says `refused`; the door
 // writes no call_contact row, which is CallContact's alone (node.CallContact).
+// limitedSentence is a budget refusal's sentence, as outbound.RateLimited words it.
+var limitedSentence = (&outbound.RateLimited{RetryAfter: 7 * time.Second}).Sentence()
+
 func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -424,6 +428,10 @@ func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 		{"a malformed answer", fmt.Errorf("outbound: sealed result: %w: %w", envelope.ErrInvalid, errors.New("envelope members")), "envelope_invalid"},
 		{"an answer that did not verify", fmt.Errorf("outbound: unverifiable answer: unknown leaf: %w", envelope.ErrInvalid), "envelope_invalid"},
 		{"an unreachable contact", errors.New("outbound: dial: connection refused"), "unavailable"},
+		// A call that never left, as node.CallContact codes it (#182): answered as coded, the
+		// sentence its detail.
+		{"this identity's own budget", refusal.RateLimited(limitedSentence, nil), "rate_limited"},
+		{"the limits sidecar down", refusal.Unavailable(outbound.LimitsUnavailableSentence, nil), "unavailable"},
 		{"the control", nil, ""},
 	} {
 		var rows []string
@@ -454,8 +462,12 @@ func TestCallContactAnswersEachFailureItsCode(t *testing.T) {
 			}
 			continue
 		}
-		if got["code"] != c.want || got["detail"] != callFailureDetail[c.want] {
-			t.Errorf("%s: answered %s, want code %s with its fixed detail", c.name, body, c.want)
+		detail := callFailureDetail[c.want]
+		if _, coded := refusal.Of(c.err); coded == limitedSentence || coded == outbound.LimitsUnavailableSentence {
+			detail = coded
+		}
+		if got["code"] != c.want || got["detail"] != detail {
+			t.Errorf("%s: answered %s, want code %s with the detail %q", c.name, body, c.want, detail)
 		}
 	}
 }
@@ -513,6 +525,9 @@ func TestRefreshContactDetailCarriesNoStoreText(t *testing.T) {
 		{fmt.Errorf("contact sha256:c is not held by this account: %w", store.ErrNotFound), "not_found", "no contact with that fingerprint on this account"},
 		{fmt.Errorf("contact sha256:c is pending_out, not active: %w", contacts.ErrWrongState), "conflict", "that contact is not active"},
 		{fmt.Errorf("reading contact sha256:c: %w", errors.New(storeCanary)), "internal", "the node could not complete this"},
+		// A refresh that never left, as node.RefreshContact codes it (#182).
+		{refusal.RateLimited(limitedSentence, nil), "rate_limited", limitedSentence},
+		{refusal.Unavailable(outbound.LimitsUnavailableSentence, nil), "unavailable", outbound.LimitsUnavailableSentence},
 	} {
 		d := e.deps
 		d.RefreshContact = func(context.Context, string, string) (string, string, error) { return "", "", c.err }
