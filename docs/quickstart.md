@@ -162,15 +162,15 @@ from the environment: `TUNNEL_TOKEN=… docker compose --profile cloudflared up 
 reads its routes from Cloudflare, not from a file: in the tunnel's configuration, route the public
 hostname to `https://hdtp-gateway:8443` with **No TLS Verify** on, because the node serves TLS on
 `8443` under its own certificate chain, which is not a WebPKI one. On the node's side the
-`cloudflare` adapter needs the token **as the setting `tunnel.cloudflare.token`** (or `TUNNEL_TOKEN` in
-the node's own environment, which `compose.yaml` does not pass): the `TUNNEL_TOKEN` above reaches only
-the `cloudflared` service, and a node that selects the adapter without the setting
-stops at its next start with `serve: tunnel: cloudflare needs a tunnel token`, restarting in a loop
-([#168](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/168)). It also needs the
-public hostname the tunnel routes to this node (`tunnel.cloudflare.hostname`), and
-`tunnel.cloudflare.sidecar` set to `true`, which tells the node the connector is the sidecar's job
-(the image carries no `cloudflared`; without that setting the node looks for one, says it found
-none and that you run the connector yourself, and serves anyway). The adapter is chosen under
+`cloudflare` adapter needs the public hostname the tunnel routes to this node
+(`tunnel.cloudflare.hostname`) and `tunnel.cloudflare.sidecar` set to `true`, which tells the node
+the connector is the sidecar's job (the image carries no `cloudflared`; without that setting the
+node looks for one, says it found none and that you run the connector yourself, and serves anyway).
+The tunnel token is the connector's: the `TUNNEL_TOKEN` above reaches only the `cloudflared`
+service, and the node needs no copy of it. Only a node that runs `cloudflared` itself as a child
+needs the token, as the setting `tunnel.cloudflare.token` (or `TUNNEL_TOKEN` in its own
+environment); without it that node stops at start with `serve: tunnel: cloudflare needs a tunnel
+token to run cloudflared`. The adapter is chosen under
 **Settings → Tunnel adapter** and takes effect at the next start: `docker compose restart
 hdtp-gateway`, then `docker compose restart portal`, because the portal forwarder shares the node's
 network and answers nothing until it is restarted too; the restart also ends your portal session,

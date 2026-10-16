@@ -51,11 +51,23 @@ func TestNgrokHTTPSIsNotAnAdapter(t *testing.T) {
 
 func TestCloudflareOptionsAndSidecarFallback(t *testing.T) {
 	t.Setenv("TUNNEL_TOKEN", "")
-	if _, err := cloudflareOptions(Options{}); err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("token not required: %v", err)
-	}
 	if _, err := cloudflareOptions(Options{Extra: map[string]string{"token": "t"}}); err == nil || !strings.Contains(err.Error(), "hostname") {
 		t.Fatalf("hostname not required: %v", err)
+	}
+	// the token is the connector's: with the sidecar running it, the node needs none (#168)
+	side, err := New("cloudflare", Options{Extra: map[string]string{"hostname": "hdtp.example.com", "sidecar": "true"}})
+	if err != nil {
+		t.Fatalf("sidecar without a token refused: %v", err)
+	}
+	if info, err := side.Start(context.Background()); err != nil || info.PublicURL != "https://hdtp.example.com" || !side.Status().Running {
+		t.Fatalf("sidecar without a token: %+v %v", info, err)
+	}
+	// spawning the connector does need it, and nothing is spawned without it
+	spawned := false
+	noTok := &Cloudflare{opts: cloudflareOpts{Hostname: "hdtp.example.com", Binary: "/bin/echo"},
+		spawn: func(context.Context, string, string) (*exec.Cmd, error) { spawned = true; return nil, nil }}
+	if _, err := noTok.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "token") || spawned {
+		t.Fatalf("spawn without a token: err %v, spawned %v", err, spawned)
 	}
 	// env fallback for the token
 	t.Setenv("TUNNEL_TOKEN", "envtok")

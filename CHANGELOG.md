@@ -32,6 +32,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- The `cloudflare` tunnel adapter with `tunnel.cloudflare.sidecar=true` starts without a tunnel
+  token: the token is the connector's, and the compose sidecar holds its own. The node refused to
+  start without one, so a node following the quickstart restarted in a loop (#168). Spawning
+  `cloudflared` as a child still needs it.
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status

@@ -77,9 +77,6 @@ func cloudflareOptions(o Options) (cloudflareOpts, error) {
 	if c.Token == "" {
 		c.Token = os.Getenv("TUNNEL_TOKEN")
 	}
-	if c.Token == "" {
-		return c, fmt.Errorf("tunnel: cloudflare needs a tunnel token (portal → Settings → Tunnel; stored in the keyring)")
-	}
 	if c.Hostname == "" {
 		return c, fmt.Errorf("tunnel: cloudflare needs the hostname the tunnel routes to this node")
 	}
@@ -100,8 +97,9 @@ func ComposeSidecar(token string) string {
 }
 
 // Cloudflare is the edge adapter for the Cloudflare Tunnel connector (TerminatesAtEdge true).
-// Its constructor refuses an empty tunnel token (the Extra key token, else $TUNNEL_TOKEN) and an
-// empty hostname.
+// Its constructor refuses an empty hostname. The tunnel token (the Extra key token, else
+// $TUNNEL_TOKEN) is the connector's, so only Start's spawn of cloudflared needs it: with the
+// compose sidecar, which holds its own token, the node needs none.
 type Cloudflare struct {
 	opts cloudflareOpts
 	// spawn is the connector launcher (seam for tests).
@@ -139,7 +137,8 @@ func init() {
 // --no-autoupdate run --token …` as a child (binary from Extra "binary", else found on PATH) with
 // only PATH and HOME in its environment. With Extra "sidecar" = "true", or when cloudflared is not
 // found, it spawns nothing and succeeds with Running true and a Detail saying the owner runs the
-// connector (the latter with the compose snippet); a failure to start the child is an error.
+// connector (the latter with the compose snippet). Spawning without a tunnel token is an error, as
+// is a failure to start the child.
 func (c *Cloudflare) Start(ctx context.Context) (Info, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -158,6 +157,9 @@ func (c *Cloudflare) Start(ctx context.Context) (Info, error) {
 			return info, nil
 		}
 		bin = found
+	}
+	if c.opts.Token == "" {
+		return Info{}, fmt.Errorf("tunnel: cloudflare needs a tunnel token to run cloudflared (portal → Settings → Tunnel; stored in the keyring), or tunnel.cloudflare.sidecar=true when the compose sidecar runs the connector")
 	}
 	cmd, err := c.spawn(ctx, bin, c.opts.Token)
 	if err != nil {
