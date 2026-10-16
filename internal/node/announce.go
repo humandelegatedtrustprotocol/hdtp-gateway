@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -133,19 +134,31 @@ func codeOr(code string) string {
 
 // refusalCodeOf reads the plaintext code of a wrapper-level refusal.
 func refusalCodeOf(res *mcp.CallToolResult) (string, bool) {
+	code, _, ok := peerRefusalOf(res)
+	return code, ok
+}
+
+// peerRefusalOf reads a wrapper-level refusal: its plaintext code, and the whole seconds its
+// `retry_after` names when that is a positive number (0 otherwise, which leaves the code readable).
+func peerRefusalOf(res *mcp.CallToolResult) (code string, retryAfter int, ok bool) {
 	if res == nil || len(res.Content) == 0 {
-		return "", false
+		return "", 0, false
 	}
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	if !ok {
-		return "", false
+	tc, isText := res.Content[0].(*mcp.TextContent)
+	if !isText {
+		return "", 0, false
 	}
 	var body struct {
-		Code string `json:"code"`
+		Code       string          `json:"code"`
+		RetryAfter json.RawMessage `json:"retry_after"`
 	}
 	if json.Unmarshal([]byte(tc.Text), &body) != nil {
-		return "", false
+		return "", 0, false
 	}
-	code := core.PeerCode(body.Code)
-	return code, code != ""
+	var wait float64
+	if json.Unmarshal(body.RetryAfter, &wait) == nil && wait > 0 && wait <= math.MaxInt32 {
+		retryAfter = int(math.Ceil(wait))
+	}
+	code = core.PeerCode(body.Code)
+	return code, retryAfter, code != ""
 }

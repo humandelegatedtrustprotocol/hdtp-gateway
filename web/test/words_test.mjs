@@ -27,18 +27,18 @@ const repo = fileURLToPath(new URL("../..", import.meta.url));
 export const OUTCOMES = {
   ok: "ok", active: "ok", paired: "ok", started: "ok", stopped: "ok", stored: "ok",
   pending: "warn", pending_approval: "warn", pending_new_address: "warn", pending_out: "warn", late: "warn", skipped: "warn",
-  bad_form: "bad", bad_hello: "bad", bad_request: "bad", blobs_skipped_unreadable_media: "bad", blocked_silent: "bad", contact_cap: "bad",
+  bad_form: "bad", bad_hello: "bad", bad_request: "bad", blobs_skipped_unreadable_media: "bad", blocked: "bad", blocked_silent: "bad", contact_cap: "bad",
   denied: "bad", envelope_invalid: "bad", error: "bad", failed: "bad", identity_required: "bad", invite_invalid: "bad",
   missing_bytes: "bad", not_found: "bad", not_our_domain: "bad", not_the_paired_ingress: "bad", own_invite: "bad",
   refused: "bad", refused_last: "bad", refused_origin: "bad", rejected: "bad", seal_required: "bad", superseded_leaf: "bad",
   terminate_not_configured: "bad", terminate_unavailable: "bad", too_large: "bad", unavailable: "bad", unknown: "bad",
   unpaired: "bad", unreachable: "bad", unreadable: "bad",
   certificate_renewed: "neutral", passthrough: "neutral", terminate: "neutral",
-  // Written through a variable at the calls named in VIA_VARIABLE (rate_limited is also a literal
-  // in internal/cli/contactinit.go): the limiter's refusal
-  // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, and the
-  // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome).
-  rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad",
+  // Written through a variable at the calls named in VIA_VARIABLE: the limiter's refusal
+  // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, the
+  // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome), and why a call
+  // out never left (internal/outbound/client.go, WhyUnsent, which internal/cli/contactinit.go audits).
+  rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad", limits_unavailable: "bad",
 };
 
 /** Where a variable-written outcome comes from: the literal must still be in that file. */
@@ -47,6 +47,7 @@ const VIA_VARIABLE = {
   permission_denied: "internal/public/servers.go",
   blocked_or_unknown: "internal/public/servers.go",
   blocked_silent: "internal/public/tools.go",
+  limits_unavailable: "internal/outbound/client.go",
 };
 
 function goFiles(dir, out = []) {

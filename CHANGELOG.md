@@ -28,6 +28,34 @@ changelog can be and is not summarized into a fictional release history.
   `accepted`). It called the inviter, whose
   node refuses an active contact's `redeem_invite` (`permission_denied`, the contact tier), and the
   owner was told `bad_request`.
+- `add_contact` with an invite link pasted with a space before it or a newline after it fetches
+  the link it split, trimmed. The split trimmed it and the fetch was given it raw, so the request
+  could not be built and the owner was told `internal` (#181).
+- A call out that never left because this node's own budget refused it, or because the limits
+  sidecar did not answer, is told and audited as that by a send (text and media), by `add_contact`
+  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179).
+  `refresh_contact` and `call_contact` do not: they still read it as an unreachable peer and an
+  unavailable call (#182). A send is "recorded, not delivered: rate_limited" or
+  "…: limits_unavailable", where it was "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
+  sidecar is not answering, so nothing is sent", audited `limits_unavailable`, where it said the
+  peer could not be reached and audited `unreachable`. The notice to an asker (`contact_accepted`,
+  `contact_rejected`) is audited `rate_limited` or `limits_unavailable`, where it was audited
+  `unreachable`; what the owner is told was already the budget's or the sidecar's words. A peer's
+  `rate_limited` refusal of a send keeps its `retry_after`, in whole seconds, in the undelivered
+  row's `why:`; the retry sweep's timing does not read it.
+- `add_contact` with the invite link of somebody this identity holds `pending_out` (it asked them
+  by card and they have not answered) moves that row on: `active` when they accept the redemption,
+  unchanged when it is pending. It inserted a second row, which the store refused, so the owner
+  was told `bad_request` "already a contact or already pending" after their node had spent the
+  invite and, when it auto-accepts, made this identity `active` there (#178). With the link of
+  somebody this identity has blocked it answers `bad_request` "you have blocked that identity;
+  unblock them first" and calls nobody, as the cloud does; it called them and spent their invite.
+- `make fuzz` gives each target a number of executions (`-fuzztime Nx`, minimization
+  `-fuzzminimizetime 100x`) where it gave 30 s (minimization 5 s). A time budget that ran out
+  while the engine was minimizing a new input failed the pre-push gate with `context deadline
+  exceeded` and no failing input (#180); a count sets no deadline. Each count is 30 s at the
+  lowest of five measured rates: `FuzzVCardParse` 700,000, `FuzzSealedEnvelope` 400,000,
+  `FuzzInviteOffer` 250,000, `FuzzRedact` 2,000,000. Ten runs passed, in 136 to 160 s each.
 
 ## [0.1.5] — 2026-10-12
 

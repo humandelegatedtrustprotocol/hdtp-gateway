@@ -3,13 +3,13 @@ package integrationtest
 // SECURITY.md's "Current hardening status" is the public record of where the node stands, each row
 // measured against the code on the day it was written. A row that nothing holds goes stale the day
 // after. The rows that can be derived from the tree are held to it here: the fuzz targets and their
-// time, the analysers and their pinned versions, the form of every gosec waiver, the versions of the
-// libraries the table names, the floor under the scenario count and its tiers, the authorization
-// call sites, the release-build checks `make dist` runs, what the pre-push hook runs, the absence of
-// Dependabot and CI, and that every test the table cites exists. A change to any of those changes
-// the record in the same commit, or fails the build. Exact values are held only where they are
-// deliberate configuration; a count that moves with ordinary work, such as adding a scenario, is a
-// floor.
+// execution counts, the analysers and their pinned versions, the form of every gosec waiver, the
+// versions of the libraries the table names, the floor under the scenario count and its tiers, the
+// authorization call sites, the release-build checks `make dist` runs, what the pre-push hook runs,
+// the absence of Dependabot and CI, and that every test the table cites exists. A change to any of
+// those changes the record in the same commit, or fails the build. Exact values are held only where
+// they are deliberate configuration; a count that moves with ordinary work, such as adding a
+// scenario, is a floor.
 
 import (
 	"fmt"
@@ -58,15 +58,23 @@ func TestTheHardeningStatusTableMatchesTheTree(t *testing.T) {
 				t.Errorf("the Fuzzing row names %s, which the tree does not define", m[1])
 			}
 		}
-		times := map[string]bool{}
-		for _, m := range regexp.MustCompile(`-fuzztime (\d+)s`).FindAllStringSubmatch(fuzzRecipe(t, makefile), -1) {
-			times[m[1]] = true
-		}
-		if len(times) != 1 {
-			t.Fatalf("make fuzz runs its targets for %v seconds; the row says one time for all", keys(times))
-		}
-		if want := keys(times)[0] + " s each"; !strings.Contains(row, want) {
-			t.Errorf("make fuzz runs each target for %s; the Fuzzing row does not say %q", keys(times)[0]+"s", want)
+		// Each line of the recipe budgets its target by a count of executions (#180: a time
+		// budget expired mid-minimization), and the row states that count for each target.
+		budget := regexp.MustCompile(`-fuzz '\^(Fuzz\w+)\$\$'\s+-fuzztime (\d+)x -fuzzminimizetime \d+x$`)
+		lines := strings.Split(strings.TrimSpace(fuzzRecipe(t, makefile)), "\n")
+		for _, line := range lines {
+			m := budget.FindStringSubmatch(line)
+			if m == nil {
+				t.Errorf("make fuzz line %q does not budget its target by a count of executions (-fuzztime Nx -fuzzminimizetime Nx)", strings.TrimSpace(line))
+				continue
+			}
+			n, err := strconv.Atoi(m[2])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "`" + m[1] + "` " + thousands(n) + " executions"; !strings.Contains(row, want) {
+				t.Errorf("make fuzz runs %s for %d executions; the Fuzzing row does not say %q", m[1], n, want)
+			}
 		}
 	})
 
@@ -482,6 +490,15 @@ func scenarioTiers(t *testing.T, harness string) map[string]int {
 		t.Fatal(err)
 	}
 	return counts
+}
+
+// thousands writes n with a comma between each group of three digits, as the record does.
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 func keys(m map[string]bool) []string {

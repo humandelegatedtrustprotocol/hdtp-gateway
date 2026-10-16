@@ -42,7 +42,7 @@ happened to be committed rather than the one your sources produce.
 table of docs/conformance.md) is exactly what the pre-push hook runs — the versions and
 flags are pinned in the Makefile and the hook calls the target, so there is one list
 rather than two to drift apart. Same for `make fuzz`, which is not part of `all`: it is
-two minutes that find nothing on most runs, and the pre-push hook runs it on every push.
+two to three minutes that find nothing on most runs, and the pre-push hook runs it on every push.
 
 `make all` does **not** run the scenario harness, build the container images or build the
 release artifacts. Those are `make harness` / `make harness-pr`, `make harness-image`, and

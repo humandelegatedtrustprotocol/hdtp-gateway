@@ -48,7 +48,9 @@ func (c coded) Error() string {
 }
 
 // Undelivered marks a message that was recorded and not delivered. why is the node's reason: a
-// peer's §12 code, or one the node names (node.WhyEndpointRefused, node.WhyUnreachable). The
+// peer's §12 code, one the node names (node.WhyEndpointRefused, node.WhyUnreachable), or one
+// outbound names for a call that never left (outbound.UnsentRateLimited,
+// outbound.UnsentLimitsUnavailable). The
 // message exists and the retry sweep goes on with it, so a door answers the recorded result beside
 // the code (unavailable) and the detail "recorded, not delivered: <why>". Error() is the cause's
 // text, as the audit row's why reads it; no door shows it.

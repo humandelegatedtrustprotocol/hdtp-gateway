@@ -76,7 +76,7 @@ type inviteOffer struct {
 
 // splitInviteURL separates an invite link into the origin and its token.
 func splitInviteURL(raw string) (origin, token string, err error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return "", "", refusal.BadRequest("an invite link is an https:// URL", nil)
 	}
@@ -287,6 +287,7 @@ func (ci *contactInitiator) Add(ctx context.Context, accountID, inviteURL, card,
 // every message they send is refused `permission_denied` forever.
 func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteURL, grant string) (addContactResult, error) {
 	var out addContactResult
+	inviteURL = strings.TrimSpace(inviteURL)
 	origin, token, err := splitInviteURL(inviteURL)
 	if err != nil {
 		return out, err
@@ -332,6 +333,12 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 	if err == nil && held.Status == "active" {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "active")
 		return addContactResult{Fingerprint: peerCard.Key, DisplayName: held.DisplayName, Status: "active"}, nil
+	}
+	// Somebody this identity has blocked: refused before anything is dialled or spent, as the cloud
+	// refuses it. An invite is not a way around the owner's block.
+	if err == nil && held.Status == "blocked" {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "blocked")
+		return out, refusal.BadRequest("you have blocked that identity; unblock them first", nil)
 	}
 	// The contact cap, before their invite is spent: whatever they answer, the row this writes is
 	// active or pending_out, and both count. Checked once, here, as the cloud checks it; a row they
@@ -397,12 +404,17 @@ func (ci *contactInitiator) RedeemInvite(ctx context.Context, accountID, inviteU
 }
 
 // unreached is a call to a peer that got no answer. This identity's own budget refusing it before
-// anything left is rate_limited, with the wait; anything else is unavailable, in sentence.
+// anything left is rate_limited, with the wait; the limits sidecar not answering is unavailable,
+// saying so; anything else is unavailable, in sentence.
 func (ci *contactInitiator) unreached(accountID, peerFpr, sentence string, err error) error {
-	var limited *outbound.RateLimited
-	if errors.As(err, &limited) {
-		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "rate_limited")
+	why, limited := outbound.WhyUnsent(err)
+	switch why {
+	case outbound.UnsentRateLimited:
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, why)
 		return refusal.RateLimited(limited.Sentence(), nil)
+	case outbound.UnsentLimitsUnavailable:
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, why)
+		return refusal.Unavailable(outbound.LimitsUnavailableSentence, nil)
 	}
 	ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerFpr, "unreachable")
 	return refusal.Unavailable(sentence, err)
@@ -571,7 +583,11 @@ func (ci *contactInitiator) notifyAsker(ctx context.Context, accountID, peerFpr,
 		return err
 	}
 	if _, err := client.Call(ctx, peer, tool, args, newCallID()); err != nil {
-		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "unreachable")
+		outcome, _ := outbound.WhyUnsent(err)
+		if outcome == "" {
+			outcome = "unreachable"
+		}
+		ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, outcome)
 		return err
 	}
 	ci.audit(tool, "account:"+accountID+" peer:"+peerFpr, "ok")
