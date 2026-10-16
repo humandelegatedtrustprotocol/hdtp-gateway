@@ -245,9 +245,11 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 	}
 	var storage []StorageRow
 	if d.Storage != nil {
-		rows, _ := d.Storage(r.Context())
-		var err error
-		if storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID }); err != nil {
+		rows, err := d.Storage(r.Context())
+		if err == nil {
+			storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID })
+		}
+		if err != nil {
 			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
 			return
 		}

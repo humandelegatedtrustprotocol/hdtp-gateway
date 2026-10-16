@@ -2,6 +2,7 @@ package internalui
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,7 +28,7 @@ func (c *canaryStore) ListAccounts(ctx context.Context) ([]store.Account, error)
 // dropped the error.
 func TestTheAccountListsAreTheOwnersAccounts(t *testing.T) {
 	ctx := context.Background()
-	fail := false
+	fail, failStorage := false, false
 	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
 		cs := &canaryStore{Store: st, fail: map[string]bool{}}
 		listed := func(ctx context.Context) ([]store.Account, error) {
@@ -45,6 +46,9 @@ func TestTheAccountListsAreTheOwnersAccounts(t *testing.T) {
 				return out, err
 			},
 			Storage: func(ctx context.Context) ([]StorageRow, error) {
+				if failStorage {
+					return nil, errors.New(pageCanary)
+				}
 				accts, err := st.ListAccounts(ctx)
 				out := make([]StorageRow, 0, len(accts))
 				for _, a := range accts {
@@ -76,6 +80,10 @@ func TestTheAccountListsAreTheOwnersAccounts(t *testing.T) {
 		if rec := e.do(t, http.MethodGet, path, nil, []*http.Cookie{session}); rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), pageCanary) {
 			t.Errorf("GET %s with the account list failing: %d %s; want 500", path, rec.Code, rec.Body.String())
 		}
+	}
+	fail, failStorage = false, true
+	if rec := e.do(t, http.MethodGet, "/api/settings", nil, []*http.Cookie{session}); rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), pageCanary) {
+		t.Errorf("GET /api/settings with the storage rows failing: %d %s; want 500", rec.Code, rec.Body.String())
 	}
 }
 
