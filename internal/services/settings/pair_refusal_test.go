@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,7 +55,8 @@ func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &core.Config{DataDir: dir, Tunnel: "ingress-terminate"}
-	svc := New(st, openKeyringAt(t, dir), cfg, func(string, string, string) {})
+	var audited []string
+	svc := New(st, openKeyringAt(t, dir), cfg, func(a, r, o string) { audited = append(audited, a+" "+r+" "+o) })
 	in := internalui.PairInput{PairURL: "https://ingress.example/pair", Token: "t", Subdomain: "me"}
 
 	named := in
@@ -66,6 +68,9 @@ func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 	_, err = svc.Deps().Pair(ctx, in)
 	if code, s := refusal.Of(err); code != "not_found" || s != "unknown account" {
 		t.Errorf("no account named on a node with one: %v → %s %q", err, code, s)
+	}
+	if want := []string{"ingress_pair account:nosuch not_found", "ingress_pair account: not_found"}; !slices.Equal(audited, want) {
+		t.Errorf("the account refusals audited %q, want %q", audited, want)
 	}
 	named.Account = alice.ID
 	_, err = svc.Deps().Pair(ctx, named)
