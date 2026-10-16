@@ -264,7 +264,7 @@ func TestThePassTakesUnnamedFilesUnderUnlimitedRetention(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(swept) != 1 || swept[0] != "account:"+a.ID+" blobs:1 ok" {
+	if len(swept) != 1 || swept[0] != "account:"+a.ID+" messages:0 threads:0 blobs:1 ok" {
 		t.Fatalf("audit rows: %v", swept)
 	}
 }
