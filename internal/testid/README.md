@@ -7,8 +7,8 @@ one place that builds them, so a suite does not grow six slightly different wall
 certificate comes from `hdtp-identity`'s own builders (`BuildRoot`, `BuildLeaf`, `EncodeCard`), the
 same ones the wallet and the node use.
 
-Callers are test files in `internal/cli` (17 files), `internal/contacts`, `internal/identity`,
-`internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/node`,
+Callers are test files in `internal/cli`, `internal/contacts`, `internal/identity`,
+`internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/messaging`, `internal/node`,
 `internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
 `internal/storecheck`'s tests. No non-test file imports it. It is a leaf (rank 0 in
 `internal/integrationtest/layering_test.go`). Every function but `Host.Card` takes a `testing.TB`, not a
@@ -33,6 +33,9 @@ Callers are test files in `internal/cli` (17 files), `internal/contacts`, `inter
   `spare low bits in the last character`, `a line break inside`, `R of small order`);
   `SmallOrderR` signs with a zero nonce so R is the identity point; `SpareBits` spells the same
   bytes a second way.
+- Thread ids (`threadids.go`): `ThreadIDs` is the one table of `thread_id`s (`ThreadIDCase`: a name,
+  the id, and HDTP §7's answer, `""` for an id of a form or `too_large`/`bad_request`) that every door's
+  tests and the wipe's run: the ids of neither form and the controls of a form.
 - TLS files (`tlsfiles.go`): `ServerFiles` writes a self-signed ECDSA P-256 server certificate and
   key as PEM into a directory, valid for 24 hours: ordinary web TLS for the internal surface, not
   an HDTP certificate.
@@ -56,7 +59,8 @@ base64url string that does not read in `DER`, a signature that `crypto/ed25519` 
 
 ## Held by
 
-The package has no tests of its own; its users hold it. `internal/cli/offer_cardsig_test.go`
+`threadids_test.go` (`TestTheThreadIDTableIsTheCores`) holds `ThreadIDs` to the identity core's
+answers. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
 (`TestAnInvitesCardSigIsReadStrictly`) and `internal/node/refresh_cardsig_test.go` use
 `SignedCardSigs`; `internal/cli/request_cut_test.go` (`TestACutCardSaysWhatToDo`) uses
 `WithCert`/`WithoutCert`; `internal/cli/request_pasted_test.go` (`TestAPastedCardIsAsked`) and

@@ -24,7 +24,8 @@ import (
 type EventKind string
 
 const (
-	// EventMessage: a message was recorded in a thread (ThreadID, ContactFpr).
+	// EventMessage: a thread's messages changed: one recorded, or the thread deleted (ThreadID,
+	// ContactFpr).
 	EventMessage EventKind = "message"
 	// EventRequest: a contact request or redemption is waiting for the owner (ContactFpr).
 	EventRequest EventKind = "request"

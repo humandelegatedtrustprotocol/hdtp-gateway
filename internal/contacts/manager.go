@@ -16,7 +16,6 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
-	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -567,5 +566,3 @@ func CardName(card string) string {
 	}
 	return c.FN
 }
-
-var _ = identity.Fingerprint // referenced by tests; keeps the import honest

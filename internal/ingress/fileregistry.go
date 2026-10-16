@@ -24,42 +24,69 @@ import (
 )
 
 type fileRegistry struct {
-	Registry // tokens and lookups come from the in-memory implementation
+	*memRegistry // tokens and lookups come from the in-memory implementation
 
-	mu   sync.Mutex
+	mu   sync.Mutex // serialises Put, so the book written is the book put
 	path string
 }
 
 // NewFileRegistry returns a Registry whose pairings survive a restart: it loads the JSON book at
 // path (a missing file is a first run, not an error) and puts each row into an in-memory
 // registry, so a row that fails Put's checks, or a file that does not parse, is an error naming
-// the path. Tokens stay in memory and are never written. Put persists; MintToken, ConsumeToken
-// and the lookups are the in-memory registry's. The file is written 0600, through a temporary
-// file renamed over it, after the in-memory Put has succeeded.
+// the path. Tokens stay in memory and are never written. Put and Remove persist; MintToken,
+// ConsumeToken and the lookups are the in-memory registry's. The file is written 0600, through a temporary
+// file renamed over it, after Put's checks have passed and before the in-memory book changes.
 func NewFileRegistry(path string, now func() time.Time) (Registry, error) {
-	r := &fileRegistry{Registry: NewMemoryRegistry(now), path: path}
+	// The file registry checks and writes before the in-memory book changes, so it holds the memory
+	// registry itself, not the interface.
+	r := &fileRegistry{memRegistry: NewMemoryRegistry(now).(*memRegistry), path: path}
 	nodes, err := readNodes(path)
 	if err != nil {
 		return nil, err
 	}
 	for _, n := range nodes {
-		if err := r.Registry.Put(n); err != nil {
+		if err := r.memRegistry.Put(n); err != nil {
 			return nil, fmt.Errorf("ingress: restoring pairing %s: %w", n.Subdomain, err)
 		}
 	}
 	return r, nil
 }
 
-// Put records a pairing and writes the book back before reporting success. A
-// pairing that is not on disk is one the owner will have to repeat, so the write
-// happens before the caller is told it worked.
+// Put checks the pairing as the in-memory registry does, writes the book with it to disk, and only
+// then puts it in memory. A pairing that is not on disk is one the owner will have to repeat, so
+// the write happens before the caller is told it worked; and a write that failed leaves the book
+// in memory as it was, so the ingress never routes a pairing its next start will not know.
 func (r *fileRegistry) Put(n Node) error {
-	if err := r.Registry.Put(n); err != nil {
-		return err
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return writeNodes(r.path, r.Registry.All())
+	r.memRegistry.mu.Lock()
+	err := r.refusal(n)
+	book := r.with(n)
+	r.memRegistry.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := writeNodes(r.path, book); err != nil {
+		return err
+	}
+	return r.memRegistry.Put(n)
+}
+
+// Remove writes the book without the subdomain's pairing to disk, and only then forgets it in
+// memory, for the reason Put writes first.
+func (r *fileRegistry) Remove(sub string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memRegistry.mu.Lock()
+	book, held := r.without(sub)
+	r.memRegistry.mu.Unlock()
+	if !held {
+		return ErrNotPaired
+	}
+	if err := writeNodes(r.path, book); err != nil {
+		return err
+	}
+	return r.memRegistry.Remove(sub)
 }
 
 func readNodes(path string) ([]Node, error) {

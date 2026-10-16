@@ -4,9 +4,9 @@ The contact lifecycle of SPEC section 9 and HDTP sections 5 and 6, on the node's
 reaches the node through `internal/public` (and `internal/node` wires it): `Manager` turns a proven
 call into a contact row (invite redemption, contact request, accept, reject, update, remove). The
 owner reaches the same rows through `internal/internalui` (the portal), `internal/internalui/ownermcp`
-and `internal/cli`, which all call `Owner`, so the surfaces cannot decide differently (owner.go:3-6).
-Everything is written through `internal/core/store`; the package imports `internal/identity` only for
-a test reference (manager.go:570) and `hdtp-identity/go` for card, certificate and address-guard
+and `internal/cli`, which all call `Owner`, so the surfaces cannot decide differently (owner.go's opening comment).
+Everything is written through `internal/core/store`; the package imports `internal/identity` for
+`StripDisplayName` (vcard.go) and `hdtp-identity/go` for card, certificate and address-guard
 reading. `internal/services/settings`, `internal/services/retention`, `internal/integrationtest` and
 `internal/storecheck` also import it (presets, cards, tests).
 
@@ -16,8 +16,8 @@ Inbound (manager.go, initiate.go):
 
 - `Manager`, its `ContactCap` and `AdmitRequest` hooks, `Cap`, `Room`: the two caps. `Room` refuses
   with `ErrContactCap` (core.ErrContactCap) when `CountHeldContacts` is at the cap; the cap is
-  `ContactCap()` when it returns more than 0, else `core.DefaultLimitContacts` (500, core/config.go:56).
-- `CreateInvite`, `InviteOptions`, `MaxInviteTTL` (90 days), the default TTL (14 days, manager.go:37):
+  `ContactCap()` when it returns more than 0, else `core.DefaultLimitContacts` (500).
+- `CreateInvite`, `InviteOptions`, `MaxInviteTTL` (90 days), the default TTL (14 days, `defaultInviteTTL`):
   a 16-byte random token returned once; only its SHA-256 is stored. A preset with no permission list
   grants that preset's bundle. `MaxUses` 0 is 1, negative is `1<<30`.
 - `RedeemAs`, `RedeemResult`, `Proof`: guest-tier redemption. `Proof` is what the call proved (root
@@ -47,8 +47,8 @@ path uses; it reads the card with `hdtpidentity.DecodeCard`), `CardName`, `SealO
 ### States and transitions
 
 A contact row's status is one of `pending_in`, `pending_out`, `active`, `blocked`; no row is the state
-`none`. `store.Contact.EverActive` records whether it was ever active (the store sets it on a move to
-active, store.go:642). The transitions the code takes:
+`none`. `store.Contact.EverActive` records whether it was ever active (the store sets it on every move to
+active; the conformance suite's `EverActiveIsSetByEveryActivationAndClearedByNone` holds it). The transitions the code takes:
 
 | From | To | By |
 |---|---|---|
@@ -66,11 +66,11 @@ active, store.go:642). The transitions the code takes:
 | pending_in, pending_out | none | `Owner.ExpireRequests` (default 30 days) |
 
 A pinned `pending_in` row redeeming an invite takes the invite's status, grant and label
-(`RedeemOverPendingContact`, manager.go:318).
+(`RedeemOverPendingContact`).
 
 ## What it refuses, and how
 
-Wire codes are the package's sentinel errors (manager.go:24-29, owner.go:20):
+Wire codes are the package's sentinel errors (the `Err…` variables of manager.go and owner.go):
 
 - `invite_invalid`: unknown token, or expired, revoked or used up (checked before anything is spent,
   and again atomically by `ConsumeInviteUse`); the request was decided or the root inserted meanwhile.
@@ -82,17 +82,17 @@ Wire codes are the package's sentinel errors (manager.go:24-29, owner.go:20):
   `ContactAccepted`/`UpdateContact` naming another root; an unknown preset in `Approve`; a failed `InsertContact` in `RequestContactAs` (answered "already known" whatever the store's error was, not only a duplicate root), and in `Initiated` and `InitiatedByFingerprint` (answered "already a contact or already pending" likewise); in `Initiated`, a row already held in any state but `pending_out`.
 - `unknown_contact`: no such row, or not `pending_out` for `ContactAccepted`/`ContactRejected`.
 - `conflict` (`ErrWrongState`): the row is not in a state the owner action applies to, or changed
-  between the read and the guarded write (`moved`, owner.go:85).
+  between the read and the guarded write (`moved`).
 - `ErrContactCap`: `Approve`, `Unblock` of an ever-active row, `RedeemAs` that would add an active row,
   and approving a new address for a root with no pin. `ErrRequestsFull` (`unavailable`): every write of a
-  `pending_in` row; a `Manager` with no `AdmitRequest` writes no request at all (manager.go:73-78).
+  `pending_in` row; a `Manager` with no `AdmitRequest` writes no request at all (`Manager.AdmitRequest`).
 - A blocked caller is answered as a stranger: `RedeemAs` on a root held in any status except
-  `pending_in` returns `Silent` and writes and spends nothing (manager.go:300-303).
+  `pending_in` returns `Silent` and writes and spends nothing (`RedeemAs`).
 
 ## Invariants
 
 - `pending_in` and `blocked` rows do not count against the contact cap; `active` and `pending_out` do
-  (cap_test.go:31, `CountHeldContacts`).
+  (`TestWhatCountsAgainstTheCap`, `CountHeldContacts`).
 - A use of an invite is spent only by a redemption that writes a row, in the same transaction.
 - The pin is the root; the card must name that root and carry the proven leaf (`Proof.vet`).
 - A card a peer pushes (`UpdateContact`) replaces the stored card but not the display name the owner
@@ -132,7 +132,7 @@ Wire codes are the package's sentinel errors (manager.go:24-29, owner.go:20):
   never calls a peer to fetch one. The calls that tell a peer of an owner decision (`TellApproved`,
   `TellRejected`, `TellRemoved`) are supplied by the caller and are best effort; nil means the peer is
   not told, and `Decision.Why` says so.
-- `Block` is silent: the peer is told nothing (owner.go:195). `Reject` tells the peer.
+- `Block` is silent: the peer is told nothing (`Owner.Block`). `Reject` tells the peer.
 - A card does not choose a contact's name after approval, and a display name is never made unique;
   telling two Alices apart is against the fingerprint (vcard.go `displayName` comment).
 - `SealOf` of a contact with no card on file returns `required`; the SPEC does not say what a host

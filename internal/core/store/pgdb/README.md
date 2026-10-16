@@ -37,6 +37,7 @@ SQLite's, in Postgres dialect (`$1` placeholders), with these that SQLite has no
 | `NotifyChanges` | `Postgres.AppendChange` | the notification sent at commit |
 | `ListenChanges` | `Postgres.WatchChanges` | the `LISTEN` on a connection held for it |
 | `LockAccountRow` | `Postgres.LockAccount` | `SELECT ... FOR UPDATE` on the account row |
+| `LockFileHash` | `Postgres.LockFile` | a transaction-scoped advisory lock on a file's hash, so storing a file and collecting it take turns across processes |
 
 Where the generated parameter types differ from SQLite's, the store keeps a per-engine adapter rather than
 a shared one; `store/params.go` lists the five cases (the two audit-page parameter types, which type

@@ -21,6 +21,13 @@
 # TestFRPStopRightAfterStart the third (internal/tunnel), TestDataPlaneStopRightAfterStart the
 # fourth (internal/ingress).
 #
+# And one addition: frps has no way for its embedder to end a client's session. server/service.go
+# gains Service.CloseControls, which closes every session whose login a predicate rejects and
+# waits until its proxies are closed. The ingress's DataPlane.Unpair calls it after removing a
+# pairing, so the removed node's live session gives up the name it held (frps calls the plugin at
+# Login and NewProxy only, and a session already open would otherwise keep its vhost route);
+# TestAnUnpairedNodeLosesItsRouteToTheNextPairing (internal/ingress) holds it.
+#
 # The copy is every non-test .go file under client/, pkg/, server/ and assets/ (the library; frp's
 # cmd/, web/, test/ and doc/ are not compiled by anything here), with frp's go.mod and LICENSE.
 #
@@ -42,7 +49,8 @@
 # The upstream module comes from the Go module cache (downloaded once if absent) and is held to
 # the h1 hash below, which is the hash go.sum carried for it before the replace.
 #
-# Remove this, the directory, the patch and both replaces when an frp release carries the fix:
+# Remove this, the directory, the patch and both replaces when an frp release carries the fixes
+# and a way to close a client's session:
 # require that release, `go mod tidy` here and in harness/, and delete what this file names.
 set -euo pipefail
 

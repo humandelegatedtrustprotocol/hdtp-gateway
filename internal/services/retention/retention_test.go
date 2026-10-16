@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"path/filepath"
 	"slices"
@@ -263,7 +264,39 @@ func TestThePassTakesUnnamedFilesUnderUnlimitedRetention(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(swept) != 1 || swept[0] != "account:"+a.ID+" blobs:1 ok" {
+	if len(swept) != 1 || swept[0] != "account:"+a.ID+" messages:0 threads:0 blobs:1 ok" {
 		t.Fatalf("audit rows: %v", swept)
+	}
+}
+
+type accountsFail struct{ store.Store }
+
+func (accountsFail) ListAccounts(context.Context) ([]store.Account, error) {
+	return nil, errors.New("pq: relation accounts_canary_2b9d does not exist")
+}
+
+// A pass whose account list could not be read says so on stderr, as every other failed step does:
+// it ends there, so no account's requests, files or messages are swept, and it ended without a word.
+func TestAPassThatCannotListAccountsSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	st := migrated(t, dir)
+	defer st.Close()
+	var stderr lockedTestBuf
+	ran := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	var swept sync.WaitGroup
+	swept.Go(func() {
+		Run(ctx, nil, accountsFail{st}, &core.Config{DataDir: dir}, func(string, string, string) {}, &stderr,
+			nil, func(context.Context) { ran <- struct{}{} }, nil, nil)
+	})
+	<-ran
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(stderr.String(), "retention: accounts:") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	swept.Wait()
+	if got := stderr.String(); !strings.Contains(got, "retention: accounts: pq: relation accounts_canary_2b9d does not exist") {
+		t.Fatalf("a pass that could not list accounts printed %q", got)
 	}
 }

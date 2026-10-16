@@ -194,7 +194,7 @@ those the contact already holds) with `bad_request`, rather than dropping it and
 `server_test.go` (tools, scoping, labels, the wait and the feed), `parity_test.go` (audit,
 integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle,
 `set_permissions`, invites), `address_test.go`, `claim_test.go`, `pending_test.go`,
-`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `passkeys_test.go`,
+`review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `delete_test.go`, `delete_divergence_test.go` (the wait does not report a deletion), `passkeys_test.go`,
 `hints_test.go` (the four hints of every tool on the wire, and as a client decodes them).
 
 ## What it does not do
@@ -206,6 +206,11 @@ integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle
   with a bound of `WaitMaxSec` seconds, and the bus only tells it to look. The store's change log
   says what moved.
 - It does not register passkeys, and cannot (SPEC §8.6).
+- It does not report a deleted conversation. Deleting one publishes a `message` event naming it, which
+  wakes a portal's view, and a wait reads a change of a thread the account no longer holds as nothing
+  to read. BatonDeck's `wait_for_updates` has no equivalent: its answer (`Changes`,
+  `gateway/src/identity/watch.ts`) names no deleted conversation either. The portal hearing it and
+  the wait not is build rule 1's divergence, held by `TestAWaitDoesNotReportADeletedConversation`.
 - It does not decide what to do about a message. `wait_for_updates` and `digest` report and label;
   the labels carry the owner's trust flag, and message bodies are untrusted peer content, which is
   why the feed omits them (read them with `read_thread`).
