@@ -36,9 +36,12 @@ export const OUTCOMES = {
   certificate_renewed: "neutral", passthrough: "neutral", terminate: "neutral",
   // Written through a variable at the calls named in VIA_VARIABLE: the limiter's refusal
   // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, the
-  // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome), and why a call
-  // out never left (internal/outbound/client.go, WhyUnsent, which internal/cli/contactinit.go audits).
+  // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome), why a call
+  // out never left (internal/outbound/client.go, WhyUnsent, which internal/cli/contactinit.go audits),
+  // and the status a call to an integration landed (internal/integrations/manager.go, failStatus,
+  // which NoteCallFailure audits).
   rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad", limits_unavailable: "bad",
+  auth_error: "bad",
 };
 
 /** Where a variable-written outcome comes from: the literal must still be in that file. */
@@ -48,6 +51,7 @@ const VIA_VARIABLE = {
   blocked_or_unknown: "internal/public/servers.go",
   blocked_silent: "internal/public/tools.go",
   limits_unavailable: "internal/outbound/client.go",
+  auth_error: "internal/integrations/manager.go",
 };
 
 function goFiles(dir, out = []) {
