@@ -68,12 +68,17 @@ changelog can be and is not summarized into a fictional release history.
   action on it answered 404. When the identities or the memberships cannot be read, the three pages
   answer 500, where Settings and owners showed no identities.
 - The owners page answers 500 when its passkeys or tokens cannot be read, and the Settings page
-  when its stored values, adapter credentials, pairings or presets cannot be read; each read was
-  dropped, so a failed one rendered as nothing registered, stored or paired. A post to either page,
-  which answers with that state, answers such a read failing after it with its own status and
-  notice, `new_token` for a token create, and `page_error` `"store"` in place of the lists, so a
-  token's one appearance and a trust-on-first-use pairing's ingress key are not lost; the portal
-  shows the notice, and the token, with the page as it was.
+  when its stored values, adapter credentials, pairings or presets cannot be read, to a GET or a
+  HEAD; each read was dropped, so a failed one rendered as nothing registered, stored or paired. A
+  post to either page, which answers with that state, answers such a read failing after it with
+  its own status and notice, `new_token` for a token create, and `page_error` `"store"` in place
+  of the lists, so a token's one appearance and a trust-on-first-use pairing's ingress key are not
+  lost; the portal shows the notice, and the token, with the page as it was, except that the
+  Settings page's preset grid applies a preset save or delete the node confirmed. Selecting an
+  ingress tunnel when the pairings cannot be read answers the store's failure, 500 (with
+  `page_error` `"store"` when the page cannot be read after it either), saves nothing and audits
+  `settings_save` `error`; the failed read was taken as no pairing, a 200 telling the owner to
+  pair first.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

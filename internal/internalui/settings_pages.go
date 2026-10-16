@@ -210,14 +210,16 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security []setting
 	return reach, security
 }
 
-// render answers a settings request with the page's whole state, and the notice, error and probe verdict the request produced.
-func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice string, isErr bool, verdict, detail string) {
-	d.renderStatus(w, r, http.StatusOK, notice, isErr, verdict, detail)
+// render answers a settings request with the page's whole state, and the notice, error and probe
+// verdict the request produced. posted is true from the POST routes and false from the page's read
+// (unreadable): the route decides, not r.Method, which is HEAD as well as GET on the read's pattern.
+func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, posted bool, notice string, isErr bool, verdict, detail string) {
+	d.renderStatus(w, r, posted, http.StatusOK, notice, isErr, verdict, detail)
 }
 
 // renderStatus is render answering with status: a refused pairing or unpairing answers its code's
 // status (pageStatus), with the page's state beside it.
-func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
+func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, posted bool, status int, notice string, isErr bool, verdict, detail string) {
 	var pending map[string]string
 	var adapters []AdapterSetting
 	var paired map[string]bool
@@ -237,7 +239,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 	}
 	if err != nil {
 		// Stored values, credentials, pairings or presets that could not be read are not none.
-		d.unreadable(w, r, status, notice, isErr, verdict, detail)
+		d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
 		return
 	}
 	reach, security := d.rows(pending)
@@ -251,7 +253,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 		}
 		if err != nil {
 			// A selector that could not be read is not one with nobody in it.
-			d.unreadable(w, r, status, notice, isErr, verdict, detail)
+			d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
 			return
 		}
 	}
@@ -262,7 +264,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 			storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID })
 		}
 		if err != nil {
-			d.unreadable(w, r, status, notice, isErr, verdict, detail)
+			d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
 			return
 		}
 	}
@@ -294,12 +296,13 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 	})
 }
 
-// unreadable answers a request whose page state could not be read. A read is 500 {"error":"store"}.
+// unreadable answers a request whose page state could not be read. The page's read (posted false,
+// whether GET or HEAD) is 500 {"error":"store"}.
 // A post has done what it did by then (a pairing's one-time token is spent, a preset is saved), so
 // it answers its own status, notice and probe verdict with page_error "store" and none of the
 // page's lists, which are left out rather than sent empty.
-func (d SettingsDeps) unreadable(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
-	if r.Method == http.MethodGet {
+func (d SettingsDeps) unreadable(w http.ResponseWriter, r *http.Request, posted bool, status int, notice string, isErr bool, verdict, detail string) {
+	if !posted {
 		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
 		return
 	}
@@ -337,7 +340,7 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 
 // getAPISettings serves `GET /api/settings`.
 func (d SettingsDeps) getAPISettings(w http.ResponseWriter, r *http.Request) {
-	d.render(w, r, "", false, "", "")
+	d.render(w, r, false, "", false, "", "")
 }
 
 // postSettings serves `POST /settings`.
@@ -381,11 +384,17 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "tunnel" && requiresPairing(value) {
 			paired := map[string]bool{}
 			if d.Paired != nil {
-				paired, _ = d.Paired(r.Context())
+				var err error
+				if paired, err = d.Paired(r.Context()); err != nil {
+					// Pairings that could not be read are not none: the store failed, not the owner.
+					d.audit("settings_save", "key:tunnel value:"+value, "error")
+					d.renderStatus(w, r, true, pageStatus(err), "could not check the ingress pairing: "+pageError(err), true, "", "")
+					return
+				}
 			}
 			if !paired[value] {
 				d.audit("settings_save", "key:tunnel value:"+value, "bad_request")
-				d.render(w, r, value+" needs a completed ingress pairing before it can be "+
+				d.render(w, r, true, value+" needs a completed ingress pairing before it can be "+
 					"selected — pair below first, which selects it for you", true, "", "")
 				return
 			}
@@ -394,12 +403,12 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			d.audit("settings_save", "key:"+key, "bad_request")
 			// The validator's sentences are the node's, and it reads nothing: marked here, where
 			// the refusal is known to be one of them.
-			d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
+			d.render(w, r, true, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 			return
 		}
 		if err := d.Save(r.Context(), key, value); err != nil {
 			d.audit("settings_save", "key:"+key, "error")
-			d.render(w, r, "could not save "+key+": "+pageError(err), true, "", "")
+			d.render(w, r, true, "could not save "+key+": "+pageError(err), true, "", "")
 			return
 		}
 		saved = append(saved, key)
@@ -408,7 +417,7 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(saved) == 0 {
-		d.render(w, r, "Nothing to save.", false, "", "")
+		d.render(w, r, true, "Nothing to save.", false, "", "")
 		return
 	}
 	notice := "Saved " + strings.Join(saved, ", ") + "."
@@ -416,7 +425,7 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		notice += " Restart the node for " + strings.Join(restart, ", ") + " to take effect."
 	}
 	d.audit("settings_save", "keys:"+strings.Join(saved, ","), "ok")
-	d.render(w, r, notice, false, "", "")
+	d.render(w, r, true, notice, false, "", "")
 }
 
 // postSettingsAdapter serves `POST /settings/adapter`.
@@ -435,18 +444,18 @@ func (d SettingsDeps) postSettingsAdapter(w http.ResponseWriter, r *http.Request
 	okKey := (strings.HasPrefix(key, "tunnel.") || strings.HasPrefix(key, "integration.")) &&
 		strings.Count(key, ".") >= 2
 	if !okKey {
-		d.render(w, r, "a setting here is named tunnel.<adapter>.<setting> or "+
+		d.render(w, r, true, "a setting here is named tunnel.<adapter>.<setting> or "+
 			"integration.<slug>.<name>", true, "", "")
 		return
 	}
 	if err := d.Save(r.Context(), key, value); err != nil {
 		d.audit("settings_save", "key:"+key, "error")
-		d.render(w, r, "could not store "+key, true, "", "")
+		d.render(w, r, true, "could not store "+key, true, "", "")
 		return
 	}
 	// The key is audited; the value never is.
 	d.audit("settings_save", "key:"+key, "ok")
-	d.render(w, r, "Stored "+key+". Restart the node to use it.", false, "", "")
+	d.render(w, r, true, "Stored "+key+". Restart the node to use it.", false, "", "")
 }
 
 // postSettingsStorage serves `POST /settings/storage`.
@@ -461,18 +470,18 @@ func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request
 	expiry, err3 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("request_expiry_days")))
 	if err1 != nil || err2 != nil || quota < 0 || days < 0 ||
 		quota > MaxQuotaGiB || days > MaxRetentionDaysForm {
-		d.render(w, r, "quota and retention are whole numbers, zero or more "+
+		d.render(w, r, true, "quota and retention are whole numbers, zero or more "+
 			"(and within sane bounds — a window of a few hundred thousand days "+
 			"is not a longer window, it is an overflow)", true, "", "")
 		return
 	}
 	if err3 != nil || expiry < 1 || expiry > MaxRequestExpiryDays {
-		d.render(w, r, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
+		d.render(w, r, true, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
 		return
 	}
 	if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
 		d.audit("settings_storage", "account:"+account, "error")
-		d.render(w, r, "could not save: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not save: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_storage",
@@ -481,7 +490,7 @@ func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request
 	if days > 0 {
 		notice = fmt.Sprintf("Saved. Messages older than %d days will be deleted, permanently and locally.", days)
 	}
-	d.render(w, r, notice, false, "", "")
+	d.render(w, r, true, notice, false, "", "")
 }
 
 // postSettingsPresets serves `POST /settings/presets`.
@@ -495,16 +504,16 @@ func (d SettingsDeps) postSettingsPresets(w http.ResponseWriter, r *http.Request
 	if err := contacts.ValidatePreset(name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "bad_request")
 		// As above: the validator's own sentences, from a check that reads nothing.
-		d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
+		d.render(w, r, true, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 		return
 	}
 	if err := d.SavePreset(r.Context(), name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not save the preset: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not save the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" perms:"+strings.Join(perms, ","), "ok")
-	d.render(w, r, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
+	d.render(w, r, true, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
 }
 
 // postSettingsPresetsNameDelete serves `POST /settings/presets/{name}/delete`.
@@ -516,11 +525,11 @@ func (d SettingsDeps) postSettingsPresetsNameDelete(w http.ResponseWriter, r *ht
 	name := r.PathValue("name")
 	if err := d.DeletePreset(r.Context(), name); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not delete the preset: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not delete the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" deleted:1", "ok")
-	d.render(w, r, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
+	d.render(w, r, true, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
 }
 
 // postSettingsPair serves `POST /settings/pair`.
@@ -541,7 +550,7 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		in.Account = accountParam(r)
 	}
 	if in.PairURL == "" || in.Token == "" || in.Subdomain == "" {
-		d.render(w, r, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
+		d.render(w, r, true, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
 		return
 	}
 	res, err := d.Pair(r.Context(), in)
@@ -550,7 +559,7 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		if res.Fingerprint != "" && in.IngressFingerprint != "" {
 			msg += " (the ingress presented " + res.Fingerprint + ")"
 		}
-		d.renderStatus(w, r, pageStatus(err), msg, true, "", "")
+		d.renderStatus(w, r, true, pageStatus(err), msg, true, "", "")
 		return
 	}
 	notice := "Paired as " + res.PublicName + " over " + res.Adapter +
@@ -558,7 +567,7 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 	if in.IngressFingerprint == "" {
 		notice += " The ingress key is " + res.Fingerprint + " — check it against what you were given."
 	}
-	d.render(w, r, notice, false, "", "")
+	d.render(w, r, true, notice, false, "", "")
 }
 
 // postSettingsUnpair serves `POST /settings/unpair`.
@@ -568,17 +577,17 @@ func (d SettingsDeps) postSettingsUnpair(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
-		d.renderStatus(w, r, pageStatus(err), "could not unpair: "+pageError(err), true, "", "")
+		d.renderStatus(w, r, true, pageStatus(err), "could not unpair: "+pageError(err), true, "", "")
 		return
 	}
-	d.render(w, r, "Unpaired.", false, "", "")
+	d.render(w, r, true, "Unpaired.", false, "", "")
 }
 
 // postSettingsProbe serves `POST /settings/probe`.
 func (d SettingsDeps) postSettingsProbe(w http.ResponseWriter, r *http.Request) {
 	verdict, detail := d.Probe(r.Context())
 	d.audit("settings_probe", "public_url", verdict)
-	d.render(w, r, "", false, verdict, detail)
+	d.render(w, r, true, "", false, verdict, detail)
 }
 
 // requiresPairing reports whether an adapter cannot start without a stored

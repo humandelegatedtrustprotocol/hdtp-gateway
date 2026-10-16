@@ -182,3 +182,65 @@ func str(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+// A read of the owners or the Settings page answers a failed read 500 whatever its method: the mux
+// serves HEAD from the GET pattern, and a HEAD that answered by method was a 200 with page_error,
+// as if it were a post. The control, nothing failing, is a 200.
+func TestAReadOfThePageAnswersAFailedRead500ForEveryMethod(t *testing.T) {
+	var cs *canaryStore
+	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
+		cs = &canaryStore{Store: st, fail: map[string]bool{}}
+		MountOwnerPages(mux, OwnersDeps{Store: cs, Tokens: &auth.TokenService{Store: cs}, Passkeys: auth.New(cs).ListPasskeys})
+		MountSettingsPages(mux, SettingsDeps{Owners: cs, Effective: func() []core.Effective { return nil },
+			Pending: func(context.Context) (map[string]string, error) { return map[string]string{}, cs.err("Pending") }})
+	})
+	_, session := e.signIn(t, "Me")
+	for _, page := range []struct{ path, read string }{{"/api/settings", "Pending"}, {"/api/owners", "ListTokens"}} {
+		for _, m := range []string{http.MethodGet, http.MethodHead} {
+			cs.fail = map[string]bool{page.read: true}
+			rec := e.do(t, m, page.path, nil, []*http.Cookie{session})
+			if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "page_error") {
+				t.Errorf("%s %s, %s failing: %d %s; want 500 {\"error\":\"store\"}", m, page.path, page.read, rec.Code, rec.Body.String())
+			}
+			cs.fail = map[string]bool{}
+			if rec := e.do(t, m, page.path, nil, []*http.Cookie{session}); rec.Code != http.StatusOK {
+				t.Errorf("the control, %s %s with nothing failing: %d; want 200", m, page.path, rec.Code)
+			}
+		}
+	}
+}
+
+// Selecting an ingress tunnel when the pairings cannot be read answers the store's failure: 500 with
+// page_error "store", nothing saved, audited "error". The failed read was taken as "not paired" and
+// answered as the owner's mistake (a 200 telling them to pair first, audited bad_request). The
+// control, the pairing read, saves the tunnel.
+func TestSelectingAnIngressTunnelAnswersAFailedPairingRead(t *testing.T) {
+	var cs *canaryStore
+	var saved []string
+	var outcomes []string
+	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
+		cs = &canaryStore{Store: st, fail: map[string]bool{}}
+		MountSettingsPages(mux, SettingsDeps{Owners: cs, Effective: func() []core.Effective { return []core.Effective{{Key: "tunnel"}} },
+			Save: func(_ context.Context, key, value string) error { saved = append(saved, key+"="+value); return nil },
+			Paired: func(context.Context) (map[string]bool, error) {
+				if err := cs.err("Paired"); err != nil {
+					return nil, err
+				}
+				return map[string]bool{"ingress-passthrough": true}, nil
+			},
+			Audit: func(action, resource, outcome string) { outcomes = append(outcomes, action+" "+outcome) },
+		})
+	})
+	_, session := e.signIn(t, "Me")
+	cs.fail["Paired"] = true
+	code, body := e.postPage(t, "/settings", url.Values{"tunnel": {"ingress-passthrough"}}, session)
+	if code != http.StatusInternalServerError || body["page_error"] != "store" || body["error"] != true || len(saved) != 0 ||
+		strings.Join(outcomes, ",") != "settings_save error" {
+		t.Errorf("tunnel ingress-passthrough, the pairings failing: %d %v, saved %v, audited %v; want 500, page_error store, error, nothing saved, audited error", code, body, saved, outcomes)
+	}
+	cs.fail, outcomes, saved = map[string]bool{}, nil, nil
+	code, body = e.postPage(t, "/settings", url.Values{"tunnel": {"ingress-passthrough"}}, session)
+	if code != http.StatusOK || body["error"] != false || strings.Join(saved, ",") != "tunnel=ingress-passthrough" {
+		t.Errorf("the control, the pairing read: %d %v, saved %v; want 200 and the tunnel saved", code, body, saved)
+	}
+}
