@@ -62,8 +62,9 @@ host's card on its invite landing page, and the public surface is four routes, n
 URL of its own — `/a/{slug}/mcp`, `/i/{token}`, `/mcp` and the reachability probe
 `/.well-known/hdtp-probe` (`internal/public/listener.go`); `/i/{token}` serves the signed card
 only inside a live invite (`internal/internalui/invite_landing.go`). Save the card from the landing page (or from a peer
-that has already paired). A good run says `11 scenarios: 11 blocked, 0 reproduce`; anything
-it cannot classify prints as `unknown:` and counts as a REPRODUCTION, on purpose.
+that has already paired). A good run says every scenario was blocked and none reproduced
+(`N scenarios: N blocked, 0 reproduce`, N being the battery's own count); anything it cannot
+classify prints as `unknown:` and counts as a REPRODUCTION, on purpose.
 
 The test registers a passkey on each node through a real browser, connects to
 each owner MCP, has alice issue an invite, has **bob redeem it across the

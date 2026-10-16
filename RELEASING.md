@@ -26,11 +26,21 @@ rebuild a tag and compare.
    make sbom VERSION=1.2.3
    ```
 
+   `make dist` builds the node (`dist/hdtp-gateway_*`) and its limits sidecar
+   (`dist/hdtp-limitd_*`) for the four platforms, and `SHA256SUMS` over both. The sidecar is Rust,
+   built from the crates `make limitd-vendor` lays out (fetched over the network, into the ignored
+   `.build/`) by `scripts/limitd-dist.sh`: the Linux ones in the Dockerfile's Rust image
+   (`rust:1.92-alpine`) under `docker run --platform`, so it needs Docker, and the macOS ones on
+   the host, so it needs that Rust version and both darwin targets
+   (`rustup target add x86_64-apple-darwin aarch64-apple-darwin`). A missing darwin target or
+   another host Rust is refused, naming it, before any sidecar is built.
+
    `make dist` refuses to build unless `git status --porcelain` is empty and HEAD is the commit
    `v1.2.3` names. Untracked files count: the go command stamps a binary built beside any of them
    `vcs.modified=true`, and that stamp changes the checksum. After building, it refuses unless every
    binary's build info (`go version -m`) records `vcs.modified=false` and that commit as
-   `vcs.revision`. A working checkout usually holds something untracked, which is why the build is
+   `vcs.revision`; that check reads Go build info, so it is the node's binaries alone. A working
+   checkout usually holds something untracked, which is why the build is
    done in a fresh clone. `make sbom` holds to the same tree check. `make release-check`, part of `make check`, runs `dist` against fixture
    repositories and shows each refusal and the clean build that passes.
 
@@ -43,11 +53,15 @@ rebuild a tag and compare.
 
    ```
    gh release create v1.2.3 --title v1.2.3 --notes-file <notes> \
-     dist/hdtp-gateway_* dist/SHA256SUMS dist/sbom.cdx.json THIRD_PARTY_NOTICES
+     dist/hdtp-gateway_* dist/hdtp-limitd_* dist/SHA256SUMS dist/sbom.cdx.json THIRD_PARTY_NOTICES
    ```
 
    `THIRD_PARTY_NOTICES` is the licence text of everything the binaries and the portal
-   redistribute; `make notices-check`, in the gate, holds it to the dependency set.
+   redistribute, the Go modules taken for every platform in the Makefile's `PLATFORMS`;
+   `make notices-check`, in the gate, holds it to that list and to the dependency set. The files
+   attached to v0.1.5 and before were made for the host alone and lack the eight modules only the
+   Linux binaries link (`github.com/vishvananda/netlink` among them); they are left as they were
+   published.
 
 ## Verifying a release you downloaded
 
@@ -57,9 +71,11 @@ rebuild a tag and compare.
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-**Rebuild it yourself.** Builds are reproducible: `CGO_ENABLED=0` and `-trimpath`
-mean no host libc and no embedded build paths. In a fresh clone of the tag, with the Go
-toolchain from `go.mod`:
+**Rebuild it yourself.** The node's builds are reproducible: `CGO_ENABLED=0` and `-trimpath`
+mean no host libc and no embedded build paths. `make dist` builds the limits sidecar too, so in a
+fresh clone of the tag it needs, beside the Go toolchain from `go.mod`, Docker (the Linux
+sidecars are built in the `rust:1.92-alpine` image), Rust 1.92 on the host and its two darwin
+targets (`rustup target add x86_64-apple-darwin aarch64-apple-darwin`):
 
 ```
 make dist VERSION=1.2.3
@@ -68,9 +84,25 @@ go version -m dist/hdtp-gateway_1.2.3_linux_amd64 | grep vcs
 ```
 
 The checksum must equal the published one, and the published binary's `go version -m` must
-show `vcs.modified=false` and the tag's commit. A mismatch is a bug worth reporting.
+show `vcs.modified=false` and the tag's commit. A mismatch is a bug worth reporting. The Linux
+sidecars rebuilt from another checkout were byte-identical; the macOS sidecars built from a
+checkout at another path differ in the Mach-O `LC_UUID` and, on arm64, the code signature over it,
+so they do not match the published checksum ([What this does not prove](#what-this-does-not-prove)).
 
-**SBOM:** `sbom.cdx.json` (CycloneDX 1.6) lists the full dependency graph.
+To check the node's binaries alone, Go is all it takes: in a fresh clone of the tag, build each
+platform as `make dist` does, here linux/amd64, and compare as above:
+
+```
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true \
+  -ldflags "-s -w -X main.version=1.2.3" -o hdtp-gateway_1.2.3_linux_amd64 ./cmd/hdtp-gateway
+```
+
+Run in two fresh clones at different paths, this line gave the same checksum and
+`vcs.modified=false` in both (2026-10-16, a local tag, linux/amd64).
+
+**SBOM:** `sbom.cdx.json` (CycloneDX 1.6) is the node's: the Go modules `cmd/hdtp-gateway` links
+(`cyclonedx-gomod app`). It does not list the limits sidecar's Rust crates; their list is
+`cmd/hdtp-limitd/Cargo.lock` at the tag.
 
 ## v0.1.0, v0.1.1 and v0.1.2
 
@@ -94,7 +126,16 @@ above, supersedes them.
 ## What this does not prove
 
 There is no build-provenance or SBOM attestation: releases are built on a
-maintainer's machine, so nothing binds a binary to a hosted build. A matching rebuild
+maintainer's machine, so nothing binds a binary to a hosted build. The limits sidecar's binaries
+carry no build info, so nothing checks them against the tag the way `release-check.sh binaries`
+checks the node's, and a rebuild of them is not held to the published checksum by any check.
+Measured once, on 2026-10-16 (host rustc 1.92.0 and the `rust:1.92-alpine` image): the Linux
+sidecars built by `make dist` from two checkouts at different paths were byte-identical; the
+macOS ones were identical when rebuilt at the same path, and from a checkout at another path
+differed only in the Mach-O `LC_UUID` (16 bytes) and, on arm64, the ad-hoc code signature that
+covers it (32 bytes), every string in them the same. A macOS sidecar rebuilt elsewhere does not
+match the published checksum for that reason. The image is named by tag, not by digest, so an
+image published later under the same tag may build other bytes. A matching rebuild
 is the check. And a matching rebuild says only that the artifact matches this
 repository at that commit — nothing about whether the code is correct or the design
 sound. Nothing here has had independent cryptographic review

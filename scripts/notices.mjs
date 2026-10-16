@@ -3,18 +3,23 @@
 // The file carries the licence text of everything the artifacts built from this repository
 // redistribute, from three dependency sets as their own tools report them, classified by nobody:
 //
-//   1. the Go modules whose packages the shipped binary links (`go list -deps ./cmd/hdtp-gateway`,
-//      under GOWORK=off so it is the released identity module and not a workspace's checkout), each
-//      with the LICENSE, COPYING, UNLICENSE and NOTICE files its module directory holds;
+//   1. the Go modules whose packages the shipped binary links on any platform a release ships: one
+//      `go list -deps ./cmd/hdtp-gateway` per entry of the Makefile's PLATFORMS (handed in as
+//      NOTICES_PLATFORMS, so the list has one copy), each with GOOS and GOARCH set and CGO_ENABLED=0
+//      as `make dist` builds, under GOWORK=off so it is the released identity module and not a
+//      workspace's checkout; the union, each module with the LICENSE, COPYING, UNLICENSE and NOTICE
+//      files its directory holds. One run for the host alone missed the modules only Linux links;
 //   2. the crates the limits sidecar builds (`cargo metadata` over cmd/hdtp-limitd/Cargo.toml: the
 //      whole lock), each with its `license` field and the licence files beside its manifest or, for
 //      a crate inside a larger git checkout, the nearest ones above it;
 //   3. the npm packages the portal bundles into web/dist (`npm ls --omit=dev --all` in web/), each
 //      with its `license` field and the licence files in its node_modules directory.
 //
-// The header records the sha256 of go.sum, cmd/hdtp-limitd/Cargo.lock and web/package-lock.json,
-// the files that change when any of the three sets does. `--check` recomputes those and compares,
-// which needs none of the tools above, so it runs on every `make check`.
+// The header records the platforms and the sha256 of go.sum, cmd/hdtp-limitd/Cargo.lock and
+// web/package-lock.json, what changes when any of the three sets does. `--check` recomputes those
+// and compares, which needs none of the tools above, so it runs on every `make check`. A file made
+// for another platform list, or with no list (the host-only file of v0.1.5 and before, #140), does
+// not carry the platforms line.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -27,11 +32,13 @@ const INPUTS = ['go.sum', 'cmd/hdtp-limitd/Cargo.lock', 'web/package-lock.json']
 const LICENCE_FILE = /^(licen[cs]e|copying|unlicense|notice)([.\-_].*)?$/i
 
 const fail = (msg) => { console.error(`notices: ${msg}`); process.exit(1) }
+const PLATFORMS = (process.env.NOTICES_PLATFORMS || '').trim().split(/\s+/).filter(Boolean)
+if (!PLATFORMS.length) fail('NOTICES_PLATFORMS is not set: run it as make notices or make notices-check, which pass the Makefile\'s PLATFORMS')
 const sha256 = (p) => createHash('sha256').update(readFileSync(join(root, p))).digest('hex')
-const inputLines = () => INPUTS.map((p) => `  ${p.padEnd(28)}sha256 ${sha256(p)}`)
+const inputLines = () => [`  ${'platforms'.padEnd(28)}${PLATFORMS.join(' ')}`, ...INPUTS.map((p) => `  ${p.padEnd(28)}sha256 ${sha256(p)}`)]
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-const run = (cmd, args, cwd) =>
-  execFileSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, GOWORK: 'off' } })
+const run = (cmd, args, cwd, env = {}) =>
+  execFileSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, GOWORK: 'off', ...env } })
 
 function check() {
   let text
@@ -41,7 +48,7 @@ function check() {
     fail(`${OUT} was not made from the dependency set on disk; its header does not carry:\n` +
       `${stale.map((l) => l.trim()).join('\n')}\nrun make notices and commit the result`)
   }
-  console.log(`notices-check: ${OUT} matches ${INPUTS.join(', ')}`)
+  console.log(`notices-check: ${OUT} matches ${PLATFORMS.join(' ')} and ${INPUTS.join(', ')}`)
 }
 
 // Every licence-like file in dir, sorted by name; none when the directory has none or is not there.
@@ -68,7 +75,12 @@ function splitJSON(text) {
 
 function goModules() {
   const mods = new Map()
-  for (const p of splitJSON(run('go', ['list', '-deps', '-json=Module,Standard', './cmd/hdtp-gateway'], root))) {
+  const linked = PLATFORMS.flatMap((plat) => {
+    const [goos, goarch] = plat.split('/')
+    return splitJSON(run('go', ['list', '-deps', '-json=Module,Standard', './cmd/hdtp-gateway'], root,
+      { GOOS: goos, GOARCH: goarch, CGO_ENABLED: '0' }))
+  })
+  for (const p of linked) {
     if (p.Standard || !p.Module || p.Module.Main) continue
     const m = p.Module
     const id = `${m.Path} ${m.Version}`
@@ -116,7 +128,7 @@ function render(sections) {
     'shipped binary (the Go modules it links), the limits sidecar (the crates it builds) and the',
     'portal bundled into web/dist (the npm packages it ships). Each entry carries the licence files',
     "as the dependency's own source holds them; this file classifies nothing.", '',
-    'Written by `make notices` (scripts/notices.mjs) from these inputs, which `make notices-check`',
+    'Written by `make notices` (scripts/notices.mjs) for these platforms from these inputs, which `make notices-check`',
     '(part of `make check`) holds it to:', '', ...inputLines(), '',
     'Not repeated here: the fonts under web/dist/fonts, whose SIL Open Font License texts are beside',
     'them (web/dist/fonts/OFL-*.txt); and the modification notice for the copy of frp in',
@@ -138,7 +150,7 @@ if (process.argv.includes('--check')) {
   check()
 } else {
   const sections = [
-    { title: 'Go modules the shipped binary links', how: 'go list -deps ./cmd/hdtp-gateway (GOWORK=off); the licence files of each module directory', entries: goModules() },
+    { title: 'Go modules the shipped binaries link', how: `go list -deps ./cmd/hdtp-gateway for each of ${PLATFORMS.join(', ')} (CGO_ENABLED=0, GOWORK=off), the union; the licence files of each module directory`, entries: goModules() },
     { title: 'Crates the limits sidecar builds', how: "cargo metadata over cmd/hdtp-limitd/Cargo.toml, the whole lock; each crate's license field and licence files", entries: crates() },
     { title: 'npm packages the portal bundles into web/dist', how: "npm ls --omit=dev --all in web/; each package's license field and licence files", entries: npmPackages() },
   ]

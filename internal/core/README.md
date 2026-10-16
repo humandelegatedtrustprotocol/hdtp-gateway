@@ -33,7 +33,9 @@ Callers: `internal/cli` is the wiring and uses nearly all of it (`Load`, `OpenKe
   resolver would refuse later; `EffectiveSettings` and `Effective` give the settings page each knob's value
   and whether, and why, it is locked; `RestartScoped` names the knobs that take effect on the next start.
 - `Derive` runs the rules that depend on resolved values. A tunnel adapter, registered by
-  `RegisterTunnel`, derives `Mode`; an edge adapter forces `SealRequired` and `ClientCertOff`. It then
+  `RegisterTunnel`, derives `Mode`, and nothing else sets it: the file has no `mode` key and the
+  environment no variable for it; no tunnel, or `direct`, is direct mode. An edge adapter forces
+  `SealRequired` and `ClientCertOff`. It then
   validates and resolves the LAN flag (default on in direct mode, off in edge).
 - Types and values: `Mode` (`ModeDirect`, `ModeEdge`), `Seal` (`SealNone`, `SealOptional`, `SealRequired`),
   `ClientCert` (`ClientCertRequired`, `ClientCertPreferred`, `ClientCertOff`); `EffectiveSeal` is the one
@@ -79,8 +81,10 @@ names of the HDTP tools and the envelope carrier, the one spelling the registrat
 the audit actions and the outbound calls use. `ReservedToolNames`, built from them, is every name an
 integration's tool may not be exposed under: the built-in tools and `sealed_call`. `PeerCode` is a
 peer's refusal code as the node repeats it: one of HDTP §12's codes, `refused` (`PeerRefused`) for
-any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the specification's table when
-the hdtp-spec checkout is beside this repository, and skips, saying so, when it is not.
+any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the released specification's table
+(`docs/specification/1.0/errors-limits-conformance.md`) when the hdtp-spec checkout is beside this
+repository, skips, saying so, when it is not, and fails when it is and the file is not there
+(`testid.SiblingFile`).
 
 ## What it refuses, and how
 
@@ -92,8 +96,7 @@ are constants:
 | `RuleInternalBindAuth` | an internal bind that is not loopback (an empty host is not loopback) without `internal_auth_enabled`, `internal_tls_cert` and `internal_tls_key` |
 | `RuleInternalHost` | a non-loopback internal bind with no `internal_host`, because no passkey ceremony could succeed |
 | `RulePostgresDSN` | `store_engine` `postgres` without `postgres_dsn` |
-| `RuleEdgeSeal`, `RuleEdgeClientCert` | edge mode with a seal other than required, or a client_cert other than off |
-| `RuleEnum` | a `mode`, `seal` or `client_cert` outside its values, or a tunnel that is not a registered adapter |
+| `RuleEnum` | a `seal` or `client_cert` outside its values, or a tunnel that is not a registered adapter |
 | `RuleRange` | an `audit_archive_after` that is not a whole number of days with `d`, or a Go duration, or is negative |
 | `RuleWalletURL` | a `wallet_url` that is not an origin: https, or http to a loopback host, with a strict grammar |
 | `RuleProxyAddress` | a `proxy_address` that is not an IP address |
@@ -115,7 +118,7 @@ and AAD. `AcquireLock` refuses while any process holds the lock; `AcquireServeLo
 - **Each rule above refuses, and names itself** (`TestRejections`, `TestNonLoopbackInternalNeedsAHost`,
   `TestTheWalletURLIsAStrictOrigin`, `TestAWalletURLThatIsNotAnOriginRefusesTheConfig`,
   `TestTheProxyAddressIsAnIPAddress`, `TestAuditArchiveAfter`).
-- **A tunnel adapter derives the mode and forces the edge knobs** (`TestTunnelAdapterDerivesModeAndForcesEdgeKnobs`).
+- **A tunnel adapter derives the mode and forces the edge knobs, and nothing declares the mode** (`TestTunnelAdapterDerivesModeAndForcesEdgeKnobs`, `TestTheModeIsNeverDeclared`).
 - **The keyring** generates its file on first run with mode 0600, prefers the environment, binds a
   ciphertext to its AAD, fails cleanly under another key, and refuses a world-readable file or a bad
   environment key (`TestKeyringGeneratesFileOnFirstRun`, `TestKeyringEnvBeatsFile`,

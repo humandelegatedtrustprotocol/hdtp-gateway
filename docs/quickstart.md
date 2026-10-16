@@ -93,6 +93,29 @@ layers were already cached and the whole command took six seconds, ending:
 measured against GitHub: the repository was not yet public when the guide was written (it has been
 since 2026-10-09), so the measuring clone was made from a local copy of the same commit.
 
+**Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
+amd64 and arm64; the Linux ones static), the node `hdtp-gateway_<version>_<os>_<arch>` and its limits sidecar
+`hdtp-limitd_<version>_<os>_<arch>`, with `SHA256SUMS` over both ([RELEASING.md](../RELEASING.md)
+says how to check them). Make the data directory (the node's default is `./data`), then start the
+sidecar, from a copy of [`deploy/limitd/limits.json`](../deploy/limitd/limits.json) whose `socket` is
+`<your data directory>/limits.sock`, the node's default `limits_socket`, then the node:
+
+```
+mkdir -p -m 700 ./data
+hdtp-limitd -config limits.json &
+hdtp-gateway serve
+```
+
+The sidecar does not make the directory: started before it exists, it stops with `listen
+./data/limits.sock: No such file or directory`. These three lines were run as written on
+2026-10-16, with a node and a sidecar built from this checkout on the `PATH`, in a directory
+holding only `limits.json` (the node's binds moved off ports already in use there): the node's
+banner said `limits:  data/limits.sock answering`, and `/healthz` on the internal bind answered
+`200 ok`.
+
+The rest of this guide runs every command inside the container (`docker compose exec hdtp-gateway
+hdtp-gateway …`); without Docker it is `hdtp-gateway …` on the host.
+
 ## 2. Read the setup link out of the log
 
 ```
@@ -162,20 +185,22 @@ from the environment: `TUNNEL_TOKEN=… docker compose --profile cloudflared up 
 reads its routes from Cloudflare, not from a file: in the tunnel's configuration, route the public
 hostname to `https://hdtp-gateway:8443` with **No TLS Verify** on, because the node serves TLS on
 `8443` under its own certificate chain, which is not a WebPKI one. On the node's side the
-`cloudflare` adapter needs the token **as the setting `tunnel.cloudflare.token`** (or `TUNNEL_TOKEN` in
-the node's own environment, which `compose.yaml` does not pass): the `TUNNEL_TOKEN` above reaches only
-the `cloudflared` service, and a node that selects the adapter without the setting
-stops at its next start with `serve: tunnel: cloudflare needs a tunnel token`, restarting in a loop
-([#168](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/168)). It also needs the
-public hostname the tunnel routes to this node (`tunnel.cloudflare.hostname`), and
-`tunnel.cloudflare.sidecar` set to `true`, which tells the node the connector is the sidecar's job
-(the image carries no `cloudflared`; without that setting the node looks for one, says it found
-none and that you run the connector yourself, and serves anyway). The adapter is chosen under
+`cloudflare` adapter needs the public hostname the tunnel routes to this node
+(`tunnel.cloudflare.hostname`) and `tunnel.cloudflare.sidecar` set to `true`, which tells the node
+the connector is the sidecar's job (the image carries no `cloudflared`; without that setting the
+node looks for one, says it found none and that you run the connector yourself, and serves anyway).
+The tunnel token is the connector's: the `TUNNEL_TOKEN` above reaches only the `cloudflared`
+service, and the node needs no copy of it. Only a node that runs `cloudflared` itself as a child
+needs the token, as the setting `tunnel.cloudflare.token` (or `TUNNEL_TOKEN` in its own
+environment); without it that node stops at start with `serve: tunnel: cloudflare needs a tunnel
+token to run cloudflared`. The adapter is chosen under
 **Settings → Tunnel adapter** and takes effect at the next start: `docker compose restart
-hdtp-gateway`, then `docker compose restart portal`, because the portal forwarder shares the node's
-network and answers nothing until it is restarted too; the restart also ends your portal session,
-so you sign in with your passkey again
-([#169](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/169)). Cloudflare
+hdtp-gateway`. The portal forwarder shares the node's network, and `compose.yaml` asks Compose to
+restart it whenever Compose restarts the node (`restart: true` under its `depends_on`). The portal's
+cookie names come from the configuration file and the environment, never from a public URL saved
+on this page or one the adapter brings, so your portal session outlives the restart. Two stacks
+on one host with the same data path and portal bind therefore share cookie names, and signing in
+to one signs you out of the other, unless `HDTP_PUBLIC_URL` is set in each one's environment. Cloudflare
 terminates TLS, so the node runs in **edge mode**: sealed envelopes forced to `required`, client
 certificates forced `off`, and your public URL is `https://<that hostname>`; `doctor` then says
 `ok   tunnel       cloudflare (mode edge, seal required, client_cert off)`. Because the connector
@@ -187,39 +212,31 @@ profile `ngrok`: ngrok's own agent image, forwarding your ngrok domain to
 `https://hdtp-gateway:8443` on the compose network. It needs an ngrok account (the free plan's one
 static `*.ngrok-free.dev` domain was enough) and two values in the environment, `NGROK_AUTHTOKEN`
 and `NGROK_URL` (`https://<your domain>`). The agent does not verify the node's certificate unless
-it is given `--upstream-tls-verify`, so it needs no flag for the node's own chain. ngrok terminates
-TLS, so the node must run in edge mode; with no tunnel adapter that is set in the node's
-environment, and the portal has no setting for it
-([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)). Put it in a
-`compose.override.yaml` beside `compose.yaml`, which Compose reads with it:
-
-```yaml
-services:
-  hdtp-gateway:
-    environment:
-      HDTP_PUBLIC_URL: ${NGROK_URL}
-      HDTP_MODE: edge
-      HDTP_SEAL: required
-      HDTP_CLIENT_CERT: "off"
-      HDTP_LAN_CONNECTIONS: "true"
-```
-
-Then `NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`.
-Compose reads `compose.override.yaml` whether or not the profile is named, so remove the file when
-you stop using the `ngrok` profile.
-`doctor` says `ok   tunnel       direct (mode edge, seal required, client_cert off)` and probes your
-domain. The node's built-in `ngrok-https` adapter is not this: it serves nothing
-([#167](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/167)). Headless Chrome opening
-your invite link through the free domain showed the node's landing page, with no ngrok warning page
-in front of it, and machine callers were never shown one.
+it is given `--upstream-tls-verify`, so it needs no flag for the node's own chain. Start it with
+`NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`. ngrok
+terminates TLS, so the node runs on the **`edge` adapter**, chosen in the portal: under **Settings**
+set the public URL to `https://<your domain>`, choose `edge` as the tunnel adapter, and turn
+**Accept LAN connections** on, because the agent reaches the node from a private address on the
+compose network; the adapter takes effect at the next start (`docker compose restart
+hdtp-gateway`). The adapter starts nothing. It puts the node in **edge mode** — sealed envelopes
+forced `required`, client certificates forced `off` — and trusts no forwarded header, so the node's
+per-source limits see one address for every caller, the agent's. Edge mode also turns the LAN guard
+on by default: with **Accept LAN connections** off, an agent on the compose network is refused, so
+it must be on (in the portal, or `HDTP_LAN_CONNECTIONS=true` in the environment).
+This path has not yet been run with the `edge` adapter. It was measured on 2026-10-13 under the
+setup `edge` replaced (`HDTP_MODE=edge` beside the agent, no adapter): `doctor` said
+`ok   tunnel       direct (mode edge, seal required, client_cert off)` and probed the domain, and
+headless Chrome opening your invite link through the free domain showed the node's landing page,
+with no ngrok warning page in front of it; machine callers were never shown one.
 
 **A raw TCP forward through bore.pub — the `bore` profile.** `compose.yaml` carries a `bore`
 service under the profile `bore`, forwarding a port on the public `bore.pub` server to the node's
 `8443`. It needs no account. bore does not touch TLS, so the node stays in **direct mode** and
 callers see its own certificate chain; the chain names the exact address, port included, so choose
 the remote port yourself (`BORE_PORT`) and make it the public URL, in a `compose.override.yaml`
-beside `compose.yaml` (replacing the ngrok one if you used that profile: its edge-mode settings are
-wrong for direct mode):
+beside `compose.yaml`. If you followed the ngrok path, choose `direct` as the tunnel adapter under
+**Settings** first (or add `HDTP_TUNNEL: direct` beside the URL below): a stored `edge` keeps the
+node in edge mode behind a forward that does not terminate TLS.
 
 ```yaml
 services:
@@ -228,8 +245,8 @@ services:
       HDTP_PUBLIC_URL: https://bore.pub:${BORE_PORT}
 ```
 
-Then `BORE_PORT=<a port> docker compose --profile bore up -d`. As with ngrok, remove the file when
-you stop using the `bore` profile. `doctor` says
+Then `BORE_PORT=<a port> docker compose --profile bore up -d`. Remove the file when you stop using
+the `bore` profile. `doctor` says
 `ok   tunnel       direct (mode direct, seal required, client_cert preferred)` and the probe
 validates the chain at `https://bore.pub:<port>`. On the measuring machine the host's resolver
 answered no address for `bore.pub`, so that run gave the node and the `bore` service
@@ -366,13 +383,14 @@ ok   store-open
 ok   leaf         alex valid until 2027-10-08 (root sha256:PoPMfwR8DxSxIJtRe3FgJc15YNfMwVGiYfgHbpNvpjI)
 ok   tunnel       direct (mode direct, seal required, client_cert preferred)
 ok   limits       /data/limits.sock answering
-FAIL probe        https://alex.example.com unreachable: Get "https://alex.example.com/.well-known/hdtp-probe?nonce=…": dial tcp: lookup alex.example.com: no such host
+FAIL probe        https://alex.example.com unreachable: the endpoint did not answer the probe: Get "https://alex.example.com/.well-known/hdtp-probe?nonce=…": dial tcp: lookup alex.example.com: no such host
 ```
 
 The last line is `doctor` dialling the address from step 4 as a contact would, from where the node
 runs: it reads `public_url` the way the node does — the environment, else the configuration file,
 else what the portal saved. `alex.example.com` is a placeholder that resolves nowhere, so with it
-the probe fails and what follows `unreachable:` is the dialer's reason. With your real address, a
+the probe fails, and what follows the node's phrase (`the endpoint did not answer the probe:`)
+is the dialer's reason. With your real address, a
 node the world can reach prints `ok   probe        https://… reachable (…)` instead, and a `FAIL`
 names what is in the way ([Be reachable](../README.md#be-reachable)).
 
@@ -404,9 +422,13 @@ adds `message.media`, `status.view`, `calendar.availability` and `calendar.book`
 In these two pictures the contact is a test agent on the same machine that redeemed the invite over
 mTLS with a sealed envelope, was approved, and sent one message; it serves no node of its own, so
 the audit trail below records that it could not be told of its approval and that listing its tools
-failed. A real contact's node answers both. This pairing was not run on the clean clone: with the
-shipped compose file the public listener is not published anywhere, so a second party needs the
-address of step 4 to reach you.
+failed. A real contact's node answers both. With the shipped compose file the public listener is not
+published anywhere, so a second party needs the address of step 4 to reach you. A pairing between
+two nodes, each behind its own tunnel, was run end to end on v0.1.5 with the `cloudflared` profile
+on a real zone: identity certified, the card served at the public URL, the invite redeemed,
+messages and 3–4 MiB files both ways, and `doctor` saying `ok   tunnel       cloudflare (mode edge,
+seal required, client_cert off)` and the probe reachable (2026-10-13,
+[#172](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/172)).
 
 ## 9. The rest of the portal
 

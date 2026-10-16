@@ -47,9 +47,14 @@ type serveRun struct {
 	ctx context.Context
 	// bgCtx and background are serve's joined group: what serve starts, and what a portal request
 	// starts (spawn), it waits for before the store closes.
-	bgCtx          context.Context
-	background     *sync.WaitGroup
-	cfg            *core.Config
+	bgCtx      context.Context
+	background *sync.WaitGroup
+	cfg        *core.Config
+	// cookieTag names this node's portal cookies (core.NodeTag), taken from the configuration as the
+	// file and the environment give it, before the store's settings or a tunnel adapter change
+	// cfg.PublicURL: a public URL saved in the portal must not rename the cookies, and with them
+	// end the owner's session, at the next start.
+	cookieTag      string
 	stdout, stderr io.Writer
 	// holder names this process to the leases on background work (leaseKeeper).
 	holder string
@@ -114,7 +119,7 @@ func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		return fail(err)
 	}
-	s.cfg = cfg
+	s.cfg, s.cookieTag = cfg, cfg.Tag()
 	// Before anything is opened: a TLS configuration that does not load refuses to start.
 	internalTLS, err := internalui.LoadTLS(cfg.InternalTLSCert, cfg.InternalTLSKey)
 	if err != nil {
@@ -553,7 +558,7 @@ func (s *serveRun) internalSurface() http.Handler {
 	// Two nodes on one host share a cookie jar — cookies are scoped by host and
 	// path, never by port — so each node's cookies carry its own tag. Without it
 	// a second local node silently signs the first one out (§8.3).
-	internalui.SetCookieTag(cfg.Tag())
+	internalui.SetCookieTag(s.cookieTag)
 	authDeps := &internalui.AuthDeps{
 		Service: s.authSvc,
 		Origin:  internalui.OriginPolicy{InternalHost: cfg.InternalHost, TLS: cfg.InternalTLSCert != ""},

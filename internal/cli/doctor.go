@@ -131,7 +131,11 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 	case tunnel.VerdictReachable:
 		fmt.Fprintf(stdout, "ok   probe        %s reachable (%s)\n", cfg.PublicURL, res.Caveat)
 	default:
-		fmt.Fprintf(stdout, "FAIL probe        %s %s: %s\n", cfg.PublicURL, res.Verdict, res.Detail)
+		why := res.Detail
+		if res.Cause != nil {
+			why += ": " + res.Cause.Error()
+		}
+		fmt.Fprintf(stdout, "FAIL probe        %s %s: %s\n", cfg.PublicURL, res.Verdict, why)
 		fail = 1
 	}
 	return fail

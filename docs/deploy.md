@@ -264,9 +264,20 @@ every login after that shows the message of the day with these steps.
 
 ## Changing or removing a deployment
 
-The templates create a VM, not a service: a new release is `git fetch` and `git checkout` of the
-tag in `/opt/hdtp` followed by `docker compose build && docker compose up -d`, the data volume
-untouched. Removing the stack, the resource group, the instance or the Droplet removes the disk and
+The templates create a VM, not a service. A new release is what the first boot ran
+(`deploy/cloud-init.yaml`), again, in `/opt/hdtp`, the data volume untouched: fetch and check out
+the tag, lay out the limits sidecar's crates for its offline build (a new tag can need other ones),
+and build and start. Logged in as the provider's user, with `Release` set to the tag you move to:
+
+```
+Release=v1.2.3
+sudo runuser -l hdtp -c "cd /opt/hdtp && git fetch -q --depth 1 origin tag ${Release} && git checkout -q ${Release}"
+sudo docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src rust:1.92-alpine sh -ec 'apk add --no-cache git >/dev/null && rm -rf .build/limitd-vendor && mkdir -p .build/limitd-vendor && cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml .build/limitd-vendor/crates > .build/limitd-vendor/config.toml'
+sudo chown -R hdtp:hdtp /opt/hdtp/.build
+sudo runuser -l hdtp -c 'cd /opt/hdtp && docker compose build && docker compose up -d'
+```
+
+`make deploy-check` holds these lines to the first boot's. Removing the stack, the resource group, the instance or the Droplet removes the disk and
 with it the node's keys, settings, contacts and audit trail; your wallet files are on your
 machine and your root is not on the node at all (the quickstart's [last
 section](quickstart.md#stopping-and-starting)).

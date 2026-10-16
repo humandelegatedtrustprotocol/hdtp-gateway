@@ -42,8 +42,9 @@ func get(t *testing.T, h http.Handler, path, remote string) *httptest.ResponseRe
 	return rr
 }
 
-// /healthz says ok while what the node serves through answers, and 503 with the reason when it
-// does not (today the limits sidecar, SPEC §5.7): the container HEALTHCHECK reads the status.
+// /healthz says ok while the limits sidecar answers, and 503 with one fixed sentence when it does
+// not (SPEC §5.7): the container HEALTHCHECK reads the status. The probe's error never reaches the
+// unauthenticated caller (#127).
 func TestHealthz(t *testing.T) {
 	var down error
 	h := Health(func(context.Context) error { return down })
@@ -51,10 +52,10 @@ func TestHealthz(t *testing.T) {
 	if rr.Code != 200 || rr.Body.String() != "ok\n" {
 		t.Fatalf("healthz: %d %q", rr.Code, rr.Body.String())
 	}
-	down = errors.New("the limits sidecar at /data/limits.sock is not answering")
+	down = errors.New("the limits sidecar at /data/limits.sock is not answering: dial unix /data/limits.sock: connect: no such file or directory")
 	rr = get(t, h, "/healthz", "127.0.0.1:5555")
-	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "limits sidecar") {
-		t.Fatalf("healthz with the sidecar down: %d %q, want 503 naming it", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusServiceUnavailable || rr.Body.String() != HealthDown {
+		t.Fatalf("healthz with the sidecar down: %d %q, want 503 %q", rr.Code, rr.Body.String(), HealthDown)
 	}
 	// The portal's handler no longer answers it: one health check, where serve mounts it.
 	if rr := get(t, newEnv(t).h, "/healthz", "127.0.0.1:5555"); strings.HasPrefix(rr.Body.String(), "ok") {
