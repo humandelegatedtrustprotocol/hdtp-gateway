@@ -132,21 +132,7 @@ func (d Deps) reconcile(ctx context.Context, accountID, contactFpr string) {
 // scope resolves what this identity may touch: the token's account narrow, else
 // every account where the owner holds admin (SPEC §3.4).
 func (d Deps) scope(ctx context.Context, ident auth.Identity) (policy.OwnerCtx, error) {
-	ms, err := d.Store.ListMembershipsByOwner(ctx, ident.OwnerID)
-	if err != nil {
-		return policy.OwnerCtx{}, err
-	}
-	var accts []string
-	for _, m := range ms {
-		if m.Role != "admin" {
-			continue
-		}
-		if ident.AccountID != "" && m.AccountID != ident.AccountID {
-			continue // token narrowed to one account
-		}
-		accts = append(accts, m.AccountID)
-	}
-	return policy.OwnerCtx{OwnerID: ident.OwnerID, AdminAccounts: accts}, nil
+	return policy.OwnerScope(ctx, auth.Memberships{Store: d.Store}, ident.OwnerID, ident.AccountID)
 }
 
 // owner is the lifecycle both surfaces call (contacts.Owner), with this surface's hooks.

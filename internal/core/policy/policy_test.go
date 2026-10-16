@@ -1,6 +1,11 @@
 package policy
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"slices"
+	"testing"
+)
 
 func TestTierFor(t *testing.T) {
 	cases := []struct {
@@ -105,5 +110,38 @@ func TestGuestScopeUnderCedar(t *testing.T) {
 	}
 	if Allow(guest, Rule{Tier: TierPending}) {
 		t.Fatal("guest allowed pending tool")
+	}
+}
+
+type listed struct {
+	ms  []Membership
+	err error
+	n   int
+}
+
+func (l *listed) OwnerMemberships(context.Context, string) ([]Membership, error) {
+	l.n++
+	return l.ms, l.err
+}
+
+func TestOwnerScope(t *testing.T) {
+	ctx := context.Background()
+	l := &listed{ms: []Membership{{AccountID: "a1", Role: "admin"}, {AccountID: "a2", Role: "admin"}, {AccountID: "a3", Role: "viewer"}}}
+	if sc, err := OwnerScope(ctx, l, "o1", ""); err != nil || !slices.Equal(sc.AdminAccounts, []string{"a1", "a2"}) || sc.OwnerID != "o1" {
+		t.Fatalf("scope: %+v %v, want the admin memberships", sc, err)
+	}
+	if sc, err := OwnerScope(ctx, l, "o1", "a2"); err != nil || !slices.Equal(sc.AdminAccounts, []string{"a2"}) {
+		t.Fatalf("narrowed: %+v %v, want a2 alone", sc, err)
+	}
+	if sc, err := OwnerScope(ctx, l, "o1", "a3"); err != nil || len(sc.AdminAccounts) != 0 {
+		t.Fatalf("narrowed to a non-admin membership: %+v %v, want none", sc, err)
+	}
+	n := l.n
+	if sc, err := OwnerScope(ctx, l, "", ""); err != nil || len(sc.AdminAccounts) != 0 || l.n != n {
+		t.Fatalf("no owner: %+v %v, listed %d times, want an empty scope and no list", sc, err, l.n-n)
+	}
+	l.err = errors.New("unreadable")
+	if _, err := OwnerScope(ctx, l, "o1", ""); err == nil {
+		t.Fatal("an unreadable list gave a scope")
 	}
 }
