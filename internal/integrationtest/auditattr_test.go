@@ -17,20 +17,12 @@ var nodeLevelActions = map[string]string{
 	"portal_login":             "who signed in to this node; not about an account",
 	"portal_request":           "an unauthenticated request to the node's own surface",
 	"public_listener":          "the node's listener starting and stopping",
-	"rate_limited":             "a budget tripped by a key or an IP, before any account is resolved",
 	"ingress_leg":              "the paired ingress presenting the wrong identity",
 	"owner_mcp":                "an owner-MCP request refused before a token named an owner",
 	"acme_manage":              "certificate management for the node's names",
 	"recipe_corpus":            "the embedded recipe corpus failing to load",
 	"exposure_stale_guard":     "reached with an integration id alone",
 	"integration_availability": "reached with an integration id alone",
-	"set_exposure":             "refused before the integration is loaded",
-	"contact_add":              "already names the account it adds to",
-	"invite_create":            "already names the account it issues for",
-	"media_fetch":              "already names the account it fetches for",
-	"settings_storage":         "already names the account whose storage changed",
-	"settings_seal":            "already names the account whose seal changed",
-	"tools_list":               "already names the account whose surface was asked for",
 	"portal_logout":            "an owner signing out of the node",
 	"passkey_register":         "an owner's credential on the node, not on an account",
 	"passkey_remove":           "an owner's credential on the node, not on an account",
@@ -50,11 +42,10 @@ var nodeLevelActions = map[string]string{
 
 // wrappedAtWiring are files whose audit calls are given the account by the code
 // that supplies their audit function, not at the call site. Listing them here
-// is the price of a lint that reads one line at a time; each entry says where
+// is the price of a lint that reads the call site alone; each entry says where
 // the account is actually attached.
 var wrappedAtWiring = map[string]string{
-	"internal/public/tools.go":   "node.go wires ToolDeps.Audit with the account prefixed",
-	"internal/public/servers.go": "Pool.audit prefixes Pool.AccountID",
+	"internal/public/tools.go": "node.go wires ToolDeps.Audit with the account prefixed",
 }
 
 // Every row in the trail that is about somebody must say whose. The account
@@ -88,16 +79,18 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 	}
 
 	var checked, viaConst int
+	// What each exemption excused on this run. An entry that excused nothing is stale: the action is
+	// no longer audited, or every call now names its account, or the file's audit calls moved. A list
+	// nothing prunes only grows, and each stale entry is a name a new unattributed call can hide behind.
+	nodeLevelUsed := map[string]bool{}
+	wrappedUsed := map[string]bool{}
 	for _, dir := range dirs {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			rel, _ := filepath.Rel(root, path)
-			if why, ok := wrappedAtWiring[filepath.ToSlash(rel)]; ok {
-				t.Logf("skipping %s: %s", rel, why)
-				return nil
-			}
+			_, wrapped := wrappedAtWiring[filepath.ToSlash(rel)]
 			b, rerr := os.ReadFile(path)
 			if rerr != nil {
 				return nil
@@ -130,6 +123,12 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 				if m == nil {
 					continue // a forwarding shim, or a call whose action is a variable
 				}
+				if wrapped {
+					// The account is attached where the audit function is wired, so the call site is
+					// not judged; it only shows that the exemption still covers an audit call.
+					wrappedUsed[filepath.ToSlash(rel)] = true
+					continue
+				}
 				checked++
 				// The account column holds IDs. A slug formatted into the
 				// account: prefix is a different string that happens to name
@@ -152,6 +151,7 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 					continue
 				}
 				if _, ok := nodeLevelActions[m[1]]; ok {
+					nodeLevelUsed[m[1]] = true
 					continue
 				}
 				t.Errorf("%s:%d audits %q without naming an account. Add the account "+
@@ -166,6 +166,16 @@ func TestEveryAuditRowNamesItsAccount(t *testing.T) {
 	}
 	if viaConst == 0 {
 		t.Fatal("no audit call spelt its action as a core tool-name constant; the constant reader is checking nothing")
+	}
+	for action, why := range nodeLevelActions {
+		if !nodeLevelUsed[action] {
+			t.Errorf("nodeLevelActions lists %q (%s), and no audit call without an account writes it: the entry is stale; remove it", action, why)
+		}
+	}
+	for file, why := range wrappedAtWiring {
+		if !wrappedUsed[file] {
+			t.Errorf("wrappedAtWiring lists %s (%s), and this lint reads no audit call there with a literal action to excuse: the entry is stale; remove it", file, why)
+		}
 	}
 	if checked < 50 {
 		t.Fatalf("only %d audit calls found; this lint is checking nothing", checked)
