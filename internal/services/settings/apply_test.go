@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,26 +12,37 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/ingress"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
+	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
-// accountsFailOnce is the store with its first ListAccounts refused: what the seal's apply reads to
-// re-seal every account.
+// accountsFailOnce is the store with its ListAccounts call numbered call (from 1) refused: what an
+// apply reads, the seal's to re-seal every account and the public URL's to name the accounts that
+// need a move. fired says whether the refusal happened.
 type accountsFailOnce struct {
 	store.Store
-	mu     sync.Mutex
-	failed bool
+	call  int
+	mu    sync.Mutex
+	calls int
+	fired bool
 }
 
 func (f *accountsFailOnce) ListAccounts(ctx context.Context) ([]store.Account, error) {
 	f.mu.Lock()
-	first := !f.failed
-	f.failed = true
+	f.calls++
+	refuse := f.calls == f.call
+	if refuse {
+		f.fired = true
+	}
 	f.mu.Unlock()
-	if first {
+	if refuse {
 		return nil, errors.New("injected: the store refused the read")
 	}
 	return f.Store.ListAccounts(ctx)
@@ -41,7 +53,7 @@ func (f *accountsFailOnce) ListAccounts(ctx context.Context) ([]store.Account, e
 // and audits the write ok beside the failed apply.
 func TestAKnobThatCannotBeAppliedLeavesTheOthersApplied(t *testing.T) {
 	dir := t.TempDir()
-	a, _, aRows, bus := processOver(t, dir, true, func(st store.Store) store.Store { return &accountsFailOnce{Store: st} })
+	a, _, aRows, bus := processOver(t, dir, true, func(st store.Store) store.Store { return &accountsFailOnce{Store: st, call: 1} })
 	b, _, _ := process(t, dir, false)
 	events, unsubscribe := bus.SubscribeSized("", 64)
 	defer unsubscribe()
@@ -96,4 +108,102 @@ func TestAKnobThatCannotBeAppliedLeavesTheOthersApplied(t *testing.T) {
 		}
 	})
 	eventually(t, "the other process taking limit.contacts", func() bool { return b.ContactCap() == 7 })
+}
+
+// A pairing the ingress completed is stored, selected and its token spent even when the running node
+// cannot take the new public URL: the portal says it paired and what was not applied, with error set
+// and 200, and audits the pairing beside the failed apply. It said "pairing refused" over the stored
+// rows, with no pairing audited. The second ListAccounts of the post is the public URL's apply (the
+// first is Pair's own account list); the wrapper records that its refusal fired.
+func TestAPairingWhosePublicURLCannotBeAppliedIsStillPaired(t *testing.T) {
+	ctx := context.Background()
+	ingKP, ingCert := selfSignedCert(t, "ingress")
+	reg := ingress.NewMemoryRegistry(nil)
+	ps := &ingress.PairingServer{Registry: reg, Domain: "example.test", IngressFingerprint: ingKP.Fingerprint,
+		DataPlaneAddr: "127.0.0.1", DataPlanePort: 7000, DataPlaneToken: "dp-token"}
+	srv := httptest.NewUnstartedServer(ps.Handler())
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{ingCert}, ClientAuth: tls.RequestClientCert}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	token, err := reg.MintToken(time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The node serves the account only with a leaf, and the ingress pairs only a node that presents one.
+	dir := t.TempDir()
+	st := openStoreAt(t, dir)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}
+	alice, err := idm.CreateAccount(ctx, "alice", "Alice", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	csr, err := idm.IssueCSR(ctx, alice.ID, identity.PurposeSignup, identity.EndpointFor("https://old.example", "alice"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testid.NewWallet(t, "Alice")
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, w.RootDER), RootKey: w.Key,
+		RootSPKIs: [][]byte{w.Key.Public().SPKI}, Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idm.InstallLeaf(ctx, alice.ID, [][]byte{iss.DER, w.RootDER}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	var accounts *accountsFailOnce
+	a, _, aRows, _ := processOver(t, dir, false, func(st store.Store) store.Store {
+		accounts = &accountsFailOnce{Store: st, call: 2}
+		return accounts
+	})
+	mux := http.NewServeMux()
+	internalui.MountSettingsPages(mux, a.Deps())
+	form := url.Values{"pair_url": {srv.URL + "/pair"}, "token": {token}, "subdomain": {"alice"},
+		"mode": {"passthrough"}, "ingress_fingerprint": {ingKP.Fingerprint}, "account": {alice.ID}}
+	req := httptest.NewRequest(http.MethodPost, "/settings/pair", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	accounts.mu.Lock()
+	fired := accounts.fired
+	accounts.mu.Unlock()
+	if !fired {
+		t.Fatal("the injected ListAccounts refusal never fired: the public URL's apply was not reached")
+	}
+	var page struct {
+		Notice string `json:"notice"`
+		Error  bool   `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	want := "Paired as alice.example.test over ingress-passthrough; could not apply public_url: " +
+		"the node could not complete this. Restart the node to serve there."
+	if rec.Code != http.StatusOK || page.Notice != want || !page.Error {
+		t.Errorf("%d notice %q (error %v), want 200 %q (error true)", rec.Code, page.Notice, page.Error, want)
+	}
+	if strings.Contains(page.Notice, "pairing refused") {
+		t.Errorf("a stored pairing was told as refused: %q", page.Notice)
+	}
+	values := settingValues(t, st)
+	if values["tunnel"] != "ingress-passthrough" || values["public_url"] != "https://alice.example.test" ||
+		values["tunnel.ingress-passthrough.subdomain"] != "alice" || values["tunnel.ingress-passthrough.ingress_fpr"] != ingKP.Fingerprint {
+		t.Errorf("stored tunnel %q, public_url %q, subdomain %q, ingress_fpr %q", values["tunnel"], values["public_url"],
+			values["tunnel.ingress-passthrough.subdomain"], values["tunnel.ingress-passthrough.ingress_fpr"])
+	}
+	aRows.mu.Lock()
+	audited := slices.Clone(aRows.rows)
+	aRows.mu.Unlock()
+	for _, want := range []string{"ingress_pair ingress:" + ingKP.Fingerprint + " name:alice.example.test paired",
+		"settings_apply keys:public_url error"} {
+		if !slices.Contains(audited, want) {
+			t.Errorf("audit %v has no %q", audited, want)
+		}
+	}
 }

@@ -95,7 +95,9 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 	}
 
 	adapter := adapterFor(mode)
-	if err := s.storePairing(ctx, adapter, res, acct.Fingerprint); err != nil {
+	err = s.storePairing(ctx, adapter, res, acct.Fingerprint)
+	var notApplied *internalui.NotAppliedError
+	if err != nil && !errors.As(err, &notApplied) {
 		return internalui.PairResult{}, err
 	}
 	s.audit("ingress_pair", "ingress:"+res.IngressFingerprint+" name:"+res.PublicName, "paired")
@@ -103,7 +105,7 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		PublicName:  res.PublicName,
 		Fingerprint: res.IngressFingerprint,
 		Adapter:     adapter,
-	}, nil
+	}, err
 }
 
 // pairRefusal is the refusal a failed ingress.Pair answers the owner with: the code the ingress
@@ -149,8 +151,9 @@ var pairingKeys = []string{"domain", "data_plane_addr", "data_plane_port", "data
 // Every row is written in one transaction (store.Atomically): a write that fails leaves every row
 // as it was, a previous pairing included, so a failed re-pair cannot leave a node pinned to one
 // ingress with another's credentials. The public URL is validated before the transaction and
-// applied to the running node after it commits. `ingress_fpr` is the ingress's identity, which the
-// node pins on the onward leg (§10.6).
+// applied to the running node after it commits; a failure applying it is an
+// *internalui.NotAppliedError naming public_url, with every row stored. `ingress_fpr` is the
+// ingress's identity, which the node pins on the onward leg (§10.6).
 func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.PairResponse, nodeFpr string) error {
 	values := map[string]string{
 		"domain":           res.Domain,
@@ -181,7 +184,10 @@ func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.
 	if err != nil {
 		return err
 	}
-	return s.applied(ctx, "public_url", publicURL)
+	if err := s.applied(ctx, "public_url", publicURL); err != nil {
+		return &internalui.NotAppliedError{Keys: []string{"public_url"}, Err: err}
+	}
+	return nil
 }
 
 // unpair forgets a pairing, deleting its rows in one transaction. It refuses while that adapter is

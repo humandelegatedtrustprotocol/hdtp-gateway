@@ -46,7 +46,8 @@ type SettingsDeps struct {
 	// otherwise a save appears to do nothing — while the locks and the
 	// derivation keep describing the running node.
 	Pending func(ctx context.Context) (map[string]string, error)
-	// Pair performs an ingress pairing; nil hides the section.
+	// Pair performs an ingress pairing; nil hides the section. A pairing stored whose public URL
+	// could not be applied answers the whole PairResult and a *NotAppliedError.
 	Pair func(ctx context.Context, in PairInput) (PairResult, error)
 	// Unpair forgets a stored pairing.
 	Unpair func(ctx context.Context, adapter string) error
@@ -592,7 +593,8 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := d.Pair(r.Context(), in)
-	if err != nil {
+	var notApplied *NotAppliedError
+	if err != nil && !errors.As(err, &notApplied) {
 		msg := "pairing refused: " + pageError(err)
 		if res.Fingerprint != "" && in.IngressFingerprint != "" {
 			msg += " (the ingress presented " + res.Fingerprint + ")"
@@ -600,12 +602,19 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		d.renderStatus(w, r, true, pageStatus(err), msg, true, "", "")
 		return
 	}
-	notice := "Paired as " + res.PublicName + " over " + res.Adapter +
-		". Restart the node to serve there."
+	notice := "Paired as " + res.PublicName + " over " + res.Adapter
+	if notApplied != nil {
+		notice += "; could not apply " + strings.Join(notApplied.Keys, ", ") + ": " + pageError(notApplied.Err)
+	}
+	notice += ". Restart the node to serve there."
 	if in.IngressFingerprint == "" {
 		notice += " The ingress key is " + res.Fingerprint + " — check it against what you were given."
 	}
-	d.render(w, r, true, notice, false, "", "")
+	if notApplied != nil {
+		// Stored and paired; what the running node did not take is a row of its own.
+		d.audit("settings_apply", "keys:"+strings.Join(notApplied.Keys, ","), "error")
+	}
+	d.render(w, r, true, notice, notApplied != nil, "", "")
 }
 
 // postSettingsUnpair serves `POST /settings/unpair`.

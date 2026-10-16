@@ -57,9 +57,10 @@ func processOver(t *testing.T, dir string, migrate bool, wrap func(store.Store) 
 	if wrap != nil {
 		own = wrap(st)
 	}
-	s := New(own, openKeyringAt(t, dir), cfg, aud.fn)
+	kr := openKeyringAt(t, dir)
+	s := New(own, kr, cfg, aud.fn)
 	bus := messaging.NewBus(st)
-	n, err := node.New(context.Background(), node.Options{Config: *cfg, Store: st, Bus: bus, Audit: aud.fn,
+	n, err := node.New(context.Background(), node.Options{Config: *cfg, Store: st, Keyring: kr, Bus: bus, Audit: aud.fn,
 		SealPolicy: s.SealPolicy, Limits: limitstest.StartDefault(t).Client,
 		Landing: func(node.LandingDeps) http.Handler { return http.NotFoundHandler() }})
 	if err != nil {

@@ -186,6 +186,12 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- A pairing from the portal whose public URL the running node could not take (its apply failed
+  after the ten rows were stored) answers "Paired as <name> over <adapter>; could not apply
+  public_url: <sentence>. Restart the node to serve there." with `error` set and 200, audited
+  `ingress_pair` `paired` beside `settings_apply keys:public_url` `error`. It answered "pairing
+  refused" with the rows stored, the adapter selected and the one-time token spent, and wrote no
+  `ingress_pair` row.
 - A storage save from the portal (`POST /settings/storage`) stores its three rows (the quota, the
   retention window and the request expiry) in one transaction. They were written one at a time,
   so a write that failed part-way left the earlier rows saved under a "could not save" answer.
