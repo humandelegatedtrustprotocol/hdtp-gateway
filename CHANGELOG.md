@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] — 2026-10-16
+
 ### Added
 
 - The `edge` tunnel adapter, for a sidecar that terminates TLS and that the node does not run
@@ -28,6 +32,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- hdtp-identity 0.8.4, from 0.8.3; the node implements HDTP 1.0.1. An import whose threads.csv
+  header equals the longer header only once its fields are joined (a NUL where one of its commas
+  was) is refused naming both headers, as every other wrong header already was; it named the
+  longer one. An envelope, header or plaintext with a member whose name holds a comma is refused
+  with the same code as before, the library's reason now naming the wrong set of members. 0.8.4's `decide` no longer returns a `seen` effect for a call from a held address whose
+  `thread_id` is of neither form; the node never applied that effect there (`seen` is left to the
+  replay record, which that path does not reach), so its answers do not change. A caller at the
+  pending tier was already refused `pending_approval` for a tool it cannot see or that does not
+  exist, as 1.0.1 requires.
 - `/healthz` answers a stopped limits sidecar with one fixed sentence, `not serving: the limits
   sidecar is not answering, so every sealed call is refused unavailable`. It carried the probe's
   error, the socket's path and the dial's error text, to a caller that needs no session (#127);
@@ -323,6 +336,8 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Docs
 
+- SPEC.md and `docs/conformance.md` say the node implements HDTP 1.0.1, and SECURITY.md's
+  Dependencies and Interoperability rows name hdtp-identity 0.8.4.
 - `docs/deploy.md`'s upgrade of a VM runs what the first boot runs, the vendor step for the limits
   sidecar's crates included, which it left out; `make deploy-check` holds the lines to
   `deploy/cloud-init.yaml`'s (#141).

@@ -216,7 +216,7 @@ of it, and are listed so a reader can tell the two apart.
 
 ## HDTP 1.0: the person is the certificate authority
 
-HDTP 1.0.0 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
+HDTP 1.0.1 (§2, §3, §5.3, §9, §9.1, §9.2, §13.2, §14) on this node. The library the rules live in is
 `github.com/humandelegatedtrustprotocol/hdtp-identity/go` (the version `go.mod` requires), proven against
 Appendix B by its own tests; these are the node's.
 
