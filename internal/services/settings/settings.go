@@ -504,13 +504,15 @@ func (s *Service) Deps() internalui.SettingsDeps {
 			if _, err := s.store.GetAccountByID(ctx, accountID); err != nil {
 				return fmt.Errorf("unknown account")
 			}
-			if err := s.saveRaw(ctx, StorageKeyQuota(accountID), strconv.FormatInt(quotaGiB<<30, 10)); err != nil {
-				return err
-			}
-			if err := s.saveRaw(ctx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays)); err != nil {
-				return err
-			}
-			return s.saveRaw(ctx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
+			return s.store.Atomically(ctx, func(tx store.Store) error {
+				if err := s.put(ctx, tx, StorageKeyQuota(accountID), strconv.FormatInt(quotaGiB<<30, 10)); err != nil {
+					return err
+				}
+				if err := s.put(ctx, tx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays)); err != nil {
+					return err
+				}
+				return s.put(ctx, tx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
+			})
 		},
 		Paired: s.pairedAdapters,
 		// Only the owner knobs, never a secret row; adapter credentials are never read back for

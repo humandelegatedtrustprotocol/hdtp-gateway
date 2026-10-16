@@ -215,3 +215,51 @@ func TestASaveStoresEveryKnobOrNone(t *testing.T) {
 		t.Errorf("the control stored %v, want all three", now)
 	}
 }
+
+// A storage save writes its three rows (quota, retention, request expiry) or none: a write that
+// fails at any of them leaves the three as they were. The control stores all three.
+func TestAStorageSaveStoresEveryRowOrNone(t *testing.T) {
+	ctx := context.Background()
+	service := func(t *testing.T, failAt int) (*Service, store.Store, string) {
+		t.Helper()
+		dir := t.TempDir()
+		st := openStoreAt(t, dir)
+		if err := st.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range AccountKeys(a.ID) {
+			if err := st.PutSetting(ctx, store.Setting{Key: k, Value: "1"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var writes store.Store = st
+		if failAt > 0 {
+			writes = &failingStore{Store: st, failAt: failAt}
+		}
+		return New(writes, openKeyringAt(t, dir), &core.Config{DataDir: dir, Mode: core.ModeDirect}, func(string, string, string) {}), st, a.ID
+	}
+	for failAt := 1; failAt <= 3; failAt++ {
+		s, st, id := service(t, failAt)
+		if err := s.Deps().SaveStorage(ctx, id, 2, 30, 10); !errors.Is(err, errInjected) {
+			t.Fatalf("write %d: %v, want the injected failure", failAt, err)
+		}
+		now := settingValues(t, st)
+		for _, k := range AccountKeys(id) {
+			if now[k] != "1" {
+				t.Errorf("a storage save whose write %d failed left %s = %q, want it as it was", failAt, k, now[k])
+			}
+		}
+	}
+	s, st, id := service(t, 0)
+	if err := s.Deps().SaveStorage(ctx, id, 2, 30, 10); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+	now := settingValues(t, st)
+	if now[StorageKeyQuota(id)] != "2147483648" || now[StorageKeyRetention(id)] != "30" || now[ContactsKeyRequestExpiry(id)] != "10" {
+		t.Errorf("the control stored %v, want all three", now)
+	}
+}

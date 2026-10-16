@@ -225,13 +225,6 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 	return nil
 }
 
-// saveRaw persists a value without the owner-knob validation `save` applies —
-// adapter settings are not owner knobs, and their shape is the adapter's rule,
-// not `core.ValidateSetting`'s. Secrets are still sealed.
-func (s *Service) saveRaw(ctx context.Context, key, value string) error {
-	return s.put(ctx, s.store, key, value)
-}
-
 // put writes one row through st (the store, or a transaction of it), sealing a secret key's value.
 func (s *Service) put(ctx context.Context, st store.Store, key, value string) error {
 	stored, secret := value, isSecretKey(key)

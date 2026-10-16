@@ -50,10 +50,11 @@ changelog can be and is not summarized into a fictional release history.
   adapter and was never meant to be declared (SPEC.md §10.1). A node whose environment sets
   `HDTP_MODE`, to any value, refuses to start (`invalid_enum_value: HDTP_MODE is not read: the mode
   is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)`), and a
-  config file with a `mode` key is refused (`unknown field "mode"`). A node that set
-  `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
-  `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can
-  put a node in edge mode without forcing both knobs.
+  config file with a `mode` key is refused (`unknown field "mode"`). For a node that set
+  `HDTP_MODE=edge` beside a sidecar, set `HDTP_TUNNEL=edge` (or choose `edge` in the portal)
+  instead (#171). The refusals `edge_mode_forces_seal_required` and
+  `edge_mode_forces_client_cert_off` went with it: nothing can put a node in edge mode without
+  forcing both knobs.
 - The portal's `GET /api/inbox`, `GET /api/thread` and `POST /thread/send`, which nothing in the
   portal called (the conversation view reads `GET /api/conversations`, marks read with
   `POST /messages/read` and sends with `POST /messages/send`). `GET /api/thread` sent the stored
@@ -185,6 +186,9 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- A storage save from the portal (`POST /settings/storage`) stores its three rows (the quota, the
+  retention window and the request expiry) in one transaction. They were written one at a time,
+  so a write that failed part-way left the earlier rows saved under a "could not save" answer.
 - An import that cannot read whether a contact is held fails and writes nothing. A failed read was
   taken for "not held": the file's contact was imported over whatever the store held, and a
   removed thread's root was labelled not a contact here.
