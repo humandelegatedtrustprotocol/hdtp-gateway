@@ -121,7 +121,10 @@ Three shapes of refusal exist; a caller must not treat them alike.
    node has no public address ("set public_url") and mints nothing; `revoke_invite` answers
    `not_found` only for a missing or spent invite (a store failure is `internal`); `delete_thread`
    answers `{"code"}` `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
-   `bad_request` for a `timeout_sec` outside 1 to 25. `call_contact` answers `{"code","detail"}`
+   `bad_request` for a `timeout_sec` outside 1 to 25; it and `digest` answer `internal` when a
+   count, a list or a thread they read cannot be read (a thread deleted since the change is passed
+   over; a contact row that cannot be read labels its thread `messages_only`, the lowest grant), and
+   `list_integrations` answers `internal` when an integration's exposure set cannot be read. `call_contact` answers `{"code","detail"}`
    with one fixed detail per code: `bad_request` for an empty contact or tool; `not_found` for a
    contact the account does not hold and `conflict` for one that is not active; `envelope_invalid`
    when the contact's answer is not an envelope, did not verify, or carried a

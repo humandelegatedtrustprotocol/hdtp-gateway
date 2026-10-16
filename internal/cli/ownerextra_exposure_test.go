@@ -134,3 +134,57 @@ func TestSetExposureWithNoCatalogIsErrNoCatalog(t *testing.T) {
 		t.Fatalf("the control: %v", err)
 	}
 }
+
+// exposureReadFails is the store with LatestExposure failing.
+type exposureReadFails struct{ store.Store }
+
+func (exposureReadFails) LatestExposure(context.Context, string) (store.Exposure, error) {
+	return store.Exposure{}, errors.New("sqlite: disk I/O error")
+}
+
+// list_integrations answers an exposure set that could not be read as an error (internal at the
+// owner MCP), where it listed the integration with nothing exposed. The controls: an integration
+// with nothing published lists with nothing exposed, and a published one lists its tool.
+func TestListIntegrationsAnswersAnUnreadableExposureAsAnError(t *testing.T) {
+	ctx := context.Background()
+	st := migrated(t, t.TempDir())
+	defer st.Close()
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.InsertIntegration(ctx, store.Integration{
+		AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://upstream.invalid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.InsertCatalog(ctx, store.Catalog{
+		IntegrationID: in.ID, Version: 1,
+		Tools: `[{"name":"find_slots","description":"find","input_schema":{"type":"object"},"hash":"h1"}]`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audit := func(string, string, string) {}
+	extra := ownerExtra(nil, st, nil, integrationchain.Build(st, nil, nil, "", audit, nil, nil, nil), audit)
+	list, err := extra.Integrations(ctx, a.ID)
+	if err != nil || len(list) != 1 || len(list[0].Exposed) != 0 {
+		t.Fatalf("nothing published: %+v %v, want the integration with nothing exposed", list, err)
+	}
+	if err := extra.SetExposure(ctx, a.ID, in.ID, []string{"find_slots"}); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := extra.Integrations(ctx, a.ID); err != nil || len(list) != 1 || len(list[0].Exposed) != 1 {
+		t.Fatalf("published: %+v %v, want the tool exposed", list, err)
+	}
+
+	failing := exposureReadFails{st}
+	extra = ownerExtra(nil, failing, nil, integrationchain.Build(failing, nil, nil, "", audit, nil, nil, nil), audit)
+	list, err = extra.Integrations(ctx, a.ID)
+	if err == nil {
+		t.Fatalf("an unreadable exposure set: %+v, want an error", list)
+	}
+	if code, _ := refusal.Of(err); code != "internal" {
+		t.Fatalf("an unreadable exposure set reads as %q, want internal", code)
+	}
+}

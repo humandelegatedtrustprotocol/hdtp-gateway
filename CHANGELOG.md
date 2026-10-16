@@ -20,6 +20,10 @@ changelog can be and is not summarized into a fictional release history.
   identity (or counted its unread as 0) and answered the rest; `hdtp://thread/<id>` fails the same
   way when the thread cannot be read, and with "not_found: …" for a thread no identity of the scope
   holds, where both were "ownermcp: no such thread".
+- The owner MCP's `wait_for_updates`, `digest` and `list_integrations` answer `internal` when a
+  count, a list or a thread they read cannot be read. They read each failure as nothing — no
+  integration needing attention, no request or address waiting, a thread's unread 0, a thread's
+  messages skipped, nothing exposed — so a wait could park and a digest say all was quiet.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

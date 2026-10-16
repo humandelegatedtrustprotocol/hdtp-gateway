@@ -18,6 +18,7 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -256,7 +257,7 @@ func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a
 	for _, th := range threads {
 		msgs, err := ot.d.Store.ListMessagesByThread(ctx, a.AccountID, th.ID)
 		if err != nil {
-			continue
+			return fail(err)
 		}
 		p := by[th.ContactFpr]
 		if p == nil {
@@ -267,9 +268,11 @@ func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a
 			}
 			by[th.ContactFpr] = p
 		}
-		if n, err := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID); err == nil {
-			p.Unread += n
+		n, err := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		if err != nil {
+			return fail(err)
 		}
+		p.Unread += n
 		for _, m := range msgs {
 			if m.CreatedAt < since {
 				continue
@@ -291,7 +294,10 @@ func (ot ownerTools) digestTool(ctx context.Context, req *mcp.CallToolRequest, a
 			out = append(out, *p)
 		}
 	}
-	waiting, addresses, pending := ot.d.openCounts(ctx, a.AccountID)
+	waiting, addresses, pending, err := ot.d.openCounts(ctx, a.AccountID)
+	if err != nil {
+		return fail(err)
+	}
 	r, err := jsonResult(map[string]any{
 		"since": since, "until": time.Now().Unix(), "contacts": out,
 		"contact_requests": waiting, "pending_addresses": addresses, "pending_requests": pending,
@@ -340,12 +346,15 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 			}
 			seen[c.ThreadID] = true
 			th, err := d.Store.GetThread(ctx, accountID, c.ThreadID)
-			if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
 				continue // gone since: nothing to read
 			}
+			if err != nil {
+				return waitResult{}, err
+			}
 			ch := changed{ThreadID: th.ID, ContactFpr: th.ContactFpr, LastAt: th.LastAt}
-			if n, err := d.Store.UnreadCount(ctx, accountID, th.ID); err == nil {
-				ch.Unread = n
+			if ch.Unread, err = d.Store.UnreadCount(ctx, accountID, th.ID); err != nil {
+				return waitResult{}, err
 			}
 			// Fail SAFE on the label: a thread whose contact row cannot be read
 			// (removed since, store hiccup) is reported at the lowest grant, the
@@ -375,15 +384,21 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 			res.Calls = append(res.Calls, callEvent{ContactFpr: c.ContactFpr, Tool: c.Ref, Trust: trust, At: c.At})
 		}
 	}
-	res.Waiting, res.Addresses, res.Pending = d.openCounts(ctx, accountID)
-	res.NeedsAttention = d.needsAttention(ctx, accountID)
+	if res.Waiting, res.Addresses, res.Pending, err = d.openCounts(ctx, accountID); err != nil {
+		return waitResult{}, err
+	}
+	if res.NeedsAttention, err = d.needsAttention(ctx, accountID); err != nil {
+		return waitResult{}, err
+	}
 	return res, nil
 }
 
-func (d Deps) needsAttention(ctx context.Context, accountID string) []attention {
+// needsAttention lists the account's integrations only the owner can bring back; a list that could
+// not be read is an error, never "nothing needs attention".
+func (d Deps) needsAttention(ctx context.Context, accountID string) ([]attention, error) {
 	ints, err := d.Store.ListIntegrations(ctx, accountID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []attention
 	for _, in := range ints {
@@ -391,24 +406,30 @@ func (d Deps) needsAttention(ctx context.Context, accountID string) []attention 
 			out = append(out, attention{Kind: "integration_auth", Integration: in.Slug, Status: in.Status})
 		}
 	}
-	return out
+	return out, nil
 }
 
-func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, addresses, pending int64) {
+// openCounts counts the queues only the owner clears; a count that could not be read is an error,
+// never a zero.
+func (d Deps) openCounts(ctx context.Context, accountID string) (waiting, addresses, pending int64, err error) {
 	// Counted in the store, reading the rows in that state alone: every wake asks, and reading
 	// every contact to count them made each wake grow with the list.
-	if n, err := d.Store.CountContactsByStatus(ctx, accountID, "pending_in"); err == nil {
-		waiting = n
+	if waiting, err = d.Store.CountContactsByStatus(ctx, accountID, "pending_in"); err != nil {
+		return 0, 0, 0, err
 	}
-	if ps, err := d.Store.ListPendingAddresses(ctx, accountID); err == nil {
-		addresses = int64(len(ps))
+	ps, err := d.Store.ListPendingAddresses(ctx, accountID)
+	if err != nil {
+		return 0, 0, 0, err
 	}
+	addresses = int64(len(ps))
 	if d.Pending != nil {
-		if rows, err := d.Store.ListOpenPendingRequests(ctx, accountID, time.Now().Unix()); err == nil {
-			pending = int64(len(rows))
+		rows, err := d.Store.ListOpenPendingRequests(ctx, accountID, time.Now().Unix())
+		if err != nil {
+			return 0, 0, 0, err
 		}
+		pending = int64(len(rows))
 	}
-	return waiting, addresses, pending
+	return waiting, addresses, pending, nil
 }
 
 func displayName(c store.Contact) string {
