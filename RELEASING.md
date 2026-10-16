@@ -108,7 +108,16 @@ above, supersedes them.
 ## What this does not prove
 
 There is no build-provenance or SBOM attestation: releases are built on a
-maintainer's machine, so nothing binds a binary to a hosted build. A matching rebuild
+maintainer's machine, so nothing binds a binary to a hosted build. The limits sidecar's binaries
+carry no build info, so nothing checks them against the tag the way `release-check.sh binaries`
+checks the node's, and a rebuild of them is not held to the published checksum by any check.
+Measured once, on 2026-10-16 (host rustc 1.92.0 and the `rust:1.92-alpine` image): the Linux
+sidecars built by `make dist` from two checkouts at different paths were byte-identical; the
+macOS ones were identical when rebuilt at the same path, and from a checkout at another path
+differed only in the Mach-O `LC_UUID` (16 bytes) and, on arm64, the ad-hoc code signature that
+covers it (32 bytes), every string in them the same. A macOS sidecar rebuilt elsewhere does not
+match the published checksum for that reason. The image is named by tag, not by digest, so an
+image published later under the same tag may build other bytes. A matching rebuild
 is the check. And a matching rebuild says only that the artifact matches this
 repository at that commit — nothing about whether the code is correct or the design
 sound. Nothing here has had independent cryptographic review
