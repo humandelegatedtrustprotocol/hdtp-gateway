@@ -899,7 +899,7 @@ Relationship state selects the serving tier — which of the per-caller MCP serv
 | State toward caller | Tier | Caller sees |
 |---|---|---|
 | `none` (unknown fingerprint) | guest | exactly `redeem_invite` + `request_contact`, plus the `sealed_call` wrapper (§4) |
-| `pending_in` | guest | guest tools; a repeated `request_contact` from the same identity MUST NOT create a duplicate request and is answered `pending_approval` (HDTP §12). The owner's own `add_contact` by card for that identity is refused `conflict` before anything is dialled (approve their request instead); by their invite link it is dialled, and the row becomes `pending_out`, pinned to what the offer proved, and moves on with their answer, as BatonDeck's does |
+| `pending_in` | guest | guest tools; a repeated `request_contact` from the same identity MUST NOT create a duplicate request and is answered `pending_approval` (HDTP §12). The owner's own `add_contact` by card for that identity is refused `conflict` before anything is dialled (approve their request instead); by their invite link it is dialled: a peer that still holds its request answers `pending_approval` (§5.4) and nothing changes here; one that redeems it makes the row `pending_out`, pinned to what the offer proved, and it moves on with their answer, as BatonDeck's does |
 | `pending_out` | pending | `contact_accepted`, `contact_rejected` |
 | `active` | contact | tools filtered by this contact's switchboard (§5); `update_contact`, `remove_contact`, `get_card` always |
 | `blocked` | blocked | served exactly as guest — indistinguishable on the wire (`blocked_or_unknown`, HDTP §12) |
