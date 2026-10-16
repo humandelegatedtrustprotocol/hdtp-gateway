@@ -17,6 +17,13 @@ changelog can be and is not summarized into a fictional release history.
   node starts nothing, runs in edge mode, and trusts no forwarded header, so its per-source limits
   see the sidecar's address. The portal lists it with the other adapters (#171).
 
+### Changed
+
+- `/healthz` answers a stopped limits sidecar with one fixed sentence, `not serving: the limits
+  sidecar is not answering, so every sealed call is refused unavailable`. It carried the probe's
+  error, the socket's path and the dial's error text, to a caller that needs no session (#127);
+  `doctor`, the `serve` banner and `healthcheck --limits` still name the socket and why.
+
 ### Removed
 
 - The `ngrok-https` tunnel adapter. It wrapped the decrypted HTTP ngrok handed it in the node's own

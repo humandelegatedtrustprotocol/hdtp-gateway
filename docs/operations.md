@@ -138,7 +138,9 @@ restart: `get_card` asks the sidecar for the numbers it advertises on every call
 
 **When the sidecar is down, the node refuses.** Every sealed call, call out, request and
 integration call is answered `unavailable` until it answers again, which the node notices by
-itself. `/healthz` answers 503 and names the socket, so the container's healthcheck fails;
+itself. `/healthz` answers 503, `not serving: the limits sidecar is not answering, so every sealed call is
+refused unavailable`, so the container's healthcheck fails (it needs no session, so it names no
+socket and no error);
 `hdtp-gateway doctor` prints `FAIL limits` with the reason, and the `serve` banner says `limits:
 NOT ANSWERING`. Start the sidecar (`hdtp-limitd -config <file>`; the compose file runs it) and
 the node serves again with no restart.

@@ -50,8 +50,11 @@ func TestASidecarThatIsDownIsNamedByTheHealthCheckDoctorAndTheBanner(t *testing.
 	}
 
 	side.Stop()
-	if code, body := health(); code != http.StatusServiceUnavailable || !strings.Contains(body, side.Path) || !strings.Contains(body, "refused unavailable") {
-		t.Fatalf("healthz with the sidecar down: %d %q, want 503 naming it and what it means", code, body)
+	// The unauthenticated answer is one fixed sentence: the socket path and the dial's error are the
+	// operator's, in doctor and the banner (#127).
+	const healthDown = "not serving: the limits sidecar is not answering, so every sealed call is refused unavailable\n"
+	if code, body := health(); code != http.StatusServiceUnavailable || body != healthDown || strings.Contains(body, side.Path) {
+		t.Fatalf("healthz with the sidecar down: %d %q, want 503 %q and never the socket path", code, body, healthDown)
 	}
 	var errOut bytes.Buffer
 	if code := healthcheck([]string{"--config", cfg}, &errOut); code == 0 {
