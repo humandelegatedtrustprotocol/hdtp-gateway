@@ -3,6 +3,8 @@ package ingress
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -291,5 +293,52 @@ func TestDataPlaneStopRightAfterStart(t *testing.T) {
 			t.Fatalf("port %d still held after Stop: %v", port, err)
 		}
 		_ = l.Close()
+	}
+}
+
+// pairServer serves the real pairing handler over TLS on reg.
+func pairServer(t *testing.T, reg Registry) *httptest.Server {
+	t.Helper()
+	ingKP, ingCert := keypairCert(t, "ingress")
+	ps := &PairingServer{Registry: reg, Domain: "example.test", IngressFingerprint: ingKP.Fingerprint,
+		DataPlaneAddr: "127.0.0.1", DataPlanePort: 7000, DataPlaneToken: "dp"}
+	srv := httptest.NewUnstartedServer(ps.Handler())
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{ingCert}, ClientAuth: tls.RequestClientCert}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// pairRefusal pairs with a fresh token and returns the refusal's status and its body as JSON.
+func pairRefusal(t *testing.T, srv *httptest.Server, reg Registry, cert tls.Certificate, sub string) (int, map[string]any) {
+	t.Helper()
+	tok, _ := reg.MintToken(time.Minute)
+	_, _, err := Pair(nil, srv.URL+"/pair", cert, "", PairRequest{Token: tok, Subdomain: sub, Mode: ModePassthrough})
+	var pe *PairError
+	if !errors.As(err, &pe) {
+		t.Fatalf("pairing %s: %v, want a refusal", sub, err)
+	}
+	var body map[string]any
+	if jerr := json.Unmarshal([]byte(pe.Body), &body); jerr != nil {
+		t.Fatalf("the %d refusal's body is not JSON: %v: %q", pe.Status, jerr, pe.Body)
+	}
+	return pe.Status, body
+}
+
+// A subdomain paired to another node is refused 409 with a body that is JSON holding the code
+// alone. The body was built by concatenating the registry's error text into a JSON string, whose
+// quotes made it invalid JSON, so the node could not read the code.
+func TestATakenSubdomainIsRefusedWithAJSONBodyHoldingTheCode(t *testing.T) {
+	reg := NewMemoryRegistry(nil)
+	srv := pairServer(t, reg)
+	_, first := keypairCert(t, "first")
+	tok, _ := reg.MintToken(time.Minute)
+	if _, _, err := Pair(nil, srv.URL+"/pair", first, "", PairRequest{Token: tok, Subdomain: "taken", Mode: ModePassthrough}); err != nil {
+		t.Fatal(err)
+	}
+	_, other := keypairCert(t, "other")
+	status, body := pairRefusal(t, srv, reg, other, "taken")
+	if status != http.StatusConflict || len(body) != 1 || body["code"] != "conflict" {
+		t.Fatalf("a taken subdomain: %d %v, want 409 {\"code\":\"conflict\"}", status, body)
 	}
 }

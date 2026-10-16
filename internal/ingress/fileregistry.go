@@ -24,9 +24,9 @@ import (
 )
 
 type fileRegistry struct {
-	Registry // tokens and lookups come from the in-memory implementation
+	*memRegistry // tokens and lookups come from the in-memory implementation
 
-	mu   sync.Mutex
+	mu   sync.Mutex // serialises Put, so the book written is the book put
 	path string
 }
 
@@ -35,31 +35,39 @@ type fileRegistry struct {
 // registry, so a row that fails Put's checks, or a file that does not parse, is an error naming
 // the path. Tokens stay in memory and are never written. Put persists; MintToken, ConsumeToken
 // and the lookups are the in-memory registry's. The file is written 0600, through a temporary
-// file renamed over it, after the in-memory Put has succeeded.
+// file renamed over it, after Put's checks have passed and before the in-memory book changes.
 func NewFileRegistry(path string, now func() time.Time) (Registry, error) {
-	r := &fileRegistry{Registry: NewMemoryRegistry(now), path: path}
+	r := &fileRegistry{memRegistry: newMemRegistry(now), path: path}
 	nodes, err := readNodes(path)
 	if err != nil {
 		return nil, err
 	}
 	for _, n := range nodes {
-		if err := r.Registry.Put(n); err != nil {
+		if err := r.memRegistry.Put(n); err != nil {
 			return nil, fmt.Errorf("ingress: restoring pairing %s: %w", n.Subdomain, err)
 		}
 	}
 	return r, nil
 }
 
-// Put records a pairing and writes the book back before reporting success. A
-// pairing that is not on disk is one the owner will have to repeat, so the write
-// happens before the caller is told it worked.
+// Put checks the pairing as the in-memory registry does, writes the book with it to disk, and only
+// then puts it in memory. A pairing that is not on disk is one the owner will have to repeat, so
+// the write happens before the caller is told it worked; and a write that failed leaves the book
+// in memory as it was, so the ingress never routes a pairing its next start will not know.
 func (r *fileRegistry) Put(n Node) error {
-	if err := r.Registry.Put(n); err != nil {
-		return err
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return writeNodes(r.path, r.Registry.All())
+	r.memRegistry.mu.Lock()
+	err := r.refusal(n)
+	book := r.with(n)
+	r.memRegistry.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := writeNodes(r.path, book); err != nil {
+		return err
+	}
+	return r.memRegistry.Put(n)
 }
 
 func readNodes(path string) ([]Node, error) {

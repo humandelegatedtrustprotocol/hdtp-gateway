@@ -10,7 +10,18 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Changed
+
+- The ingress's `POST /pair` answers every refusal with a JSON body holding the code alone
+  (`{"code":"conflict"}`), served as `application/json`. A subdomain paired to another node is
+  `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
+  `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
+  and was not valid JSON when that text held a quote (a subdomain's name always did).
+
 ### Fixed
+
+- The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
+  memory first, so a pairing whose write failed was routed until the next start forgot it.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

@@ -83,41 +83,42 @@ func (p *PairingServer) audit(action, resource, outcome string) {
 // POST /pair answers 401 identity_required without a client certificate (or one whose key has no
 // identity fingerprint), 400 bad_request for a body that does not decode as JSON within its first 4096 bytes, an invalid
 // subdomain or a mode that is not passthrough|terminate, 403 invite_invalid for a token that is
-// unknown, used or expired, and 409 conflict when the registry refuses the row (the subdomain is
-// paired to another node). The token is consumed before the registry's Put, so a conflict spends
-// it. On success it records the pairing with a fresh 16-byte random secret, calls OnPaired, and
+// unknown, used or expired, 409 conflict when the subdomain is paired to another node
+// (ErrSubdomainTaken), and 503 unavailable when the registry could not record the row (the file
+// registry's write failed). Every refusal body is a JSON object holding the code alone. The token
+// is consumed before the registry's Put, so a conflict or a failed write spends it. On success it records the pairing with a fresh 16-byte random secret, calls OnPaired, and
 // answers 200 with a PairResponse. The route is registered as "POST /pair", so another method on /pair is the mux's 405 and any other path its 404.
 func (p *PairingServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /pair", func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-			http.Error(w, `{"code":"identity_required"}`, http.StatusUnauthorized)
+			refuse(w, http.StatusUnauthorized, "identity_required")
 			return
 		}
 		leaf := r.TLS.PeerCertificates[0]
 		fpr, err := identity.Fingerprint(leaf.PublicKey)
 		if err != nil {
-			http.Error(w, `{"code":"identity_required"}`, http.StatusUnauthorized)
+			refuse(w, http.StatusUnauthorized, "identity_required")
 			return
 		}
 		var req PairRequest
 		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
-			http.Error(w, `{"code":"bad_request"}`, http.StatusBadRequest)
+			refuse(w, http.StatusBadRequest, "bad_request")
 			return
 		}
 		if !ValidSubdomain(req.Subdomain) || (req.Mode != ModePassthrough && req.Mode != ModeTerminate) {
-			http.Error(w, `{"code":"bad_request"}`, http.StatusBadRequest)
+			refuse(w, http.StatusBadRequest, "bad_request")
 			return
 		}
 		// exactly one pairing per token
 		if !p.Registry.ConsumeToken(req.Token) {
 			p.audit("ingress_pair", "subdomain:"+req.Subdomain, "invite_invalid")
-			http.Error(w, `{"code":"invite_invalid"}`, http.StatusForbidden)
+			refuse(w, http.StatusForbidden, "invite_invalid")
 			return
 		}
 		spki, err := x509.MarshalPKIXPublicKey(leaf.PublicKey)
 		if err != nil {
-			http.Error(w, `{"code":"identity_required"}`, http.StatusUnauthorized)
+			refuse(w, http.StatusUnauthorized, "identity_required")
 			return
 		}
 		secretB := make([]byte, 16)
@@ -127,8 +128,13 @@ func (p *PairingServer) Handler() http.Handler {
 			Secret: hex.EncodeToString(secretB), PairedAt: time.Now(),
 		}
 		if err := p.Registry.Put(node); err != nil {
+			if errors.Is(err, ErrSubdomainTaken) {
+				p.audit("ingress_pair", "subdomain:"+req.Subdomain, "refused")
+				refuse(w, http.StatusConflict, "conflict")
+				return
+			}
 			p.audit("ingress_pair", "subdomain:"+req.Subdomain, "error")
-			http.Error(w, `{"code":"conflict","detail":"`+err.Error()+`"}`, http.StatusConflict)
+			refuse(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
 		if p.OnPaired != nil {
@@ -144,6 +150,17 @@ func (p *PairingServer) Handler() http.Handler {
 		})
 	})
 	return mux
+}
+
+// refuse answers a pairing refusal: the status, and a JSON object holding the code alone.
+func refuse(w http.ResponseWriter, status int, code string) {
+	b, _ := json.Marshal(struct {
+		Code string `json:"code"`
+	}{code})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	_, _ = w.Write(b)
 }
 
 // Pair is the node side: connect outbound with the node's identity cert, pin

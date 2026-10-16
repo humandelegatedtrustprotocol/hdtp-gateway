@@ -9,6 +9,7 @@ package ingress
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -52,7 +53,7 @@ type Registry interface {
 	ConsumeToken(token string) bool
 	// Put records a pairing. It refuses a subdomain that is not one DNS label (ValidSubdomain), a
 	// mode other than passthrough or terminate, and a subdomain already paired to a different
-	// fingerprint; the same fingerprint on the same subdomain replaces the row.
+	// fingerprint (ErrSubdomainTaken); the same fingerprint on the same subdomain replaces the row.
 	Put(n Node) error
 	// BySubdomain is how the front door, terminator and data plane learn a name's mode and pinned key.
 	BySubdomain(sub string) (Node, bool)
@@ -71,12 +72,17 @@ type memRegistry struct {
 
 // NewMemoryRegistry returns an in-memory Registry. now is the clock for token expiry; nil means
 // time.Now.
-func NewMemoryRegistry(now func() time.Time) Registry {
+func NewMemoryRegistry(now func() time.Time) Registry { return newMemRegistry(now) }
+
+func newMemRegistry(now func() time.Time) *memRegistry {
 	if now == nil {
 		now = time.Now
 	}
 	return &memRegistry{tokens: map[string]time.Time{}, nodes: map[string]Node{}, now: now}
 }
+
+// ErrSubdomainTaken is Put's refusal of a subdomain already paired to another fingerprint.
+var ErrSubdomainTaken = errors.New("ingress: the subdomain is already paired to another node")
 
 func (r *memRegistry) MintToken(ttl time.Duration) (string, error) {
 	b := make([]byte, 16)
@@ -121,19 +127,39 @@ func ValidSubdomain(s string) bool {
 }
 
 func (r *memRegistry) Put(n Node) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.refusal(n); err != nil {
+		return err
+	}
+	r.nodes[n.Subdomain] = n
+	return nil
+}
+
+// refusal is why Put would refuse n, or nil; the caller holds r.mu.
+func (r *memRegistry) refusal(n Node) error {
 	if !ValidSubdomain(n.Subdomain) {
 		return fmt.Errorf("ingress: subdomain %q is not a valid DNS label", n.Subdomain)
 	}
 	if n.Mode != ModePassthrough && n.Mode != ModeTerminate {
 		return fmt.Errorf("ingress: mode %q (want passthrough|terminate)", n.Mode)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if existing, ok := r.nodes[n.Subdomain]; ok && existing.Fingerprint != n.Fingerprint {
-		return fmt.Errorf("ingress: subdomain %q is already paired to another node", n.Subdomain)
+		return fmt.Errorf("%w: %q", ErrSubdomainTaken, n.Subdomain)
 	}
-	r.nodes[n.Subdomain] = n
 	return nil
+}
+
+// with returns the book as it would be after Put(n): n replaces the row of its subdomain. The
+// caller holds r.mu.
+func (r *memRegistry) with(n Node) []Node {
+	out := make([]Node, 0, len(r.nodes)+1)
+	for sub, held := range r.nodes {
+		if sub != n.Subdomain {
+			out = append(out, held)
+		}
+	}
+	return append(out, n)
 }
 
 func (r *memRegistry) BySubdomain(sub string) (Node, bool) {

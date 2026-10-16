@@ -28,7 +28,10 @@ Pairing (`PairingServer.Handler`, `POST /pair`, JSON codes in the body):
 | 401 | `identity_required` | no client certificate, or its key has no identity fingerprint |
 | 400 | `bad_request` | the body does not decode as JSON within its first 4096 bytes; invalid subdomain; mode not `passthrough`/`terminate` |
 | 403 | `invite_invalid` | token unknown, already used or expired (audited `ingress_pair` / `invite_invalid`) |
-| 409 | `conflict` | `Registry.Put` refused, e.g. the subdomain is paired to another fingerprint |
+| 409 | `conflict` | the subdomain is paired to another fingerprint (`ErrSubdomainTaken`; audited `refused`) |
+| 503 | `unavailable` | the registry could not record the pairing (the file registry's write failed; audited `error`) |
+
+Every refusal's body is a JSON object holding the code alone (`{"code":"conflict"}`), served as `application/json`.
 
 The route is registered as `POST /pair`: another method on `/pair` is the mux's 405, any other path its 404.
 
@@ -45,16 +48,16 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 ## Invariants
 
 - The front door never terminates TLS; a passthrough connection reaches the data plane with the ClientHello bytes it sent.
-- A pairing token is consumed by the first request that reaches `ConsumeToken`: an unknown or used token (403), a registry conflict (409) and a success all spend it; a request refused earlier (401 without a client certificate, 400 for a bad body, subdomain or mode) does not.
-- The file registry writes before it reports success, atomically (temporary file renamed), mode 0600; tokens are never written to disk.
+- A pairing token is consumed by the first request that reaches `ConsumeToken`: an unknown or used token (403), a registry conflict (409), a failed write (503) and a success all spend it; a request refused earlier (401 without a client certificate, 400 for a bad body, subdomain or mode) does not.
+- The file registry checks a pairing, writes the book with it, and only then changes the book in memory, so a write that fails leaves nothing routed that the next start would not know; the write is atomic (temporary file renamed), mode 0600; tokens are never written to disk.
 - The vhost defaults to loopback, so a caller cannot reach it and skip the registry lookup.
 - The onward leg accepts only the key pinned at pairing; `PinOnwardLeg` is the pin the node's listener ships with, and only checks the transport (it does not make the ingress a caller).
 - Handing a connection to the terminator can give up (`ConnSink.Deliver` takes a timeout), so a stopped terminator does not park public connections.
 
 ## Held by
 
-- `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`PairingServer` calls `OnPaired` after every pairing it records; the test's callback keeps only the terminate-mode ones, and holds that the terminate pairing is announced and the passthrough one is not asked for a certificate); `TestDataPlaneStopRightAfterStart`.
-- `fileregistry_test.go`: `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted).
+- `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestATakenSubdomainIsRefusedWithAJSONBodyHoldingTheCode`; `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`PairingServer` calls `OnPaired` after every pairing it records; the test's callback keeps only the terminate-mode ones, and holds that the terminate pairing is announced and the passthrough one is not asked for a certificate); `TestDataPlaneStopRightAfterStart`.
+- `fileregistry_test.go`: `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted); `TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted` (an unwritable book is 503 and the pairing is not routed; a refused takeover leaves a book the next start loads).
 - `frontdoor_test.go`: `TestOnePortRoutesPassthroughAndTerminateBySNI`; `TestFrontDoorRefusesNonTLS` (calls `peekSNI` on plain HTTP); `TestFrontDoorDropsWhenTheTerminatorIsNotAccepting`; `TestDataPlaneVhostDefaultsToLoopback`.
 - `terminate_test.go`: `TestACMEIssuanceAndRenewalWithPebble`; `TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode` (a sealed call round-trips; `DialNode` refuses a node whose key is not the pinned one; the node refuses a non-ingress client); `TestTerminatePublicTLSAcceptsAClientThatOffersALPN`.
 - The layering rule `TestImportsPointDownTheLayers` in `internal/integrationtest`.

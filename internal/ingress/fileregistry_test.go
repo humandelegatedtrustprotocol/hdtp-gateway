@@ -1,6 +1,7 @@
 package ingress
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,5 +60,53 @@ func TestPairingsSurviveARestart(t *testing.T) {
 	r3, _ := NewFileRegistry(path, nil)
 	if r3.ConsumeToken(tok) {
 		t.Fatal("a pairing token survived a restart")
+	}
+}
+
+// A pairing the file registry could not write is refused 503 unavailable, with a JSON body, and is
+// not routed: the in-memory book changed before the disk did, so the ingress served a pairing its
+// next start would not know, and the handler answered the OS's error text as a conflict. The
+// control: a takeover refused as a conflict leaves the book on disk readable at the next start.
+func TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "book")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "nodes.json")
+	reg, err := NewFileRegistry(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := pairServer(t, reg)
+	_, first := keypairCert(t, "first")
+	tok, _ := reg.MintToken(time.Minute)
+	if _, _, err := Pair(nil, srv.URL+"/pair", first, "", PairRequest{Token: tok, Subdomain: "alice", Mode: ModePassthrough}); err != nil {
+		t.Fatal(err)
+	}
+	_, other := keypairCert(t, "other")
+
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	status, body := pairRefusal(t, srv, reg, other, "bob")
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusServiceUnavailable || len(body) != 1 || body["code"] != "unavailable" {
+		t.Errorf("an unwritable book: %d %v, want 503 {\"code\":\"unavailable\"}", status, body)
+	}
+	if _, ok := reg.BySubdomain("bob"); ok {
+		t.Error("a pairing that is not on disk is routed")
+	}
+
+	if status, body := pairRefusal(t, srv, reg, other, "alice"); status != http.StatusConflict || body["code"] != "conflict" {
+		t.Fatalf("a takeover: %d %v, want 409 conflict", status, body)
+	}
+	again, err := NewFileRegistry(path, nil)
+	if err != nil {
+		t.Fatalf("the book a refused takeover left does not load: %v", err)
+	}
+	if n, _ := again.BySubdomain("alice"); n.Fingerprint == "" {
+		t.Fatal("the book lost alice")
 	}
 }
