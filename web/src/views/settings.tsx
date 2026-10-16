@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PresetGrid, usePresetAutosave, type GridRow } from "../preset_grid";
 import { presetColumns } from "../presets";
-import { csrf, currentAccount, failureOf, getJSON } from "../api";
+import { csrf, currentAccount, failureOf, getJSON, unreadPage } from "../api";
 import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
 type SettingRow = {
@@ -19,7 +19,15 @@ type Data = {
   reach: SettingRow[] | null; security: SettingRow[] | null;
   adapter_settings: AdapterSetting[] | null; adapters: string[] | null;
   show_probe: boolean; probe_verdict: string; probe_detail: string;
+  // Set when the node did the write but could not read the page back; the answer then carries only
+  // notice, error and the probe's verdict.
+  page_error?: string;
 };
+
+/** The page on screen with a write's answer the node could not read the page after. */
+function withUnread(d: Data, j: Pick<Data, "notice" | "error" | "probe_verdict" | "probe_detail">): Data {
+  return { ...d, notice: unreadPage(j.notice), error: j.error, probe_verdict: j.probe_verdict, probe_detail: j.probe_detail, page_error: "store" };
+}
 
 export function Settings() {
   const [d, setD] = useState<Data | null>(null);
@@ -42,6 +50,13 @@ export function Settings() {
     });
     try {
       const j = (await r.json()) as Data;
+      if (j && j.page_error) {
+        // Done (a pairing's one-time token is spent), but the page was not read: keep the one on
+        // screen and say what the write answered.
+        const kept = withUnread(d, j);
+        setD(kept);
+        return kept;
+      }
       if (j && j.reach !== undefined) { setD(j); return j; }
     } catch { /* fall through */ }
     load();
@@ -51,7 +66,7 @@ export function Settings() {
   return (
     <main>
       {header}
-      {d.notice && <Notice kind={d.error ? "err" : "ok"}>{d.notice}</Notice>}
+      {d.notice && <Notice kind={d.error ? "err" : d.page_error ? "warn" : "ok"}>{d.notice}</Notice>}
       {d.probe_verdict && (
         <Notice kind={d.probe_verdict === "ok" ? "ok" : "warn"}>
           Probe: {d.probe_verdict}{d.probe_detail && <> — {d.probe_detail}</>}
@@ -161,14 +176,16 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [failed, setFailed] = useState("");
-  // The node answers a settings post with the page's data, `error` set when it refused.
-  const post = async (path: string, body: URLSearchParams): Promise<{ page: Data | null; say: string }> => {
+  // The node answers a settings post with the page's data, `error` set when it refused. A write it did
+  // whose page it could not read back (`page_error`) is applied to the presets on screen by `done`.
+  const post = async (path: string, body: URLSearchParams, done: (ps: PresetRow[]) => PresetRow[]): Promise<{ page: Data | null; say: string }> => {
     try {
       const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
       let page: Data | null = null;
       try {
         const j = (await r.json()) as Data;
-        if (j && j.reach !== undefined) page = j;
+        if (j && j.page_error && r.ok && !j.error) page = { ...withUnread(d, j), presets: done(presets) };
+        else if (j && j.reach !== undefined) page = j;
       } catch { /* not the page's answer */ }
       if (r.ok && page && !page.error) return { page, say: "" };
       return { page: null, say: page?.error ? page.notice : r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
@@ -179,7 +196,8 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   const put = (name: string, perms: readonly string[]) => {
     const body = new URLSearchParams({ csrf: csrf(), name });
     for (const p of perms) body.append("perm", p);
-    return post("/settings/presets", body);
+    const saved = { name, perms: [...perms] };
+    return post("/settings/presets", body, (ps) => ps.some((p) => p.name === name) ? ps.map((p) => (p.name === name ? saved : p)) : [...ps, saved]);
   };
   const rows = usePresetAutosave(presets, async (name, perms) => {
     const a = await put(name, perms);
@@ -199,7 +217,7 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
   };
   const del = async (name: string) => {
     setFailed("");
-    const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
+    const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }), (ps) => ps.filter((p) => p.name !== name));
     if (!a.page) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
     rows.forget(name);
     onSaved(a.page);

@@ -67,6 +67,14 @@ export function failureOf(e: unknown): string {
   return `The node answered ${e.status}${code ? ` (${code})` : ""}.`;
 }
 
+/**
+ * What a write says when the node did it but could not read the page back (`page_error`): its own
+ * notice, or that it was saved, and that the page on screen is the one from before.
+ */
+export function unreadPage(notice: string): string {
+  return `${notice || "Saved."} The page could not be read afterwards, so what is shown is from before; reload to see the change.`;
+}
+
 export async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T> {
   const q = new URLSearchParams(params);
   if (account && !q.has("account")) q.set("account", account);

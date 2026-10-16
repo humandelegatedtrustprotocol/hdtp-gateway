@@ -69,9 +69,11 @@ changelog can be and is not summarized into a fictional release history.
   answer 500, where Settings and owners showed no identities.
 - The owners page answers 500 when its passkeys or tokens cannot be read, and the Settings page
   when its stored values, adapter credentials, pairings or presets cannot be read; each read was
-  dropped, so a failed one rendered as nothing registered, stored or paired. Every route of the
-  two pages answers with that state, so a mutation that succeeded with a read failing after it is
-  answered 500 too.
+  dropped, so a failed one rendered as nothing registered, stored or paired. A post to either page,
+  which answers with that state, answers such a read failing after it with its own status and
+  notice, `new_token` for a token create, and `page_error` `"store"` in place of the lists, so a
+  token's one appearance and a trust-on-first-use pairing's ingress key are not lost; the portal
+  shows the notice, and the token, with the page as it was.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

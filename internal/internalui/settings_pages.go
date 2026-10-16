@@ -237,7 +237,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 	}
 	if err != nil {
 		// Stored values, credentials, pairings or presets that could not be read are not none.
-		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		d.unreadable(w, r, status, notice, isErr, verdict, detail)
 		return
 	}
 	reach, security := d.rows(pending)
@@ -251,7 +251,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 		}
 		if err != nil {
 			// A selector that could not be read is not one with nobody in it.
-			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			d.unreadable(w, r, status, notice, isErr, verdict, detail)
 			return
 		}
 	}
@@ -262,7 +262,7 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 			storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID })
 		}
 		if err != nil {
-			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			d.unreadable(w, r, status, notice, isErr, verdict, detail)
 			return
 		}
 	}
@@ -290,6 +290,22 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 		"reach": reach, "security": security,
 		"adapter_settings": adapters, "adapters": d.Adapters,
 		"show_probe":    d.Probe != nil,
+		"probe_verdict": verdict, "probe_detail": detail,
+	})
+}
+
+// unreadable answers a request whose page state could not be read. A read is 500 {"error":"store"}.
+// A post has done what it did by then (a pairing's one-time token is spent, a preset is saved), so
+// it answers its own status, notice and probe verdict with page_error "store" and none of the
+// page's lists, which are left out rather than sent empty.
+func (d SettingsDeps) unreadable(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
+	if r.Method == http.MethodGet {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	apiJSONStatus(w, status, map[string]any{
+		"page_error": "store", "notice": notice, "error": isErr,
 		"probe_verdict": verdict, "probe_detail": detail,
 	})
 }

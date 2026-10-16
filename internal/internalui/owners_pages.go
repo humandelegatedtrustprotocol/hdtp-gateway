@@ -66,8 +66,14 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 			accts, err = administeredOnly(r.Context(), d.Store, OwnerFrom(r.Context()), accts, accountID)
 		}
 		if err != nil {
-			// A list that could not be read is not one with nothing in it.
-			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			if r.Method == http.MethodGet {
+				// A list that could not be read is not one with nothing in it.
+				apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+				return
+			}
+			// A mutation has happened by now: its answer, and a new token's one appearance, are
+			// kept, and the lists are left out rather than sent empty.
+			apiJSON(w, map[string]any{"page_error": "store", "notice": notice, "new_token": newToken})
 			return
 		}
 		choices := make([]AccountChoice, 0, len(accts))
