@@ -24,8 +24,8 @@ import (
 // OwnersDeps is what Settings · owners needs: the passkeys and bearer tokens it lists, removes,
 // mints and revokes.
 type OwnersDeps struct {
-	// Store supplies the accounts a token can be narrowed to (those the signed-in owner
-	// administers) and, with no session, the node's first owner.
+	// Store supplies the accounts a token can be narrowed to: those the signed-in owner
+	// administers.
 	Store store.Store
 	// Tokens mints, lists and revokes owner-MCP bearer tokens.
 	Tokens *auth.TokenService
@@ -124,14 +124,12 @@ func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r 
 		label := strings.TrimSpace(r.PostForm.Get("label"))
 		owner := OwnerFrom(r.Context())
 		if owner == "" {
-			// With no session in the context the token belongs to the node's
-			// first owner; with none registered there is nobody to issue for.
-			owners, err := d.Store.ListOwners(r.Context())
-			if err != nil || len(owners) == 0 {
-				render(w, r, "register a passkey first — a token belongs to an owner", "")
-				return
-			}
-			owner = owners[0].ID
+			// The session gate refuses a mutation with no session before this runs; a mount that
+			// lacks one fails closed, as the audit page does: a token belongs to the owner asking.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"identity_required"}`))
+			return
 		}
 		scope := r.PostForm.Get("account")
 		// A node-wide token has no account; a dangling "account:" prefix would

@@ -3,6 +3,8 @@ package internalui
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -86,4 +88,38 @@ type ownersStore struct {
 func (o *ownersStore) ListAccounts(ctx context.Context) ([]store.Account, error) {
 	o.canaryStore.fail["ListAccounts"] = *o.fail
 	return o.canaryStore.ListAccounts(ctx)
+}
+
+// A token create with no owner in the request is 401 identity_required and mints nothing: it minted
+// a token for the node's first owner. The session gate refuses such a request before this runs, so
+// the branch was unreachable in the composed portal; a mount without the gate now fails closed. The
+// control, the signed-in owner, mints one.
+func TestATokenCreateWithNoOwnerIsRefused(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	owner, err := e.st.CreateOwnerWithID(ctx, "", "Owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	MountOwnerPages(mux, OwnersDeps{Store: e.st, Tokens: &auth.TokenService{Store: e.st}})
+	create := func(owner string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/owners/tokens/create", strings.NewReader(url.Values{"label": {"ci"}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if owner != "" {
+			req = signedIn(req, owner)
+		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		return rr
+	}
+	if rr := create(""); rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), `"identity_required"`) {
+		t.Errorf("no owner: %d %s, want 401 identity_required", rr.Code, rr.Body.String())
+	}
+	if toks, err := e.st.ListTokens(ctx); err != nil || len(toks) != 0 {
+		t.Fatalf("no owner minted %d tokens (%v)", len(toks), err)
+	}
+	if rr := create(owner.ID); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"new_token":"hdtp_`) {
+		t.Fatalf("the control: %d %s", rr.Code, rr.Body.String())
+	}
 }

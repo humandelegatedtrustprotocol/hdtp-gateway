@@ -194,7 +194,11 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 			cs := &canaryStore{Store: e.st, fail: map[string]bool{"InsertToken": fail}}
 			mux := http.NewServeMux()
 			MountOwnerPages(mux, OwnersDeps{Store: e.st, Tokens: &auth.TokenService{Store: cs}})
-			return post(mux, "/owners/tokens/create", url.Values{"label": {"ci"}, "owner": {owner.ID}})
+			req := httptest.NewRequest("POST", "/owners/tokens/create", strings.NewReader(url.Values{"label": {"ci"}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, signedIn(req, owner.ID))
+			return rr
 		}},
 		{"requests approve", func(fail bool) *httptest.ResponseRecorder {
 			cs := &canaryStore{Store: e.st, fail: map[string]bool{"GetContact": fail}}

@@ -116,6 +116,9 @@ changelog can be and is not summarized into a fictional release history.
   `POST /messages/read` and sends with `POST /messages/send`). `GET /api/thread` sent the stored
   message rows as they are, and `POST /thread/send` sent into a thread whose id the caller chose.
   They answer 404 (the two reads) and 405 (the send); `POST /thread/delete` and `GET /events` stay.
+- `POST /owners/tokens/create`'s fallback for a request with no owner, which minted the token for
+  the node's first owner. The session gate refuses such a request first, so no composed portal
+  reached it; the route now answers it 401 `identity_required` and mints nothing.
 
 ## [0.1.5] — 2026-10-12
 
