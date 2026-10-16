@@ -24,6 +24,13 @@ changelog can be and is not summarized into a fictional release history.
   count, a list or a thread they read cannot be read. They read each failure as nothing — no
   integration needing attention, no request or address waiting, a thread's unread 0, a thread's
   messages skipped, nothing exposed — so a wait could park and a digest say all was quiet.
+- `wait_for_updates` ends a wait on what happened since the cursor: a new contact request or
+  agent-answered request, a contact newly held at a new address, an integration newly needing
+  re-authorization, beside moved threads and contacts' calls. It ended every wait at once while any
+  of those queues held anything, so an agent calling it in a loop, as its description says, spun
+  for as long as the queue stood. The counts are reported on every answer as before. [0.1.1]'s
+  entry ("answers when a contact is parked at a new address … or an integration needs
+  re-authorizing") did not say that it answered so on every wait while either stood.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

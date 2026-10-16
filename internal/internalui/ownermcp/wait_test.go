@@ -90,10 +90,11 @@ func TestAWaitWakesForAChangeAnotherProcessMade(t *testing.T) {
 	}
 }
 
-// The queues only the owner clears end a wait (waitResult): a contact parked at a new address is
-// published as a request (node.OnPending) and an integration whose token died as attention
-// (serve.go), and each wakes the wait, which then answers with the queue. It used to re-read the
-// store on the wake, find neither counted as news, and park again until the clock ran out.
+// A queue only the owner clears that gains something ends a wait (waitResult.queued): a contact
+// parked at a new address is published as a request (node.OnPending) and an integration whose token
+// died as attention (serve.go), and each wakes the wait, which then answers with the queue. It used
+// to re-read the store on the wake, find neither counted as news, and park again until the clock ran
+// out. The queue standing as it was is not news: the next wait parks.
 func TestAWaitAnswersForAParkedAddressAndForAttention(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -118,6 +119,21 @@ func TestAWaitAnswersForAParkedAddressAndForAttention(t *testing.T) {
 		return <-woke
 	}
 
+	// parks is the next wait, from the cursor the woken one answered, with the queue as it was: it
+	// is not news, so the wait holds until its clock (one second) and says so. A queue that is not
+	// empty used to end every wait at once, so a loop on the tool spun while it stood.
+	parks := func(t *testing.T, acct string, cursor int64) waitResult {
+		t.Helper()
+		began := time.Now()
+		text, _ := callJSON(t, cs, "wait_for_updates", map[string]any{"account_id": acct, "since": cursor, "timeout_sec": 1})
+		var r waitResult
+		_ = json.Unmarshal([]byte(text), &r)
+		if took := time.Since(began); !r.TimedOut || took < time.Second {
+			t.Errorf("a wait over an unchanged queue answered after %s, timed_out %v: %s", took, r.TimedOut, text)
+		}
+		return r
+	}
+
 	root, oldLeaf := movedLeaf(t, "Alina", "https://old.example/alina")
 	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: root, SPKI: []byte{1}, Status: "active",
 		Endpoint: "https://old.example/alina", Leaf: oldLeaf, DisplayName: "Alina"}); err != nil {
@@ -133,6 +149,10 @@ func TestAWaitAnswersForAParkedAddressAndForAttention(t *testing.T) {
 	if got.TimedOut || got.Addresses != 1 {
 		t.Errorf("a wait parked while a contact was held at a new address: %+v", got)
 	}
+	again := parks(t, e.acctA, got.Cursor)
+	if again.Addresses != 1 {
+		t.Errorf("the next wait does not report the address still held: %+v", again)
+	}
 
 	got = wait(t, e.acctB, func() {
 		if _, err := e.st.InsertIntegration(ctx, store.Integration{AccountID: e.acctB, Slug: "cal", Transport: "streamable-http",
@@ -143,6 +163,9 @@ func TestAWaitAnswersForAParkedAddressAndForAttention(t *testing.T) {
 	})
 	if got.TimedOut || len(got.NeedsAttention) != 1 || got.NeedsAttention[0].Integration != "cal" {
 		t.Errorf("a wait parked while an integration needed re-authorizing: %+v", got)
+	}
+	if again := parks(t, e.acctB, got.Cursor); len(again.NeedsAttention) != 1 {
+		t.Errorf("the next wait does not report the integration still needing it: %+v", again)
 	}
 }
 
