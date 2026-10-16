@@ -29,6 +29,7 @@ func TestRelativeLinksInTheDocsResolve(t *testing.T) {
 	for _, d := range docs {
 		b, err := os.ReadFile(filepath.Join(root, d))
 		if err != nil {
+			t.Errorf("%s is in the list of documents this checks and cannot be read: %v", d, err)
 			continue
 		}
 		for _, m := range link.FindAllStringSubmatch(string(b), -1) {

@@ -514,18 +514,35 @@ func specRoot(t *testing.T) string {
 // by eye.
 //
 // Every demo carries a `Last manual run:` marker. This does NOT require a date:
-// these runs need a tailnet, a paid ngrok plan, a Cloudflare domain, a VPS and a
-// real Google account, so no agent can produce one. What it requires is that the
-// marker EXISTS, is in the shape a date goes into, and that an undated run is
-// visible as undated instead of quietly reading as done.
+// the owner-only runs need a tailnet, a paid ngrok plan, a second machine behind
+// NAT, a VPS and a real Google account, so no agent can produce one. What it
+// requires is that the marker EXISTS, is in the shape a date goes into, and that
+// an undated run is visible as undated instead of quietly reading as done. The
+// docs it must find are the ones docs/release/open-items.md's table of owner-only
+// runs links, read from that table, so the count is the table's and cannot go
+// stale here; any other demo doc (the Cloudflare one, dated) is held to the marker too.
 func TestDemoDocsCarryAManualRunMarker(t *testing.T) {
 	root := specRoot(t)
 	files, err := filepath.Glob(filepath.Join(root, "docs", "demos", "*.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) < 5 {
-		t.Fatalf("found %d demo docs; PLAN.md build-goal item 6 names five runs", len(files))
+	items, err := os.ReadFile(filepath.Join(root, "docs", "release", "open-items.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked := regexp.MustCompile(`\]\(\.\./demos/([^)/]+\.md)\)`).FindAllSubmatch(items, -1)
+	if len(linked) == 0 {
+		t.Fatal("docs/release/open-items.md links no demo doc; the reader is broken or the table moved")
+	}
+	have := map[string]bool{}
+	for _, f := range files {
+		have[filepath.Base(f)] = true
+	}
+	for _, m := range linked {
+		if !have[string(m[1])] {
+			t.Errorf("docs/release/open-items.md links docs/demos/%s, which does not exist", m[1])
+		}
 	}
 	marker := regexp.MustCompile("`Last manual run: (—|[0-9]{4}-[0-9]{2}-[0-9]{2})`")
 	var undated []string

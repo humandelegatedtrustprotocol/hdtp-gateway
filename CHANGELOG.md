@@ -10,7 +10,26 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The pre-push hook needs the sibling checkouts its guards read: batondeck (the cloud's
+  conformance battery and fixtures), hdtp-identity and hdtp-spec. It sets
+  `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; under a
+  bare `go test` it still skips, which shows only under `-v`, and a bare `make check` lists, one
+  line each, every comparison a missing checkout leaves unmade (`dependents`). Each checkout is found by
+  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` or `HDTP_SPEC_DIR`, else beside this checkout, else
+  beside the main checkout of a worktree (`scripts/sibling.sh`, `testid.SiblingDir`). A push
+  without one is refused before the gate runs, naming each checkout missing; a contributor without
+  access to one (batondeck is private) sets `HDTP_ALLOW_MISSING_SIBLINGS=1`, and the hook prints
+  first, one line each, the comparisons that will not run, then runs the gate without them.
+
+### Removed
+
+- The live-only portal scripts under `web/tools/` (`portal-live.mjs`, `portal-oauth-live.mjs`,
+  `portal-oauth-probe.mjs`, `portal-invite-flow.mjs`, `preset-live.mjs`, `trust-live.mjs`, their
+  helpers `portal-login.mjs` and `mcp.mjs`, and `agent-loop.mjs`), and with them the portal's
+  `puppeteer-core` dependency. No gate, target or document ran them; the harness and
+  `make screenshots` drive a real Chrome against a node.
 
 ## [0.2.0] — 2026-10-16
 
@@ -92,7 +111,6 @@ Nothing yet.
 - `POST /owners/tokens/create`'s fallback for a request with no owner, which minted the token for
   the node's first owner. The session gate refuses such a request first, so no composed portal
   reached it; the route now answers it 401 `identity_required` and mints nothing.
-
 ### Fixed
 
 - The owner MCP's `read_thread` answers a thread the identity does not hold `not_found`, as

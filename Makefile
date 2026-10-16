@@ -191,9 +191,21 @@ frp-check:
 
 # names: the article before the name, which a rename leaves behind. The name begins with a vowel
 # sound, so it takes "an", in prose, in comments and in the refusals a caller reads; bare, or behind
-# a mark or the X- prefix. The pattern is hdtp-identity's gate's.
+# a mark or the X- prefix. The pattern is hdtp-identity's gate's, byte for byte, and gives the
+# verdicts of hdtp-spec's stated.mjs (TestTheArticleRuleIsOneRuleInEveryRepository). The self-test
+# runs first, through the same git grep: planted lines, spelt here through printf so that this file
+# is not one of them, five refused and four kept. A guard that refuses nothing passes every tree.
+NAMES_ARTICLE := (^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)
 names:
-	@if git grep -n -I -E '(^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)' -- .; then \
+	@planted=$$(mktemp -d); trap 'rm -rf "$$planted"' EXIT; \
+	printf 'a %s node\nA %s:// address\na `%s` card\na X-%s-VERSION line\n(a **%s** card)\n' HDTP hdtp HDTP HDTP hdtp > "$$planted/hits"; \
+	printf 'an %s node\ndata %s\nbanana %s\n_a %s\n' HDTP hdtp HDTP HDTP > "$$planted/misses"; \
+	refused=$$(cd "$$planted" && env -u GIT_DIR -u GIT_WORK_TREE git grep --no-index -h -I -E '$(NAMES_ARTICLE)' -- hits | wc -l | tr -d ' '); \
+	kept=$$(cd "$$planted" && env -u GIT_DIR -u GIT_WORK_TREE git grep --no-index -h -I -E '$(NAMES_ARTICLE)' -- misses | wc -l | tr -d ' '); \
+	if [ "$$refused" != 5 ] || [ "$$kept" != 0 ]; then \
+		echo "names: the self-test refused $$refused of the 5 planted lines it must refuse and $$kept of the 4 it must keep: the guard is broken"; exit 1; \
+	fi
+	@if git grep -n -I -E '$(NAMES_ARTICLE)' -- .; then \
 		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
 	fi
 
@@ -295,8 +307,14 @@ vet:
 # `scripts/conformance.sh` against a deployed node, so nothing compiled it: on 2026-09-19 it
 # stopped compiling twice in one day — `Keypair.Protocol` removed, then `Call`'s signature — and
 # neither was noticed until an unrelated `go vet` happened to run over it. The repository that
-# moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
-# disk. A clone without the sibling says it skipped rather than passing quietly.
+# moves the API is the one whose gate has to object, so this vets it whenever the sibling is
+# found: HDTP_BATONDECK_DIR, else ../batondeck, else beside the checkout git keeps this one's
+# objects in, so a worktree anywhere finds the umbrella's (scripts/sibling.sh, held to the Go
+# guards' locator by TestTheTwoSiblingLocatorsAgree). With HDTP_REQUIRE_SIBLINGS=1, which the
+# pre-push hook sets unless HDTP_ALLOW_MISSING_SIBLINGS=1, a missing checkout fails here. Otherwise
+# this lists, one line each, every comparison a missing sibling leaves unmade, this one included
+# (scripts/sibling-guards.sh --missing, the list the hook prints): those guards skip, and `go test`
+# without -v prints no skip.
 #
 # The battery requires this module by a pinned version, so vetting it as it stands would judge the
 # pin, not the tree being gated. So it is built through a go.work made for the one run, in a
@@ -310,30 +328,33 @@ vet:
 # repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two
 # removals broke it the same day, and the fix above — made for the cloud's battery — walked past it.
 # It is always on disk, so it is always vetted.
-CLOUD_BATTERY := ../batondeck/gateway/conformance
+BATONDECK := $(shell "$(dir $(SELF))scripts/sibling.sh" "$(CURDIR)" batondeck)
+CLOUD_BATTERY := $(if $(BATONDECK),$(BATONDECK)/gateway/conformance)
 dependents:
 	@echo "go vet ./harness/..."
 	@(cd harness && go vet ./...) || { \
 		echo "the scenario harness no longer compiles against this module:"; \
 		echo "  it is a separate Go module that imports internal/, and until 2026-09-19 only the"; \
 		echo "  pre-push hook built it — so it broke in B3c and was found at the first push."; exit 1; }
-	@if [ -d "$(CLOUD_BATTERY)" ]; then \
+	@if [ -n "$(CLOUD_BATTERY)" ] && [ -d "$(CLOUD_BATTERY)" ]; then \
 		battery="$$(cd "$(CLOUD_BATTERY)" && pwd)"; ws="$$(mktemp -d)"; \
 		trap 'rm -rf "$$ws"' EXIT; \
 		(cd "$$ws" && GOWORK= go work init "$$battery" && \
 			GOWORK= go work edit -replace="$$(GOWORK=off go -C "$(CURDIR)" list -m)=$(CURDIR)") || exit 1; \
-		echo "go vet $(CLOUD_BATTERY) (go.work: this tree + the battery)"; \
+		echo "go vet the cloud's battery (go.work: this tree + the battery)"; \
 		(cd "$$battery" && GOWORK="$$ws/go.work" go vet ./...) || { \
 			echo "the cloud's conformance battery no longer compiles against this tree:"; \
-			echo "  fix it in $(CLOUD_BATTERY) in the same change that moved the API"; exit 1; }; \
-		echo "go test -run TestTheBatteryCanSealEveryShapeItSends $(CLOUD_BATTERY)"; \
+			echo "  fix it in batondeck/gateway/conformance in the same change that moved the API"; exit 1; }; \
+		echo "go test -run TestTheBatteryCanSealEveryShapeItSends (the cloud's battery)"; \
 		(cd "$$battery" && GOWORK="$$ws/go.work" go test -count=1 -run 'TestTheBatteryCanSealEveryShapeItSends' ./...) || { \
 			echo "the cloud's conformance battery cannot seal a call it sends: compiling was never the"; \
 			echo "  same as working, and the rest of that package only runs against a deployment"; exit 1; }; \
-	else \
-		echo "!! dependents: $(CLOUD_BATTERY) is not on disk, so the cloud's conformance battery"; \
-		echo "   was NOT compiled against this change. It imports internal/ packages of this module."; \
+	elif [ "$$HDTP_REQUIRE_SIBLINGS" = 1 ]; then \
+		echo "dependents: HDTP_REQUIRE_SIBLINGS=1 and no batondeck checkout with gateway/conformance was found"; \
+		echo "  (HDTP_BATONDECK_DIR, ../batondeck, or beside the main checkout): the cloud's battery cannot be"; \
+		echo "  compiled against this change. Point HDTP_BATONDECK_DIR at a checkout."; exit 1; \
 	fi
+	@if [ "$$HDTP_REQUIRE_SIBLINGS" != 1 ]; then sh "$(dir $(SELF))scripts/sibling-guards.sh" "$(CURDIR)" --missing; fi
 
 # ./... reaches into web/node_modules, which vendors a Go package of its own
 # (flatted). Naming the module's real trees keeps the run to this repository's
@@ -356,11 +377,12 @@ test-js:
 	node web/tools/kit.mjs check
 
 # The scenario harness (docs/harness-design.md). Separate module, separate command,
-# deliberately not part of `check`.
+# deliberately not part of `check`. Its `go vet` is `dependents`', part of `check`, which every push
+# runs first: vetting it again here judged the same tree twice.
 # The multi-process scenario (harness/multiprocess) runs the limits sidecar, so the hermetic tier builds it
 # first: a fresh checkout has no target/ and the test refuses to run without the binary.
 harness: limitd
-	cd harness && go vet ./... && go test -race ./...
+	cd harness && go test -race ./...
 
 # ---- the identity module ---------------------------------------------------
 # The node requires github.com/humandelegatedtrustprotocol/hdtp-identity/go BY VERSION (go.mod, no replace),
@@ -396,16 +418,17 @@ harness-image: limitd-vendor
 # tier: hdtp-identity's intrusion battery through its `hdtp` CLI (S18), the cloud's Go conformance
 # battery (S19), and the cloud's local cloud with the real wallet page (S20; it also needs the WorkOS
 # test pair in the environment, which this Makefile does not read from any file). Each is a Need (harness/registry); the tier promises it when the
-# sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
-# when it is not. Override either with HDTP_CLI or HDTP_CLOUD_BATTERY in the environment.
-HDTP_IDENTITY ?= $(CURDIR)/../hdtp-identity
-HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/hdtp
+# sibling is found (each as scripts/sibling.sh finds it, as `dependents` finds the cloud's), and
+# says NOT PROMISED, with how to provide it, when it is not. Override either with HDTP_CLI or
+# HDTP_CLOUD_BATTERY in the environment.
+HDTP_IDENTITY := $(shell "$(dir $(SELF))scripts/sibling.sh" "$(CURDIR)" hdtp-identity)
+HDTP_CLI_BIN := $(if $(HDTP_IDENTITY),$(HDTP_IDENTITY)/target/release/hdtp)
 harness-hdtp-cli:
 	@if [ -n "$$HDTP_CLI" ]; then echo "harness-hdtp-cli: HDTP_CLI=$$HDTP_CLI"; \
-	elif [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
+	elif [ -n "$(HDTP_IDENTITY)" ] && [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
 		cargo build --release -q -p hdtp --manifest-path "$(HDTP_IDENTITY)/Cargo.toml" || exit 1; \
 		echo "harness-hdtp-cli: $(HDTP_CLI_BIN)"; \
-	else echo "!! harness-hdtp-cli: no hdtp-identity checkout at $(HDTP_IDENTITY): S18 will be NOT PROMISED"; fi
+	else echo "!! harness-hdtp-cli: no hdtp-identity checkout was found (scripts/sibling.sh; set HDTP_IDENTITY_DIR): S18 will be NOT PROMISED"; fi
 # The environment a live tier runs under: the two siblings' paths when they are on disk.
 LIVE_ENV = HDTP_CLI="$${HDTP_CLI:-$$(test -x '$(HDTP_CLI_BIN)' && echo '$(HDTP_CLI_BIN)')}" \
 	HDTP_CLOUD_BATTERY="$${HDTP_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}" \

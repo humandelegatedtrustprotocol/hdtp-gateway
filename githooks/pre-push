@@ -5,10 +5,13 @@
 # only"), so every check that used to run on a runner runs on this machine, before anything
 # leaves it:
 #
-#   make check        fmt, vet, the dependents (the harness, and the cloud's battery when it is on
-#                     disk), race tests — with HDTP_TEST_POSTGRES_DSN pointing at a Postgres this
-#                     hook starts, so the Postgres engine's tests run rather than skip — and the
-#                     portal's page scripts under node --test (make test-js)
+#   make check        the Makefile's `check` target: fmt vet names notices-check deploy-check
+#                     frp-check release-check dependents limitd-check test test-js — with
+#                     HDTP_TEST_POSTGRES_DSN pointing at a Postgres this hook starts, so the Postgres
+#                     engine's tests run rather than skip, and HDTP_REQUIRE_SIBLINGS=1, so a guard
+#                     whose sibling checkout is not found fails rather than skips (a push without a
+#                     sibling is refused before this, unless HDTP_ALLOW_MISSING_SIBLINGS=1 says to
+#                     run without the comparisons that need it; they are listed first)
 #   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
 #   make sqlc-check   the committed generated store code matches its sources
 #   make fuzz         every Fuzz target under -fuzz, a fixed number of executions each
@@ -51,6 +54,38 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
 done
 if [ "$only_deletes" = true ]; then
   exit 0
+fi
+
+# A guard that reads a sibling checkout (the cloud's battery and fixtures, the specification's
+# table, the identity core's gate) skips under a bare `make check` when the checkout is not found,
+# and check's dependents lists it.
+# Here a missing checkout refuses the push before anything runs: a push gated by a skip was gated
+# by nothing. scripts/sibling.sh says where each checkout is looked for. batondeck is private, so a
+# contributor without it sets HDTP_ALLOW_MISSING_SIBLINGS=1: the push then runs without the
+# comparisons that need what is missing, and says first, one line each, which they are
+# (scripts/sibling-guards.sh reads them from the code that makes them).
+missing=""
+for repo in batondeck hdtp-identity hdtp-spec; do
+  [ -n "$(sh scripts/sibling.sh "$root" "$repo")" ] || missing="$missing $repo"
+done
+if [ -z "$missing" ]; then
+  export HDTP_REQUIRE_SIBLINGS=1
+elif [ "${HDTP_ALLOW_MISSING_SIBLINGS:-}" = 1 ]; then
+  echo "pre-push: !! HDTP_ALLOW_MISSING_SIBLINGS=1 and no checkout of:$missing. These comparisons will NOT run:" >&2
+  sh scripts/sibling-guards.sh "$root" --missing | sed "s/^/pre-push: /" >&2
+  export HDTP_REQUIRE_SIBLINGS=0
+else
+  for repo in $missing; do
+    case "$repo" in
+      batondeck) var=HDTP_BATONDECK_DIR ;;
+      hdtp-identity) var=HDTP_IDENTITY_DIR ;;
+      hdtp-spec) var=HDTP_SPEC_DIR ;;
+    esac
+    echo "pre-push: no $repo checkout was found (scripts/sibling.sh); set $var to point at one." >&2
+  done
+  echo "pre-push: the gate compares this tree with each of them. Without access to one, push with" >&2
+  echo "          HDTP_ALLOW_MISSING_SIBLINGS=1, which runs the gate without those comparisons and lists them." >&2
+  exit 1
 fi
 
 # What the gate checks is the CHECKED-OUT TREE. Pushing a ref that is not HEAD —

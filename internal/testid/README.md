@@ -10,7 +10,7 @@ same ones the wallet and the node use.
 Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, `internal/identity`,
 `internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/messaging`,
 `internal/node`, `internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
-`internal/storecheck`'s tests. No non-test file imports it. It is a leaf (rank 0 in
+`internal/storecheck`'s tests, and the harness module's `harness/journeys`. No non-test file imports it. It is a leaf (rank 0 in
 `internal/integrationtest/layering_test.go`). Every function but `Host.Card` takes a `testing.TB`, not a
 `*testing.T`, so a fuzz target can build a real identity for its seed corpus
 (`internal/cli/offer_fuzz_test.go`).
@@ -39,19 +39,29 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
 - TLS files (`tlsfiles.go`): `ServerFiles` writes a self-signed ECDSA P-256 server certificate and
   key as PEM into a directory, valid for 24 hours: ordinary web TLS for the internal surface, not
   an HDTP certificate.
-- Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside `../<repo>`
-  from this module's root (the nearest directory upward holding `go.mod`), the checkout the umbrella
-  keeps beside this one. Its callers are the guards that hold a copy here to its source there:
+- Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside the checkout
+  of `repo` that `SiblingDir(t, repo)` finds: the directory its variable names (`SiblingEnv`:
+  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR`, `HDTP_SPEC_DIR`), else `../<repo>` from this repository's top level
+  (the nearest directory upward whose `go.mod` declares the node's module, so the harness's tests find
+  the same one), as the umbrella lays its repositories out, else
+  beside the checkout git keeps this one's objects in (the umbrella, for `<umbrella>/.git/modules/<name>`;
+  the main checkout's parent, for its `.git`), so a worktree anywhere finds the umbrella's.
+  `scripts/sibling.sh` is the same rule for the Makefile. Its callers are the guards that hold a copy here to its source there:
   `TestErrorCodesAreTheSpecsTable` (hdtp-spec's released §12, `docs/specification/1.0/`),
   `TestTheCloudsCopyOfTheRefusalsIsCurrent`, `TestTheCloudsCopyOfTheOwnerToolsIsCurrent`,
   `TestTheCloudsCopyOfTheProtocolHintsIsCurrent` and `TestTheCloudsServedAnnotationCasesHoldHere`
-  (batondeck's `gateway/test/fixtures/`).
+  (batondeck's `gateway/test/fixtures/`), and `TestTheArticleRuleIsOneRuleInEveryRepository`
+  (hdtp-identity's `gate.sh`, hdtp-spec's `vectors/lib/stated.mjs`); and, in the harness module,
+  `TestTheCloudsCopyIsThisList` (batondeck's `gateway/e2e/tables/journeys.json`).
 
 ## What it refuses, and how
 
-`SiblingFile` skips the test, naming what goes unchecked, only when the sibling's directory is
-absent; when it is present and the file cannot be read (moved, renamed, another commit) the test
-fails. Each of those guards used to skip on any read error, so a fixture that moved turned its
+`SiblingFile` skips the test, naming what goes unchecked and where it looked (`go test` prints that only
+under `-v`; `make check`'s `dependents` lists the same comparisons, `scripts/sibling-guards.sh`), only when no checkout
+of the sibling is found, and fails instead when `HDTP_REQUIRE_SIBLINGS` is `1` (`RequireSiblings`),
+which the pre-push hook sets (to 0 only when `HDTP_ALLOW_MISSING_SIBLINGS=1` lets a push through
+without a checkout, after it has listed what will not be compared); when the checkout is found and the file cannot be read (moved, renamed,
+another commit) the test fails. Each of those guards used to skip on any read error, so a fixture that moved turned its
 guard into a skip that passed (#130).
 
 It has no error returns: every function ends the test with `t.Fatal`/`t.Fatalf` when it cannot
@@ -72,7 +82,8 @@ base64url string that does not read in `DER`, a signature that `crypto/ed25519` 
 ## Held by
 
 `threadids_test.go` (`TestTheThreadIDTableIsTheCores`) holds `ThreadIDs` to the identity core's
-answers. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
+answers. `sibling_test.go` (`TestTheTwoSiblingLocatorsAgree`) runs `SiblingDir`'s rule and
+`scripts/sibling.sh` on the same layouts, built with real git, and holds both to the expected checkout. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
 (`TestAnInvitesCardSigIsReadStrictly`) and `internal/node/refresh_cardsig_test.go` use
 `SignedCardSigs`; `internal/cli/request_cut_test.go` (`TestACutCardSaysWhatToDo`) uses
 `WithCert`/`WithoutCert`; `internal/cli/request_pasted_test.go` (`TestAPastedCardIsAsked`) and

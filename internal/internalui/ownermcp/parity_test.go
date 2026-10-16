@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -582,5 +583,38 @@ func TestRefusedKeepsStoreTextOffTheWire(t *testing.T) {
 	coded := fmt.Errorf("%w: no such contact", contacts.ErrUnknownContact)
 	if got := text(coded); got["code"] != "not_found" || got["detail"] != coded.Error() {
 		t.Errorf("the control answered %q", got)
+	}
+}
+
+// set_exposure's audit row names the account it acted for, ok or not: the sink fills the row's
+// account column from the resource's `account:` prefix, and a row without one is outside every
+// account's audit scope (SPEC §11.6).
+func TestSetExposureAuditsUnderTheAccount(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	var rows []string
+	extra := Extra{
+		SetExposure: func(_ context.Context, _, integrationID string, _ []string) error {
+			if integrationID == "missing" {
+				return fmt.Errorf("store: %w", store.ErrNotFound)
+			}
+			return nil
+		},
+		Log: func(action, resource, outcome string) {
+			if action == "set_exposure" {
+				rows = append(rows, action+" "+resource+" "+outcome)
+			}
+		},
+	}
+	srv := NewServerWithExtra(e.deps, extra, auth.Identity{OwnerID: e.owner, AccountID: e.acctA})
+	for _, id := range []string{"i1", "missing"} {
+		callParity(t, ctx, srv, "set_exposure", map[string]any{"account_id": e.acctA, "integration_id": id, "tools": []string{"x"}})
+	}
+	want := []string{
+		"set_exposure account:" + e.acctA + " integration:i1 tools:1 ok",
+		"set_exposure account:" + e.acctA + " integration:missing error",
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("set_exposure's audit rows\n  %s\nwant\n  %s", strings.Join(rows, "\n  "), strings.Join(want, "\n  "))
 	}
 }
