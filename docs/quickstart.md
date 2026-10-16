@@ -96,14 +96,21 @@ since 2026-10-09), so the measuring clone was made from a local copy of the same
 **Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
 amd64 and arm64; the Linux ones static), the node `hdtp-gateway_<version>_<os>_<arch>` and its limits sidecar
 `hdtp-limitd_<version>_<os>_<arch>`, with `SHA256SUMS` over both ([RELEASING.md](../RELEASING.md)
-says how to check them). Start the sidecar first, from a copy of
-[`deploy/limitd/limits.json`](../deploy/limitd/limits.json) whose `socket` is
+says how to check them). Make the data directory (the node's default is `./data`), then start the
+sidecar, from a copy of [`deploy/limitd/limits.json`](../deploy/limitd/limits.json) whose `socket` is
 `<your data directory>/limits.sock`, the node's default `limits_socket`, then the node:
 
 ```
+mkdir -p ./data
 hdtp-limitd -config limits.json &
 hdtp-gateway serve
 ```
+
+The sidecar does not make the directory: started before it exists, it stops with `listen
+./data/limits.sock: No such file or directory`. These three lines were run as written on
+2026-10-16, with a node and a sidecar built from this checkout in an empty directory (the node's
+binds moved off ports already in use there): the node's banner said `limits:  data/limits.sock
+answering`, and `/healthz` on the internal bind answered `200 ok`.
 
 The rest of this guide runs every command inside the container (`docker compose exec hdtp-gateway
 hdtp-gateway …`); without Docker it is `hdtp-gateway …` on the host.
@@ -190,7 +197,9 @@ token to run cloudflared`. The adapter is chosen under
 hdtp-gateway`. The portal forwarder shares the node's network, and `compose.yaml` asks Compose to
 restart it whenever Compose restarts the node (`restart: true` under its `depends_on`). The portal's
 cookie names come from the configuration file and the environment, never from a public URL saved
-on this page or one the adapter brings, so your portal session outlives the restart. Cloudflare
+on this page or one the adapter brings, so your portal session outlives the restart. Two stacks
+on one host with the same data path and portal bind therefore share cookie names, and signing in
+to one signs you out of the other, unless `HDTP_PUBLIC_URL` is set in each one's environment. Cloudflare
 terminates TLS, so the node runs in **edge mode**: sealed envelopes forced to `required`, client
 certificates forced `off`, and your public URL is `https://<that hostname>`; `doctor` then says
 `ok   tunnel       cloudflare (mode edge, seal required, client_cert off)`. Because the connector
@@ -210,11 +219,14 @@ set the public URL to `https://<your domain>`, choose `edge` as the tunnel adapt
 compose network; the adapter takes effect at the next start (`docker compose restart
 hdtp-gateway`). The adapter starts nothing. It puts the node in **edge mode** — sealed envelopes
 forced `required`, client certificates forced `off` — and trusts no forwarded header, so the node's
-per-source limits see one address for every caller, the agent's.
-`doctor` says `ok   tunnel       edge (mode edge, seal required, client_cert off)` and probes your
-domain. Headless Chrome opening
-your invite link through the free domain showed the node's landing page, with no ngrok warning page
-in front of it, and machine callers were never shown one.
+per-source limits see one address for every caller, the agent's. Edge mode also turns the LAN guard
+on by default: with **Accept LAN connections** off, an agent on the compose network is refused, so
+it must be on (in the portal, or `HDTP_LAN_CONNECTIONS=true` in the environment).
+This path has not yet been run with the `edge` adapter. It was measured on 2026-10-13 under the
+setup `edge` replaced (`HDTP_MODE=edge` beside the agent, no adapter): `doctor` said
+`ok   tunnel       direct (mode edge, seal required, client_cert off)` and probed the domain, and
+headless Chrome opening your invite link through the free domain showed the node's landing page,
+with no ngrok warning page in front of it; machine callers were never shown one.
 
 **A raw TCP forward through bore.pub — the `bore` profile.** `compose.yaml` carries a `bore`
 service under the profile `bore`, forwarding a port on the public `bore.pub` server to the node's
