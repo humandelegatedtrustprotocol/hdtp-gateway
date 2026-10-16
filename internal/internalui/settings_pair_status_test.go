@@ -16,8 +16,8 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
-// A refused pairing or unpairing answers its code's status (pageStatus), as every other portal
-// action does, with the page's state and the notice beside it: not_found 404, conflict 409,
+// A refused pairing or unpairing answers its code's status (pageStatus), as the contacts and
+// messages actions do, with the page's state and the notice beside it: not_found 404, conflict 409,
 // bad_request 400, a failure of the node 500. The control, a pairing and an unpairing that get
 // through, answer 200.
 func TestARefusedPairingOrUnpairingAnswersItsCodesStatus(t *testing.T) {
