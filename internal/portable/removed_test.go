@@ -388,3 +388,50 @@ func TestAnImportedContactsOwnNameIsStrippedWhereItEnters(t *testing.T) {
 		t.Fatalf("kept display name as imported: %q", th.KeptDisplayName)
 	}
 }
+
+// getContactFails is a store whose GetContact of one root fails with what is not ErrNotFound,
+// inside the import's transaction as outside it.
+type getContactFails struct {
+	store.Store
+	root string
+}
+
+func (g getContactFails) Atomically(ctx context.Context, fn func(tx store.Store) error) error {
+	return g.Store.Atomically(ctx, func(tx store.Store) error { return fn(getContactFails{tx, g.root}) })
+}
+
+func (g getContactFails) GetContact(ctx context.Context, accountID, fpr string) (store.Contact, error) {
+	if fpr == g.root {
+		return store.Contact{}, fmt.Errorf("pq: relation contacts_canary_91e4 does not exist")
+	}
+	return g.Store.GetContact(ctx, accountID, fpr)
+}
+
+// An import that cannot read whether a contact is held fails and writes nothing. A failed read was
+// taken for "not held": a contact row of the file was imported over whatever the store held, and a
+// removed thread's root was labelled not a contact here, whatever it was. Both the contacts the file
+// writes and the roots of its removed threads are asked; the control, the same file on a store that
+// answers, imports.
+func TestAnImportThatCannotReadAContactWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	src := newEnv(t, sqliteStore)
+	s := seed(t, src)
+	chen := formerContact(t, src, s.accountID)
+	file, _ := exportOf(t, src, "alina")
+	for _, root := range []string{s.peer.Fpr, chen} {
+		dst := newEnv(t, sqliteStore)
+		p, err := Read(ctx, dst.st, zipReader(t, file), "alina", time.Now())
+		must(t, err)
+		if _, err := p.Apply(ctx, getContactFails{dst.st, root}, dst.blobs, time.Now(), 500); err == nil ||
+			!strings.Contains(err.Error(), "contacts_canary_91e4") {
+			t.Errorf("reading %s failed and the import answered %v", root, err)
+		}
+		if accts, err := dst.st.ListAccounts(ctx); err != nil || len(accts) != 0 {
+			t.Errorf("reading %s failed and the import left accounts %v (%v)", root, accts, err)
+		}
+	}
+	dst := newEnv(t, sqliteStore)
+	if _, _, err := importFile(t, dst, file, "alina", time.Now()); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+}

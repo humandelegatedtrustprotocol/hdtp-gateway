@@ -31,6 +31,9 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- An import that cannot read whether a contact is held fails and writes nothing. A failed read was
+  taken for "not held": the file's contact was imported over whatever the store held, and a
+  removed thread's root was labelled not a contact here.
 - Deleting a conversation wakes a portal showing it (one `message` event naming the thread), where
   it published nothing. `wait_for_updates` does not report a deletion, as before.
 - Deleting a conversation while another media body of the account does not parse says that its

@@ -308,7 +308,11 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 				return err
 			}
 			c.HandshakeDueAt = now.Unix()
-			if _, gerr := tx.GetContact(ctx, accountID, r.Root); gerr == nil {
+			_, gerr := tx.GetContact(ctx, accountID, r.Root)
+			if gerr != nil && !errors.Is(gerr, store.ErrNotFound) {
+				return fmt.Errorf("import: contact %s: %w", r.Root, gerr)
+			}
+			if gerr == nil {
 				// Held with no leaf (export_merge wrote it only so): the file's pin fills it.
 				wrote, err := tx.ImportContactPin(ctx, c)
 				if err != nil {
@@ -340,6 +344,9 @@ func (p *Plan) Apply(ctx context.Context, st store.Store, blobs messaging.BlobDi
 		removed, written := map[string]bool{}, map[string]bool{}
 		for _, r := range p.Removed {
 			_, gerr := tx.GetContact(ctx, accountID, r.Root)
+			if gerr != nil && !errors.Is(gerr, store.ErrNotFound) {
+				return fmt.Errorf("import: removed thread's contact %s: %w", r.Root, gerr)
+			}
 			removed[r.Root] = gerr != nil
 		}
 		for _, t := range p.Contents.Threads {
