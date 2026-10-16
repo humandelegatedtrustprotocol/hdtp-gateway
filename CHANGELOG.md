@@ -15,6 +15,11 @@ changelog can be and is not summarized into a fictional release history.
 - The owner MCP's `read_thread` answers a thread the identity does not hold `not_found`, as
   `delete_thread` does and as the cloud's conversation read answers 404; it answered an empty list.
   A thread that could not be read is `internal`.
+- The owner MCP's `hdtp://inbox`, `hdtp://requests` and `hdtp://pending` resources fail with
+  "internal: …" when an identity's list or unread count cannot be read, where they skipped that
+  identity (or counted its unread as 0) and answered the rest; `hdtp://thread/<id>` fails the same
+  way when the thread cannot be read, and with "not_found: …" for a thread no identity of the scope
+  holds, where both were "ownermcp: no such thread".
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

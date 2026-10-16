@@ -1037,11 +1037,14 @@ func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceReq
 	for _, acct := range sc.AdminAccounts {
 		threads, err := ot.d.Store.ListThreadsByAccount(ctx, acct)
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		var n int64
 		for _, th := range threads {
-			u, _ := ot.d.Store.UnreadCount(ctx, acct, th.ID)
+			u, err := ot.d.Store.UnreadCount(ctx, acct, th.ID)
+			if err != nil {
+				return nil, resourceFailure(err)
+			}
 			n += u
 		}
 		summary[acct] = n
@@ -1060,7 +1063,7 @@ func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadR
 	for _, acct := range sc.AdminAccounts {
 		list, err := ot.d.Store.ListContacts(ctx, acct)
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		for _, c := range list {
 			if c.Status == "pending_in" {
@@ -1082,7 +1085,7 @@ func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadR
 	for _, acct := range sc.AdminAccounts {
 		list, err := ot.d.Store.ListOpenPendingRequests(ctx, acct, time.Now().Unix())
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		rows = append(rows, list...)
 	}
@@ -1104,11 +1107,15 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		return nil, resourceFailure(err)
 	}
 	// A thread belongs to exactly one account, and this identity may only
-	// read the accounts it administers — the same rule every tool applies.
+	// read the accounts it administers — the same rule every tool applies. An
+	// account that does not hold it is passed over; a read that failed is not.
 	for _, acct := range sc.AdminAccounts {
 		th, err := ot.d.Store.GetThread(ctx, acct, id)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			continue
+		}
+		if err != nil {
+			return nil, resourceFailure(err)
 		}
 		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
 		if err != nil {
@@ -1118,7 +1125,7 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}
-	return nil, fmt.Errorf("ownermcp: no such thread")
+	return nil, resourceFailure(store.ErrNotFound)
 }
 
 // resourceFailure is a resource read that failed, as the reader is told it: the code and the
