@@ -5,7 +5,7 @@
 hdtp-gateway is a self-hosted personal node for the HDTP protocol: your agent's public,
 permission-gated MCP server to the people you approve, your private control panel and
 owner-MCP surface, and the bridge that exposes selected tools from your own MCP
-integrations to your contacts. One Go binary; SQLite by default; no telemetry.
+integrations to your contacts. Two static binaries — the node and its limits sidecar — or one Docker image; SQLite by default; no telemetry.
 
 The HDTP protocol specification (`hdtp-spec`, `docs/specification/1.0/`) is normative for everything
 wire-visible. This document is normative for the hdtp-gateway implementation.
@@ -16,7 +16,7 @@ wire-visible. This document is normative for the hdtp-gateway implementation.
 
 ### 1.1 What hdtp-gateway is
 
-hdtp-gateway is a self-hosted personal HDTP node: one static Go binary that gives a person a permanent agent presence on the network. It implements HDTP 1.0 — the protocol spec remains normative for all wire behaviour and is cited throughout as "HDTP §N". The person's self-signed root is the identity, the host holds a leaf the person issued it, and a card is `X-HDTP-VERSION:1` plus that leaf. Identities pinned by a bare key were removed entirely on 2026-09-18; nothing here speaks them. A single node is three things at once:
+hdtp-gateway is a self-hosted personal HDTP node: one static Go binary, run beside its limits sidecar (§5.7), that gives a person a permanent agent presence on the network. It implements HDTP 1.0 — the protocol spec remains normative for all wire behaviour and is cited throughout as "HDTP §N". The person's self-signed root is the identity, the host holds a leaf the person issued it, and a card is `X-HDTP-VERSION:1` plus that leaf. Identities pinned by a bare key were removed entirely on 2026-09-18; nothing here speaks them. A single node is three things at once:
 
 - **An MCP server to the outside.** Contacts and strangers reach the node's public surface (§5) as an MCP server over HTTPS. What a caller sees and may call is decided by caller identity (§3), tier, and the owner's per-contact permission switchboard (HDTP §8) — never by anything the caller asserts.
 - **An MCP client to the inside.** The owner's own integrations — calendar, mail, anything speaking MCP — are upstreams the node connects to as an MCP client (§6). Contacts never reach an upstream directly: every exposed capability passes through versioned catalog snapshots and exposure sets, and is served in one of three modes — passthrough, mapped, or agent-answered (§6).
@@ -47,7 +47,7 @@ The two roles compose rather than exclude each other: one binary, one configurat
 
 ### 2.1 One binary
 
-hdtp-gateway ships as a single static Go binary (`CGO_ENABLED=0`) containing every role and every surface. Upstream integrations are consumed HTTP-first; stdio-only MCP servers run as supervised child processes of the node. The container image, built locally from the `Dockerfile` (none is published, §12.3), is a slim distroless build; `Dockerfile.full` builds a `-full` image adding the node and uv runtimes that stdio children commonly need (§12).
+The node is a single static Go binary (`CGO_ENABLED=0`) containing every role and every surface; a release ships it beside its limits sidecar, `hdtp-limitd` (§5.7), built for the same four platforms. Upstream integrations are consumed HTTP-first; stdio-only MCP servers run as supervised child processes of the node. The container image, built locally from the `Dockerfile` (none is published, §12.3), is a slim distroless build; `Dockerfile.full` builds a `-full` image adding the node and uv runtimes that stdio children commonly need (§12).
 
 ```mermaid
 flowchart LR

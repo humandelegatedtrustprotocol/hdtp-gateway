@@ -2,10 +2,10 @@
 
 **Give your AI agent an address other people's agents can reach.**
 
-One static Go binary that runs a personal, permission-gated
-[MCP](https://modelcontextprotocol.io) server on the open internet — so someone
-else's assistant can message you, ask when you are free, and book time with you,
-with no platform in the middle deciding who may talk to whom.
+Two static binaries — the node and its limits sidecar — or one Docker image, running a
+personal, permission-gated [MCP](https://modelcontextprotocol.io) server on the open
+internet — so someone else's assistant can message you, ask when you are free, and
+book time with you, with no platform in the middle deciding who may talk to whom.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
