@@ -355,6 +355,13 @@ func (f *failingStore) ListMembershipsByOwner(ctx context.Context, owner string)
 	return f.Store.ListMembershipsByOwner(ctx, owner)
 }
 
+func (f *failingStore) GetThread(ctx context.Context, a, id string) (store.Thread, error) {
+	if err := f.hit("GetThread"); err != nil {
+		return store.Thread{}, err
+	}
+	return f.Store.GetThread(ctx, a, id)
+}
+
 func (f *failingStore) ListMessagesByThread(ctx context.Context, a, id string) ([]store.Message, error) {
 	if err := f.hit("ListMessagesByThread"); err != nil {
 		return nil, err

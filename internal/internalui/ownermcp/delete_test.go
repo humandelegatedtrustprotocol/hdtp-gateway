@@ -172,3 +172,40 @@ func TestEveryThreadIDReadsAndDeletesOverTheOwnerMCP(t *testing.T) {
 		}
 	}
 }
+
+// read_thread of a thread the account does not hold is not_found, as delete_thread answers it; it
+// answered an empty list. A thread that could not be read is internal with the fixed detail, never
+// the store's text. The control, a thread the account holds, reads.
+func TestReadThreadOfAThreadNotHeldIsNotFound(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	res, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:alina", messaging.DirIn,
+		messaging.Input{Origin: messaging.OriginPeer, MsgID: "m1", Text: "hi", Sender: messaging.SenderAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	if text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": "nosuchthread"}); !isErr || !strings.Contains(text, `"code":"not_found"`) {
+		t.Errorf("read_thread of a thread not held: %s (error %v), want not_found", text, isErr)
+	}
+	// Another identity's thread is not this one's either.
+	if text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctB, "thread_id": res.ThreadID}); !isErr || !strings.Contains(text, `"code":"not_found"`) {
+		t.Errorf("read_thread of another identity's thread: %s (error %v), want not_found", text, isErr)
+	}
+	if text, isErr := callJSON(t, cs, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": res.ThreadID}); isErr || !strings.Contains(text, `"body":"hi"`) {
+		t.Errorf("the control: %s (error %v)", text, isErr)
+	}
+
+	fs := &failingStore{Store: e.st, fail: "GetThread", called: map[string]bool{}}
+	d := e.deps
+	d.Store = fs
+	d.Msg = &messaging.Service{Store: fs}
+	srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+	body, isErr := callParityResult(t, ctx, srv, "read_thread", map[string]any{"account_id": e.acctA, "thread_id": res.ThreadID})
+	if !fs.called["GetThread"] {
+		t.Fatalf("never reached GetThread: %s", body)
+	}
+	if got := noStoreText(t, "read_thread", body, isErr); got["code"] != "internal" {
+		t.Errorf("read_thread with GetThread failing: %s, want internal", body)
+	}
+}

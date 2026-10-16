@@ -294,9 +294,14 @@ func (s *Service) write(ctx context.Context, st ConversationStore, accountID, co
 	return Result{ThreadID: threadID, Status: status}, true, nil
 }
 
-// Thread returns a thread's messages in order. A thread_id of neither form is refused (CheckThreadID).
+// Thread returns a thread's messages in order. A thread_id of neither form is refused (CheckThreadID);
+// a thread the account does not hold is store.ErrNotFound, as DeleteThread answers it, and any other
+// failure to read the thread is returned.
 func (s *Service) Thread(ctx context.Context, accountID, threadID string) ([]store.Message, error) {
 	if err := CheckThreadID(threadID); err != nil {
+		return nil, err
+	}
+	if _, err := s.Store.GetThread(ctx, accountID, threadID); err != nil {
 		return nil, err
 	}
 	return s.Store.ListMessagesByThread(ctx, accountID, threadID)

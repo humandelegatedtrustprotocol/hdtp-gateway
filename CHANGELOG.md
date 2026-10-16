@@ -12,6 +12,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- The owner MCP's `read_thread` answers a thread the identity does not hold `not_found`, as
+  `delete_thread` does and as the cloud's conversation read answers 404; it answered an empty list.
+  A thread that could not be read is `internal`.
+
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
