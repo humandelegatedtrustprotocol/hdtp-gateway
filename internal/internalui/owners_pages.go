@@ -50,16 +50,23 @@ func (d OwnersDeps) audit(action, resource, outcome string) {
 func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, newToken string) {
 		var passkeys []auth.PasskeyInfo
+		var err error
 		if d.Passkeys != nil {
-			passkeys, _ = d.Passkeys(r.Context())
+			passkeys, err = d.Passkeys(r.Context())
 		}
-		tokens, _ := d.Tokens.List(r.Context())
-		accts, err := d.Store.ListAccounts(r.Context())
+		var tokens []auth.TokenInfo
+		if err == nil {
+			tokens, err = d.Tokens.List(r.Context())
+		}
+		var accts []store.Account
+		if err == nil {
+			accts, err = d.Store.ListAccounts(r.Context())
+		}
 		if err == nil {
 			accts, err = administeredOnly(r.Context(), d.Store, OwnerFrom(r.Context()), accts, accountID)
 		}
 		if err != nil {
-			// A token-scope list that could not be read is not one with nothing to scope to.
+			// A list that could not be read is not one with nothing in it.
 			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
 			return
 		}

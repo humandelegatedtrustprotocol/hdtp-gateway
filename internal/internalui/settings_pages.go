@@ -219,19 +219,29 @@ func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice stri
 // status (pageStatus), with the page's state beside it.
 func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
 	var pending map[string]string
+	var adapters []AdapterSetting
+	var paired map[string]bool
+	var presets map[string][]string
+	var err error
 	if d.Pending != nil {
-		pending, _ = d.Pending(r.Context())
+		pending, err = d.Pending(r.Context())
+	}
+	if err == nil && d.AdapterSettings != nil {
+		adapters, err = d.AdapterSettings(r.Context())
+	}
+	if err == nil && d.Paired != nil {
+		paired, err = d.Paired(r.Context())
+	}
+	if err == nil && d.Presets != nil {
+		presets, err = d.Presets(r.Context())
+	}
+	if err != nil {
+		// Stored values, credentials, pairings or presets that could not be read are not none.
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
 	}
 	reach, security := d.rows(pending)
-	var adapters []AdapterSetting
-	if d.AdapterSettings != nil {
-		adapters, _ = d.AdapterSettings(r.Context())
-		sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
-	}
-	var paired map[string]bool
-	if d.Paired != nil {
-		paired, _ = d.Paired(r.Context())
-	}
+	sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
 	owner := OwnerFrom(r.Context())
 	var choices []AccountChoice
 	if d.Accounts != nil {
@@ -261,17 +271,13 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 		Perms []string `json:"perms"`
 	}
 	var presetRows []presetRow
-	if d.Presets != nil {
-		if set, err := d.Presets(r.Context()); err == nil {
-			names := make([]string, 0, len(set))
-			for n := range set {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			for _, n := range names {
-				presetRows = append(presetRows, presetRow{Name: n, Perms: set[n]})
-			}
-		}
+	names := make([]string, 0, len(presets))
+	for n := range presets {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		presetRows = append(presetRows, presetRow{Name: n, Perms: presets[n]})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	apiJSONStatus(w, status, map[string]any{

@@ -67,6 +67,11 @@ changelog can be and is not summarized into a fictional release history.
   does; they listed every identity on the node, so one with no membership showed there and every
   action on it answered 404. When the identities or the memberships cannot be read, the three pages
   answer 500, where Settings and owners showed no identities.
+- The owners page answers 500 when its passkeys or tokens cannot be read, and the Settings page
+  when its stored values, adapter credentials, pairings or presets cannot be read; each read was
+  dropped, so a failed one rendered as nothing registered, stored or paired. Every route of the
+  two pages answers with that state, so a mutation that succeeded with a read failing after it is
+  answered 500 too.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
