@@ -104,9 +104,8 @@ template `hdtp://thread/{id}` (one thread and its messages, found among the admi
 
 ## What it refuses, and how
 
-Three shapes of refusal exist; a caller must not treat them alike.
-
-1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
+Every refusal is a tool error with a code (`IsError` true), and the audit middleware records its
+`owner_mcp_call` row `refused`. `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). Every other failure of a tool's work is answered by
    `refused(err)` as `{"code","detail"}`, read by `refusal.Of` (`internal/refusal`, whose README
@@ -132,15 +131,13 @@ Three shapes of refusal exist; a caller must not treat them alike.
    `refresh_contact` answers a refresh that could not be attempted `not_found`, `conflict` or
    `internal`, each with a fixed detail. The call's one `call_contact` audit row is
    `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers
-   another account's request id as one that names nothing (`not_found`).
-2. A result that carries a code but is not marked an error (`IsError` false): `remove_passkey` (`bad_request` for an empty id and for the
-   last passkey), `set_exposure` (`bad_request` for an empty integration id), `add_contact`
-   (`bad_request` for both or neither of `invite_url` and `card`), and `answer_request` when
-   dispatch is not enabled (`{"error":"agent-answered dispatch is not enabled"}`). The audit
-   middleware records these as `ok`, because it reads only `IsError`.
-3. A returned error (no code), whose text the SDK sends as the result: `rename_contact` over the
-   display-name limit (`contacts.MaxDisplayName`) and `set_trust_flag` with a value other than the
-   two (`bad_request: trust must be messages_only|may_instruct`). Both texts are fixed sentences.
+   another account's request id as one that names nothing (`not_found`), and `unavailable` "agent-answered
+   dispatch is not enabled" when it is not. The argument refusals are `bad_request` with the node's
+   sentence: `remove_passkey` "id is required" and, for the last passkey, "that is the only passkey
+   registered; register another before removing it"; `set_exposure` "integration_id is required";
+   `add_contact` "give exactly one of invite_url or card"; `rename_contact` "petname over 64
+   characters" (`contacts.MaxDisplayName`); `set_trust_flag` "trust must be
+   messages_only|may_instruct".
 
 Account scope is not checked per account by `list_accounts` (it is the scope), `list_passkeys` and
 `remove_passkey`. The two passkey tools are node-level: they require an identity without a narrowing

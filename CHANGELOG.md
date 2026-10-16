@@ -31,6 +31,14 @@ changelog can be and is not summarized into a fictional release history.
   for as long as the queue stood. The counts are reported on every answer as before. [0.1.1]'s
   entry ("answers when a contact is parked at a new address … or an integration needs
   re-authorizing") did not say that it answered so on every wait while either stood.
+- Every argument refusal of the owner MCP is a coded tool error audited `refused`: `remove_passkey`
+  ("id is required"; the last passkey), `set_exposure` ("integration_id is required"),
+  `add_contact` ("give exactly one of invite_url or card", where it said "not both" for neither
+  too) and `answer_request` with dispatch off (`unavailable`) answered results not marked as
+  errors, audited `ok`; `rename_contact` over the name limit and `set_trust_flag` with a bad value
+  answered a bare error with no code. [0.1.5]'s entry said `add_contact` and `set_exposure` answer
+  their failures as `IsError` results audited `refused`; that was true of the failures of their
+  work, not of these argument refusals.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

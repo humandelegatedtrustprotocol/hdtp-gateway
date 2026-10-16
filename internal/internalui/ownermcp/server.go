@@ -59,7 +59,7 @@ const (
 // Deps is what the owner surface acts through. A nil Approved, Rejected, Removed, Invalidate,
 // ServedPermissions, Audit or Send skips the effect it names and the tool still answers; a nil
 // RefreshContact leaves refresh_contact unregistered; a nil Pending makes answer_request answer
-// that dispatch is not enabled and keeps the pending count out of wait_for_updates and digest.
+// unavailable, dispatch is not enabled, and keeps the pending count out of wait_for_updates and digest.
 type Deps struct {
 	// Store is the node's store. It is read for scope (memberships) and for every tool.
 	Store store.Store
@@ -94,7 +94,7 @@ type Deps struct {
 	// call it without a nil check.
 	Contacts *contacts.Manager
 	// Pending serves agent-answered dispatch (SPEC §6.8). Nil makes answer_request answer
-	// {"error":"agent-answered dispatch is not enabled"}, and leaves the pending count out of
+	// unavailable "agent-answered dispatch is not enabled", and leaves the pending count out of
 	// wait_for_updates and digest. list_pending and hdtp://pending read the store and do not
 	// consult it.
 	Pending *integrations.AgentAnswered
@@ -847,7 +847,7 @@ func (ot ownerTools) renameContactTool(ctx context.Context, req *mcp.CallToolReq
 	}
 	name := strings.TrimSpace(a.Petname)
 	if len([]rune(name)) > contacts.MaxDisplayName {
-		return nil, nil, fmt.Errorf("petname over %d characters", contacts.MaxDisplayName)
+		return fail(refusal.BadRequest(fmt.Sprintf("petname over %d characters", contacts.MaxDisplayName), nil))
 	}
 	if err := ot.d.Store.SetContactPetname(ctx, a.AccountID, a.ContactFpr, name); err != nil {
 		return fail(err)
@@ -897,7 +897,7 @@ func (ot ownerTools) setTrustFlagTool(ctx context.Context, req *mcp.CallToolRequ
 		return r, nil, err
 	}
 	if a.Trust != "messages_only" && a.Trust != "may_instruct" {
-		return nil, nil, fmt.Errorf("bad_request: trust must be messages_only|may_instruct")
+		return fail(refusal.BadRequest("trust must be messages_only|may_instruct", nil))
 	}
 	if err := ot.d.Store.UpdateContactTrust(ctx, a.AccountID, a.ContactFpr, a.Trust); err != nil {
 		ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "error")
@@ -1014,8 +1014,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 		return r, nil, err
 	}
 	if ot.d.Pending == nil {
-		r, err := jsonResult(map[string]any{"error": "agent-answered dispatch is not enabled"})
-		return r, nil, err
+		return fail(refusal.Unavailable("agent-answered dispatch is not enabled", nil))
 	}
 	relayed, err := ot.d.Pending.Answer(ctx, a.AccountID, a.RequestID, a.Result)
 	if err != nil {
