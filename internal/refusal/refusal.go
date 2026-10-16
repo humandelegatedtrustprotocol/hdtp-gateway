@@ -131,6 +131,8 @@ func Of(err error) (code, detail string) {
 		errors.Is(err, identity.ErrUnknownAlgorithm),
 		errors.Is(err, auth.ErrLabelRequired):
 		return "bad_request", err.Error()
+	case errors.Is(err, integrations.ErrUpstream):
+		return "unavailable", err.Error()
 	case errors.Is(err, contacts.ErrContactCap):
 		return "payment_required", err.Error()
 	case errors.Is(err, messaging.ErrTooLarge), errors.Is(err, messaging.ErrQuota):

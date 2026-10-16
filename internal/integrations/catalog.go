@@ -75,6 +75,22 @@ type notConnected struct{ name string }
 func (n notConnected) Error() string        { return "integrations: " + n.name + " is not connected" }
 func (n notConnected) Is(target error) bool { return target == ErrNotConnected }
 
+// ErrUpstream is a catalog asked of a connected upstream that did not answer its tool list: the
+// error Snapshot returns names the integration, satisfies errors.Is with this, and carries the
+// failure behind it (Unwrap) without its text.
+var ErrUpstream = errors.New("integrations: the upstream did not answer")
+
+type notAnswering struct {
+	name  string
+	cause error
+}
+
+func (n notAnswering) Error() string {
+	return "integrations: " + n.name + " did not answer its tool list"
+}
+func (n notAnswering) Is(target error) bool { return target == ErrUpstream }
+func (n notAnswering) Unwrap() error        { return n.cause }
+
 // Snapshot walks the connected upstream's tools and returns hashed definitions,
 // sorted by name for deterministic storage.
 func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef, error) {
@@ -87,7 +103,7 @@ func (m *Manager) Snapshot(ctx context.Context, integrationID string) ([]ToolDef
 	for {
 		res, err := cs.ListTools(ctx, &mcpListToolsParams{Cursor: cursor})
 		if err != nil {
-			return nil, fmt.Errorf("integrations: list tools: %w", err)
+			return nil, notAnswering{name: nameOf(ctx, m.Store, integrationID), cause: err}
 		}
 		for _, t := range res.Tools {
 			schema, err := json.Marshal(t.InputSchema)

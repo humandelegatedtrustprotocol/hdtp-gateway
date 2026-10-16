@@ -43,6 +43,9 @@ changelog can be and is not summarized into a fictional release history.
   or with no catalogue snapshot, 409 with the node's sentence ("integrations: nothing published to
   reconfirm"), as its README says; it answered 404, the answer for an integration not on the
   account.
+- A catalogue refresh whose integration does not answer its tool list is `unavailable` with the
+  node's sentence ("integrations: <name> did not answer its tool list"; 502 on the portal's
+  `POST /integrations/{id}/refresh`); it was a failure of the node (500).
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

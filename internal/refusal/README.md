@@ -21,6 +21,7 @@ may not import each other, import it.
   - `contacts.ErrWrongState`, `integrations.ErrRequestClosed`, `integrations.ErrNoCatalog`,
     `integrations.ErrNoExposure`, `integrations.ErrNotConnected` and `identity.ErrSlugTaken` are
     `conflict`;
+  - `integrations.ErrUpstream` (an integration that did not answer its tool list) is `unavailable`;
   - `contacts.ErrBadRequest`, `messaging.ErrBadRequest`, `integrations.ErrExposureRefused`,
     `identity.ErrDisplayName`, `identity.ErrUnknownAlgorithm` and `auth.ErrLabelRequired` are
     `bad_request`;
