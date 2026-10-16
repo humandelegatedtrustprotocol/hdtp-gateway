@@ -101,6 +101,16 @@ changelog can be and is not summarized into a fictional release history.
   "saves nothing" was not true of that form. Every knob is now checked before any is written, and
   they are written in one transaction, so a failed write stores none either. A failure applying a
   stored knob to the running node, after the write, still answers the failure with the knobs stored.
+- The portal's `GET /api/card` answers a card whose signature could not be made 500
+  `card_unavailable` (404 `no_card` when the identity is not there to sign it); the failure was
+  dropped and the card answered 200 with an empty `sig`.
+- The portal's `POST /contacts/{fpr}/remove` removes nothing when the contact cannot be read, and
+  answers the failure (`err`, one `contact_remove` `error` row). The read, made for the notice, was
+  dropped: the contact was removed on it, and a peer that could not be told was reported "Removed."
+- The portal's exposure picker (`GET /api/integrations/{id}/exposure`, `POST
+  /integrations/{id}/exposure`) answers a catalogue or an exposure set that could not be read 500
+  and publishes nothing. A failed exposure read was dropped, so the picker showed nothing exposed;
+  a failed catalogue read was 409, the answer for an integration with no snapshot, which stays 409.
 - The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
   memory first, so a pairing whose write failed was routed until the next start forgot it.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the

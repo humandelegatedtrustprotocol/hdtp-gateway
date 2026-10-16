@@ -255,7 +255,14 @@ func (d ContactsDeps) postContactsFprRemove(w http.ResponseWriter, r *http.Reque
 	}
 	account := formOrQuery(r, "account")
 	fpr := r.PathValue("fpr")
-	prior, _ := d.Store.GetContact(r.Context(), account, fpr)
+	// The contact as it stood decides the notice; a read that failed is not a contact that is not
+	// there, and nothing is removed on it.
+	prior, err := d.Store.GetContact(r.Context(), account, fpr)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")
+		redirectContacts(w, r, account, "", "could not remove them: "+pageError(err))
+		return
+	}
 	dec, err := d.owner().Remove(r.Context(), account, fpr)
 	if err != nil {
 		d.audit("contact_remove", withAccount(r, "contact:"+fpr), "error")

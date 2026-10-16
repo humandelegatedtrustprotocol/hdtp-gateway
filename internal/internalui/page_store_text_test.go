@@ -262,3 +262,117 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 		}
 	}
 }
+
+func (c *canaryStore) LatestCatalog(ctx context.Context, id string) (store.Catalog, error) {
+	if err := c.err("LatestCatalog"); err != nil {
+		return store.Catalog{}, err
+	}
+	return c.Store.LatestCatalog(ctx, id)
+}
+
+func (c *canaryStore) LatestExposure(ctx context.Context, id string) (store.Exposure, error) {
+	if err := c.err("LatestExposure"); err != nil {
+		return store.Exposure{}, err
+	}
+	return c.Store.LatestExposure(ctx, id)
+}
+
+// The exposure picker answers a catalog or an exposure set that could not be read 500, the GET as
+// {"error":"store"} and the POST with the fixed phrase, and publishes nothing. A failed exposure read
+// was dropped and the picker showed nothing exposed; a failed catalog read was 409, the answer for an
+// integration with no snapshot, which stays 409. The control, both reads, gets through.
+func TestTheExposurePickerAnswersAFailedRead(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://x/mcp"})
+	bare, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "bare", Transport: "streamable-http", Endpoint: "https://y/mcp"})
+	seedCatalog(t, e.st, in.ID)
+	serve := func(failing, method, id string) *httptest.ResponseRecorder {
+		cs := &canaryStore{Store: e.st, fail: map[string]bool{failing: failing != ""}}
+		mux := http.NewServeMux()
+		MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t), Store: cs, Manager: &integrations.Manager{Store: cs},
+			Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: cs}, Audit: func(string, string, string) {}})
+		if method == http.MethodPost {
+			return postForm(t, mux, "/integrations/"+id+"/exposure?account="+a.ID, url.Values{"expose_get_freebusy": {"on"}})
+		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/integrations/"+id+"/exposure?account="+a.ID, nil))
+		return rr
+	}
+	for _, failing := range []string{"LatestCatalog", "LatestExposure"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			rr := serve(failing, method, in.ID)
+			want := `{"error":"store"}`
+			if method == http.MethodPost {
+				want = refusal.InternalDetail
+			}
+			if rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), want) || strings.Contains(rr.Body.String(), pageCanary) {
+				t.Errorf("%s exposure, %s failing: %d %s; want 500 %s", method, failing, rr.Code, rr.Body.String(), want)
+			}
+			if _, err := e.st.LatestExposure(ctx, in.ID); !errors.Is(err, store.ErrNotFound) {
+				t.Errorf("%s exposure, %s failing, published a set: %v", method, failing, err)
+			}
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		if rr := serve("", method, bare.ID); rr.Code != http.StatusConflict {
+			t.Errorf("%s exposure of an integration with no snapshot: %d %s; want 409", method, rr.Code, rr.Body.String())
+		}
+	}
+	if rr := serve("", http.MethodGet, in.ID); rr.Code != http.StatusOK {
+		t.Errorf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// firstContactReadFails is the store with its first GetContact failing with driver text.
+type firstContactReadFails struct {
+	store.Store
+	reads int
+}
+
+func (f *firstContactReadFails) GetContact(ctx context.Context, a, fpr string) (store.Contact, error) {
+	if f.reads++; f.reads == 1 {
+		return store.Contact{}, fmt.Errorf("GetContact: %w", errors.New(pageCanary))
+	}
+	return f.Store.GetContact(ctx, a, fpr)
+}
+
+// Removing a contact whose row could not be read removes nothing and tells no one: one
+// contact_remove "error" row and the failure in the redirect, without the store's text. The read
+// was dropped and taken as no contact, so the contact was removed and an active one was told
+// nothing about it in the notice. The control, the read, removes it and tells the peer.
+func TestRemovingAContactThatCouldNotBeReadRemovesNothing(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:p1", SPKI: []byte{1}, Status: "active", DisplayName: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	var told int
+	aud := &auditRec{}
+	mux := http.NewServeMux()
+	MountContactPages(mux, ContactsDeps{Store: &firstContactReadFails{Store: e.st}, Audit: aud.fn,
+		Call: func(context.Context, string, string, string, map[string]any) (string, error) { told++; return "", nil }})
+	rr := postForm(t, mux, "/contacts/sha256:p1/remove?account="+a.ID, url.Values{})
+	loc, _ := url.QueryUnescape(rr.Header().Get("Location"))
+	if rr.Code != http.StatusSeeOther || !strings.Contains(loc, "could not remove them: "+refusal.InternalDetail) || strings.Contains(loc, pageCanary) {
+		t.Errorf("a remove whose read failed: %d %s; want 303 to the failure", rr.Code, loc)
+	}
+	if _, err := e.st.GetContact(ctx, a.ID, "sha256:p1"); err != nil || told != 0 || len(aud.rows) != 1 || !strings.HasPrefix(aud.rows[0], "contact_remove ") || !strings.HasSuffix(aud.rows[0], " error") {
+		t.Errorf("a remove whose read failed: contact %v, told %d, audited %v; want it kept, untold, one error row", err, told, aud.rows)
+	}
+	aud.rows = nil
+	if rr := postForm(t, mux, "/contacts/sha256:p1/remove?account="+a.ID, url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("the control: %d", rr.Code)
+	}
+	if _, err := e.st.GetContact(ctx, a.ID, "sha256:p1"); !errors.Is(err, store.ErrNotFound) || told != 1 || len(aud.rows) != 1 || !strings.HasSuffix(aud.rows[0], " ok") {
+		t.Errorf("the control: contact %v, told %d, audited %v; want it removed, told, one ok row", err, told, aud.rows)
+	}
+}
