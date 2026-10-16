@@ -7,6 +7,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -118,10 +119,15 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 // row of another account answers as a row that does not exist, since whether that id exists is
 // not this owner's business, and every route that acts on an integration asks here first. The
 // store's account-bound read is what tells the two apart for no door, this one or the owner MCP's.
+// A read that failed is 500 with the fixed phrase, never a 404 for an integration that may exist.
 func (d IntegrationsDeps) integrationOf(w http.ResponseWriter, r *http.Request) (store.Integration, bool) {
 	in, err := d.Store.GetAccountIntegration(r.Context(), accountParam(r), r.PathValue("id"))
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
+		return store.Integration{}, false
+	}
+	if err != nil {
+		http.Error(w, pageError(err), http.StatusInternalServerError)
 		return store.Integration{}, false
 	}
 	return in, true

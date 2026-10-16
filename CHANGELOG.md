@@ -46,6 +46,10 @@ changelog can be and is not summarized into a fictional release history.
 - A catalogue refresh whose integration does not answer its tool list is `unavailable` with the
   node's sentence ("integrations: <name> did not answer its tool list"; 502 on the portal's
   `POST /integrations/{id}/refresh`); it was a failure of the node (500).
+- The portal's routes that name an integration answer a read of it that failed 500 with the fixed
+  phrase, where they answered 404, the answer for an integration not on the account. The
+  portal's README said removing another account's integration was 403; it is 404, as for any
+  integration the account does not hold.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

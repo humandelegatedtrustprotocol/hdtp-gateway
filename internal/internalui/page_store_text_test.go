@@ -53,6 +53,45 @@ func (c *canaryStore) GetIntegrationByID(ctx context.Context, id string) (store.
 	return c.Store.GetIntegrationByID(ctx, id)
 }
 
+func (c *canaryStore) GetAccountIntegration(ctx context.Context, a, id string) (store.Integration, error) {
+	if err := c.err("GetAccountIntegration"); err != nil {
+		return store.Integration{}, err
+	}
+	return c.Store.GetAccountIntegration(ctx, a, id)
+}
+
+// Every route that names an integration answers a read of it that failed 500 with the fixed phrase,
+// and no store text: it answered 404, as for an integration not on the account. An id the account
+// does not hold stays 404, and the control, the integration read, gets through.
+func TestAnIntegrationThatCouldNotBeReadIs500(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://x/mcp"})
+	seedCatalog(t, e.st, in.ID)
+	get := func(fail bool, id string) *httptest.ResponseRecorder {
+		cs := &canaryStore{Store: e.st, fail: map[string]bool{"GetAccountIntegration": fail}}
+		mux := http.NewServeMux()
+		MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t), Store: cs, Manager: &integrations.Manager{Store: cs},
+			Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: cs}, Audit: func(string, string, string) {}})
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+id+"/exposure?account="+a.ID, nil))
+		return rr
+	}
+	if rr := get(true, in.ID); rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), refusal.InternalDetail) || strings.Contains(rr.Body.String(), pageCanary) {
+		t.Errorf("a read that failed: %d %s, want 500 with the fixed phrase", rr.Code, rr.Body.String())
+	}
+	if rr := get(false, "no-such-integration"); rr.Code != http.StatusNotFound {
+		t.Errorf("an id the account does not hold: %d %s, want 404", rr.Code, rr.Body.String())
+	}
+	if rr := get(false, in.ID); rr.Code != http.StatusOK {
+		t.Errorf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 // Every portal page that showed err.Error() shows a fixed phrase for a store failure, and no store
 // text, whether the failure came from the store under a domain service or from a function the page
 // was handed. Each row's control, the same request with nothing failing, gets through: it shows
