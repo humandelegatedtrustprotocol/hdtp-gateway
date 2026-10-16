@@ -26,8 +26,8 @@ Callers: `internal/cli` is the wiring and uses nearly all of it (`Load`, `OpenKe
   (unknown fields are an error) and the `HDTP_*` environment, then calls `Derive`.
 - Precedence, highest first (SPEC §12.2): environment, file, the owner-set values from the store, defaults.
   `Config.EnvPinned` and `Config.FilePinned` record which owner-settable knobs the first two fixed.
-  `ApplyStoreSettings` layers the store's values under them (it skips a pinned key), re-derives, and
-  rejects a key it does not know unless it contains a dot (adapter settings, read by whoever needs them).
+  `ApplyStoreSettings` layers the store's values under them (it skips a pinned key) and re-derives; a key
+  that is not an owner-settable knob sets nothing (the settings service's `Overlay` hands it only those).
 - `OwnerSettableKeys` names the knobs the portal may write: `public_url`, `tunnel`, `seal`, `client_cert`,
   `lan_connections`, `limit.contacts`. Everything else is bootstrap. `ValidateSetting` rejects a value the
   resolver would refuse later; `EffectiveSettings` and `Effective` give the settings page each knob's value
