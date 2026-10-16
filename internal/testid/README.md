@@ -39,9 +39,13 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
 - TLS files (`tlsfiles.go`): `ServerFiles` writes a self-signed ECDSA P-256 server certificate and
   key as PEM into a directory, valid for 24 hours: ordinary web TLS for the internal surface, not
   an HDTP certificate.
-- Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside `../<repo>`
-  from this module's root (the nearest directory upward holding `go.mod`), the checkout the umbrella
-  keeps beside this one. Its callers are the guards that hold a copy here to its source there:
+- Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside the checkout
+  of `repo` that `SiblingDir(t, repo)` finds: the directory its variable names (`SiblingEnv`:
+  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR`, `HDTP_SPEC_DIR`), else `../<repo>` from this module's root
+  (the nearest directory upward holding `go.mod`), as the umbrella lays its repositories out, else
+  beside the checkout git keeps this one's objects in (the umbrella, for `<umbrella>/.git/modules/<name>`;
+  the main checkout's parent, for its `.git`), so a worktree anywhere finds the umbrella's.
+  `scripts/sibling.sh` is the same rule for the Makefile. Its callers are the guards that hold a copy here to its source there:
   `TestErrorCodesAreTheSpecsTable` (hdtp-spec's released §12, `docs/specification/1.0/`),
   `TestTheCloudsCopyOfTheRefusalsIsCurrent`, `TestTheCloudsCopyOfTheOwnerToolsIsCurrent`,
   `TestTheCloudsCopyOfTheProtocolHintsIsCurrent` and `TestTheCloudsServedAnnotationCasesHoldHere`
@@ -49,9 +53,10 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
 
 ## What it refuses, and how
 
-`SiblingFile` skips the test, naming what goes unchecked, only when the sibling's directory is
-absent; when it is present and the file cannot be read (moved, renamed, another commit) the test
-fails. Each of those guards used to skip on any read error, so a fixture that moved turned its
+`SiblingFile` skips the test, naming what goes unchecked and where it looked, only when no checkout
+of the sibling is found, and fails instead when `HDTP_REQUIRE_SIBLINGS` is `1` (`RequireSiblings`),
+which the pre-push hook sets; when the checkout is found and the file cannot be read (moved, renamed,
+another commit) the test fails. Each of those guards used to skip on any read error, so a fixture that moved turned its
 guard into a skip that passed (#130).
 
 It has no error returns: every function ends the test with `t.Fatal`/`t.Fatalf` when it cannot
@@ -72,7 +77,8 @@ base64url string that does not read in `DER`, a signature that `crypto/ed25519` 
 ## Held by
 
 `threadids_test.go` (`TestTheThreadIDTableIsTheCores`) holds `ThreadIDs` to the identity core's
-answers. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
+answers. `sibling_test.go` (`TestTheTwoSiblingLocatorsAgree`) runs `SiblingDir`'s rule and
+`scripts/sibling.sh` on the same layouts, built with real git, and holds both to the expected checkout. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
 (`TestAnInvitesCardSigIsReadStrictly`) and `internal/node/refresh_cardsig_test.go` use
 `SignedCardSigs`; `internal/cli/request_cut_test.go` (`TestACutCardSaysWhatToDo`) uses
 `WithCert`/`WithoutCert`; `internal/cli/request_pasted_test.go` (`TestAPastedCardIsAsked`) and

@@ -35,6 +35,12 @@ cd "$root"
 # is `make dependents`' own, for the cloud's battery (Makefile).
 export GOWORK=off
 
+# A guard that reads a sibling checkout (the cloud's battery and fixtures, the specification's
+# table, the identity core's gate) skips under a bare `make check` when the checkout is not found.
+# Here it fails: a push gated by a skip was gated by nothing. scripts/sibling.sh says where each
+# checkout is looked for, and how to point at one.
+export HDTP_REQUIRE_SIBLINGS=1
+
 # A push that only deletes refs has nothing to test. The same pass answers whether the push
 # touches web/: a new ref, or a base this clone has never fetched, counts as yes.
 zero=0000000000000000000000000000000000000000

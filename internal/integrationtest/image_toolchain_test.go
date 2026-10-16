@@ -82,7 +82,8 @@ func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 	for _, f := range dockerfiles {
 		df, err := os.ReadFile(filepath.Join(root, f))
 		if err != nil {
-			continue // a variant that does not exist cannot be stale
+			t.Errorf("%s is in the list of images this checks and cannot be read: %v", f, err)
+			continue
 		}
 		im := golangImage.FindStringSubmatch(string(df))
 		if im == nil {

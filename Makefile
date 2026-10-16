@@ -295,8 +295,11 @@ vet:
 # `scripts/conformance.sh` against a deployed node, so nothing compiled it: on 2026-09-19 it
 # stopped compiling twice in one day — `Keypair.Protocol` removed, then `Call`'s signature — and
 # neither was noticed until an unrelated `go vet` happened to run over it. The repository that
-# moves the API is the one whose gate has to object, so this vets it whenever the sibling is on
-# disk. A clone without the sibling says it skipped rather than passing quietly.
+# moves the API is the one whose gate has to object, so this vets it whenever the sibling is
+# found: HDTP_BATONDECK_DIR, else ../batondeck, else beside the checkout git keeps this one's
+# objects in, so a worktree anywhere finds the umbrella's (scripts/sibling.sh, held to the Go
+# guards' locator by TestTheTwoSiblingLocatorsAgree). A bare `make check` without it says it
+# skipped; with HDTP_REQUIRE_SIBLINGS=1, which the pre-push hook sets, it fails.
 #
 # The battery requires this module by a pinned version, so vetting it as it stands would judge the
 # pin, not the tree being gated. So it is built through a go.work made for the one run, in a
@@ -310,28 +313,33 @@ vet:
 # repository that imports `internal/`, built by the pre-push hook and by nothing else. The same two
 # removals broke it the same day, and the fix above — made for the cloud's battery — walked past it.
 # It is always on disk, so it is always vetted.
-CLOUD_BATTERY := ../batondeck/gateway/conformance
+BATONDECK := $(shell "$(dir $(SELF))scripts/sibling.sh" "$(CURDIR)" batondeck)
+CLOUD_BATTERY := $(if $(BATONDECK),$(BATONDECK)/gateway/conformance)
 dependents:
 	@echo "go vet ./harness/..."
 	@(cd harness && go vet ./...) || { \
 		echo "the scenario harness no longer compiles against this module:"; \
 		echo "  it is a separate Go module that imports internal/, and until 2026-09-19 only the"; \
 		echo "  pre-push hook built it — so it broke in B3c and was found at the first push."; exit 1; }
-	@if [ -d "$(CLOUD_BATTERY)" ]; then \
+	@if [ -n "$(CLOUD_BATTERY)" ] && [ -d "$(CLOUD_BATTERY)" ]; then \
 		battery="$$(cd "$(CLOUD_BATTERY)" && pwd)"; ws="$$(mktemp -d)"; \
 		trap 'rm -rf "$$ws"' EXIT; \
 		(cd "$$ws" && GOWORK= go work init "$$battery" && \
 			GOWORK= go work edit -replace="$$(GOWORK=off go -C "$(CURDIR)" list -m)=$(CURDIR)") || exit 1; \
-		echo "go vet $(CLOUD_BATTERY) (go.work: this tree + the battery)"; \
+		echo "go vet the cloud's battery (go.work: this tree + the battery)"; \
 		(cd "$$battery" && GOWORK="$$ws/go.work" go vet ./...) || { \
 			echo "the cloud's conformance battery no longer compiles against this tree:"; \
-			echo "  fix it in $(CLOUD_BATTERY) in the same change that moved the API"; exit 1; }; \
-		echo "go test -run TestTheBatteryCanSealEveryShapeItSends $(CLOUD_BATTERY)"; \
+			echo "  fix it in batondeck/gateway/conformance in the same change that moved the API"; exit 1; }; \
+		echo "go test -run TestTheBatteryCanSealEveryShapeItSends (the cloud's battery)"; \
 		(cd "$$battery" && GOWORK="$$ws/go.work" go test -count=1 -run 'TestTheBatteryCanSealEveryShapeItSends' ./...) || { \
 			echo "the cloud's conformance battery cannot seal a call it sends: compiling was never the"; \
 			echo "  same as working, and the rest of that package only runs against a deployment"; exit 1; }; \
+	elif [ "$$HDTP_REQUIRE_SIBLINGS" = 1 ]; then \
+		echo "dependents: HDTP_REQUIRE_SIBLINGS=1 and no batondeck checkout with gateway/conformance was found"; \
+		echo "  (HDTP_BATONDECK_DIR, ../batondeck, or beside the main checkout): the cloud's battery cannot be"; \
+		echo "  compiled against this change. Point HDTP_BATONDECK_DIR at a checkout."; exit 1; \
 	else \
-		echo "!! dependents: $(CLOUD_BATTERY) is not on disk, so the cloud's conformance battery"; \
+		echo "!! dependents: no batondeck checkout was found, so the cloud's conformance battery"; \
 		echo "   was NOT compiled against this change. It imports internal/ packages of this module."; \
 	fi
 
@@ -397,8 +405,9 @@ harness-image: limitd-vendor
 # tier: hdtp-identity's intrusion battery through its `hdtp` CLI (S18), the cloud's Go conformance
 # battery (S19), and the cloud's local cloud with the real wallet page (S20; it also needs the WorkOS
 # test pair in the environment, which this Makefile does not read from any file). Each is a Need (harness/registry); the tier promises it when the
-# sibling is checked out beside this repository, and says NOT PROMISED, with how to provide it,
-# when it is not. Override either with HDTP_CLI or HDTP_CLOUD_BATTERY in the environment.
+# sibling is found (the cloud's as `dependents` finds it; hdtp-identity beside this repository), and
+# says NOT PROMISED, with how to provide it, when it is not. Override either with HDTP_CLI or
+# HDTP_CLOUD_BATTERY in the environment.
 HDTP_IDENTITY ?= $(CURDIR)/../hdtp-identity
 HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/hdtp
 harness-hdtp-cli:
