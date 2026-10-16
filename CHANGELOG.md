@@ -50,6 +50,9 @@ changelog can be and is not summarized into a fictional release history.
   phrase, where they answered 404, the answer for an integration not on the account. The
   portal's README said removing another account's integration was 403; it is 404, as for any
   integration the account does not hold.
+- A portal action refused `too_large` answers 413, as `POST /thread/delete` does for a `thread_id`
+  over 64 bytes; `pageStatus` answered it 400, so a file over the identity's storage quota on
+  `POST /messages/send_media` was 400.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
