@@ -64,6 +64,10 @@ type Result struct {
 	// Caveat is set when the probe originated from the node itself (hairpin
 	// NAT may make the result unrepresentative).
 	Caveat string `json:"caveat,omitempty"`
+	// Cause is the error behind an unreachable or wrong_cert verdict that is not the node's own
+	// refusal of the chain: the dialer's, the resolver's or the TLS stack's. It is the operator's
+	// (doctor prints it), never encoded and never shown to the portal.
+	Cause error `json:"-"`
 }
 
 // Served is one identity this node serves, as a peer holds it: the root it pins, and the address
@@ -185,7 +189,7 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 	resp, err := client.Do(req)
 	if err != nil {
 		// The detail is the node's: its own refusal of the chain, or a fixed phrase. A TLS stack's,
-		// a resolver's or an x509 parser's text is not shown.
+		// a resolver's or an x509 parser's text is kept in Cause, for doctor, and not shown.
 		var refused probeRefusal
 		var certErr *tls.CertificateVerificationError
 		var unknownAuth x509.UnknownAuthorityError
@@ -195,9 +199,9 @@ func Probe(ctx context.Context, endpoint string, o ProbeOptions) Result {
 			res.Verdict, res.Detail = VerdictWrongCert, string(refused)
 		case errors.As(err, &certErr), errors.As(err, &unknownAuth), errors.As(err, &hostErr),
 			strings.Contains(err.Error(), "x509:"):
-			res.Verdict, res.Detail = VerdictWrongCert, "the certificate served there does not verify for this address"
+			res.Verdict, res.Detail, res.Cause = VerdictWrongCert, "the certificate served there does not verify for this address", err
 		default:
-			res.Verdict, res.Detail = VerdictUnreachable, "the endpoint did not answer the probe"
+			res.Verdict, res.Detail, res.Cause = VerdictUnreachable, "the endpoint did not answer the probe", err
 		}
 		return res
 	}

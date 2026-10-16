@@ -154,4 +154,8 @@ func TestDoctorReadsThePublicURLThePortalSaved(t *testing.T) {
 	if !strings.Contains(out.String(), "probe        "+url) {
 		t.Fatalf("doctor did not probe the address the portal saved (%s):\n%s", url, out.String())
 	}
+	// Its FAIL line gives the node's phrase and, after it, the dialer's reason (#129).
+	if !strings.Contains(out.String(), "unreachable: the endpoint did not answer the probe: ") || !strings.Contains(out.String(), "connection refused") {
+		t.Fatalf("doctor's FAIL line does not carry the dialer's reason:\n%s", out.String())
+	}
 }

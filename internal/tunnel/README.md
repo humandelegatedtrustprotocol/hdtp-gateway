@@ -19,7 +19,7 @@ Adapters (name, `TerminatesAtEdge`, `Extra` keys):
 
 Edge helpers: `TrustedClientIPHeader`, `SourceIP`, `ComposeSidecar`.
 
-Probe (SPEC.md §10.4): `ProbePath`, `ProbeHandler`, `Probe`, `ProbeOptions`, `Served`, `Result`, `Verdict` and its four values.
+Probe (SPEC.md §10.4): `ProbePath`, `ProbeHandler`, `Probe`, `ProbeOptions`, `Served`, `Result`, `Verdict` and its four values. `Result.Detail` is the node's own sentence, which the portal shows; `Result.Cause` is the dialer's, resolver's or TLS stack's error behind an `unreachable` or a WebPKI `wrong_cert`, which `doctor` prints after `Detail` and which is never encoded (`json:"-"`).
 
 ## What it refuses, and how
 

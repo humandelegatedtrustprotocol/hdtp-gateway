@@ -354,13 +354,14 @@ ok   store-open
 ok   leaf         alex valid until 2027-10-08 (root sha256:PoPMfwR8DxSxIJtRe3FgJc15YNfMwVGiYfgHbpNvpjI)
 ok   tunnel       direct (mode direct, seal required, client_cert preferred)
 ok   limits       /data/limits.sock answering
-FAIL probe        https://alex.example.com unreachable: Get "https://alex.example.com/.well-known/hdtp-probe?nonce=…": dial tcp: lookup alex.example.com: no such host
+FAIL probe        https://alex.example.com unreachable: the endpoint did not answer the probe: Get "https://alex.example.com/.well-known/hdtp-probe?nonce=…": dial tcp: lookup alex.example.com: no such host
 ```
 
 The last line is `doctor` dialling the address from step 4 as a contact would, from where the node
 runs: it reads `public_url` the way the node does — the environment, else the configuration file,
 else what the portal saved. `alex.example.com` is a placeholder that resolves nowhere, so with it
-the probe fails and what follows `unreachable:` is the dialer's reason. With your real address, a
+the probe fails, and what follows the node's phrase (`the endpoint did not answer the probe:`)
+is the dialer's reason. With your real address, a
 node the world can reach prints `ok   probe        https://… reachable (…)` instead, and a `FAIL`
 names what is in the way ([Be reachable](../README.md#be-reachable)).
 

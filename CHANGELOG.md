@@ -39,6 +39,9 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- `doctor`'s `FAIL probe` line gives the dialer's, resolver's or TLS stack's reason after the
+  node's own phrase again (`unreachable: the endpoint did not answer the probe: …`); since #126 it
+  gave the phrase alone. The portal's probe still shows the phrase only (#129).
 - A restart no longer signs the owner out of the portal after a public URL was saved in Settings
   or allocated by the tunnel adapter. The cookie names carry the node's tag, which was computed
   after the store's settings and the adapter had set the public URL, so a URL saved in the portal
