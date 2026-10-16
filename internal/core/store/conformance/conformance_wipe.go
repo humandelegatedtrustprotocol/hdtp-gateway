@@ -17,8 +17,14 @@ func threadIDWipe(t *testing.T, newStore Factory) {
 	t.Run("ThreadIDWipe", func(t *testing.T) {
 		s := migrated(t, newStore)
 		ctx := context.Background()
-		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wipe-a", DisplayName: "A", Algo: "p256"})
-		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wipe-b", DisplayName: "B", Algo: "p256"})
+		a, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wipe-a", DisplayName: "A", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wipe-b", DisplayName: "B", Algo: "p256"})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, th := range []store.Thread{
 			{ID: "t1", AccountID: a.ID, ContactFpr: "sha256:p"},
 			{ID: "t2", AccountID: a.ID, ContactFpr: "sha256:p"},

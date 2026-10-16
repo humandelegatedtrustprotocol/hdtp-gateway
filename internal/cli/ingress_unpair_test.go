@@ -13,8 +13,8 @@ import (
 // `ingress unpair -subdomain` forgets one pairing in the running ingress, over its admin socket,
 // and the ingress audits it with the subdomain: there was no way to remove a pairing at all, short
 // of editing the book on disk beside a process that would overwrite it at its next pairing. The
-// refusals: a subdomain no pairing holds (not_found, exit 1), no -subdomain (exit 2), no ingress
-// listening (exit 1).
+// refusals: a subdomain no pairing holds (not_found, exit 1), no -subdomain or one that is not a DNS
+// label (exit 2, before the socket is called), no ingress listening (exit 1).
 func TestIngressUnpairForgetsOnePairingInTheRunningIngress(t *testing.T) {
 	dir := t.TempDir()
 	reg := ingress.NewMemoryRegistry(nil)
@@ -54,6 +54,11 @@ func TestIngressUnpairForgetsOnePairingInTheRunningIngress(t *testing.T) {
 	}
 	if code, _ := run("-data-dir", dir); code != 2 {
 		t.Errorf("no -subdomain: exit %d, want 2", code)
+	}
+	for _, bad := range []string{"Bob", "bob.example.test", "-bob", "b_b"} {
+		if code, out := run("-data-dir", dir, "-subdomain", bad); code != 2 || !strings.Contains(out, "is not one DNS label") {
+			t.Errorf("-subdomain %q: exit %d: %s", bad, code, out)
+		}
 	}
 	if code, out := run("-data-dir", t.TempDir(), "-subdomain", "alice"); code != 1 || !strings.Contains(out, "is the node running?") {
 		t.Errorf("no ingress listening: exit %d: %s", code, out)

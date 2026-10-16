@@ -85,6 +85,10 @@ func ingressUnpair(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "ingress unpair: -subdomain is required")
 		return 2
 	}
+	if !ingress.ValidSubdomain(sub) {
+		fmt.Fprintf(stderr, "ingress unpair: -subdomain %q is not one DNS label (lowercase letters, digits and hyphens)\n", sub)
+		return 2
+	}
 	if err := core.AdminCall(core.AdminSocketPath(dataDir), "ingress.unpair", map[string]string{"subdomain": sub}, nil); err != nil {
 		fmt.Fprintln(stderr, "ingress unpair:", err)
 		return 1
