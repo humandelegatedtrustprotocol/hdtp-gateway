@@ -67,6 +67,14 @@ export function failureOf(e: unknown): string {
   return `The node answered ${e.status}${code ? ` (${code})` : ""}.`;
 }
 
+/**
+ * What a post says when the node answered it but could not read the page back (`page_error`): the
+ * post's own notice, what it did or why it was refused, when it has one, and to reload.
+ */
+export function unreadPage(notice: string): string {
+  return `${notice ? `${notice} ` : ""}The page could not be read afterwards; reload to see where things stand.`;
+}
+
 export async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T> {
   const q = new URLSearchParams(params);
   if (account && !q.has("account")) q.set("account", account);

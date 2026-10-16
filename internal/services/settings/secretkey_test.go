@@ -7,6 +7,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 )
 
 // Overlay reads the owner-settable knobs without the keyring, which is right only while none of
@@ -50,7 +51,7 @@ func TestUppercaseCredentialsAreSealedAtRest(t *testing.T) {
 		"integration.x.env.API_KEY",
 		"integration.y.env.CLIENT_SECRET",
 	} {
-		if err := svc.save(ctx, key, secret); err != nil {
+		if err := svc.save(ctx, []internalui.SettingValue{{Key: key, Value: secret}}); err != nil {
 			t.Fatalf("save %s: %v", key, err)
 		}
 	}

@@ -200,7 +200,6 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 			internalui.MountInboxPages(mux, internalui.InboxDeps{
 				Store: st, Msg: &messaging.Service{Store: st, Bus: nd.Bus(), Blobs: messaging.BlobDir{Root: cfg.Blobs()}, OnError: onError},
 				Bus:   nd.Bus(),
-				Send:  nd.SendMessage,
 				Audit: auditFn,
 			})
 		},

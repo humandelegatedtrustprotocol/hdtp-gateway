@@ -59,7 +59,7 @@ const (
 // Deps is what the owner surface acts through. A nil Approved, Rejected, Removed, Invalidate,
 // ServedPermissions, Audit or Send skips the effect it names and the tool still answers; a nil
 // RefreshContact leaves refresh_contact unregistered; a nil Pending makes answer_request answer
-// that dispatch is not enabled and keeps the pending count out of wait_for_updates and digest.
+// unavailable, dispatch is not enabled, and keeps the pending count out of wait_for_updates and digest.
 type Deps struct {
 	// Store is the node's store. It is read for scope (memberships) and for every tool.
 	Store store.Store
@@ -94,7 +94,7 @@ type Deps struct {
 	// call it without a nil check.
 	Contacts *contacts.Manager
 	// Pending serves agent-answered dispatch (SPEC §6.8). Nil makes answer_request answer
-	// {"error":"agent-answered dispatch is not enabled"}, and leaves the pending count out of
+	// unavailable "agent-answered dispatch is not enabled", and leaves the pending count out of
 	// wait_for_updates and digest. list_pending and hdtp://pending read the store and do not
 	// consult it.
 	Pending *integrations.AgentAnswered
@@ -132,21 +132,7 @@ func (d Deps) reconcile(ctx context.Context, accountID, contactFpr string) {
 // scope resolves what this identity may touch: the token's account narrow, else
 // every account where the owner holds admin (SPEC §3.4).
 func (d Deps) scope(ctx context.Context, ident auth.Identity) (policy.OwnerCtx, error) {
-	ms, err := d.Store.ListMembershipsByOwner(ctx, ident.OwnerID)
-	if err != nil {
-		return policy.OwnerCtx{}, err
-	}
-	var accts []string
-	for _, m := range ms {
-		if m.Role != "admin" {
-			continue
-		}
-		if ident.AccountID != "" && m.AccountID != ident.AccountID {
-			continue // token narrowed to one account
-		}
-		accts = append(accts, m.AccountID)
-	}
-	return policy.OwnerCtx{OwnerID: ident.OwnerID, AdminAccounts: accts}, nil
+	return policy.OwnerScope(ctx, auth.Memberships{Store: d.Store}, ident.OwnerID, ident.AccountID)
 }
 
 // owner is the lifecycle both surfaces call (contacts.Owner), with this surface's hooks.
@@ -579,7 +565,10 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 	names := store.KeptNamesByRoot(threads)
 	out := make([]row, 0, len(threads))
 	for _, th := range threads {
-		n, _ := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		n, err := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		if err != nil {
+			return fail(err)
+		}
 		r := row{ThreadID: th.ID, ContactFpr: th.ContactFpr, Unread: n, LastAt: th.LastAt}
 		if st, held := status[th.ContactFpr]; held {
 			r.ContactStatus = st
@@ -847,7 +836,7 @@ func (ot ownerTools) renameContactTool(ctx context.Context, req *mcp.CallToolReq
 	}
 	name := strings.TrimSpace(a.Petname)
 	if len([]rune(name)) > contacts.MaxDisplayName {
-		return nil, nil, fmt.Errorf("petname over %d characters", contacts.MaxDisplayName)
+		return fail(refusal.BadRequest(fmt.Sprintf("petname over %d characters", contacts.MaxDisplayName), nil))
 	}
 	if err := ot.d.Store.SetContactPetname(ctx, a.AccountID, a.ContactFpr, name); err != nil {
 		return fail(err)
@@ -897,7 +886,7 @@ func (ot ownerTools) setTrustFlagTool(ctx context.Context, req *mcp.CallToolRequ
 		return r, nil, err
 	}
 	if a.Trust != "messages_only" && a.Trust != "may_instruct" {
-		return nil, nil, fmt.Errorf("bad_request: trust must be messages_only|may_instruct")
+		return fail(refusal.BadRequest("trust must be messages_only|may_instruct", nil))
 	}
 	if err := ot.d.Store.UpdateContactTrust(ctx, a.AccountID, a.ContactFpr, a.Trust); err != nil {
 		ot.d.audit("trust_update", "account:"+a.AccountID+" contact:"+a.ContactFpr+" trust:"+a.Trust, "error")
@@ -1014,8 +1003,7 @@ func (ot ownerTools) answerRequestTool(ctx context.Context, req *mcp.CallToolReq
 		return r, nil, err
 	}
 	if ot.d.Pending == nil {
-		r, err := jsonResult(map[string]any{"error": "agent-answered dispatch is not enabled"})
-		return r, nil, err
+		return fail(refusal.Unavailable("agent-answered dispatch is not enabled", nil))
 	}
 	relayed, err := ot.d.Pending.Answer(ctx, a.AccountID, a.RequestID, a.Result)
 	if err != nil {
@@ -1037,11 +1025,14 @@ func (ot ownerTools) inboxResource(ctx context.Context, req *mcp.ReadResourceReq
 	for _, acct := range sc.AdminAccounts {
 		threads, err := ot.d.Store.ListThreadsByAccount(ctx, acct)
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		var n int64
 		for _, th := range threads {
-			u, _ := ot.d.Store.UnreadCount(ctx, acct, th.ID)
+			u, err := ot.d.Store.UnreadCount(ctx, acct, th.ID)
+			if err != nil {
+				return nil, resourceFailure(err)
+			}
 			n += u
 		}
 		summary[acct] = n
@@ -1060,7 +1051,7 @@ func (ot ownerTools) contactRequestsResource(ctx context.Context, req *mcp.ReadR
 	for _, acct := range sc.AdminAccounts {
 		list, err := ot.d.Store.ListContacts(ctx, acct)
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		for _, c := range list {
 			if c.Status == "pending_in" {
@@ -1082,7 +1073,7 @@ func (ot ownerTools) pendingRequestsResource(ctx context.Context, req *mcp.ReadR
 	for _, acct := range sc.AdminAccounts {
 		list, err := ot.d.Store.ListOpenPendingRequests(ctx, acct, time.Now().Unix())
 		if err != nil {
-			continue
+			return nil, resourceFailure(err)
 		}
 		rows = append(rows, list...)
 	}
@@ -1104,11 +1095,15 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		return nil, resourceFailure(err)
 	}
 	// A thread belongs to exactly one account, and this identity may only
-	// read the accounts it administers — the same rule every tool applies.
+	// read the accounts it administers — the same rule every tool applies. An
+	// account that does not hold it is passed over; a read that failed is not.
 	for _, acct := range sc.AdminAccounts {
 		th, err := ot.d.Store.GetThread(ctx, acct, id)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			continue
+		}
+		if err != nil {
+			return nil, resourceFailure(err)
 		}
 		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
 		if err != nil {
@@ -1118,7 +1113,7 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}
-	return nil, fmt.Errorf("ownermcp: no such thread")
+	return nil, resourceFailure(store.ErrNotFound)
 }
 
 // resourceFailure is a resource read that failed, as the reader is told it: the code and the

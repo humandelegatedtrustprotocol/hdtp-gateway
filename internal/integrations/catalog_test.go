@@ -2,6 +2,7 @@ package integrations
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -143,4 +144,40 @@ func TestToolListChangedTriggersSnapshot(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("no snapshot after list_changed (refreshes=%d)", refreshes.Load())
+}
+
+// A connected upstream that does not answer its tool list is ErrUpstream, in a fixed sentence that
+// names the integration and carries none of the failure's text (the cause is kept behind Unwrap):
+// the doors answer it unavailable. It was a plain error, "integrations: list tools: <the SDK's
+// text>", which a door could only answer internal. The control, the upstream answering, snapshots.
+func TestASnapshotTheUpstreamDoesNotAnswerIsErrUpstream(t *testing.T) {
+	_, url, down := mutableUpstreamWithSwitch(t)
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	in, err := st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "flaky", Transport: "streamable-http", Endpoint: url})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: st, PingEvery: -1}
+	t.Cleanup(func() { _ = m.Disconnect(context.Background(), in.ID) })
+	c := &Cataloger{Store: st, Manager: m}
+	if err := m.Connect(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Refresh(ctx, in.ID); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+	down.Store(true)
+	_, _, err = c.Refresh(ctx, in.ID)
+	if !errors.Is(err, ErrUpstream) || err.Error() != "integrations: flaky did not answer its tool list" || errors.Unwrap(err) == nil {
+		t.Fatalf("an upstream that does not answer: %v, want ErrUpstream naming flaky, with its cause behind it", err)
+	}
 }

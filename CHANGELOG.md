@@ -50,13 +50,112 @@ changelog can be and is not summarized into a fictional release history.
   adapter and was never meant to be declared (SPEC.md §10.1). A node whose environment sets
   `HDTP_MODE`, to any value, refuses to start (`invalid_enum_value: HDTP_MODE is not read: the mode
   is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)`), and a
-  config file with a `mode` key is refused (`unknown field "mode"`). A node that set
-  `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
-  `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can
-  put a node in edge mode without forcing both knobs.
+  config file with a `mode` key is refused (`unknown field "mode"`). For a node that set
+  `HDTP_MODE=edge` beside a sidecar, set `HDTP_TUNNEL=edge` (or choose `edge` in the portal)
+  instead (#171). The refusals `edge_mode_forces_seal_required` and
+  `edge_mode_forces_client_cert_off` went with it: nothing can put a node in edge mode without
+  forcing both knobs.
+- The portal's `GET /api/inbox`, `GET /api/thread` and `POST /thread/send`, which nothing in the
+  portal called (the conversation view reads `GET /api/conversations`, marks read with
+  `POST /messages/read` and sends with `POST /messages/send`). `GET /api/thread` sent the stored
+  message rows as they are, and `POST /thread/send` sent into a thread whose id the caller chose.
+  They answer 404 (the two reads) and 405 (the send); `POST /thread/delete` and `GET /events` stay.
+- `POST /owners/tokens/create`'s fallback for a request with no owner, which minted the token for
+  the node's first owner. The session gate refuses such a request first, so no composed portal
+  reached it; the route now answers it 401 `identity_required` and mints nothing.
 
 ### Fixed
 
+- The owner MCP's `read_thread` answers a thread the identity does not hold `not_found`, as
+  `delete_thread` does and as the cloud's conversation read answers 404; it answered an empty list.
+  A thread that could not be read is `internal`.
+- The owner MCP's `hdtp://inbox`, `hdtp://requests` and `hdtp://pending` resources fail with
+  "internal: …" when an identity's list or unread count cannot be read, where they skipped that
+  identity (or counted its unread as 0) and answered the rest; `hdtp://thread/<id>` fails the same
+  way when the thread cannot be read, and with "not_found: …" for a thread no identity of the scope
+  holds, where both were "ownermcp: no such thread".
+- The owner MCP's `wait_for_updates`, `digest`, `list_integrations` and `get_inbox` answer
+  `internal` when a count, a list, a thread or the contact behind a call they read cannot be read.
+  They read each failure as nothing — no integration needing attention, no request or address
+  waiting, a thread's unread 0, a thread's messages skipped, a contact's call skipped as if the
+  contact were removed, nothing exposed — so a wait could park, or move its cursor past a call it
+  never reported, and a digest say all was quiet.
+- `wait_for_updates` ends a wait on what happened since the cursor: a new contact request or
+  agent-answered request, a contact newly held at a new address, an integration newly needing
+  re-authorization, beside moved threads and contacts' calls. It ended every wait at once while any
+  of those queues held anything, so an agent calling it in a loop, as its description says, spun
+  for as long as the queue stood. The counts are reported on every answer as before. [0.1.1]'s
+  entry ("answers when a contact is parked at a new address … or an integration needs
+  re-authorizing") did not say that it answered so on every wait while either stood.
+- An integration whose token stays dead no longer ends every `wait_for_updates`: each health cycle
+  that redials it (every 60 s by default, while no connection stands), each failed reconnect and
+  each refused call that found it in `auth_error` again fired the change feed's attention event
+  and wrote another `integration_auth` audit row, so a wait parked over it answered within a cycle.
+  Only the move into `auth_error` fires the event and writes the row now, after the status is
+  written; the entry above's "newly needing re-authorization" was not true of the node until this
+  change.
+- Every argument refusal of the owner MCP is a coded tool error audited `refused`: `remove_passkey`
+  ("id is required"; the last passkey), `set_exposure` ("integration_id is required"),
+  `add_contact` ("give exactly one of invite_url or card", where it said "not both" for neither
+  too) and `answer_request` with dispatch off (`unavailable`) answered results not marked as
+  errors, audited `ok`; `rename_contact` over the name limit and `set_trust_flag` with a bad value
+  answered a bare error with no code. [0.1.5]'s entry said `add_contact` and `set_exposure` answer
+  their failures as `IsError` results audited `refused`; that was true of the failures of their
+  work, not of these argument refusals.
+- The portal's `POST /integrations/{id}/reconfirm` answers an integration with nothing published,
+  or with no catalogue snapshot, 409 with the node's sentence ("integrations: nothing published to
+  reconfirm"), as its README says; it answered 404, the answer for an integration not on the
+  account.
+- A catalogue refresh whose integration does not answer its tool list is `unavailable` with the
+  node's sentence ("integrations: <name> did not answer its tool list"; 502 on the portal's
+  `POST /integrations/{id}/refresh`); it was a failure of the node (500).
+- The portal's routes that name an integration answer a read of it that failed 500 with the fixed
+  phrase, where they answered 404, the answer for an integration not on the account. The
+  portal's README said removing another account's integration was 403; it is 404, as for any
+  integration the account does not hold.
+- A portal action refused `too_large` answers 413, as `POST /thread/delete` does for a `thread_id`
+  over 64 bytes; `pageStatus` answered it 400, so a file over the identity's storage quota on
+  `POST /messages/send_media` was 400.
+- The portal's Identity page, the Settings page's pairing selector and storage rows, and the
+  owners page's token scopes list the identities the signed-in owner administers, as the switcher
+  does; they listed every identity on the node, so one with no membership showed there and every
+  action on it answered 404. When the identities or the memberships cannot be read, the three pages
+  answer 500, where Settings and owners showed no identities.
+- The owners page answers 500 when its passkeys or tokens cannot be read, and the Settings page
+  when its stored values, adapter credentials, pairings or presets cannot be read, to a GET or a
+  HEAD; each read was dropped, so a failed one rendered as nothing registered, stored or paired. A
+  post to either page, which answers with that state, answers such a read failing after it with
+  its own status and notice, `new_token` for a token create, and `page_error` `"store"` in place
+  of the lists, so a token's one appearance and a trust-on-first-use pairing's ingress key are not
+  lost; the portal shows the notice, and the token, with the page as it was, except that the
+  Settings page's preset grid applies a preset save or delete the node confirmed. Selecting an
+  ingress tunnel when the pairings cannot be read answers the store's failure, 500 (with
+  `page_error` `"store"` when the page cannot be read after it either), saves nothing and audits
+  `settings_save` `error`; the failed read was taken as no pairing, a 200 telling the owner to
+  pair first.
+- A Settings save stores every knob the form submits or none. Each knob was checked and saved in
+  turn, and the portal posts `public_url` (saved first) beside the tunnel, so a refusal of a later
+  knob (a value the validator refused, an ingress tunnel not paired, the pairings that could not
+  be read) left the earlier ones saved, with the refusal the only audit row; the entry above's
+  "saves nothing" was not true of that form. Every knob is now checked before any is written, and
+  they are written in one transaction, so a failed write stores none either. A knob stored and not
+  applied to the running node (its apply failed after the commit) no longer stops the others: each
+  is applied and announced to the node's other processes, and the portal answers "Saved <knobs>;
+  could not apply <knob>: <sentence>.", audited `settings_save` `ok` and `settings_apply` `error`.
+  The first failure ended the save there: the knobs after it were stored and never applied or
+  announced, so no other process took them either, and the portal answered "could not save …",
+  audited `error`, of knobs it had stored.
+- The portal's `GET /api/card` answers a card whose signature could not be made 500
+  `card_unavailable` (404 `no_card` when the identity is not there to sign it); the failure was
+  dropped and the card answered 200 with an empty `sig`.
+- The portal's `POST /contacts/{fpr}/remove` removes nothing when the contact cannot be read, and
+  answers the failure (`err`, one `contact_remove` `error` row). The read, made for the notice, was
+  dropped: the contact was removed on it, and a peer that could not be told was reported "Removed."
+- The portal's exposure picker (`GET /api/integrations/{id}/exposure`, `POST
+  /integrations/{id}/exposure`) answers a catalogue or an exposure set that could not be read, or a
+  catalogue whose stored tool list does not parse, 500 and publishes nothing. A failed exposure read
+  was dropped, so the picker showed nothing exposed; a failed or unparseable catalogue was 409, the
+  answer for an integration with no snapshot, which stays 409.
 - `THIRD_PARTY_NOTICES` covers every platform a release ships. It was made from one `go list
   -deps` for the host (macOS), so it lacked the eight modules only the Linux binaries link
   (`github.com/vishvananda/netlink`, `vishvananda/netns`, `mdlayher/netlink`, `mdlayher/socket`,
@@ -87,6 +186,15 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- A pairing from the portal whose public URL the running node could not take (its apply failed
+  after the ten rows were stored) answers "Paired as <name> over <adapter>; could not apply
+  public_url: <sentence>. Restart the node to serve there." with `error` set and 200, audited
+  `ingress_pair` `paired` beside `settings_apply keys:public_url` `error`. It answered "pairing
+  refused" with the rows stored, the adapter selected and the one-time token spent, and wrote no
+  `ingress_pair` row.
+- A storage save from the portal (`POST /settings/storage`) stores its three rows (the quota, the
+  retention window and the request expiry) in one transaction. They were written one at a time,
+  so a write that failed part-way left the earlier rows saved under a "could not save" answer.
 - An import that cannot read whether a contact is held fails and writes nothing. A failed read was
   taken for "not held": the file's contact was imported over whatever the store held, and a
   removed thread's root was labelled not a contact here.
@@ -118,8 +226,17 @@ changelog can be and is not summarized into a fictional release history.
   `bad_request` "the ingress did not pair this node". Unpairing an adapter whose stored selection
   could not be read is a failure of the node and deletes nothing, where the failed read was taken
   for "not selected" and the pairing the next start would boot with was deleted. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
-  its code reads (404, 409, 400, 502 for an ingress not reached, or 500 for a failure of the node) beside the page's state, where
-  every refusal was a 200 with `error` set (a pairing form missing a field still is).
+  its code reads (404, 409, 400, 502 for an ingress not reached, or 500 for a failure of the node) beside the page's state (or
+  `page_error`, when the page cannot be read), where every refusal was a 200 with `error` set (a pairing form missing a field still is).
+- A portal pairing that names no account pairs the node's sole account only when the signed-in
+  owner administers it, as `accountMiddleware` resolves it for the request; on a node with one
+  account that the owner does not administer it is refused `not_found` ("unknown account") and
+  audited `ingress_pair` `not_found` under the pairing URL. It paired the sole account for any
+  signed-in owner. On a node with several accounts it is still `bad_request` ("this node has
+  several identities — choose which one to pair"), and on one with none `bad_request` ("create an
+  account before pairing"); neither is audited. A pairing naming an account the owner does not
+  administer, held by the node or not, is 404 before it reaches the pairing, at account
+  resolution, audited `portal_request` `refused`.
 - `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
   the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),
   on both of its paths, and audits it `rate_limited`. It was told as a peer that could not be

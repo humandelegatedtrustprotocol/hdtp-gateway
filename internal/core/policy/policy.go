@@ -6,6 +6,7 @@
 package policy
 
 import (
+	"context"
 	"fmt"
 
 	cedar "github.com/cedar-policy/cedar-go"
@@ -133,6 +134,40 @@ func callerID(c Caller) string {
 type OwnerCtx struct {
 	OwnerID       string
 	AdminAccounts []string
+}
+
+// Membership is one of an owner's memberships, as OwnerScope reads it: the account and the role.
+type Membership struct {
+	AccountID string
+	Role      string
+}
+
+// MembershipLister lists an owner's memberships. It is the one thing OwnerScope reads, so this
+// package imports no store; internal/internalui/auth.Memberships adapts the node's store to it.
+type MembershipLister interface {
+	OwnerMemberships(ctx context.Context, ownerID string) ([]Membership, error)
+}
+
+// OwnerScope is the OwnerCtx every owner door decides with: the accounts where ownerID holds the
+// admin role, narrowed to narrowTo when it is not "" (an owner token minted for one account). An
+// owner with no id administers nothing and nothing is listed. A list that could not be read is an
+// error, never an empty scope.
+func OwnerScope(ctx context.Context, list MembershipLister, ownerID, narrowTo string) (OwnerCtx, error) {
+	if ownerID == "" {
+		return OwnerCtx{}, nil
+	}
+	ms, err := list.OwnerMemberships(ctx, ownerID)
+	if err != nil {
+		return OwnerCtx{}, err
+	}
+	var accts []string
+	for _, m := range ms {
+		if m.Role != "admin" || (narrowTo != "" && m.AccountID != narrowTo) {
+			continue
+		}
+		accts = append(accts, m.AccountID)
+	}
+	return OwnerCtx{OwnerID: ownerID, AdminAccounts: accts}, nil
 }
 
 // AllowOwnerManage reports whether the owner may manage accountID: true only when accountID is one

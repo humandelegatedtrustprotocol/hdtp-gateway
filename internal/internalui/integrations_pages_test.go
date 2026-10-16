@@ -254,6 +254,64 @@ func TestExposingDestructiveToolNeedsRecordedAck(t *testing.T) {
 	}
 }
 
+// A refresh whose upstream does not answer its tool list is 502 with the node's sentence and none of
+// the failure's text: it was 500, "a failure of the node". The control, the upstream answering, is a
+// redirect.
+func TestARefreshTheUpstreamDoesNotAnswerIs502(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "up", Version: "0"}, nil)
+	srv.AddTool(&mcp.Tool{Name: "ping_me", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{}, nil
+		})
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
+	var down sync.Mutex
+	isDown := false
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		down.Lock()
+		d := isDown
+		down.Unlock()
+		if d {
+			http.Error(w, "upstream canary text", http.StatusServiceUnavailable)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+	defer hs.Close()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "rf.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	in, _ := st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "up", Transport: "streamable-http", Endpoint: hs.URL})
+	m := &integrations.Manager{Store: st, PingEvery: -1}
+	defer func() { _ = m.Disconnect(context.Background(), in.ID) }()
+	if err := m.Connect(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t),
+		Store: st, Manager: m, Connector: &integrations.Connector{},
+		Exposures: &integrations.Exposures{Store: st},
+		Cataloger: &integrations.Cataloger{Store: st, Manager: m},
+	})
+	if rr := postForm(t, mux, "/integrations/"+in.ID+"/refresh?account="+a.ID, url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+	down.Lock()
+	isDown = true
+	down.Unlock()
+	rr := postForm(t, mux, "/integrations/"+in.ID+"/refresh?account="+a.ID, url.Values{})
+	if body := rr.Body.String(); rr.Code != http.StatusBadGateway || !strings.Contains(body, "integrations: up did not answer its tool list") ||
+		strings.Contains(body, "canary") || strings.Contains(body, "503") {
+		t.Fatalf("an upstream that does not answer: %d %s, want 502 with the node's sentence", rr.Code, body)
+	}
+}
+
 func TestManualRefreshRouteSnapshotsCatalog(t *testing.T) {
 	// a real (tiny) MCP upstream so the manager can connect and list tools
 	srv := mcp.NewServer(&mcp.Implementation{Name: "up", Version: "0"}, nil)
@@ -341,6 +399,25 @@ func TestPickerShowsStaleAndReconfirmRestores(t *testing.T) {
 	active, _ := exps.ActiveEntries(ctx, in.ID)
 	if len(active) != 1 || active[0].ConfirmedHash != "h-read-2" {
 		t.Fatalf("reconfirm did not restore: %+v", active)
+	}
+}
+
+// A reconfirm of an integration with nothing published is 409, as the README says, with the node's
+// sentence: it answered 404, the answer for an integration not on the account. The control, a
+// reconfirm of a published set, redirects back to the picker.
+func TestAReconfirmWithNothingPublishedIsAConflict(t *testing.T) {
+	mux, st, _, in := pickerEnv(t)
+	ctx := context.Background()
+	rr := postForm(t, mux, "/integrations/"+in.ID+"/reconfirm?account="+in.AccountID, url.Values{})
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "nothing published to reconfirm") {
+		t.Fatalf("reconfirm with nothing published: %d %s, want 409", rr.Code, rr.Body.String())
+	}
+	exps := &integrations.Exposures{Store: st}
+	if _, err := exps.Publish(ctx, in.ID, []integrations.ExposureEntry{{Tool: "get_freebusy", Mode: integrations.ModePassthrough}}); err != nil {
+		t.Fatal(err)
+	}
+	if rr := postForm(t, mux, "/integrations/"+in.ID+"/reconfirm?account="+in.AccountID, url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("the control: %d %s", rr.Code, rr.Body.String())
 	}
 }
 

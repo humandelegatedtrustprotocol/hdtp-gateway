@@ -63,7 +63,7 @@ Registered always (`NewServerWithExtra`):
 |---|---|
 | `list_accounts` | The account ids this identity administers. |
 | `get_inbox` | Threads of an account with `unread`, `last_at`, `contact_status` (the contact row's status, or `removed` when no row names the thread's fingerprint) and `removed_contact` (the names a removed contact's thread kept; null while the contact is held). |
-| `read_thread` | A thread's messages oldest first, each labelled with the contact's trust flag; marks the thread read through the newest message returned. A `thread_id` of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes, as the tool error's text), and so is the `hdtp://thread/<id>` resource for one. |
+| `read_thread` | A thread's messages oldest first, each labelled with the contact's trust flag; marks the thread read through the newest message returned. A `thread_id` of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes, as the tool error's text), and so is the `hdtp://thread/<id>` resource for one. A thread the identity does not hold is `not_found`, as `delete_thread` answers it. |
 | `delete_thread` | Deletes one thread of an account here only, through `messaging.Service.DeleteThread` (the portal's `POST /thread/delete`): `{status: "deleted", thread_id, contact, messages, files}`; `bad_request` for an id of neither form of HDTP §7, the empty one included, `too_large` for one over 64 bytes, `not_found` for a thread the account does not hold. Writes one `thread_delete` row under `account:<id> contact:<fpr> thread_id:<id>` with the counts (a refusal names the id only when it is of a form, `thread_id:neither_form` otherwise). Acts at once, as every owner MCP tool does. |
 | `send_to_contact` | Sends a message as sender `agent` (origin fixed to the owner MCP, never a parameter), through `Deps.Send` or, with none, records only. `thread_id` empty starts a thread; one of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes) and nothing is recorded; `topic` is for a new thread. |
 | `list_contacts` | Contacts as `contactView` (named fields only); a waiting request carries `address_claim` when its address belongs, or lately belonged, to another contact. |
@@ -95,7 +95,7 @@ Registered by `AddWatchTools`:
 
 | Tool | Contract |
 |---|---|
-| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on a moved thread, a contact's call, a waiting contact request, an open agent-answered request, a contact held at a new address, an integration needing re-authorization (`needs_attention`) or an expired cursor. |
+| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on what happened since the cursor — a moved thread, a contact's call, a new contact request, a new agent-answered request, a contact newly held at a new address, an integration newly needing re-authorization (`needs_attention`) — or on an expired cursor; the three counts and `needs_attention` are reported on every answer, and a queue that holds what it held at the cursor does not end a wait. BatonDeck's `hasNews` ends a wait on new threads, calls, contact requests and agent-answered requests only: there, an integration newly needing re-authorization never ends one, and its change feed (`identity/watch.ts`) carries no held-address count. |
 | `digest` | Per contact in a window (default the last 24 hours): messages in and out, unread, whether their word was last, plus the three queue counts. |
 
 Resources: `hdtp://inbox` (unread count per administered account), `hdtp://requests` (contacts in
@@ -104,9 +104,8 @@ template `hdtp://thread/{id}` (one thread and its messages, found among the admi
 
 ## What it refuses, and how
 
-Three shapes of refusal exist; a caller must not treat them alike.
-
-1. Tool error with a code (`IsError` true). `deny()` answers `{"code":"permission_denied"}` when
+Every refusal is a tool error with a code (`IsError` true), and the audit middleware records its
+`owner_mcp_call` row `refused`. `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). Every other failure of a tool's work is answered by
    `refused(err)` as `{"code","detail"}`, read by `refusal.Of` (`internal/refusal`, whose README
@@ -115,12 +114,16 @@ Three shapes of refusal exist; a caller must not treat them alike.
    not write reaches the caller, and the portal's pages show the same detail. `send_to_contact`
    answers a message recorded and not delivered with the recorded result (`ThreadID`, `Status`
    `pending`) beside `unavailable` and "recorded, not delivered: <why>". A resource read whose scope,
-   or a thread's messages, could not be read fails with "<code>: <detail>" from `refusal.Of`
-   (`resourceFailure`). Also: `create_invite` answers `unavailable` when the
+   any list or count it reads, or a thread's messages, could not be read fails with
+   "<code>: <detail>" from `refusal.Of` (`resourceFailure`), never with what it could read of the
+   rest; a thread no identity of the scope holds fails `not_found`. Also: `create_invite` answers `unavailable` when the
    node has no public address ("set public_url") and mints nothing; `revoke_invite` answers
    `not_found` only for a missing or spent invite (a store failure is `internal`); `delete_thread`
    answers `{"code"}` `bad_request`, `not_found` or `internal`; `wait_for_updates` answers
-   `bad_request` for a `timeout_sec` outside 1 to 25. `call_contact` answers `{"code","detail"}`
+   `bad_request` for a `timeout_sec` outside 1 to 25; it and `digest` answer `internal` when a
+   count, a list or a thread they read cannot be read (a thread deleted since the change is passed
+   over; a contact row that cannot be read labels its thread `messages_only`, the lowest grant), and
+   `list_integrations` answers `internal` when an integration's exposure set cannot be read. `call_contact` answers `{"code","detail"}`
    with one fixed detail per code: `bad_request` for an empty contact or tool; `not_found` for a
    contact the account does not hold and `conflict` for one that is not active; `envelope_invalid`
    when the contact's answer is not an envelope, did not verify, or carried a
@@ -128,15 +131,13 @@ Three shapes of refusal exist; a caller must not treat them alike.
    `refresh_contact` answers a refresh that could not be attempted `not_found`, `conflict` or
    `internal`, each with a fixed detail. The call's one `call_contact` audit row is
    `node.CallContact`'s; this door writes only its `owner_mcp_call` row. `answer_request` answers
-   another account's request id as one that names nothing (`not_found`).
-2. A result that carries a code but is not marked an error (`IsError` false): `remove_passkey` (`bad_request` for an empty id and for the
-   last passkey), `set_exposure` (`bad_request` for an empty integration id), `add_contact`
-   (`bad_request` for both or neither of `invite_url` and `card`), and `answer_request` when
-   dispatch is not enabled (`{"error":"agent-answered dispatch is not enabled"}`). The audit
-   middleware records these as `ok`, because it reads only `IsError`.
-3. A returned error (no code), whose text the SDK sends as the result: `rename_contact` over the
-   display-name limit (`contacts.MaxDisplayName`) and `set_trust_flag` with a value other than the
-   two (`bad_request: trust must be messages_only|may_instruct`). Both texts are fixed sentences.
+   another account's request id as one that names nothing (`not_found`), and `unavailable` "agent-answered
+   dispatch is not enabled" when it is not. The argument refusals are `bad_request` with the node's
+   sentence: `remove_passkey` "id is required" and, for the last passkey, "that is the only passkey
+   registered; register another before removing it"; `set_exposure` "integration_id is required";
+   `add_contact` "give exactly one of invite_url or card"; `rename_contact` "petname over 64
+   characters" (`contacts.MaxDisplayName`); `set_trust_flag` "trust must be
+   messages_only|may_instruct".
 
 Account scope is not checked per account by `list_accounts` (it is the scope), `list_passkeys` and
 `remove_passkey`. The two passkey tools are node-level: they require an identity without a narrowing

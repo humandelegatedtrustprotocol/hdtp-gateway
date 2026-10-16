@@ -23,8 +23,9 @@ import (
 	"strings"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
-
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/policy"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 )
 
 // accountMiddleware fills in the account a page acts on when the request names
@@ -138,16 +139,11 @@ func soleAccountID(ctx context.Context, st store.AccountStore) string {
 	return accounts[0].ID
 }
 
-// ownerAdmins reports whether the request may act on this account.
+// ownerAdmins reports whether the request may act on this account: policy.AllowOwnerManage over
+// the owner's scope (policy.OwnerScope), the decision the owner MCP makes on every tool.
 //
-// SPEC §3.3 makes owner→account a MEMBERSHIP, and the owner MCP enforces it on
-// every tool via policy.AllowOwnerManage. The portal enforced nothing: it took
-// `account` from the query string or the form body and handed it straight to the
-// store, so the only thing standing between a signed-in owner and another owner's
-// identity was that v1 happens to create exactly one owner (passkeys.go joins the
-// existing owner rather than creating a second). That is a property of today's
-// registration flow, not an access-control decision, and it is not what the
-// memberships table is for.
+// SPEC §3.3 makes owner→account a MEMBERSHIP. The portal once enforced nothing: it took
+// `account` from the query string or the form body and handed it straight to the store.
 //
 // There is no loopback carve-out: §8.3 requires a session on every bind, so a
 // request with no owner is never entitled to an account.
@@ -161,11 +157,11 @@ func ownerAdmins(r *http.Request, st store.OwnerStore, accountID string) bool {
 		// account — or a bug. Both fail closed.
 		return false
 	}
-	admins, err := administered(r.Context(), st, owner)
+	sc, err := policy.OwnerScope(r.Context(), auth.Memberships{Store: st}, owner, "")
 	if err != nil {
 		return false // fail closed: an unreadable membership list is not a grant
 	}
-	return admins[accountID]
+	return policy.AllowOwnerManage(sc, accountID)
 }
 
 // administered is the set of accounts an owner administers, by id: the membership rule above, read
@@ -175,21 +171,36 @@ func ownerAdmins(r *http.Request, st store.OwnerStore, accountID string) bool {
 // membership list is an error, never an empty set: "you hold nothing" is a claim the page would
 // then make on the store's behalf.
 func administered(ctx context.Context, st store.OwnerStore, owner string) (map[string]bool, error) {
-	out := map[string]bool{}
-	if owner == "" {
-		return out, nil
-	}
-	ms, err := st.ListMembershipsByOwner(ctx, owner)
+	sc, err := policy.OwnerScope(ctx, auth.Memberships{Store: st}, owner, "")
 	if err != nil {
 		return nil, err
 	}
-	for _, m := range ms {
-		if m.Role == "admin" {
-			out[m.AccountID] = true
+	out := make(map[string]bool, len(sc.AdminAccounts))
+	for _, id := range sc.AdminAccounts {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// administeredOnly is list held to the accounts the owner administers (administered), in its order:
+// a page that lists identities shows the switcher's set, never every account on the node. id names
+// an element's account. An unreadable membership list is an error, as administered's is.
+func administeredOnly[T any](ctx context.Context, st store.OwnerStore, owner string, list []T, id func(T) string) ([]T, error) {
+	admins, err := administered(ctx, st, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]T, 0, len(list))
+	for _, x := range list {
+		if admins[id(x)] {
+			out = append(out, x)
 		}
 	}
 	return out, nil
 }
+
+// accountID is an account's id, administeredOnly's id for a list of accounts.
+func accountID(a store.Account) string { return a.ID }
 
 // accountParam is the account a request names in its `account` query parameter, "" when it
 // names none (accountMiddleware fills it in when the request named none and the answer is

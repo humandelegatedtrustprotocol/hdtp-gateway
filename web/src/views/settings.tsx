@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PresetGrid, usePresetAutosave, type GridRow } from "../preset_grid";
 import { presetColumns } from "../presets";
-import { csrf, currentAccount, failureOf, getJSON } from "../api";
+import { csrf, currentAccount, failureOf, getJSON, unreadPage } from "../api";
 import { Actions, Badge, Button, CsrfFields, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, permLabel } from "../ui";
 
 type SettingRow = {
@@ -19,7 +19,15 @@ type Data = {
   reach: SettingRow[] | null; security: SettingRow[] | null;
   adapter_settings: AdapterSetting[] | null; adapters: string[] | null;
   show_probe: boolean; probe_verdict: string; probe_detail: string;
+  // Set when the node did the write but could not read the page back; the answer then carries only
+  // notice, error and the probe's verdict.
+  page_error?: string;
 };
+
+/** The page on screen with a write's answer the node could not read the page after. */
+function withUnread(d: Data, j: Pick<Data, "notice" | "error" | "probe_verdict" | "probe_detail">): Data {
+  return { ...d, notice: unreadPage(j.notice), error: j.error, probe_verdict: j.probe_verdict, probe_detail: j.probe_detail, page_error: "store" };
+}
 
 export function Settings() {
   const [d, setD] = useState<Data | null>(null);
@@ -32,7 +40,7 @@ export function Settings() {
   // Settings posts itself: the knob KEYS are the field names, and unchecked
   // bools must still submit (the handler treats presence as the signal for
   // non-bools and reads bools directly), so a plain form mirrors the old page.
-  const submitForm = async (form: HTMLFormElement, path: string): Promise<Data | null> => {
+  const submitForm = async (form: HTMLFormElement, path: string): Promise<void> => {
     const body = new URLSearchParams();
     for (const [k, v] of new FormData(form).entries()) body.append(k, String(v));
     const r = await fetch(path, {
@@ -42,16 +50,21 @@ export function Settings() {
     });
     try {
       const j = (await r.json()) as Data;
-      if (j && j.reach !== undefined) { setD(j); return j; }
+      if (j && j.page_error) {
+        // Answered (a pairing's one-time token may be spent), but the page was not read: keep the
+        // one on screen when the answer arrives and say what the post answered.
+        setD((prev) => prev && withUnread(prev, j));
+        return;
+      }
+      if (j && j.reach !== undefined) { setD(j); return; }
     } catch { /* fall through */ }
     load();
-    return null;
   };
 
   return (
     <main>
       {header}
-      {d.notice && <Notice kind={d.error ? "err" : "ok"}>{d.notice}</Notice>}
+      {d.notice && <Notice kind={d.error ? "err" : d.page_error ? "warn" : "ok"}>{d.notice}</Notice>}
       {d.probe_verdict && (
         <Notice kind={d.probe_verdict === "ok" ? "ok" : "warn"}>
           Probe: {d.probe_verdict}{d.probe_detail && <> — {d.probe_detail}</>}
@@ -89,7 +102,7 @@ export function Settings() {
         </Section>
       )}
 
-      {d.show_presets && <Presets d={d} onSaved={setD} />}
+      {d.show_presets && <Presets d={d} onSaved={(update) => setD((prev) => prev && update(prev))} />}
     </main>
   );
 }
@@ -155,36 +168,40 @@ type PresetRow = { name: string; perms: string[] };
 // Delete says so at the top of this section.
 const NEW = "New preset";
 
-function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
+function Presets({ d, onSaved }: { d: Data; onSaved: (update: (prev: Data) => Data) => void }) {
   const presets = d.presets ?? [];
   const columns = presetColumns(d.preset_perms ?? [], presets);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [failed, setFailed] = useState("");
-  // The node answers a settings post with the page's data, `error` set when it refused.
-  const post = async (path: string, body: URLSearchParams): Promise<{ page: Data | null; say: string }> => {
+  // The node answers a settings post with the page's data, `error` set when it refused (its notice
+  // says why, with or without the page). A write it did whose page it could not read back
+  // (`page_error`) is applied by `done` to the presets on screen when the answer arrives, not to
+  // those of when the save began, which a save answered in between has replaced.
+  const post = async (path: string, body: URLSearchParams, done: (ps: PresetRow[]) => PresetRow[]): Promise<{ update: ((prev: Data) => Data) | null; say: string }> => {
     try {
       const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
-      let page: Data | null = null;
-      try {
-        const j = (await r.json()) as Data;
-        if (j && j.reach !== undefined) page = j;
-      } catch { /* not the page's answer */ }
-      if (r.ok && page && !page.error) return { page, say: "" };
-      return { page: null, say: page?.error ? page.notice : r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
+      let j: Data | null = null;
+      try { j = (await r.json()) as Data; } catch { /* not the page's answer */ }
+      const a = j;
+      if (a && a.error === true) return { update: null, say: a.notice };
+      if (r.ok && a && a.page_error) return { update: (prev) => ({ ...withUnread(prev, a), presets: done(prev.presets ?? []) }), say: "" };
+      if (r.ok && a && a.reach !== undefined) return { update: () => a, say: "" };
+      return { update: null, say: r.ok ? "its answer could not be read" : `the node answered ${r.status}` };
     } catch {
-      return { page: null, say: "the node could not be reached" };
+      return { update: null, say: "the node could not be reached" };
     }
   };
   const put = (name: string, perms: readonly string[]) => {
     const body = new URLSearchParams({ csrf: csrf(), name });
     for (const p of perms) body.append("perm", p);
-    return post("/settings/presets", body);
+    const saved = { name, perms: [...perms] };
+    return post("/settings/presets", body, (ps) => ps.some((p) => p.name === name) ? ps.map((p) => (p.name === name ? saved : p)) : [...ps, saved]);
   };
   const rows = usePresetAutosave(presets, async (name, perms) => {
     const a = await put(name, perms);
-    if (!a.page) throw new Error(`Could not save the ${name} preset: ${a.say}.`);
-    onSaved(a.page);
+    if (!a.update) throw new Error(`Could not save the ${name} preset: ${a.say}.`);
+    onSaved(a.update);
   });
   const add = async () => {
     const name = newName.trim();
@@ -192,17 +209,17 @@ function Presets({ d, onSaved }: { d: Data; onSaved: (j: Data) => void }) {
     setFailed("");
     const a = await put(name, rows.perms(NEW));
     setAdding(false);
-    if (!a.page) { setFailed(`Could not add the ${name} preset: ${a.say}.`); return; }
+    if (!a.update) { setFailed(`Could not add the ${name} preset: ${a.say}.`); return; }
     rows.forget(NEW);
     setNewName("");
-    onSaved(a.page);
+    onSaved(a.update);
   };
   const del = async (name: string) => {
     setFailed("");
-    const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }));
-    if (!a.page) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
+    const a = await post(`/settings/presets/${encodeURIComponent(name)}/delete`, new URLSearchParams({ csrf: csrf() }), (ps) => ps.filter((p) => p.name !== name));
+    if (!a.update) { setFailed(`Could not delete the ${name} preset: ${a.say}.`); return; }
     rows.forget(name);
-    onSaved(a.page);
+    onSaved(a.update);
   };
   const grid: GridRow[] = presets.map((p) => ({
     name: p.name, perms: rows.perms(p.name),
@@ -260,7 +277,7 @@ function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
 // is trust-on-first-use: whatever key answers becomes the pinned one, and the
 // node reports it back for you to check against what you were given out of band.
 // Fill it in and a mismatch is refused outright.
-function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: string) => Promise<Data | null> }) {
+function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: string) => Promise<void> }) {
   const paired = Object.entries(d.paired ?? {}).filter(([, v]) => v);
   const many = (d.accounts ?? []).length > 1;
   return (

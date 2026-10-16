@@ -24,8 +24,8 @@ import (
 // OwnersDeps is what Settings · owners needs: the passkeys and bearer tokens it lists, removes,
 // mints and revokes.
 type OwnersDeps struct {
-	// Store supplies the accounts a token can be narrowed to and, with no session, the node's
-	// first owner.
+	// Store supplies the accounts a token can be narrowed to: those the signed-in owner
+	// administers.
 	Store store.Store
 	// Tokens mints, lists and revokes owner-MCP bearer tokens.
 	Tokens *auth.TokenService
@@ -48,13 +48,35 @@ func (d OwnersDeps) audit(action, resource, outcome string) {
 // POST /owners/tokens/create and POST /owners/tokens/{id}/revoke. Every successful answer, and a
 // refused passkey removal, is the page's whole state as JSON.
 func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
-	render := func(w http.ResponseWriter, r *http.Request, notice, newToken string) {
+	render := func(w http.ResponseWriter, r *http.Request, posted bool, notice, newToken string) {
 		var passkeys []auth.PasskeyInfo
+		var err error
 		if d.Passkeys != nil {
-			passkeys, _ = d.Passkeys(r.Context())
+			passkeys, err = d.Passkeys(r.Context())
 		}
-		tokens, _ := d.Tokens.List(r.Context())
-		accts, _ := d.Store.ListAccounts(r.Context())
+		var tokens []auth.TokenInfo
+		if err == nil {
+			tokens, err = d.Tokens.List(r.Context())
+		}
+		var accts []store.Account
+		if err == nil {
+			accts, err = d.Store.ListAccounts(r.Context())
+		}
+		if err == nil {
+			accts, err = administeredOnly(r.Context(), d.Store, OwnerFrom(r.Context()), accts, accountID)
+		}
+		if err != nil {
+			// HEAD shares the GET pattern, so the route says whether it posted.
+			if !posted {
+				// A list that could not be read is not one with nothing in it.
+				apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+				return
+			}
+			// A mutation has happened by now: its answer, and a new token's one appearance, are
+			// kept, and the lists are left out rather than sent empty.
+			apiJSON(w, map[string]any{"page_error": "store", "notice": notice, "new_token": newToken})
+			return
+		}
 		choices := make([]AccountChoice, 0, len(accts))
 		for _, a := range accts {
 			choices = append(choices, AccountChoice{ID: a.ID, Label: a.DisplayName + " (" + a.Slug + ")"})
@@ -72,14 +94,14 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 }
 
 // getAPIOwners serves `GET /api/owners`.
-func (d OwnersDeps) getAPIOwners(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+func (d OwnersDeps) getAPIOwners(render func(w http.ResponseWriter, r *http.Request, posted bool, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "", "")
+		render(w, r, false, "", "")
 	}
 }
 
 // postOwnersPasskeysIDRemove serves `POST /owners/passkeys/{id}/remove`.
-func (d OwnersDeps) postOwnersPasskeysIDRemove(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+func (d OwnersDeps) postOwnersPasskeysIDRemove(render func(w http.ResponseWriter, r *http.Request, posted bool, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if d.Remove == nil {
@@ -93,21 +115,21 @@ func (d OwnersDeps) postOwnersPasskeysIDRemove(render func(w http.ResponseWriter
 		if err := d.Remove(r.Context(), id); err != nil {
 			if errors.Is(err, auth.ErrLastPasskey) {
 				d.audit("passkey_remove", "passkey:"+id, "refused_last")
-				render(w, r, "That is the only passkey registered. Register another before removing it, "+
+				render(w, r, true, "That is the only passkey registered. Register another before removing it, "+
 					"or you would have no way back into this portal.", "")
 				return
 			}
 			d.audit("passkey_remove", "passkey:"+id, "error")
-			render(w, r, "could not remove that passkey", "")
+			render(w, r, true, "could not remove that passkey", "")
 			return
 		}
 		d.audit("passkey_remove", "passkey:"+id, "ok")
-		render(w, r, "Passkey removed.", "")
+		render(w, r, true, "Passkey removed.", "")
 	}
 }
 
 // postOwnersTokensCreate serves `POST /owners/tokens/create`.
-func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r *http.Request, posted bool, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
@@ -116,14 +138,12 @@ func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r 
 		label := strings.TrimSpace(r.PostForm.Get("label"))
 		owner := OwnerFrom(r.Context())
 		if owner == "" {
-			// With no session in the context the token belongs to the node's
-			// first owner; with none registered there is nobody to issue for.
-			owners, err := d.Store.ListOwners(r.Context())
-			if err != nil || len(owners) == 0 {
-				render(w, r, "register a passkey first — a token belongs to an owner", "")
-				return
-			}
-			owner = owners[0].ID
+			// The session gate refuses a mutation with no session before this runs; a mount that
+			// lacks one fails closed, as the audit page does: a token belongs to the owner asking.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"identity_required"}`))
+			return
 		}
 		scope := r.PostForm.Get("account")
 		// A node-wide token has no account; a dangling "account:" prefix would
@@ -137,25 +157,25 @@ func (d OwnersDeps) postOwnersTokensCreate(render func(w http.ResponseWriter, r 
 		plain, id, err := d.Tokens.Create(r.Context(), owner, label, scope)
 		if err != nil {
 			d.audit("token_create", attributed("owner:"+owner), "error")
-			render(w, r, "could not create that token: "+pageError(err), "")
+			render(w, r, true, "could not create that token: "+pageError(err), "")
 			return
 		}
 		// The id is audited; the token itself never is.
 		d.audit("token_create", attributed("token:"+id+" owner:"+owner), "ok")
-		render(w, r, "", plain)
+		render(w, r, true, "", plain)
 	}
 }
 
 // postOwnersTokensIDRevoke serves `POST /owners/tokens/{id}/revoke`.
-func (d OwnersDeps) postOwnersTokensIDRevoke(render func(w http.ResponseWriter, r *http.Request, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
+func (d OwnersDeps) postOwnersTokensIDRevoke(render func(w http.ResponseWriter, r *http.Request, posted bool, notice string, newToken string)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if err := d.Tokens.Revoke(r.Context(), id); err != nil {
 			d.audit("token_revoke", "token:"+id, "error")
-			render(w, r, "could not revoke that token", "")
+			render(w, r, true, "could not revoke that token", "")
 			return
 		}
 		d.audit("token_revoke", "token:"+id, "ok")
-		render(w, r, "Token revoked. Any session using it stops now.", "")
+		render(w, r, true, "Token revoked. Any session using it stops now.", "")
 	}
 }

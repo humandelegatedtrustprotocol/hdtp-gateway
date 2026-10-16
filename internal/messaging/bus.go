@@ -40,7 +40,8 @@ const (
 	// send) — the change feed wakes so the agent can look. Ref names the tool.
 	EventCall EventKind = "call"
 	// EventAttention: a condition only the owner can clear arose — an
-	// integration's token died and needs re-authorizing.
+	// integration's token died and needs re-authorizing. It is published when
+	// the integration moves into auth_error, not again while it stays there.
 	EventAttention EventKind = "attention"
 	// EventAnswered: the owner's agent answered an agent-answered request (Ref names it); the
 	// call holding it, in whichever process, reads the answer from the store (SPEC §6.8).

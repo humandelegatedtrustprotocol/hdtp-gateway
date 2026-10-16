@@ -106,8 +106,8 @@ hdtp-limitd -config limits.json &
 hdtp-gateway serve
 ```
 
-The sidecar does not make the directory: started before it exists, it stops with `listen
-./data/limits.sock: No such file or directory`. These three lines were run as written on
+The sidecar does not make the directory: started before it exists, it stops with `hdtp-limitd:
+listen ./data/limits.sock: No such file or directory (os error 2)`. These three lines were run as written on
 2026-10-16, with a node and a sidecar built from this checkout on the `PATH`, in a directory
 holding only `limits.json` (the node's binds moved off ports already in use there): the node's
 banner said `limits:  data/limits.sock answering`, and `/healthz` on the internal bind answered

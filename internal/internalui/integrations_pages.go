@@ -7,6 +7,7 @@ package internalui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -118,10 +119,15 @@ func MountIntegrationPages(mux *http.ServeMux, d IntegrationsDeps) {
 // row of another account answers as a row that does not exist, since whether that id exists is
 // not this owner's business, and every route that acts on an integration asks here first. The
 // store's account-bound read is what tells the two apart for no door, this one or the owner MCP's.
+// A read that failed is 500 with the fixed phrase, never a 404 for an integration that may exist.
 func (d IntegrationsDeps) integrationOf(w http.ResponseWriter, r *http.Request) (store.Integration, bool) {
 	in, err := d.Store.GetAccountIntegration(r.Context(), accountParam(r), r.PathValue("id"))
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
+		return store.Integration{}, false
+	}
+	if err != nil {
+		http.Error(w, pageError(err), http.StatusInternalServerError)
 		return store.Integration{}, false
 	}
 	return in, true
@@ -347,8 +353,12 @@ func (d IntegrationsDeps) getAPIIntegrationsIDExposure(w http.ResponseWriter, r 
 		return
 	}
 	page, err := d.buildPicker(r, in)
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, `{"error":"no catalog snapshot yet — connect first"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
 		return
 	}
 	apiJSON(w, page)
@@ -366,8 +376,12 @@ func (d IntegrationsDeps) postIntegrationsIDExposure(audit func(action string, r
 			return
 		}
 		page, err := d.buildPicker(r, in)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			http.Error(w, "no catalog snapshot", http.StatusConflict)
+			return
+		}
+		if err != nil {
+			http.Error(w, pageError(err), http.StatusInternalServerError)
 			return
 		}
 		var entries []integrations.ExposureEntry
@@ -483,6 +497,8 @@ type pickerPage struct {
 	HasStale    bool                         `json:"has_stale"`
 }
 
+// buildPicker reads the integration's latest catalog and exposure set; an error wrapping
+// store.ErrNotFound is an integration with no catalog snapshot.
 func (d IntegrationsDeps) buildPicker(r *http.Request, in store.Integration) (pickerPage, error) {
 	cat, err := d.Store.LatestCatalog(r.Context(), in.ID)
 	if err != nil {
@@ -492,7 +508,10 @@ func (d IntegrationsDeps) buildPicker(r *http.Request, in store.Integration) (pi
 	if err := json.Unmarshal([]byte(cat.Tools), &defs); err != nil {
 		return pickerPage{}, err
 	}
-	entries, _ := d.Exposures.AllEntries(r.Context(), in.ID)
+	entries, err := d.Exposures.AllEntries(r.Context(), in.ID)
+	if err != nil {
+		return pickerPage{}, err
+	}
 	exposed := map[string]bool{}
 	for _, en := range entries {
 		exposed[en.Tool] = true

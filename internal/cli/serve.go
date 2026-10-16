@@ -604,7 +604,7 @@ func (s *serveRun) internalSurface() http.Handler {
 		},
 	}
 	identityDeps := internalui.IdentityDeps{
-		Accounts: st.ListAccounts, Audit: s.auditFn, Wallet: wallet,
+		Accounts: st.ListAccounts, Owners: st, Audit: s.auditFn, Wallet: wallet,
 		Certificate: func(ctx context.Context, accountID string) (identity.CertificateInfo, error) {
 			return idm.Certificate(ctx, accountID, time.Now())
 		},

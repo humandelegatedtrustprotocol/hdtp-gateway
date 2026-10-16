@@ -500,8 +500,10 @@ func pageStatus(err error) int {
 		return http.StatusNotFound
 	case "conflict":
 		return http.StatusConflict
-	case "bad_request", "too_large":
+	case "bad_request":
 		return http.StatusBadRequest
+	case "too_large":
+		return http.StatusRequestEntityTooLarge
 	case "payment_required":
 		return http.StatusPaymentRequired
 	case "permission_denied":

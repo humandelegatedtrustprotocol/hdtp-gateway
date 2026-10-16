@@ -125,6 +125,9 @@ func TestAStoreFailureAnswersInternalWithNoStoreText(t *testing.T) {
 		CreatedAt: time.Now().Unix()}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:c", messaging.DirIn, messaging.Input{MsgID: "m1", Text: "hi", Origin: messaging.OriginPeer, Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
 	contact := map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c"}
 	with := func(extra map[string]any) map[string]any {
 		out := map[string]any{}
@@ -143,6 +146,7 @@ func TestAStoreFailureAnswersInternalWithNoStoreText(t *testing.T) {
 	}{
 		{"list_contacts", "ListContacts", account},
 		{"get_inbox", "ListThreadsByAccount", account},
+		{"get_inbox", "UnreadCount", account},
 		{"list_invites", "ListInvites", account},
 		{"rename_contact", "SetContactPetname", with(map[string]any{"petname": "C"})},
 		{"set_trust_flag", "UpdateContactTrust", with(map[string]any{"trust": "messages_only"})},
@@ -355,6 +359,20 @@ func (f *failingStore) ListMembershipsByOwner(ctx context.Context, owner string)
 	return f.Store.ListMembershipsByOwner(ctx, owner)
 }
 
+func (f *failingStore) UnreadCount(ctx context.Context, a, id string) (int64, error) {
+	if err := f.hit("UnreadCount"); err != nil {
+		return 0, err
+	}
+	return f.Store.UnreadCount(ctx, a, id)
+}
+
+func (f *failingStore) GetThread(ctx context.Context, a, id string) (store.Thread, error) {
+	if err := f.hit("GetThread"); err != nil {
+		return store.Thread{}, err
+	}
+	return f.Store.GetThread(ctx, a, id)
+}
+
 func (f *failingStore) ListMessagesByThread(ctx context.Context, a, id string) ([]store.Message, error) {
 	if err := f.hit("ListMessagesByThread"); err != nil {
 		return nil, err
@@ -362,9 +380,11 @@ func (f *failingStore) ListMessagesByThread(ctx context.Context, a, id string) (
 	return f.Store.ListMessagesByThread(ctx, a, id)
 }
 
-// A resource read whose scope or messages could not be read answers a fixed error, "internal: the
-// node could not complete this", never the store's text: the readers returned the error bare. Each
-// row's control, the same read with nothing failing, gets through.
+// A resource read whose scope, list, count or messages could not be read answers a fixed error,
+// "internal: the node could not complete this", never the store's text: the readers returned the
+// error bare, and the inbox, requests and pending readers skipped a list that failed (an account's
+// unread count read as 0) and answered what was left. Each row's control, the same read with
+// nothing failing, gets through. A thread no administered identity holds is "not_found: …".
 func TestAResourceReadThatFailsCarriesNoStoreText(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -397,6 +417,9 @@ func TestAResourceReadThatFailsCarriesNoStoreText(t *testing.T) {
 		{URIInbox, "ListMembershipsByOwner"}, {URIRequests, "ListMembershipsByOwner"},
 		{URIPending, "ListMembershipsByOwner"}, {thread, "ListMembershipsByOwner"},
 		{thread, "ListMessagesByThread"},
+		{URIInbox, "ListThreadsByAccount"}, {URIInbox, "UnreadCount"},
+		{URIRequests, "ListContacts"}, {URIPending, "ListOpenPendingRequests"},
+		{thread, "GetThread"},
 	} {
 		_, fs, err := read(c.method, c.uri)
 		if !fs.called[c.method] {
@@ -409,6 +432,9 @@ func TestAResourceReadThatFailsCarriesNoStoreText(t *testing.T) {
 		if text, _, err := read("", c.uri); err != nil || text == "" {
 			t.Errorf("%s, the control: %v", c.uri, err)
 		}
+	}
+	if _, _, err := read("", URIThreadPrefix+"nosuchthread"); err == nil || !strings.Contains(err.Error(), "not_found: "+refusal.NotFoundDetail) {
+		t.Errorf("a thread nobody holds: %v, want not_found", err)
 	}
 }
 

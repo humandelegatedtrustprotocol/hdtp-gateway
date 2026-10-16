@@ -38,14 +38,18 @@ func ownerExtra(nd *node.Node, st store.Store, authSvc *auth.Service, chain *int
 				v := ownermcp.IntegrationView{ID: in.ID, Slug: in.Slug, Status: in.Status, Auth: in.AuthKind}
 				// What is EXPOSED, not what the upstream offers: an agent has no
 				// business seeing a catalog the owner has not published (§6).
-				if entries, err := chain.Exposures.AllEntries(ctx, in.ID); err == nil {
-					for _, en := range entries {
-						if en.Stale {
-							v.Stale = append(v.Stale, en.ExposedName)
-							continue
-						}
-						v.Exposed = append(v.Exposed, en.ExposedName)
+				// An integration with nothing published has no entries (AllEntries); a set that
+				// could not be read is an error, never "nothing exposed".
+				entries, err := chain.Exposures.AllEntries(ctx, in.ID)
+				if err != nil {
+					return nil, err
+				}
+				for _, en := range entries {
+					if en.Stale {
+						v.Stale = append(v.Stale, en.ExposedName)
+						continue
 					}
+					v.Exposed = append(v.Exposed, en.ExposedName)
 				}
 				out = append(out, v)
 			}
