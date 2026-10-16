@@ -8,11 +8,14 @@ package public
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // refusedRateLimited holds an answer to be the sealed rate_limited a budget refusal is.
@@ -115,5 +118,33 @@ func TestAnOverBudgetCallFromANewAddressParksNothing(t *testing.T) {
 	s.call(t, env, TransportFacts{})
 	if pa, err := s.st.GetPendingAddress(ctx, s.acct.ID, p.fpr()); err != nil || pa.Endpoint != endpointA2 || len(pendings) != 1 {
 		t.Fatalf("the call the budget took did not park its address: %+v %v (told %v)", pa, err, pendings)
+	}
+}
+
+// failingRepin is a contact store whose pin will not move.
+type failingRepin struct{ store.ContactStore }
+
+func (failingRepin) RepinContactAddress(context.Context, string, string, string, []byte, []byte, int64) error {
+	return errors.New("the pin did not move")
+}
+
+// A move the open decided that cannot be recorded refuses the call envelope_invalid — sealed, since
+// the envelope is open by then (HDTP §13.2) — with one row, and nothing is dispatched.
+func TestAMoveThatCannotBeRecordedIsRefusedSealed(t *testing.T) {
+	s := newSealedEnv(t)
+	p := newPeer(t, s.nowAt.Add(-time.Hour))
+	s.pin(t, p, "active")
+	var rows []string
+	s.deps.AuditAs = func(kind, action, resource, outcome string) { rows = append(rows, action+" "+outcome) }
+	s.id.Store = failingRepin{s.id.Store}
+	newer := &peer{root: p.root, host: p.host}
+	newer.leaf = newer.leafFor(t, endpointA, s.nowAt.Add(-30*time.Minute))
+	res := s.call(t, s.sealFrom(t, newer, "chain", "send_message", map[string]any{"text": "hi"}), TransportFacts{})
+	_, errObj := s.openedWith(t, res, newer, msgIDFor("send_message", "chain"))
+	if string(errObj) != `{"code":"envelope_invalid"}` {
+		t.Fatalf("answered %s, want a sealed envelope_invalid", text(t, res))
+	}
+	if len(rows) != 1 || rows[0] != "sealed_call envelope_invalid" {
+		t.Fatalf("audited %q, want the one sealed_call row", rows)
 	}
 }
