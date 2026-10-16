@@ -37,6 +37,18 @@ changelog can be and is not summarized into a fictional release history.
   `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
   `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
   and was not valid JSON when that text held a quote (a subdomain's name always did).
+- A plaintext `tools/call` with no identity — no chain that validated, no envelope — is answered
+  `identity_required` whatever the tool and whatever the seal policy, and audited as the gate's one
+  `identity_gate` row, as SPEC.md §5.8 says and BatonDeck answers (#170). A tool outside the guest
+  view was answered `blocked_or_unknown`, and under `seal: optional` a guest tool was served.
+- A sealed call is charged before the pin's moves its open decided are applied — a newer leaf, a
+  new address and the former one, an address parked for the owner and the owner's event — so a
+  call the budget refuses changes none of them, as BatonDeck refuses it (#186). They were applied
+  inside the open, before the budget was asked. A replay answered from its record now applies none
+  of them either.
+- A sealed call refused for its `thread_id` checks the tool's permission first: a contact the tool is
+  not granted to is told `permission_denied`, audited as that denial, as over a client certificate
+  and as BatonDeck answers (#139). It was told `bad_request`.
 
 ### Removed
 

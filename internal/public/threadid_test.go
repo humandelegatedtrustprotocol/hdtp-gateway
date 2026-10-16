@@ -102,3 +102,53 @@ func TestASealedThreadIDOfNeitherFormIsRefusedSealedAndRecordsNothing(t *testing
 		t.Fatalf("the renewal was not learned: %v", err)
 	}
 }
+
+// Permission before the thread_id, at both doors (hdtp-gateway #139, the owner's decision): a
+// contact without the tool's scope that sends a bad thread_id is told permission_denied over a
+// client certificate (the tool is not on its surface) and inside an envelope alike, audited as the
+// denial the dispatch writes; a contact with the scope is told the thread_id's refusal. The cloud
+// answers in the same order (go-refusals.json holds both).
+func TestAContactWithoutTheScopeIsRefusedPermissionBeforeItsThreadID(t *testing.T) {
+	s := newSealedEnv(t)
+	var rows []string
+	s.deps.AuditAs = func(kind, action, resource, outcome string) {
+		rows = append(rows, kind+" "+action+" "+resource+" "+outcome)
+	}
+	s.pool.CallAudit = func(kind, action, resource, outcome string) {
+		rows = append(rows, kind+" "+action+" "+resource+" "+outcome)
+	}
+	p := newPeer(t, s.nowAt.Add(-time.Hour))
+	s.pin(t, p, "active") // message.text only; book_slot needs calendar.book
+	args := map[string]any{"msg_id": "b-1", "thread_id": ".", "slot": map[string]any{}}
+
+	res := s.call(t, s.sealFrom(t, p, "chain", "book_slot", args), TransportFacts{})
+	result, errObj := s.opened(t, res, p, "book_slot")
+	var inner mcp.CallToolResult
+	if len(errObj) != 0 || json.Unmarshal(result, &inner) != nil || !inner.IsError || text(t, &inner) != `{"code":"permission_denied"}` {
+		t.Fatalf("sealed: answered %s %s, want a sealed permission_denied", result, errObj)
+	}
+	if want := "contact tools_call caller:" + p.fpr() + " tool:book_slot permission_denied"; len(rows) != 1 || rows[0] != want {
+		t.Fatalf("sealed: audited %q, want the one denial %q", rows, want)
+	}
+
+	rows = nil
+	cs, done := connect(t, s.pool, s.acct.ID, p.fpr(), nil)
+	defer done()
+	plain, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "book_slot", Arguments: args})
+	if err != nil || !plain.IsError || text(t, plain) != `{"code":"permission_denied"}` {
+		t.Fatalf("plaintext: answered %v %v, want permission_denied", plain, err)
+	}
+	if want := "contact tools_call caller:" + p.fpr() + " tool:book_slot permission_denied"; len(rows) != 1 || rows[0] != want {
+		t.Fatalf("plaintext: audited %q, want the one denial %q", rows, want)
+	}
+
+	// The control: granted the scope, the same call is told its thread_id.
+	if err := s.st.UpdateContactPermissions(context.Background(), s.acct.ID, p.fpr(), []string{"message.text", "calendar.book"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	res = s.call(t, s.sealFrom(t, p, "chain", "book_slot", args, func(o *hdtpidentity.SealOpts) { o.MsgID = "m-book_slot-chain-2" }), TransportFacts{})
+	result, errObj = s.openedWith(t, res, p, "m-book_slot-chain-2")
+	if len(errObj) != 0 || json.Unmarshal(result, &inner) != nil || !inner.IsError || text(t, &inner) != `{"code":"bad_request"}` {
+		t.Fatalf("granted: answered %s %s, want a sealed bad_request", result, errObj)
+	}
+}

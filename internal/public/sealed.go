@@ -192,12 +192,28 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		}
 		if facts.Refusal != "" && facts.Tier == policy.TierContact {
 			// A contact's call refused for its thread_id (HDTP §7, decideEnvelope): charged as the
-			// contact's call is, before the dispatch it does not reach, and sealed as a tool error inside
-			// `result`, the answer the same call gets from the tool over a client certificate
-			// (ToolDeps.refuseThreadID). It is not the envelope's recorded answer: nothing is reserved.
+			// contact's call is, before the dispatch it does not reach; then the pin's moves the open
+			// decided; then the tool's permission, as the dispatch checks it, so a contact the tool is
+			// not granted to is told permission_denied, as the same call over a client certificate is
+			// (the tool is not on its surface there), and a bad thread_id cannot tell it the tool is
+			// one it may call. Only then the refusal, sealed as a tool error inside `result`, the answer
+			// the same call gets from the tool over a client certificate (ToolDeps.refuseThreadID). It
+			// is not the envelope's recorded answer: nothing is reserved. The cloud's surface answers
+			// in the same order (go-refusals.json holds the two).
 			if r := d.Pool.spend(WithEnvelopeFacts(ctx, facts)); r != nil {
 				d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, r.Code())
 				return d.sealLimited(ctx, facts, r.Result())
+			}
+			if refused := d.applied(ctx, facts); refused != nil {
+				return refused, nil
+			}
+			denied, err := d.Pool.refusedTool(WithEnvelopeFacts(ctx, facts), d.AccountID, facts.From, toolNameOf(facts.Payload))
+			if err != nil {
+				d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "unavailable")
+				return d.sealLimited(ctx, facts, codeResult("unavailable"))
+			}
+			if denied != nil {
+				return d.sealLimited(ctx, facts, denied)
 			}
 			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From+" why:"+facts.Why, facts.Refusal)
 			return d.sealLimited(ctx, facts, codeResult(facts.Refusal))
@@ -219,6 +235,10 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			// answers pending_approval — nothing runs either way.
 			if limited := spendGuestBudget(WithEnvelopeFacts(ctx, facts), d, ChargeGuest); limited != nil {
 				return d.sealLimited(ctx, facts, limited)
+			}
+			// The address parked for the owner, and the owner told, only for a call the budget took.
+			if refused := d.applied(ctx, facts); refused != nil {
+				return refused, nil
 			}
 			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "pending_new_address")
 			if toolNameOf(facts.Payload) == core.ToolUpdateContact {
@@ -252,6 +272,12 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 			d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, r.Code())
 			return d.sealLimited(ctx, facts, r.Result())
 		}
+		// The pin's moves the open decided — a newer leaf, a new address under `auto`, the former
+		// one — after the budget took the call and before the dispatch, which resolves the caller
+		// from the pin they leave (HDTP §12: an over-budget call changes nothing).
+		if refused := d.applied(ctx, facts); refused != nil {
+			return refused, nil
+		}
 		// Handlers see the envelope's facts exactly as they see transport facts,
 		// so a guest tool can pin the key the envelope proved (§5.3).
 		inner, err := d.Pool.Dispatch(WithEnvelopeFacts(ctx, facts), d.AccountID, facts.From, facts.Payload)
@@ -276,6 +302,18 @@ func sealedHandler(d SealedDeps) mcp.ToolHandler {
 		d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "ok")
 		return d.sealBack(ctx, facts, inner)
 	}
+}
+
+// applied records the pin's moves the open decided (Identifier.applyDecision), or answers the call
+// that could not be recorded: envelope_invalid, the code the open answered it with when the open
+// applied them, sealed now that the envelope is open (HDTP §13.2), and audited as that. nil when the
+// moves are recorded and the call goes on.
+func (d SealedDeps) applied(ctx context.Context, facts *EnvelopeFacts) *mcp.CallToolResult {
+	if err := d.Identifier.applyDecision(ctx, d.AccountID, facts); err != nil {
+		d.audit(actorOf(facts), core.ToolSealedCall, "account:"+d.AccountID+" contact:"+facts.From, "envelope_invalid")
+		return d.sealedCode(ctx, facts, "envelope_invalid")
+	}
+	return nil
 }
 
 // sealLimited seals a refusal as a tool error inside `result`: a budget's, where the client keeps its
@@ -450,9 +488,7 @@ func (p *Pool) Dispatch(ctx context.Context, accountID, fpr string, pay Payload)
 		// A tool the caller may not see is indistinguishable from one that does
 		// not exist (§5.4), and at guest tier that answer is `blocked_or_unknown`
 		// — the same one a blocked caller gets, which is the point.
-		code := refusalCode(caller.Tier)
-		p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+call.Name, code)
-		return json.Marshal(codeResult(code))
+		return json.Marshal(p.denied(caller, fpr, call.Name))
 	default:
 		return nil, fmt.Errorf("%w: inner method %q", envelope.ErrInvalid, pay.Method)
 	}
