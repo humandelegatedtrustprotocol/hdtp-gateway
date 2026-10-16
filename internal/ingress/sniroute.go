@@ -93,8 +93,8 @@ func (d *DataPlane) pluginHandler() http.Handler {
 		case "Login":
 			var c plugin.LoginContent
 			_ = json.Unmarshal(raw, &c)
-			n, ok := d.Registry.ByFingerprint(c.Metas[MetaNode])
-			if !ok || c.Metas[MetaSecret] == "" || c.Metas[MetaSecret] != n.Secret {
+			n, ok := d.Registry.ByCredential(c.Metas[MetaNode], c.Metas[MetaSecret])
+			if !ok {
 				d.audit("ingress_login", "node:"+c.Metas[MetaNode], "rejected")
 				reply(w, plugin.Response{Reject: true, RejectReason: "unknown node or bad secret: pair first"})
 				return
@@ -104,8 +104,8 @@ func (d *DataPlane) pluginHandler() http.Handler {
 		case "NewProxy":
 			var c plugin.NewProxyContent
 			_ = json.Unmarshal(raw, &c)
-			n, ok := d.Registry.ByFingerprint(c.User.Metas[MetaNode])
-			if !ok || c.User.Metas[MetaSecret] != n.Secret {
+			n, ok := d.Registry.ByCredential(c.User.Metas[MetaNode], c.User.Metas[MetaSecret])
+			if !ok {
 				reply(w, plugin.Response{Reject: true, RejectReason: "unpaired node"})
 				return
 			}

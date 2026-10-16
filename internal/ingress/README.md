@@ -5,7 +5,7 @@ The ingress role (SPEC.md §10.6): a public front door that holds DNS and certif
 ## What it holds
 
 Registry and pairing:
-- `Mode` (`ModePassthrough`, `ModeTerminate`), `Node`, `Registry`, `NewMemoryRegistry`, `NewFileRegistry`: the book of paired nodes and single-use pairing tokens; the file registry persists nodes (never tokens) as JSON.
+- `Mode` (`ModePassthrough`, `ModeTerminate`), `Node`, `Registry`, `NewMemoryRegistry`, `NewFileRegistry`: the book of paired nodes and single-use pairing tokens; the file registry persists nodes (never tokens) as JSON. `Registry.ByCredential(fpr, secret)` is the data plane's lookup (the secret compared in constant time; an empty one matches nothing); `Registry.Remove(sub)` forgets a pairing (`ErrNotPaired` when none holds it), which `ingress unpair` calls over the admin socket.
 - `ValidSubdomain`, `InternalName`: one DNS label; and `<sub>.internal.<domain>`, the name a terminate-mode node's reverse tunnel registers.
 - `PairingServer` (`Handler`, `OnPaired`), `PairRequest`, `PairResponse`, `Pair`, `PairError`, `ErrIngressPin`: the pairing endpoint and its node-side client; `ErrSubdomainTaken`, `Put`'s refusal of a subdomain paired to another fingerprint.
 
@@ -39,7 +39,7 @@ The token is consumed before `Put`, so a conflict spends it. `Pair` returns `*Pa
 
 Front door (closes the connection without a reply; audit action `ingress_route`): `bad_hello` (not a TLS handshake record, a record over 16384 bytes, a malformed ClientHello, no SNI, or no hello within 10 seconds), `not_our_domain`, `unpaired`, `terminate_not_configured`, `terminate_unavailable` (the terminator did not take the connection within 5 seconds), `unreachable` (the data plane could not be dialled; the dial timeout is `DialTimeout`, default 10 seconds). An unpaired name is dropped, never answered, so it does not reveal whether it exists.
 
-Data plane plugin: `Login` is rejected unless the metadata names a paired fingerprint and carries that node's secret; `NewProxy` is rejected unless it is one `https` proxy with exactly one custom domain equal (case-insensitively) to `<sub>.<domain>` (passthrough) or `<sub>.internal.<domain>` (terminate). The vhost (SNI-routed) port binds `127.0.0.1` unless `ProxyBindAddr` is set; the control port binds `BindAddr`.
+Data plane plugin: `Login` is rejected unless the metadata names a paired fingerprint and carries the secret of one of its pairings (`ByCredential`), and the node is then known as that pairing; `NewProxy` is rejected unless it is one `https` proxy with exactly one custom domain equal (case-insensitively) to `<sub>.<domain>` (passthrough) or `<sub>.internal.<domain>` (terminate). The vhost (SNI-routed) port binds `127.0.0.1` unless `ProxyBindAddr` is set; the control port binds `BindAddr`.
 
 Terminator: `DialNode` fails if the node serves no certificate or a certificate whose PKIX public key is not byte-equal to `Node.SPKI`. A connection that fails the public handshake or has an SNI outside the domain is closed silently, with no audit row; one naming an unpaired or non-terminate subdomain is closed and audited `ingress_terminate` / `unknown`; a failed onward dial is closed and audited `unavailable`.
 
@@ -57,7 +57,8 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 ## Held by
 
 - `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestATakenSubdomainIsRefusedWithAJSONBodyHoldingTheCode`; `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`PairingServer` calls `OnPaired` after every pairing it records; the test's callback keeps only the terminate-mode ones, and holds that the terminate pairing is announced and the passthrough one is not asked for a certificate); `TestDataPlaneStopRightAfterStart`.
-- `fileregistry_test.go`: `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted); `TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted` (an unwritable book is 503 and the pairing is not routed; a refused takeover leaves a book the next start loads).
+- `ingress_test.go`: `TestANodePairedTwiceIsKnownByTheSecretItPresents` (two pairings of one fingerprint: each secret resolves its own, 400 of 400; a wrong, an empty and a removed secret are refused).
+- `fileregistry_test.go`: `TestARemovedPairingStaysRemovedAcrossARestart` (a removal is written before it is forgotten in memory, and survives a restart); `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted); `TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted` (an unwritable book is 503 and the pairing is not routed; a refused takeover leaves a book the next start loads).
 - `frontdoor_test.go`: `TestOnePortRoutesPassthroughAndTerminateBySNI`; `TestFrontDoorRefusesNonTLS` (calls `peekSNI` on plain HTTP); `TestFrontDoorDropsWhenTheTerminatorIsNotAccepting`; `TestDataPlaneVhostDefaultsToLoopback`.
 - `terminate_test.go`: `TestACMEIssuanceAndRenewalWithPebble`; `TestTerminateModeRoundTripsSealedCallAndRefusesUnpinnedNode` (a sealed call round-trips; `DialNode` refuses a node whose key is not the pinned one; the node refuses a non-ingress client); `TestTerminatePublicTLSAcceptsAClientThatOffersALPN`.
 - The layering rule `TestImportsPointDownTheLayers` in `internal/integrationtest`.
@@ -68,4 +69,5 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 - It holds no certificate for a passthrough subdomain; the command calls `Manage` for the wildcard `*.<domain>` (when a Cloudflare token is set and the wildcard is obtained) or for each terminate-mode name, never for a passthrough one.
 - It does not authenticate a caller or open an envelope. In terminate mode the ingress can read traffic apart from sealed payloads; caller identity comes from the sealed envelope (SPEC.md §10.6).
 - The pairing tokens are in memory: a restart forgets outstanding ones, and `ingress token` mints a new one.
-- `Registry.Put` keys on the subdomain: the same fingerprint may re-pair on the same subdomain, and it replaces the row. A node can hold more than one subdomain; `ByFingerprint` returns only one of them.
+- `Registry.Put` keys on the subdomain: the same fingerprint may re-pair on the same subdomain, and it replaces the row. A node can hold more than one subdomain, each with its own secret.
+- `Remove` does not close a data-plane session the node already opened: its frp login stays up until it reconnects, when `Login` refuses it. It carries nothing meanwhile, because the front door and the terminator look the subdomain up per connection and drop an unpaired one.

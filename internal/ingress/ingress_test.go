@@ -342,3 +342,74 @@ func TestATakenSubdomainIsRefusedWithAJSONBodyHoldingTheCode(t *testing.T) {
 		t.Fatalf("a taken subdomain: %d %v, want 409 {\"code\":\"conflict\"}", status, body)
 	}
 }
+
+// pluginAnswer posts one frps server-plugin call to the data plane's plugin handler and reports
+// whether it was rejected.
+func pluginAnswer(t *testing.T, d *DataPlane, op string, content map[string]any) bool {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"version": "0.1.0", "op": op, "content": content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	d.pluginHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/handler", strings.NewReader(string(b))))
+	var out struct {
+		Reject bool `json:"reject"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("%s: %v: %s", op, err, rec.Body.String())
+	}
+	return out.Reject
+}
+
+// A node paired on two subdomains logs in and opens its proxy as the pairing whose secret it
+// presents. The lookup ranged a map by fingerprint alone and then compared the secret of whichever
+// row it met first, so with two rows a valid credential was refused most of the time. The
+// controls: a wrong secret, an empty one and a removed pairing are refused every time.
+func TestANodePairedTwiceIsKnownByTheSecretItPresents(t *testing.T) {
+	reg := NewMemoryRegistry(nil)
+	for _, n := range []Node{
+		{Fingerprint: "sha256:one-node", Subdomain: "alpha", Mode: ModePassthrough, Secret: "secret-alpha"},
+		{Fingerprint: "sha256:one-node", Subdomain: "beta", Mode: ModePassthrough, Secret: "secret-beta"},
+	} {
+		if err := reg.Put(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := &DataPlane{Registry: reg, Domain: "example.test"}
+	login := func(secret string) map[string]any {
+		return map[string]any{"metas": map[string]string{MetaNode: "sha256:one-node", MetaSecret: secret}}
+	}
+	proxy := func(secret, domain string) map[string]any {
+		return map[string]any{"user": login(secret), "proxy_type": "https", "custom_domains": []string{domain}}
+	}
+	refused := 0
+	for range 200 {
+		if pluginAnswer(t, d, "Login", login("secret-beta")) {
+			refused++
+		}
+		if pluginAnswer(t, d, "NewProxy", proxy("secret-beta", "beta.example.test")) {
+			refused++
+		}
+	}
+	if refused != 0 {
+		t.Errorf("beta's own credential was refused %d of 400 times", refused)
+	}
+	for _, secret := range []string{"wrong", ""} {
+		if !pluginAnswer(t, d, "Login", login(secret)) {
+			t.Errorf("a login with secret %q got through", secret)
+		}
+	}
+	if err := reg.Remove("beta"); err != nil {
+		t.Fatal(err)
+	}
+	if !pluginAnswer(t, d, "Login", login("secret-beta")) {
+		t.Error("a removed pairing still logs in")
+	}
+	if pluginAnswer(t, d, "Login", login("secret-alpha")) {
+		t.Error("removing beta refused alpha")
+	}
+	if err := reg.Remove("beta"); !errors.Is(err, ErrNotPaired) {
+		t.Errorf("removing beta twice: %v, want ErrNotPaired", err)
+	}
+}

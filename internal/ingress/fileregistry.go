@@ -33,8 +33,8 @@ type fileRegistry struct {
 // NewFileRegistry returns a Registry whose pairings survive a restart: it loads the JSON book at
 // path (a missing file is a first run, not an error) and puts each row into an in-memory
 // registry, so a row that fails Put's checks, or a file that does not parse, is an error naming
-// the path. Tokens stay in memory and are never written. Put persists; MintToken, ConsumeToken
-// and the lookups are the in-memory registry's. The file is written 0600, through a temporary
+// the path. Tokens stay in memory and are never written. Put and Remove persist; MintToken,
+// ConsumeToken and the lookups are the in-memory registry's. The file is written 0600, through a temporary
 // file renamed over it, after Put's checks have passed and before the in-memory book changes.
 func NewFileRegistry(path string, now func() time.Time) (Registry, error) {
 	r := &fileRegistry{memRegistry: newMemRegistry(now), path: path}
@@ -68,6 +68,23 @@ func (r *fileRegistry) Put(n Node) error {
 		return err
 	}
 	return r.memRegistry.Put(n)
+}
+
+// Remove writes the book without the subdomain's pairing to disk, and only then forgets it in
+// memory, for the reason Put writes first.
+func (r *fileRegistry) Remove(sub string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memRegistry.mu.Lock()
+	book, held := r.without(sub)
+	r.memRegistry.mu.Unlock()
+	if !held {
+		return ErrNotPaired
+	}
+	if err := writeNodes(r.path, book); err != nil {
+		return err
+	}
+	return r.memRegistry.Remove(sub)
 }
 
 func readNodes(path string) ([]Node, error) {

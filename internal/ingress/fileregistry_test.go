@@ -1,6 +1,7 @@
 package ingress
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func TestPairingsSurviveARestart(t *testing.T) {
 	if got.Fingerprint != n.Fingerprint || got.Secret != n.Secret || string(got.SPKI) != string(n.SPKI) {
 		t.Fatalf("the pairing came back changed: %+v", got)
 	}
-	if _, ok := r2.ByFingerprint("sha256:abc"); !ok {
+	if _, ok := r2.ByCredential("sha256:abc", "dp-secret"); !ok {
 		t.Fatal("fingerprint lookup lost across the restart")
 	}
 
@@ -108,5 +109,53 @@ func TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted(t *testing.T) {
 	}
 	if n, _ := again.BySubdomain("alice"); n.Fingerprint == "" {
 		t.Fatal("the book lost alice")
+	}
+}
+
+// Removing a pairing from the file registry survives a restart, and a removal that cannot be
+// written keeps the pairing in memory as well as on disk.
+func TestARemovedPairingStaysRemovedAcrossARestart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "book")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "nodes.json")
+	reg, err := NewFileRegistry(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sub := range []string{"alice", "bob"} {
+		if err := reg.Put(Node{Fingerprint: "sha256:" + sub, Subdomain: sub, Mode: ModePassthrough, Secret: "s-" + sub}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	err = reg.Remove("bob")
+	if cerr := os.Chmod(dir, 0o700); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if err == nil {
+		t.Fatal("a removal that could not be written reported success")
+	}
+	if _, ok := reg.BySubdomain("bob"); !ok {
+		t.Fatal("a removal that could not be written forgot bob in memory")
+	}
+	if err := reg.Remove("bob"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewFileRegistry(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := again.BySubdomain("bob"); ok {
+		t.Error("a removed pairing came back after a restart")
+	}
+	if _, ok := again.BySubdomain("alice"); !ok {
+		t.Error("removing bob lost alice")
+	}
+	if err := again.Remove("carol"); !errors.Is(err, ErrNotPaired) {
+		t.Errorf("removing a subdomain never paired: %v, want ErrNotPaired", err)
 	}
 }

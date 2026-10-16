@@ -10,6 +10,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- `hdtp-gateway ingress unpair -subdomain <s>` forgets one pairing in the running ingress, over its
+  admin socket: the name routes nowhere from then on and its data-plane secret no longer logs in.
+  The ingress audits it `ingress_unpair subdomain:<s>`. Nothing could remove a pairing before.
+
 ### Changed
 
 - The ingress's `POST /pair` answers every refusal with a JSON body holding the code alone
@@ -25,6 +31,10 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- The ingress's data plane knows a node paired on two subdomains by the secret it presents. It
+  looked the node up by fingerprint alone and compared the secret of whichever pairing it met
+  first, so such a node was refused with its own credential most of the time (349 of 400 lookups
+  measured).
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a

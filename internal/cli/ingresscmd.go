@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ type ingressFlags struct {
 // ingressCmd dispatches the ingress role's subcommands.
 func ingressCmd(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: hdtp-gateway ingress <serve|token> [flags]")
+		fmt.Fprintln(stderr, "usage: hdtp-gateway ingress <serve|token|unpair> [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -60,9 +61,55 @@ func ingressCmd(args []string, stdout, stderr io.Writer) int {
 		return ingressServe(args[1:], stdout, stderr)
 	case "token":
 		return ingressToken(args[1:], stdout, stderr)
+	case "unpair":
+		return ingressUnpair(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "ingress: unknown subcommand %q (want serve|token)\n", args[0])
+		fmt.Fprintf(stderr, "ingress: unknown subcommand %q (want serve|token|unpair)\n", args[0])
 		return 2
+	}
+}
+
+// ingressUnpair forgets one subdomain's pairing in a RUNNING ingress, over its admin socket, for
+// the reason ingressToken mints there: the registry lives in that process, and a book edited on
+// disk beside it would be overwritten by its next pairing while it went on routing the old one.
+func ingressUnpair(args []string, stdout, stderr io.Writer) int {
+	var dataDir, sub string
+	fs := flag.NewFlagSet("ingress unpair", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&dataDir, "data-dir", ingressDataDir(), "the running ingress's data directory")
+	fs.StringVar(&sub, "subdomain", "", "the subdomain whose pairing to forget (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if sub == "" {
+		fmt.Fprintln(stderr, "ingress unpair: -subdomain is required")
+		return 2
+	}
+	if err := core.AdminCall(core.AdminSocketPath(dataDir), "ingress.unpair", map[string]string{"subdomain": sub}, nil); err != nil {
+		fmt.Fprintln(stderr, "ingress unpair:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "unpaired %s\n", sub)
+	return 0
+}
+
+// unpairHandler is the admin socket's ingress.unpair: Remove, audited as ingress_unpair with the
+// subdomain, ok, not_found (no pairing held it) or error (the book could not be written).
+func unpairHandler(reg ingress.Registry, auditFn func(action, resource, outcome string)) core.AdminHandler {
+	return func(args map[string]string) (any, error) {
+		sub := args["subdomain"]
+		err := reg.Remove(sub)
+		switch {
+		case err == nil:
+			auditFn("ingress_unpair", "subdomain:"+sub, "ok")
+			return map[string]string{"subdomain": sub}, nil
+		case errors.Is(err, ingress.ErrNotPaired):
+			auditFn("ingress_unpair", "subdomain:"+sub, "not_found")
+			return nil, fmt.Errorf("no pairing holds %q", sub)
+		default:
+			auditFn("ingress_unpair", "subdomain:"+sub, "error")
+			return nil, err
+		}
 	}
 }
 
@@ -327,6 +374,7 @@ func ingressServe(args []string, stdout, stderr io.Writer) int {
 		}
 		return map[string]string{"token": tok}, nil
 	})
+	admin.Handle("ingress.unpair", unpairHandler(reg, auditFn))
 	if err := admin.Start(ctx); err != nil {
 		fmt.Fprintln(stderr, "ingress: admin socket:", err)
 		return 1
