@@ -56,7 +56,8 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
 
 ## What it refuses, and how
 
-`SiblingFile` skips the test, naming what goes unchecked and where it looked, only when no checkout
+`SiblingFile` skips the test, naming what goes unchecked and where it looked (`go test` prints that only
+under `-v`; `make check`'s `dependents` lists the same comparisons, `scripts/sibling-guards.sh`), only when no checkout
 of the sibling is found, and fails instead when `HDTP_REQUIRE_SIBLINGS` is `1` (`RequireSiblings`),
 which the pre-push hook sets (to 0 only when `HDTP_ALLOW_MISSING_SIBLINGS=1` lets a push through
 without a checkout, after it has listed what will not be compared); when the checkout is found and the file cannot be read (moved, renamed,

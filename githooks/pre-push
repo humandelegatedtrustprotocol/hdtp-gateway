@@ -57,7 +57,8 @@ if [ "$only_deletes" = true ]; then
 fi
 
 # A guard that reads a sibling checkout (the cloud's battery and fixtures, the specification's
-# table, the identity core's gate) skips under a bare `make check` when the checkout is not found.
+# table, the identity core's gate) skips under a bare `make check` when the checkout is not found,
+# and check's dependents lists it.
 # Here a missing checkout refuses the push before anything runs: a push gated by a skip was gated
 # by nothing. scripts/sibling.sh says where each checkout is looked for. batondeck is private, so a
 # contributor without it sets HDTP_ALLOW_MISSING_SIBLINGS=1: the push then runs without the
@@ -71,9 +72,7 @@ if [ -z "$missing" ]; then
   export HDTP_REQUIRE_SIBLINGS=1
 elif [ "${HDTP_ALLOW_MISSING_SIBLINGS:-}" = 1 ]; then
   echo "pre-push: !! HDTP_ALLOW_MISSING_SIBLINGS=1 and no checkout of:$missing. These comparisons will NOT run:" >&2
-  for repo in $missing; do
-    sh scripts/sibling-guards.sh "$root" "$repo" | sed "s/^/pre-push: !! NOT RUN (no $repo checkout) /" >&2
-  done
+  sh scripts/sibling-guards.sh "$root" --missing | sed "s/^/pre-push: /" >&2
   export HDTP_REQUIRE_SIBLINGS=0
 else
   for repo in $missing; do

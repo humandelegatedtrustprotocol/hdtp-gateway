@@ -39,8 +39,9 @@ changelog can be and is not summarized into a fictional release history.
   and was not valid JSON when that text held a quote (a subdomain's name always did).
 - The pre-push hook needs the sibling checkouts its guards read: batondeck (the cloud's
   conformance battery and fixtures), hdtp-identity and hdtp-spec. It sets
-  `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; a
-  bare `make check` or `go test` still skips, saying where it looked. Each checkout is found by
+  `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; under a
+  bare `go test` it still skips, which shows only under `-v`, and a bare `make check` lists, one
+  line each, every comparison a missing checkout leaves unmade (`dependents`). Each checkout is found by
   `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` or `HDTP_SPEC_DIR`, else beside this checkout, else
   beside the main checkout of a worktree (`scripts/sibling.sh`, `testid.SiblingDir`). A push
   without one is refused before the gate runs, naming each checkout missing; a contributor without

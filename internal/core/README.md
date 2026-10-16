@@ -83,7 +83,7 @@ integration's tool may not be exposed under: the built-in tools and `sealed_call
 peer's refusal code as the node repeats it: one of HDTP §12's codes, `refused` (`PeerRefused`) for
 any other string; `TestErrorCodesAreTheSpecsTable` holds the list to the released specification's table
 (`docs/specification/1.0/errors-limits-conformance.md`) when the hdtp-spec checkout is beside this
-repository, skips, saying so, when it is not, and fails when it is and the file is not there
+repository, skips when it is not (saying so under `go test -v`; `make check` lists it), and fails when it is and the file is not there
 (`testid.SiblingFile`).
 
 ## What it refuses, and how

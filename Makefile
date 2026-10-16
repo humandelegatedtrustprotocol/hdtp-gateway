@@ -310,9 +310,11 @@ vet:
 # moves the API is the one whose gate has to object, so this vets it whenever the sibling is
 # found: HDTP_BATONDECK_DIR, else ../batondeck, else beside the checkout git keeps this one's
 # objects in, so a worktree anywhere finds the umbrella's (scripts/sibling.sh, held to the Go
-# guards' locator by TestTheTwoSiblingLocatorsAgree). A bare `make check` without it says it
-# skipped; with HDTP_REQUIRE_SIBLINGS=1, which the pre-push hook sets unless
-# HDTP_ALLOW_MISSING_SIBLINGS=1 (and then it lists this among what will not run), it fails.
+# guards' locator by TestTheTwoSiblingLocatorsAgree). With HDTP_REQUIRE_SIBLINGS=1, which the
+# pre-push hook sets unless HDTP_ALLOW_MISSING_SIBLINGS=1, a missing checkout fails here. Otherwise
+# this lists, one line each, every comparison a missing sibling leaves unmade, this one included
+# (scripts/sibling-guards.sh --missing, the list the hook prints): those guards skip, and `go test`
+# without -v prints no skip.
 #
 # The battery requires this module by a pinned version, so vetting it as it stands would judge the
 # pin, not the tree being gated. So it is built through a go.work made for the one run, in a
@@ -351,10 +353,8 @@ dependents:
 		echo "dependents: HDTP_REQUIRE_SIBLINGS=1 and no batondeck checkout with gateway/conformance was found"; \
 		echo "  (HDTP_BATONDECK_DIR, ../batondeck, or beside the main checkout): the cloud's battery cannot be"; \
 		echo "  compiled against this change. Point HDTP_BATONDECK_DIR at a checkout."; exit 1; \
-	else \
-		echo "!! dependents: no batondeck checkout was found, so the cloud's conformance battery"; \
-		echo "   was NOT compiled against this change. It imports internal/ packages of this module."; \
 	fi
+	@if [ "$$HDTP_REQUIRE_SIBLINGS" != 1 ]; then sh "$(dir $(SELF))scripts/sibling-guards.sh" "$(CURDIR)" --missing; fi
 
 # ./... reaches into web/node_modules, which vendors a Go package of its own
 # (flatted). Naming the module's real trees keeps the run to this repository's

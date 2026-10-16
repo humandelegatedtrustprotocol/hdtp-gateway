@@ -27,6 +27,8 @@ hdtp-spec; see the pre-push bullet under Hooks for where it looks. Without one o
 refuses the push and names what is missing. If you have no access to one (batondeck, unless you
 work on the cloud), push with `HDTP_ALLOW_MISSING_SIBLINGS=1`: the hook runs the gate without the
 comparisons that need the missing checkout, and prints first, one line each, which they are and why.
+A bare `make check` without one prints the same list (its `dependents` step); those guards skip,
+and `go test` shows a skip only under `-v`.
 
 ```
 make build      # static binary

@@ -5,8 +5,21 @@
 # batondeck the Makefile's dependents. The pre-push hook prints these when
 # HDTP_ALLOW_MISSING_SIBLINGS=1 lets a push through without <repo>; TestTheSiblingGuardsListIsTheCode
 # holds this list to the SiblingFile calls the Go parser finds.
+#
+# sibling-guards.sh <root> --missing: the same lists, for each sibling scripts/sibling.sh does not
+# find, each line as "!! NOT RUN (no <repo> checkout) <line>". The pre-push hook prints it before a
+# push HDTP_ALLOW_MISSING_SIBLINGS=1 lets through, and the Makefile's dependents (part of check)
+# unless HDTP_REQUIRE_SIBLINGS=1, since `go test` without -v does not print a skip.
 set -eu
 root="$1" repo="$2"
+if [ "$repo" = --missing ]; then
+  here="$(cd "$(dirname "$0")" && pwd)"
+  for r in batondeck hdtp-identity hdtp-spec; do
+    [ -n "$(sh "$here/sibling.sh" "$root" "$r")" ] ||
+      sh "$here/sibling-guards.sh" "$root" "$r" | sed "s/^/!! NOT RUN (no $r checkout) /"
+  done
+  exit 0
+fi
 cd "$root"
 # The files the Go parser reads (prepush_siblings_test.go siblingCalls): every .go file outside
 # node_modules and dot-directories. find prunes by name; grep's --exclude-dir='.?*' also matches the

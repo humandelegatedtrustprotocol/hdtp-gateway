@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 var siblingRepos = []string{"batondeck", "hdtp-identity", "hdtp-spec"}
@@ -360,6 +362,110 @@ func TestThePrePushHookOnMissingSiblings(t *testing.T) {
 		}
 		if got := strings.Count(out, "NOT RUN"); got != listed {
 			t.Errorf("the hook lists %d comparisons as not run; the code makes %d", got, listed)
+		}
+	})
+}
+
+// A guard whose checkout is not found skips, and `go test` without -v prints no skip: under a bare
+// `make check` a missing checkout went unsaid. `dependents`, part of check, lists every comparison
+// a missing checkout leaves unmade, the hook's list, unless HDTP_REQUIRE_SIBLINGS=1 makes those
+// guards fail instead. Run on the real Makefile in a tree built for the run, with go stubbed.
+func TestMakeCheckListsWhatAMissingCheckoutLeavesUnchecked(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Fatalf("make is not on PATH: %v", err)
+	}
+	root := repoRoot(t)
+	calls := siblingCalls(t, root)
+
+	run := func(t *testing.T, present bool, require string) (string, int) {
+		t.Helper()
+		tmp, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := filepath.Join(tmp, "node")
+		for _, rel := range append([]string{"Makefile", "go.mod", "scripts/sibling.sh", "scripts/sibling-guards.sh"}, callFiles(calls)...) {
+			b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dst := filepath.Join(node, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dst, b, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(node, "harness"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if present {
+			for _, repo := range siblingRepos {
+				if err := os.MkdirAll(filepath.Join(tmp, repo, "gateway", "conformance"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		bin := filepath.Join(tmp, "bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		env := gitless(os.Environ())
+		for _, v := range testid.SiblingEnv {
+			env = append(env, v+"=")
+		}
+		env = append(env, "HDTP_REQUIRE_SIBLINGS="+require, "PATH="+bin+":"+os.Getenv("PATH"))
+		cmd := exec.Command("make", "-s", "dependents")
+		cmd.Dir = node
+		cmd.Env = env
+		b, err := cmd.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return string(b), code
+	}
+
+	t.Run("no checkout: each comparison is listed", func(t *testing.T) {
+		out, code := run(t, false, "")
+		if code != 0 {
+			t.Fatalf("make dependents exited %d:\n%s", code, out)
+		}
+		listed := 0
+		for _, repo := range siblingRepos {
+			for _, line := range notRun(calls, repo) {
+				if want := "!! NOT RUN (no " + repo + " checkout) " + line + "\n"; !strings.Contains(out, want) {
+					t.Errorf("make dependents does not list %q:\n%s", strings.TrimSpace(want), out)
+				}
+				listed++
+			}
+		}
+		if got := strings.Count(out, "NOT RUN"); got != listed {
+			t.Errorf("make dependents lists %d comparisons as not run; the code makes %d:\n%s", got, listed, out)
+		}
+	})
+	t.Run("every checkout: nothing is listed", func(t *testing.T) {
+		out, code := run(t, true, "")
+		if code != 0 {
+			t.Fatalf("make dependents exited %d:\n%s", code, out)
+		}
+		if strings.Contains(out, "NOT RUN") {
+			t.Errorf("make dependents lists comparisons as not run with every checkout present:\n%s", out)
+		}
+	})
+	t.Run("no checkout, HDTP_REQUIRE_SIBLINGS=1: it fails, and lists nothing", func(t *testing.T) {
+		out, code := run(t, false, "1")
+		if code == 0 {
+			t.Fatalf("make dependents passed with HDTP_REQUIRE_SIBLINGS=1 and no batondeck checkout:\n%s", out)
+		}
+		if strings.Contains(out, "NOT RUN") {
+			t.Errorf("make dependents lists comparisons as not run where they fail:\n%s", out)
 		}
 	})
 }

@@ -74,8 +74,8 @@ func TestEveryJourneyIsProvenOnTheNodeOrSaysWhyNot(t *testing.T) {
 }
 
 // The cloud's copy is these bytes: one list, two copies, held to each other. The batondeck checkout
-// is found as every sibling guard finds it (testid.SiblingFile); without one the test skips, saying
-// so, and fails under the pre-push hook.
+// is found as every sibling guard finds it (testid.SiblingFile); without one the test skips (saying
+// so under -v) and fails under the pre-push hook.
 func TestTheCloudsCopyIsThisList(t *testing.T) {
 	ours, err := os.ReadFile("journeys.json")
 	if err != nil {
