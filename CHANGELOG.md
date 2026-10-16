@@ -53,6 +53,11 @@ changelog can be and is not summarized into a fictional release history.
 - A portal action refused `too_large` answers 413, as `POST /thread/delete` does for a `thread_id`
   over 64 bytes; `pageStatus` answered it 400, so a file over the identity's storage quota on
   `POST /messages/send_media` was 400.
+- The portal's Identity page, the Settings page's pairing selector and storage rows, and the
+  owners page's token scopes list the identities the signed-in owner administers, as the switcher
+  does; they listed every identity on the node, so one with no membership showed there and every
+  action on it answered 404. A list that could not be read answers 500, where Settings and owners
+  showed an empty one.
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were

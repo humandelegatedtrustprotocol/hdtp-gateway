@@ -182,6 +182,26 @@ func administered(ctx context.Context, st store.OwnerStore, owner string) (map[s
 	return out, nil
 }
 
+// administeredOnly is list held to the accounts the owner administers (administered), in its order:
+// a page that lists identities shows the switcher's set, never every account on the node. id names
+// an element's account. An unreadable membership list is an error, as administered's is.
+func administeredOnly[T any](ctx context.Context, st store.OwnerStore, owner string, list []T, id func(T) string) ([]T, error) {
+	admins, err := administered(ctx, st, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]T, 0, len(list))
+	for _, x := range list {
+		if admins[id(x)] {
+			out = append(out, x)
+		}
+	}
+	return out, nil
+}
+
+// accountID is an account's id, administeredOnly's id for a list of accounts.
+func accountID(a store.Account) string { return a.ID }
+
 // accountParam is the account a request names in its `account` query parameter, "" when it
 // names none (accountMiddleware fills it in when the request named none and the answer is
 // unambiguous).

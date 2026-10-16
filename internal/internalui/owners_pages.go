@@ -24,8 +24,8 @@ import (
 // OwnersDeps is what Settings · owners needs: the passkeys and bearer tokens it lists, removes,
 // mints and revokes.
 type OwnersDeps struct {
-	// Store supplies the accounts a token can be narrowed to and, with no session, the node's
-	// first owner.
+	// Store supplies the accounts a token can be narrowed to (those the signed-in owner
+	// administers) and, with no session, the node's first owner.
 	Store store.Store
 	// Tokens mints, lists and revokes owner-MCP bearer tokens.
 	Tokens *auth.TokenService
@@ -54,7 +54,15 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 			passkeys, _ = d.Passkeys(r.Context())
 		}
 		tokens, _ := d.Tokens.List(r.Context())
-		accts, _ := d.Store.ListAccounts(r.Context())
+		accts, err := d.Store.ListAccounts(r.Context())
+		if err == nil {
+			accts, err = administeredOnly(r.Context(), d.Store, OwnerFrom(r.Context()), accts, accountID)
+		}
+		if err != nil {
+			// A token-scope list that could not be read is not one with nothing to scope to.
+			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			return
+		}
 		choices := make([]AccountChoice, 0, len(accts))
 		for _, a := range accts {
 			choices = append(choices, AccountChoice{ID: a.ID, Label: a.DisplayName + " (" + a.Slug + ")"})

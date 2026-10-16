@@ -22,6 +22,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
@@ -49,8 +50,11 @@ type SettingsDeps struct {
 	Unpair func(ctx context.Context, adapter string) error
 	// Accounts lists the identities that could pair; a selector appears only
 	// when there is more than one, so a multi-account node never pairs an
-	// identity the owner did not choose.
+	// identity the owner did not choose. The page lists only those the
+	// signed-in owner administers (Owners), and so for Storage.
 	Accounts func(ctx context.Context) ([]AccountChoice, error)
+	// Owners is the store the owner's memberships are read from (administeredOnly).
+	Owners store.OwnerStore
 	// Paired reports which ingress adapters have a completed pairing. An adapter
 	// without one cannot start, so it must not be selectable.
 	Paired func(ctx context.Context) (map[string]bool, error)
@@ -226,13 +230,27 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 	if d.Paired != nil {
 		paired, _ = d.Paired(r.Context())
 	}
+	owner := OwnerFrom(r.Context())
 	var choices []AccountChoice
 	if d.Accounts != nil {
-		choices, _ = d.Accounts(r.Context())
+		list, err := d.Accounts(r.Context())
+		if err == nil {
+			choices, err = administeredOnly(r.Context(), d.Owners, owner, list, func(c AccountChoice) string { return c.ID })
+		}
+		if err != nil {
+			// A selector that could not be read is not one with nobody in it.
+			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			return
+		}
 	}
 	var storage []StorageRow
 	if d.Storage != nil {
-		storage, _ = d.Storage(r.Context())
+		rows, _ := d.Storage(r.Context())
+		var err error
+		if storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID }); err != nil {
+			apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+			return
+		}
 	}
 	type presetRow struct {
 		Name  string   `json:"name"`

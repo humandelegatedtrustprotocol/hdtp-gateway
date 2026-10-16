@@ -412,6 +412,7 @@ func (s *Service) apply(ctx context.Context, key, value string, here bool) error
 // Deps builds what the settings page needs.
 func (s *Service) Deps() internalui.SettingsDeps {
 	return internalui.SettingsDeps{
+		Owners: s.store,
 		Effective: func() []core.Effective {
 			var out []core.Effective
 			s.readCfg(func(c *core.Config) { out = c.EffectiveSettings() })
