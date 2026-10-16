@@ -23,7 +23,10 @@ You need Go (the version in [`go.mod`](go.mod)), Rust with cargo (the limits sid
 and Docker (the pre-push gate starts a Postgres container, and the scenario harness needs it).
 The pre-push gate also needs checkouts of the repositories its guards compare this one with:
 batondeck (the cloud's conformance battery and fixtures, which is private), hdtp-identity and
-hdtp-spec; see the pre-push bullet under Hooks for where it looks.
+hdtp-spec; see the pre-push bullet under Hooks for where it looks. Without one of them the hook
+refuses the push and names what is missing. If you have no access to one (batondeck, unless you
+work on the cloud), push with `HDTP_ALLOW_MISSING_SIBLINGS=1`: the hook runs the gate without the
+comparisons that need the missing checkout, and prints first, one line each, which they are and why.
 
 ```
 make build      # static binary
@@ -78,7 +81,10 @@ its own copy):
   sibling checkout (batondeck, hdtp-identity, hdtp-spec) fails when it is not found
   instead of skipping: `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` and `HDTP_SPEC_DIR` point
   at one, and otherwise each is looked for beside this checkout and beside the main
-  checkout of a worktree (`scripts/sibling.sh`). The live scenarios need a
+  checkout of a worktree (`scripts/sibling.sh`). Before anything runs, a missing
+  checkout refuses the push, naming it; with `HDTP_ALLOW_MISSING_SIBLINGS=1` the hook
+  instead lists every comparison that will not run (`scripts/sibling-guards.sh`) and runs
+  the gate with `HDTP_REQUIRE_SIBLINGS=0`. The live scenarios need a
   real Chrome and a real container fabric, so they are opt-in from the same hook:
 
 ```

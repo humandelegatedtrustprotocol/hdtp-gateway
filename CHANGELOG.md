@@ -42,7 +42,10 @@ changelog can be and is not summarized into a fictional release history.
   `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; a
   bare `make check` or `go test` still skips, saying where it looked. Each checkout is found by
   `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` or `HDTP_SPEC_DIR`, else beside this checkout, else
-  beside the main checkout of a worktree (`scripts/sibling.sh`, `testid.SiblingDir`).
+  beside the main checkout of a worktree (`scripts/sibling.sh`, `testid.SiblingDir`). A push
+  without one is refused before the gate runs, naming each checkout missing; a contributor without
+  access to one (batondeck is private) sets `HDTP_ALLOW_MISSING_SIBLINGS=1`, and the hook prints
+  first, one line each, the comparisons that will not run, then runs the gate without them.
 
 ### Removed
 

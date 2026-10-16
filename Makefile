@@ -311,7 +311,8 @@ vet:
 # found: HDTP_BATONDECK_DIR, else ../batondeck, else beside the checkout git keeps this one's
 # objects in, so a worktree anywhere finds the umbrella's (scripts/sibling.sh, held to the Go
 # guards' locator by TestTheTwoSiblingLocatorsAgree). A bare `make check` without it says it
-# skipped; with HDTP_REQUIRE_SIBLINGS=1, which the pre-push hook sets, it fails.
+# skipped; with HDTP_REQUIRE_SIBLINGS=1, which the pre-push hook sets unless
+# HDTP_ALLOW_MISSING_SIBLINGS=1 (and then it lists this among what will not run), it fails.
 #
 # The battery requires this module by a pinned version, so vetting it as it stands would judge the
 # pin, not the tree being gated. So it is built through a go.work made for the one run, in a

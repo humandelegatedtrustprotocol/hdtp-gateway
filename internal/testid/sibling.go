@@ -14,7 +14,9 @@ import (
 )
 
 // RequireSiblings is the variable that turns a sibling checkout's absence from a skip into a
-// failure. The pre-push hook sets it to 1: a guard that skips there has checked nothing.
+// failure. The pre-push hook sets it to 1 (a guard that skips there has checked nothing), and to 0
+// only when HDTP_ALLOW_MISSING_SIBLINGS=1 lets a push through without a checkout, after listing
+// what will not be compared.
 const RequireSiblings = "HDTP_REQUIRE_SIBLINGS"
 
 // SiblingEnv names, for each sibling repository a guard reads, the variable that points at its
