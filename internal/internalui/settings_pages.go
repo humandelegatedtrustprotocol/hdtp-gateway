@@ -212,7 +212,7 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security []setting
 
 // render answers a settings request with the page's whole state, and the notice, error and probe
 // verdict the request produced. posted is true from the POST routes and false from the page's read
-// (unreadable): the route decides, not r.Method, which is HEAD as well as GET on the read's pattern.
+// (unreadable); HEAD shares the read's GET pattern, so the route says whether it posted.
 func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, posted bool, notice string, isErr bool, verdict, detail string) {
 	d.renderStatus(w, r, posted, http.StatusOK, notice, isErr, verdict, detail)
 }

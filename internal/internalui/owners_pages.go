@@ -66,7 +66,7 @@ func MountOwnerPages(mux *http.ServeMux, d OwnersDeps) {
 			accts, err = administeredOnly(r.Context(), d.Store, OwnerFrom(r.Context()), accts, accountID)
 		}
 		if err != nil {
-			// The route decides, not r.Method: the mux serves HEAD from the GET pattern too.
+			// HEAD shares the GET pattern, so the route says whether it posted.
 			if !posted {
 				// A list that could not be read is not one with nothing in it.
 				apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})

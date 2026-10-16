@@ -40,7 +40,7 @@ export function Settings() {
   // Settings posts itself: the knob KEYS are the field names, and unchecked
   // bools must still submit (the handler treats presence as the signal for
   // non-bools and reads bools directly), so a plain form mirrors the old page.
-  const submitForm = async (form: HTMLFormElement, path: string): Promise<Data | null> => {
+  const submitForm = async (form: HTMLFormElement, path: string): Promise<void> => {
     const body = new URLSearchParams();
     for (const [k, v] of new FormData(form).entries()) body.append(k, String(v));
     const r = await fetch(path, {
@@ -52,15 +52,13 @@ export function Settings() {
       const j = (await r.json()) as Data;
       if (j && j.page_error) {
         // Answered (a pairing's one-time token may be spent), but the page was not read: keep the
-        // one on screen and say what the post answered.
-        const kept = withUnread(d, j);
-        setD(kept);
-        return kept;
+        // one on screen when the answer arrives and say what the post answered.
+        setD((prev) => prev && withUnread(prev, j));
+        return;
       }
-      if (j && j.reach !== undefined) { setD(j); return j; }
+      if (j && j.reach !== undefined) { setD(j); return; }
     } catch { /* fall through */ }
     load();
-    return null;
   };
 
   return (
@@ -279,7 +277,7 @@ function StorageForm({ s, onSaved }: { s: StorageRow; onSaved: () => void }) {
 // is trust-on-first-use: whatever key answers becomes the pinned one, and the
 // node reports it back for you to check against what you were given out of band.
 // Fill it in and a mismatch is refused outright.
-function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: string) => Promise<Data | null> }) {
+function Pairing({ d, submit }: { d: Data; submit: (f: HTMLFormElement, p: string) => Promise<void> }) {
   const paired = Object.entries(d.paired ?? {}).filter(([, v]) => v);
   const many = (d.accounts ?? []).length > 1;
   return (
