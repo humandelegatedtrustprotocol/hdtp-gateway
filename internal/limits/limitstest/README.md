@@ -27,8 +27,12 @@ sidecar for the whole package's tests and points `HDTP_LIMITS_SOCKET` at it), `i
 
 - `Binary` fails the test (`t.Fatal`), it does not skip, when neither `$HDTP_LIMITD` nor the built
   binary exists, naming `make limitd` and the variable. `LaunchDefault` returns that error.
-- `Start` fails the test if the sidecar does not answer a `Probe` within 10 seconds, or cannot be
-  started; `DefaultRules` fails the test if `limits.json` has a member `limits.Rules` does not
+- `Start` fails the test if the sidecar cannot be started, if it exits before it answers a `Probe`
+  (reported when it exits, with its exit status and its stderr), or if it is still running and has
+  not answered after two minutes (`startDeadline`; a start costs milliseconds, but macOS can hold a
+  newly written binary's first execution at its first instruction, measured at 20-27 s while two
+  node suites linked their test binaries and XprotectService was busy); `DefaultRules` fails the
+  test if `limits.json` has a member `limits.Rules` does not
   (the file is decoded with `DisallowUnknownFields`).
 
 ## Invariants
@@ -41,7 +45,8 @@ sidecar for the whole package's tests and points `HDTP_LIMITS_SOCKET` at it), `i
 
 ## Held by
 
-Nothing tests the package directly; it is exercised by every user above. In `internal/limits`,
+`limitstest_test.go`: a sidecar that exits before it answers (rules it cannot enforce) is reported
+with its exit status and its stderr. The rest is exercised by every user above. In `internal/limits`,
 `TestASidecarThatIsDownIsUnavailableAndOneThatComesBackIsReconnectedTo` uses `Stop` and `Restart`;
 `TestTheShippedConfigurationIsEnforceableAndCarriesTheOwnersNumbers` uses `DefaultRules` and
 `StartDefault`; `TestASidecarRefusesARulesFileItCannotEnforce` uses `WriteConfig` and `Binary`.
