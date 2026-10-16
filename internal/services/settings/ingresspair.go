@@ -15,6 +15,8 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -89,8 +91,7 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		ingress.PairRequest{Token: in.Token, Subdomain: in.Subdomain, Mode: mode})
 	if err != nil {
 		s.audit("ingress_pair", "url:"+in.PairURL, "refused")
-		// The ingress's answer or the dial's error is behind the sentence, never in front of it.
-		return internalui.PairResult{Fingerprint: seen}, refusal.BadRequest("the ingress did not pair this node", err)
+		return internalui.PairResult{Fingerprint: seen}, pairRefusal(err)
 	}
 
 	adapter := adapterFor(mode)
@@ -105,6 +106,38 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 	}, nil
 }
 
+// pairRefusal is the refusal a failed ingress.Pair answers the owner with: the code the ingress
+// answered (SPEC §10.6; ingress.PairingServer.Handler), a served certificate that is not the one
+// the owner pinned, or an ingress not reached. The ingress's answer and the dial's error are behind
+// the sentence, never in it.
+func pairRefusal(err error) error {
+	var pe *ingress.PairError
+	if errors.As(err, &pe) {
+		var body struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal([]byte(pe.Body), &body)
+		switch body.Code {
+		case "invite_invalid":
+			return refusal.BadRequest("the pairing token is unknown, used or expired", err)
+		case "conflict":
+			return refusal.Conflict("that subdomain is paired to another node", err)
+		case "identity_required":
+			return refusal.BadRequest("the ingress did not accept this node's certificate", err)
+		case "bad_request":
+			return refusal.BadRequest("the ingress refused the subdomain or the mode: a subdomain is one DNS label "+
+				"of lowercase letters, digits and hyphens, and the mode passthrough or terminate", err)
+		case "unavailable":
+			return refusal.Unavailable("the ingress could not record the pairing; try again with a new token", err)
+		}
+		return refusal.BadRequest(fmt.Sprintf("the pairing URL answered HTTP %d without a code this node reads", pe.Status), err)
+	}
+	if errors.Is(err, ingress.ErrIngressPin) {
+		return refusal.BadRequest("the ingress served a certificate whose fingerprint is not the one given", err)
+	}
+	return refusal.Unavailable("the ingress could not be reached", err)
+}
+
 // pairingKeys are the rows a pairing writes under `tunnel.<adapter>.`, in the order storePairing
 // writes them, and the rows unpair deletes.
 var pairingKeys = []string{"domain", "data_plane_addr", "data_plane_port", "data_plane_token",
@@ -113,11 +146,11 @@ var pairingKeys = []string{"domain", "data_plane_addr", "data_plane_port", "data
 // storePairing writes what a completed pairing produced: the adapter's rows, then the adapter as
 // the selected tunnel and the public URL under the name the ingress assigned (the subdomain is
 // not echoed back; it is derived from that name, so what is stored is what the ingress routes).
-// There is no cross-row transaction — store.SettingStore writes one row at a time — so the order
-// carries the invariant: `subdomain`, the marker pairedAdapters reads, is the last of the
-// adapter's rows, and a write that fails before it leaves the pairing incomplete and not
-// selectable. The rows a failed pairing leaves are overwritten by the next pairing and deleted by
-// unpair. `ingress_fpr` is the ingress's identity, which the node pins on the onward leg (§10.6).
+// Every row is written in one transaction (store.Atomically): a write that fails leaves every row
+// as it was, a previous pairing included, so a failed re-pair cannot leave a node pinned to one
+// ingress with another's credentials. The public URL is validated before the transaction and
+// applied to the running node after it commits. `ingress_fpr` is the ingress's identity, which the
+// node pins on the onward leg (§10.6).
 func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.PairResponse, nodeFpr string) error {
 	values := map[string]string{
 		"domain":           res.Domain,
@@ -129,20 +162,30 @@ func (s *Service) storePairing(ctx context.Context, adapter string, res ingress.
 		"ingress_fpr":      res.IngressFingerprint,
 		"subdomain":        strings.TrimSuffix(res.PublicName, "."+res.Domain),
 	}
-	for _, k := range pairingKeys {
-		if err := s.saveRaw(ctx, "tunnel."+adapter+"."+k, values[k]); err != nil {
-			return err
-		}
-	}
-	// Only now is the adapter selectable; both of these are restart-scoped.
-	if err := s.saveRaw(ctx, "tunnel", adapter); err != nil {
+	publicURL := "https://" + res.PublicName
+	if err := core.ValidateSetting("public_url", publicURL); err != nil {
 		return err
 	}
-	return s.save(ctx, "public_url", "https://"+res.PublicName)
+	err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, k := range pairingKeys {
+			if err := s.put(ctx, tx, "tunnel."+adapter+"."+k, values[k]); err != nil {
+				return err
+			}
+		}
+		// Both of these are restart-scoped.
+		if err := s.put(ctx, tx, "tunnel", adapter); err != nil {
+			return err
+		}
+		return s.put(ctx, tx, "public_url", publicURL)
+	})
+	if err != nil {
+		return err
+	}
+	return s.applied(ctx, "public_url", publicURL)
 }
 
-// unpair forgets a pairing. It refuses while that adapter is the selected one,
-// because the alternative is a node that cannot start.
+// unpair forgets a pairing, deleting its rows in one transaction. It refuses while that adapter is
+// the selected one, because the alternative is a node that cannot start.
 func (s *Service) unpair(ctx context.Context, adapter string) error {
 	if _, ok := ingressAdapters[adapter]; !ok {
 		return refusal.BadRequest(fmt.Sprintf("%q is not an ingress adapter", adapter), nil)
@@ -153,11 +196,13 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 	selected := false
 	s.readCfg(func(c *core.Config) { selected = c.Tunnel == adapter })
 	if !selected {
-		if rows, err := s.store.ListSettings(ctx); err == nil {
-			for _, r := range rows {
-				if r.Key == "tunnel" && r.Value == adapter {
-					selected = true
-				}
+		rows, err := s.store.ListSettings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Key == "tunnel" && r.Value == adapter {
+				selected = true
 			}
 		}
 	}
@@ -165,10 +210,16 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 		return refusal.Conflict(fmt.Sprintf("%s is the selected tunnel — choose another adapter first, "+
 			"otherwise the node would have no way to start", adapter), nil)
 	}
-	for _, k := range pairingKeys {
-		if err := s.store.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {
-			return err
+	// One transaction, as storePairing writes them: a delete that fails leaves the pairing whole.
+	if err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, k := range pairingKeys {
+			if err := tx.DeleteSetting(ctx, "tunnel."+adapter+"."+k); err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	s.audit("ingress_unpair", "adapter:"+adapter, "ok")
 	return nil
@@ -178,6 +229,11 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 // adapter settings are not owner knobs, and their shape is the adapter's rule,
 // not `core.ValidateSetting`'s. Secrets are still sealed.
 func (s *Service) saveRaw(ctx context.Context, key, value string) error {
+	return s.put(ctx, s.store, key, value)
+}
+
+// put writes one row through st (the store, or a transaction of it), sealing a secret key's value.
+func (s *Service) put(ctx context.Context, st store.Store, key, value string) error {
 	stored, secret := value, isSecretKey(key)
 	if secret {
 		sealed, err := s.kr.Encrypt([]byte(value), core.SettingsAAD())
@@ -186,7 +242,7 @@ func (s *Service) saveRaw(ctx context.Context, key, value string) error {
 		}
 		stored = encodeSealed(sealed)
 	}
-	return s.store.PutSetting(ctx, store.Setting{
+	return st.PutSetting(ctx, store.Setting{
 		Key: key, Value: stored, Secret: secret, UpdatedAt: s.clock().Unix(),
 	})
 }

@@ -26,7 +26,8 @@ const settingAAD = "settings.value"
 func SettingsAAD() []byte { return []byte(settingAAD) }
 
 // ApplyStoreSettings layers owner-set values under the environment and
-// re-derives. Values the environment pinned are skipped, not overwritten.
+// re-derives. Values the environment pinned are skipped, not overwritten; a key that is not an
+// owner-settable knob (OwnerSettableKeys) sets nothing.
 func (c *Config) ApplyStoreSettings(values map[string]string) error {
 	if c.EnvPinned == nil {
 		c.EnvPinned = map[string]bool{}
@@ -53,12 +54,6 @@ func (c *Config) ApplyStoreSettings(values map[string]string) error {
 			c.lanExplicit = &b
 		case "limit.contacts":
 			c.LimitContacts = atoiOrZero(v)
-		default:
-			// Adapter settings (`tunnel.<adapter>.<key>`) and anything else are
-			// not config fields; they are read by whoever needs them.
-			if !strings.Contains(key, ".") {
-				return fmt.Errorf("settings: unknown key %q", key)
-			}
 		}
 	}
 	return c.Derive()

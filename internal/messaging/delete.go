@@ -43,7 +43,11 @@ func (d Deleted) AuditDetail(threadID string) string {
 // change-log rows naming it, and then the media files no remaining message names (Files.Collect). The
 // contact, its permissions, its other threads and the idempotency records (HDTP §13.3) stay, and
 // nothing is sent: the peer's copy is the peer's. A message that arrives later on the same
-// thread id starts the thread afresh.
+// thread id starts the thread afresh. After the deletion it publishes one EventMessage naming the
+// thread on the Bus, when there is one, so a portal showing it wakes and reads it gone; that event's
+// change row is the one row naming the thread the log then holds, and the owner MCP's
+// wait_for_updates, which reads a change of a thread the account does not hold as no news, does not
+// report it.
 //
 // An id of neither form of HDTP §7 is refused as CheckThreadID refuses it (the empty one is
 // ErrBadRequest); a thread the account does not hold, another account's included, is
@@ -52,7 +56,11 @@ func (s *Service) DeleteThread(ctx context.Context, accountID, threadID string) 
 	if err := CheckThreadID(threadID); err != nil {
 		return Deleted{}, err
 	}
-	return s.remove(ctx, accountID, threadID, true)
+	out, err := s.remove(ctx, accountID, threadID, true)
+	if err == nil && s.Bus != nil {
+		s.Bus.Publish(Event{Kind: EventMessage, AccountID: accountID, ThreadID: threadID, ContactFpr: out.Contact})
+	}
+	return out, err
 }
 
 // remove is DeleteThread's work. held says the thread row must be there (store.ErrNotFound when it
@@ -97,17 +105,27 @@ func (s *Service) remove(ctx context.Context, accountID, threadID string, held b
 		}
 	}
 	if len(hashes) > 0 {
-		// The conversation is gone whatever happens to its files, of any age. One this collection
-		// could not take (a store failure, an unreadable media body elsewhere) is left; the hourly
-		// orphan sweep (Sweeper.CollectOrphans) takes it once nothing names it, whatever the retention
-		// window. Files counts what went now.
-		files, _, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
+		// The conversation is gone whatever happens to its files, of any age; Files counts what went
+		// now. A file a store failure left is taken by the hourly orphan sweep
+		// (Sweeper.CollectOrphans) once nothing names it, whatever the retention window. While any
+		// media body of the account does not parse, neither this nor the sweep takes a file (the names
+		// in use are unknown), so the files stay until that message is gone; OnError says so.
+		files, unreadable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, math.MaxInt64)
 		out.Files = files
-		if err != nil && s.OnError != nil {
-			s.OnError(fmt.Errorf("thread %q deleted, its files not all collected: %w", threadID, err))
+		switch {
+		case err != nil:
+			s.fail(fmt.Errorf("thread %q deleted, its files not all collected: %w", threadID, err))
+		case len(unreadable) > 0:
+			s.fail(fmt.Errorf("thread %q deleted; its files were left: %d media bodies of the account do not parse", threadID, len(unreadable)))
 		}
 	}
 	return out, nil
+}
+
+func (s *Service) fail(err error) {
+	if s.OnError != nil {
+		s.OnError(err)
+	}
 }
 
 // Wiped is what the wipe of thread ids of neither form removed from one account.

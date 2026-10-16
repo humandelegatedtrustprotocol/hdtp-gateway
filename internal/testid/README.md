@@ -33,6 +33,9 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
   `spare low bits in the last character`, `a line break inside`, `R of small order`);
   `SmallOrderR` signs with a zero nonce so R is the identity point; `SpareBits` spells the same
   bytes a second way.
+- Thread ids (`threadids.go`): `ThreadIDs` is the one table of `thread_id`s (`ThreadIDCase`: a name,
+  the id, and HDTP §7's answer, `""` for an id of a form or `too_large`/`bad_request`) that every door's
+  tests and the wipe's run: the ids of neither form and the controls of a form.
 - TLS files (`tlsfiles.go`): `ServerFiles` writes a self-signed ECDSA P-256 server certificate and
   key as PEM into a directory, valid for 24 hours: ordinary web TLS for the internal surface, not
   an HDTP certificate.
@@ -68,7 +71,8 @@ base64url string that does not read in `DER`, a signature that `crypto/ed25519` 
 
 ## Held by
 
-The package has no tests of its own; its users hold it. `internal/cli/offer_cardsig_test.go`
+`threadids_test.go` (`TestTheThreadIDTableIsTheCores`) holds `ThreadIDs` to the identity core's
+answers. The rest of the package is held by its users. `internal/cli/offer_cardsig_test.go`
 (`TestAnInvitesCardSigIsReadStrictly`) and `internal/node/refresh_cardsig_test.go` use
 `SignedCardSigs`; `internal/cli/request_cut_test.go` (`TestACutCardSaysWhatToDo`) uses
 `WithCert`/`WithoutCert`; `internal/cli/request_pasted_test.go` (`TestAPastedCardIsAsked`) and

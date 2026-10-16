@@ -182,9 +182,10 @@ sbom:
 check: fmt vet names notices-check deploy-check frp-check release-check dependents limitd-check test test-js
 
 # The node and the harness build frp from third_party/frp: upstream v0.71.0 plus third_party/frp.patch
-# (data races in frp's client and server; upstream: https://github.com/fatedier/frp/issues/5557).
+# (data races in frp's client and server, upstream: https://github.com/fatedier/frp/issues/5557;
+# and Service.CloseControls, which the ingress's unpair uses to end a removed node's session).
 # The check holds the tree to exactly that and both go.mod files to the same replace;
-# scripts/frp-patch.sh names each race, and says when to remove it.
+# scripts/frp-patch.sh names each change, and says when to remove it.
 frp-check:
 	scripts/frp-patch.sh
 

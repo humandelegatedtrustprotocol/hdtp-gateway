@@ -112,6 +112,9 @@ the ingress is a trusted edge **you** run (SPEC §13).
 
 ## 5. Recovery notes
 
+- A subdomain to retire: `hdtp-gateway ingress unpair -subdomain alice` on the ingress host
+  forgets that pairing and closes the node's open tunnel sessions for it (the name routes nowhere
+  until it is paired again, and its data-plane secret no longer logs in); unpair the adapter on the node from its portal too.
 - Ingress lost: re-provision, re-mint tokens, re-pair. Contacts pin each person's
   root, not the ingress, so nothing needs re-sharing.
 - Leaf renewed: `hdtp-gateway account csr -purpose renew`, the wallet signs it,
