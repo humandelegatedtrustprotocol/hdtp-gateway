@@ -32,6 +32,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- A restart no longer signs the owner out of the portal after a public URL was saved in Settings
+  or allocated by the tunnel adapter. The cookie names carry the node's tag, which was computed
+  after the store's settings and the adapter had set the public URL, so a URL saved in the portal
+  renamed the cookies at the next start and the session was not found; the tag is now taken from
+  the configuration file and the environment alone. A node whose public URL came from the portal
+  or its adapter gets new cookie names once, at its first start on this release, and its owner
+  signs in once more. `compose.yaml`'s portal forwarder now has `restart: true` under its
+  `depends_on`, so Compose restarts it whenever Compose restarts the node, where after
+  `docker compose restart hdtp-gateway` it answered nothing until restarted by hand (#169).
 - The `cloudflare` tunnel adapter with `tunnel.cloudflare.sidecar=true` starts without a tunnel
   token: the token is the connector's, and the compose sidecar holds its own. The node refused to
   start without one, so a node following the quickstart restarted in a loop (#168). Spawning

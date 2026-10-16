@@ -83,9 +83,13 @@ services:
     image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
     restart: unless-stopped
     network_mode: "service:hdtp-gateway"
+    # restart: Compose restarts the forwarder whenever Compose restarts the node: it shares the
+    # node's network, and after `docker compose restart hdtp-gateway` it answered nothing until it
+    # was restarted too (#169).
     depends_on:
       hdtp-gateway:
         condition: service_started
+        restart: true
     command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"]
 
   postgres:

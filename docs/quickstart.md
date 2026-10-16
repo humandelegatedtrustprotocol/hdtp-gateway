@@ -172,10 +172,10 @@ needs the token, as the setting `tunnel.cloudflare.token` (or `TUNNEL_TOKEN` in 
 environment); without it that node stops at start with `serve: tunnel: cloudflare needs a tunnel
 token to run cloudflared`. The adapter is chosen under
 **Settings → Tunnel adapter** and takes effect at the next start: `docker compose restart
-hdtp-gateway`, then `docker compose restart portal`, because the portal forwarder shares the node's
-network and answers nothing until it is restarted too; the restart also ends your portal session,
-so you sign in with your passkey again
-([#169](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/169)). Cloudflare
+hdtp-gateway`. The portal forwarder shares the node's network, and `compose.yaml` asks Compose to
+restart it whenever Compose restarts the node (`restart: true` under its `depends_on`). The portal's
+cookie names come from the configuration file and the environment, never from a public URL saved
+on this page or one the adapter brings, so your portal session outlives the restart. Cloudflare
 terminates TLS, so the node runs in **edge mode**: sealed envelopes forced to `required`, client
 certificates forced `off`, and your public URL is `https://<that hostname>`; `doctor` then says
 `ok   tunnel       cloudflare (mode edge, seal required, client_cert off)`. Because the connector

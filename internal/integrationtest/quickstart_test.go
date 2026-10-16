@@ -78,6 +78,22 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 	limitdHealthcheckAsksTheSidecar(t, "compose.yaml", at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "limitd"))
 }
 
+// The portal forwarder shares the node's network (network_mode service:hdtp-gateway), and after
+// `docker compose restart hdtp-gateway` it answered nothing until it was restarted too (#169). `restart: true` under its depends_on entry asks
+// Compose to restart it whenever Compose restarts the node (`docker compose restart hdtp-gateway`).
+// Whether Compose does the same after the runtime restarts a node that crashed is not measured here.
+func TestThePortalForwarderRestartsWithTheNode(t *testing.T) {
+	root := repoRoot(t)
+	dep := at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "portal", "depends_on", "hdtp-gateway")
+	if dep == nil {
+		t.Fatal("compose.yaml: the portal service does not depend on hdtp-gateway")
+	}
+	if got := at(dep, "restart"); got != true {
+		t.Errorf("compose.yaml: the portal's depends_on.hdtp-gateway.restart is %v, want true: "+
+			"after `docker compose restart hdtp-gateway` the forwarder answers nothing until it is restarted too", got)
+	}
+}
+
 // limitdHealthcheckAsksTheSidecar holds a compose file's `limitd` service to the healthcheck that
 // asks the sidecar itself (`hdtp-gateway healthcheck --limits`, internal/cli/healthcheck.go), run
 // with the binary the image has: distroless has no shell.
