@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
@@ -35,6 +36,14 @@ func (r *rows) count() int {
 // settings service, with the bus reader and the settings follower running as serve runs them.
 func process(t *testing.T, dir string, migrate bool) (*Service, *node.Node, *rows) {
 	t.Helper()
+	s, n, aud, _ := processOver(t, dir, migrate, nil)
+	return s, n, aud
+}
+
+// processOver is process with the settings service's store, and only its, wrapped by wrap (nil for
+// none); it also returns the process's bus.
+func processOver(t *testing.T, dir string, migrate bool, wrap func(store.Store) store.Store) (*Service, *node.Node, *rows, *messaging.Bus) {
+	t.Helper()
 	st := openStoreAt(t, dir)
 	if migrate {
 		if err := st.Migrate(context.Background()); err != nil {
@@ -44,7 +53,11 @@ func process(t *testing.T, dir string, migrate bool) (*Service, *node.Node, *row
 	cfg := &core.Config{DataDir: dir, PublicURL: "https://old.example", Mode: core.ModeDirect,
 		Seal: core.SealOptional, ClientCert: core.ClientCertPreferred, LANConnections: true}
 	aud := &rows{}
-	s := New(st, openKeyringAt(t, dir), cfg, aud.fn)
+	var own store.Store = st
+	if wrap != nil {
+		own = wrap(st)
+	}
+	s := New(own, openKeyringAt(t, dir), cfg, aud.fn)
 	bus := messaging.NewBus(st)
 	n, err := node.New(context.Background(), node.Options{Config: *cfg, Store: st, Bus: bus, Audit: aud.fn,
 		SealPolicy: s.SealPolicy, Limits: limitstest.StartDefault(t).Client,
@@ -59,7 +72,7 @@ func process(t *testing.T, dir string, migrate bool) (*Service, *node.Node, *row
 	wg.Go(func() { bus.Run(ctx) })
 	wg.Go(func() { s.Follow(ctx) })
 	t.Cleanup(func() { cancel(); wg.Wait() })
-	return s, n, aud
+	return s, n, aud, bus
 }
 
 func eventually(t *testing.T, what string, ok func() bool) {

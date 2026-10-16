@@ -137,8 +137,13 @@ changelog can be and is not summarized into a fictional release history.
   knob (a value the validator refused, an ingress tunnel not paired, the pairings that could not
   be read) left the earlier ones saved, with the refusal the only audit row; the entry above's
   "saves nothing" was not true of that form. Every knob is now checked before any is written, and
-  they are written in one transaction, so a failed write stores none either. A failure applying a
-  stored knob to the running node, after the write, still answers the failure with the knobs stored.
+  they are written in one transaction, so a failed write stores none either. A knob stored and not
+  applied to the running node (its apply failed after the commit) no longer stops the others: each
+  is applied and announced to the node's other processes, and the portal answers "Saved <knobs>;
+  could not apply <knob>: <sentence>.", audited `settings_save` `ok` and `settings_apply` `error`.
+  The first failure ended the save there: the knobs after it were stored and never applied or
+  announced, so no other process took them either, and the portal answered "could not save …",
+  audited `error`, of knobs it had stored.
 - The portal's `GET /api/card` answers a card whose signature could not be made 500
   `card_unavailable` (404 `no_card` when the identity is not there to sign it); the failure was
   dropped and the card answered 200 with an empty `sig`.

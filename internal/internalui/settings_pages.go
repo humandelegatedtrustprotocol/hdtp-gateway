@@ -14,6 +14,7 @@ package internalui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -33,7 +34,7 @@ type SettingsDeps struct {
 	Effective func() []core.Effective
 	// Save persists the values of one save after validating every one, all of them or none (one
 	// transaction); after the commit it is also where a live-applied change (seal) is pushed into
-	// the serving node.
+	// the serving node. Stored values some of which could not be applied are a *NotAppliedError.
 	Save func(ctx context.Context, values []SettingValue) error
 	// AdapterSettings lists the stored `tunnel.<adapter>.<name>` keys and
 	// whether each holds a secret. Values are never returned.
@@ -82,6 +83,19 @@ type SettingValue struct {
 	Key   string
 	Value string
 }
+
+// NotAppliedError is Save's answer when every value was stored and applying some of them to the
+// running node failed: Keys names those, and Err joins their failures.
+type NotAppliedError struct {
+	Keys []string
+	Err  error
+}
+
+func (e *NotAppliedError) Error() string {
+	return "settings: stored, could not apply " + strings.Join(e.Keys, ", ") + ": " + e.Err.Error()
+}
+
+func (e *NotAppliedError) Unwrap() error { return e.Err }
 
 // PairInput is what the owner types to pair with an ingress (SPEC §10.6).
 type PairInput struct {
@@ -429,17 +443,27 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			restart = append(restart, v.Key)
 		}
 	}
-	if err := d.Save(r.Context(), values); err != nil {
+	err := d.Save(r.Context(), values)
+	var notApplied *NotAppliedError
+	if err != nil && !errors.As(err, &notApplied) {
 		d.audit("settings_save", "keys:"+strings.Join(saved, ","), "error")
 		d.render(w, r, true, "could not save "+strings.Join(saved, ", ")+": "+pageError(err), true, "", "")
 		return
 	}
 	notice := "Saved " + strings.Join(saved, ", ") + "."
+	if notApplied != nil {
+		notice = "Saved " + strings.Join(saved, ", ") + "; could not apply " + strings.Join(notApplied.Keys, ", ") +
+			": " + pageError(notApplied.Err) + "."
+	}
 	if len(restart) > 0 {
 		notice += " Restart the node for " + strings.Join(restart, ", ") + " to take effect."
 	}
 	d.audit("settings_save", "keys:"+strings.Join(saved, ","), "ok")
-	d.render(w, r, true, notice, false, "", "")
+	if notApplied != nil {
+		// Stored, so the save is ok; what the running node did not take is a row of its own.
+		d.audit("settings_apply", "keys:"+strings.Join(notApplied.Keys, ","), "error")
+	}
+	d.render(w, r, true, notice, notApplied != nil, "", "")
 }
 
 // postSettingsAdapter serves `POST /settings/adapter`.

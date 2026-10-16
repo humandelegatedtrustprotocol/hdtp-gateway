@@ -14,6 +14,7 @@ package settings
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -313,9 +314,11 @@ func (s *Service) adapterSettings(ctx context.Context) ([]internalui.AdapterSett
 
 // save persists the knobs of one save, every one or none, and then applies whatever part of each
 // can take effect now. Every value is validated before anything is written, and the rows are
-// written in one transaction (store.Atomically). Applying runs after the commit, outside it: a
-// failure there leaves the rows stored and the running node on the old value of that knob and of
-// those after it until the next start or Follow reads them.
+// written in one transaction (store.Atomically); a failed write is returned as it is, with nothing
+// stored. Applying runs after the commit, outside it, for every value and whatever the others'
+// apply did, and each stored key is announced on the bus, so every other process takes it through
+// Follow. A failure applying some is an *internalui.NotAppliedError naming them, with their rows
+// stored: this process has applied those knobs in part or not at all until its next start.
 func (s *Service) save(ctx context.Context, values []internalui.SettingValue) error {
 	for _, v := range values {
 		if err := core.ValidateSetting(v.Key, v.Value); err != nil {
@@ -332,24 +335,28 @@ func (s *Service) save(ctx context.Context, values []internalui.SettingValue) er
 	}); err != nil {
 		return err
 	}
+	var failed []string
+	var errs []error
 	for _, v := range values {
 		if err := s.applied(ctx, v.Key, v.Value); err != nil {
-			return err
+			failed = append(failed, v.Key)
+			errs = append(errs, err)
 		}
+	}
+	if len(failed) > 0 {
+		return &internalui.NotAppliedError{Keys: failed, Err: errors.Join(errs...)}
 	}
 	return nil
 }
 
 // applied takes a knob this process has just stored into the running node and tells the other
-// processes and the portal it changed.
+// processes and the portal it changed, whether or not applying it here failed: the row is stored.
 func (s *Service) applied(ctx context.Context, key, value string) error {
-	if err := s.apply(ctx, key, value, true); err != nil {
-		return err
-	}
+	err := s.apply(ctx, key, value, true)
 	if s.bus != nil {
 		s.bus.Publish(messaging.Event{Kind: messaging.EventSettings, Ref: key})
 	}
-	return nil
+	return err
 }
 
 // apply pushes a saved knob into the running node where that is possible. Anything not handled
