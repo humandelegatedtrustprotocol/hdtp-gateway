@@ -14,6 +14,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // ContactTool is what a contact's server offers this identity: the peer's own
@@ -164,6 +165,11 @@ func (n *Node) CallContact(ctx context.Context, accountID, contactFpr, tool stri
 		msgID = newCallID()
 	}
 	res, err := client.Call(ctx, peer, tool, args, msgID)
+	if refused := unsent(err); refused != nil {
+		why, _ := outbound.WhyUnsent(err)
+		n.auditFor(accountID, "call_contact", "contact:"+contactFpr+" tool:"+tool, why)
+		return "", refused
+	}
 	if err != nil {
 		n.auditFor(accountID, "call_contact", "contact:"+contactFpr+" tool:"+tool, "failed")
 		return "", err
@@ -186,6 +192,20 @@ func unreachedOutcome(err error) string {
 		return "conflict"
 	}
 	return "failed"
+}
+
+// unsent is the refusal for a call out that never left (outbound.WhyUnsent): this identity's own
+// budget refused it, rate_limited with the wait, or the limits sidecar could not be asked,
+// unavailable saying so — this node's answer, which the doors tell as it is (refusal.Of). nil for
+// any other error, and for none.
+func unsent(err error) error {
+	switch why, limited := outbound.WhyUnsent(err); why {
+	case outbound.UnsentRateLimited:
+		return refusal.RateLimited(limited.Sentence(), nil)
+	case outbound.UnsentLimitsUnavailable:
+		return refusal.Unavailable(outbound.LimitsUnavailableSentence, nil)
+	}
+	return nil
 }
 
 func outcomeOf(res *mcp.CallToolResult) string {

@@ -37,6 +37,22 @@ changelog can be and is not summarized into a fictional release history.
   `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
   `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
   and was not valid JSON when that text held a quote (a subdomain's name always did).
+- A plaintext `tools/call` with no identity — no chain that validated, no envelope — is answered
+  `identity_required` whatever the tool and whatever the seal policy, and audited as the gate's one
+  `identity_gate` row, as SPEC.md §5.8 says and BatonDeck answers (#170). A tool outside the guest
+  view was answered `blocked_or_unknown`, and under `seal: optional` a guest tool was served.
+- A sealed call is charged before the pin's moves its open decided are applied — a newer leaf, a
+  new address and the former one, an address parked for the owner and the owner's event — so a
+  call the budget refuses changes none of them, as BatonDeck refuses it (#186). They were applied
+  inside the open, before the budget was asked. A replay answered from its record now applies none
+  of them either.
+- A sealed call refused for its `thread_id` checks the tool's permission first: a contact the tool is
+  not granted to is told `permission_denied`, audited as that denial, as over a client certificate
+  and as BatonDeck answers (#139). It was told `bad_request`.
+- A public tool reads each argument by its exact name, as the `thread_id` check and BatonDeck read
+  them (#138). `Thread_ID` or `THREAD_ID` is ignored; it was matched to `thread_id` without regard
+  to case after the check had passed, so a call joined a thread the check never saw, or was
+  refused `bad_request` by messaging, which a sealed retry of the same envelope then replayed.
 
 ### Removed
 
@@ -217,6 +233,27 @@ changelog can be and is not summarized into a fictional release history.
   looked the node up by fingerprint alone and compared the secret of whichever pairing it met
   first, so such a node was refused with its own credential most of the time (349 of 400 lookups
   measured).
+- A peer that refuses the MCP handshake itself with an HDTP §12 code in the JSON-RPC error's
+  `data` — BatonDeck's edge, once a source's budget is spent — is read as that peer refusing the
+  call, with its `retry_after`: a send is "recorded, not delivered: rate_limited" and keeps the
+  wait (#135). It was the error text `calling "initialize": rate_limited`, a peer that could not
+  be reached, and the wait was lost. A sealed call refused there no longer records that the peer
+  has seen this identity's chain.
+- `add_contact` with a card tells a failure of this node before the request leaves — its card or
+  its client could not be read — as `internal`, audited `error` (#131). It was told as a peer that
+  could not be reached (`unavailable`) and audited `unreachable`.
+- `add_contact` with the invite link of somebody who asked this identity by card (`pending_in`),
+  when their side redeems it, makes the row ours, pinned to what the offer proved, and moves it on
+  with their answer (`active` or `pending_out`), as BatonDeck does (#183). Their invite was spent and
+  the owner was then told `bad_request` ("already a contact or already pending"). Measured against a
+  real node that still holds its request (`pending_out` there): it answers the redemption
+  `pending_approval` before anything is spent, and the owner is told `bad_request` ("the peer
+  refused the redemption: pending_approval"), unchanged; the redemption reaches this branch once
+  their request has expired or been withdrawn. By card, a request for somebody already
+  held `pending_out` is answered from the row and dials nobody, and one for somebody held
+  `pending_in` is refused `conflict` ("they have asked you already: approve their request"),
+  audited `pending_in`, as BatonDeck refuses it; the first was dialled and could end in that
+  `bad_request`.
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
   `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a
@@ -258,9 +295,11 @@ changelog can be and is not summarized into a fictional release history.
   could not be built and the owner was told `internal` (#181).
 - A call out that never left because this node's own budget refused it, or because the limits
   sidecar did not answer, is told and audited as that by a send (text and media), by `add_contact`
-  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179).
-  `refresh_contact` and `call_contact` do not: they still read it as an unreachable peer and an
-  unavailable call (#182). A send is "recorded, not delivered: rate_limited" or
+  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179),
+  and by `refresh_contact` and `call_contact` on the owner MCP and the portal (#182), which used to read
+  it as an unreachable peer and an unavailable call: a refresh or a call this node's budget refused is
+  `rate_limited` with the wait (429 on the portal), audited `rate_limited`, and one with the sidecar
+  down `unavailable` saying so, audited `limits_unavailable`. A send is "recorded, not delivered: rate_limited" or
   "…: limits_unavailable", where it was "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
   sidecar is not answering, so nothing is sent", audited `limits_unavailable`, where it said the
   peer could not be reached and audited `unreachable`. The notice to an asker (`contact_accepted`,

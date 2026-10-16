@@ -17,6 +17,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/envelope"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
 // Invalidator drops a caller's composed server (public.Pool.Invalidate).
@@ -207,6 +208,11 @@ func (d ContactsDeps) postContactsFprCall(w http.ResponseWriter, r *http.Request
 // active 409, a contact's answer that is not an envelope or did not verify 502 envelope_invalid
 // (HDTP §12), anything else 502 unavailable. The error's own text stays off the wire.
 func contactCallRefusal(err error) (int, string) {
+	// A call that never left, as the node coded it (node.CallContact): this identity's budget 429
+	// rate_limited; the limits sidecar not answering falls to 502 unavailable below.
+	if code, _ := refusal.Of(err); code == "rate_limited" {
+		return http.StatusTooManyRequests, code
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound, "not_found"

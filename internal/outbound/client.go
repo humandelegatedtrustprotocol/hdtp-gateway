@@ -19,8 +19,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -251,7 +253,53 @@ func (c *Client) CallTool(ctx context.Context, peer Peer, tool string, args map[
 	if err := c.spend(peer, tool); err != nil {
 		return nil, err
 	}
-	return c.callTool(ctx, peer, tool, args)
+	res, err := c.callTool(ctx, peer, tool, args)
+	var refused *handshakeRefused
+	if errors.As(err, &refused) {
+		return refused.res, nil
+	}
+	return res, err
+}
+
+// handshakeRefused is a peer refusing the MCP handshake itself — `server/discover` or `initialize` —
+// with a JSON-RPC error whose `data` carries an HDTP §12 code (and `retry_after`), as BatonDeck's
+// edge refuses a source whose budget is spent before the handshake. res is that refusal as the tool
+// error the same peer answers a refused tools/call with: `{code, retry_after?}`, nothing else of
+// what it sent. The call never reached the tool, so a sealed exchange does not record that the
+// peer has seen our chain; CallTool and the sealed exchange hand res on as the peer's answer.
+type handshakeRefused struct {
+	res *mcp.CallToolResult
+}
+
+func (h *handshakeRefused) Error() string { return "outbound: the peer refused the handshake" }
+
+// handshakeRefusal reads a failed Connect: a JSON-RPC error whose data names a §12 code
+// (core.PeerCode) is a handshakeRefused, anything else nil.
+func handshakeRefusal(err error) *handshakeRefused {
+	var wire *jsonrpc.Error
+	if !errors.As(err, &wire) || len(wire.Data) == 0 {
+		return nil
+	}
+	var data map[string]json.RawMessage
+	var named string
+	if json.Unmarshal(wire.Data, &data) != nil || json.Unmarshal(data["code"], &named) != nil {
+		return nil
+	}
+	code := core.PeerCode(named)
+	if code == "" || code == core.PeerRefused {
+		return nil
+	}
+	body := map[string]any{"code": code}
+	// The wait, in whole seconds and at least one (HDTP §12); anything else of it is dropped.
+	var wait float64
+	if json.Unmarshal(data["retry_after"], &wait) == nil && wait > 0 && wait < math.MaxInt32 {
+		body["retry_after"] = int64(math.Ceil(wait))
+	}
+	text, err := json.Marshal(body)
+	if err != nil {
+		return nil
+	}
+	return &handshakeRefused{res: &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}}}
 }
 
 // callTool is CallTool without the budget: the wire half of an exchange that has already spent it
@@ -267,6 +315,9 @@ func (c *Client) callTool(ctx context.Context, peer Peer, tool string, args map[
 		Endpoint: peer.Endpoint, HTTPClient: hc,
 	}, nil)
 	if err != nil {
+		if refused := handshakeRefusal(err); refused != nil {
+			return nil, refused
+		}
 		return nil, fmt.Errorf("outbound: %w", err)
 	}
 	defer session.Close()

@@ -503,6 +503,22 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 	// this call went out in plain text and the key was bound on first contact. A card carries
 	// the certificate, so the key is here — and the request is sealed to it, which is the only way
 	// to reach a peer whose card says `X-HDTP-SEAL:required`.
+	// A request this identity already holds, either way, answered from the row before anything is
+	// dialled or spent, as the cloud's requestContact answers it: one of ours (pending_out) adds
+	// nothing by being asked again, and one of theirs (pending_in) is the owner's to approve, not
+	// to answer with a request of our own, which the INSERT below would refuse once they answered.
+	held, err := ci.manager.Store.GetContact(ctx, accountID, peerCard.Key)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return out, err
+	}
+	if err == nil && held.Status == "pending_out" {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "pending_out")
+		return addContactResult{Fingerprint: peerCard.Key, DisplayName: held.DisplayName, Status: "pending_out"}, nil
+	}
+	if err == nil && held.Status == "pending_in" {
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "pending_in")
+		return out, refusal.Conflict("they have asked you already: approve their request", nil)
+	}
 	// The contact cap: the pending_out row this writes counts, so it is checked before the call.
 	if err := ci.manager.Room(ctx, ci.manager.Store, accountID); err != nil {
 		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "contact_cap")
@@ -515,7 +531,14 @@ func (ci *contactInitiator) RequestContact(ctx context.Context, accountID, peerC
 			// The peer answered, with a §12 code (node.RequestContact filters it) or none.
 			return out, peerRefused(refused.Error(), refused.Code)
 		}
-		return out, ci.unreached(accountID, peerCard.Key, "the request did not reach the peer", err)
+		var notReached node.ErrNotReached
+		if errors.As(err, &notReached) {
+			return out, ci.unreached(accountID, peerCard.Key, "the request did not reach the peer", err)
+		}
+		// This node's own failure before the call left — its card or its client: internal, and
+		// audited as that, never as a peer that could not be reached.
+		ci.audit("contact_initiate", "account:"+accountID+" peer:"+peerCard.Key, "error")
+		return out, err
 	}
 	if err := ci.manager.InitiatedByFingerprint(ctx, accountID, peerCard.Key, peerCardText); err != nil {
 		return out, err

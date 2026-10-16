@@ -79,7 +79,7 @@ func TestAddContactTellsAnUnreachablePeerFromARefusal(t *testing.T) {
 		t.Errorf("a redemption whose call failed: %v → %s %q", err, code, detail)
 	}
 	card := testid.CardFor(t, "Dev", "https://dev.example/mcp")
-	requestErr = errors.New("request_contact: dial tcp: connection refused")
+	requestErr = node.ErrNotReached{Err: errors.New("dial tcp: connection refused")}
 	_, err = ci.RequestContact(ctx, a.ID, card, "")
 	if code, detail := codeOf(err); code != "unavailable" || detail != "the request did not reach the peer" {
 		t.Errorf("a request that did not reach: %v → %s %q", err, code, detail)

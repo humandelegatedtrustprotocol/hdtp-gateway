@@ -26,7 +26,7 @@ const repo = fileURLToPath(new URL("../..", import.meta.url));
  */
 export const OUTCOMES = {
   ok: "ok", active: "ok", paired: "ok", started: "ok", stopped: "ok", stored: "ok",
-  pending: "warn", pending_approval: "warn", pending_new_address: "warn", pending_out: "warn", late: "warn", skipped: "warn",
+  pending: "warn", pending_approval: "warn", pending_new_address: "warn", pending_out: "warn", pending_in: "warn", late: "warn", skipped: "warn",
   bad_form: "bad", bad_hello: "bad", bad_request: "bad", blobs_skipped_unreadable_media: "bad", blocked: "bad", blocked_silent: "bad", contact_cap: "bad",
   denied: "bad", envelope_invalid: "bad", error: "bad", failed: "bad", identity_required: "bad", invite_invalid: "bad",
   missing_bytes: "bad", not_found: "bad", not_our_domain: "bad", not_the_paired_ingress: "bad", own_invite: "bad",
@@ -37,9 +37,9 @@ export const OUTCOMES = {
   // Written through a variable at the calls named in VIA_VARIABLE: the limiter's refusal
   // (internal/public/servers.go, Refusal.Code), the peer refusals the sealed door audits, the
   // guest tools' answer to a blocked row (internal/public/tools.go, silentOutcome), why a call
-  // out never left (internal/outbound/client.go, WhyUnsent, which internal/cli/contactinit.go audits),
-  // and the status a call to an integration landed (internal/integrations/manager.go, failStatus,
-  // which NoteCallFailure audits).
+  // out never left (internal/outbound/client.go, WhyUnsent, which internal/cli/contactinit.go and
+  // internal/node/contactcall.go and refresh.go audit), and the status a call to an integration
+  // landed (internal/integrations/manager.go, failStatus, which NoteCallFailure audits).
   rate_limited: "bad", permission_denied: "bad", blocked_or_unknown: "bad", limits_unavailable: "bad",
   auth_error: "bad",
 };

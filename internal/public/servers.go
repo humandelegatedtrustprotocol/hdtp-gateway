@@ -364,14 +364,21 @@ func (p *Pool) compose(ctx context.Context, accountID, fpr string) (*mcp.Server,
 					}
 					return codeResult(tc.Refusal), nil
 				}
+				// An anonymous caller is refused identity_required on any tools/call (SPEC §5.8), a
+				// tool outside the guest view included: the plaintext gate decides it and writes its
+				// one identity_gate row, before the tool's absence is told. Anonymous is a transport
+				// that proved no root: a demoted chain (a blocked root, a superseded leaf) is also
+				// composed with no fingerprint, and answers as a stranger does (§5.4).
+				if FactsFrom(ctx).ClientCertFingerprint == "" && p.Gate != nil {
+					if gerr := p.Gate(ctx, calledTool(req)); gerr != nil {
+						return codeResult(Code(gerr)), nil
+					}
+				}
 				// Otherwise the tool is not on this caller's surface, and the
 				// SDK's own "unknown tool" error would both leak that the tool
 				// exists elsewhere and differ from what the sealed path returns.
 				// Answer with the protocol's code instead (HDTP §12, §5.4).
-				code := refusalCode(caller.Tier)
-				p.audit(caller.Tier, "tools_call",
-					"caller:"+fprOrAnonymous(fpr)+" tool:"+calledTool(req), code)
-				return codeResult(code), nil
+				return p.denied(caller, fpr, calledTool(req)), nil
 			}
 			return res, err
 		}
@@ -508,14 +515,38 @@ func (p *Pool) checked(accountID, fpr string, e Entry) mcp.ToolHandler {
 			return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 		}
 		if !policy.Allow(caller, e.Rule) {
-			code := refusalCode(caller.Tier)
-			p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+e.Tool.Name, code)
-			return codeResult(code), nil
+			return p.denied(caller, fpr, e.Tool.Name), nil
 		}
 		// handlers that need the caller (idempotency keys, trust labeling)
 		// read the RESOLVED identity — never a caller-supplied field
 		return e.Handler(WithCaller(ctx, caller), req)
 	}
+}
+
+// denied is the answer to a caller for a tool out of its reach — one its grants leave out, or one
+// that is not here, which at the guest tier must read the same (HDTP §12, §5.4) — audited as the
+// denial it is. The one reading of a denial at every place a tool is looked for: the call-time
+// check (checked), the sealed dispatch (Dispatch), and the permission a sealed thread_id refusal is
+// preceded by (refusedTool).
+func (p *Pool) denied(caller policy.Caller, fpr, tool string) *mcp.CallToolResult {
+	code := refusalCode(caller.Tier)
+	p.audit(caller.Tier, "tools_call", "caller:"+fprOrAnonymous(fpr)+" tool:"+tool, code)
+	return codeResult(code)
+}
+
+// refusedTool is the caller's denial for tool (denied), or nil when a tool of that name is granted
+// to it. The error is a caller that could not be resolved.
+func (p *Pool) refusedTool(ctx context.Context, accountID, fpr, tool string) (*mcp.CallToolResult, error) {
+	caller, err := p.resolveCaller(ctx, accountID, fpr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	for _, e := range p.Registry.snapshot() {
+		if e.Tool.Name == tool && policy.Allow(caller, e.Rule) {
+			return nil, nil
+		}
+	}
+	return p.denied(caller, fpr, tool), nil
 }
 
 type callerKey struct{}

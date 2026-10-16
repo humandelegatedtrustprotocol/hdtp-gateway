@@ -54,7 +54,7 @@ func TestARefusedRequestPinsNothingAndIsAuditedAsRefused(t *testing.T) {
 	}
 
 	// A transport failure is not a refusal: it is audited as unreachable.
-	rows, answer = nil, errors.New("dial tcp: connection refused")
+	rows, answer = nil, node.ErrNotReached{Err: errors.New("dial tcp: connection refused")}
 	if _, err := ci.RequestContact(ctx, a.ID, card, ""); err == nil {
 		t.Fatal("an unreachable peer was taken for a request that landed")
 	}

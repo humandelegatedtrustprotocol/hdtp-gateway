@@ -61,7 +61,10 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 	// Reusing it rather than writing "active" directly is deliberate: that path already validates
 	// the card against the identity and already knows where the peer's grant belongs. A row already
 	// pending_out (a request by card this redemption overtook) is that row: it is moved on, and its
-	// pin stands. Any other row is a relationship this does not overwrite.
+	// pin stands. A row pending_in (they asked us by card, and the owner redeemed their invite
+	// instead of answering) is the owner reaching out: it becomes ours, pending_out, pinned to what
+	// the offer proved, and then moves on as one does — as the cloud's redeemInvite sets an existing
+	// row's status and pin. Any other row is a relationship this does not overwrite.
 	held, err := m.Store.GetContact(ctx, accountID, peerFpr)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -74,6 +77,19 @@ func (m *Manager) Initiated(ctx context.Context, accountID, peerFpr, card string
 		}
 	case err != nil:
 		return err
+	case held.Status == "pending_in":
+		if err := m.Store.Atomically(ctx, func(tx store.Store) error {
+			moved, err := tx.MoveContactStatus(ctx, accountID, peerFpr, "pending_in", "pending_out")
+			if err != nil {
+				return err
+			}
+			if !moved {
+				return fmt.Errorf("%w: the contact changed while it was redeemed", ErrWrongState)
+			}
+			return tx.RepinContactAddress(ctx, accountID, peerFpr, c.Endpoint, c.Cert, spki, m.now().Unix())
+		}); err != nil {
+			return err
+		}
 	case held.Status != "pending_out":
 		return fmt.Errorf("%w: already a contact or already pending", ErrBadRequest)
 	}

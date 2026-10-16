@@ -508,6 +508,8 @@ func pageStatus(err error) int {
 		return http.StatusPaymentRequired
 	case "permission_denied":
 		return http.StatusForbidden
+	case "rate_limited":
+		return http.StatusTooManyRequests
 	}
 	return http.StatusInternalServerError
 }

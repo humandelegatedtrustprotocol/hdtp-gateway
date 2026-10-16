@@ -81,6 +81,9 @@ func TestSpecLifecycleDiagramIsWhatTheCodeDoes(t *testing.T) {
 		{from: "pending_in", label: "owner rejects", run: reject},
 		{from: "pending_in", label: "owner removes", run: remove},
 		{from: "pending_in", label: "request expires", run: expire},
+		{from: "pending_in", label: "owner redeems their invite", run: func(ctx context.Context, e *env, _ Owner, g *guestID, card string) error {
+			return e.m.Initiated(ctx, e.account, g.Fingerprint, card, g.Host.Key.Public().SPKI, false, nil)
+		}},
 		{from: "pending_out", label: "peer approves", run: func(ctx context.Context, e *env, _ Owner, g *guestID, card string) error {
 			return e.m.ContactAccepted(ctx, e.account, g.Fingerprint, card, nil)
 		}},

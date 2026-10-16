@@ -113,11 +113,13 @@ func TestInitiatedRefusesAFingerprintThatDoesNotMatchTheCard(t *testing.T) {
 	}
 }
 
-// Initiating over an existing relationship that is not pending_out must not overwrite it — in
-// particular it must not be a way to reset a BLOCKED contact back to pending or to active.
+// Initiating over an existing relationship that is not pending_out or pending_in must not
+// overwrite it — in particular it must not be a way to reset a BLOCKED contact back to pending or
+// to active. A pending_in row is the owner redeeming the invite of somebody who asked them, which
+// moves it on (TestInitiatedOverTheirRequestMakesTheRowOurs).
 func TestInitiatedDoesNotOverwriteAnExistingContact(t *testing.T) {
 	m, st, ctx, acct := newInitEnv(t)
-	for _, status := range []string{"blocked", "active", "pending_in"} {
+	for _, status := range []string{"blocked", "active"} {
 		card, fpr, spki := peerCard(t, "Bob "+status)
 		if _, err := st.InsertContact(ctx, store.Contact{AccountID: acct, Fingerprint: fpr, SPKI: spki,
 			Status: status, DisplayName: "Bob", Card: card}); err != nil {
@@ -233,5 +235,30 @@ func TestInitiatedByFingerprintRefusesACardThatNamesAnotherKey(t *testing.T) {
 	if err := m.InitiatedByFingerprint(ctx, acct, "sha256:someone-else", card); err == nil ||
 		!errors.Is(err, ErrIdentityRequired) {
 		t.Fatal("a card was recorded under a fingerprint it does not claim")
+	}
+}
+
+// Redeeming the invite of somebody who asked us by card (pending_in) moves the row to pending_out,
+// pinned to the address and leaf the offer proved, and on to active when they accepted (#183).
+func TestInitiatedOverTheirRequestMakesTheRowOurs(t *testing.T) {
+	m, st, ctx, acct := newInitEnv(t)
+	for _, accepted := range []bool{false, true} {
+		card, fpr, spki := peerCard(t, "Bob")
+		if _, err := st.InsertContact(ctx, store.Contact{AccountID: acct, Fingerprint: fpr, SPKI: []byte("their older key"),
+			Status: "pending_in", DisplayName: "Bob", Card: card, Endpoint: "https://old.example/mcp"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Initiated(ctx, acct, fpr, card, spki, accepted, nil); err != nil {
+			t.Fatalf("accepted=%v: %v", accepted, err)
+		}
+		want := "pending_out"
+		if accepted {
+			want = "active"
+		}
+		c, err := st.GetContact(ctx, acct, fpr)
+		parsed, _ := ValidateInbound(card)
+		if err != nil || c.Status != want || !bytes.Equal(c.SPKI, spki) || c.Endpoint != parsed.Endpoint {
+			t.Errorf("accepted=%v: the row is %s, key moved %v, at %s (%v); want %s pinned to the offer", accepted, c.Status, bytes.Equal(c.SPKI, spki), c.Endpoint, err, want)
+		}
 	}
 }
