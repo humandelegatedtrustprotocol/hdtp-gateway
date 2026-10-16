@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,6 +93,7 @@ type Sidecar struct {
 	// Config is the path of the configuration file the sidecar was started with.
 	Config string
 	cmd    *exec.Cmd
+	exited chan error
 }
 
 // Start runs the real sidecar on a socket of its own with rules, and stops it when the test ends.
@@ -150,29 +152,51 @@ func WriteConfig(path, socket string, rules limits.Rules) error {
 	return os.WriteFile(path, doc, 0o600)
 }
 
-// run starts the sidecar and returns once it answers.
+// startDeadline bounds how long run waits for a sidecar that is running but not yet answering. A
+// start costs 22-33 ms, idle or beside twelve CPU burners. What takes longer is macOS holding the
+// first execution of a newly written binary at its first instruction (_dyld_start, sampled): with
+// two node suites linking their race test binaries at once, and XprotectService busy, that hold was
+// 20-27 s (2026-10-16), and the 10 s this was before failed internal/cli's TestMain in 7 of 10 such
+// runs; with a binary that had already run, 0 of 4. A child killed during the hold leaves the next
+// execution held again (killed at 50 ms: the next one 0.8-1.2 s idle, the one after 0.02 s), so a
+// short deadline also sets up the next run to be held. A sidecar that exits is reported when it exits.
+const startDeadline = 2 * time.Minute
+
+// run starts the sidecar and returns once it answers. A sidecar that exits first is reported at
+// once, with its exit status and what it wrote to stderr; a socket it never bound says neither.
 func (s *Sidecar) run() error {
 	bin, err := binary()
 	if err != nil {
 		return err
 	}
+	var stderr bytes.Buffer
 	cmd := exec.Command(bin, "-config", s.Config) // #nosec G204 -- the sidecar `make limitd` built, or the one HDTP_LIMITD names; test support only
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the limits sidecar: %w", err)
 	}
-	s.cmd = cmd
-	deadline := time.Now().Add(10 * time.Second)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	s.cmd, s.exited = cmd, exited
+	started := time.Now()
+	var last error
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := s.Probe(ctx)
-		cancel()
-		if err == nil {
-			return nil
+		select {
+		case err := <-exited:
+			s.cmd, s.exited = nil, nil
+			// Wait has returned, so stderr holds everything the sidecar wrote.
+			return fmt.Errorf("the limits sidecar exited before it answered (%v): %s", err, bytes.TrimSpace(stderr.Bytes()))
+		default:
 		}
-		if time.Now().After(deadline) {
+		if time.Since(started) > startDeadline {
 			s.Stop()
-			return fmt.Errorf("the limits sidecar did not answer within 10 s: %w", err)
+			return fmt.Errorf("the limits sidecar was still running and had not answered after %v: %w", startDeadline, last)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, last = s.Probe(ctx)
+		cancel()
+		if last == nil {
+			return nil
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -180,10 +204,10 @@ func (s *Sidecar) run() error {
 
 // Stop kills the sidecar. The client stays: what a node sees when its sidecar is down.
 func (s *Sidecar) Stop() {
-	if s.cmd != nil && s.cmd.Process != nil {
+	if s.cmd != nil {
 		_ = s.cmd.Process.Kill()
-		_ = s.cmd.Wait()
-		s.cmd = nil
+		<-s.exited
+		s.cmd, s.exited = nil, nil
 	}
 }
 
