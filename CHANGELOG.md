@@ -151,9 +151,10 @@ changelog can be and is not summarized into a fictional release history.
   answers the failure (`err`, one `contact_remove` `error` row). The read, made for the notice, was
   dropped: the contact was removed on it, and a peer that could not be told was reported "Removed."
 - The portal's exposure picker (`GET /api/integrations/{id}/exposure`, `POST
-  /integrations/{id}/exposure`) answers a catalogue or an exposure set that could not be read 500
-  and publishes nothing. A failed exposure read was dropped, so the picker showed nothing exposed;
-  a failed catalogue read was 409, the answer for an integration with no snapshot, which stays 409.
+  /integrations/{id}/exposure`) answers a catalogue or an exposure set that could not be read, or a
+  catalogue whose stored tool list does not parse, 500 and publishes nothing. A failed exposure read
+  was dropped, so the picker showed nothing exposed; a failed or unparseable catalogue was 409, the
+  answer for an integration with no snapshot, which stays 409.
 - `THIRD_PARTY_NOTICES` covers every platform a release ships. It was made from one `go list
   -deps` for the host (macOS), so it lacked the eight modules only the Linux binaries link
   (`github.com/vishvananda/netlink`, `vishvananda/netns`, `mdlayher/netlink`, `mdlayher/socket`,

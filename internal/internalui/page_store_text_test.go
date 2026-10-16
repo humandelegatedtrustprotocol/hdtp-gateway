@@ -277,10 +277,11 @@ func (c *canaryStore) LatestExposure(ctx context.Context, id string) (store.Expo
 	return c.Store.LatestExposure(ctx, id)
 }
 
-// The exposure picker answers a catalog or an exposure set that could not be read 500, the GET as
-// {"error":"store"} and the POST with the fixed phrase, and publishes nothing. A failed exposure read
-// was dropped and the picker showed nothing exposed; a failed catalog read was 409, the answer for an
-// integration with no snapshot, which stays 409. The control, both reads, gets through.
+// The exposure picker answers a catalog or an exposure set that could not be read, or a catalog
+// that does not parse, 500, the GET as {"error":"store"} and the POST with the fixed phrase, and
+// publishes nothing. A failed exposure read was dropped and the picker showed nothing exposed; a
+// failed or unparseable catalog was 409, the answer for an integration with no snapshot, which
+// stays 409. The control, both reads, gets through.
 func TestTheExposurePickerAnswersAFailedRead(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -291,6 +292,10 @@ func TestTheExposurePickerAnswersAFailedRead(t *testing.T) {
 	in, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://x/mcp"})
 	bare, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "bare", Transport: "streamable-http", Endpoint: "https://y/mcp"})
 	seedCatalog(t, e.st, in.ID)
+	junk, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "junk", Transport: "streamable-http", Endpoint: "https://z/mcp"})
+	if _, err := e.st.InsertCatalog(ctx, store.Catalog{IntegrationID: junk.ID, Version: 1, Tools: "not json"}); err != nil {
+		t.Fatal(err)
+	}
 	serve := func(failing, method, id string) *httptest.ResponseRecorder {
 		cs := &canaryStore{Store: e.st, fail: map[string]bool{failing: failing != ""}}
 		mux := http.NewServeMux()
@@ -319,6 +324,16 @@ func TestTheExposurePickerAnswersAFailedRead(t *testing.T) {
 		}
 	}
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		want := `{"error":"store"}`
+		if method == http.MethodPost {
+			want = refusal.InternalDetail
+		}
+		if rr := serve("", method, junk.ID); rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("%s exposure of an unparseable catalog: %d %s; want 500 %s", method, rr.Code, rr.Body.String(), want)
+		}
+		if _, err := e.st.LatestExposure(ctx, junk.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s exposure of an unparseable catalog published a set: %v", method, err)
+		}
 		if rr := serve("", method, bare.ID); rr.Code != http.StatusConflict {
 			t.Errorf("%s exposure of an integration with no snapshot: %d %s; want 409", method, rr.Code, rr.Body.String())
 		}
