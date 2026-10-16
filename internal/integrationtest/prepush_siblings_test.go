@@ -143,6 +143,58 @@ func TestTheSiblingGuardsListIsTheCode(t *testing.T) {
 	}
 }
 
+// The parser skips dot-directories and node_modules; so must the grep. A checkout with a worktree
+// under .claude/worktrees holds a second copy of every call, and the grep listed each twice.
+func TestTheSiblingGuardsListSkipsWhatTheParserSkips(t *testing.T) {
+	root := repoRoot(t)
+	calls := siblingCalls(t, root)
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, under := range []string{"", ".claude/worktrees/copy/", "web/node_modules/copy/"} {
+		for _, rel := range append([]string{"scripts/sibling-guards.sh"}, callFiles(calls)...) {
+			b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dst := filepath.Join(tmp, filepath.FromSlash(under+rel))
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dst, b, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	tmpCalls := siblingCalls(t, tmp)
+	if len(tmpCalls) != len(calls) {
+		t.Fatalf("the parser found %d calls in the copy, %d in the repository", len(tmpCalls), len(calls))
+	}
+	for _, repo := range siblingRepos {
+		out, err := exec.Command("sh", filepath.Join(tmp, "scripts", "sibling-guards.sh"), tmp, repo).Output()
+		if err != nil {
+			t.Fatalf("scripts/sibling-guards.sh %s: %v", repo, err)
+		}
+		got := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if want := notRun(tmpCalls, repo); !slices.Equal(got, want) {
+			t.Errorf("with copies under .claude/ and node_modules/, scripts/sibling-guards.sh %s prints\n  %s\nthe parser says\n  %s",
+				repo, strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+		}
+	}
+}
+
+// callFiles is each file that holds a call, once.
+func callFiles(calls []siblingCall) []string {
+	var files []string
+	for _, c := range calls {
+		if !slices.Contains(files, c.file) {
+			files = append(files, c.file)
+		}
+	}
+	return files
+}
+
 // The pre-push hook's three answers to the sibling checkouts, run on the real hook in a repository
 // built for the run, with make and docker stubbed (the stub make records each step and the
 // HDTP_REQUIRE_SIBLINGS it ran under): every sibling present runs the gate requiring them; one
