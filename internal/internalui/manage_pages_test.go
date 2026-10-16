@@ -385,27 +385,39 @@ func TestApproveWithAnOwnerEditedPreset(t *testing.T) {
 }
 
 // GET /api/card answers 404 only when there is no card (no certificate, no such identity) and 500 when
-// the card could not be built: a store failure used to read "No card yet" in the portal.
+// the card could not be built: a store failure used to read "No card yet" in the portal. A card whose
+// signature could not be made is 500 too, and 404 when the identity is not there to sign it; the
+// failure was dropped and the card answered 200 with an empty signature.
 func TestTheCardReadTellsNoCardApartFromAFailure(t *testing.T) {
 	_, st, _, acct := manageEnv(t)
 	for _, tc := range []struct {
 		name    string
 		account string
 		card    func(context.Context, string) (string, error)
+		sign    func(string, string) (string, error)
 		want    int
 	}{
 		{"a card", acct, func(context.Context, string) (string, error) {
 			return testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp"), nil
-		}, http.StatusOK},
+		}, nil, http.StatusOK},
 		{"no certificate", acct, func(context.Context, string) (string, error) {
 			return "", fmt.Errorf("wrapped: %w", identity.ErrNoCertificate)
-		}, http.StatusNotFound},
-		{"no such identity", "acc-nobody", func(context.Context, string) (string, error) { return "card", nil }, http.StatusNotFound},
-		{"a failure", acct, func(context.Context, string) (string, error) { return "", errors.New("disk I/O error") }, http.StatusInternalServerError},
+		}, nil, http.StatusNotFound},
+		{"no such identity", "acc-nobody", func(context.Context, string) (string, error) { return "card", nil }, nil, http.StatusNotFound},
+		{"a failure", acct, func(context.Context, string) (string, error) { return "", errors.New("disk I/O error") }, nil, http.StatusInternalServerError},
+		{"a signature that failed", acct, func(context.Context, string) (string, error) {
+			return testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp"), nil
+		}, func(string, string) (string, error) { return "", errors.New("disk I/O error") }, http.StatusInternalServerError},
+		{"an identity gone before it signed", acct, func(context.Context, string) (string, error) {
+			return testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp"), nil
+		}, func(string, string) (string, error) { return "", fmt.Errorf("wrapped: %w", store.ErrNotFound) }, http.StatusNotFound},
+		{"a signed card", acct, func(context.Context, string) (string, error) {
+			return testid.CardFor(t, "Sumit", "https://hdtp.example/a/me/mcp"), nil
+		}, func(string, string) (string, error) { return "c2ln", nil }, http.StatusOK},
 	} {
 		mux := http.NewServeMux()
 		MountManagePages(mux, ManageDeps{Store: st, Contacts: &contacts.Manager{Store: st}, Audit: func(string, string, string) {}, Card: tc.card,
-			PublicURL: func() string { return "https://hdtp.example" }})
+			SignCard: tc.sign, PublicURL: func() string { return "https://hdtp.example" }})
 		rr := httptest.NewRecorder()
 		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/card?account="+tc.account, nil))
 		if rr.Code != tc.want {

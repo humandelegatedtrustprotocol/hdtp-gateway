@@ -142,6 +142,82 @@ func TestEveryOwnerMCPCallIsAudited(t *testing.T) {
 	}
 }
 
+// Every argument refusal of the owner MCP is a coded tool error, read by refusal.Of, and its
+// owner_mcp_call row says refused. Seven of them answered a plain result (audited ok) or a Go error
+// with no code: remove_passkey's empty id and last passkey, set_exposure's empty integration_id,
+// add_contact given both or neither of invite_url and card (whose message said "not both" for
+// neither), rename_contact over the length limit, set_trust_flag's bad value, and answer_request
+// with dispatch off. The control, each tool getting through, is audited ok.
+func TestEveryArgumentRefusalIsACodedErrorAuditedRefused(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:c", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	var logged []string
+	extra := Extra{
+		Log: func(action, resource, outcome string) {
+			if action == "owner_mcp_call" {
+				logged = append(logged, resource+" "+outcome)
+			}
+		},
+		RemovePasskey: func(_ context.Context, id string) error {
+			if id == "last" {
+				return auth.ErrLastPasskey
+			}
+			return nil
+		},
+		SetExposure: func(context.Context, string, string, []string) error { return nil },
+		AddContact: func(context.Context, string, string, string, string, string) (AddContactResult, error) {
+			return AddContactResult{Status: "pending_out"}, nil
+		},
+	}
+	srv := NewServerWithExtra(e.deps, extra, auth.Identity{OwnerID: e.owner})
+	long := strings.Repeat("n", contacts.MaxDisplayName+1)
+	for _, c := range []struct {
+		tool       string
+		args       map[string]any
+		code, says string
+	}{
+		{"remove_passkey", map[string]any{"id": ""}, "bad_request", "id is required"},
+		{"remove_passkey", map[string]any{"id": "last"}, "bad_request", "that is the only passkey registered; register another before removing it"},
+		{"set_exposure", map[string]any{"account_id": e.acctA, "integration_id": "", "tools": []string{}}, "bad_request", "integration_id is required"},
+		{"add_contact", map[string]any{"account_id": e.acctA}, "bad_request", "give exactly one of invite_url or card"},
+		{"add_contact", map[string]any{"account_id": e.acctA, "invite_url": "https://x.example/i/t", "card": "BEGIN:VCARD"}, "bad_request", "give exactly one of invite_url or card"},
+		{"rename_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "petname": long}, "bad_request", fmt.Sprintf("petname over %d characters", contacts.MaxDisplayName)},
+		{"set_trust_flag", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "trust": "everything"}, "bad_request", "trust must be messages_only|may_instruct"},
+		{"answer_request", map[string]any{"account_id": e.acctA, "request_id": "r1", "result": "x"}, "unavailable", "agent-answered dispatch is not enabled"},
+	} {
+		logged = nil
+		body, isErr := callParityResult(t, ctx, srv, c.tool, c.args)
+		var got map[string]string
+		if !isErr || json.Unmarshal([]byte(body), &got) != nil || got["code"] != c.code || got["detail"] != c.says {
+			t.Errorf("%s %v: %s (IsError %v), want %s %q", c.tool, c.args, body, isErr, c.code, c.says)
+		}
+		if want := "tool:" + c.tool + " refused"; len(logged) != 1 || logged[0] != want {
+			t.Errorf("%s %v: audited %v, want [%s]", c.tool, c.args, logged, want)
+		}
+	}
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"remove_passkey", map[string]any{"id": "pk1"}},
+		{"set_exposure", map[string]any{"account_id": e.acctA, "integration_id": "i1", "tools": []string{}}},
+		{"add_contact", map[string]any{"account_id": e.acctA, "invite_url": "https://x.example/i/t"}},
+		{"rename_contact", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "petname": "C"}},
+		{"set_trust_flag", map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c", "trust": "may_instruct"}},
+	} {
+		logged = nil
+		if body, isErr := callParityResult(t, ctx, srv, c.tool, c.args); isErr {
+			t.Errorf("the control %s: %s", c.tool, body)
+		}
+		if want := "tool:" + c.tool + " ok"; len(logged) != 1 || logged[0] != want {
+			t.Errorf("the control %s: audited %v, want [%s]", c.tool, logged, want)
+		}
+	}
+}
+
 // AC (P10-08h): §8.4's "integration management" row exists, and an agent sees
 // what is EXPOSED rather than what an upstream offers.
 func TestIntegrationToolsShowExposureNotTheUpstreamCatalog(t *testing.T) {

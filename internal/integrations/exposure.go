@@ -99,6 +99,10 @@ func decodeEntries(entriesJSON string) ([]ExposureEntry, error) {
 // the exposure to until the integration has been connected and its tools listed.
 var ErrNoCatalog = errors.New("integrations: no catalog snapshot to bind")
 
+// ErrNoExposure is a reconfirm of an integration with nothing published yet: there is no exposure
+// set to re-bind. The doors answer it conflict, as they answer ErrNoCatalog.
+var ErrNoExposure = errors.New("integrations: nothing published to reconfirm")
+
 // ErrExposureRefused is a publish whose entries this node refuses: a tool not in the catalog, a
 // serving mode or fallback it does not have, or an exposed name that is reserved or taken. The
 // error a publish returns says which, in the node's words, and satisfies errors.Is with it.
@@ -304,10 +308,16 @@ func (e *Exposures) Reconfirm(ctx context.Context, integrationID string, names [
 		return store.Exposure{}, err
 	}
 	latest, err := e.Store.LatestExposure(ctx, integrationID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Exposure{}, ErrNoExposure
+	}
 	if err != nil {
 		return store.Exposure{}, err
 	}
 	cat, err := e.Store.LatestCatalog(ctx, integrationID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Exposure{}, ErrNoCatalog
+	}
 	if err != nil {
 		return store.Exposure{}, err
 	}

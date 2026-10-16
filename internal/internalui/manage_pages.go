@@ -311,7 +311,15 @@ func (d ManageDeps) getAPICard(w http.ResponseWriter, r *http.Request) {
 	}
 	sig := ""
 	if d.SignCard != nil {
-		sig, _ = d.SignCard(account, card)
+		if sig, err = d.SignCard(account, card); err != nil {
+			// A card that could not be signed is not a card without a signature.
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, `{"error":"no_card"}`, http.StatusNotFound)
+				return
+			}
+			http.Error(w, `{"error":"card_unavailable"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 	// The facts the page leads with, as the owner MCP's export_card answers them (contacts.FactsOf):
 	// read from the card itself, never from the account row. The signature and the slug are the

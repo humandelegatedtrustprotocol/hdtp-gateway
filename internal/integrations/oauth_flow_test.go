@@ -3,6 +3,8 @@ package integrations
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,25 +68,67 @@ func TestConnectorRemembersTheBrowserOrigin(t *testing.T) {
 	}
 }
 
-// A 401 is an authentication problem whatever the row was configured with.
-// It also fires OnAuthError — the change feed's needs_attention hangs off that
-// hook, so a silent transition would mean an owner never told.
+// A 401 is an authentication problem whatever the row was configured with. Moving into auth_error
+// fires OnAuthError and audits integration_auth once — the change feed's needs_attention hangs off
+// that hook, so a silent transition would mean an owner never told. A row already in auth_error that
+// fails the same way again is not a transition: neither fires, or every health cycle against a dead
+// token ended every wait on the change feed. A network failure is unreachable and fires nothing.
 func TestAnyAuthFailureLandsInAuthError(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "i.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var told []string
-	m := &Manager{OnAuthError: func(id string) { told = append(told, id) }}
-	for _, kind := range []string{"none", "static", "oauth"} {
-		got := m.failStatus(store.Integration{ID: "int-" + kind, Slug: "s", AuthKind: kind}, errors.New("failed to connect: Unauthorized"))
-		if got != "auth_error" {
-			t.Errorf("auth kind %s: a 401 landed in %q, want auth_error", kind, got)
+	aud := &auditRec{}
+	m := &Manager{Store: st, Audit: aud.fn, OnAuthError: func(id string) { told = append(told, id) }}
+	row := func(slug, kind, status string) store.Integration {
+		in, err := st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: slug, Transport: "streamable-http", Endpoint: "https://x.example/mcp", AuthKind: kind})
+		if err != nil {
+			t.Fatal(err)
 		}
+		if err := st.UpdateIntegrationStatus(ctx, in.ID, status); err != nil {
+			t.Fatal(err)
+		}
+		in.Status = status
+		return in
 	}
-	if len(told) != 3 || told[0] != "int-none" {
-		t.Errorf("OnAuthError heard %v, want one call per auth failure", told)
+	landed := func(in store.Integration) string {
+		got, err := st.GetIntegrationByID(ctx, in.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Status
 	}
-	if got := m.failStatus(store.Integration{ID: "int-net", Slug: "s", AuthKind: "none"}, errors.New("dial tcp: connection refused")); got != "unreachable" {
-		t.Errorf("a network failure must stay unreachable, got %q", got)
+	unauthorized := errors.New("failed to connect: Unauthorized")
+	var want []string
+	for _, c := range []struct{ kind, status string }{{"none", "connecting"}, {"static", "ok"}, {"oauth", "unreachable"}} {
+		in := row("s-"+c.kind, c.kind, c.status)
+		m.landFailure(ctx, in, unauthorized)
+		if got := landed(in); got != "auth_error" {
+			t.Errorf("auth kind %s from %s: a 401 landed in %q, want auth_error", c.kind, c.status, got)
+		}
+		want = append(want, in.ID)
 	}
-	if len(told) != 3 {
-		t.Errorf("OnAuthError fired for a network failure: %v", told)
+	if !slices.Equal(told, want) || len(aud.rows) != 3 {
+		t.Errorf("moving into auth_error: OnAuthError heard %v, want %v; audit %v", told, want, aud.rows)
+	}
+	stuck := row("s-stuck", "oauth", "auth_error")
+	m.landFailure(ctx, stuck, unauthorized)
+	if got := landed(stuck); got != "auth_error" || len(told) != 3 || len(aud.rows) != 3 {
+		t.Errorf("a row already in auth_error failing again: landed %q, OnAuthError heard %v, audit %v; want neither to move", got, told, aud.rows)
+	}
+	net := row("s-net", "none", "ok")
+	m.landFailure(ctx, net, errors.New("dial tcp: connection refused"))
+	if got := landed(net); got != "unreachable" || len(told) != 3 {
+		t.Errorf("a network failure: landed %q, OnAuthError heard %v", got, told)
 	}
 }

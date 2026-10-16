@@ -8,8 +8,10 @@ attributes built from the arguments at evaluation time. Callers never see Cedar.
 It is rank 0 in the layer table (`internal/integrationtest/layering_test.go`): it imports no package of the
 node, only `cedar-go`. Its callers are in `internal/public` (`public.StoreResolver` builds a `Caller` from a
 contact row with `TierFor`; `servers.go` and `sealed.go` call `Allow` to build `tools/list` and to re-check
-at call time, and `decide.go` and `identify.go` use `policy.Tier` as a type), `internal/internalui/ownermcp/server.go`
-(`AllowOwnerManage`, with an `OwnerCtx` built from the owner's memberships) and `internal/cli`
+at call time, and `decide.go` and `identify.go` use `policy.Tier` as a type), the two owner doors —
+`internal/internalui/ownermcp/server.go` (`Deps.scope`, then `AllowOwnerManage` per tool) and
+`internal/internalui/account_resolve.go` (`ownerAdmins`, `administered`) — which both build their
+`OwnerCtx` with `OwnerScope` over `internal/internalui/auth.Memberships`, and `internal/cli`
 (`integrationsurface.go` builds a `Rule` for an integration's tools). `public.BuiltinEntries`
 (`internal/public/tools.go`) builds a `Rule` for every built-in tool too.
 
@@ -28,6 +30,11 @@ at call time, and `decide.go` and `identify.go` use `policy.Tier` as a type), `i
   `contact_rejected`); `active` is contact.
 - `OwnerCtx` and `AllowOwnerManage(OwnerCtx, accountID) bool`: whether an owner may manage an account,
   true only for an account in `AdminAccounts`.
+- `OwnerScope(ctx, MembershipLister, ownerID, narrowTo) (OwnerCtx, error)`: the `OwnerCtx` every owner
+  door decides with: the accounts where the owner holds the `admin` role, narrowed to `narrowTo` when it
+  is not empty (an owner token minted for one account). An owner with no id has an empty scope and
+  nothing is listed; a list that could not be read is returned as an error. `MembershipLister` is one
+  method, `OwnerMemberships(ctx, ownerID) ([]Membership, error)`, so the package imports no store.
 
 The static policy set has three statements: a permit for a contact principal when the tool's tier equals the
 principal's and the tool is ungated or the permission is held; a forbid for a blocked contact principal on
@@ -54,7 +61,8 @@ discarded, and the result is true exactly when Cedar's decision is Allow. Specif
   sees**: the test demotes a blocked contact with `TierFor("blocked", true)` and requires the two to agree
   rule by rule (`TestBlockedForbidOverridesEverything`).
 - **`TierFor` maps every status** (`TestTierFor`).
-- **An owner manages only its admin accounts** (`TestOwnerManageMatrix`).
+- **An owner manages only its admin accounts** (`TestOwnerManageMatrix`), and its scope is the admin
+  memberships, narrowed when asked, an error when unreadable (`TestOwnerScope`).
 - **A guest reaches the guest surface and nothing else** (`TestGuestScopeUnderCedar`).
 - **The policy set is parsed once, in a package-level initializer, and a parse error panics** at start-up
   rather than becoming a decision.
@@ -62,8 +70,10 @@ discarded, and the result is true exactly when Cedar's decision is Allow. Specif
 ## Held by
 
 `policy_test.go`: `TestTierFor`, `TestAllowExactTierAndPermission`, `TestBlockedForbidOverridesEverything`,
-`TestOwnerManageMatrix`, `TestGuestScopeUnderCedar`. The callers' own tests exercise it through
-`internal/public` and the owner MCP.
+`TestOwnerManageMatrix`, `TestOwnerScope`, `TestGuestScopeUnderCedar`. The callers' own tests exercise it
+through `internal/public` and the owner MCP; `internal/internalui`'s
+`TestThePortalAndTheOwnerMCPDecideScopeAlike` holds the two owner doors to one answer, and
+`internal/integrationtest`'s `TestAnOwnersScopeIsReadInOnePlace` that no other door reads the memberships.
 
 ## What it does not do
 
@@ -72,6 +82,6 @@ discarded, and the result is true exactly when Cedar's decision is Allow. Specif
 - It does not know the tool registry. A `Rule` is handed to it by whoever registers the tool; that the
   registry's rules are right is the registry's to hold.
 - It does not authenticate. The fingerprint in a `Caller` is whatever the identification step proved.
-- It does not check that an `OwnerCtx` is genuine. `ownermcp` builds it from the owner's memberships, and
-  `AllowOwnerManage` believes it.
+- It does not check that an `OwnerCtx` is genuine. `OwnerScope` builds it from what the lister answers,
+  and `AllowOwnerManage` believes it.
 - It does not audit a refusal. The caller that gets `false` decides what to write.

@@ -14,6 +14,7 @@ package settings
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -311,27 +312,51 @@ func (s *Service) adapterSettings(ctx context.Context) ([]internalui.AdapterSett
 	return out, nil
 }
 
-// save persists one knob and applies whatever part of it can take effect now.
-func (s *Service) save(ctx context.Context, key, value string) error {
-	if err := core.ValidateSetting(key, value); err != nil {
+// save persists the knobs of one save, every one or none, and then applies whatever part of each
+// can take effect now. Every value is validated before anything is written, and the rows are
+// written in one transaction (store.Atomically); a failed write is returned as it is, with nothing
+// stored. Applying runs after the commit, outside it, for every value and whatever the others'
+// apply did, and each stored key is announced on the bus, so every other process takes it through
+// Follow. A failure applying some is an *internalui.NotAppliedError naming them, with their rows
+// stored: this process has applied those knobs in part or not at all until its next start.
+func (s *Service) save(ctx context.Context, values []internalui.SettingValue) error {
+	for _, v := range values {
+		if err := core.ValidateSetting(v.Key, v.Value); err != nil {
+			return err
+		}
+	}
+	if err := s.store.Atomically(ctx, func(tx store.Store) error {
+		for _, v := range values {
+			if err := s.put(ctx, tx, v.Key, v.Value); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err := s.saveRaw(ctx, key, value); err != nil {
-		return err
+	var failed []string
+	var errs []error
+	for _, v := range values {
+		if err := s.applied(ctx, v.Key, v.Value); err != nil {
+			failed = append(failed, v.Key)
+			errs = append(errs, err)
+		}
 	}
-	return s.applied(ctx, key, value)
+	if len(failed) > 0 {
+		return &internalui.NotAppliedError{Keys: failed, Err: errors.Join(errs...)}
+	}
+	return nil
 }
 
 // applied takes a knob this process has just stored into the running node and tells the other
-// processes and the portal it changed.
+// processes and the portal it changed, whether or not applying it here failed: the row is stored.
 func (s *Service) applied(ctx context.Context, key, value string) error {
-	if err := s.apply(ctx, key, value, true); err != nil {
-		return err
-	}
+	err := s.apply(ctx, key, value, true)
 	if s.bus != nil {
 		s.bus.Publish(messaging.Event{Kind: messaging.EventSettings, Ref: key})
 	}
-	return nil
+	return err
 }
 
 // apply pushes a saved knob into the running node where that is possible. Anything not handled
@@ -413,6 +438,7 @@ func (s *Service) apply(ctx context.Context, key, value string, here bool) error
 // Deps builds what the settings page needs.
 func (s *Service) Deps() internalui.SettingsDeps {
 	return internalui.SettingsDeps{
+		Owners: s.store,
 		Effective: func() []core.Effective {
 			var out []core.Effective
 			s.readCfg(func(c *core.Config) { out = c.EffectiveSettings() })
@@ -428,18 +454,20 @@ func (s *Service) Deps() internalui.SettingsDeps {
 			if len(accts) == 0 {
 				return internalui.PairResult{}, refusal.BadRequest("create an account before pairing", nil)
 			}
-			if in.Account != "" {
-				for _, a := range accts {
-					if a.ID == in.Account {
-						return s.pair(ctx, a.ID, in)
-					}
-				}
-				return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
-			}
-			if len(accts) > 1 {
+			if in.Account == "" && len(accts) > 1 {
 				return internalui.PairResult{}, refusal.BadRequest("this node has several identities — choose which one to pair", nil)
 			}
-			return s.pair(ctx, accts[0].ID, in)
+			for _, a := range accts {
+				if a.ID == in.Account {
+					return s.pair(ctx, a.ID, in)
+				}
+			}
+			subject := "url:" + in.PairURL
+			if in.Account != "" {
+				subject = "account:" + in.Account
+			}
+			s.audit("ingress_pair", subject, "not_found")
+			return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
 		},
 		Accounts: func(ctx context.Context) ([]internalui.AccountChoice, error) {
 			accts, err := s.store.ListAccounts(ctx)
@@ -476,13 +504,15 @@ func (s *Service) Deps() internalui.SettingsDeps {
 			if _, err := s.store.GetAccountByID(ctx, accountID); err != nil {
 				return fmt.Errorf("unknown account")
 			}
-			if err := s.saveRaw(ctx, StorageKeyQuota(accountID), strconv.FormatInt(quotaGiB<<30, 10)); err != nil {
-				return err
-			}
-			if err := s.saveRaw(ctx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays)); err != nil {
-				return err
-			}
-			return s.saveRaw(ctx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
+			return s.store.Atomically(ctx, func(tx store.Store) error {
+				if err := s.put(ctx, tx, StorageKeyQuota(accountID), strconv.FormatInt(quotaGiB<<30, 10)); err != nil {
+					return err
+				}
+				if err := s.put(ctx, tx, StorageKeyRetention(accountID), strconv.Itoa(retentionDays)); err != nil {
+					return err
+				}
+				return s.put(ctx, tx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
+			})
 		},
 		Paired: s.pairedAdapters,
 		// Only the owner knobs, never a secret row; adapter credentials are never read back for

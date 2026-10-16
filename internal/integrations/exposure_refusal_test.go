@@ -44,3 +44,36 @@ func TestAPublishIsRefusedByCode(t *testing.T) {
 		t.Fatalf("the control: %v", err)
 	}
 }
+
+// A reconfirm with nothing to re-bind is refused by code: an integration with nothing published is
+// ErrNoExposure, and one whose exposure names a catalog the store does not hold is ErrNoCatalog, each
+// with no store text, which the doors answer conflict. Both were store.ErrNotFound, which a door
+// answers as an integration that does not exist (404). The control, a reconfirm of a published set,
+// mints.
+func TestAReconfirmWithNothingToBindIsRefusedByCode(t *testing.T) {
+	e, _, _, id := exposureEnv(t)
+	ctx := context.Background()
+	if _, err := e.Reconfirm(ctx, id, nil); !errors.Is(err, ErrNoExposure) || err.Error() != ErrNoExposure.Error() {
+		t.Errorf("nothing published: %v, want ErrNoExposure alone", err)
+	}
+	held, err := e.Store.GetIntegrationByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := e.Store.InsertIntegration(ctx, store.Integration{AccountID: held.AccountID, Slug: "bare", Transport: "streamable-http", Endpoint: "https://x/mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Store.InsertExposure(ctx, store.Exposure{IntegrationID: bare.ID, Version: 1, CatalogVersion: 1, Entries: "[]"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Reconfirm(ctx, bare.ID, nil); !errors.Is(err, ErrNoCatalog) || err.Error() != ErrNoCatalog.Error() {
+		t.Errorf("no catalog: %v, want ErrNoCatalog alone", err)
+	}
+	if _, err := e.Publish(ctx, id, []ExposureEntry{{Tool: "find_slots", Mode: ModePassthrough}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Reconfirm(ctx, id, nil); err != nil {
+		t.Fatalf("the control: %v", err)
+	}
+}

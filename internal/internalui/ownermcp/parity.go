@@ -30,6 +30,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -255,8 +256,7 @@ func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolReq
 		return r, nil, err
 	}
 	if a.ID == "" {
-		r, err := jsonResult(map[string]string{"code": "bad_request"})
-		return r, nil, err
+		return fail(refusal.BadRequest("id is required", nil))
 	}
 	// Removing the LAST passkey through an API would lock the owner
 	// out of the portal with only the CLI left. The invariant is
@@ -266,12 +266,7 @@ func (ot ownerTools) removePasskeyTool(ctx context.Context, req *mcp.CallToolReq
 		switch {
 		case errors.Is(err, auth.ErrLastPasskey):
 			ot.e.log("passkey_remove", "passkey:"+a.ID, "refused_last")
-			r, jerr := jsonResult(map[string]string{
-				"code": "bad_request",
-				"detail": "that is the only passkey registered; " +
-					"register another before removing it",
-			})
-			return r, nil, jerr
+			return fail(refusal.BadRequest("that is the only passkey registered; register another before removing it", nil))
 		case errors.Is(err, auth.ErrNoSuchPasskey):
 			ot.e.log("passkey_remove", "passkey:"+a.ID, "not_found")
 			b, jerr := json.Marshal(map[string]string{"code": "not_found", "detail": "no passkey with that id"})
@@ -368,8 +363,7 @@ func (ot ownerTools) setExposureTool(ctx context.Context, req *mcp.CallToolReque
 		return r, nil, err
 	}
 	if a.IntegrationID == "" {
-		r, err := jsonResult(map[string]string{"code": "bad_request"})
-		return r, nil, err
+		return fail(refusal.BadRequest("integration_id is required", nil))
 	}
 	// Narrowing to nothing is legitimate — it is how an owner's
 	// agent withdraws an integration — so an empty list is applied,
@@ -399,9 +393,7 @@ func (ot ownerTools) addContactTool(ctx context.Context, req *mcp.CallToolReques
 	// would depend on argument precedence rather than on what the
 	// owner meant.
 	if (a.InviteURL == "") == (a.Card == "") {
-		r, jerr := jsonResult(map[string]string{"code": "bad_request",
-			"detail": "give either invite_url or card, not both"})
-		return r, nil, jerr
+		return fail(refusal.BadRequest("give exactly one of invite_url or card", nil))
 	}
 	res, err := ot.e.AddContact(ctx, a.AccountID, a.InviteURL, a.Card, a.Note, a.Grant)
 	if err != nil {

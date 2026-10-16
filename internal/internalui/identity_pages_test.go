@@ -22,6 +22,20 @@ import (
 // the chain — so the route and its confirmation ceremony went, and what is left to
 // test is what the page still does: list the identities, and create one.
 
+// adminOf is an owner store whose every owner administers the accounts named, and nothing else.
+type adminOf struct {
+	store.OwnerStore
+	accounts []string
+}
+
+func (a adminOf) ListMembershipsByOwner(_ context.Context, owner string) ([]store.Membership, error) {
+	out := make([]store.Membership, 0, len(a.accounts))
+	for _, id := range a.accounts {
+		out = append(out, store.Membership{OwnerID: owner, AccountID: id, Role: "admin"})
+	}
+	return out, nil
+}
+
 func identityHarness(t *testing.T, create func(context.Context, string, string, string) (store.Account, error)) (*http.ServeMux, *[]string) {
 	t.Helper()
 	var audits []string
@@ -30,6 +44,7 @@ func identityHarness(t *testing.T, create func(context.Context, string, string, 
 		Accounts: func(context.Context) ([]store.Account, error) {
 			return []store.Account{{ID: "acct-1", Slug: "alice", DisplayName: "Alice", Algo: "p256", Fingerprint: "sha256:aaa"}}, nil
 		},
+		Owners: adminOf{accounts: []string{"acct-1"}},
 		Create: create,
 		Audit:  func(a, r, o string) { audits = append(audits, a+"/"+o) },
 	})
@@ -46,7 +61,7 @@ func createPost(mux *http.ServeMux, form url.Values) *httptest.ResponseRecorder 
 
 func TestIdentityListingAnswersTheAccounts(t *testing.T) {
 	mux, _ := identityHarness(t, nil)
-	req := httptest.NewRequest("GET", "/api/identity", nil)
+	req := signedIn(httptest.NewRequest("GET", "/api/identity", nil), "o1")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -133,11 +148,12 @@ func TestIdentityListingGivesNoLeafDateWithoutALeaf(t *testing.T) {
 		Accounts: func(context.Context) ([]store.Account, error) {
 			return []store.Account{{ID: "acct-1", Slug: "alice", DisplayName: "Alice", Algo: "p256", Fingerprint: "sha256:aaa", RootFingerprint: "sha256:root"}}, nil
 		},
+		Owners:      adminOf{accounts: []string{"acct-1"}},
 		Certificate: func(context.Context, string) (identity.CertificateInfo, error) { return info, nil },
 	})
 	get := func() string {
 		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, httptest.NewRequest("GET", "/api/identity", nil))
+		mux.ServeHTTP(w, signedIn(httptest.NewRequest("GET", "/api/identity", nil), "o1"))
 		if w.Code != 200 {
 			t.Fatalf("GET /api/identity = %d", w.Code)
 		}

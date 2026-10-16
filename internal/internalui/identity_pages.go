@@ -22,8 +22,11 @@ import (
 
 // IdentityDeps is what the identity page needs.
 type IdentityDeps struct {
-	// Accounts lists every identity on the node; the identity routes call it without a nil check.
+	// Accounts lists every identity on the node; the identity routes call it without a nil check,
+	// and show only those the signed-in owner administers (Owners).
 	Accounts func(ctx context.Context) ([]store.Account, error)
+	// Owners is the store the owner's memberships are read from (administeredOnly).
+	Owners store.OwnerStore
 	// Create provisions a new identity, running the SAME procedure `account
 	// create` does — a portal that generated keys its own way would be a second
 	// identity path to keep in step. Nil hides the affordance rather than
@@ -66,6 +69,9 @@ type identityRow struct {
 func MountIdentityPages(mux *http.ServeMux, d IdentityDeps) {
 	render := func(w http.ResponseWriter, r *http.Request, notice, errMsg string) {
 		accts, err := d.Accounts(r.Context())
+		if err == nil {
+			accts, err = administeredOnly(r.Context(), d.Owners, OwnerFrom(r.Context()), accts, accountID)
+		}
 		if err != nil {
 			http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
 			return

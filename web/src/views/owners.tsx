@@ -2,13 +2,15 @@
 // runs the node with. Token creation answers with the plaintext exactly once,
 // so that response is the page state rather than a re-fetch.
 import { useCallback, useEffect, useState } from "react";
-import { failureOf, getJSON, postForm } from "../api";
+import { failureOf, getJSON, postForm, unreadPage } from "../api";
 import { Badge, Button, EmptyState, Failed, Field, HelpTip, List, ListRow, Notice, PageHeader, Section, Toolbar, type Note } from "../ui";
 import { dateOf, whenTitle } from "../words";
 
 type Passkey = { id: string; tag: string; created_at: number };
 type Token = { id: string; label: string; account_id?: string; created_at: number; revoked: boolean };
 type Data = { notice: string; new_token: string; passkeys: Passkey[] | null; tokens: Token[] | null; accounts: { id: string; label: string }[] | null };
+/** A write the node did whose page it could not read back: the notice and the new token, no lists. */
+type Unread = { page_error: string; notice: string; new_token: string };
 
 /** A day, said as every date in the portal is (words.ts `dateOf`), from the Unix seconds the node stores. */
 function day(unix: number): string {
@@ -33,7 +35,13 @@ export function Owners() {
     // for token creation the ONE appearance of the plaintext. Re-fetching would
     // throw that appearance away, so the response body is the state.
     try {
-      const j = JSON.parse(r.body || "null") as Data | null;
+      const j = JSON.parse(r.body || "null") as (Data & Partial<Unread>) | null;
+      if (j && j.page_error) {
+        // Answered, but the page was not read: the lists on screen stay, the token is shown.
+        setNote({ kind: "warn", text: unreadPage(j.notice) });
+        setFresh(j.new_token ?? "");
+        return;
+      }
       if (j && j.passkeys !== undefined) {
         setD(j);
         setNote(j.notice ? { kind: r.ok ? "ok" : "err", text: j.notice } : null);

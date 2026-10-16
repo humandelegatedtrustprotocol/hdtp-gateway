@@ -1,11 +1,9 @@
 package internalui
 
-// Inbox pages + the SSE event stream (SPEC §8.2, §7.6). The composer sends as
-// SenderHuman — the sender label is derived from this surface, never a parameter
-// (SPEC §7.2).
+// The deletion of a conversation and the SSE event stream (SPEC §7.9, §8.2, §7.6). The
+// conversation view reads and sends through messages_pages.go.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,19 +13,13 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 )
 
-// InboxDeps is what the thread routes and the event stream need.
+// InboxDeps is what the deletion of a conversation and the event stream need.
 type InboxDeps struct {
 	Store store.Store
-	// Msg reads a thread's messages (and records one when Send is nil).
+	// Msg deletes a conversation (DeleteThread).
 	Msg *messaging.Service
 	// Bus is the in-process event bus GET /events subscribes to, per account.
 	Bus *messaging.Bus
-	// Send delivers an owner-composed message to the contact AND records it.
-	// It is a seam because `internal/messaging` has no path to the wire — it
-	// imports only the store — so a page wired straight to Msg.Record wrote a
-	// row, said "delivered", and sent nothing. nil keeps the old record-only
-	// behaviour for tests that do not compose a node.
-	Send func(ctx context.Context, accountID, contactFpr string, in messaging.Input) (messaging.Result, error)
 	// Audit records each deletion of a conversation; nil records nothing (tests).
 	Audit func(action, resource, outcome string)
 }
@@ -41,129 +33,13 @@ func formOrQuery(r *http.Request, key string) string {
 	return r.URL.Query().Get(key)
 }
 
-// MountInboxPages registers GET /api/inbox, GET /api/thread, POST /thread/send, POST /thread/delete
-// and the server-sent-events stream GET /events. A thread id is never a path segment: a contact
-// chooses it, and "." or ".." in a path is removed by the browser's URL parser and redirected by the
-// mux, so the routes that take one read it from `thread_id` in the query or the form.
+// MountInboxPages registers POST /thread/delete and the server-sent-events stream GET /events. A
+// thread id is never a path segment: a contact chooses it, and "." or ".." in a path is removed by
+// the browser's URL parser and redirected by the mux, so POST /thread/delete reads it from
+// `thread_id` in the form.
 func MountInboxPages(mux *http.ServeMux, d InboxDeps) {
-	mux.HandleFunc("GET /api/inbox", d.getAPIInbox)
-	mux.HandleFunc("GET /api/thread", d.getAPIThread)
-	mux.HandleFunc("POST /thread/send", d.postThreadSend)
 	mux.HandleFunc("POST /thread/delete", d.postThreadDelete)
 	mux.HandleFunc("GET /events", d.getEvents)
-}
-
-// getAPIInbox serves `GET /api/inbox`.
-func (d InboxDeps) getAPIInbox(w http.ResponseWriter, r *http.Request) {
-	account := accountParam(r)
-	threads, err := d.Store.ListThreadsByAccount(r.Context(), account)
-	if err != nil {
-		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
-		return
-	}
-	unread := map[string]int64{}
-	for _, th := range threads {
-		n, _ := d.Store.UnreadCount(r.Context(), account, th.ID)
-		unread[th.ID] = n
-	}
-	apiJSON(w, map[string]any{"threads": threads, "unread": unread})
-}
-
-// threadIDRefusal is how the portal answers an owner-named thread_id of neither form of HDTP §7
-// (messaging.CheckThreadID, the empty one included): its status and code, or ok false for an id of a
-// form.
-func threadIDRefusal(id string) (status int, code string, refused bool) {
-	switch err := messaging.CheckThreadID(id); {
-	case err == nil:
-		return 0, "", false
-	case errors.Is(err, messaging.ErrTooLarge):
-		return http.StatusRequestEntityTooLarge, "too_large", true
-	default:
-		return http.StatusBadRequest, "bad_request", true
-	}
-}
-
-// getAPIThread serves `GET /api/thread?thread_id=`. A thread_id of neither form, none included, is
-// 400 {"error":"bad_request"}, or 413 {"error":"too_large"} over 64 bytes (threadIDRefusal).
-func (d InboxDeps) getAPIThread(w http.ResponseWriter, r *http.Request) {
-	account := accountParam(r)
-	id := r.URL.Query().Get("thread_id")
-	if status, code, refused := threadIDRefusal(id); refused {
-		apiJSONStatus(w, status, map[string]any{"error": code})
-		return
-	}
-	msgs, err := d.Msg.Thread(r.Context(), account, id)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	// Opening a thread reads it, through the newest message it shows (local state only, SPEC
-	// §7.6): what arrives after this answer stays unread.
-	if n := len(msgs); n > 0 {
-		_, _ = d.Store.MarkThreadReadThrough(r.Context(), account, id, msgs[n-1].Seq)
-	}
-	contact := ""
-	if len(msgs) > 0 {
-		contact = msgs[0].ContactFpr
-	}
-	// A media row's body is a JSON reference, not prose. Rendering it raw
-	// showed the owner a blob of JSON and gave them nothing to click, which
-	// is why "click-to-fetch" was never true (§7.4, §8.2).
-	type row struct {
-		store.Message
-		Media *mediaRef
-	}
-	rows := make([]row, 0, len(msgs))
-	for _, m := range msgs {
-		r := row{Message: m}
-		if m.Kind == "media" {
-			if ref, ok := parseMediaRef(m.Body); ok {
-				r.Media = &ref
-			}
-		}
-		rows = append(rows, r)
-	}
-	apiJSON(w, map[string]any{
-		"thread_id": id, "rows": rows, "contact": contact, "new_msg_id": newUIMsgID(),
-	})
-}
-
-// postThreadSend serves `POST /thread/send`.
-func (d InboxDeps) postThreadSend(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	// Both travel in the form BODY: nothing about which identity or which
-	// contact belongs in the address bar.
-	account := formOrQuery(r, "account")
-	contact := formOrQuery(r, "contact")
-	id := formOrQuery(r, "thread_id")
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
-		return
-	}
-	// This route sends INTO the thread named; an empty id would start a new one, which is
-	// POST /messages/send's job. An id of neither form is refused before anything is recorded.
-	if status, code, refused := threadIDRefusal(id); refused {
-		http.Error(w, code, status)
-		return
-	}
-	// The portal surface fixes the label: human (SPEC §7.2).
-	in := messaging.Input{
-		MsgID: r.Form.Get("msg_id"), ThreadID: id,
-		Text: r.Form.Get("text"), Origin: messaging.OriginPortal,
-	}
-	send := d.Send
-	if send == nil {
-		send = func(ctx context.Context, a, c string, in messaging.Input) (messaging.Result, error) {
-			return d.Msg.Record(ctx, a, c, messaging.DirOut, in)
-		}
-	}
-	if _, err := send(r.Context(), account, contact, in); err != nil {
-		// A message recorded and not delivered says so ("recorded, not delivered: <why>"); a send
-		// refused before it was recorded says why in the node's words, or a fixed phrase.
-		http.Error(w, pageError(err), pageStatus(err))
-		return
-	}
-	http.Redirect(w, r, "/messages", http.StatusSeeOther)
 }
 
 // postThreadDelete serves `POST /thread/delete`: one conversation (`thread_id`) of the account in the

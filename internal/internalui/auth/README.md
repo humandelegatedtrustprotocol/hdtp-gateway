@@ -2,8 +2,9 @@
 
 Owner authentication for the node: WebAuthn passkeys with cookie sessions for the portal
 (`Service`), and named bearer tokens for the owner MCP (`TokenService`). The package decides who
-the owner is; it does not decide what the owner may touch (that is the memberships check in
-`internal/internalui` and the Cedar policy in `internal/core/policy`).
+the owner is; it does not decide what the owner may touch (that is `policy.OwnerScope` and
+`policy.AllowOwnerManage` in `internal/core/policy`, which read the owner's memberships through
+this package's `Memberships`).
 
 Callers, found by grep across the repository:
 
@@ -11,6 +12,8 @@ Callers, found by grep across the repository:
   the ceremonies and the session gate with `Service`, and lists, mints and revokes tokens with
   `TokenService`.
 - `internal/internalui/ownermcp` takes `Identity` and `PasskeyInfo`, and `ErrLastPasskey`.
+- Both `internal/internalui` (`account_resolve.go`) and `internal/internalui/ownermcp`
+  (`Deps.scope`) hand `Memberships` to `policy.OwnerScope`.
 - `internal/cli` builds both services (`serve_admin.go`), validates the bearer on every owner-MCP
   request (`compose.go`, `ownerIdentity`, `requireOwnerToken`), checks the configured host with
   `ValidRelyingPartyID` (`cli.go`), and exposes passkey and token operations on the admin socket.
@@ -45,6 +48,11 @@ Bearer tokens (`tokens.go`):
 - `Identity{OwnerID, AccountID}`: what a validated token acts as; `AccountID == ""` means every
   account the owner administers.
 - `TokenInfo`: a token's metadata as `List` returns it.
+
+Scope (`scope.go`):
+
+- `Memberships{Store}`: the store as `policy.MembershipLister`, an owner's memberships as
+  `policy.Membership` (account and role). It reads; it decides nothing.
 
 ## Flows, as the code has them
 

@@ -53,6 +53,45 @@ func (c *canaryStore) GetIntegrationByID(ctx context.Context, id string) (store.
 	return c.Store.GetIntegrationByID(ctx, id)
 }
 
+func (c *canaryStore) GetAccountIntegration(ctx context.Context, a, id string) (store.Integration, error) {
+	if err := c.err("GetAccountIntegration"); err != nil {
+		return store.Integration{}, err
+	}
+	return c.Store.GetAccountIntegration(ctx, a, id)
+}
+
+// Every route that names an integration answers a read of it that failed 500 with the fixed phrase,
+// and no store text: it answered 404, as for an integration not on the account. An id the account
+// does not hold stays 404, and the control, the integration read, gets through.
+func TestAnIntegrationThatCouldNotBeReadIs500(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://x/mcp"})
+	seedCatalog(t, e.st, in.ID)
+	get := func(fail bool, id string) *httptest.ResponseRecorder {
+		cs := &canaryStore{Store: e.st, fail: map[string]bool{"GetAccountIntegration": fail}}
+		mux := http.NewServeMux()
+		MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t), Store: cs, Manager: &integrations.Manager{Store: cs},
+			Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: cs}, Audit: func(string, string, string) {}})
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/integrations/"+id+"/exposure?account="+a.ID, nil))
+		return rr
+	}
+	if rr := get(true, in.ID); rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), refusal.InternalDetail) || strings.Contains(rr.Body.String(), pageCanary) {
+		t.Errorf("a read that failed: %d %s, want 500 with the fixed phrase", rr.Code, rr.Body.String())
+	}
+	if rr := get(false, "no-such-integration"); rr.Code != http.StatusNotFound {
+		t.Errorf("an id the account does not hold: %d %s, want 404", rr.Code, rr.Body.String())
+	}
+	if rr := get(false, in.ID); rr.Code != http.StatusOK {
+		t.Errorf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 // Every portal page that showed err.Error() shows a fixed phrase for a store failure, and no store
 // text, whether the failure came from the store under a domain service or from a function the page
 // was handed. Each row's control, the same request with nothing failing, gets through: it shows
@@ -92,7 +131,7 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 	settings := func(fail bool) SettingsDeps {
 		return SettingsDeps{
 			Effective:    func() []core.Effective { return []core.Effective{{Key: "seal"}} },
-			Save:         func(context.Context, string, string) error { return failIf(fail) },
+			Save:         func(context.Context, []SettingValue) error { return failIf(fail) },
 			SaveStorage:  func(context.Context, string, int64, int, int) error { return failIf(fail) },
 			SavePreset:   func(context.Context, string, []string) error { return failIf(fail) },
 			DeletePreset: func(context.Context, string) error { return failIf(fail) },
@@ -155,7 +194,11 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 			cs := &canaryStore{Store: e.st, fail: map[string]bool{"InsertToken": fail}}
 			mux := http.NewServeMux()
 			MountOwnerPages(mux, OwnersDeps{Store: e.st, Tokens: &auth.TokenService{Store: cs}})
-			return post(mux, "/owners/tokens/create", url.Values{"label": {"ci"}, "owner": {owner.ID}})
+			req := httptest.NewRequest("POST", "/owners/tokens/create", strings.NewReader(url.Values{"label": {"ci"}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, signedIn(req, owner.ID))
+			return rr
 		}},
 		{"requests approve", func(fail bool) *httptest.ResponseRecorder {
 			cs := &canaryStore{Store: e.st, fail: map[string]bool{"GetContact": fail}}
@@ -217,5 +260,134 @@ func TestEveryPageShowsNoStoreText(t *testing.T) {
 		if ok := shownText(c.run(false)); strings.Contains(ok, refusal.InternalDetail) || strings.Contains(ok, pageCanary) {
 			t.Errorf("%s: the control did not get through: %s", c.name, ok)
 		}
+	}
+}
+
+func (c *canaryStore) LatestCatalog(ctx context.Context, id string) (store.Catalog, error) {
+	if err := c.err("LatestCatalog"); err != nil {
+		return store.Catalog{}, err
+	}
+	return c.Store.LatestCatalog(ctx, id)
+}
+
+func (c *canaryStore) LatestExposure(ctx context.Context, id string) (store.Exposure, error) {
+	if err := c.err("LatestExposure"); err != nil {
+		return store.Exposure{}, err
+	}
+	return c.Store.LatestExposure(ctx, id)
+}
+
+// The exposure picker answers a catalog or an exposure set that could not be read, or a catalog
+// that does not parse, 500, the GET as {"error":"store"} and the POST with the fixed phrase, and
+// publishes nothing. A failed exposure read was dropped and the picker showed nothing exposed; a
+// failed or unparseable catalog was 409, the answer for an integration with no snapshot, which
+// stays 409. The control, both reads, gets through.
+func TestTheExposurePickerAnswersAFailedRead(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "cal", Transport: "streamable-http", Endpoint: "https://x/mcp"})
+	bare, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "bare", Transport: "streamable-http", Endpoint: "https://y/mcp"})
+	seedCatalog(t, e.st, in.ID)
+	junk, _ := e.st.InsertIntegration(ctx, store.Integration{AccountID: a.ID, Slug: "junk", Transport: "streamable-http", Endpoint: "https://z/mcp"})
+	if _, err := e.st.InsertCatalog(ctx, store.Catalog{IntegrationID: junk.ID, Version: 1, Tools: "not json"}); err != nil {
+		t.Fatal(err)
+	}
+	serve := func(failing, method, id string) *httptest.ResponseRecorder {
+		cs := &canaryStore{Store: e.st, fail: map[string]bool{failing: failing != ""}}
+		mux := http.NewServeMux()
+		MountIntegrationPages(mux, IntegrationsDeps{Background: joined(t), Store: cs, Manager: &integrations.Manager{Store: cs},
+			Connector: &integrations.Connector{}, Exposures: &integrations.Exposures{Store: cs}, Audit: func(string, string, string) {}})
+		if method == http.MethodPost {
+			return postForm(t, mux, "/integrations/"+id+"/exposure?account="+a.ID, url.Values{"expose_get_freebusy": {"on"}})
+		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/integrations/"+id+"/exposure?account="+a.ID, nil))
+		return rr
+	}
+	for _, failing := range []string{"LatestCatalog", "LatestExposure"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			rr := serve(failing, method, in.ID)
+			want := `{"error":"store"}`
+			if method == http.MethodPost {
+				want = refusal.InternalDetail
+			}
+			if rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), want) || strings.Contains(rr.Body.String(), pageCanary) {
+				t.Errorf("%s exposure, %s failing: %d %s; want 500 %s", method, failing, rr.Code, rr.Body.String(), want)
+			}
+			if _, err := e.st.LatestExposure(ctx, in.ID); !errors.Is(err, store.ErrNotFound) {
+				t.Errorf("%s exposure, %s failing, published a set: %v", method, failing, err)
+			}
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		want := `{"error":"store"}`
+		if method == http.MethodPost {
+			want = refusal.InternalDetail
+		}
+		if rr := serve("", method, junk.ID); rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("%s exposure of an unparseable catalog: %d %s; want 500 %s", method, rr.Code, rr.Body.String(), want)
+		}
+		if _, err := e.st.LatestExposure(ctx, junk.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s exposure of an unparseable catalog published a set: %v", method, err)
+		}
+		if rr := serve("", method, bare.ID); rr.Code != http.StatusConflict {
+			t.Errorf("%s exposure of an integration with no snapshot: %d %s; want 409", method, rr.Code, rr.Body.String())
+		}
+	}
+	if rr := serve("", http.MethodGet, in.ID); rr.Code != http.StatusOK {
+		t.Errorf("the control: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// firstContactReadFails is the store with its first GetContact failing with driver text.
+type firstContactReadFails struct {
+	store.Store
+	reads int
+}
+
+func (f *firstContactReadFails) GetContact(ctx context.Context, a, fpr string) (store.Contact, error) {
+	if f.reads++; f.reads == 1 {
+		return store.Contact{}, fmt.Errorf("GetContact: %w", errors.New(pageCanary))
+	}
+	return f.Store.GetContact(ctx, a, fpr)
+}
+
+// Removing a contact whose row could not be read removes nothing and tells no one: one
+// contact_remove "error" row and the failure in the redirect, without the store's text. The read
+// was dropped and taken as no contact, so the contact was removed and an active one was told
+// nothing about it in the notice. The control, the read, removes it and tells the peer.
+func TestRemovingAContactThatCouldNotBeReadRemovesNothing(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: a.ID, Fingerprint: "sha256:p1", SPKI: []byte{1}, Status: "active", DisplayName: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	var told int
+	aud := &auditRec{}
+	mux := http.NewServeMux()
+	MountContactPages(mux, ContactsDeps{Store: &firstContactReadFails{Store: e.st}, Audit: aud.fn,
+		Call: func(context.Context, string, string, string, map[string]any) (string, error) { told++; return "", nil }})
+	rr := postForm(t, mux, "/contacts/sha256:p1/remove?account="+a.ID, url.Values{})
+	loc, _ := url.QueryUnescape(rr.Header().Get("Location"))
+	if rr.Code != http.StatusSeeOther || !strings.Contains(loc, "could not remove them: "+refusal.InternalDetail) || strings.Contains(loc, pageCanary) {
+		t.Errorf("a remove whose read failed: %d %s; want 303 to the failure", rr.Code, loc)
+	}
+	if _, err := e.st.GetContact(ctx, a.ID, "sha256:p1"); err != nil || told != 0 || len(aud.rows) != 1 || !strings.HasPrefix(aud.rows[0], "contact_remove ") || !strings.HasSuffix(aud.rows[0], " error") {
+		t.Errorf("a remove whose read failed: contact %v, told %d, audited %v; want it kept, untold, one error row", err, told, aud.rows)
+	}
+	aud.rows = nil
+	if rr := postForm(t, mux, "/contacts/sha256:p1/remove?account="+a.ID, url.Values{}); rr.Code != http.StatusSeeOther {
+		t.Fatalf("the control: %d", rr.Code)
+	}
+	if _, err := e.st.GetContact(ctx, a.ID, "sha256:p1"); !errors.Is(err, store.ErrNotFound) || told != 1 || len(aud.rows) != 1 || !strings.HasSuffix(aud.rows[0], " ok") {
+		t.Errorf("the control: contact %v, told %d, audited %v; want it removed, told, one ok row", err, told, aud.rows)
 	}
 }

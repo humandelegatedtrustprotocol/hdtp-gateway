@@ -14,6 +14,7 @@ package internalui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/contacts"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
@@ -30,9 +32,10 @@ import (
 type SettingsDeps struct {
 	// Effective is the resolved view of every owner-settable knob.
 	Effective func() []core.Effective
-	// Save persists one knob after validation; it is also where a live-applied
-	// change (seal) is pushed into the serving node.
-	Save func(ctx context.Context, key, value string) error
+	// Save persists the values of one save after validating every one, all of them or none (one
+	// transaction); after the commit it is also where a live-applied change (seal) is pushed into
+	// the serving node. Stored values some of which could not be applied are a *NotAppliedError.
+	Save func(ctx context.Context, values []SettingValue) error
 	// AdapterSettings lists the stored `tunnel.<adapter>.<name>` keys and
 	// whether each holds a secret. Values are never returned.
 	AdapterSettings func(ctx context.Context) ([]AdapterSetting, error)
@@ -43,14 +46,18 @@ type SettingsDeps struct {
 	// otherwise a save appears to do nothing — while the locks and the
 	// derivation keep describing the running node.
 	Pending func(ctx context.Context) (map[string]string, error)
-	// Pair performs an ingress pairing; nil hides the section.
+	// Pair performs an ingress pairing; nil hides the section. A pairing stored whose public URL
+	// could not be applied answers the whole PairResult and a *NotAppliedError.
 	Pair func(ctx context.Context, in PairInput) (PairResult, error)
 	// Unpair forgets a stored pairing.
 	Unpair func(ctx context.Context, adapter string) error
 	// Accounts lists the identities that could pair; a selector appears only
 	// when there is more than one, so a multi-account node never pairs an
-	// identity the owner did not choose.
+	// identity the owner did not choose. The page lists only those the
+	// signed-in owner administers (Owners), and so for Storage.
 	Accounts func(ctx context.Context) ([]AccountChoice, error)
+	// Owners is the store the owner's memberships are read from (administeredOnly).
+	Owners store.OwnerStore
 	// Paired reports which ingress adapters have a completed pairing. An adapter
 	// without one cannot start, so it must not be selectable.
 	Paired func(ctx context.Context) (map[string]bool, error)
@@ -72,6 +79,25 @@ type SettingsDeps struct {
 	Audit func(action, resource, outcome string)
 }
 
+// SettingValue is one key and the value a save stores for it.
+type SettingValue struct {
+	Key   string
+	Value string
+}
+
+// NotAppliedError is Save's answer when every value was stored and applying some of them to the
+// running node failed: Keys names those, and Err joins their failures.
+type NotAppliedError struct {
+	Keys []string
+	Err  error
+}
+
+func (e *NotAppliedError) Error() string {
+	return "settings: stored, could not apply " + strings.Join(e.Keys, ", ") + ": " + e.Err.Error()
+}
+
+func (e *NotAppliedError) Unwrap() error { return e.Err }
+
 // PairInput is what the owner types to pair with an ingress (SPEC §10.6).
 type PairInput struct {
 	// PairURL and Token are the pairing URL and the one-time token the owner was given. The route
@@ -87,7 +113,9 @@ type PairInput struct {
 	// trust-on-first-use, and the fingerprint actually seen is reported back.
 	IngressFingerprint string
 	// Account is the identity whose certificate authenticates the pairing and
-	// whose fingerprint the ingress records. Empty means "the only one".
+	// whose fingerprint the ingress records: the form's, else the one
+	// accountMiddleware resolved for the request (the node's sole account, when
+	// the signed-in owner administers it). Empty is neither, and is refused.
 	Account string
 }
 
@@ -204,52 +232,76 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security []setting
 	return reach, security
 }
 
-// render answers a settings request with the page's whole state, and the notice, error and probe verdict the request produced.
-func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice string, isErr bool, verdict, detail string) {
-	d.renderStatus(w, r, http.StatusOK, notice, isErr, verdict, detail)
+// render answers a settings request with the page's whole state, and the notice, error and probe
+// verdict the request produced. posted is true from the POST routes and false from the page's read
+// (unreadable); HEAD shares the read's GET pattern, so the route says whether it posted.
+func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, posted bool, notice string, isErr bool, verdict, detail string) {
+	d.renderStatus(w, r, posted, http.StatusOK, notice, isErr, verdict, detail)
 }
 
 // renderStatus is render answering with status: a refused pairing or unpairing answers its code's
 // status (pageStatus), with the page's state beside it.
-func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
+func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, posted bool, status int, notice string, isErr bool, verdict, detail string) {
 	var pending map[string]string
+	var adapters []AdapterSetting
+	var paired map[string]bool
+	var presets map[string][]string
+	var err error
 	if d.Pending != nil {
-		pending, _ = d.Pending(r.Context())
+		pending, err = d.Pending(r.Context())
+	}
+	if err == nil && d.AdapterSettings != nil {
+		adapters, err = d.AdapterSettings(r.Context())
+	}
+	if err == nil && d.Paired != nil {
+		paired, err = d.Paired(r.Context())
+	}
+	if err == nil && d.Presets != nil {
+		presets, err = d.Presets(r.Context())
+	}
+	if err != nil {
+		// Stored values, credentials, pairings or presets that could not be read are not none.
+		d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
+		return
 	}
 	reach, security := d.rows(pending)
-	var adapters []AdapterSetting
-	if d.AdapterSettings != nil {
-		adapters, _ = d.AdapterSettings(r.Context())
-		sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
-	}
-	var paired map[string]bool
-	if d.Paired != nil {
-		paired, _ = d.Paired(r.Context())
-	}
+	sort.Slice(adapters, func(i, j int) bool { return adapters[i].Key < adapters[j].Key })
+	owner := OwnerFrom(r.Context())
 	var choices []AccountChoice
 	if d.Accounts != nil {
-		choices, _ = d.Accounts(r.Context())
+		list, err := d.Accounts(r.Context())
+		if err == nil {
+			choices, err = administeredOnly(r.Context(), d.Owners, owner, list, func(c AccountChoice) string { return c.ID })
+		}
+		if err != nil {
+			// A selector that could not be read is not one with nobody in it.
+			d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
+			return
+		}
 	}
 	var storage []StorageRow
 	if d.Storage != nil {
-		storage, _ = d.Storage(r.Context())
+		rows, err := d.Storage(r.Context())
+		if err == nil {
+			storage, err = administeredOnly(r.Context(), d.Owners, owner, rows, func(s StorageRow) string { return s.AccountID })
+		}
+		if err != nil {
+			d.unreadable(w, r, posted, status, notice, isErr, verdict, detail)
+			return
+		}
 	}
 	type presetRow struct {
 		Name  string   `json:"name"`
 		Perms []string `json:"perms"`
 	}
 	var presetRows []presetRow
-	if d.Presets != nil {
-		if set, err := d.Presets(r.Context()); err == nil {
-			names := make([]string, 0, len(set))
-			for n := range set {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			for _, n := range names {
-				presetRows = append(presetRows, presetRow{Name: n, Perms: set[n]})
-			}
-		}
+	names := make([]string, 0, len(presets))
+	for n := range presets {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		presetRows = append(presetRows, presetRow{Name: n, Perms: presets[n]})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	apiJSONStatus(w, status, map[string]any{
@@ -262,6 +314,23 @@ func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, statu
 		"reach": reach, "security": security,
 		"adapter_settings": adapters, "adapters": d.Adapters,
 		"show_probe":    d.Probe != nil,
+		"probe_verdict": verdict, "probe_detail": detail,
+	})
+}
+
+// unreadable answers a request whose page state could not be read. The page's read (posted false,
+// whether GET or HEAD) is 500 {"error":"store"}.
+// A post has done what it did by then (a pairing's one-time token is spent, a preset is saved), so
+// it answers its own status, notice and probe verdict with page_error "store" and none of the
+// page's lists, which are left out rather than sent empty.
+func (d SettingsDeps) unreadable(w http.ResponseWriter, r *http.Request, posted bool, status int, notice string, isErr bool, verdict, detail string) {
+	if !posted {
+		apiJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "store"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	apiJSONStatus(w, status, map[string]any{
+		"page_error": "store", "notice": notice, "error": isErr,
 		"probe_verdict": verdict, "probe_detail": detail,
 	})
 }
@@ -293,7 +362,7 @@ func MountSettingsPages(mux *http.ServeMux, d SettingsDeps) {
 
 // getAPISettings serves `GET /api/settings`.
 func (d SettingsDeps) getAPISettings(w http.ResponseWriter, r *http.Request) {
-	d.render(w, r, "", false, "", "")
+	d.render(w, r, false, "", false, "", "")
 }
 
 // postSettings serves `POST /settings`.
@@ -312,7 +381,10 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			editable[e.Key] = true
 		}
 	}
-	var saved, restart []string
+	// Two passes, so a save stores every submitted knob or none: the first checks each (the pairing
+	// read, the pairing, the validator) and refuses the whole form at the first that fails; the
+	// second hands them all to Save, which writes them in one transaction.
+	var values []SettingValue
 	for _, key := range core.OwnerSettableKeys() {
 		if !editable[key] {
 			continue
@@ -337,11 +409,17 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		if key == "tunnel" && requiresPairing(value) {
 			paired := map[string]bool{}
 			if d.Paired != nil {
-				paired, _ = d.Paired(r.Context())
+				var err error
+				if paired, err = d.Paired(r.Context()); err != nil {
+					// Pairings that could not be read are not none: the store failed, not the owner.
+					d.audit("settings_save", "key:tunnel value:"+value, "error")
+					d.renderStatus(w, r, true, pageStatus(err), "could not check the ingress pairing: "+pageError(err), true, "", "")
+					return
+				}
 			}
 			if !paired[value] {
 				d.audit("settings_save", "key:tunnel value:"+value, "bad_request")
-				d.render(w, r, value+" needs a completed ingress pairing before it can be "+
+				d.render(w, r, true, value+" needs a completed ingress pairing before it can be "+
 					"selected — pair below first, which selects it for you", true, "", "")
 				return
 			}
@@ -350,29 +428,43 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 			d.audit("settings_save", "key:"+key, "bad_request")
 			// The validator's sentences are the node's, and it reads nothing: marked here, where
 			// the refusal is known to be one of them.
-			d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
+			d.render(w, r, true, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 			return
 		}
-		if err := d.Save(r.Context(), key, value); err != nil {
-			d.audit("settings_save", "key:"+key, "error")
-			d.render(w, r, "could not save "+key+": "+pageError(err), true, "", "")
-			return
-		}
-		saved = append(saved, key)
-		if core.RestartScoped(key) {
-			restart = append(restart, key)
+		values = append(values, SettingValue{Key: key, Value: value})
+	}
+	if len(values) == 0 {
+		d.render(w, r, true, "Nothing to save.", false, "", "")
+		return
+	}
+	var saved, restart []string
+	for _, v := range values {
+		saved = append(saved, v.Key)
+		if core.RestartScoped(v.Key) {
+			restart = append(restart, v.Key)
 		}
 	}
-	if len(saved) == 0 {
-		d.render(w, r, "Nothing to save.", false, "", "")
+	err := d.Save(r.Context(), values)
+	var notApplied *NotAppliedError
+	if err != nil && !errors.As(err, &notApplied) {
+		d.audit("settings_save", "keys:"+strings.Join(saved, ","), "error")
+		d.render(w, r, true, "could not save "+strings.Join(saved, ", ")+": "+pageError(err), true, "", "")
 		return
 	}
 	notice := "Saved " + strings.Join(saved, ", ") + "."
+	if notApplied != nil {
+		notice = "Saved " + strings.Join(saved, ", ") + "; could not apply " + strings.Join(notApplied.Keys, ", ") +
+			": " + pageError(notApplied.Err) + "."
+	}
 	if len(restart) > 0 {
 		notice += " Restart the node for " + strings.Join(restart, ", ") + " to take effect."
 	}
 	d.audit("settings_save", "keys:"+strings.Join(saved, ","), "ok")
-	d.render(w, r, notice, false, "", "")
+	if notApplied != nil {
+		// Stored, so the save is ok; what the running node did not take is a row of its own.
+		d.audit("settings_apply", "keys:"+strings.Join(notApplied.Keys, ","), "error")
+	}
+	d.render(w, r, true, notice, notApplied != nil, "", "")
 }
 
 // postSettingsAdapter serves `POST /settings/adapter`.
@@ -391,18 +483,18 @@ func (d SettingsDeps) postSettingsAdapter(w http.ResponseWriter, r *http.Request
 	okKey := (strings.HasPrefix(key, "tunnel.") || strings.HasPrefix(key, "integration.")) &&
 		strings.Count(key, ".") >= 2
 	if !okKey {
-		d.render(w, r, "a setting here is named tunnel.<adapter>.<setting> or "+
+		d.render(w, r, true, "a setting here is named tunnel.<adapter>.<setting> or "+
 			"integration.<slug>.<name>", true, "", "")
 		return
 	}
-	if err := d.Save(r.Context(), key, value); err != nil {
+	if err := d.Save(r.Context(), []SettingValue{{Key: key, Value: value}}); err != nil {
 		d.audit("settings_save", "key:"+key, "error")
-		d.render(w, r, "could not store "+key, true, "", "")
+		d.render(w, r, true, "could not store "+key, true, "", "")
 		return
 	}
 	// The key is audited; the value never is.
 	d.audit("settings_save", "key:"+key, "ok")
-	d.render(w, r, "Stored "+key+". Restart the node to use it.", false, "", "")
+	d.render(w, r, true, "Stored "+key+". Restart the node to use it.", false, "", "")
 }
 
 // postSettingsStorage serves `POST /settings/storage`.
@@ -417,18 +509,18 @@ func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request
 	expiry, err3 := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("request_expiry_days")))
 	if err1 != nil || err2 != nil || quota < 0 || days < 0 ||
 		quota > MaxQuotaGiB || days > MaxRetentionDaysForm {
-		d.render(w, r, "quota and retention are whole numbers, zero or more "+
+		d.render(w, r, true, "quota and retention are whole numbers, zero or more "+
 			"(and within sane bounds — a window of a few hundred thousand days "+
 			"is not a longer window, it is an overflow)", true, "", "")
 		return
 	}
 	if err3 != nil || expiry < 1 || expiry > MaxRequestExpiryDays {
-		d.render(w, r, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
+		d.render(w, r, true, fmt.Sprintf("an unanswered request waits a whole number of days, from 1 to %d", MaxRequestExpiryDays), true, "", "")
 		return
 	}
 	if err := d.SaveStorage(r.Context(), account, quota, days, expiry); err != nil {
 		d.audit("settings_storage", "account:"+account, "error")
-		d.render(w, r, "could not save: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not save: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_storage",
@@ -437,7 +529,7 @@ func (d SettingsDeps) postSettingsStorage(w http.ResponseWriter, r *http.Request
 	if days > 0 {
 		notice = fmt.Sprintf("Saved. Messages older than %d days will be deleted, permanently and locally.", days)
 	}
-	d.render(w, r, notice, false, "", "")
+	d.render(w, r, true, notice, false, "", "")
 }
 
 // postSettingsPresets serves `POST /settings/presets`.
@@ -451,16 +543,16 @@ func (d SettingsDeps) postSettingsPresets(w http.ResponseWriter, r *http.Request
 	if err := contacts.ValidatePreset(name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "bad_request")
 		// As above: the validator's own sentences, from a check that reads nothing.
-		d.render(w, r, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
+		d.render(w, r, true, pageError(refusal.BadRequest(err.Error(), nil)), true, "", "")
 		return
 	}
 	if err := d.SavePreset(r.Context(), name, perms); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not save the preset: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not save the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" perms:"+strings.Join(perms, ","), "ok")
-	d.render(w, r, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
+	d.render(w, r, true, "Preset saved. It applies at the next approval or apply — grants already made keep their switches.", false, "", "")
 }
 
 // postSettingsPresetsNameDelete serves `POST /settings/presets/{name}/delete`.
@@ -472,11 +564,11 @@ func (d SettingsDeps) postSettingsPresetsNameDelete(w http.ResponseWriter, r *ht
 	name := r.PathValue("name")
 	if err := d.DeletePreset(r.Context(), name); err != nil {
 		d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name, "error")
-		d.render(w, r, "could not delete the preset: "+pageError(err), true, "", "")
+		d.render(w, r, true, "could not delete the preset: "+pageError(err), true, "", "")
 		return
 	}
 	d.audit("settings_save", "key:"+contacts.PresetKeyPrefix+name+" deleted:1", "ok")
-	d.render(w, r, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
+	d.render(w, r, true, "Preset deleted. Contacts wearing it keep their switches; their label reads custom now. Deleting the last preset restores the documented four.", false, "", "")
 }
 
 // postSettingsPair serves `POST /settings/pair`.
@@ -493,25 +585,36 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		IngressFingerprint: strings.TrimSpace(r.PostForm.Get("ingress_fingerprint")),
 		Account:            r.PostForm.Get("account"),
 	}
+	if in.Account == "" {
+		in.Account = accountParam(r)
+	}
 	if in.PairURL == "" || in.Token == "" || in.Subdomain == "" {
-		d.render(w, r, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
+		d.render(w, r, true, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")
 		return
 	}
 	res, err := d.Pair(r.Context(), in)
-	if err != nil {
+	var notApplied *NotAppliedError
+	if err != nil && !errors.As(err, &notApplied) {
 		msg := "pairing refused: " + pageError(err)
 		if res.Fingerprint != "" && in.IngressFingerprint != "" {
 			msg += " (the ingress presented " + res.Fingerprint + ")"
 		}
-		d.renderStatus(w, r, pageStatus(err), msg, true, "", "")
+		d.renderStatus(w, r, true, pageStatus(err), msg, true, "", "")
 		return
 	}
-	notice := "Paired as " + res.PublicName + " over " + res.Adapter +
-		". Restart the node to serve there."
+	notice := "Paired as " + res.PublicName + " over " + res.Adapter
+	if notApplied != nil {
+		notice += "; could not apply " + strings.Join(notApplied.Keys, ", ") + ": " + pageError(notApplied.Err)
+	}
+	notice += ". Restart the node to serve there."
 	if in.IngressFingerprint == "" {
 		notice += " The ingress key is " + res.Fingerprint + " — check it against what you were given."
 	}
-	d.render(w, r, notice, false, "", "")
+	if notApplied != nil {
+		// Stored and paired; what the running node did not take is a row of its own.
+		d.audit("settings_apply", "keys:"+strings.Join(notApplied.Keys, ","), "error")
+	}
+	d.render(w, r, true, notice, notApplied != nil, "", "")
 }
 
 // postSettingsUnpair serves `POST /settings/unpair`.
@@ -521,17 +624,17 @@ func (d SettingsDeps) postSettingsUnpair(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
-		d.renderStatus(w, r, pageStatus(err), "could not unpair: "+pageError(err), true, "", "")
+		d.renderStatus(w, r, true, pageStatus(err), "could not unpair: "+pageError(err), true, "", "")
 		return
 	}
-	d.render(w, r, "Unpaired.", false, "", "")
+	d.render(w, r, true, "Unpaired.", false, "", "")
 }
 
 // postSettingsProbe serves `POST /settings/probe`.
 func (d SettingsDeps) postSettingsProbe(w http.ResponseWriter, r *http.Request) {
 	verdict, detail := d.Probe(r.Context())
 	d.audit("settings_probe", "public_url", verdict)
-	d.render(w, r, "", false, verdict, detail)
+	d.render(w, r, true, "", false, verdict, detail)
 }
 
 // requiresPairing reports whether an adapter cannot start without a stored

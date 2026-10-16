@@ -177,5 +177,5 @@ test("the node's Settings: no Save button on a preset's row, Delete still asks f
   assert.match(presets, /confirm=\{`Delete the \$\{p\.name\} preset\? Contacts wearing it keep their switches\.`\} onClick=\{\(\) => del\(p\.name\)\}/);
   assert.match(presets, /<Button onClick=\{add\} busy=\{adding\} disabled=\{!newName\.trim\(\)\}>Add preset<\/Button>/);
   // One save path: the hook's, through the node's POST; a refusal is thrown, never drawn as saved.
-  assert.match(presets, /usePresetAutosave\(presets, async \(name, perms\) => \{\s*const a = await put\(name, perms\);\s*if \(!a\.page\) throw new Error/);
+  assert.match(presets, /usePresetAutosave\(presets, async \(name, perms\) => \{\s*const a = await put\(name, perms\);\s*if \(!a\.update\) throw new Error/);
 });
